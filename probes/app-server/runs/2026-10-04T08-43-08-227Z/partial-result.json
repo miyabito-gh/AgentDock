@@ -1,0 +1,134 @@
+{
+  "results": [
+    {
+      "name": "parent_child_grandchild_interrupt",
+      "status": "fail",
+      "error": "Missing notification item/completed; methods=turn/completed,warning,thread/status/changed,turn/started,item/started,item/completed,thread/tokenUsage/updated,account/rateLimits/updated"
+    },
+    {
+      "name": "managed_execution_interrupt_terminate_clean",
+      "status": "fail",
+      "error": "Timeout: managed terminal visible"
+    }
+  ],
+  "modelRequests": [
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    }
+  ]
+}

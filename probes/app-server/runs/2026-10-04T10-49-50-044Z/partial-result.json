@@ -1,0 +1,619 @@
+{
+  "results": [
+    {
+      "name": "managed_owner_scope_reconciliation",
+      "status": "pass",
+      "evidence": {
+        "roots": [
+          {
+            "label": "a",
+            "id": "01a10688-c9b7-7722-94bd-a9f8ff163858",
+            "turnId": "01a10688-c9ca-70e0-ad1a-c16b3d93219e",
+            "info": {
+              "itemId": "call_1",
+              "processId": "20739",
+              "command": "& 'C:\\Program Files\\nodejs\\node.exe' 'C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work\\owned-tree.mjs'",
+              "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work",
+              "osPid": null,
+              "cpuPercent": null,
+              "rssKb": null
+            },
+            "pids": [
+              7964,
+              30448,
+              29152
+            ]
+          },
+          {
+            "label": "b",
+            "id": "01a10688-f2d8-7331-9739-fb727817e5b5",
+            "turnId": "01a10688-f305-7982-8393-9ecd67c24d5a",
+            "info": {
+              "itemId": "call_3",
+              "processId": "45547",
+              "command": "& 'C:\\Program Files\\nodejs\\node.exe' 'C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work\\owned-tree.mjs'",
+              "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work",
+              "osPid": null,
+              "cpuPercent": null,
+              "rssKb": null
+            },
+            "pids": [
+              42560,
+              22748,
+              51300
+            ]
+          }
+        ],
+        "outsider": {
+          "pid": 42888,
+          "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work",
+          "source": "harness-owned, not an App Server terminal"
+        },
+        "snapshots": [
+          {
+            "stage": "before",
+            "observedAt": "2026-10-04T10:50:11.708Z",
+            "pids": [
+              {
+                "pid": 42888,
+                "alive": true
+              },
+              {
+                "pid": 7964,
+                "alive": true
+              },
+              {
+                "pid": 30448,
+                "alive": true
+              },
+              {
+                "pid": 29152,
+                "alive": true
+              },
+              {
+                "pid": 42560,
+                "alive": true
+              },
+              {
+                "pid": 22748,
+                "alive": true
+              },
+              {
+                "pid": 51300,
+                "alive": true
+              }
+            ],
+            "identities": [
+              {
+                "ProcessId": 42888,
+                "ParentProcessId": 32432,
+                "CreationDate": "/Date(1791110990253)/",
+                "ExecutablePath": "C:\\Program Files\\nodejs\\node.exe",
+                "CommandLine": "\"C:\\Program Files\\nodejs\\node.exe\" C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work\\harness-independent.mjs"
+              },
+              {
+                "ProcessId": 7964,
+                "ParentProcessId": 28792,
+                "CreationDate": "/Date(1791110990824)/",
+                "ExecutablePath": "C:\\Program Files\\nodejs\\node.exe",
+                "CommandLine": "\"C:\\Program Files\\nodejs\\node.exe\" C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work\\owned-tree.mjs"
+              },
+              {
+                "ProcessId": 30448,
+                "ParentProcessId": 7964,
+                "CreationDate": "/Date(1791110990870)/",
+                "ExecutablePath": "C:\\Program Files\\nodejs\\node.exe",
+                "CommandLine": "\"C:\\Program Files\\nodejs\\node.exe\" C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work\\owned-tree.mjs 1"
+              },
+              {
+                "ProcessId": 29152,
+                "ParentProcessId": 30448,
+                "CreationDate": "/Date(1791110990915)/",
+                "ExecutablePath": "C:\\Program Files\\nodejs\\node.exe",
+                "CommandLine": "\"C:\\Program Files\\nodejs\\node.exe\" C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work\\owned-tree.mjs 2"
+              },
+              {
+                "ProcessId": 42560,
+                "ParentProcessId": 45036,
+                "CreationDate": "/Date(1791111001196)/",
+                "ExecutablePath": "C:\\Program Files\\nodejs\\node.exe",
+                "CommandLine": "\"C:\\Program Files\\nodejs\\node.exe\" C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work\\owned-tree.mjs"
+              },
+              {
+                "ProcessId": 22748,
+                "ParentProcessId": 42560,
+                "CreationDate": "/Date(1791111001241)/",
+                "ExecutablePath": "C:\\Program Files\\nodejs\\node.exe",
+                "CommandLine": "\"C:\\Program Files\\nodejs\\node.exe\" C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work\\owned-tree.mjs 1"
+              },
+              {
+                "ProcessId": 51300,
+                "ParentProcessId": 22748,
+                "CreationDate": "/Date(1791111001286)/",
+                "ExecutablePath": "C:\\Program Files\\nodejs\\node.exe",
+                "CommandLine": "\"C:\\Program Files\\nodejs\\node.exe\" C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work\\owned-tree.mjs 2"
+              }
+            ]
+          },
+          {
+            "stage": "wrong-thread-request",
+            "observedAt": "2026-10-04T10:50:12.701Z",
+            "pids": [
+              {
+                "pid": 42888,
+                "alive": true
+              },
+              {
+                "pid": 7964,
+                "alive": true
+              },
+              {
+                "pid": 30448,
+                "alive": true
+              },
+              {
+                "pid": 29152,
+                "alive": true
+              },
+              {
+                "pid": 42560,
+                "alive": true
+              },
+              {
+                "pid": 22748,
+                "alive": true
+              },
+              {
+                "pid": 51300,
+                "alive": true
+              }
+            ],
+            "identities": [
+              {
+                "ProcessId": 42888,
+                "ParentProcessId": 32432,
+                "CreationDate": "/Date(1791110990253)/",
+                "ExecutablePath": "C:\\Program Files\\nodejs\\node.exe",
+                "CommandLine": "\"C:\\Program Files\\nodejs\\node.exe\" C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work\\harness-independent.mjs"
+              },
+              {
+                "ProcessId": 7964,
+                "ParentProcessId": 28792,
+                "CreationDate": "/Date(1791110990824)/",
+                "ExecutablePath": "C:\\Program Files\\nodejs\\node.exe",
+                "CommandLine": "\"C:\\Program Files\\nodejs\\node.exe\" C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work\\owned-tree.mjs"
+              },
+              {
+                "ProcessId": 30448,
+                "ParentProcessId": 7964,
+                "CreationDate": "/Date(1791110990870)/",
+                "ExecutablePath": "C:\\Program Files\\nodejs\\node.exe",
+                "CommandLine": "\"C:\\Program Files\\nodejs\\node.exe\" C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work\\owned-tree.mjs 1"
+              },
+              {
+                "ProcessId": 29152,
+                "ParentProcessId": 30448,
+                "CreationDate": "/Date(1791110990915)/",
+                "ExecutablePath": "C:\\Program Files\\nodejs\\node.exe",
+                "CommandLine": "\"C:\\Program Files\\nodejs\\node.exe\" C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work\\owned-tree.mjs 2"
+              },
+              {
+                "ProcessId": 42560,
+                "ParentProcessId": 45036,
+                "CreationDate": "/Date(1791111001196)/",
+                "ExecutablePath": "C:\\Program Files\\nodejs\\node.exe",
+                "CommandLine": "\"C:\\Program Files\\nodejs\\node.exe\" C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work\\owned-tree.mjs"
+              },
+              {
+                "ProcessId": 22748,
+                "ParentProcessId": 42560,
+                "CreationDate": "/Date(1791111001241)/",
+                "ExecutablePath": "C:\\Program Files\\nodejs\\node.exe",
+                "CommandLine": "\"C:\\Program Files\\nodejs\\node.exe\" C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work\\owned-tree.mjs 1"
+              },
+              {
+                "ProcessId": 51300,
+                "ParentProcessId": 22748,
+                "CreationDate": "/Date(1791111001286)/",
+                "ExecutablePath": "C:\\Program Files\\nodejs\\node.exe",
+                "CommandLine": "\"C:\\Program Files\\nodejs\\node.exe\" C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work\\owned-tree.mjs 2"
+              }
+            ]
+          },
+          {
+            "stage": "clean-b",
+            "observedAt": "2026-10-04T10:50:13.687Z",
+            "pids": [
+              {
+                "pid": 42888,
+                "alive": true
+              },
+              {
+                "pid": 7964,
+                "alive": true
+              },
+              {
+                "pid": 30448,
+                "alive": true
+              },
+              {
+                "pid": 29152,
+                "alive": true
+              },
+              {
+                "pid": 42560,
+                "alive": false
+              },
+              {
+                "pid": 22748,
+                "alive": false
+              },
+              {
+                "pid": 51300,
+                "alive": false
+              }
+            ],
+            "identities": [
+              {
+                "ProcessId": 42888,
+                "ParentProcessId": 32432,
+                "CreationDate": "/Date(1791110990253)/",
+                "ExecutablePath": "C:\\Program Files\\nodejs\\node.exe",
+                "CommandLine": "\"C:\\Program Files\\nodejs\\node.exe\" C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work\\harness-independent.mjs"
+              },
+              {
+                "ProcessId": 7964,
+                "ParentProcessId": 28792,
+                "CreationDate": "/Date(1791110990824)/",
+                "ExecutablePath": "C:\\Program Files\\nodejs\\node.exe",
+                "CommandLine": "\"C:\\Program Files\\nodejs\\node.exe\" C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work\\owned-tree.mjs"
+              },
+              {
+                "ProcessId": 30448,
+                "ParentProcessId": 7964,
+                "CreationDate": "/Date(1791110990870)/",
+                "ExecutablePath": "C:\\Program Files\\nodejs\\node.exe",
+                "CommandLine": "\"C:\\Program Files\\nodejs\\node.exe\" C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work\\owned-tree.mjs 1"
+              },
+              {
+                "ProcessId": 29152,
+                "ParentProcessId": 30448,
+                "CreationDate": "/Date(1791110990915)/",
+                "ExecutablePath": "C:\\Program Files\\nodejs\\node.exe",
+                "CommandLine": "\"C:\\Program Files\\nodejs\\node.exe\" C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work\\owned-tree.mjs 2"
+              }
+            ]
+          },
+          {
+            "stage": "terminate-a",
+            "observedAt": "2026-10-04T10:50:14.657Z",
+            "pids": [
+              {
+                "pid": 42888,
+                "alive": true
+              },
+              {
+                "pid": 7964,
+                "alive": false
+              },
+              {
+                "pid": 30448,
+                "alive": false
+              },
+              {
+                "pid": 29152,
+                "alive": false
+              },
+              {
+                "pid": 42560,
+                "alive": false
+              },
+              {
+                "pid": 22748,
+                "alive": false
+              },
+              {
+                "pid": 51300,
+                "alive": false
+              }
+            ],
+            "identities": {
+              "ProcessId": 42888,
+              "ParentProcessId": 32432,
+              "CreationDate": "/Date(1791110990253)/",
+              "ExecutablePath": "C:\\Program Files\\nodejs\\node.exe",
+              "CommandLine": "\"C:\\Program Files\\nodejs\\node.exe\" C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work\\harness-independent.mjs"
+            }
+          }
+        ],
+        "cross": {
+          "id": 8,
+          "result": {
+            "terminated": false
+          }
+        },
+        "cleanB": {
+          "id": 9,
+          "result": {}
+        },
+        "terminateA": {
+          "id": 10,
+          "result": {
+            "terminated": true
+          }
+        },
+        "lists": [
+          {
+            "id": "01a10688-c9b7-7722-94bd-a9f8ff163858",
+            "list": {
+              "data": [],
+              "nextCursor": null
+            }
+          },
+          {
+            "id": "01a10688-f2d8-7331-9739-fb727817e5b5",
+            "list": {
+              "data": [],
+              "nextCursor": null
+            }
+          }
+        ],
+        "scope": "Two loaded threads same cwd, 3-process bounded trees, wrong thread/processId pairing, independent harness process; CIM identity observations. No arbitrary process ownership, PID-reuse or detach guarantee."
+      }
+    }
+  ],
+  "modelRequests": [
+    {
+      "observedAt": "2026-10-04T10:49:50.414Z",
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": false,
+      "skillV2Injected": false,
+      "skillTokenInputs": [
+        {
+          "index": 0,
+          "role": "developer",
+          "type": "message",
+          "shapeHash": "d32c0c22ded183753625e226132f6e0ba5d141e2ef9794a89ef2f225e8c51a9d",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 1,
+          "role": "user",
+          "type": "message",
+          "shapeHash": "5add9ba2d53652024ef4c997a24a69a629d06eb56a84c4e6af9e2eaa7ca4ad6e",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 2,
+          "role": "user",
+          "type": "message",
+          "shapeHash": "3a4cd575c696e4e3da2982af3e4fb50974e2ea0de364699bebd2d17a07cff1f1",
+          "v1Count": 0,
+          "v2Count": 0
+        }
+      ],
+      "fixtureMarker": "PROBE: scoped managed tree a",
+      "fixtureSkillMentioned": false,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": false,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "observedAt": "2026-10-04T10:50:00.749Z",
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": false,
+      "skillV2Injected": false,
+      "skillTokenInputs": [
+        {
+          "index": 0,
+          "role": "developer",
+          "type": "message",
+          "shapeHash": "d32c0c22ded183753625e226132f6e0ba5d141e2ef9794a89ef2f225e8c51a9d",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 1,
+          "role": "user",
+          "type": "message",
+          "shapeHash": "5add9ba2d53652024ef4c997a24a69a629d06eb56a84c4e6af9e2eaa7ca4ad6e",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 2,
+          "role": "user",
+          "type": "message",
+          "shapeHash": "3a4cd575c696e4e3da2982af3e4fb50974e2ea0de364699bebd2d17a07cff1f1",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 3,
+          "role": null,
+          "type": "function_call",
+          "shapeHash": "d2de821fb59d1b852ab18f10859e6766040547be9ec3939ec145d18625a656f9",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 4,
+          "role": null,
+          "type": "function_call_output",
+          "shapeHash": "902fa6c900d57915cfb528f34602544ecb151a03e8d539e135e9ff8abe2047a1",
+          "v1Count": 0,
+          "v2Count": 0
+        }
+      ],
+      "fixtureMarker": "PROBE: scoped managed tree a",
+      "fixtureSkillMentioned": false,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": false,
+      "fixtureToolOutputs": [
+        "Chunk ID: c3751e\nWall time: 10.0114 seconds\nProcess running with session ID 20739\nOriginal token count: 12\nOutput:\nPROBE_PID=7964\nPROBE_PID=30448\nPROBE_PID=29152\n"
+      ],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "observedAt": "2026-10-04T10:50:00.915Z",
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": false,
+      "skillV2Injected": false,
+      "skillTokenInputs": [
+        {
+          "index": 0,
+          "role": "developer",
+          "type": "message",
+          "shapeHash": "72ba7fe6615257c6b53f4ea6b713dc23c93a9aefd1ff5becf7d94c581e81b9a9",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 1,
+          "role": "user",
+          "type": "message",
+          "shapeHash": "5de624e734288550bf87a1fabb822839d4c1509dd366e31dd7fbebadc48c83f3",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 2,
+          "role": "user",
+          "type": "message",
+          "shapeHash": "aa3bbfcec774f769e37fbbbce95dd5a34341fa5c52b310a1907004423b942448",
+          "v1Count": 0,
+          "v2Count": 0
+        }
+      ],
+      "fixtureMarker": "PROBE: scoped managed tree b",
+      "fixtureSkillMentioned": false,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": false,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "observedAt": "2026-10-04T10:50:11.140Z",
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": false,
+      "skillV2Injected": false,
+      "skillTokenInputs": [
+        {
+          "index": 0,
+          "role": "developer",
+          "type": "message",
+          "shapeHash": "72ba7fe6615257c6b53f4ea6b713dc23c93a9aefd1ff5becf7d94c581e81b9a9",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 1,
+          "role": "user",
+          "type": "message",
+          "shapeHash": "5de624e734288550bf87a1fabb822839d4c1509dd366e31dd7fbebadc48c83f3",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 2,
+          "role": "user",
+          "type": "message",
+          "shapeHash": "aa3bbfcec774f769e37fbbbce95dd5a34341fa5c52b310a1907004423b942448",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 3,
+          "role": null,
+          "type": "function_call",
+          "shapeHash": "a54bbc97855c0e2e79358896d6bb4fd67e1027b7267bbf9b29123f0433f85eb9",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 4,
+          "role": null,
+          "type": "function_call_output",
+          "shapeHash": "4aab25e0432d67abc1bf13c50aa712be074f36f26d9c3cac04d1ee17949ef4ac",
+          "v1Count": 0,
+          "v2Count": 0
+        }
+      ],
+      "fixtureMarker": "PROBE: scoped managed tree b",
+      "fixtureSkillMentioned": false,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": false,
+      "fixtureToolOutputs": [
+        "Chunk ID: 3ee044\nWall time: 10.0127 seconds\nProcess running with session ID 45547\nOriginal token count: 12\nOutput:\nPROBE_PID=42560\nPROBE_PID=22748\nPROBE_PID=51300\n"
+      ],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    }
+  ]
+}

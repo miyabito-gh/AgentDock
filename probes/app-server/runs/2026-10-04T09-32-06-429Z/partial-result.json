@@ -1,0 +1,229 @@
+{
+  "results": [
+    {
+      "name": "reconnected_stop_completion_reconciliation",
+      "status": "pass",
+      "evidence": {
+        "rows": [
+          {
+            "subscribe": false,
+            "parent": "01a10641-a124-7000-bb6e-05ac4c298fb0",
+            "child": "01a10641-a1d2-7fc2-9381-8ebc584b359e",
+            "turnId": "01a10641-a1f3-7622-b778-cea15c467b6b",
+            "ack": {
+              "id": 3,
+              "result": {}
+            },
+            "elapsedMs": 543,
+            "status": "interrupted",
+            "runtimeStatus": {
+              "type": "idle"
+            },
+            "completedNotifications": [],
+            "before": 3,
+            "afterRequestCount": 3
+          },
+          {
+            "subscribe": true,
+            "parent": "01a10641-a592-7611-8677-6576d2a1cae1",
+            "child": "01a10641-a628-7910-ab73-07d74c606d72",
+            "turnId": "01a10641-a649-7e02-89d3-9896eab5e986",
+            "ack": {
+              "id": 4,
+              "result": {}
+            },
+            "elapsedMs": 537,
+            "status": "interrupted",
+            "runtimeStatus": {
+              "type": "idle"
+            },
+            "completedNotifications": [
+              {
+                "method": "turn/completed",
+                "params": {
+                  "threadId": "01a10641-a628-7910-ab73-07d74c606d72",
+                  "turn": {
+                    "id": "01a10641-a649-7e02-89d3-9896eab5e986",
+                    "items": [],
+                    "itemsView": "notLoaded",
+                    "status": "interrupted",
+                    "error": null,
+                    "startedAt": 1791106328,
+                    "completedAt": 1791106328,
+                    "durationMs": 251
+                  }
+                },
+                "emittedAtMs": 1791106328397
+              }
+            ],
+            "before": 6,
+            "afterRequestCount": 6
+          }
+        ],
+        "scope": "Two queue-free children, 3s RPC timeout and 500ms subsequent read; resume is a fixture comparison only, not monitoring policy."
+      }
+    }
+  ],
+  "modelRequests": [
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": false,
+      "fixtureMarker": "PROBE: stop child false",
+      "fixtureSkillMentioned": false,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": false,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": false,
+      "fixtureMarker": "PROBE: stop child false",
+      "fixtureSkillMentioned": false,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": false,
+      "fixtureToolOutputs": [
+        "{\"agent_id\":\"01a10641-a1d2-7fc2-9381-8ebc584b359e\",\"nickname\":\"Planck\"}"
+      ],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": false,
+      "fixtureMarker": "PROBE_STOP_false: local hold",
+      "fixtureSkillMentioned": false,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": false,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": false,
+      "fixtureMarker": "PROBE: stop child true",
+      "fixtureSkillMentioned": false,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": false,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": false,
+      "fixtureMarker": "PROBE: stop child true",
+      "fixtureSkillMentioned": false,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": false,
+      "fixtureToolOutputs": [
+        "{\"agent_id\":\"01a10641-a628-7910-ab73-07d74c606d72\",\"nickname\":\"Euler\"}"
+      ],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": false,
+      "fixtureMarker": "PROBE_STOP_true: local hold",
+      "fixtureSkillMentioned": false,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": false,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    }
+  ]
+}

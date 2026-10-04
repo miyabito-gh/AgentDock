@@ -1,0 +1,208 @@
+{
+  "id": "01a10682-b8a4-73d1-b34d-dd6f9d4de3d2",
+  "began": 1791110593017,
+  "initial": {
+    "id": "01a10682-b8a4-73d1-b34d-dd6f9d4de3d2",
+    "environments": [
+      {
+        "environmentId": "local",
+        "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-43-12-306Z\\work",
+        "runtimeWorkspaceRoots": [
+          "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-43-12-306Z\\work"
+        ]
+      }
+    ],
+    "extra": null,
+    "sessionId": "01a10682-b8a4-73d1-b34d-dd6f9d4de3d2",
+    "forkedFromId": null,
+    "parentThreadId": null,
+    "preview": "PROBE: completed baseline",
+    "ephemeral": false,
+    "section": null,
+    "sectionEnteredAt": null,
+    "projectId": null,
+    "historyMode": "paginated",
+    "modelProvider": "agentdock_probe",
+    "model": "gpt-5.4",
+    "reasoningEffort": null,
+    "createdAt": 1791110592,
+    "updatedAt": 1791110592,
+    "recencyAt": 1791110592,
+    "status": {
+      "type": "idle"
+    },
+    "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-43-12-306Z\\codex-home\\sessions\\2026\\10\\04\\rollout-2026-10-04T19-43-12-01a10682-b8a4-73d1-b34d-dd6f9d4de3d2.jsonl",
+    "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-43-12-306Z\\work",
+    "cliVersion": "0.160.0",
+    "originator": "Codex Desktop",
+    "source": "vscode",
+    "canAcceptDirectInput": true,
+    "threadSource": null,
+    "agentNickname": null,
+    "agentRole": null,
+    "gitInfo": null,
+    "name": null,
+    "daybreakEnabled": null,
+    "turns": [
+      {
+        "id": "01a10682-b8b6-7473-a8ca-10ef3d087e45",
+        "items": [
+          {
+            "type": "userMessage",
+            "id": "01a10682-b91b-7c00-9738-8f40d183dd48",
+            "clientId": null,
+            "content": [
+              {
+                "type": "text",
+                "text": "PROBE: completed baseline",
+                "text_elements": []
+              }
+            ]
+          },
+          {
+            "type": "agentMessage",
+            "id": "msg_1",
+            "text": "PROBE_OK",
+            "phase": null,
+            "memoryCitation": null,
+            "delivery": null,
+            "questions": null
+          }
+        ],
+        "itemsView": "full",
+        "status": "completed",
+        "error": null,
+        "startedAt": 1791110592,
+        "completedAt": 1791110592,
+        "durationMs": 166
+      }
+    ]
+  },
+  "count": 1,
+  "samples": [
+    {
+      "elapsedMs": 60004,
+      "modelRequests": 1
+    },
+    {
+      "elapsedMs": 120010,
+      "modelRequests": 1
+    },
+    {
+      "elapsedMs": 180015,
+      "modelRequests": 1
+    },
+    {
+      "elapsedMs": 240031,
+      "modelRequests": 1
+    },
+    {
+      "elapsedMs": 300042,
+      "modelRequests": 1
+    },
+    {
+      "elapsedMs": 360057,
+      "modelRequests": 1
+    },
+    {
+      "elapsedMs": 420065,
+      "modelRequests": 1
+    },
+    {
+      "elapsedMs": 480070,
+      "modelRequests": 1
+    },
+    {
+      "elapsedMs": 540073,
+      "modelRequests": 1
+    },
+    {
+      "elapsedMs": 600086,
+      "modelRequests": 1
+    },
+    {
+      "elapsedMs": 660094,
+      "modelRequests": 1
+    },
+    {
+      "elapsedMs": 720096,
+      "modelRequests": 1
+    },
+    {
+      "elapsedMs": 780107,
+      "modelRequests": 1
+    },
+    {
+      "elapsedMs": 840118,
+      "modelRequests": 1
+    },
+    {
+      "elapsedMs": 900120,
+      "modelRequests": 1
+    },
+    {
+      "elapsedMs": 960132,
+      "modelRequests": 1
+    },
+    {
+      "elapsedMs": 1020136,
+      "modelRequests": 1
+    },
+    {
+      "elapsedMs": 1080144,
+      "modelRequests": 1
+    },
+    {
+      "elapsedMs": 1140160,
+      "modelRequests": 1
+    },
+    {
+      "elapsedMs": 1200168,
+      "modelRequests": 1
+    },
+    {
+      "elapsedMs": 1260172,
+      "modelRequests": 1
+    },
+    {
+      "elapsedMs": 1320179,
+      "modelRequests": 1
+    },
+    {
+      "elapsedMs": 1380193,
+      "modelRequests": 1
+    },
+    {
+      "elapsedMs": 1440206,
+      "modelRequests": 1
+    },
+    {
+      "elapsedMs": 1500219,
+      "modelRequests": 1
+    },
+    {
+      "elapsedMs": 1560234,
+      "modelRequests": 1
+    },
+    {
+      "elapsedMs": 1620248,
+      "modelRequests": 1
+    },
+    {
+      "elapsedMs": 1680253,
+      "modelRequests": 1
+    },
+    {
+      "elapsedMs": 1740257,
+      "modelRequests": 1
+    },
+    {
+      "elapsedMs": 1800260,
+      "modelRequests": 1
+    },
+    {
+      "elapsedMs": 1860006,
+      "modelRequests": 1
+    }
+  ]
+}

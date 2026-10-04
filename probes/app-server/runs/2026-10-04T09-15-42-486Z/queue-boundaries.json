@@ -1,0 +1,182 @@
+[
+  {
+    "scenario": "normal",
+    "threadId": "01a10632-9dd8-77a1-8485-3d277b6e583f",
+    "turnId": "01a10632-9e04-7a21-bfb6-aabf66dcc3c1",
+    "queueBefore": {
+      "data": [
+        {
+          "id": "01a10632-a14f-78b2-88c2-d9f6e28b1e7a",
+          "input": [
+            {
+              "type": "text",
+              "text": "PROBE: remaining normal",
+              "text_elements": []
+            }
+          ],
+          "clientUserMessageId": "01a10632-a14d-7182-a12f-f4fa40b0241f"
+        }
+      ],
+      "nextCursor": null
+    },
+    "queueAfter": {
+      "data": [],
+      "nextCursor": null
+    },
+    "requestsBefore": 1,
+    "requestsAfter": 2,
+    "turns": [
+      {
+        "id": "01a10632-9e04-7a21-bfb6-aabf66dcc3c1",
+        "status": "completed"
+      },
+      {
+        "id": "01a10632-a228-7540-9c5e-e17ba1791ac5",
+        "status": "inProgress"
+      }
+    ],
+    "child": null,
+    "observationMs": 1500
+  },
+  {
+    "scenario": "failure",
+    "threadId": "01a10632-a868-7ae2-82f5-50a4bdcc1fc7",
+    "turnId": "01a10632-a897-7c41-a9f5-13806e38af0e",
+    "queueBefore": {
+      "data": [
+        {
+          "id": "01a10632-aa16-7070-90c3-92a8be002cf4",
+          "input": [
+            {
+              "type": "text",
+              "text": "PROBE: remaining failure",
+              "text_elements": []
+            }
+          ],
+          "clientUserMessageId": "01a10632-aa15-72b3-a0a6-4154bd0eefe0"
+        }
+      ],
+      "nextCursor": null
+    },
+    "queueAfter": {
+      "data": [],
+      "nextCursor": null
+    },
+    "requestsBefore": 3,
+    "requestsAfter": 5,
+    "turns": [
+      {
+        "id": "01a10632-a897-7c41-a9f5-13806e38af0e",
+        "status": "interrupted"
+      },
+      {
+        "id": "01a10632-aac3-73c0-8e60-6870cd00e3dc",
+        "status": "failed"
+      },
+      {
+        "id": "01a10632-ab28-7551-ab1a-97f339ccdc1c",
+        "status": "inProgress"
+      }
+    ],
+    "child": null,
+    "observationMs": 1500
+  },
+  {
+    "scenario": "interrupt",
+    "threadId": "01a10632-b155-7632-9b74-1baa1b1c7bb9",
+    "turnId": "01a10632-b18a-7c81-ac86-efc3b32e6376",
+    "queueBefore": {
+      "data": [
+        {
+          "id": "01a10632-b2be-7623-9788-c0df4b71c07a",
+          "input": [
+            {
+              "type": "text",
+              "text": "PROBE: remaining interrupt",
+              "text_elements": []
+            }
+          ],
+          "clientUserMessageId": "01a10632-b2bd-71a3-92a0-14377b7a2080"
+        }
+      ],
+      "nextCursor": null
+    },
+    "queueAfter": {
+      "data": [
+        {
+          "id": "01a10632-b2be-7623-9788-c0df4b71c07a",
+          "input": [
+            {
+              "type": "text",
+              "text": "PROBE: remaining interrupt",
+              "text_elements": []
+            }
+          ],
+          "clientUserMessageId": "01a10632-b2bd-71a3-92a0-14377b7a2080"
+        }
+      ],
+      "nextCursor": null
+    },
+    "requestsBefore": 6,
+    "requestsAfter": 6,
+    "turns": [
+      {
+        "id": "01a10632-b18a-7c81-ac86-efc3b32e6376",
+        "status": "interrupted"
+      }
+    ],
+    "child": null,
+    "observationMs": 1500
+  },
+  {
+    "scenario": "active-child",
+    "threadId": "01a10632-b94a-7983-9075-77a76b72ceb3",
+    "turnId": "01a10632-b980-7293-b46b-832f3992e99b",
+    "queueBefore": {
+      "data": [
+        {
+          "id": "01a10632-bb81-7513-bbbb-46c2e4a47070",
+          "input": [
+            {
+              "type": "text",
+              "text": "PROBE: remaining active-child",
+              "text_elements": []
+            }
+          ],
+          "clientUserMessageId": "01a10632-bb7f-77c1-8560-44b4c0954322"
+        }
+      ],
+      "nextCursor": null
+    },
+    "queueAfter": {
+      "data": [],
+      "nextCursor": null
+    },
+    "requestsBefore": 9,
+    "requestsAfter": 10,
+    "turns": [
+      {
+        "id": "01a10632-b980-7293-b46b-832f3992e99b",
+        "status": "completed"
+      },
+      {
+        "id": "01a10632-bc0f-7281-ac37-645484ad1b33",
+        "status": "inProgress"
+      }
+    ],
+    "child": {
+      "id": "01a10632-ba1a-72c3-955d-e3d55198f8e0",
+      "status": {
+        "type": "active",
+        "activeFlags": []
+      },
+      "turns": [
+        {
+          "id": "01a10632-ba4a-7563-8927-816641b1bd63",
+          "status": "inProgress"
+        }
+      ]
+    },
+    "observationMs": 1500
+  }
+]

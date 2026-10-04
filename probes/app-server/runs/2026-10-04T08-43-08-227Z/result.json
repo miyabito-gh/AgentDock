@@ -1,0 +1,150 @@
+{
+  "createdAt": "2026-10-04T08:43:36.962Z",
+  "executable": "C:\\Users\\wmasa\\.vscode\\extensions\\openai.chatgpt-26.930.31730-win32-x64\\bin\\windows-x86_64\\codex.exe",
+  "version": "codex-cli 0.160.0",
+  "mode": "Real App Server with loopback model fixture; no cloud authentication",
+  "run": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-43-08-227Z",
+  "results": [
+    {
+      "name": "parent_child_grandchild_interrupt",
+      "status": "fail",
+      "error": "Missing notification item/completed; methods=turn/completed,warning,thread/status/changed,turn/started,item/started,item/completed,thread/tokenUsage/updated,account/rateLimits/updated"
+    },
+    {
+      "name": "managed_execution_interrupt_terminate_clean",
+      "status": "fail",
+      "error": "Timeout: managed terminal visible"
+    },
+    {
+      "name": "existing_config_unchanged",
+      "status": "pass"
+    }
+  ],
+  "modelRequests": [
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    }
+  ],
+  "limitations": [
+    "No real cloud inference/authentication",
+    "Fixture agent observations are not universal recursive or OS descendant termination guarantees",
+    "Plugin MCP advertisement is not all plugin capability filtering",
+    "Queue observations do not implement AgentDock queue policy",
+    "Loopback WebSocket fixture is unauthenticated and experimental, not a production transport decision"
+  ]
+}

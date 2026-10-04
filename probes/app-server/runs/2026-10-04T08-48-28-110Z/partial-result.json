@@ -1,0 +1,127 @@
+{
+  "results": [
+    {
+      "name": "warm_queue_reconnect_and_graceful_close",
+      "status": "pass",
+      "evidence": {
+        "threadId": "01a10619-af2c-7710-98a3-e7dfd2b371f3",
+        "queued": "Queued message 01a10619-b254-74a2-9bc3-00a0cd545b4b for thread 01a10619-af2c-7710-98a3-e7dfd2b371f3.\n",
+        "retainedLoaded": true,
+        "readStatus": {
+          "type": "active",
+          "activeFlags": []
+        },
+        "queueBeforeResume": {
+          "data": [
+            {
+              "id": "01a10619-b254-74a2-9bc3-00a0cd545b4b",
+              "input": [
+                {
+                  "type": "text",
+                  "text": "PROBE: warm queued payload",
+                  "text_elements": []
+                }
+              ],
+              "clientUserMessageId": "01a10619-b253-7eb3-830b-5c6c179519b4"
+            }
+          ],
+          "nextCursor": null
+        },
+        "queueAfterInterrupt": {
+          "data": [
+            {
+              "id": "01a10619-b254-74a2-9bc3-00a0cd545b4b",
+              "input": [
+                {
+                  "type": "text",
+                  "text": "PROBE: warm queued payload",
+                  "text_elements": []
+                }
+              ],
+              "clientUserMessageId": "01a10619-b253-7eb3-830b-5c6c179519b4"
+            }
+          ],
+          "nextCursor": null
+        },
+        "queueAfterIdleResume": {
+          "data": [
+            {
+              "id": "01a10619-b254-74a2-9bc3-00a0cd545b4b",
+              "input": [
+                {
+                  "type": "text",
+                  "text": "PROBE: warm queued payload",
+                  "text_elements": []
+                }
+              ],
+              "clientUserMessageId": "01a10619-b253-7eb3-830b-5c6c179519b4"
+            }
+          ],
+          "nextCursor": null
+        },
+        "before": 1,
+        "afterActiveResume": 1,
+        "afterInterrupt": 1,
+        "afterIdleResume": 1,
+        "graceful": {
+          "threadId": "01a10619-bbb4-7873-8c46-6e7bad3552d7",
+          "turnId": "01a10619-bbe2-71c2-8a90-28af22cefe06",
+          "closeAcknowledged": false,
+          "closeElapsedMs": 2013,
+          "retainedLoaded": true,
+          "readStatus": {
+            "type": "active",
+            "activeFlags": []
+          },
+          "persistedStatus": "inProgress"
+        }
+      }
+    }
+  ],
+  "modelRequests": [
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "fixtureMarker": "PROBE: held",
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "fixtureMarker": "PROBE: held",
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    }
+  ]
+}

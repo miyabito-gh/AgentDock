@@ -1,0 +1,1392 @@
+{
+  "results": [
+    {
+      "name": "plugin_git_marketplace_upgrade_loopback",
+      "status": "pass",
+      "evidence": {
+        "fixture": {
+          "marketplace": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-01-537Z\\marketplace",
+          "added": null
+        },
+        "url": "http://127.0.0.1:54339/marketplace.git",
+        "addition": {
+          "args": [
+            "plugin",
+            "marketplace",
+            "add",
+            "http://127.0.0.1:54339/marketplace.git",
+            "--json"
+          ],
+          "exitCode": 0,
+          "signal": null,
+          "stdout": "{\n  \"marketplaceName\": \"agentdock-probe\",\n  \"installedRoot\": \"C:\\\\Users\\\\wmasa\\\\Documents\\\\Rust\\\\AgentDock\\\\probes\\\\app-server\\\\runs\\\\2026-10-04T10-49-01-537Z\\\\codex-home\\\\.tmp\\\\marketplaces\\\\agentdock-probe\",\n  \"alreadyAdded\": false\n}\n",
+          "stderr": ""
+        },
+        "installed": {
+          "pluginId": "fixture@agentdock-probe",
+          "name": "fixture",
+          "marketplaceName": "agentdock-probe",
+          "version": "0.1.0",
+          "installedPath": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-01-537Z\\codex-home\\plugins\\cache\\agentdock-probe\\fixture\\0.1.0",
+          "authPolicy": "ON_INSTALL"
+        },
+        "sourceHead": "dd783ff219363f93284619a15d3ca7ddd7bd3986",
+        "upgrade": {
+          "args": [
+            "plugin",
+            "marketplace",
+            "upgrade",
+            "agentdock-probe",
+            "--json"
+          ],
+          "exitCode": 0,
+          "signal": null,
+          "stdout": "{\n  \"selectedMarketplaces\": [\n    \"agentdock-probe\"\n  ],\n  \"upgradedRoots\": [\n    \"C:\\\\Users\\\\wmasa\\\\Documents\\\\Rust\\\\AgentDock\\\\probes\\\\app-server\\\\runs\\\\2026-10-04T10-49-01-537Z\\\\codex-home\\\\.tmp\\\\marketplaces\\\\agentdock-probe\"\n  ],\n  \"errors\": []\n}\n",
+          "stderr": ""
+        },
+        "list": {
+          "exitCode": 0,
+          "stdout": "{\n  \"installed\": [\n    {\n      \"pluginId\": \"fixture@agentdock-probe\",\n      \"name\": \"fixture\",\n      \"marketplaceName\": \"agentdock-probe\",\n      \"version\": \"0.2.0\",\n      \"installed\": true,\n      \"enabled\": true,\n      \"source\": {\n        \"source\": \"local\",\n        \"path\": \"C:\\\\Users\\\\wmasa\\\\Documents\\\\Rust\\\\AgentDock\\\\probes\\\\app-server\\\\runs\\\\2026-10-04T10-49-01-537Z\\\\codex-home\\\\.tmp\\\\marketplaces\\\\agentdock-probe\\\\fixture\"\n      },\n      \"marketplaceSource\": {\n        \"sourceType\": \"git\",\n        \"source\": \"http://127.0.0.1:54339/marketplace.git\"\n      },\n      \"installPolicy\": \"AVAILABLE\",\n      \"authPolicy\": \"ON_INSTALL\"\n    }\n  ],\n  \"available\": []\n}\n"
+        },
+        "rows": [
+          {
+            "stage": "v1",
+            "kind": "existing",
+            "skills": [
+              {
+                "name": "fixture:fixture-probe",
+                "description": "Authorized local fixture only.",
+                "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-01-537Z\\codex-home\\plugins\\cache\\agentdock-probe\\fixture\\0.1.0\\skills\\probe\\SKILL.md",
+                "scope": "user",
+                "enabled": true,
+                "pluginId": "fixture@agentdock-probe"
+              }
+            ],
+            "turn": {
+              "id": "01a10688-10fb-7520-b1e1-6f7f4c3bf864",
+              "turnId": "01a10688-1135-7a82-ae69-2d650f3652da",
+              "status": "completed",
+              "calls": [
+                {
+                  "observedAt": "2026-10-04T10:49:03.173Z",
+                  "mode": "complete",
+                  "model": "gpt-5.4",
+                  "serviceTier": null,
+                  "skillBodyInjected": true,
+                  "skillV2Injected": false,
+                  "skillTokenInputs": [
+                    {
+                      "index": 0,
+                      "role": "developer",
+                      "type": "message",
+                      "shapeHash": "0945c9f16d574c3f576eac83879731739fec24cb6b8aa85ad9ec53a8c0b62135",
+                      "v1Count": 0,
+                      "v2Count": 0
+                    },
+                    {
+                      "index": 1,
+                      "role": "user",
+                      "type": "message",
+                      "shapeHash": "ba055561bdec157d67cafda87374fa801348488538ea373298c031b8873e906c",
+                      "v1Count": 0,
+                      "v2Count": 0
+                    },
+                    {
+                      "index": 2,
+                      "role": "user",
+                      "type": "message",
+                      "shapeHash": "8526bc40121160a9407a264c6a013e7f83ad46a8984f60b9f1b7190ed0e0dc9e",
+                      "v1Count": 0,
+                      "v2Count": 0
+                    },
+                    {
+                      "index": 3,
+                      "role": "user",
+                      "type": "message",
+                      "shapeHash": "6934356465aeccc6be66c36d85d2198a9b164f1c8657ae752a11ae5b29655a2f",
+                      "v1Count": 1,
+                      "v2Count": 0
+                    }
+                  ],
+                  "fixtureMarker": "PROBE_OK.\r",
+                  "fixtureSkillMentioned": true,
+                  "fixtureSkillInInstructions": false,
+                  "fixtureSkillInLastDeveloper": true,
+                  "fixtureToolOutputs": [],
+                  "tools": [
+                    "exec_command",
+                    "write_stdin",
+                    "list_mcp_resources",
+                    "list_mcp_resource_templates",
+                    "read_mcp_resource",
+                    "request_user_input",
+                    "view_image",
+                    "multi_agent_v1",
+                    "mcp__agentdock_fixture",
+                    "mcp__plugin_fixture",
+                    "get_goal",
+                    "create_goal",
+                    "update_goal",
+                    "web_search"
+                  ]
+                }
+              ],
+              "hookNotifications": [],
+              "hookLog": ""
+            }
+          },
+          {
+            "stage": "v1",
+            "kind": "fresh",
+            "skills": [
+              {
+                "name": "fixture:fixture-probe",
+                "description": "Authorized local fixture only.",
+                "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-01-537Z\\codex-home\\plugins\\cache\\agentdock-probe\\fixture\\0.1.0\\skills\\probe\\SKILL.md",
+                "scope": "user",
+                "enabled": true,
+                "pluginId": "fixture@agentdock-probe"
+              }
+            ],
+            "turn": {
+              "id": "01a10688-112b-78e2-8b53-1d6591b7711d",
+              "turnId": "01a10688-1215-7780-9377-e3571f0d0770",
+              "status": "completed",
+              "calls": [
+                {
+                  "observedAt": "2026-10-04T10:49:03.338Z",
+                  "mode": "complete",
+                  "model": "gpt-5.4",
+                  "serviceTier": null,
+                  "skillBodyInjected": true,
+                  "skillV2Injected": false,
+                  "skillTokenInputs": [
+                    {
+                      "index": 0,
+                      "role": "developer",
+                      "type": "message",
+                      "shapeHash": "6fdf519245b13ead279134722ba1c2efe73b7b51ddbc34aeb3169e75a7a24ec1",
+                      "v1Count": 0,
+                      "v2Count": 0
+                    },
+                    {
+                      "index": 1,
+                      "role": "user",
+                      "type": "message",
+                      "shapeHash": "df9889bf755c28c468db759d779f942862acc979c2de15bf0182067369e5c3bd",
+                      "v1Count": 0,
+                      "v2Count": 0
+                    },
+                    {
+                      "index": 2,
+                      "role": "user",
+                      "type": "message",
+                      "shapeHash": "102454426007ebfbe30c655a6382d5fe7391550672b9422e5fb33c07c902cda3",
+                      "v1Count": 0,
+                      "v2Count": 0
+                    },
+                    {
+                      "index": 3,
+                      "role": "user",
+                      "type": "message",
+                      "shapeHash": "8c9bcd881d1fef7aee7674e2c59e057c3e618ac214f2934e6e4acc17593b3aaa",
+                      "v1Count": 1,
+                      "v2Count": 0
+                    }
+                  ],
+                  "fixtureMarker": "PROBE_OK.\r",
+                  "fixtureSkillMentioned": true,
+                  "fixtureSkillInInstructions": false,
+                  "fixtureSkillInLastDeveloper": true,
+                  "fixtureToolOutputs": [],
+                  "tools": [
+                    "exec_command",
+                    "write_stdin",
+                    "list_mcp_resources",
+                    "list_mcp_resource_templates",
+                    "read_mcp_resource",
+                    "request_user_input",
+                    "view_image",
+                    "multi_agent_v1",
+                    "mcp__agentdock_fixture",
+                    "mcp__plugin_fixture",
+                    "get_goal",
+                    "create_goal",
+                    "update_goal",
+                    "web_search"
+                  ]
+                }
+              ],
+              "hookNotifications": [],
+              "hookLog": ""
+            }
+          },
+          {
+            "stage": "after-git-upgrade",
+            "kind": "existing",
+            "skills": [
+              {
+                "name": "fixture:fixture-probe",
+                "description": "Authorized Git fixture V2.",
+                "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-01-537Z\\codex-home\\plugins\\cache\\agentdock-probe\\fixture\\0.2.0\\skills\\probe\\SKILL.md",
+                "scope": "user",
+                "enabled": true,
+                "pluginId": "fixture@agentdock-probe"
+              }
+            ],
+            "turn": {
+              "id": "01a10688-10fb-7520-b1e1-6f7f4c3bf864",
+              "turnId": "01a10688-1835-7233-a5f2-e7ddedfc560f",
+              "status": "completed",
+              "calls": [
+                {
+                  "observedAt": "2026-10-04T10:49:04.907Z",
+                  "mode": "complete",
+                  "model": "gpt-5.4",
+                  "serviceTier": null,
+                  "skillBodyInjected": true,
+                  "skillV2Injected": true,
+                  "skillTokenInputs": [
+                    {
+                      "index": 0,
+                      "role": "developer",
+                      "type": "message",
+                      "shapeHash": "0945c9f16d574c3f576eac83879731739fec24cb6b8aa85ad9ec53a8c0b62135",
+                      "v1Count": 0,
+                      "v2Count": 0
+                    },
+                    {
+                      "index": 1,
+                      "role": "user",
+                      "type": "message",
+                      "shapeHash": "ba055561bdec157d67cafda87374fa801348488538ea373298c031b8873e906c",
+                      "v1Count": 0,
+                      "v2Count": 0
+                    },
+                    {
+                      "index": 2,
+                      "role": "user",
+                      "type": "message",
+                      "shapeHash": "8526bc40121160a9407a264c6a013e7f83ad46a8984f60b9f1b7190ed0e0dc9e",
+                      "v1Count": 0,
+                      "v2Count": 0
+                    },
+                    {
+                      "index": 3,
+                      "role": "user",
+                      "type": "message",
+                      "shapeHash": "6934356465aeccc6be66c36d85d2198a9b164f1c8657ae752a11ae5b29655a2f",
+                      "v1Count": 1,
+                      "v2Count": 0
+                    },
+                    {
+                      "index": 4,
+                      "role": "assistant",
+                      "type": "message",
+                      "shapeHash": "fe55c6d96c78822e2925d04f11e6560b1a62e4b2ad7e3a997ebe4a13678aa398",
+                      "v1Count": 0,
+                      "v2Count": 0
+                    },
+                    {
+                      "index": 5,
+                      "role": "developer",
+                      "type": "message",
+                      "shapeHash": "03e6681514cccf41692d1e5c3eded1a548c230c2d16c12e92856c618bec2b370",
+                      "v1Count": 0,
+                      "v2Count": 0
+                    },
+                    {
+                      "index": 6,
+                      "role": "user",
+                      "type": "message",
+                      "shapeHash": "788815816ec4e401656328238e1dc5bdf36a288d4b4555d27ca715316aae00ad",
+                      "v1Count": 0,
+                      "v2Count": 0
+                    },
+                    {
+                      "index": 7,
+                      "role": "user",
+                      "type": "message",
+                      "shapeHash": "8d2d0b7bcd9f786e51611140f839d0cad091ab62fe6d4d17f1c8de74dd4852c3",
+                      "v1Count": 0,
+                      "v2Count": 1
+                    }
+                  ],
+                  "fixtureMarker": "PROBE_OK.\r",
+                  "fixtureSkillMentioned": true,
+                  "fixtureSkillInInstructions": false,
+                  "fixtureSkillInLastDeveloper": true,
+                  "fixtureToolOutputs": [],
+                  "tools": [
+                    "exec_command",
+                    "write_stdin",
+                    "list_mcp_resources",
+                    "list_mcp_resource_templates",
+                    "read_mcp_resource",
+                    "request_user_input",
+                    "view_image",
+                    "multi_agent_v1",
+                    "mcp__agentdock_fixture",
+                    "mcp__plugin_fixture",
+                    "get_goal",
+                    "create_goal",
+                    "update_goal",
+                    "web_search"
+                  ]
+                }
+              ],
+              "hookNotifications": [],
+              "hookLog": ""
+            }
+          },
+          {
+            "stage": "after-git-upgrade",
+            "kind": "fresh",
+            "skills": [
+              {
+                "name": "fixture:fixture-probe",
+                "description": "Authorized Git fixture V2.",
+                "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-01-537Z\\codex-home\\plugins\\cache\\agentdock-probe\\fixture\\0.2.0\\skills\\probe\\SKILL.md",
+                "scope": "user",
+                "enabled": true,
+                "pluginId": "fixture@agentdock-probe"
+              }
+            ],
+            "turn": {
+              "id": "01a10688-1810-7ab0-a51d-a2032be29d33",
+              "turnId": "01a10688-18bf-7991-894e-06ca257c6add",
+              "status": "completed",
+              "calls": [
+                {
+                  "observedAt": "2026-10-04T10:49:05.047Z",
+                  "mode": "complete",
+                  "model": "gpt-5.4",
+                  "serviceTier": null,
+                  "skillBodyInjected": false,
+                  "skillV2Injected": true,
+                  "skillTokenInputs": [
+                    {
+                      "index": 0,
+                      "role": "developer",
+                      "type": "message",
+                      "shapeHash": "7d8d63643b578d40acc2971fdc2a85897f05d9344b9d82ab0ca4c88ef51b9aac",
+                      "v1Count": 0,
+                      "v2Count": 0
+                    },
+                    {
+                      "index": 1,
+                      "role": "user",
+                      "type": "message",
+                      "shapeHash": "3dd7485da6b4cee280ce869830e9e1b8c5ce04442f5a37fe079be6ba29f35c61",
+                      "v1Count": 0,
+                      "v2Count": 0
+                    },
+                    {
+                      "index": 2,
+                      "role": "user",
+                      "type": "message",
+                      "shapeHash": "5fd6aa99a9e3c07d32d97f00ca4455de67d116107d1a8aca4abfae8682f95010",
+                      "v1Count": 0,
+                      "v2Count": 0
+                    },
+                    {
+                      "index": 3,
+                      "role": "user",
+                      "type": "message",
+                      "shapeHash": "ef44142c009c4019c5bccfdc0bdb11993e658cefbf8ec91b6f8ef78500a7d7f4",
+                      "v1Count": 0,
+                      "v2Count": 1
+                    }
+                  ],
+                  "fixtureMarker": "PROBE_OK.\r",
+                  "fixtureSkillMentioned": true,
+                  "fixtureSkillInInstructions": false,
+                  "fixtureSkillInLastDeveloper": true,
+                  "fixtureToolOutputs": [],
+                  "tools": [
+                    "exec_command",
+                    "write_stdin",
+                    "list_mcp_resources",
+                    "list_mcp_resource_templates",
+                    "read_mcp_resource",
+                    "request_user_input",
+                    "view_image",
+                    "multi_agent_v1",
+                    "mcp__agentdock_fixture",
+                    "mcp__plugin_fixture_v2",
+                    "get_goal",
+                    "create_goal",
+                    "update_goal",
+                    "web_search"
+                  ]
+                }
+              ],
+              "hookNotifications": [],
+              "hookLog": ""
+            }
+          },
+          {
+            "stage": "upgrade-after-reload",
+            "kind": "existing",
+            "skills": [
+              {
+                "name": "fixture:fixture-probe",
+                "description": "Authorized Git fixture V2.",
+                "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-01-537Z\\codex-home\\plugins\\cache\\agentdock-probe\\fixture\\0.2.0\\skills\\probe\\SKILL.md",
+                "scope": "user",
+                "enabled": true,
+                "pluginId": "fixture@agentdock-probe"
+              }
+            ],
+            "turn": {
+              "id": "01a10688-10fb-7520-b1e1-6f7f4c3bf864",
+              "turnId": "01a10688-1f87-7001-a6cb-a67e679238de",
+              "status": "completed",
+              "calls": [
+                {
+                  "observedAt": "2026-10-04T10:49:06.763Z",
+                  "mode": "complete",
+                  "model": "gpt-5.4",
+                  "serviceTier": null,
+                  "skillBodyInjected": true,
+                  "skillV2Injected": true,
+                  "skillTokenInputs": [
+                    {
+                      "index": 0,
+                      "role": "developer",
+                      "type": "message",
+                      "shapeHash": "0945c9f16d574c3f576eac83879731739fec24cb6b8aa85ad9ec53a8c0b62135",
+                      "v1Count": 0,
+                      "v2Count": 0
+                    },
+                    {
+                      "index": 1,
+                      "role": "user",
+                      "type": "message",
+                      "shapeHash": "ba055561bdec157d67cafda87374fa801348488538ea373298c031b8873e906c",
+                      "v1Count": 0,
+                      "v2Count": 0
+                    },
+                    {
+                      "index": 2,
+                      "role": "user",
+                      "type": "message",
+                      "shapeHash": "8526bc40121160a9407a264c6a013e7f83ad46a8984f60b9f1b7190ed0e0dc9e",
+                      "v1Count": 0,
+                      "v2Count": 0
+                    },
+                    {
+                      "index": 3,
+                      "role": "user",
+                      "type": "message",
+                      "shapeHash": "6934356465aeccc6be66c36d85d2198a9b164f1c8657ae752a11ae5b29655a2f",
+                      "v1Count": 1,
+                      "v2Count": 0
+                    },
+                    {
+                      "index": 4,
+                      "role": "assistant",
+                      "type": "message",
+                      "shapeHash": "fe55c6d96c78822e2925d04f11e6560b1a62e4b2ad7e3a997ebe4a13678aa398",
+                      "v1Count": 0,
+                      "v2Count": 0
+                    },
+                    {
+                      "index": 5,
+                      "role": "developer",
+                      "type": "message",
+                      "shapeHash": "03e6681514cccf41692d1e5c3eded1a548c230c2d16c12e92856c618bec2b370",
+                      "v1Count": 0,
+                      "v2Count": 0
+                    },
+                    {
+                      "index": 6,
+                      "role": "user",
+                      "type": "message",
+                      "shapeHash": "788815816ec4e401656328238e1dc5bdf36a288d4b4555d27ca715316aae00ad",
+                      "v1Count": 0,
+                      "v2Count": 0
+                    },
+                    {
+                      "index": 7,
+                      "role": "user",
+                      "type": "message",
+                      "shapeHash": "8d2d0b7bcd9f786e51611140f839d0cad091ab62fe6d4d17f1c8de74dd4852c3",
+                      "v1Count": 0,
+                      "v2Count": 1
+                    },
+                    {
+                      "index": 8,
+                      "role": "assistant",
+                      "type": "message",
+                      "shapeHash": "33e177f61649215cbc5fff82d5f1f4a6881a2d7d1af07b1fcaa1b7ce3a84d113",
+                      "v1Count": 0,
+                      "v2Count": 0
+                    },
+                    {
+                      "index": 9,
+                      "role": "user",
+                      "type": "message",
+                      "shapeHash": "0ecb45b11efe177e97be1ea1931426ef15b26b32729ef43a826ad5ae47ec1393",
+                      "v1Count": 0,
+                      "v2Count": 0
+                    },
+                    {
+                      "index": 10,
+                      "role": "user",
+                      "type": "message",
+                      "shapeHash": "6ff05f5f0adafb2cf2d2949c6c50bd59cc1c1ad909dad24dac055e8233508c7c",
+                      "v1Count": 0,
+                      "v2Count": 1
+                    }
+                  ],
+                  "fixtureMarker": "PROBE_OK.\r",
+                  "fixtureSkillMentioned": true,
+                  "fixtureSkillInInstructions": false,
+                  "fixtureSkillInLastDeveloper": true,
+                  "fixtureToolOutputs": [],
+                  "tools": [
+                    "exec_command",
+                    "write_stdin",
+                    "list_mcp_resources",
+                    "list_mcp_resource_templates",
+                    "read_mcp_resource",
+                    "request_user_input",
+                    "view_image",
+                    "multi_agent_v1",
+                    "mcp__agentdock_fixture",
+                    "mcp__plugin_fixture_v2",
+                    "get_goal",
+                    "create_goal",
+                    "update_goal",
+                    "web_search"
+                  ]
+                }
+              ],
+              "hookNotifications": [],
+              "hookLog": ""
+            }
+          },
+          {
+            "stage": "upgrade-after-reload",
+            "kind": "fresh",
+            "skills": [
+              {
+                "name": "fixture:fixture-probe",
+                "description": "Authorized Git fixture V2.",
+                "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-01-537Z\\codex-home\\plugins\\cache\\agentdock-probe\\fixture\\0.2.0\\skills\\probe\\SKILL.md",
+                "scope": "user",
+                "enabled": true,
+                "pluginId": "fixture@agentdock-probe"
+              }
+            ],
+            "turn": {
+              "id": "01a10688-1f63-73f1-91d3-b75475e705a4",
+              "turnId": "01a10688-2012-73c1-9349-077c80ff7801",
+              "status": "completed",
+              "calls": [
+                {
+                  "observedAt": "2026-10-04T10:49:06.927Z",
+                  "mode": "complete",
+                  "model": "gpt-5.4",
+                  "serviceTier": null,
+                  "skillBodyInjected": false,
+                  "skillV2Injected": true,
+                  "skillTokenInputs": [
+                    {
+                      "index": 0,
+                      "role": "developer",
+                      "type": "message",
+                      "shapeHash": "e1fa987ff55d3c9de8a14f9cf87062bc7851fa4dc38d2e9af0c18d669e2e01a0",
+                      "v1Count": 0,
+                      "v2Count": 0
+                    },
+                    {
+                      "index": 1,
+                      "role": "user",
+                      "type": "message",
+                      "shapeHash": "0a6c72e7ebf7419cca30a9fc3bd68b6a0e69b17512941813d3b8c3d12151f2ab",
+                      "v1Count": 0,
+                      "v2Count": 0
+                    },
+                    {
+                      "index": 2,
+                      "role": "user",
+                      "type": "message",
+                      "shapeHash": "b7cac4cf294fee6dc75499aa3470236cd7e6f7e09dcbbc9d665563bf43599e76",
+                      "v1Count": 0,
+                      "v2Count": 0
+                    },
+                    {
+                      "index": 3,
+                      "role": "user",
+                      "type": "message",
+                      "shapeHash": "0f7d116b9a958e19d69ca93a1a4af1946031dee604a636be2e74f3791af89bf1",
+                      "v1Count": 0,
+                      "v2Count": 1
+                    }
+                  ],
+                  "fixtureMarker": "PROBE_OK.\r",
+                  "fixtureSkillMentioned": true,
+                  "fixtureSkillInInstructions": false,
+                  "fixtureSkillInLastDeveloper": true,
+                  "fixtureToolOutputs": [],
+                  "tools": [
+                    "exec_command",
+                    "write_stdin",
+                    "list_mcp_resources",
+                    "list_mcp_resource_templates",
+                    "read_mcp_resource",
+                    "request_user_input",
+                    "view_image",
+                    "multi_agent_v1",
+                    "mcp__agentdock_fixture",
+                    "mcp__plugin_fixture_v2",
+                    "get_goal",
+                    "create_goal",
+                    "update_goal",
+                    "web_search"
+                  ]
+                }
+              ],
+              "hookNotifications": [],
+              "hookLog": ""
+            }
+          }
+        ],
+        "gets": [
+          {
+            "path": "/marketplace.git/info/refs",
+            "bytes": 57,
+            "observedAt": "2026-10-04T10:49:02.622Z"
+          },
+          {
+            "path": "/marketplace.git/HEAD",
+            "bytes": 21,
+            "observedAt": "2026-10-04T10:49:02.624Z"
+          },
+          {
+            "path": "/marketplace.git/objects/bd/4600e7beb50c0f2680898234815c4e87c3872b",
+            "bytes": 133,
+            "observedAt": "2026-10-04T10:49:02.632Z"
+          },
+          {
+            "path": "/marketplace.git/objects/9b/ec435bae651277fb8c7ba99e279f7497689c54",
+            "bytes": 87,
+            "observedAt": "2026-10-04T10:49:02.641Z"
+          },
+          {
+            "path": "/marketplace.git/objects/88/dc9eb3e78caa8deef06de2285cf95ca1275cc5",
+            "bytes": 61,
+            "observedAt": "2026-10-04T10:49:02.648Z"
+          },
+          {
+            "path": "/marketplace.git/objects/59/14e44d4f0aabd7638916c26b4bf86b53286183",
+            "bytes": 126,
+            "observedAt": "2026-10-04T10:49:02.651Z"
+          },
+          {
+            "path": "/marketplace.git/objects/21/544267e265a2abcb9dc5d89f1f269c5dd47fb8",
+            "bytes": 76,
+            "observedAt": "2026-10-04T10:49:02.659Z"
+          },
+          {
+            "path": "/marketplace.git/objects/91/b341f9d404221c79f7ea95756fcad1a9f7724e",
+            "bytes": 55,
+            "observedAt": "2026-10-04T10:49:02.665Z"
+          },
+          {
+            "path": "/marketplace.git/objects/15/d5f1d080148220a34f346df5c6288c1a71e57f",
+            "bytes": 155,
+            "observedAt": "2026-10-04T10:49:02.667Z"
+          },
+          {
+            "path": "/marketplace.git/objects/c8/75eba649744b4fd2c164e8909e9bfa26f2c37c",
+            "bytes": 47,
+            "observedAt": "2026-10-04T10:49:02.670Z"
+          },
+          {
+            "path": "/marketplace.git/objects/62/1f566d481e5d912c1dc137116a0d7ec8517f47",
+            "bytes": 83,
+            "observedAt": "2026-10-04T10:49:02.675Z"
+          },
+          {
+            "path": "/marketplace.git/objects/6a/4e9bd0d4b85ae79c3f675350993b2e018c7365",
+            "bytes": 53,
+            "observedAt": "2026-10-04T10:49:02.684Z"
+          },
+          {
+            "path": "/marketplace.git/objects/fc/9dc014343e95e35f35a06667e030fb5ac06652",
+            "bytes": 134,
+            "observedAt": "2026-10-04T10:49:02.693Z"
+          },
+          {
+            "path": "/marketplace.git/info/refs",
+            "bytes": 57,
+            "observedAt": "2026-10-04T10:49:03.083Z"
+          },
+          {
+            "path": "/marketplace.git/HEAD",
+            "bytes": 21,
+            "observedAt": "2026-10-04T10:49:03.084Z"
+          },
+          {
+            "path": "/marketplace.git/info/refs",
+            "bytes": 57,
+            "observedAt": "2026-10-04T10:49:03.300Z"
+          },
+          {
+            "path": "/marketplace.git/HEAD",
+            "bytes": 21,
+            "observedAt": "2026-10-04T10:49:03.300Z"
+          },
+          {
+            "path": "/marketplace.git/objects/bd/4600e7beb50c0f2680898234815c4e87c3872b",
+            "bytes": 133,
+            "observedAt": "2026-10-04T10:49:03.308Z"
+          },
+          {
+            "path": "/marketplace.git/objects/9b/ec435bae651277fb8c7ba99e279f7497689c54",
+            "bytes": 87,
+            "observedAt": "2026-10-04T10:49:03.311Z"
+          },
+          {
+            "path": "/marketplace.git/objects/88/dc9eb3e78caa8deef06de2285cf95ca1275cc5",
+            "bytes": 61,
+            "observedAt": "2026-10-04T10:49:03.314Z"
+          },
+          {
+            "path": "/marketplace.git/objects/59/14e44d4f0aabd7638916c26b4bf86b53286183",
+            "bytes": 126,
+            "observedAt": "2026-10-04T10:49:03.315Z"
+          },
+          {
+            "path": "/marketplace.git/objects/21/544267e265a2abcb9dc5d89f1f269c5dd47fb8",
+            "bytes": 76,
+            "observedAt": "2026-10-04T10:49:03.318Z"
+          },
+          {
+            "path": "/marketplace.git/objects/91/b341f9d404221c79f7ea95756fcad1a9f7724e",
+            "bytes": 55,
+            "observedAt": "2026-10-04T10:49:03.321Z"
+          },
+          {
+            "path": "/marketplace.git/objects/15/d5f1d080148220a34f346df5c6288c1a71e57f",
+            "bytes": 155,
+            "observedAt": "2026-10-04T10:49:03.323Z"
+          },
+          {
+            "path": "/marketplace.git/objects/c8/75eba649744b4fd2c164e8909e9bfa26f2c37c",
+            "bytes": 47,
+            "observedAt": "2026-10-04T10:49:03.325Z"
+          },
+          {
+            "path": "/marketplace.git/objects/62/1f566d481e5d912c1dc137116a0d7ec8517f47",
+            "bytes": 83,
+            "observedAt": "2026-10-04T10:49:03.327Z"
+          },
+          {
+            "path": "/marketplace.git/objects/6a/4e9bd0d4b85ae79c3f675350993b2e018c7365",
+            "bytes": 53,
+            "observedAt": "2026-10-04T10:49:03.330Z"
+          },
+          {
+            "path": "/marketplace.git/objects/fc/9dc014343e95e35f35a06667e030fb5ac06652",
+            "bytes": 134,
+            "observedAt": "2026-10-04T10:49:03.333Z"
+          },
+          {
+            "path": "/marketplace.git/info/refs",
+            "bytes": 57,
+            "observedAt": "2026-10-04T10:49:04.142Z"
+          },
+          {
+            "path": "/marketplace.git/HEAD",
+            "bytes": 21,
+            "observedAt": "2026-10-04T10:49:04.143Z"
+          },
+          {
+            "path": "/marketplace.git/info/refs",
+            "bytes": 57,
+            "observedAt": "2026-10-04T10:49:04.370Z"
+          },
+          {
+            "path": "/marketplace.git/HEAD",
+            "bytes": 21,
+            "observedAt": "2026-10-04T10:49:04.371Z"
+          },
+          {
+            "path": "/marketplace.git/objects/dd/783ff219363f93284619a15d3ca7ddd7bd3986",
+            "bytes": 165,
+            "observedAt": "2026-10-04T10:49:04.377Z"
+          },
+          {
+            "path": "/marketplace.git/objects/c2/be6e6b929915fc049c3c4d046c825f35168bfe",
+            "bytes": 88,
+            "observedAt": "2026-10-04T10:49:04.381Z"
+          },
+          {
+            "path": "/marketplace.git/objects/bd/4600e7beb50c0f2680898234815c4e87c3872b",
+            "bytes": 133,
+            "observedAt": "2026-10-04T10:49:04.382Z"
+          },
+          {
+            "path": "/marketplace.git/objects/88/dc9eb3e78caa8deef06de2285cf95ca1275cc5",
+            "bytes": 61,
+            "observedAt": "2026-10-04T10:49:04.384Z"
+          },
+          {
+            "path": "/marketplace.git/objects/f4/132243baa40d8f10d313b8cecc8f0e701e4eeb",
+            "bytes": 125,
+            "observedAt": "2026-10-04T10:49:04.386Z"
+          },
+          {
+            "path": "/marketplace.git/objects/9b/ec435bae651277fb8c7ba99e279f7497689c54",
+            "bytes": 87,
+            "observedAt": "2026-10-04T10:49:04.389Z"
+          },
+          {
+            "path": "/marketplace.git/objects/21/544267e265a2abcb9dc5d89f1f269c5dd47fb8",
+            "bytes": 76,
+            "observedAt": "2026-10-04T10:49:04.391Z"
+          },
+          {
+            "path": "/marketplace.git/objects/08/c96b176cf6362cc8f886767b24054576346e51",
+            "bytes": 56,
+            "observedAt": "2026-10-04T10:49:04.393Z"
+          },
+          {
+            "path": "/marketplace.git/objects/7f/45d59d380994ae6dd942d9a94b80e23d2dd57a",
+            "bytes": 158,
+            "observedAt": "2026-10-04T10:49:04.395Z"
+          },
+          {
+            "path": "/marketplace.git/objects/18/94a875e96cc55c191ec294d912581d66d42571",
+            "bytes": 48,
+            "observedAt": "2026-10-04T10:49:04.397Z"
+          },
+          {
+            "path": "/marketplace.git/objects/59/14e44d4f0aabd7638916c26b4bf86b53286183",
+            "bytes": 126,
+            "observedAt": "2026-10-04T10:49:04.401Z"
+          },
+          {
+            "path": "/marketplace.git/objects/d9/dc7080a919a1a60baaa42af980a1cf49e3f910",
+            "bytes": 83,
+            "observedAt": "2026-10-04T10:49:04.402Z"
+          },
+          {
+            "path": "/marketplace.git/objects/25/ea3ee4ab83a0aaf15c98b9e3ce511808bc326c",
+            "bytes": 52,
+            "observedAt": "2026-10-04T10:49:04.405Z"
+          },
+          {
+            "path": "/marketplace.git/objects/91/b341f9d404221c79f7ea95756fcad1a9f7724e",
+            "bytes": 55,
+            "observedAt": "2026-10-04T10:49:04.407Z"
+          },
+          {
+            "path": "/marketplace.git/objects/15/d5f1d080148220a34f346df5c6288c1a71e57f",
+            "bytes": 155,
+            "observedAt": "2026-10-04T10:49:04.409Z"
+          },
+          {
+            "path": "/marketplace.git/objects/c8/75eba649744b4fd2c164e8909e9bfa26f2c37c",
+            "bytes": 47,
+            "observedAt": "2026-10-04T10:49:04.411Z"
+          },
+          {
+            "path": "/marketplace.git/objects/65/08865be2084be6bef4f2175207b405478c418f",
+            "bytes": 121,
+            "observedAt": "2026-10-04T10:49:04.413Z"
+          },
+          {
+            "path": "/marketplace.git/objects/62/1f566d481e5d912c1dc137116a0d7ec8517f47",
+            "bytes": 83,
+            "observedAt": "2026-10-04T10:49:04.415Z"
+          },
+          {
+            "path": "/marketplace.git/objects/6a/4e9bd0d4b85ae79c3f675350993b2e018c7365",
+            "bytes": 53,
+            "observedAt": "2026-10-04T10:49:04.418Z"
+          },
+          {
+            "path": "/marketplace.git/objects/fc/9dc014343e95e35f35a06667e030fb5ac06652",
+            "bytes": 134,
+            "observedAt": "2026-10-04T10:49:04.421Z"
+          }
+        ],
+        "config": "model = \"gpt-5.4\"\nmodel_provider = \"agentdock_probe\"\ncli_auth_credentials_store = \"file\"\napproval_policy = \"never\"\nsandbox_mode = \"read-only\"\n[analytics]\nenabled = false\n[model_providers.agentdock_probe]\nname = \"AgentDock local fixture\"\nbase_url = \"http://127.0.0.1:54320/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\nsupports_websockets = false\nrequest_max_retries = 0\nstream_max_retries = 0\nstream_idle_timeout_ms = 60000\n[agents]\nmax_depth = 2\n\n[mcp_servers.agentdock_fixture]\ncommand = \"C:/Program Files/nodejs/node.exe\"\nargs = [\"C:/Users/wmasa/Documents/Rust/AgentDock/probes/app-server/mcp-fixture.mjs\"]\nenabled = true\nstartup_timeout_sec = 5\n\n[marketplaces.agentdock-probe]\nsource_type = \"git\"\nsource = \"http://127.0.0.1:54339/marketplace.git\"\n\n[plugins.\"fixture@agentdock-probe\"]\nenabled = true\n",
+        "scope": "Real Git fetch through loopback-only dumb HTTP fixture; v1 to v2 source commit and marketplace upgrade; no remote cloud marketplace, auth or signed update guarantee."
+      }
+    }
+  ],
+  "modelRequests": [
+    {
+      "observedAt": "2026-10-04T10:49:03.173Z",
+      "mode": "complete",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": true,
+      "skillV2Injected": false,
+      "skillTokenInputs": [
+        {
+          "index": 0,
+          "role": "developer",
+          "type": "message",
+          "shapeHash": "0945c9f16d574c3f576eac83879731739fec24cb6b8aa85ad9ec53a8c0b62135",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 1,
+          "role": "user",
+          "type": "message",
+          "shapeHash": "ba055561bdec157d67cafda87374fa801348488538ea373298c031b8873e906c",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 2,
+          "role": "user",
+          "type": "message",
+          "shapeHash": "8526bc40121160a9407a264c6a013e7f83ad46a8984f60b9f1b7190ed0e0dc9e",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 3,
+          "role": "user",
+          "type": "message",
+          "shapeHash": "6934356465aeccc6be66c36d85d2198a9b164f1c8657ae752a11ae5b29655a2f",
+          "v1Count": 1,
+          "v2Count": 0
+        }
+      ],
+      "fixtureMarker": "PROBE_OK.\r",
+      "fixtureSkillMentioned": true,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": true,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "mcp__plugin_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "observedAt": "2026-10-04T10:49:03.338Z",
+      "mode": "complete",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": true,
+      "skillV2Injected": false,
+      "skillTokenInputs": [
+        {
+          "index": 0,
+          "role": "developer",
+          "type": "message",
+          "shapeHash": "6fdf519245b13ead279134722ba1c2efe73b7b51ddbc34aeb3169e75a7a24ec1",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 1,
+          "role": "user",
+          "type": "message",
+          "shapeHash": "df9889bf755c28c468db759d779f942862acc979c2de15bf0182067369e5c3bd",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 2,
+          "role": "user",
+          "type": "message",
+          "shapeHash": "102454426007ebfbe30c655a6382d5fe7391550672b9422e5fb33c07c902cda3",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 3,
+          "role": "user",
+          "type": "message",
+          "shapeHash": "8c9bcd881d1fef7aee7674e2c59e057c3e618ac214f2934e6e4acc17593b3aaa",
+          "v1Count": 1,
+          "v2Count": 0
+        }
+      ],
+      "fixtureMarker": "PROBE_OK.\r",
+      "fixtureSkillMentioned": true,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": true,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "mcp__plugin_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "observedAt": "2026-10-04T10:49:04.907Z",
+      "mode": "complete",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": true,
+      "skillV2Injected": true,
+      "skillTokenInputs": [
+        {
+          "index": 0,
+          "role": "developer",
+          "type": "message",
+          "shapeHash": "0945c9f16d574c3f576eac83879731739fec24cb6b8aa85ad9ec53a8c0b62135",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 1,
+          "role": "user",
+          "type": "message",
+          "shapeHash": "ba055561bdec157d67cafda87374fa801348488538ea373298c031b8873e906c",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 2,
+          "role": "user",
+          "type": "message",
+          "shapeHash": "8526bc40121160a9407a264c6a013e7f83ad46a8984f60b9f1b7190ed0e0dc9e",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 3,
+          "role": "user",
+          "type": "message",
+          "shapeHash": "6934356465aeccc6be66c36d85d2198a9b164f1c8657ae752a11ae5b29655a2f",
+          "v1Count": 1,
+          "v2Count": 0
+        },
+        {
+          "index": 4,
+          "role": "assistant",
+          "type": "message",
+          "shapeHash": "fe55c6d96c78822e2925d04f11e6560b1a62e4b2ad7e3a997ebe4a13678aa398",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 5,
+          "role": "developer",
+          "type": "message",
+          "shapeHash": "03e6681514cccf41692d1e5c3eded1a548c230c2d16c12e92856c618bec2b370",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 6,
+          "role": "user",
+          "type": "message",
+          "shapeHash": "788815816ec4e401656328238e1dc5bdf36a288d4b4555d27ca715316aae00ad",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 7,
+          "role": "user",
+          "type": "message",
+          "shapeHash": "8d2d0b7bcd9f786e51611140f839d0cad091ab62fe6d4d17f1c8de74dd4852c3",
+          "v1Count": 0,
+          "v2Count": 1
+        }
+      ],
+      "fixtureMarker": "PROBE_OK.\r",
+      "fixtureSkillMentioned": true,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": true,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "mcp__plugin_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "observedAt": "2026-10-04T10:49:05.047Z",
+      "mode": "complete",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": false,
+      "skillV2Injected": true,
+      "skillTokenInputs": [
+        {
+          "index": 0,
+          "role": "developer",
+          "type": "message",
+          "shapeHash": "7d8d63643b578d40acc2971fdc2a85897f05d9344b9d82ab0ca4c88ef51b9aac",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 1,
+          "role": "user",
+          "type": "message",
+          "shapeHash": "3dd7485da6b4cee280ce869830e9e1b8c5ce04442f5a37fe079be6ba29f35c61",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 2,
+          "role": "user",
+          "type": "message",
+          "shapeHash": "5fd6aa99a9e3c07d32d97f00ca4455de67d116107d1a8aca4abfae8682f95010",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 3,
+          "role": "user",
+          "type": "message",
+          "shapeHash": "ef44142c009c4019c5bccfdc0bdb11993e658cefbf8ec91b6f8ef78500a7d7f4",
+          "v1Count": 0,
+          "v2Count": 1
+        }
+      ],
+      "fixtureMarker": "PROBE_OK.\r",
+      "fixtureSkillMentioned": true,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": true,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "mcp__plugin_fixture_v2",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "observedAt": "2026-10-04T10:49:06.763Z",
+      "mode": "complete",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": true,
+      "skillV2Injected": true,
+      "skillTokenInputs": [
+        {
+          "index": 0,
+          "role": "developer",
+          "type": "message",
+          "shapeHash": "0945c9f16d574c3f576eac83879731739fec24cb6b8aa85ad9ec53a8c0b62135",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 1,
+          "role": "user",
+          "type": "message",
+          "shapeHash": "ba055561bdec157d67cafda87374fa801348488538ea373298c031b8873e906c",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 2,
+          "role": "user",
+          "type": "message",
+          "shapeHash": "8526bc40121160a9407a264c6a013e7f83ad46a8984f60b9f1b7190ed0e0dc9e",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 3,
+          "role": "user",
+          "type": "message",
+          "shapeHash": "6934356465aeccc6be66c36d85d2198a9b164f1c8657ae752a11ae5b29655a2f",
+          "v1Count": 1,
+          "v2Count": 0
+        },
+        {
+          "index": 4,
+          "role": "assistant",
+          "type": "message",
+          "shapeHash": "fe55c6d96c78822e2925d04f11e6560b1a62e4b2ad7e3a997ebe4a13678aa398",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 5,
+          "role": "developer",
+          "type": "message",
+          "shapeHash": "03e6681514cccf41692d1e5c3eded1a548c230c2d16c12e92856c618bec2b370",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 6,
+          "role": "user",
+          "type": "message",
+          "shapeHash": "788815816ec4e401656328238e1dc5bdf36a288d4b4555d27ca715316aae00ad",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 7,
+          "role": "user",
+          "type": "message",
+          "shapeHash": "8d2d0b7bcd9f786e51611140f839d0cad091ab62fe6d4d17f1c8de74dd4852c3",
+          "v1Count": 0,
+          "v2Count": 1
+        },
+        {
+          "index": 8,
+          "role": "assistant",
+          "type": "message",
+          "shapeHash": "33e177f61649215cbc5fff82d5f1f4a6881a2d7d1af07b1fcaa1b7ce3a84d113",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 9,
+          "role": "user",
+          "type": "message",
+          "shapeHash": "0ecb45b11efe177e97be1ea1931426ef15b26b32729ef43a826ad5ae47ec1393",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 10,
+          "role": "user",
+          "type": "message",
+          "shapeHash": "6ff05f5f0adafb2cf2d2949c6c50bd59cc1c1ad909dad24dac055e8233508c7c",
+          "v1Count": 0,
+          "v2Count": 1
+        }
+      ],
+      "fixtureMarker": "PROBE_OK.\r",
+      "fixtureSkillMentioned": true,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": true,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "mcp__plugin_fixture_v2",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "observedAt": "2026-10-04T10:49:06.927Z",
+      "mode": "complete",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": false,
+      "skillV2Injected": true,
+      "skillTokenInputs": [
+        {
+          "index": 0,
+          "role": "developer",
+          "type": "message",
+          "shapeHash": "e1fa987ff55d3c9de8a14f9cf87062bc7851fa4dc38d2e9af0c18d669e2e01a0",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 1,
+          "role": "user",
+          "type": "message",
+          "shapeHash": "0a6c72e7ebf7419cca30a9fc3bd68b6a0e69b17512941813d3b8c3d12151f2ab",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 2,
+          "role": "user",
+          "type": "message",
+          "shapeHash": "b7cac4cf294fee6dc75499aa3470236cd7e6f7e09dcbbc9d665563bf43599e76",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 3,
+          "role": "user",
+          "type": "message",
+          "shapeHash": "0f7d116b9a958e19d69ca93a1a4af1946031dee604a636be2e74f3791af89bf1",
+          "v1Count": 0,
+          "v2Count": 1
+        }
+      ],
+      "fixtureMarker": "PROBE_OK.\r",
+      "fixtureSkillMentioned": true,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": true,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "mcp__plugin_fixture_v2",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,54 @@
+{
+  "ref": "rust-v0.160.0",
+  "files": [
+    {
+      "path": "codex-rs/app-server/src/thread_state.rs",
+      "file": "thread_state.rs",
+      "ref": "rust-v0.160.0",
+      "sha": "8cfbc00983aa042873cdd70c4b393dcb7d18cbe5",
+      "url": "https://github.com/openai/codex/blob/rust-v0.160.0/codex-rs/app-server/src/thread_state.rs"
+    },
+    {
+      "path": "codex-rs/core/src/config/edit.rs",
+      "file": "config_edit.rs",
+      "ref": "rust-v0.160.0",
+      "sha": "9996db9abd5ed8bf67fdbc1f85dcb338e4401e15",
+      "url": "https://github.com/openai/codex/blob/rust-v0.160.0/codex-rs/core/src/config/edit.rs"
+    },
+    {
+      "path": "codex-rs/config/src/plugin_edit.rs",
+      "file": "plugin_edit.rs",
+      "ref": "rust-v0.160.0",
+      "sha": "63795cc6c6338da47f2a9a6729714491b40b2435",
+      "url": "https://github.com/openai/codex/blob/rust-v0.160.0/codex-rs/config/src/plugin_edit.rs"
+    },
+    {
+      "path": "codex-rs/app-server-protocol/src/protocol/v2/config.rs",
+      "file": "v2_config.rs",
+      "ref": "rust-v0.160.0",
+      "sha": "42b7df7c4543344662ffbdcfd590ee04c1d1f92d",
+      "url": "https://github.com/openai/codex/blob/rust-v0.160.0/codex-rs/app-server-protocol/src/protocol/v2/config.rs"
+    },
+    {
+      "path": "codex-rs/app-server-protocol/src/protocol/v2/thread.rs",
+      "file": "v2_thread.rs",
+      "ref": "rust-v0.160.0",
+      "sha": "2e166d5506b10996e2da286feb6082d6b8711340",
+      "url": "https://github.com/openai/codex/blob/rust-v0.160.0/codex-rs/app-server-protocol/src/protocol/v2/thread.rs"
+    },
+    {
+      "path": "codex-rs/app-server/src/request_processors/thread_lifecycle.rs",
+      "file": "thread_lifecycle.rs",
+      "ref": "rust-v0.160.0",
+      "sha": "b0fa49b4babcc5802a9968ea26bc230add7cba17",
+      "url": "https://github.com/openai/codex/blob/rust-v0.160.0/codex-rs/app-server/src/request_processors/thread_lifecycle.rs"
+    },
+    {
+      "path": "codex-rs/core-plugins/src/manager.rs",
+      "file": "plugins_manager.rs",
+      "ref": "rust-v0.160.0",
+      "sha": "e5614b9f55bc9cd4083bf9f077d7559b5eb42171",
+      "url": "https://github.com/openai/codex/blob/rust-v0.160.0/codex-rs/core-plugins/src/manager.rs"
+    }
+  ]
+}

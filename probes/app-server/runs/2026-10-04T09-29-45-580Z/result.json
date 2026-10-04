@@ -1,0 +1,110 @@
+{
+  "createdAt": "2026-10-04T09:30:21.674Z",
+  "executable": "C:\\Users\\wmasa\\.vscode\\extensions\\openai.chatgpt-26.930.31730-win32-x64\\bin\\windows-x86_64\\codex.exe",
+  "version": "codex-cli 0.160.0",
+  "mode": "Real App Server with loopback model fixture; no cloud authentication",
+  "run": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T09-29-45-580Z",
+  "selectedChecks": [
+    "unseen_descendants_restart_read_only"
+  ],
+  "results": [
+    {
+      "name": "unseen_descendants_restart_read_only",
+      "status": "fail",
+      "error": "Timeout turn/interrupt; "
+    },
+    {
+      "name": "existing_config_unchanged",
+      "status": "pass"
+    }
+  ],
+  "modelRequests": [
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": false,
+      "fixtureMarker": "PROBE: unseen spawn 0",
+      "fixtureSkillMentioned": false,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": false,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": false,
+      "fixtureMarker": "PROBE: unseen spawn 0",
+      "fixtureSkillMentioned": false,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": false,
+      "fixtureToolOutputs": [
+        "{\"agent_id\":\"01a1063f-7f0b-76f1-ab52-909c8c2ae7a6\",\"nickname\":\"Huygens\"}"
+      ],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": false,
+      "fixtureMarker": "PROBE_UNSEEN_0: hold local fixture",
+      "fixtureSkillMentioned": false,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": false,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    }
+  ],
+  "limitations": [
+    "No real cloud inference/authentication",
+    "Fixture agent observations are not universal recursive or OS descendant termination guarantees",
+    "Plugin MCP advertisement is not all plugin capability filtering",
+    "Queue observations do not implement AgentDock queue policy",
+    "Loopback WebSocket fixture is unauthenticated and experimental, not a production transport decision"
+  ]
+}

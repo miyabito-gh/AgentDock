@@ -1,0 +1,41 @@
+{
+  "method": "item/commandExecution/requestApproval",
+  "id": 1,
+  "params": {
+    "kind": "command",
+    "threadId": "01a10633-f73d-7c22-9ed3-b43307af14f0",
+    "turnId": "01a10633-f769-7b53-8c95-847f8a9d2506",
+    "itemId": "call_3",
+    "startedAtMs": 1791105431547,
+    "environmentId": "local",
+    "reason": "Run only the authorized bounded AgentDock OS descendant fixture.",
+    "command": "\"C:\\\\Users\\\\wmasa\\\\.cache\\\\codex-runtimes\\\\codex-primary-runtime\\\\dependencies\\\\native\\\\powershell\\\\pwsh.exe\" -NoProfile -Command \"& 'C:\\\\Program Files\\\\nodejs\\\\node.exe' 'C:\\\\Users\\\\wmasa\\\\Documents\\\\Rust\\\\AgentDock\\\\probes\\\\app-server\\\\runs\\\\2026-10-04T09-16-58-097Z\\\\work\\\\managed-tree.mjs'\"",
+    "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T09-16-58-097Z\\work",
+    "commandActions": [
+      {
+        "type": "unknown",
+        "command": "& 'C:\\Program Files\\nodejs\\node.exe' 'C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T09-16-58-097Z\\work\\managed-tree.mjs'"
+      }
+    ],
+    "proposedExecpolicyAmendment": [
+      "C:\\Users\\wmasa\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell\\pwsh.exe",
+      "-NoProfile",
+      "-Command",
+      "& 'C:\\Program Files\\nodejs\\node.exe' 'C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T09-16-58-097Z\\work\\managed-tree.mjs'"
+    ],
+    "availableDecisions": [
+      "accept",
+      {
+        "acceptWithExecpolicyAmendment": {
+          "execpolicy_amendment": [
+            "C:\\Users\\wmasa\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell\\pwsh.exe",
+            "-NoProfile",
+            "-Command",
+            "& 'C:\\Program Files\\nodejs\\node.exe' 'C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T09-16-58-097Z\\work\\managed-tree.mjs'"
+          ]
+        }
+      },
+      "cancel"
+    ]
+  }
+}

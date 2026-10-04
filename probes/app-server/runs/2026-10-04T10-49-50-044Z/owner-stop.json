@@ -1,0 +1,357 @@
+{
+  "roots": [
+    {
+      "label": "a",
+      "id": "01a10688-c9b7-7722-94bd-a9f8ff163858",
+      "turnId": "01a10688-c9ca-70e0-ad1a-c16b3d93219e",
+      "info": {
+        "itemId": "call_1",
+        "processId": "20739",
+        "command": "& 'C:\\Program Files\\nodejs\\node.exe' 'C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work\\owned-tree.mjs'",
+        "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work",
+        "osPid": null,
+        "cpuPercent": null,
+        "rssKb": null
+      },
+      "pids": [
+        7964,
+        30448,
+        29152
+      ]
+    },
+    {
+      "label": "b",
+      "id": "01a10688-f2d8-7331-9739-fb727817e5b5",
+      "turnId": "01a10688-f305-7982-8393-9ecd67c24d5a",
+      "info": {
+        "itemId": "call_3",
+        "processId": "45547",
+        "command": "& 'C:\\Program Files\\nodejs\\node.exe' 'C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work\\owned-tree.mjs'",
+        "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work",
+        "osPid": null,
+        "cpuPercent": null,
+        "rssKb": null
+      },
+      "pids": [
+        42560,
+        22748,
+        51300
+      ]
+    }
+  ],
+  "outsider": {
+    "pid": 42888,
+    "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work",
+    "source": "harness-owned, not an App Server terminal"
+  },
+  "snapshots": [
+    {
+      "stage": "before",
+      "observedAt": "2026-10-04T10:50:11.708Z",
+      "pids": [
+        {
+          "pid": 42888,
+          "alive": true
+        },
+        {
+          "pid": 7964,
+          "alive": true
+        },
+        {
+          "pid": 30448,
+          "alive": true
+        },
+        {
+          "pid": 29152,
+          "alive": true
+        },
+        {
+          "pid": 42560,
+          "alive": true
+        },
+        {
+          "pid": 22748,
+          "alive": true
+        },
+        {
+          "pid": 51300,
+          "alive": true
+        }
+      ],
+      "identities": [
+        {
+          "ProcessId": 42888,
+          "ParentProcessId": 32432,
+          "CreationDate": "/Date(1791110990253)/",
+          "ExecutablePath": "C:\\Program Files\\nodejs\\node.exe",
+          "CommandLine": "\"C:\\Program Files\\nodejs\\node.exe\" C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work\\harness-independent.mjs"
+        },
+        {
+          "ProcessId": 7964,
+          "ParentProcessId": 28792,
+          "CreationDate": "/Date(1791110990824)/",
+          "ExecutablePath": "C:\\Program Files\\nodejs\\node.exe",
+          "CommandLine": "\"C:\\Program Files\\nodejs\\node.exe\" C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work\\owned-tree.mjs"
+        },
+        {
+          "ProcessId": 30448,
+          "ParentProcessId": 7964,
+          "CreationDate": "/Date(1791110990870)/",
+          "ExecutablePath": "C:\\Program Files\\nodejs\\node.exe",
+          "CommandLine": "\"C:\\Program Files\\nodejs\\node.exe\" C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work\\owned-tree.mjs 1"
+        },
+        {
+          "ProcessId": 29152,
+          "ParentProcessId": 30448,
+          "CreationDate": "/Date(1791110990915)/",
+          "ExecutablePath": "C:\\Program Files\\nodejs\\node.exe",
+          "CommandLine": "\"C:\\Program Files\\nodejs\\node.exe\" C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work\\owned-tree.mjs 2"
+        },
+        {
+          "ProcessId": 42560,
+          "ParentProcessId": 45036,
+          "CreationDate": "/Date(1791111001196)/",
+          "ExecutablePath": "C:\\Program Files\\nodejs\\node.exe",
+          "CommandLine": "\"C:\\Program Files\\nodejs\\node.exe\" C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work\\owned-tree.mjs"
+        },
+        {
+          "ProcessId": 22748,
+          "ParentProcessId": 42560,
+          "CreationDate": "/Date(1791111001241)/",
+          "ExecutablePath": "C:\\Program Files\\nodejs\\node.exe",
+          "CommandLine": "\"C:\\Program Files\\nodejs\\node.exe\" C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work\\owned-tree.mjs 1"
+        },
+        {
+          "ProcessId": 51300,
+          "ParentProcessId": 22748,
+          "CreationDate": "/Date(1791111001286)/",
+          "ExecutablePath": "C:\\Program Files\\nodejs\\node.exe",
+          "CommandLine": "\"C:\\Program Files\\nodejs\\node.exe\" C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work\\owned-tree.mjs 2"
+        }
+      ]
+    },
+    {
+      "stage": "wrong-thread-request",
+      "observedAt": "2026-10-04T10:50:12.701Z",
+      "pids": [
+        {
+          "pid": 42888,
+          "alive": true
+        },
+        {
+          "pid": 7964,
+          "alive": true
+        },
+        {
+          "pid": 30448,
+          "alive": true
+        },
+        {
+          "pid": 29152,
+          "alive": true
+        },
+        {
+          "pid": 42560,
+          "alive": true
+        },
+        {
+          "pid": 22748,
+          "alive": true
+        },
+        {
+          "pid": 51300,
+          "alive": true
+        }
+      ],
+      "identities": [
+        {
+          "ProcessId": 42888,
+          "ParentProcessId": 32432,
+          "CreationDate": "/Date(1791110990253)/",
+          "ExecutablePath": "C:\\Program Files\\nodejs\\node.exe",
+          "CommandLine": "\"C:\\Program Files\\nodejs\\node.exe\" C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work\\harness-independent.mjs"
+        },
+        {
+          "ProcessId": 7964,
+          "ParentProcessId": 28792,
+          "CreationDate": "/Date(1791110990824)/",
+          "ExecutablePath": "C:\\Program Files\\nodejs\\node.exe",
+          "CommandLine": "\"C:\\Program Files\\nodejs\\node.exe\" C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work\\owned-tree.mjs"
+        },
+        {
+          "ProcessId": 30448,
+          "ParentProcessId": 7964,
+          "CreationDate": "/Date(1791110990870)/",
+          "ExecutablePath": "C:\\Program Files\\nodejs\\node.exe",
+          "CommandLine": "\"C:\\Program Files\\nodejs\\node.exe\" C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work\\owned-tree.mjs 1"
+        },
+        {
+          "ProcessId": 29152,
+          "ParentProcessId": 30448,
+          "CreationDate": "/Date(1791110990915)/",
+          "ExecutablePath": "C:\\Program Files\\nodejs\\node.exe",
+          "CommandLine": "\"C:\\Program Files\\nodejs\\node.exe\" C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work\\owned-tree.mjs 2"
+        },
+        {
+          "ProcessId": 42560,
+          "ParentProcessId": 45036,
+          "CreationDate": "/Date(1791111001196)/",
+          "ExecutablePath": "C:\\Program Files\\nodejs\\node.exe",
+          "CommandLine": "\"C:\\Program Files\\nodejs\\node.exe\" C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work\\owned-tree.mjs"
+        },
+        {
+          "ProcessId": 22748,
+          "ParentProcessId": 42560,
+          "CreationDate": "/Date(1791111001241)/",
+          "ExecutablePath": "C:\\Program Files\\nodejs\\node.exe",
+          "CommandLine": "\"C:\\Program Files\\nodejs\\node.exe\" C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work\\owned-tree.mjs 1"
+        },
+        {
+          "ProcessId": 51300,
+          "ParentProcessId": 22748,
+          "CreationDate": "/Date(1791111001286)/",
+          "ExecutablePath": "C:\\Program Files\\nodejs\\node.exe",
+          "CommandLine": "\"C:\\Program Files\\nodejs\\node.exe\" C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work\\owned-tree.mjs 2"
+        }
+      ]
+    },
+    {
+      "stage": "clean-b",
+      "observedAt": "2026-10-04T10:50:13.687Z",
+      "pids": [
+        {
+          "pid": 42888,
+          "alive": true
+        },
+        {
+          "pid": 7964,
+          "alive": true
+        },
+        {
+          "pid": 30448,
+          "alive": true
+        },
+        {
+          "pid": 29152,
+          "alive": true
+        },
+        {
+          "pid": 42560,
+          "alive": false
+        },
+        {
+          "pid": 22748,
+          "alive": false
+        },
+        {
+          "pid": 51300,
+          "alive": false
+        }
+      ],
+      "identities": [
+        {
+          "ProcessId": 42888,
+          "ParentProcessId": 32432,
+          "CreationDate": "/Date(1791110990253)/",
+          "ExecutablePath": "C:\\Program Files\\nodejs\\node.exe",
+          "CommandLine": "\"C:\\Program Files\\nodejs\\node.exe\" C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work\\harness-independent.mjs"
+        },
+        {
+          "ProcessId": 7964,
+          "ParentProcessId": 28792,
+          "CreationDate": "/Date(1791110990824)/",
+          "ExecutablePath": "C:\\Program Files\\nodejs\\node.exe",
+          "CommandLine": "\"C:\\Program Files\\nodejs\\node.exe\" C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work\\owned-tree.mjs"
+        },
+        {
+          "ProcessId": 30448,
+          "ParentProcessId": 7964,
+          "CreationDate": "/Date(1791110990870)/",
+          "ExecutablePath": "C:\\Program Files\\nodejs\\node.exe",
+          "CommandLine": "\"C:\\Program Files\\nodejs\\node.exe\" C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work\\owned-tree.mjs 1"
+        },
+        {
+          "ProcessId": 29152,
+          "ParentProcessId": 30448,
+          "CreationDate": "/Date(1791110990915)/",
+          "ExecutablePath": "C:\\Program Files\\nodejs\\node.exe",
+          "CommandLine": "\"C:\\Program Files\\nodejs\\node.exe\" C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work\\owned-tree.mjs 2"
+        }
+      ]
+    },
+    {
+      "stage": "terminate-a",
+      "observedAt": "2026-10-04T10:50:14.657Z",
+      "pids": [
+        {
+          "pid": 42888,
+          "alive": true
+        },
+        {
+          "pid": 7964,
+          "alive": false
+        },
+        {
+          "pid": 30448,
+          "alive": false
+        },
+        {
+          "pid": 29152,
+          "alive": false
+        },
+        {
+          "pid": 42560,
+          "alive": false
+        },
+        {
+          "pid": 22748,
+          "alive": false
+        },
+        {
+          "pid": 51300,
+          "alive": false
+        }
+      ],
+      "identities": {
+        "ProcessId": 42888,
+        "ParentProcessId": 32432,
+        "CreationDate": "/Date(1791110990253)/",
+        "ExecutablePath": "C:\\Program Files\\nodejs\\node.exe",
+        "CommandLine": "\"C:\\Program Files\\nodejs\\node.exe\" C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work\\harness-independent.mjs"
+      }
+    }
+  ],
+  "cross": {
+    "id": 8,
+    "result": {
+      "terminated": false
+    }
+  },
+  "cleanB": {
+    "id": 9,
+    "result": {}
+  },
+  "terminateA": {
+    "id": 10,
+    "result": {
+      "terminated": true
+    }
+  },
+  "lists": [
+    {
+      "id": "01a10688-c9b7-7722-94bd-a9f8ff163858",
+      "list": {
+        "data": [],
+        "nextCursor": null
+      }
+    },
+    {
+      "id": "01a10688-f2d8-7331-9739-fb727817e5b5",
+      "list": {
+        "data": [],
+        "nextCursor": null
+      }
+    }
+  ],
+  "scope": "Two loaded threads same cwd, 3-process bounded trees, wrong thread/processId pairing, independent harness process; CIM identity observations. No arbitrary process ownership, PID-reuse or detach guarantee."
+}

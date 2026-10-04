@@ -1,0 +1,83 @@
+[
+  {
+    "operation": "interrupt",
+    "threadId": "01a10618-c710-7d12-99b3-e1539fa1e1b7",
+    "turnId": "01a10618-c72e-7b33-bb84-70942622ce64",
+    "processInfo": {
+      "itemId": "call_1",
+      "processId": "81068",
+      "command": "& 'C:\\Program Files\\nodejs\\node.exe' 'C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-47-29-135Z\\work\\managed-process-fixture.mjs'",
+      "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-47-29-135Z\\work",
+      "osPid": null,
+      "cpuPercent": null,
+      "rssKb": null
+    },
+    "pid": 4692,
+    "beforeAlive": true,
+    "ack": {},
+    "afterList": {
+      "data": [
+        {
+          "itemId": "call_1",
+          "processId": "81068",
+          "command": "& 'C:\\Program Files\\nodejs\\node.exe' 'C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-47-29-135Z\\work\\managed-process-fixture.mjs'",
+          "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-47-29-135Z\\work",
+          "osPid": null,
+          "cpuPercent": null,
+          "rssKb": null
+        }
+      ],
+      "nextCursor": null
+    },
+    "afterAlive": true,
+    "turnStatus": "interrupted"
+  },
+  {
+    "operation": "terminate",
+    "threadId": "01a10618-f24d-7d40-8be4-5c83577b8abe",
+    "turnId": "01a10618-f283-79f2-9a2e-cae030332b85",
+    "processInfo": {
+      "itemId": "call_3",
+      "processId": "81307",
+      "command": "& 'C:\\Program Files\\nodejs\\node.exe' 'C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-47-29-135Z\\work\\managed-process-fixture.mjs'",
+      "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-47-29-135Z\\work",
+      "osPid": null,
+      "cpuPercent": null,
+      "rssKb": null
+    },
+    "pid": 42780,
+    "beforeAlive": true,
+    "ack": {
+      "terminated": true
+    },
+    "afterList": {
+      "data": [],
+      "nextCursor": null
+    },
+    "afterAlive": false,
+    "turnStatus": null
+  },
+  {
+    "operation": "clean",
+    "threadId": "01a10619-1cc5-7110-a91d-9cd263b45998",
+    "turnId": "01a10619-1cf3-7972-8e30-19e1708fe982",
+    "processInfo": {
+      "itemId": "call_5",
+      "processId": "7436",
+      "command": "& 'C:\\Program Files\\nodejs\\node.exe' 'C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-47-29-135Z\\work\\managed-process-fixture.mjs'",
+      "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-47-29-135Z\\work",
+      "osPid": null,
+      "cpuPercent": null,
+      "rssKb": null
+    },
+    "pid": 57652,
+    "beforeAlive": true,
+    "ack": {},
+    "afterList": {
+      "data": [],
+      "nextCursor": null
+    },
+    "afterAlive": false,
+    "turnStatus": null
+  }
+]

@@ -1,0 +1,138 @@
+{
+  "createdAt": "2026-10-04T08:17:52.910Z",
+  "executable": "C:\\Users\\wmasa\\.vscode\\extensions\\openai.chatgpt-26.930.31730-win32-x64\\bin\\windows-x86_64\\codex.exe",
+  "version": "codex-cli 0.160.0",
+  "mode": "Real App Server with loopback model fixture; no cloud authentication",
+  "run": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-17-50-493Z",
+  "results": [
+    {
+      "name": "handshake_required",
+      "status": "pass",
+      "evidence": {
+        "code": -32600,
+        "message": "Not initialized"
+      }
+    },
+    {
+      "name": "initialize_0_160_0",
+      "status": "pass",
+      "evidence": {
+        "userAgent": "Codex Desktop/0.160.0 (Windows 10.0.26200; x86_64) dumb (agentdock_probe; 0.1)",
+        "codexHome": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-17-50-493Z\\codex-home",
+        "platformFamily": "windows",
+        "platformOs": "windows"
+      }
+    },
+    {
+      "name": "thread_start_local_provider",
+      "status": "pass",
+      "evidence": {
+        "threadId": "01a105fd-a375-7022-abe8-0f13542305f7",
+        "provider": "agentdock_probe"
+      }
+    },
+    {
+      "name": "disabled_plugin_ids_saved",
+      "status": "fail",
+      "error": "Saved list missing"
+    },
+    {
+      "name": "empty_background_terminal_list",
+      "status": "pass",
+      "evidence": {
+        "data": [],
+        "nextCursor": null
+      }
+    },
+    {
+      "name": "model_response_and_completion",
+      "status": "pass",
+      "evidence": {
+        "turnId": "01a105fd-a3a3-76d3-8fe2-f21e74ccc40f",
+        "status": "completed",
+        "requestCount": 1
+      }
+    },
+    {
+      "name": "active_turn_interrupt",
+      "status": "pass",
+      "evidence": {
+        "acknowledgment": {},
+        "status": "interrupted",
+        "elapsedMs": 93
+      }
+    },
+    {
+      "name": "restart_read_does_not_load",
+      "status": "pass",
+      "evidence": {
+        "turnCount": 2,
+        "loaded": [],
+        "requestCount": 2
+      }
+    },
+    {
+      "name": "resume_idle_thread_without_queue",
+      "status": "pass",
+      "evidence": {
+        "loaded": true,
+        "requestCount": 2,
+        "disabledPluginIds": [
+          "probe@local"
+        ]
+      }
+    },
+    {
+      "name": "experimental_gate",
+      "status": "pass",
+      "evidence": {
+        "code": -32600,
+        "message": "thread/backgroundTerminals/list requires experimentalApi capability"
+      }
+    },
+    {
+      "name": "existing_config_unchanged",
+      "status": "pass"
+    }
+  ],
+  "modelRequests": [
+    {
+      "mode": "complete",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    }
+  ],
+  "limitations": [
+    "No real cloud inference/authentication",
+    "No subagent or OS process termination tested",
+    "Plugin ID persistence is not capability filtering",
+    "Idle resume without queue is not live reconnection safety"
+  ]
+}

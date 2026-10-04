@@ -1,0 +1,688 @@
+{
+  "results": [
+    {
+      "name": "deep_queue_completion_failure_and_child",
+      "status": "pass",
+      "evidence": [
+        {
+          "scenario": "normal",
+          "threadId": "01a10632-9dd8-77a1-8485-3d277b6e583f",
+          "turnId": "01a10632-9e04-7a21-bfb6-aabf66dcc3c1",
+          "queueBefore": {
+            "data": [
+              {
+                "id": "01a10632-a14f-78b2-88c2-d9f6e28b1e7a",
+                "input": [
+                  {
+                    "type": "text",
+                    "text": "PROBE: remaining normal",
+                    "text_elements": []
+                  }
+                ],
+                "clientUserMessageId": "01a10632-a14d-7182-a12f-f4fa40b0241f"
+              }
+            ],
+            "nextCursor": null
+          },
+          "queueAfter": {
+            "data": [],
+            "nextCursor": null
+          },
+          "requestsBefore": 1,
+          "requestsAfter": 2,
+          "turns": [
+            {
+              "id": "01a10632-9e04-7a21-bfb6-aabf66dcc3c1",
+              "status": "completed"
+            },
+            {
+              "id": "01a10632-a228-7540-9c5e-e17ba1791ac5",
+              "status": "inProgress"
+            }
+          ],
+          "child": null,
+          "observationMs": 1500
+        },
+        {
+          "scenario": "failure",
+          "threadId": "01a10632-a868-7ae2-82f5-50a4bdcc1fc7",
+          "turnId": "01a10632-a897-7c41-a9f5-13806e38af0e",
+          "queueBefore": {
+            "data": [
+              {
+                "id": "01a10632-aa16-7070-90c3-92a8be002cf4",
+                "input": [
+                  {
+                    "type": "text",
+                    "text": "PROBE: remaining failure",
+                    "text_elements": []
+                  }
+                ],
+                "clientUserMessageId": "01a10632-aa15-72b3-a0a6-4154bd0eefe0"
+              }
+            ],
+            "nextCursor": null
+          },
+          "queueAfter": {
+            "data": [],
+            "nextCursor": null
+          },
+          "requestsBefore": 3,
+          "requestsAfter": 5,
+          "turns": [
+            {
+              "id": "01a10632-a897-7c41-a9f5-13806e38af0e",
+              "status": "interrupted"
+            },
+            {
+              "id": "01a10632-aac3-73c0-8e60-6870cd00e3dc",
+              "status": "failed"
+            },
+            {
+              "id": "01a10632-ab28-7551-ab1a-97f339ccdc1c",
+              "status": "inProgress"
+            }
+          ],
+          "child": null,
+          "observationMs": 1500
+        },
+        {
+          "scenario": "interrupt",
+          "threadId": "01a10632-b155-7632-9b74-1baa1b1c7bb9",
+          "turnId": "01a10632-b18a-7c81-ac86-efc3b32e6376",
+          "queueBefore": {
+            "data": [
+              {
+                "id": "01a10632-b2be-7623-9788-c0df4b71c07a",
+                "input": [
+                  {
+                    "type": "text",
+                    "text": "PROBE: remaining interrupt",
+                    "text_elements": []
+                  }
+                ],
+                "clientUserMessageId": "01a10632-b2bd-71a3-92a0-14377b7a2080"
+              }
+            ],
+            "nextCursor": null
+          },
+          "queueAfter": {
+            "data": [
+              {
+                "id": "01a10632-b2be-7623-9788-c0df4b71c07a",
+                "input": [
+                  {
+                    "type": "text",
+                    "text": "PROBE: remaining interrupt",
+                    "text_elements": []
+                  }
+                ],
+                "clientUserMessageId": "01a10632-b2bd-71a3-92a0-14377b7a2080"
+              }
+            ],
+            "nextCursor": null
+          },
+          "requestsBefore": 6,
+          "requestsAfter": 6,
+          "turns": [
+            {
+              "id": "01a10632-b18a-7c81-ac86-efc3b32e6376",
+              "status": "interrupted"
+            }
+          ],
+          "child": null,
+          "observationMs": 1500
+        },
+        {
+          "scenario": "active-child",
+          "threadId": "01a10632-b94a-7983-9075-77a76b72ceb3",
+          "turnId": "01a10632-b980-7293-b46b-832f3992e99b",
+          "queueBefore": {
+            "data": [
+              {
+                "id": "01a10632-bb81-7513-bbbb-46c2e4a47070",
+                "input": [
+                  {
+                    "type": "text",
+                    "text": "PROBE: remaining active-child",
+                    "text_elements": []
+                  }
+                ],
+                "clientUserMessageId": "01a10632-bb7f-77c1-8560-44b4c0954322"
+              }
+            ],
+            "nextCursor": null
+          },
+          "queueAfter": {
+            "data": [],
+            "nextCursor": null
+          },
+          "requestsBefore": 9,
+          "requestsAfter": 10,
+          "turns": [
+            {
+              "id": "01a10632-b980-7293-b46b-832f3992e99b",
+              "status": "completed"
+            },
+            {
+              "id": "01a10632-bc0f-7281-ac37-645484ad1b33",
+              "status": "inProgress"
+            }
+          ],
+          "child": {
+            "id": "01a10632-ba1a-72c3-955d-e3d55198f8e0",
+            "status": {
+              "type": "active",
+              "activeFlags": []
+            },
+            "turns": [
+              {
+                "id": "01a10632-ba4a-7563-8927-816641b1bd63",
+                "status": "inProgress"
+              }
+            ]
+          },
+          "observationMs": 1500
+        }
+      ]
+    },
+    {
+      "name": "deep_tree_disconnect_recovery",
+      "status": "pass",
+      "evidence": {
+        "parent": "01a10632-c3a0-7153-85ae-3e358129e131",
+        "child": "01a10632-c4f5-7a63-8ef6-0aef3926d5d0",
+        "grandchild": "01a10632-c615-71a1-b141-c7e61997a2bf",
+        "rows": [
+          {
+            "id": "01a10632-c3a0-7153-85ae-3e358129e131",
+            "loaded": true,
+            "source": "vscode",
+            "status": {
+              "type": "active",
+              "activeFlags": []
+            },
+            "turns": [
+              {
+                "id": "01a10632-c3e1-7ef2-b839-bf6ff0472665",
+                "status": "inProgress"
+              }
+            ]
+          },
+          {
+            "id": "01a10632-c4f5-7a63-8ef6-0aef3926d5d0",
+            "loaded": true,
+            "source": {
+              "subAgent": {
+                "thread_spawn": {
+                  "parent_thread_id": "01a10632-c3a0-7153-85ae-3e358129e131",
+                  "depth": 1,
+                  "agent_path": null,
+                  "agent_nickname": "Hume",
+                  "agent_role": null
+                }
+              }
+            },
+            "status": {
+              "type": "active",
+              "activeFlags": []
+            },
+            "turns": [
+              {
+                "id": "01a10632-c51c-7eb2-82a8-16b2b719e773",
+                "status": "interrupted"
+              },
+              {
+                "id": "01a10632-c5b0-7dd0-a640-cfc1f168aa73",
+                "status": "inProgress"
+              }
+            ]
+          },
+          {
+            "id": "01a10632-c615-71a1-b141-c7e61997a2bf",
+            "loaded": true,
+            "source": {
+              "subAgent": {
+                "thread_spawn": {
+                  "parent_thread_id": "01a10632-c4f5-7a63-8ef6-0aef3926d5d0",
+                  "depth": 2,
+                  "agent_path": null,
+                  "agent_nickname": "Cicero",
+                  "agent_role": null
+                }
+              }
+            },
+            "status": {
+              "type": "idle"
+            },
+            "turns": [
+              {
+                "id": "01a10632-c637-72a3-a297-8e8f7779acdf",
+                "status": "completed"
+              }
+            ]
+          }
+        ],
+        "before": 15,
+        "afterRead": 15,
+        "afterResume": 15,
+        "eventsBeforeResume": [
+          "remoteControl/status/changed",
+          "deprecationNotice",
+          "deprecationNotice",
+          "deprecationNotice"
+        ],
+        "notifications": [
+          {
+            "threadId": "01a10632-c4f5-7a63-8ef6-0aef3926d5d0",
+            "status": "interrupted"
+          },
+          {
+            "threadId": "01a10632-c3a0-7153-85ae-3e358129e131",
+            "status": "interrupted"
+          }
+        ],
+        "knownIdsRecoveryOnly": true
+      }
+    }
+  ],
+  "modelRequests": [
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": false,
+      "fixtureMarker": "PROBE: queue boundary normal",
+      "fixtureSkillMentioned": false,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": false,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": false,
+      "fixtureMarker": "PROBE: remaining normal",
+      "fixtureSkillMentioned": false,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": false,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": false,
+      "fixtureMarker": "PROBE: queue boundary failure",
+      "fixtureSkillMentioned": false,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": false,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "fail",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": false,
+      "fixtureMarker": "PROBE: deliberate fixture failure",
+      "fixtureSkillMentioned": false,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": false,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": false,
+      "fixtureMarker": "PROBE: remaining failure",
+      "fixtureSkillMentioned": false,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": false,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": false,
+      "fixtureMarker": "PROBE: queue boundary interrupt",
+      "fixtureSkillMentioned": false,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": false,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": false,
+      "fixtureMarker": "PROBE: queue boundary active-child",
+      "fixtureSkillMentioned": false,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": false,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": false,
+      "fixtureMarker": "PROBE: queue boundary active-child",
+      "fixtureSkillMentioned": false,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": false,
+      "fixtureToolOutputs": [
+        "{\"agent_id\":\"01a10632-ba1a-72c3-955d-e3d55198f8e0\",\"nickname\":\"McClintock\"}"
+      ],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": false,
+      "fixtureMarker": "PROBE_CHILD_QUEUE: held child only",
+      "fixtureSkillMentioned": false,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": false,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": false,
+      "fixtureMarker": "PROBE: remaining active-child",
+      "fixtureSkillMentioned": false,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": false,
+      "fixtureToolOutputs": [
+        "{\"agent_id\":\"01a10632-ba1a-72c3-955d-e3d55198f8e0\",\"nickname\":\"McClintock\"}"
+      ],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": false,
+      "fixtureMarker": "PROBE: recovery parent",
+      "fixtureSkillMentioned": false,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": false,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": false,
+      "fixtureMarker": "PROBE: recovery parent",
+      "fixtureSkillMentioned": false,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": false,
+      "fixtureToolOutputs": [
+        "{\"agent_id\":\"01a10632-c4f5-7a63-8ef6-0aef3926d5d0\",\"nickname\":\"Hume\"}"
+      ],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": false,
+      "fixtureMarker": "PROBE: recovery child",
+      "fixtureSkillMentioned": false,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": false,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": false,
+      "fixtureMarker": "PROBE: recovery child",
+      "fixtureSkillMentioned": false,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": false,
+      "fixtureToolOutputs": [
+        "{\"agent_id\":\"01a10632-c615-71a1-b141-c7e61997a2bf\",\"nickname\":\"Cicero\"}"
+      ],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": false,
+      "fixtureMarker": "PROBE_GRANDCHILD_RECOVERY: hold",
+      "fixtureSkillMentioned": false,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": false,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    }
+  ]
+}

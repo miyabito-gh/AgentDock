@@ -1,0 +1,3568 @@
+{
+  "results": [
+    {
+      "name": "plugin_cli_api_config_version_conflict",
+      "status": "pass",
+      "evidence": {
+        "fixture": {
+          "marketplace": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\marketplace",
+          "added": {
+            "marketplaceName": "agentdock-probe",
+            "installedRoot": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\marketplace",
+            "alreadyAdded": false
+          }
+        },
+        "seed": {
+          "id": 2,
+          "result": {
+            "status": "ok",
+            "version": "sha256:a65cce6a6b7e733ce5b9e77f95f58d34c4812182f0f64c4b28a36147b0fc9d0f",
+            "filePath": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+            "overriddenMetadata": null
+          }
+        },
+        "added": {
+          "args": [
+            "plugin",
+            "add",
+            "fixture@agentdock-probe",
+            "--json"
+          ],
+          "exitCode": 0,
+          "signal": null,
+          "stdout": "{\n  \"pluginId\": \"fixture@agentdock-probe\",\n  \"name\": \"fixture\",\n  \"marketplaceName\": \"agentdock-probe\",\n  \"version\": \"0.1.0\",\n  \"installedPath\": \"C:\\\\Users\\\\wmasa\\\\Documents\\\\Rust\\\\AgentDock\\\\probes\\\\app-server\\\\runs\\\\2026-10-04T10-53-30-021Z\\\\codex-home\\\\plugins\\\\cache\\\\agentdock-probe\\\\fixture\\\\0.1.0\",\n  \"authPolicy\": \"ON_INSTALL\"\n}\n",
+          "stderr": ""
+        },
+        "stale": {
+          "error": {
+            "code": -32600,
+            "data": {
+              "config_write_error_code": "configVersionConflict"
+            },
+            "message": "Configuration was modified since last read. Fetch latest version and retry."
+          },
+          "id": 3
+        },
+        "rows": [
+          {
+            "round": 0,
+            "began": 1791111210458,
+            "ended": 1791111210529,
+            "baseline": {
+              "id": 4,
+              "result": {
+                "status": "ok",
+                "version": "sha256:a65cce6a6b7e733ce5b9e77f95f58d34c4812182f0f64c4b28a36147b0fc9d0f",
+                "filePath": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                "overriddenMetadata": null
+              }
+            },
+            "operation": {
+              "args": [
+                "plugin",
+                "add",
+                "fixture@agentdock-probe",
+                "--json"
+              ],
+              "exitCode": 0,
+              "signal": null,
+              "stdout": "{\n  \"pluginId\": \"fixture@agentdock-probe\",\n  \"name\": \"fixture\",\n  \"marketplaceName\": \"agentdock-probe\",\n  \"version\": \"0.1.0\",\n  \"installedPath\": \"C:\\\\Users\\\\wmasa\\\\Documents\\\\Rust\\\\AgentDock\\\\probes\\\\app-server\\\\runs\\\\2026-10-04T10-53-30-021Z\\\\codex-home\\\\plugins\\\\cache\\\\agentdock-probe\\\\fixture\\\\0.1.0\",\n  \"authPolicy\": \"ON_INSTALL\"\n}\n",
+              "stderr": ""
+            },
+            "api": {
+              "id": 5,
+              "result": {
+                "status": "ok",
+                "version": "sha256:943460a4942630fc06b9f14d78c777c0fbdaf063f62161f8c965706703a5814e",
+                "filePath": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                "overriddenMetadata": null
+              }
+            },
+            "after": "model = \"gpt-5.4\"\nmodel_provider = \"agentdock_probe\"\ncli_auth_credentials_store = \"file\"\napproval_policy = \"never\"\nsandbox_mode = \"read-only\"\n[analytics]\nenabled = false\n[model_providers.agentdock_probe]\nname = \"AgentDock local fixture\"\nbase_url = \"http://127.0.0.1:57614/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\nsupports_websockets = false\nrequest_max_retries = 0\nstream_max_retries = 0\nstream_idle_timeout_ms = 60000\n[agents]\nmax_depth = 2\n\n[mcp_servers.agentdock_fixture]\ncommand = \"C:/Program Files/nodejs/node.exe\"\nargs = [\"C:/Users/wmasa/Documents/Rust/AgentDock/probes/app-server/mcp-fixture.mjs\"]\nenabled = true\nstartup_timeout_sec = 5\n\n[marketplaces.agentdock-probe]\nsource_type = \"local\"\nsource = '\\\\?\\C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\marketplace'\n\n[tui]\nshow_tooltips = false\n\n[plugins.\"fixture@agentdock-probe\"]\nenabled = true\n",
+            "read": {
+              "id": 6,
+              "result": {
+                "config": {
+                  "model": "gpt-5.4",
+                  "review_model": null,
+                  "model_context_window": null,
+                  "model_auto_compact_token_limit": null,
+                  "model_auto_compact_token_limit_scope": null,
+                  "model_provider": "agentdock_probe",
+                  "approval_policy": "never",
+                  "approvals_reviewer": null,
+                  "sandbox_mode": "read-only",
+                  "sandbox_workspace_write": null,
+                  "forced_chatgpt_workspace_id": null,
+                  "forced_login_method": null,
+                  "web_search": null,
+                  "tools": null,
+                  "instructions": null,
+                  "developer_instructions": null,
+                  "compact_prompt": null,
+                  "model_reasoning_effort": null,
+                  "model_reasoning_summary": null,
+                  "model_verbosity": null,
+                  "service_tier": null,
+                  "analytics": {
+                    "enabled": false
+                  },
+                  "apps": null,
+                  "browser_use": null,
+                  "computer_use": null,
+                  "desktop": null,
+                  "openai_base_url": null,
+                  "cli_auth_credentials_store": "file",
+                  "thread_unload_delay_secs": null,
+                  "experimental_realtime_ws_base_url": null,
+                  "memories": null,
+                  "allow_symlinked_codex_home": null,
+                  "background_terminal_max_timeout": 300000,
+                  "experimental_realtime_ws_model": null,
+                  "include_collaboration_mode_instructions": true,
+                  "shell_environment_policy": {
+                    "inherit": null,
+                    "ignore_default_excludes": null,
+                    "exclude": null,
+                    "set": null,
+                    "include_only": null,
+                    "filters": null,
+                    "experimental_use_profile": null
+                  },
+                  "disable_paste_burst": null,
+                  "js_repl_node_path": null,
+                  "sqlite_home": null,
+                  "notice": null,
+                  "oss_provider": null,
+                  "marketplaces": {
+                    "agentdock-probe": {
+                      "last_updated": null,
+                      "last_revision": null,
+                      "source_type": "local",
+                      "source": "\\\\?\\C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\marketplace",
+                      "ref": null,
+                      "sparse_paths": null
+                    }
+                  },
+                  "mcp_optional_startup_grace_ms": null,
+                  "experimental_compact_prompt_file": null,
+                  "check_for_update_on_startup": null,
+                  "experimental_thread_store_endpoint": null,
+                  "personality": null,
+                  "skills": null,
+                  "cloud": null,
+                  "features": {
+                    "api_key_model_discovery": false,
+                    "auth_elicitation": true,
+                    "background_paginated_rollout_migration": false,
+                    "codex_apps_mcp_2026_07_28": false,
+                    "mcp_2026_07_28": false,
+                    "memories": false,
+                    "mentions_v2": true,
+                    "remote_control": false,
+                    "remote_plugin": true,
+                    "tool_suggest": true,
+                    "windows_sandbox_service": false
+                  },
+                  "mcp_servers": {
+                    "agentdock_fixture": {
+                      "command": "C:/Program Files/nodejs/node.exe",
+                      "args": [
+                        "C:/Users/wmasa/Documents/Rust/AgentDock/probes/app-server/mcp-fixture.mjs"
+                      ],
+                      "environment_id": "local",
+                      "enabled": true,
+                      "startup_timeout_sec": 5,
+                      "tool_timeout_sec": null
+                    }
+                  },
+                  "project_doc_max_bytes": 32768,
+                  "include_environment_context": true,
+                  "include_apps_instructions": true,
+                  "mcp_oauth_callback_port": null,
+                  "agents": {
+                    "enabled": null,
+                    "max_concurrent_threads_per_session": null,
+                    "max_depth": 2,
+                    "default_subagent_model": null,
+                    "default_subagent_reasoning_effort": null,
+                    "job_max_runtime_seconds": null,
+                    "interrupt_message": null
+                  },
+                  "experimental_realtime_ws_startup_context": null,
+                  "model_catalog_json": null,
+                  "suppress_unstable_features_warning": null,
+                  "otel": null,
+                  "windows": null,
+                  "include_permissions_instructions": true,
+                  "log_dir": null,
+                  "auto_review": null,
+                  "mcp_oauth_callback_url": null,
+                  "model_post_turn_compact_threshold_percent": null,
+                  "hide_agent_reasoning": false,
+                  "tool_suggest": null,
+                  "js_repl_node_module_dirs": null,
+                  "file_opener": "vscode",
+                  "chatgpt_base_url": "https://chatgpt.com/backend-api/",
+                  "notify": null,
+                  "tui": {
+                    "notifications": true,
+                    "notification_method": "auto",
+                    "notification_condition": "unfocused",
+                    "animations": true,
+                    "screen_reader_detection_done": null,
+                    "effects": {
+                      "starfield": true,
+                      "shimmer": true,
+                      "welcome": true,
+                      "effort": true,
+                      "progress": true,
+                      "title": true
+                    },
+                    "rendering": {
+                      "mermaid": true,
+                      "math": true,
+                      "tables": true,
+                      "lists": true
+                    },
+                    "show_tooltips": false,
+                    "show_server_version_notice": true,
+                    "auto_recap": true,
+                    "disable_paste_burst": null,
+                    "vim_mode_default": false,
+                    "question_esc_back": true,
+                    "raw_output_mode": false,
+                    "fullscreen_transcript": true,
+                    "copy_on_select": "auto",
+                    "right_click_paste": "auto",
+                    "alternate_screen": "auto",
+                    "status_line": null,
+                    "status_line_use_colors": true,
+                    "terminal_title": null,
+                    "theme": null,
+                    "pet": null,
+                    "pet_anchor": "composer",
+                    "session_picker_view": null,
+                    "resume_cwd": null,
+                    "keymap": {
+                      "global": {
+                        "open_agents": null,
+                        "open_transcript": null,
+                        "find_transcript": null,
+                        "focus_activity": null,
+                        "open_external_editor": null,
+                        "copy": null,
+                        "clear_terminal": null,
+                        "submit": null,
+                        "queue": null,
+                        "toggle_shortcuts": null,
+                        "toggle_vim_mode": null,
+                        "toggle_fast_mode": null,
+                        "toggle_raw_output": null,
+                        "toggle_side_conversation": null
+                      },
+                      "chat": {
+                        "toggle_voice": null,
+                        "toggle_voice_mute": null,
+                        "interrupt_turn": null,
+                        "decrease_reasoning_effort": null,
+                        "increase_reasoning_effort": null,
+                        "previous_permission_mode": null,
+                        "next_permission_mode": null,
+                        "edit_queued_message": null,
+                        "prompt_stack_back": null,
+                        "skip_question": null
+                      },
+                      "composer": {
+                        "submit": null,
+                        "queue": null,
+                        "toggle_shortcuts": null,
+                        "history_search_previous": null,
+                        "history_search_next": null
+                      },
+                      "editor": {
+                        "insert_newline": null,
+                        "move_left": null,
+                        "move_right": null,
+                        "move_up": null,
+                        "move_down": null,
+                        "move_word_left": null,
+                        "move_word_right": null,
+                        "move_line_start": null,
+                        "move_line_end": null,
+                        "delete_backward": null,
+                        "delete_forward": null,
+                        "delete_backward_word": null,
+                        "delete_forward_word": null,
+                        "kill_line_start": null,
+                        "kill_whole_line": null,
+                        "kill_line_end": null,
+                        "yank": null
+                      },
+                      "vim_normal": {
+                        "enter_insert": null,
+                        "append_after_cursor": null,
+                        "append_line_end": null,
+                        "insert_line_start": null,
+                        "open_line_below": null,
+                        "open_line_above": null,
+                        "enter_replace_mode": null,
+                        "move_left": null,
+                        "move_right": null,
+                        "move_up": null,
+                        "move_down": null,
+                        "move_word_forward": null,
+                        "move_word_backward": null,
+                        "move_word_end": null,
+                        "move_line_start": null,
+                        "move_line_end": null,
+                        "find_forward": null,
+                        "find_backward": null,
+                        "till_forward": null,
+                        "till_backward": null,
+                        "jump_top": null,
+                        "jump_bottom": null,
+                        "delete_char": null,
+                        "replace_char": null,
+                        "repeat_last_change": null,
+                        "substitute_char": null,
+                        "delete_to_line_end": null,
+                        "change_to_line_end": null,
+                        "yank_line": null,
+                        "paste_after": null,
+                        "start_delete_operator": null,
+                        "start_yank_operator": null,
+                        "start_change_operator": null,
+                        "undo": null,
+                        "redo": null,
+                        "cancel_operator": null
+                      },
+                      "vim_operator": {
+                        "delete_line": null,
+                        "yank_line": null,
+                        "motion_left": null,
+                        "motion_right": null,
+                        "motion_up": null,
+                        "motion_down": null,
+                        "motion_word_forward": null,
+                        "motion_word_backward": null,
+                        "motion_word_end": null,
+                        "motion_line_start": null,
+                        "motion_line_end": null,
+                        "motion_find_forward": null,
+                        "motion_find_backward": null,
+                        "motion_till_forward": null,
+                        "motion_till_backward": null,
+                        "motion_jump_top": null,
+                        "motion_jump_bottom": null,
+                        "select_inner_text_object": null,
+                        "select_around_text_object": null,
+                        "cancel": null
+                      },
+                      "vim_search": {
+                        "forward": null,
+                        "backward": null,
+                        "next": null,
+                        "previous": null
+                      },
+                      "vim_text_object": {
+                        "word": null,
+                        "big_word": null,
+                        "parentheses": null,
+                        "brackets": null,
+                        "braces": null,
+                        "double_quote": null,
+                        "single_quote": null,
+                        "backtick": null,
+                        "cancel": null
+                      },
+                      "pager": {
+                        "scroll_up": null,
+                        "scroll_down": null,
+                        "page_up": null,
+                        "page_down": null,
+                        "half_page_up": null,
+                        "half_page_down": null,
+                        "jump_top": null,
+                        "jump_bottom": null,
+                        "close": null,
+                        "close_transcript": null,
+                        "find": null
+                      },
+                      "list": {
+                        "move_up": null,
+                        "move_down": null,
+                        "move_left": null,
+                        "move_right": null,
+                        "page_up": null,
+                        "page_down": null,
+                        "jump_top": null,
+                        "jump_bottom": null,
+                        "accept": null,
+                        "cancel": null
+                      },
+                      "agents": {
+                        "resume": null,
+                        "search": null,
+                        "new_task": null,
+                        "new_worktree": null,
+                        "rename": null,
+                        "stop": null,
+                        "archive": null,
+                        "delete": null,
+                        "hide": null,
+                        "toggle_grouping": null
+                      },
+                      "approval": {
+                        "open_fullscreen": null,
+                        "open_thread": null,
+                        "approve": null,
+                        "approve_for_session": null,
+                        "approve_for_prefix": null,
+                        "deny": null,
+                        "decline": null,
+                        "cancel": null
+                      }
+                    },
+                    "model_availability_nux": {},
+                    "terminal_resize_reflow_max_rows": null
+                  },
+                  "ghost_snapshot": null,
+                  "model_instructions_file": null,
+                  "goals": null,
+                  "experimental_realtime_ws_backend_prompt": null,
+                  "project_root_markers": [
+                    ".git"
+                  ],
+                  "mcp_oauth_credentials_store": "auto",
+                  "model_providers": {
+                    "agentdock_probe": {
+                      "name": "AgentDock local fixture",
+                      "base_url": "http://127.0.0.1:57614/v1",
+                      "model_catalog_url": null,
+                      "env_key": null,
+                      "env_key_instructions": null,
+                      "experimental_bearer_token": null,
+                      "auth": null,
+                      "gateway_oauth": null,
+                      "aws": null,
+                      "wire_api": "responses",
+                      "query_params": null,
+                      "http_headers": null,
+                      "env_http_headers": null,
+                      "request_max_retries": 0,
+                      "stream_max_retries": 0,
+                      "stream_idle_timeout_ms": 60000,
+                      "websocket_connect_timeout_ms": null,
+                      "requires_openai_auth": false,
+                      "supports_websockets": false,
+                      "supports_standalone_web_search": false
+                    }
+                  },
+                  "apps_mcp_product_sku": null,
+                  "experimental_realtime_webrtc_call_base_url": null,
+                  "plan_mode_reasoning_effort": null,
+                  "show_raw_agent_reasoning": null,
+                  "projects": null,
+                  "profile": null,
+                  "feedback": null,
+                  "plugins": {
+                    "fixture@agentdock-probe": {
+                      "enabled": true
+                    }
+                  },
+                  "realtime": null,
+                  "hooks": null,
+                  "profiles": {},
+                  "experimental_thread_store": null,
+                  "default_permissions": null,
+                  "allow_login_shell": true,
+                  "project_doc_fallback_filenames": [],
+                  "tool_output_token_limit": null,
+                  "responses_api_metadata": null,
+                  "audio": null,
+                  "experimental_use_unified_exec_tool": null,
+                  "experimental_realtime_start_instructions": null,
+                  "permissions": null,
+                  "mcp_enterprise_managed_auth": null,
+                  "history": {
+                    "persistence": "save-all",
+                    "max_bytes": null
+                  },
+                  "orchestrator": null
+                },
+                "origins": {
+                  "model_providers.agentdock_probe.requires_openai_auth": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "model_providers.agentdock_probe.supports_websockets": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "model_providers.agentdock_probe.stream_max_retries": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "analytics.enabled": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "approval_policy": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "mcp_servers.agentdock_fixture.args.0": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "mcp_servers.agentdock_fixture.startup_timeout_sec": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "marketplaces.agentdock-probe.source": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "mcp_servers.agentdock_fixture.command": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "model_provider": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "sandbox_mode": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "marketplaces.agentdock-probe.source_type": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "model_providers.agentdock_probe.stream_idle_timeout_ms": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "plugins.fixture@agentdock-probe.enabled": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "model_providers.agentdock_probe.wire_api": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "cli_auth_credentials_store": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "model": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "model_providers.agentdock_probe.base_url": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "agents.max_depth": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "model_providers.agentdock_probe.request_max_retries": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "model_providers.agentdock_probe.name": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "mcp_servers.agentdock_fixture.enabled": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "tui.show_tooltips": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  }
+                },
+                "layers": [
+                  {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15",
+                    "config": {
+                      "model": "gpt-5.4",
+                      "model_provider": "agentdock_probe",
+                      "cli_auth_credentials_store": "file",
+                      "approval_policy": "never",
+                      "sandbox_mode": "read-only",
+                      "analytics": {
+                        "enabled": false
+                      },
+                      "model_providers": {
+                        "agentdock_probe": {
+                          "name": "AgentDock local fixture",
+                          "base_url": "http://127.0.0.1:57614/v1",
+                          "wire_api": "responses",
+                          "requires_openai_auth": false,
+                          "supports_websockets": false,
+                          "request_max_retries": 0,
+                          "stream_max_retries": 0,
+                          "stream_idle_timeout_ms": 60000
+                        }
+                      },
+                      "agents": {
+                        "max_depth": 2
+                      },
+                      "mcp_servers": {
+                        "agentdock_fixture": {
+                          "command": "C:/Program Files/nodejs/node.exe",
+                          "args": [
+                            "C:/Users/wmasa/Documents/Rust/AgentDock/probes/app-server/mcp-fixture.mjs"
+                          ],
+                          "enabled": true,
+                          "startup_timeout_sec": 5
+                        }
+                      },
+                      "marketplaces": {
+                        "agentdock-probe": {
+                          "source_type": "local",
+                          "source": "\\\\?\\C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\marketplace"
+                        }
+                      },
+                      "tui": {
+                        "show_tooltips": false
+                      },
+                      "plugins": {
+                        "fixture@agentdock-probe": {
+                          "enabled": true
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "name": {
+                      "type": "system",
+                      "file": "C:\\ProgramData\\OpenAI\\Codex\\config.toml"
+                    },
+                    "version": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+                    "config": {}
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "round": 1,
+            "began": 1791111210582,
+            "ended": 1791111210650,
+            "baseline": {
+              "id": 7,
+              "result": {
+                "status": "ok",
+                "version": "sha256:943460a4942630fc06b9f14d78c777c0fbdaf063f62161f8c965706703a5814e",
+                "filePath": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                "overriddenMetadata": null
+              }
+            },
+            "operation": {
+              "args": [
+                "plugin",
+                "add",
+                "fixture@agentdock-probe",
+                "--json"
+              ],
+              "exitCode": 0,
+              "signal": null,
+              "stdout": "{\n  \"pluginId\": \"fixture@agentdock-probe\",\n  \"name\": \"fixture\",\n  \"marketplaceName\": \"agentdock-probe\",\n  \"version\": \"0.1.0\",\n  \"installedPath\": \"C:\\\\Users\\\\wmasa\\\\Documents\\\\Rust\\\\AgentDock\\\\probes\\\\app-server\\\\runs\\\\2026-10-04T10-53-30-021Z\\\\codex-home\\\\plugins\\\\cache\\\\agentdock-probe\\\\fixture\\\\0.1.0\",\n  \"authPolicy\": \"ON_INSTALL\"\n}\n",
+              "stderr": ""
+            },
+            "api": {
+              "id": 8,
+              "result": {
+                "status": "ok",
+                "version": "sha256:a65cce6a6b7e733ce5b9e77f95f58d34c4812182f0f64c4b28a36147b0fc9d0f",
+                "filePath": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                "overriddenMetadata": null
+              }
+            },
+            "after": "model = \"gpt-5.4\"\nmodel_provider = \"agentdock_probe\"\ncli_auth_credentials_store = \"file\"\napproval_policy = \"never\"\nsandbox_mode = \"read-only\"\n[analytics]\nenabled = false\n[model_providers.agentdock_probe]\nname = \"AgentDock local fixture\"\nbase_url = \"http://127.0.0.1:57614/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\nsupports_websockets = false\nrequest_max_retries = 0\nstream_max_retries = 0\nstream_idle_timeout_ms = 60000\n[agents]\nmax_depth = 2\n\n[mcp_servers.agentdock_fixture]\ncommand = \"C:/Program Files/nodejs/node.exe\"\nargs = [\"C:/Users/wmasa/Documents/Rust/AgentDock/probes/app-server/mcp-fixture.mjs\"]\nenabled = true\nstartup_timeout_sec = 5\n\n[marketplaces.agentdock-probe]\nsource_type = \"local\"\nsource = '\\\\?\\C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\marketplace'\n\n[tui]\nshow_tooltips = true\n\n[plugins.\"fixture@agentdock-probe\"]\nenabled = true\n",
+            "read": {
+              "id": 9,
+              "result": {
+                "config": {
+                  "model": "gpt-5.4",
+                  "review_model": null,
+                  "model_context_window": null,
+                  "model_auto_compact_token_limit": null,
+                  "model_auto_compact_token_limit_scope": null,
+                  "model_provider": "agentdock_probe",
+                  "approval_policy": "never",
+                  "approvals_reviewer": null,
+                  "sandbox_mode": "read-only",
+                  "sandbox_workspace_write": null,
+                  "forced_chatgpt_workspace_id": null,
+                  "forced_login_method": null,
+                  "web_search": null,
+                  "tools": null,
+                  "instructions": null,
+                  "developer_instructions": null,
+                  "compact_prompt": null,
+                  "model_reasoning_effort": null,
+                  "model_reasoning_summary": null,
+                  "model_verbosity": null,
+                  "service_tier": null,
+                  "analytics": {
+                    "enabled": false
+                  },
+                  "apps": null,
+                  "browser_use": null,
+                  "computer_use": null,
+                  "desktop": null,
+                  "ghost_snapshot": null,
+                  "cloud": null,
+                  "suppress_unstable_features_warning": null,
+                  "permissions": null,
+                  "hide_agent_reasoning": false,
+                  "experimental_thread_store_endpoint": null,
+                  "chatgpt_base_url": "https://chatgpt.com/backend-api/",
+                  "orchestrator": null,
+                  "allow_symlinked_codex_home": null,
+                  "show_raw_agent_reasoning": null,
+                  "projects": null,
+                  "agents": {
+                    "enabled": null,
+                    "max_concurrent_threads_per_session": null,
+                    "max_depth": 2,
+                    "default_subagent_model": null,
+                    "default_subagent_reasoning_effort": null,
+                    "job_max_runtime_seconds": null,
+                    "interrupt_message": null
+                  },
+                  "responses_api_metadata": null,
+                  "auto_review": null,
+                  "history": {
+                    "persistence": "save-all",
+                    "max_bytes": null
+                  },
+                  "otel": null,
+                  "realtime": null,
+                  "experimental_realtime_webrtc_call_base_url": null,
+                  "windows": null,
+                  "experimental_compact_prompt_file": null,
+                  "audio": null,
+                  "mcp_oauth_credentials_store": "auto",
+                  "features": {
+                    "api_key_model_discovery": false,
+                    "auth_elicitation": true,
+                    "background_paginated_rollout_migration": false,
+                    "codex_apps_mcp_2026_07_28": false,
+                    "mcp_2026_07_28": false,
+                    "memories": false,
+                    "mentions_v2": true,
+                    "remote_control": false,
+                    "remote_plugin": true,
+                    "tool_suggest": true,
+                    "windows_sandbox_service": false
+                  },
+                  "model_post_turn_compact_threshold_percent": null,
+                  "model_instructions_file": null,
+                  "notify": null,
+                  "default_permissions": null,
+                  "goals": null,
+                  "plan_mode_reasoning_effort": null,
+                  "experimental_realtime_ws_backend_prompt": null,
+                  "marketplaces": {
+                    "agentdock-probe": {
+                      "last_updated": null,
+                      "last_revision": null,
+                      "source_type": "local",
+                      "source": "\\\\?\\C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\marketplace",
+                      "ref": null,
+                      "sparse_paths": null
+                    }
+                  },
+                  "oss_provider": null,
+                  "tool_suggest": null,
+                  "plugins": {
+                    "fixture@agentdock-probe": {
+                      "enabled": true
+                    }
+                  },
+                  "experimental_realtime_ws_startup_context": null,
+                  "mcp_oauth_callback_url": null,
+                  "mcp_enterprise_managed_auth": null,
+                  "include_permissions_instructions": true,
+                  "mcp_oauth_callback_port": null,
+                  "background_terminal_max_timeout": 300000,
+                  "experimental_realtime_ws_base_url": null,
+                  "file_opener": "vscode",
+                  "experimental_realtime_start_instructions": null,
+                  "model_providers": {
+                    "agentdock_probe": {
+                      "name": "AgentDock local fixture",
+                      "base_url": "http://127.0.0.1:57614/v1",
+                      "model_catalog_url": null,
+                      "env_key": null,
+                      "env_key_instructions": null,
+                      "experimental_bearer_token": null,
+                      "auth": null,
+                      "gateway_oauth": null,
+                      "aws": null,
+                      "wire_api": "responses",
+                      "query_params": null,
+                      "http_headers": null,
+                      "env_http_headers": null,
+                      "request_max_retries": 0,
+                      "stream_max_retries": 0,
+                      "stream_idle_timeout_ms": 60000,
+                      "websocket_connect_timeout_ms": null,
+                      "requires_openai_auth": false,
+                      "supports_websockets": false,
+                      "supports_standalone_web_search": false
+                    }
+                  },
+                  "allow_login_shell": true,
+                  "sqlite_home": null,
+                  "tui": {
+                    "notifications": true,
+                    "notification_method": "auto",
+                    "notification_condition": "unfocused",
+                    "animations": true,
+                    "screen_reader_detection_done": null,
+                    "effects": {
+                      "starfield": true,
+                      "shimmer": true,
+                      "welcome": true,
+                      "effort": true,
+                      "progress": true,
+                      "title": true
+                    },
+                    "rendering": {
+                      "mermaid": true,
+                      "math": true,
+                      "tables": true,
+                      "lists": true
+                    },
+                    "show_tooltips": true,
+                    "show_server_version_notice": true,
+                    "auto_recap": true,
+                    "disable_paste_burst": null,
+                    "vim_mode_default": false,
+                    "question_esc_back": true,
+                    "raw_output_mode": false,
+                    "fullscreen_transcript": true,
+                    "copy_on_select": "auto",
+                    "right_click_paste": "auto",
+                    "alternate_screen": "auto",
+                    "status_line": null,
+                    "status_line_use_colors": true,
+                    "terminal_title": null,
+                    "theme": null,
+                    "pet": null,
+                    "pet_anchor": "composer",
+                    "session_picker_view": null,
+                    "resume_cwd": null,
+                    "keymap": {
+                      "global": {
+                        "open_agents": null,
+                        "open_transcript": null,
+                        "find_transcript": null,
+                        "focus_activity": null,
+                        "open_external_editor": null,
+                        "copy": null,
+                        "clear_terminal": null,
+                        "submit": null,
+                        "queue": null,
+                        "toggle_shortcuts": null,
+                        "toggle_vim_mode": null,
+                        "toggle_fast_mode": null,
+                        "toggle_raw_output": null,
+                        "toggle_side_conversation": null
+                      },
+                      "chat": {
+                        "toggle_voice": null,
+                        "toggle_voice_mute": null,
+                        "interrupt_turn": null,
+                        "decrease_reasoning_effort": null,
+                        "increase_reasoning_effort": null,
+                        "previous_permission_mode": null,
+                        "next_permission_mode": null,
+                        "edit_queued_message": null,
+                        "prompt_stack_back": null,
+                        "skip_question": null
+                      },
+                      "composer": {
+                        "submit": null,
+                        "queue": null,
+                        "toggle_shortcuts": null,
+                        "history_search_previous": null,
+                        "history_search_next": null
+                      },
+                      "editor": {
+                        "insert_newline": null,
+                        "move_left": null,
+                        "move_right": null,
+                        "move_up": null,
+                        "move_down": null,
+                        "move_word_left": null,
+                        "move_word_right": null,
+                        "move_line_start": null,
+                        "move_line_end": null,
+                        "delete_backward": null,
+                        "delete_forward": null,
+                        "delete_backward_word": null,
+                        "delete_forward_word": null,
+                        "kill_line_start": null,
+                        "kill_whole_line": null,
+                        "kill_line_end": null,
+                        "yank": null
+                      },
+                      "vim_normal": {
+                        "enter_insert": null,
+                        "append_after_cursor": null,
+                        "append_line_end": null,
+                        "insert_line_start": null,
+                        "open_line_below": null,
+                        "open_line_above": null,
+                        "enter_replace_mode": null,
+                        "move_left": null,
+                        "move_right": null,
+                        "move_up": null,
+                        "move_down": null,
+                        "move_word_forward": null,
+                        "move_word_backward": null,
+                        "move_word_end": null,
+                        "move_line_start": null,
+                        "move_line_end": null,
+                        "find_forward": null,
+                        "find_backward": null,
+                        "till_forward": null,
+                        "till_backward": null,
+                        "jump_top": null,
+                        "jump_bottom": null,
+                        "delete_char": null,
+                        "replace_char": null,
+                        "repeat_last_change": null,
+                        "substitute_char": null,
+                        "delete_to_line_end": null,
+                        "change_to_line_end": null,
+                        "yank_line": null,
+                        "paste_after": null,
+                        "start_delete_operator": null,
+                        "start_yank_operator": null,
+                        "start_change_operator": null,
+                        "undo": null,
+                        "redo": null,
+                        "cancel_operator": null
+                      },
+                      "vim_operator": {
+                        "delete_line": null,
+                        "yank_line": null,
+                        "motion_left": null,
+                        "motion_right": null,
+                        "motion_up": null,
+                        "motion_down": null,
+                        "motion_word_forward": null,
+                        "motion_word_backward": null,
+                        "motion_word_end": null,
+                        "motion_line_start": null,
+                        "motion_line_end": null,
+                        "motion_find_forward": null,
+                        "motion_find_backward": null,
+                        "motion_till_forward": null,
+                        "motion_till_backward": null,
+                        "motion_jump_top": null,
+                        "motion_jump_bottom": null,
+                        "select_inner_text_object": null,
+                        "select_around_text_object": null,
+                        "cancel": null
+                      },
+                      "vim_search": {
+                        "forward": null,
+                        "backward": null,
+                        "next": null,
+                        "previous": null
+                      },
+                      "vim_text_object": {
+                        "word": null,
+                        "big_word": null,
+                        "parentheses": null,
+                        "brackets": null,
+                        "braces": null,
+                        "double_quote": null,
+                        "single_quote": null,
+                        "backtick": null,
+                        "cancel": null
+                      },
+                      "pager": {
+                        "scroll_up": null,
+                        "scroll_down": null,
+                        "page_up": null,
+                        "page_down": null,
+                        "half_page_up": null,
+                        "half_page_down": null,
+                        "jump_top": null,
+                        "jump_bottom": null,
+                        "close": null,
+                        "close_transcript": null,
+                        "find": null
+                      },
+                      "list": {
+                        "move_up": null,
+                        "move_down": null,
+                        "move_left": null,
+                        "move_right": null,
+                        "page_up": null,
+                        "page_down": null,
+                        "jump_top": null,
+                        "jump_bottom": null,
+                        "accept": null,
+                        "cancel": null
+                      },
+                      "agents": {
+                        "resume": null,
+                        "search": null,
+                        "new_task": null,
+                        "new_worktree": null,
+                        "rename": null,
+                        "stop": null,
+                        "archive": null,
+                        "delete": null,
+                        "hide": null,
+                        "toggle_grouping": null
+                      },
+                      "approval": {
+                        "open_fullscreen": null,
+                        "open_thread": null,
+                        "approve": null,
+                        "approve_for_session": null,
+                        "approve_for_prefix": null,
+                        "deny": null,
+                        "decline": null,
+                        "cancel": null
+                      }
+                    },
+                    "model_availability_nux": {},
+                    "terminal_resize_reflow_max_rows": null
+                  },
+                  "apps_mcp_product_sku": null,
+                  "include_apps_instructions": true,
+                  "skills": null,
+                  "tool_output_token_limit": null,
+                  "feedback": null,
+                  "notice": null,
+                  "project_doc_max_bytes": 32768,
+                  "experimental_use_unified_exec_tool": null,
+                  "include_collaboration_mode_instructions": true,
+                  "mcp_servers": {
+                    "agentdock_fixture": {
+                      "command": "C:/Program Files/nodejs/node.exe",
+                      "args": [
+                        "C:/Users/wmasa/Documents/Rust/AgentDock/probes/app-server/mcp-fixture.mjs"
+                      ],
+                      "environment_id": "local",
+                      "enabled": true,
+                      "startup_timeout_sec": 5,
+                      "tool_timeout_sec": null
+                    }
+                  },
+                  "personality": null,
+                  "experimental_thread_store": null,
+                  "hooks": null,
+                  "shell_environment_policy": {
+                    "inherit": null,
+                    "ignore_default_excludes": null,
+                    "exclude": null,
+                    "set": null,
+                    "include_only": null,
+                    "filters": null,
+                    "experimental_use_profile": null
+                  },
+                  "project_doc_fallback_filenames": [],
+                  "project_root_markers": [
+                    ".git"
+                  ],
+                  "check_for_update_on_startup": null,
+                  "mcp_optional_startup_grace_ms": null,
+                  "thread_unload_delay_secs": null,
+                  "profiles": {},
+                  "include_environment_context": true,
+                  "memories": null,
+                  "experimental_realtime_ws_model": null,
+                  "openai_base_url": null,
+                  "disable_paste_burst": null,
+                  "profile": null,
+                  "cli_auth_credentials_store": "file",
+                  "js_repl_node_path": null,
+                  "log_dir": null,
+                  "js_repl_node_module_dirs": null,
+                  "model_catalog_json": null
+                },
+                "origins": {
+                  "mcp_servers.agentdock_fixture.startup_timeout_sec": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:8ae2c23d76a1ece82173f094fadd64afda45b13cd13d9ca273cdcc6c9230cdd8"
+                  },
+                  "mcp_servers.agentdock_fixture.command": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:8ae2c23d76a1ece82173f094fadd64afda45b13cd13d9ca273cdcc6c9230cdd8"
+                  },
+                  "model": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:8ae2c23d76a1ece82173f094fadd64afda45b13cd13d9ca273cdcc6c9230cdd8"
+                  },
+                  "model_providers.agentdock_probe.stream_idle_timeout_ms": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:8ae2c23d76a1ece82173f094fadd64afda45b13cd13d9ca273cdcc6c9230cdd8"
+                  },
+                  "mcp_servers.agentdock_fixture.args.0": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:8ae2c23d76a1ece82173f094fadd64afda45b13cd13d9ca273cdcc6c9230cdd8"
+                  },
+                  "cli_auth_credentials_store": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:8ae2c23d76a1ece82173f094fadd64afda45b13cd13d9ca273cdcc6c9230cdd8"
+                  },
+                  "tui.show_tooltips": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:8ae2c23d76a1ece82173f094fadd64afda45b13cd13d9ca273cdcc6c9230cdd8"
+                  },
+                  "marketplaces.agentdock-probe.source_type": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:8ae2c23d76a1ece82173f094fadd64afda45b13cd13d9ca273cdcc6c9230cdd8"
+                  },
+                  "model_providers.agentdock_probe.stream_max_retries": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:8ae2c23d76a1ece82173f094fadd64afda45b13cd13d9ca273cdcc6c9230cdd8"
+                  },
+                  "model_providers.agentdock_probe.supports_websockets": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:8ae2c23d76a1ece82173f094fadd64afda45b13cd13d9ca273cdcc6c9230cdd8"
+                  },
+                  "agents.max_depth": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:8ae2c23d76a1ece82173f094fadd64afda45b13cd13d9ca273cdcc6c9230cdd8"
+                  },
+                  "approval_policy": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:8ae2c23d76a1ece82173f094fadd64afda45b13cd13d9ca273cdcc6c9230cdd8"
+                  },
+                  "marketplaces.agentdock-probe.source": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:8ae2c23d76a1ece82173f094fadd64afda45b13cd13d9ca273cdcc6c9230cdd8"
+                  },
+                  "mcp_servers.agentdock_fixture.enabled": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:8ae2c23d76a1ece82173f094fadd64afda45b13cd13d9ca273cdcc6c9230cdd8"
+                  },
+                  "model_provider": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:8ae2c23d76a1ece82173f094fadd64afda45b13cd13d9ca273cdcc6c9230cdd8"
+                  },
+                  "analytics.enabled": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:8ae2c23d76a1ece82173f094fadd64afda45b13cd13d9ca273cdcc6c9230cdd8"
+                  },
+                  "model_providers.agentdock_probe.request_max_retries": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:8ae2c23d76a1ece82173f094fadd64afda45b13cd13d9ca273cdcc6c9230cdd8"
+                  },
+                  "model_providers.agentdock_probe.base_url": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:8ae2c23d76a1ece82173f094fadd64afda45b13cd13d9ca273cdcc6c9230cdd8"
+                  },
+                  "model_providers.agentdock_probe.requires_openai_auth": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:8ae2c23d76a1ece82173f094fadd64afda45b13cd13d9ca273cdcc6c9230cdd8"
+                  },
+                  "model_providers.agentdock_probe.name": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:8ae2c23d76a1ece82173f094fadd64afda45b13cd13d9ca273cdcc6c9230cdd8"
+                  },
+                  "plugins.fixture@agentdock-probe.enabled": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:8ae2c23d76a1ece82173f094fadd64afda45b13cd13d9ca273cdcc6c9230cdd8"
+                  },
+                  "model_providers.agentdock_probe.wire_api": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:8ae2c23d76a1ece82173f094fadd64afda45b13cd13d9ca273cdcc6c9230cdd8"
+                  },
+                  "sandbox_mode": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:8ae2c23d76a1ece82173f094fadd64afda45b13cd13d9ca273cdcc6c9230cdd8"
+                  }
+                },
+                "layers": [
+                  {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:8ae2c23d76a1ece82173f094fadd64afda45b13cd13d9ca273cdcc6c9230cdd8",
+                    "config": {
+                      "model": "gpt-5.4",
+                      "model_provider": "agentdock_probe",
+                      "cli_auth_credentials_store": "file",
+                      "approval_policy": "never",
+                      "sandbox_mode": "read-only",
+                      "analytics": {
+                        "enabled": false
+                      },
+                      "model_providers": {
+                        "agentdock_probe": {
+                          "name": "AgentDock local fixture",
+                          "base_url": "http://127.0.0.1:57614/v1",
+                          "wire_api": "responses",
+                          "requires_openai_auth": false,
+                          "supports_websockets": false,
+                          "request_max_retries": 0,
+                          "stream_max_retries": 0,
+                          "stream_idle_timeout_ms": 60000
+                        }
+                      },
+                      "agents": {
+                        "max_depth": 2
+                      },
+                      "mcp_servers": {
+                        "agentdock_fixture": {
+                          "command": "C:/Program Files/nodejs/node.exe",
+                          "args": [
+                            "C:/Users/wmasa/Documents/Rust/AgentDock/probes/app-server/mcp-fixture.mjs"
+                          ],
+                          "enabled": true,
+                          "startup_timeout_sec": 5
+                        }
+                      },
+                      "marketplaces": {
+                        "agentdock-probe": {
+                          "source_type": "local",
+                          "source": "\\\\?\\C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\marketplace"
+                        }
+                      },
+                      "tui": {
+                        "show_tooltips": true
+                      },
+                      "plugins": {
+                        "fixture@agentdock-probe": {
+                          "enabled": true
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "name": {
+                      "type": "system",
+                      "file": "C:\\ProgramData\\OpenAI\\Codex\\config.toml"
+                    },
+                    "version": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+                    "config": {}
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "round": 2,
+            "began": 1791111210706,
+            "ended": 1791111210776,
+            "baseline": {
+              "id": 10,
+              "result": {
+                "status": "ok",
+                "version": "sha256:a65cce6a6b7e733ce5b9e77f95f58d34c4812182f0f64c4b28a36147b0fc9d0f",
+                "filePath": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                "overriddenMetadata": null
+              }
+            },
+            "operation": {
+              "args": [
+                "plugin",
+                "add",
+                "fixture@agentdock-probe",
+                "--json"
+              ],
+              "exitCode": 0,
+              "signal": null,
+              "stdout": "{\n  \"pluginId\": \"fixture@agentdock-probe\",\n  \"name\": \"fixture\",\n  \"marketplaceName\": \"agentdock-probe\",\n  \"version\": \"0.1.0\",\n  \"installedPath\": \"C:\\\\Users\\\\wmasa\\\\Documents\\\\Rust\\\\AgentDock\\\\probes\\\\app-server\\\\runs\\\\2026-10-04T10-53-30-021Z\\\\codex-home\\\\plugins\\\\cache\\\\agentdock-probe\\\\fixture\\\\0.1.0\",\n  \"authPolicy\": \"ON_INSTALL\"\n}\n",
+              "stderr": ""
+            },
+            "api": {
+              "id": 11,
+              "result": {
+                "status": "ok",
+                "version": "sha256:943460a4942630fc06b9f14d78c777c0fbdaf063f62161f8c965706703a5814e",
+                "filePath": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                "overriddenMetadata": null
+              }
+            },
+            "after": "model = \"gpt-5.4\"\nmodel_provider = \"agentdock_probe\"\ncli_auth_credentials_store = \"file\"\napproval_policy = \"never\"\nsandbox_mode = \"read-only\"\n[analytics]\nenabled = false\n[model_providers.agentdock_probe]\nname = \"AgentDock local fixture\"\nbase_url = \"http://127.0.0.1:57614/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\nsupports_websockets = false\nrequest_max_retries = 0\nstream_max_retries = 0\nstream_idle_timeout_ms = 60000\n[agents]\nmax_depth = 2\n\n[mcp_servers.agentdock_fixture]\ncommand = \"C:/Program Files/nodejs/node.exe\"\nargs = [\"C:/Users/wmasa/Documents/Rust/AgentDock/probes/app-server/mcp-fixture.mjs\"]\nenabled = true\nstartup_timeout_sec = 5\n\n[marketplaces.agentdock-probe]\nsource_type = \"local\"\nsource = '\\\\?\\C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\marketplace'\n\n[tui]\nshow_tooltips = false\n\n[plugins.\"fixture@agentdock-probe\"]\nenabled = true\n",
+            "read": {
+              "id": 12,
+              "result": {
+                "config": {
+                  "model": "gpt-5.4",
+                  "review_model": null,
+                  "model_context_window": null,
+                  "model_auto_compact_token_limit": null,
+                  "model_auto_compact_token_limit_scope": null,
+                  "model_provider": "agentdock_probe",
+                  "approval_policy": "never",
+                  "approvals_reviewer": null,
+                  "sandbox_mode": "read-only",
+                  "sandbox_workspace_write": null,
+                  "forced_chatgpt_workspace_id": null,
+                  "forced_login_method": null,
+                  "web_search": null,
+                  "tools": null,
+                  "instructions": null,
+                  "developer_instructions": null,
+                  "compact_prompt": null,
+                  "model_reasoning_effort": null,
+                  "model_reasoning_summary": null,
+                  "model_verbosity": null,
+                  "service_tier": null,
+                  "analytics": {
+                    "enabled": false
+                  },
+                  "apps": null,
+                  "browser_use": null,
+                  "computer_use": null,
+                  "desktop": null,
+                  "experimental_realtime_start_instructions": null,
+                  "suppress_unstable_features_warning": null,
+                  "tool_suggest": null,
+                  "experimental_realtime_ws_backend_prompt": null,
+                  "features": {
+                    "api_key_model_discovery": false,
+                    "auth_elicitation": true,
+                    "background_paginated_rollout_migration": false,
+                    "codex_apps_mcp_2026_07_28": false,
+                    "mcp_2026_07_28": false,
+                    "memories": false,
+                    "mentions_v2": true,
+                    "remote_control": false,
+                    "remote_plugin": true,
+                    "tool_suggest": true,
+                    "windows_sandbox_service": false
+                  },
+                  "shell_environment_policy": {
+                    "inherit": null,
+                    "ignore_default_excludes": null,
+                    "exclude": null,
+                    "set": null,
+                    "include_only": null,
+                    "filters": null,
+                    "experimental_use_profile": null
+                  },
+                  "cloud": null,
+                  "project_doc_fallback_filenames": [],
+                  "otel": null,
+                  "openai_base_url": null,
+                  "mcp_servers": {
+                    "agentdock_fixture": {
+                      "command": "C:/Program Files/nodejs/node.exe",
+                      "args": [
+                        "C:/Users/wmasa/Documents/Rust/AgentDock/probes/app-server/mcp-fixture.mjs"
+                      ],
+                      "environment_id": "local",
+                      "enabled": true,
+                      "startup_timeout_sec": 5,
+                      "tool_timeout_sec": null
+                    }
+                  },
+                  "experimental_thread_store_endpoint": null,
+                  "memories": null,
+                  "check_for_update_on_startup": null,
+                  "experimental_compact_prompt_file": null,
+                  "project_root_markers": [
+                    ".git"
+                  ],
+                  "windows": null,
+                  "personality": null,
+                  "allow_login_shell": true,
+                  "default_permissions": null,
+                  "tool_output_token_limit": null,
+                  "notify": null,
+                  "chatgpt_base_url": "https://chatgpt.com/backend-api/",
+                  "apps_mcp_product_sku": null,
+                  "model_instructions_file": null,
+                  "thread_unload_delay_secs": null,
+                  "log_dir": null,
+                  "audio": null,
+                  "include_permissions_instructions": true,
+                  "file_opener": "vscode",
+                  "experimental_realtime_webrtc_call_base_url": null,
+                  "hooks": null,
+                  "experimental_use_unified_exec_tool": null,
+                  "oss_provider": null,
+                  "mcp_enterprise_managed_auth": null,
+                  "mcp_oauth_credentials_store": "auto",
+                  "feedback": null,
+                  "background_terminal_max_timeout": 300000,
+                  "show_raw_agent_reasoning": null,
+                  "project_doc_max_bytes": 32768,
+                  "plan_mode_reasoning_effort": null,
+                  "experimental_realtime_ws_model": null,
+                  "agents": {
+                    "enabled": null,
+                    "max_concurrent_threads_per_session": null,
+                    "max_depth": 2,
+                    "default_subagent_model": null,
+                    "default_subagent_reasoning_effort": null,
+                    "job_max_runtime_seconds": null,
+                    "interrupt_message": null
+                  },
+                  "profiles": {},
+                  "include_apps_instructions": true,
+                  "mcp_optional_startup_grace_ms": null,
+                  "mcp_oauth_callback_url": null,
+                  "include_collaboration_mode_instructions": true,
+                  "js_repl_node_module_dirs": null,
+                  "orchestrator": null,
+                  "realtime": null,
+                  "mcp_oauth_callback_port": null,
+                  "model_post_turn_compact_threshold_percent": null,
+                  "model_catalog_json": null,
+                  "ghost_snapshot": null,
+                  "history": {
+                    "persistence": "save-all",
+                    "max_bytes": null
+                  },
+                  "experimental_realtime_ws_startup_context": null,
+                  "marketplaces": {
+                    "agentdock-probe": {
+                      "last_updated": null,
+                      "last_revision": null,
+                      "source_type": "local",
+                      "source": "\\\\?\\C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\marketplace",
+                      "ref": null,
+                      "sparse_paths": null
+                    }
+                  },
+                  "experimental_thread_store": null,
+                  "hide_agent_reasoning": false,
+                  "cli_auth_credentials_store": "file",
+                  "profile": null,
+                  "projects": null,
+                  "goals": null,
+                  "disable_paste_burst": null,
+                  "auto_review": null,
+                  "skills": null,
+                  "model_providers": {
+                    "agentdock_probe": {
+                      "name": "AgentDock local fixture",
+                      "base_url": "http://127.0.0.1:57614/v1",
+                      "model_catalog_url": null,
+                      "env_key": null,
+                      "env_key_instructions": null,
+                      "experimental_bearer_token": null,
+                      "auth": null,
+                      "gateway_oauth": null,
+                      "aws": null,
+                      "wire_api": "responses",
+                      "query_params": null,
+                      "http_headers": null,
+                      "env_http_headers": null,
+                      "request_max_retries": 0,
+                      "stream_max_retries": 0,
+                      "stream_idle_timeout_ms": 60000,
+                      "websocket_connect_timeout_ms": null,
+                      "requires_openai_auth": false,
+                      "supports_websockets": false,
+                      "supports_standalone_web_search": false
+                    }
+                  },
+                  "permissions": null,
+                  "notice": null,
+                  "sqlite_home": null,
+                  "responses_api_metadata": null,
+                  "plugins": {
+                    "fixture@agentdock-probe": {
+                      "enabled": true
+                    }
+                  },
+                  "include_environment_context": true,
+                  "allow_symlinked_codex_home": null,
+                  "js_repl_node_path": null,
+                  "tui": {
+                    "notifications": true,
+                    "notification_method": "auto",
+                    "notification_condition": "unfocused",
+                    "animations": true,
+                    "screen_reader_detection_done": null,
+                    "effects": {
+                      "starfield": true,
+                      "shimmer": true,
+                      "welcome": true,
+                      "effort": true,
+                      "progress": true,
+                      "title": true
+                    },
+                    "rendering": {
+                      "mermaid": true,
+                      "math": true,
+                      "tables": true,
+                      "lists": true
+                    },
+                    "show_tooltips": false,
+                    "show_server_version_notice": true,
+                    "auto_recap": true,
+                    "disable_paste_burst": null,
+                    "vim_mode_default": false,
+                    "question_esc_back": true,
+                    "raw_output_mode": false,
+                    "fullscreen_transcript": true,
+                    "copy_on_select": "auto",
+                    "right_click_paste": "auto",
+                    "alternate_screen": "auto",
+                    "status_line": null,
+                    "status_line_use_colors": true,
+                    "terminal_title": null,
+                    "theme": null,
+                    "pet": null,
+                    "pet_anchor": "composer",
+                    "session_picker_view": null,
+                    "resume_cwd": null,
+                    "keymap": {
+                      "global": {
+                        "open_agents": null,
+                        "open_transcript": null,
+                        "find_transcript": null,
+                        "focus_activity": null,
+                        "open_external_editor": null,
+                        "copy": null,
+                        "clear_terminal": null,
+                        "submit": null,
+                        "queue": null,
+                        "toggle_shortcuts": null,
+                        "toggle_vim_mode": null,
+                        "toggle_fast_mode": null,
+                        "toggle_raw_output": null,
+                        "toggle_side_conversation": null
+                      },
+                      "chat": {
+                        "toggle_voice": null,
+                        "toggle_voice_mute": null,
+                        "interrupt_turn": null,
+                        "decrease_reasoning_effort": null,
+                        "increase_reasoning_effort": null,
+                        "previous_permission_mode": null,
+                        "next_permission_mode": null,
+                        "edit_queued_message": null,
+                        "prompt_stack_back": null,
+                        "skip_question": null
+                      },
+                      "composer": {
+                        "submit": null,
+                        "queue": null,
+                        "toggle_shortcuts": null,
+                        "history_search_previous": null,
+                        "history_search_next": null
+                      },
+                      "editor": {
+                        "insert_newline": null,
+                        "move_left": null,
+                        "move_right": null,
+                        "move_up": null,
+                        "move_down": null,
+                        "move_word_left": null,
+                        "move_word_right": null,
+                        "move_line_start": null,
+                        "move_line_end": null,
+                        "delete_backward": null,
+                        "delete_forward": null,
+                        "delete_backward_word": null,
+                        "delete_forward_word": null,
+                        "kill_line_start": null,
+                        "kill_whole_line": null,
+                        "kill_line_end": null,
+                        "yank": null
+                      },
+                      "vim_normal": {
+                        "enter_insert": null,
+                        "append_after_cursor": null,
+                        "append_line_end": null,
+                        "insert_line_start": null,
+                        "open_line_below": null,
+                        "open_line_above": null,
+                        "enter_replace_mode": null,
+                        "move_left": null,
+                        "move_right": null,
+                        "move_up": null,
+                        "move_down": null,
+                        "move_word_forward": null,
+                        "move_word_backward": null,
+                        "move_word_end": null,
+                        "move_line_start": null,
+                        "move_line_end": null,
+                        "find_forward": null,
+                        "find_backward": null,
+                        "till_forward": null,
+                        "till_backward": null,
+                        "jump_top": null,
+                        "jump_bottom": null,
+                        "delete_char": null,
+                        "replace_char": null,
+                        "repeat_last_change": null,
+                        "substitute_char": null,
+                        "delete_to_line_end": null,
+                        "change_to_line_end": null,
+                        "yank_line": null,
+                        "paste_after": null,
+                        "start_delete_operator": null,
+                        "start_yank_operator": null,
+                        "start_change_operator": null,
+                        "undo": null,
+                        "redo": null,
+                        "cancel_operator": null
+                      },
+                      "vim_operator": {
+                        "delete_line": null,
+                        "yank_line": null,
+                        "motion_left": null,
+                        "motion_right": null,
+                        "motion_up": null,
+                        "motion_down": null,
+                        "motion_word_forward": null,
+                        "motion_word_backward": null,
+                        "motion_word_end": null,
+                        "motion_line_start": null,
+                        "motion_line_end": null,
+                        "motion_find_forward": null,
+                        "motion_find_backward": null,
+                        "motion_till_forward": null,
+                        "motion_till_backward": null,
+                        "motion_jump_top": null,
+                        "motion_jump_bottom": null,
+                        "select_inner_text_object": null,
+                        "select_around_text_object": null,
+                        "cancel": null
+                      },
+                      "vim_search": {
+                        "forward": null,
+                        "backward": null,
+                        "next": null,
+                        "previous": null
+                      },
+                      "vim_text_object": {
+                        "word": null,
+                        "big_word": null,
+                        "parentheses": null,
+                        "brackets": null,
+                        "braces": null,
+                        "double_quote": null,
+                        "single_quote": null,
+                        "backtick": null,
+                        "cancel": null
+                      },
+                      "pager": {
+                        "scroll_up": null,
+                        "scroll_down": null,
+                        "page_up": null,
+                        "page_down": null,
+                        "half_page_up": null,
+                        "half_page_down": null,
+                        "jump_top": null,
+                        "jump_bottom": null,
+                        "close": null,
+                        "close_transcript": null,
+                        "find": null
+                      },
+                      "list": {
+                        "move_up": null,
+                        "move_down": null,
+                        "move_left": null,
+                        "move_right": null,
+                        "page_up": null,
+                        "page_down": null,
+                        "jump_top": null,
+                        "jump_bottom": null,
+                        "accept": null,
+                        "cancel": null
+                      },
+                      "agents": {
+                        "resume": null,
+                        "search": null,
+                        "new_task": null,
+                        "new_worktree": null,
+                        "rename": null,
+                        "stop": null,
+                        "archive": null,
+                        "delete": null,
+                        "hide": null,
+                        "toggle_grouping": null
+                      },
+                      "approval": {
+                        "open_fullscreen": null,
+                        "open_thread": null,
+                        "approve": null,
+                        "approve_for_session": null,
+                        "approve_for_prefix": null,
+                        "deny": null,
+                        "decline": null,
+                        "cancel": null
+                      }
+                    },
+                    "model_availability_nux": {},
+                    "terminal_resize_reflow_max_rows": null
+                  },
+                  "experimental_realtime_ws_base_url": null
+                },
+                "origins": {
+                  "model_providers.agentdock_probe.base_url": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "mcp_servers.agentdock_fixture.enabled": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "marketplaces.agentdock-probe.source": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "model_providers.agentdock_probe.wire_api": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "plugins.fixture@agentdock-probe.enabled": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "analytics.enabled": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "agents.max_depth": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "model_providers.agentdock_probe.stream_max_retries": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "mcp_servers.agentdock_fixture.startup_timeout_sec": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "model_providers.agentdock_probe.requires_openai_auth": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "marketplaces.agentdock-probe.source_type": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "model_provider": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "mcp_servers.agentdock_fixture.args.0": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "approval_policy": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "mcp_servers.agentdock_fixture.command": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "tui.show_tooltips": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "cli_auth_credentials_store": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "model_providers.agentdock_probe.supports_websockets": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "model_providers.agentdock_probe.request_max_retries": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "model_providers.agentdock_probe.stream_idle_timeout_ms": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "model_providers.agentdock_probe.name": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "sandbox_mode": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "model": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  }
+                },
+                "layers": [
+                  {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15",
+                    "config": {
+                      "model": "gpt-5.4",
+                      "model_provider": "agentdock_probe",
+                      "cli_auth_credentials_store": "file",
+                      "approval_policy": "never",
+                      "sandbox_mode": "read-only",
+                      "analytics": {
+                        "enabled": false
+                      },
+                      "model_providers": {
+                        "agentdock_probe": {
+                          "name": "AgentDock local fixture",
+                          "base_url": "http://127.0.0.1:57614/v1",
+                          "wire_api": "responses",
+                          "requires_openai_auth": false,
+                          "supports_websockets": false,
+                          "request_max_retries": 0,
+                          "stream_max_retries": 0,
+                          "stream_idle_timeout_ms": 60000
+                        }
+                      },
+                      "agents": {
+                        "max_depth": 2
+                      },
+                      "mcp_servers": {
+                        "agentdock_fixture": {
+                          "command": "C:/Program Files/nodejs/node.exe",
+                          "args": [
+                            "C:/Users/wmasa/Documents/Rust/AgentDock/probes/app-server/mcp-fixture.mjs"
+                          ],
+                          "enabled": true,
+                          "startup_timeout_sec": 5
+                        }
+                      },
+                      "marketplaces": {
+                        "agentdock-probe": {
+                          "source_type": "local",
+                          "source": "\\\\?\\C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\marketplace"
+                        }
+                      },
+                      "tui": {
+                        "show_tooltips": false
+                      },
+                      "plugins": {
+                        "fixture@agentdock-probe": {
+                          "enabled": true
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "name": {
+                      "type": "system",
+                      "file": "C:\\ProgramData\\OpenAI\\Codex\\config.toml"
+                    },
+                    "version": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+                    "config": {}
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "round": 3,
+            "began": 1791111210834,
+            "ended": 1791111210901,
+            "baseline": {
+              "id": 13,
+              "result": {
+                "status": "ok",
+                "version": "sha256:943460a4942630fc06b9f14d78c777c0fbdaf063f62161f8c965706703a5814e",
+                "filePath": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                "overriddenMetadata": null
+              }
+            },
+            "operation": {
+              "args": [
+                "plugin",
+                "add",
+                "fixture@agentdock-probe",
+                "--json"
+              ],
+              "exitCode": 0,
+              "signal": null,
+              "stdout": "{\n  \"pluginId\": \"fixture@agentdock-probe\",\n  \"name\": \"fixture\",\n  \"marketplaceName\": \"agentdock-probe\",\n  \"version\": \"0.1.0\",\n  \"installedPath\": \"C:\\\\Users\\\\wmasa\\\\Documents\\\\Rust\\\\AgentDock\\\\probes\\\\app-server\\\\runs\\\\2026-10-04T10-53-30-021Z\\\\codex-home\\\\plugins\\\\cache\\\\agentdock-probe\\\\fixture\\\\0.1.0\",\n  \"authPolicy\": \"ON_INSTALL\"\n}\n",
+              "stderr": ""
+            },
+            "api": {
+              "id": 14,
+              "result": {
+                "status": "ok",
+                "version": "sha256:a65cce6a6b7e733ce5b9e77f95f58d34c4812182f0f64c4b28a36147b0fc9d0f",
+                "filePath": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                "overriddenMetadata": null
+              }
+            },
+            "after": "model = \"gpt-5.4\"\nmodel_provider = \"agentdock_probe\"\ncli_auth_credentials_store = \"file\"\napproval_policy = \"never\"\nsandbox_mode = \"read-only\"\n[analytics]\nenabled = false\n[model_providers.agentdock_probe]\nname = \"AgentDock local fixture\"\nbase_url = \"http://127.0.0.1:57614/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\nsupports_websockets = false\nrequest_max_retries = 0\nstream_max_retries = 0\nstream_idle_timeout_ms = 60000\n[agents]\nmax_depth = 2\n\n[mcp_servers.agentdock_fixture]\ncommand = \"C:/Program Files/nodejs/node.exe\"\nargs = [\"C:/Users/wmasa/Documents/Rust/AgentDock/probes/app-server/mcp-fixture.mjs\"]\nenabled = true\nstartup_timeout_sec = 5\n\n[marketplaces.agentdock-probe]\nsource_type = \"local\"\nsource = '\\\\?\\C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\marketplace'\n\n[tui]\nshow_tooltips = true\n\n[plugins.\"fixture@agentdock-probe\"]\nenabled = true\n",
+            "read": {
+              "id": 15,
+              "result": {
+                "config": {
+                  "model": "gpt-5.4",
+                  "review_model": null,
+                  "model_context_window": null,
+                  "model_auto_compact_token_limit": null,
+                  "model_auto_compact_token_limit_scope": null,
+                  "model_provider": "agentdock_probe",
+                  "approval_policy": "never",
+                  "approvals_reviewer": null,
+                  "sandbox_mode": "read-only",
+                  "sandbox_workspace_write": null,
+                  "forced_chatgpt_workspace_id": null,
+                  "forced_login_method": null,
+                  "web_search": null,
+                  "tools": null,
+                  "instructions": null,
+                  "developer_instructions": null,
+                  "compact_prompt": null,
+                  "model_reasoning_effort": null,
+                  "model_reasoning_summary": null,
+                  "model_verbosity": null,
+                  "service_tier": null,
+                  "analytics": {
+                    "enabled": false
+                  },
+                  "apps": null,
+                  "browser_use": null,
+                  "computer_use": null,
+                  "desktop": null,
+                  "default_permissions": null,
+                  "oss_provider": null,
+                  "hide_agent_reasoning": false,
+                  "auto_review": null,
+                  "tool_suggest": null,
+                  "suppress_unstable_features_warning": null,
+                  "permissions": null,
+                  "features": {
+                    "api_key_model_discovery": false,
+                    "auth_elicitation": true,
+                    "background_paginated_rollout_migration": false,
+                    "codex_apps_mcp_2026_07_28": false,
+                    "mcp_2026_07_28": false,
+                    "memories": false,
+                    "mentions_v2": true,
+                    "remote_control": false,
+                    "remote_plugin": true,
+                    "tool_suggest": true,
+                    "windows_sandbox_service": false
+                  },
+                  "mcp_servers": {
+                    "agentdock_fixture": {
+                      "command": "C:/Program Files/nodejs/node.exe",
+                      "args": [
+                        "C:/Users/wmasa/Documents/Rust/AgentDock/probes/app-server/mcp-fixture.mjs"
+                      ],
+                      "environment_id": "local",
+                      "enabled": true,
+                      "startup_timeout_sec": 5,
+                      "tool_timeout_sec": null
+                    }
+                  },
+                  "marketplaces": {
+                    "agentdock-probe": {
+                      "last_updated": null,
+                      "last_revision": null,
+                      "source_type": "local",
+                      "source": "\\\\?\\C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\marketplace",
+                      "ref": null,
+                      "sparse_paths": null
+                    }
+                  },
+                  "experimental_thread_store": null,
+                  "model_post_turn_compact_threshold_percent": null,
+                  "allow_login_shell": true,
+                  "model_catalog_json": null,
+                  "show_raw_agent_reasoning": null,
+                  "experimental_use_unified_exec_tool": null,
+                  "experimental_realtime_ws_model": null,
+                  "realtime": null,
+                  "openai_base_url": null,
+                  "goals": null,
+                  "model_providers": {
+                    "agentdock_probe": {
+                      "name": "AgentDock local fixture",
+                      "base_url": "http://127.0.0.1:57614/v1",
+                      "model_catalog_url": null,
+                      "env_key": null,
+                      "env_key_instructions": null,
+                      "experimental_bearer_token": null,
+                      "auth": null,
+                      "gateway_oauth": null,
+                      "aws": null,
+                      "wire_api": "responses",
+                      "query_params": null,
+                      "http_headers": null,
+                      "env_http_headers": null,
+                      "request_max_retries": 0,
+                      "stream_max_retries": 0,
+                      "stream_idle_timeout_ms": 60000,
+                      "websocket_connect_timeout_ms": null,
+                      "requires_openai_auth": false,
+                      "supports_websockets": false,
+                      "supports_standalone_web_search": false
+                    }
+                  },
+                  "notice": null,
+                  "experimental_realtime_ws_base_url": null,
+                  "project_doc_fallback_filenames": [],
+                  "notify": null,
+                  "include_collaboration_mode_instructions": true,
+                  "include_environment_context": true,
+                  "chatgpt_base_url": "https://chatgpt.com/backend-api/",
+                  "ghost_snapshot": null,
+                  "experimental_realtime_webrtc_call_base_url": null,
+                  "allow_symlinked_codex_home": null,
+                  "personality": null,
+                  "js_repl_node_path": null,
+                  "experimental_realtime_start_instructions": null,
+                  "hooks": null,
+                  "profile": null,
+                  "responses_api_metadata": null,
+                  "experimental_realtime_ws_backend_prompt": null,
+                  "tui": {
+                    "notifications": true,
+                    "notification_method": "auto",
+                    "notification_condition": "unfocused",
+                    "animations": true,
+                    "screen_reader_detection_done": null,
+                    "effects": {
+                      "starfield": true,
+                      "shimmer": true,
+                      "welcome": true,
+                      "effort": true,
+                      "progress": true,
+                      "title": true
+                    },
+                    "rendering": {
+                      "mermaid": true,
+                      "math": true,
+                      "tables": true,
+                      "lists": true
+                    },
+                    "show_tooltips": true,
+                    "show_server_version_notice": true,
+                    "auto_recap": true,
+                    "disable_paste_burst": null,
+                    "vim_mode_default": false,
+                    "question_esc_back": true,
+                    "raw_output_mode": false,
+                    "fullscreen_transcript": true,
+                    "copy_on_select": "auto",
+                    "right_click_paste": "auto",
+                    "alternate_screen": "auto",
+                    "status_line": null,
+                    "status_line_use_colors": true,
+                    "terminal_title": null,
+                    "theme": null,
+                    "pet": null,
+                    "pet_anchor": "composer",
+                    "session_picker_view": null,
+                    "resume_cwd": null,
+                    "keymap": {
+                      "global": {
+                        "open_agents": null,
+                        "open_transcript": null,
+                        "find_transcript": null,
+                        "focus_activity": null,
+                        "open_external_editor": null,
+                        "copy": null,
+                        "clear_terminal": null,
+                        "submit": null,
+                        "queue": null,
+                        "toggle_shortcuts": null,
+                        "toggle_vim_mode": null,
+                        "toggle_fast_mode": null,
+                        "toggle_raw_output": null,
+                        "toggle_side_conversation": null
+                      },
+                      "chat": {
+                        "toggle_voice": null,
+                        "toggle_voice_mute": null,
+                        "interrupt_turn": null,
+                        "decrease_reasoning_effort": null,
+                        "increase_reasoning_effort": null,
+                        "previous_permission_mode": null,
+                        "next_permission_mode": null,
+                        "edit_queued_message": null,
+                        "prompt_stack_back": null,
+                        "skip_question": null
+                      },
+                      "composer": {
+                        "submit": null,
+                        "queue": null,
+                        "toggle_shortcuts": null,
+                        "history_search_previous": null,
+                        "history_search_next": null
+                      },
+                      "editor": {
+                        "insert_newline": null,
+                        "move_left": null,
+                        "move_right": null,
+                        "move_up": null,
+                        "move_down": null,
+                        "move_word_left": null,
+                        "move_word_right": null,
+                        "move_line_start": null,
+                        "move_line_end": null,
+                        "delete_backward": null,
+                        "delete_forward": null,
+                        "delete_backward_word": null,
+                        "delete_forward_word": null,
+                        "kill_line_start": null,
+                        "kill_whole_line": null,
+                        "kill_line_end": null,
+                        "yank": null
+                      },
+                      "vim_normal": {
+                        "enter_insert": null,
+                        "append_after_cursor": null,
+                        "append_line_end": null,
+                        "insert_line_start": null,
+                        "open_line_below": null,
+                        "open_line_above": null,
+                        "enter_replace_mode": null,
+                        "move_left": null,
+                        "move_right": null,
+                        "move_up": null,
+                        "move_down": null,
+                        "move_word_forward": null,
+                        "move_word_backward": null,
+                        "move_word_end": null,
+                        "move_line_start": null,
+                        "move_line_end": null,
+                        "find_forward": null,
+                        "find_backward": null,
+                        "till_forward": null,
+                        "till_backward": null,
+                        "jump_top": null,
+                        "jump_bottom": null,
+                        "delete_char": null,
+                        "replace_char": null,
+                        "repeat_last_change": null,
+                        "substitute_char": null,
+                        "delete_to_line_end": null,
+                        "change_to_line_end": null,
+                        "yank_line": null,
+                        "paste_after": null,
+                        "start_delete_operator": null,
+                        "start_yank_operator": null,
+                        "start_change_operator": null,
+                        "undo": null,
+                        "redo": null,
+                        "cancel_operator": null
+                      },
+                      "vim_operator": {
+                        "delete_line": null,
+                        "yank_line": null,
+                        "motion_left": null,
+                        "motion_right": null,
+                        "motion_up": null,
+                        "motion_down": null,
+                        "motion_word_forward": null,
+                        "motion_word_backward": null,
+                        "motion_word_end": null,
+                        "motion_line_start": null,
+                        "motion_line_end": null,
+                        "motion_find_forward": null,
+                        "motion_find_backward": null,
+                        "motion_till_forward": null,
+                        "motion_till_backward": null,
+                        "motion_jump_top": null,
+                        "motion_jump_bottom": null,
+                        "select_inner_text_object": null,
+                        "select_around_text_object": null,
+                        "cancel": null
+                      },
+                      "vim_search": {
+                        "forward": null,
+                        "backward": null,
+                        "next": null,
+                        "previous": null
+                      },
+                      "vim_text_object": {
+                        "word": null,
+                        "big_word": null,
+                        "parentheses": null,
+                        "brackets": null,
+                        "braces": null,
+                        "double_quote": null,
+                        "single_quote": null,
+                        "backtick": null,
+                        "cancel": null
+                      },
+                      "pager": {
+                        "scroll_up": null,
+                        "scroll_down": null,
+                        "page_up": null,
+                        "page_down": null,
+                        "half_page_up": null,
+                        "half_page_down": null,
+                        "jump_top": null,
+                        "jump_bottom": null,
+                        "close": null,
+                        "close_transcript": null,
+                        "find": null
+                      },
+                      "list": {
+                        "move_up": null,
+                        "move_down": null,
+                        "move_left": null,
+                        "move_right": null,
+                        "page_up": null,
+                        "page_down": null,
+                        "jump_top": null,
+                        "jump_bottom": null,
+                        "accept": null,
+                        "cancel": null
+                      },
+                      "agents": {
+                        "resume": null,
+                        "search": null,
+                        "new_task": null,
+                        "new_worktree": null,
+                        "rename": null,
+                        "stop": null,
+                        "archive": null,
+                        "delete": null,
+                        "hide": null,
+                        "toggle_grouping": null
+                      },
+                      "approval": {
+                        "open_fullscreen": null,
+                        "open_thread": null,
+                        "approve": null,
+                        "approve_for_session": null,
+                        "approve_for_prefix": null,
+                        "deny": null,
+                        "decline": null,
+                        "cancel": null
+                      }
+                    },
+                    "model_availability_nux": {},
+                    "terminal_resize_reflow_max_rows": null
+                  },
+                  "windows": null,
+                  "file_opener": "vscode",
+                  "mcp_enterprise_managed_auth": null,
+                  "plan_mode_reasoning_effort": null,
+                  "otel": null,
+                  "orchestrator": null,
+                  "cloud": null,
+                  "tool_output_token_limit": null,
+                  "experimental_realtime_ws_startup_context": null,
+                  "disable_paste_burst": null,
+                  "mcp_oauth_credentials_store": "auto",
+                  "apps_mcp_product_sku": null,
+                  "mcp_oauth_callback_port": null,
+                  "thread_unload_delay_secs": null,
+                  "memories": null,
+                  "experimental_thread_store_endpoint": null,
+                  "profiles": {},
+                  "project_root_markers": [
+                    ".git"
+                  ],
+                  "include_apps_instructions": true,
+                  "include_permissions_instructions": true,
+                  "mcp_optional_startup_grace_ms": null,
+                  "js_repl_node_module_dirs": null,
+                  "skills": null,
+                  "audio": null,
+                  "feedback": null,
+                  "sqlite_home": null,
+                  "background_terminal_max_timeout": 300000,
+                  "projects": null,
+                  "mcp_oauth_callback_url": null,
+                  "history": {
+                    "persistence": "save-all",
+                    "max_bytes": null
+                  },
+                  "project_doc_max_bytes": 32768,
+                  "log_dir": null,
+                  "check_for_update_on_startup": null,
+                  "agents": {
+                    "enabled": null,
+                    "max_concurrent_threads_per_session": null,
+                    "max_depth": 2,
+                    "default_subagent_model": null,
+                    "default_subagent_reasoning_effort": null,
+                    "job_max_runtime_seconds": null,
+                    "interrupt_message": null
+                  },
+                  "experimental_compact_prompt_file": null,
+                  "shell_environment_policy": {
+                    "inherit": null,
+                    "ignore_default_excludes": null,
+                    "exclude": null,
+                    "set": null,
+                    "include_only": null,
+                    "filters": null,
+                    "experimental_use_profile": null
+                  },
+                  "cli_auth_credentials_store": "file",
+                  "plugins": {
+                    "fixture@agentdock-probe": {
+                      "enabled": true
+                    }
+                  },
+                  "model_instructions_file": null
+                },
+                "origins": {
+                  "model": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:8ae2c23d76a1ece82173f094fadd64afda45b13cd13d9ca273cdcc6c9230cdd8"
+                  },
+                  "model_providers.agentdock_probe.request_max_retries": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:8ae2c23d76a1ece82173f094fadd64afda45b13cd13d9ca273cdcc6c9230cdd8"
+                  },
+                  "tui.show_tooltips": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:8ae2c23d76a1ece82173f094fadd64afda45b13cd13d9ca273cdcc6c9230cdd8"
+                  },
+                  "mcp_servers.agentdock_fixture.enabled": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:8ae2c23d76a1ece82173f094fadd64afda45b13cd13d9ca273cdcc6c9230cdd8"
+                  },
+                  "model_providers.agentdock_probe.base_url": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:8ae2c23d76a1ece82173f094fadd64afda45b13cd13d9ca273cdcc6c9230cdd8"
+                  },
+                  "marketplaces.agentdock-probe.source": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:8ae2c23d76a1ece82173f094fadd64afda45b13cd13d9ca273cdcc6c9230cdd8"
+                  },
+                  "marketplaces.agentdock-probe.source_type": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:8ae2c23d76a1ece82173f094fadd64afda45b13cd13d9ca273cdcc6c9230cdd8"
+                  },
+                  "model_providers.agentdock_probe.stream_idle_timeout_ms": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:8ae2c23d76a1ece82173f094fadd64afda45b13cd13d9ca273cdcc6c9230cdd8"
+                  },
+                  "sandbox_mode": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:8ae2c23d76a1ece82173f094fadd64afda45b13cd13d9ca273cdcc6c9230cdd8"
+                  },
+                  "mcp_servers.agentdock_fixture.command": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:8ae2c23d76a1ece82173f094fadd64afda45b13cd13d9ca273cdcc6c9230cdd8"
+                  },
+                  "cli_auth_credentials_store": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:8ae2c23d76a1ece82173f094fadd64afda45b13cd13d9ca273cdcc6c9230cdd8"
+                  },
+                  "model_providers.agentdock_probe.name": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:8ae2c23d76a1ece82173f094fadd64afda45b13cd13d9ca273cdcc6c9230cdd8"
+                  },
+                  "agents.max_depth": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:8ae2c23d76a1ece82173f094fadd64afda45b13cd13d9ca273cdcc6c9230cdd8"
+                  },
+                  "model_providers.agentdock_probe.stream_max_retries": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:8ae2c23d76a1ece82173f094fadd64afda45b13cd13d9ca273cdcc6c9230cdd8"
+                  },
+                  "model_providers.agentdock_probe.requires_openai_auth": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:8ae2c23d76a1ece82173f094fadd64afda45b13cd13d9ca273cdcc6c9230cdd8"
+                  },
+                  "approval_policy": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:8ae2c23d76a1ece82173f094fadd64afda45b13cd13d9ca273cdcc6c9230cdd8"
+                  },
+                  "analytics.enabled": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:8ae2c23d76a1ece82173f094fadd64afda45b13cd13d9ca273cdcc6c9230cdd8"
+                  },
+                  "model_providers.agentdock_probe.wire_api": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:8ae2c23d76a1ece82173f094fadd64afda45b13cd13d9ca273cdcc6c9230cdd8"
+                  },
+                  "mcp_servers.agentdock_fixture.args.0": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:8ae2c23d76a1ece82173f094fadd64afda45b13cd13d9ca273cdcc6c9230cdd8"
+                  },
+                  "model_providers.agentdock_probe.supports_websockets": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:8ae2c23d76a1ece82173f094fadd64afda45b13cd13d9ca273cdcc6c9230cdd8"
+                  },
+                  "model_provider": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:8ae2c23d76a1ece82173f094fadd64afda45b13cd13d9ca273cdcc6c9230cdd8"
+                  },
+                  "plugins.fixture@agentdock-probe.enabled": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:8ae2c23d76a1ece82173f094fadd64afda45b13cd13d9ca273cdcc6c9230cdd8"
+                  },
+                  "mcp_servers.agentdock_fixture.startup_timeout_sec": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:8ae2c23d76a1ece82173f094fadd64afda45b13cd13d9ca273cdcc6c9230cdd8"
+                  }
+                },
+                "layers": [
+                  {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:8ae2c23d76a1ece82173f094fadd64afda45b13cd13d9ca273cdcc6c9230cdd8",
+                    "config": {
+                      "model": "gpt-5.4",
+                      "model_provider": "agentdock_probe",
+                      "cli_auth_credentials_store": "file",
+                      "approval_policy": "never",
+                      "sandbox_mode": "read-only",
+                      "analytics": {
+                        "enabled": false
+                      },
+                      "model_providers": {
+                        "agentdock_probe": {
+                          "name": "AgentDock local fixture",
+                          "base_url": "http://127.0.0.1:57614/v1",
+                          "wire_api": "responses",
+                          "requires_openai_auth": false,
+                          "supports_websockets": false,
+                          "request_max_retries": 0,
+                          "stream_max_retries": 0,
+                          "stream_idle_timeout_ms": 60000
+                        }
+                      },
+                      "agents": {
+                        "max_depth": 2
+                      },
+                      "mcp_servers": {
+                        "agentdock_fixture": {
+                          "command": "C:/Program Files/nodejs/node.exe",
+                          "args": [
+                            "C:/Users/wmasa/Documents/Rust/AgentDock/probes/app-server/mcp-fixture.mjs"
+                          ],
+                          "enabled": true,
+                          "startup_timeout_sec": 5
+                        }
+                      },
+                      "marketplaces": {
+                        "agentdock-probe": {
+                          "source_type": "local",
+                          "source": "\\\\?\\C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\marketplace"
+                        }
+                      },
+                      "tui": {
+                        "show_tooltips": true
+                      },
+                      "plugins": {
+                        "fixture@agentdock-probe": {
+                          "enabled": true
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "name": {
+                      "type": "system",
+                      "file": "C:\\ProgramData\\OpenAI\\Codex\\config.toml"
+                    },
+                    "version": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+                    "config": {}
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "round": 4,
+            "began": 1791111210954,
+            "ended": 1791111211018,
+            "baseline": {
+              "id": 16,
+              "result": {
+                "status": "ok",
+                "version": "sha256:a65cce6a6b7e733ce5b9e77f95f58d34c4812182f0f64c4b28a36147b0fc9d0f",
+                "filePath": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                "overriddenMetadata": null
+              }
+            },
+            "operation": {
+              "args": [
+                "plugin",
+                "add",
+                "fixture@agentdock-probe",
+                "--json"
+              ],
+              "exitCode": 0,
+              "signal": null,
+              "stdout": "{\n  \"pluginId\": \"fixture@agentdock-probe\",\n  \"name\": \"fixture\",\n  \"marketplaceName\": \"agentdock-probe\",\n  \"version\": \"0.1.0\",\n  \"installedPath\": \"C:\\\\Users\\\\wmasa\\\\Documents\\\\Rust\\\\AgentDock\\\\probes\\\\app-server\\\\runs\\\\2026-10-04T10-53-30-021Z\\\\codex-home\\\\plugins\\\\cache\\\\agentdock-probe\\\\fixture\\\\0.1.0\",\n  \"authPolicy\": \"ON_INSTALL\"\n}\n",
+              "stderr": ""
+            },
+            "api": {
+              "id": 17,
+              "result": {
+                "status": "ok",
+                "version": "sha256:943460a4942630fc06b9f14d78c777c0fbdaf063f62161f8c965706703a5814e",
+                "filePath": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                "overriddenMetadata": null
+              }
+            },
+            "after": "model = \"gpt-5.4\"\nmodel_provider = \"agentdock_probe\"\ncli_auth_credentials_store = \"file\"\napproval_policy = \"never\"\nsandbox_mode = \"read-only\"\n[analytics]\nenabled = false\n[model_providers.agentdock_probe]\nname = \"AgentDock local fixture\"\nbase_url = \"http://127.0.0.1:57614/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\nsupports_websockets = false\nrequest_max_retries = 0\nstream_max_retries = 0\nstream_idle_timeout_ms = 60000\n[agents]\nmax_depth = 2\n\n[mcp_servers.agentdock_fixture]\ncommand = \"C:/Program Files/nodejs/node.exe\"\nargs = [\"C:/Users/wmasa/Documents/Rust/AgentDock/probes/app-server/mcp-fixture.mjs\"]\nenabled = true\nstartup_timeout_sec = 5\n\n[marketplaces.agentdock-probe]\nsource_type = \"local\"\nsource = '\\\\?\\C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\marketplace'\n\n[tui]\nshow_tooltips = false\n\n[plugins.\"fixture@agentdock-probe\"]\nenabled = true\n",
+            "read": {
+              "id": 18,
+              "result": {
+                "config": {
+                  "model": "gpt-5.4",
+                  "review_model": null,
+                  "model_context_window": null,
+                  "model_auto_compact_token_limit": null,
+                  "model_auto_compact_token_limit_scope": null,
+                  "model_provider": "agentdock_probe",
+                  "approval_policy": "never",
+                  "approvals_reviewer": null,
+                  "sandbox_mode": "read-only",
+                  "sandbox_workspace_write": null,
+                  "forced_chatgpt_workspace_id": null,
+                  "forced_login_method": null,
+                  "web_search": null,
+                  "tools": null,
+                  "instructions": null,
+                  "developer_instructions": null,
+                  "compact_prompt": null,
+                  "model_reasoning_effort": null,
+                  "model_reasoning_summary": null,
+                  "model_verbosity": null,
+                  "service_tier": null,
+                  "analytics": {
+                    "enabled": false
+                  },
+                  "apps": null,
+                  "browser_use": null,
+                  "computer_use": null,
+                  "desktop": null,
+                  "oss_provider": null,
+                  "profile": null,
+                  "responses_api_metadata": null,
+                  "goals": null,
+                  "features": {
+                    "api_key_model_discovery": false,
+                    "auth_elicitation": true,
+                    "background_paginated_rollout_migration": false,
+                    "codex_apps_mcp_2026_07_28": false,
+                    "mcp_2026_07_28": false,
+                    "memories": false,
+                    "mentions_v2": true,
+                    "remote_control": false,
+                    "remote_plugin": true,
+                    "tool_suggest": true,
+                    "windows_sandbox_service": false
+                  },
+                  "project_doc_fallback_filenames": [],
+                  "allow_login_shell": true,
+                  "mcp_oauth_callback_url": null,
+                  "mcp_optional_startup_grace_ms": null,
+                  "mcp_oauth_credentials_store": "auto",
+                  "file_opener": "vscode",
+                  "js_repl_node_path": null,
+                  "profiles": {},
+                  "include_environment_context": true,
+                  "experimental_realtime_ws_startup_context": null,
+                  "ghost_snapshot": null,
+                  "project_root_markers": [
+                    ".git"
+                  ],
+                  "mcp_oauth_callback_port": null,
+                  "notify": null,
+                  "skills": null,
+                  "otel": null,
+                  "log_dir": null,
+                  "audio": null,
+                  "thread_unload_delay_secs": null,
+                  "experimental_realtime_ws_base_url": null,
+                  "model_post_turn_compact_threshold_percent": null,
+                  "tool_output_token_limit": null,
+                  "model_instructions_file": null,
+                  "auto_review": null,
+                  "apps_mcp_product_sku": null,
+                  "allow_symlinked_codex_home": null,
+                  "memories": null,
+                  "mcp_servers": {
+                    "agentdock_fixture": {
+                      "command": "C:/Program Files/nodejs/node.exe",
+                      "args": [
+                        "C:/Users/wmasa/Documents/Rust/AgentDock/probes/app-server/mcp-fixture.mjs"
+                      ],
+                      "environment_id": "local",
+                      "enabled": true,
+                      "startup_timeout_sec": 5,
+                      "tool_timeout_sec": null
+                    }
+                  },
+                  "marketplaces": {
+                    "agentdock-probe": {
+                      "last_updated": null,
+                      "last_revision": null,
+                      "source_type": "local",
+                      "source": "\\\\?\\C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\marketplace",
+                      "ref": null,
+                      "sparse_paths": null
+                    }
+                  },
+                  "projects": null,
+                  "include_permissions_instructions": true,
+                  "feedback": null,
+                  "experimental_thread_store": null,
+                  "cli_auth_credentials_store": "file",
+                  "project_doc_max_bytes": 32768,
+                  "realtime": null,
+                  "windows": null,
+                  "experimental_use_unified_exec_tool": null,
+                  "include_collaboration_mode_instructions": true,
+                  "experimental_realtime_webrtc_call_base_url": null,
+                  "sqlite_home": null,
+                  "cloud": null,
+                  "hide_agent_reasoning": false,
+                  "chatgpt_base_url": "https://chatgpt.com/backend-api/",
+                  "experimental_thread_store_endpoint": null,
+                  "experimental_realtime_ws_backend_prompt": null,
+                  "hooks": null,
+                  "check_for_update_on_startup": null,
+                  "experimental_compact_prompt_file": null,
+                  "model_providers": {
+                    "agentdock_probe": {
+                      "name": "AgentDock local fixture",
+                      "base_url": "http://127.0.0.1:57614/v1",
+                      "model_catalog_url": null,
+                      "env_key": null,
+                      "env_key_instructions": null,
+                      "experimental_bearer_token": null,
+                      "auth": null,
+                      "gateway_oauth": null,
+                      "aws": null,
+                      "wire_api": "responses",
+                      "query_params": null,
+                      "http_headers": null,
+                      "env_http_headers": null,
+                      "request_max_retries": 0,
+                      "stream_max_retries": 0,
+                      "stream_idle_timeout_ms": 60000,
+                      "websocket_connect_timeout_ms": null,
+                      "requires_openai_auth": false,
+                      "supports_websockets": false,
+                      "supports_standalone_web_search": false
+                    }
+                  },
+                  "mcp_enterprise_managed_auth": null,
+                  "openai_base_url": null,
+                  "experimental_realtime_start_instructions": null,
+                  "disable_paste_burst": null,
+                  "experimental_realtime_ws_model": null,
+                  "js_repl_node_module_dirs": null,
+                  "history": {
+                    "persistence": "save-all",
+                    "max_bytes": null
+                  },
+                  "tool_suggest": null,
+                  "model_catalog_json": null,
+                  "permissions": null,
+                  "notice": null,
+                  "plugins": {
+                    "fixture@agentdock-probe": {
+                      "enabled": true
+                    }
+                  },
+                  "orchestrator": null,
+                  "personality": null,
+                  "agents": {
+                    "enabled": null,
+                    "max_concurrent_threads_per_session": null,
+                    "max_depth": 2,
+                    "default_subagent_model": null,
+                    "default_subagent_reasoning_effort": null,
+                    "job_max_runtime_seconds": null,
+                    "interrupt_message": null
+                  },
+                  "tui": {
+                    "notifications": true,
+                    "notification_method": "auto",
+                    "notification_condition": "unfocused",
+                    "animations": true,
+                    "screen_reader_detection_done": null,
+                    "effects": {
+                      "starfield": true,
+                      "shimmer": true,
+                      "welcome": true,
+                      "effort": true,
+                      "progress": true,
+                      "title": true
+                    },
+                    "rendering": {
+                      "mermaid": true,
+                      "math": true,
+                      "tables": true,
+                      "lists": true
+                    },
+                    "show_tooltips": false,
+                    "show_server_version_notice": true,
+                    "auto_recap": true,
+                    "disable_paste_burst": null,
+                    "vim_mode_default": false,
+                    "question_esc_back": true,
+                    "raw_output_mode": false,
+                    "fullscreen_transcript": true,
+                    "copy_on_select": "auto",
+                    "right_click_paste": "auto",
+                    "alternate_screen": "auto",
+                    "status_line": null,
+                    "status_line_use_colors": true,
+                    "terminal_title": null,
+                    "theme": null,
+                    "pet": null,
+                    "pet_anchor": "composer",
+                    "session_picker_view": null,
+                    "resume_cwd": null,
+                    "keymap": {
+                      "global": {
+                        "open_agents": null,
+                        "open_transcript": null,
+                        "find_transcript": null,
+                        "focus_activity": null,
+                        "open_external_editor": null,
+                        "copy": null,
+                        "clear_terminal": null,
+                        "submit": null,
+                        "queue": null,
+                        "toggle_shortcuts": null,
+                        "toggle_vim_mode": null,
+                        "toggle_fast_mode": null,
+                        "toggle_raw_output": null,
+                        "toggle_side_conversation": null
+                      },
+                      "chat": {
+                        "toggle_voice": null,
+                        "toggle_voice_mute": null,
+                        "interrupt_turn": null,
+                        "decrease_reasoning_effort": null,
+                        "increase_reasoning_effort": null,
+                        "previous_permission_mode": null,
+                        "next_permission_mode": null,
+                        "edit_queued_message": null,
+                        "prompt_stack_back": null,
+                        "skip_question": null
+                      },
+                      "composer": {
+                        "submit": null,
+                        "queue": null,
+                        "toggle_shortcuts": null,
+                        "history_search_previous": null,
+                        "history_search_next": null
+                      },
+                      "editor": {
+                        "insert_newline": null,
+                        "move_left": null,
+                        "move_right": null,
+                        "move_up": null,
+                        "move_down": null,
+                        "move_word_left": null,
+                        "move_word_right": null,
+                        "move_line_start": null,
+                        "move_line_end": null,
+                        "delete_backward": null,
+                        "delete_forward": null,
+                        "delete_backward_word": null,
+                        "delete_forward_word": null,
+                        "kill_line_start": null,
+                        "kill_whole_line": null,
+                        "kill_line_end": null,
+                        "yank": null
+                      },
+                      "vim_normal": {
+                        "enter_insert": null,
+                        "append_after_cursor": null,
+                        "append_line_end": null,
+                        "insert_line_start": null,
+                        "open_line_below": null,
+                        "open_line_above": null,
+                        "enter_replace_mode": null,
+                        "move_left": null,
+                        "move_right": null,
+                        "move_up": null,
+                        "move_down": null,
+                        "move_word_forward": null,
+                        "move_word_backward": null,
+                        "move_word_end": null,
+                        "move_line_start": null,
+                        "move_line_end": null,
+                        "find_forward": null,
+                        "find_backward": null,
+                        "till_forward": null,
+                        "till_backward": null,
+                        "jump_top": null,
+                        "jump_bottom": null,
+                        "delete_char": null,
+                        "replace_char": null,
+                        "repeat_last_change": null,
+                        "substitute_char": null,
+                        "delete_to_line_end": null,
+                        "change_to_line_end": null,
+                        "yank_line": null,
+                        "paste_after": null,
+                        "start_delete_operator": null,
+                        "start_yank_operator": null,
+                        "start_change_operator": null,
+                        "undo": null,
+                        "redo": null,
+                        "cancel_operator": null
+                      },
+                      "vim_operator": {
+                        "delete_line": null,
+                        "yank_line": null,
+                        "motion_left": null,
+                        "motion_right": null,
+                        "motion_up": null,
+                        "motion_down": null,
+                        "motion_word_forward": null,
+                        "motion_word_backward": null,
+                        "motion_word_end": null,
+                        "motion_line_start": null,
+                        "motion_line_end": null,
+                        "motion_find_forward": null,
+                        "motion_find_backward": null,
+                        "motion_till_forward": null,
+                        "motion_till_backward": null,
+                        "motion_jump_top": null,
+                        "motion_jump_bottom": null,
+                        "select_inner_text_object": null,
+                        "select_around_text_object": null,
+                        "cancel": null
+                      },
+                      "vim_search": {
+                        "forward": null,
+                        "backward": null,
+                        "next": null,
+                        "previous": null
+                      },
+                      "vim_text_object": {
+                        "word": null,
+                        "big_word": null,
+                        "parentheses": null,
+                        "brackets": null,
+                        "braces": null,
+                        "double_quote": null,
+                        "single_quote": null,
+                        "backtick": null,
+                        "cancel": null
+                      },
+                      "pager": {
+                        "scroll_up": null,
+                        "scroll_down": null,
+                        "page_up": null,
+                        "page_down": null,
+                        "half_page_up": null,
+                        "half_page_down": null,
+                        "jump_top": null,
+                        "jump_bottom": null,
+                        "close": null,
+                        "close_transcript": null,
+                        "find": null
+                      },
+                      "list": {
+                        "move_up": null,
+                        "move_down": null,
+                        "move_left": null,
+                        "move_right": null,
+                        "page_up": null,
+                        "page_down": null,
+                        "jump_top": null,
+                        "jump_bottom": null,
+                        "accept": null,
+                        "cancel": null
+                      },
+                      "agents": {
+                        "resume": null,
+                        "search": null,
+                        "new_task": null,
+                        "new_worktree": null,
+                        "rename": null,
+                        "stop": null,
+                        "archive": null,
+                        "delete": null,
+                        "hide": null,
+                        "toggle_grouping": null
+                      },
+                      "approval": {
+                        "open_fullscreen": null,
+                        "open_thread": null,
+                        "approve": null,
+                        "approve_for_session": null,
+                        "approve_for_prefix": null,
+                        "deny": null,
+                        "decline": null,
+                        "cancel": null
+                      }
+                    },
+                    "model_availability_nux": {},
+                    "terminal_resize_reflow_max_rows": null
+                  },
+                  "show_raw_agent_reasoning": null,
+                  "shell_environment_policy": {
+                    "inherit": null,
+                    "ignore_default_excludes": null,
+                    "exclude": null,
+                    "set": null,
+                    "include_only": null,
+                    "filters": null,
+                    "experimental_use_profile": null
+                  },
+                  "background_terminal_max_timeout": 300000,
+                  "include_apps_instructions": true,
+                  "plan_mode_reasoning_effort": null,
+                  "default_permissions": null,
+                  "suppress_unstable_features_warning": null
+                },
+                "origins": {
+                  "cli_auth_credentials_store": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "model_provider": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "mcp_servers.agentdock_fixture.enabled": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "sandbox_mode": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "model_providers.agentdock_probe.requires_openai_auth": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "model_providers.agentdock_probe.base_url": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "analytics.enabled": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "model_providers.agentdock_probe.stream_max_retries": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "tui.show_tooltips": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "mcp_servers.agentdock_fixture.command": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "model_providers.agentdock_probe.stream_idle_timeout_ms": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "model_providers.agentdock_probe.supports_websockets": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "marketplaces.agentdock-probe.source_type": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "agents.max_depth": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "model_providers.agentdock_probe.name": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "approval_policy": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "model_providers.agentdock_probe.wire_api": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "model": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "marketplaces.agentdock-probe.source": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "mcp_servers.agentdock_fixture.startup_timeout_sec": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "model_providers.agentdock_probe.request_max_retries": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "plugins.fixture@agentdock-probe.enabled": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  },
+                  "mcp_servers.agentdock_fixture.args.0": {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15"
+                  }
+                },
+                "layers": [
+                  {
+                    "name": {
+                      "type": "user",
+                      "file": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\codex-home\\config.toml",
+                      "profile": null
+                    },
+                    "version": "sha256:224d98014003cc6a6c67d279eaae47ad730327fb0f06550391510414fc440a15",
+                    "config": {
+                      "model": "gpt-5.4",
+                      "model_provider": "agentdock_probe",
+                      "cli_auth_credentials_store": "file",
+                      "approval_policy": "never",
+                      "sandbox_mode": "read-only",
+                      "analytics": {
+                        "enabled": false
+                      },
+                      "model_providers": {
+                        "agentdock_probe": {
+                          "name": "AgentDock local fixture",
+                          "base_url": "http://127.0.0.1:57614/v1",
+                          "wire_api": "responses",
+                          "requires_openai_auth": false,
+                          "supports_websockets": false,
+                          "request_max_retries": 0,
+                          "stream_max_retries": 0,
+                          "stream_idle_timeout_ms": 60000
+                        }
+                      },
+                      "agents": {
+                        "max_depth": 2
+                      },
+                      "mcp_servers": {
+                        "agentdock_fixture": {
+                          "command": "C:/Program Files/nodejs/node.exe",
+                          "args": [
+                            "C:/Users/wmasa/Documents/Rust/AgentDock/probes/app-server/mcp-fixture.mjs"
+                          ],
+                          "enabled": true,
+                          "startup_timeout_sec": 5
+                        }
+                      },
+                      "marketplaces": {
+                        "agentdock-probe": {
+                          "source_type": "local",
+                          "source": "\\\\?\\C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-53-30-021Z\\marketplace"
+                        }
+                      },
+                      "tui": {
+                        "show_tooltips": false
+                      },
+                      "plugins": {
+                        "fixture@agentdock-probe": {
+                          "enabled": true
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "name": {
+                      "type": "system",
+                      "file": "C:\\ProgramData\\OpenAI\\Codex\\config.toml"
+                    },
+                    "version": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+                    "config": {}
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "scope": "Dedicated config only; deterministic stale expectedVersion after CLI edit and 5 overlapping CLI add / API display-setting writes. Conflict responses and persisted config separate; no universal cross-process transaction guarantee."
+      }
+    }
+  ],
+  "modelRequests": []
+}

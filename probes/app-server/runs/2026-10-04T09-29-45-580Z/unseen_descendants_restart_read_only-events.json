@@ -1,0 +1,190 @@
+[
+  {
+    "method": "remoteControl/status/changed",
+    "params": {
+      "status": "disabled",
+      "serverName": "home-win",
+      "installationId": "05bad8f0-1fb1-449b-9173-721979d4b117",
+      "environmentId": null
+    },
+    "emittedAtMs": 1791106185807
+  },
+  {
+    "method": "remoteControl/status/changed",
+    "params": {
+      "status": "disabled",
+      "serverName": "home-win",
+      "installationId": "05bad8f0-1fb1-449b-9173-721979d4b117",
+      "environmentId": null
+    },
+    "emittedAtMs": 1791106186004
+  },
+  {
+    "method": "thread/started",
+    "params": {
+      "thread": {
+        "id": "01a1063f-7b23-7ad0-9519-a4eaa346b19c",
+        "environments": [
+          {
+            "environmentId": "local",
+            "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T09-29-45-580Z\\work",
+            "runtimeWorkspaceRoots": [
+              "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T09-29-45-580Z\\work"
+            ]
+          }
+        ],
+        "extra": null,
+        "sessionId": "01a1063f-7b23-7ad0-9519-a4eaa346b19c",
+        "forkedFromId": null,
+        "parentThreadId": null,
+        "preview": "",
+        "ephemeral": false,
+        "section": null,
+        "sectionEnteredAt": null,
+        "projectId": null,
+        "historyMode": "paginated",
+        "modelProvider": "agentdock_probe",
+        "model": "gpt-5.4",
+        "reasoningEffort": null,
+        "createdAt": 1791106186,
+        "updatedAt": 1791106186,
+        "recencyAt": 1791106186,
+        "status": {
+          "type": "idle"
+        },
+        "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T09-29-45-580Z\\codex-home\\sessions\\2026\\10\\04\\rollout-2026-10-04T18-29-46-01a1063f-7b23-7ad0-9519-a4eaa346b19c.jsonl",
+        "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T09-29-45-580Z\\work",
+        "cliVersion": "0.160.0",
+        "originator": "Codex Desktop",
+        "source": "vscode",
+        "canAcceptDirectInput": true,
+        "threadSource": null,
+        "agentNickname": null,
+        "agentRole": null,
+        "gitInfo": null,
+        "name": null,
+        "daybreakEnabled": null,
+        "turns": []
+      }
+    },
+    "emittedAtMs": 1791106186036
+  },
+  {
+    "method": "mcpServer/startupStatus/updated",
+    "params": {
+      "threadId": "01a1063f-7b23-7ad0-9519-a4eaa346b19c",
+      "name": "agentdock_fixture",
+      "status": "starting",
+      "error": null,
+      "failureReason": null
+    },
+    "emittedAtMs": 1791106186036
+  },
+  {
+    "method": "warning",
+    "params": {
+      "threadId": "01a1063f-7b23-7ad0-9519-a4eaa346b19c",
+      "message": "Model metadata for `gpt-5.4` not found. Defaulting to fallback metadata; this can degrade performance and cause issues."
+    },
+    "emittedAtMs": 1791106186049
+  },
+  {
+    "method": "mcpServer/startupStatus/updated",
+    "params": {
+      "threadId": "01a1063f-7b23-7ad0-9519-a4eaa346b19c",
+      "name": "agentdock_fixture",
+      "status": "ready",
+      "error": null,
+      "failureReason": null
+    },
+    "emittedAtMs": 1791106186087
+  },
+  {
+    "method": "thread/status/changed",
+    "params": {
+      "threadId": "01a1063f-7b23-7ad0-9519-a4eaa346b19c",
+      "status": {
+        "type": "active",
+        "activeFlags": []
+      }
+    },
+    "emittedAtMs": 1791106186137
+  },
+  {
+    "method": "turn/started",
+    "params": {
+      "threadId": "01a1063f-7b23-7ad0-9519-a4eaa346b19c",
+      "turn": {
+        "id": "01a1063f-7b36-7013-a6a0-67c93cd45ffa",
+        "items": [],
+        "itemsView": "notLoaded",
+        "status": "inProgress",
+        "error": null,
+        "startedAt": 1791106186,
+        "completedAt": null,
+        "durationMs": null
+      }
+    },
+    "emittedAtMs": 1791106186137
+  },
+  {
+    "method": "item/started",
+    "params": {
+      "item": {
+        "type": "userMessage",
+        "id": "01a1063f-7bcf-79a1-a0bd-bb25308ebd7a",
+        "clientId": null,
+        "content": [
+          {
+            "type": "text",
+            "text": "PROBE: unseen spawn 0",
+            "text_elements": []
+          }
+        ]
+      },
+      "threadId": "01a1063f-7b23-7ad0-9519-a4eaa346b19c",
+      "turnId": "01a1063f-7b36-7013-a6a0-67c93cd45ffa",
+      "startedAtMs": 1791106186207
+    },
+    "emittedAtMs": 1791106186207
+  },
+  {
+    "method": "item/completed",
+    "params": {
+      "item": {
+        "type": "userMessage",
+        "id": "01a1063f-7bcf-79a1-a0bd-bb25308ebd7a",
+        "clientId": null,
+        "content": [
+          {
+            "type": "text",
+            "text": "PROBE: unseen spawn 0",
+            "text_elements": []
+          }
+        ]
+      },
+      "threadId": "01a1063f-7b23-7ad0-9519-a4eaa346b19c",
+      "turnId": "01a1063f-7b36-7013-a6a0-67c93cd45ffa",
+      "completedAtMs": 1791106186207
+    },
+    "emittedAtMs": 1791106186226
+  },
+  {
+    "method": "remoteControl/status/changed",
+    "params": {
+      "status": "disabled",
+      "serverName": "home-win",
+      "installationId": "05bad8f0-1fb1-449b-9173-721979d4b117",
+      "environmentId": null
+    },
+    "emittedAtMs": 1791106201407
+  },
+  {
+    "method": "deprecationNotice",
+    "params": {
+      "summary": "Full-history hydration is deprecated for paginated threads; omit `includeTurns` or set it to `false`, then page with `thread/turns/list` and `thread/items/list`.",
+      "details": null
+    },
+    "emittedAtMs": 1791106201414
+  }
+]

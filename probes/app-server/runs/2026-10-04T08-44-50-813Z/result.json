@@ -1,0 +1,374 @@
+{
+  "createdAt": "2026-10-04T08:45:09.749Z",
+  "executable": "C:\\Users\\wmasa\\.vscode\\extensions\\openai.chatgpt-26.930.31730-win32-x64\\bin\\windows-x86_64\\codex.exe",
+  "version": "codex-cli 0.160.0",
+  "mode": "Real App Server with loopback model fixture; no cloud authentication",
+  "run": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-44-50-813Z",
+  "results": [
+    {
+      "name": "parent_child_grandchild_interrupt",
+      "status": "pass",
+      "evidence": {
+        "parent": "01a10616-5e8f-7623-90dc-5d88c3402e6b",
+        "child": "01a10616-61fe-79d3-b451-1c49e3edf9ab",
+        "grandchild": "01a10616-63fb-7901-82e9-c286d692b645",
+        "childTurn": "01a10616-635d-7631-88a4-047825416b18",
+        "snapshot": [
+          {
+            "threadId": "01a10616-5e8f-7623-90dc-5d88c3402e6b",
+            "source": "vscode",
+            "status": {
+              "type": "idle"
+            },
+            "turns": [
+              {
+                "id": "01a10616-5ff5-7de1-b002-bdfe268013fe",
+                "status": "interrupted"
+              }
+            ]
+          },
+          {
+            "threadId": "01a10616-61fe-79d3-b451-1c49e3edf9ab",
+            "source": {
+              "subAgent": {
+                "thread_spawn": {
+                  "parent_thread_id": "01a10616-5e8f-7623-90dc-5d88c3402e6b",
+                  "depth": 1,
+                  "agent_path": null,
+                  "agent_nickname": "Godel",
+                  "agent_role": null
+                }
+              }
+            },
+            "status": {
+              "type": "active",
+              "activeFlags": []
+            },
+            "turns": [
+              {
+                "id": "01a10616-6234-7423-86e6-c28ff66f40e3",
+                "status": "interrupted"
+              },
+              {
+                "id": "01a10616-635d-7631-88a4-047825416b18",
+                "status": "inProgress"
+              }
+            ]
+          },
+          {
+            "threadId": "01a10616-63fb-7901-82e9-c286d692b645",
+            "source": {
+              "subAgent": {
+                "thread_spawn": {
+                  "parent_thread_id": "01a10616-61fe-79d3-b451-1c49e3edf9ab",
+                  "depth": 2,
+                  "agent_path": null,
+                  "agent_nickname": "Hegel",
+                  "agent_role": null
+                }
+              }
+            },
+            "status": {
+              "type": "active",
+              "activeFlags": []
+            },
+            "turns": [
+              {
+                "id": "01a10616-6429-7520-9b3b-c22a21168a05",
+                "status": "inProgress"
+              }
+            ]
+          }
+        ],
+        "cleanup": [
+          {
+            "threadId": "01a10616-63fb-7901-82e9-c286d692b645",
+            "turnId": "01a10616-6429-7520-9b3b-c22a21168a05"
+          },
+          {
+            "threadId": "01a10616-61fe-79d3-b451-1c49e3edf9ab",
+            "turnId": "01a10616-635d-7631-88a4-047825416b18"
+          }
+        ],
+        "childSpawn": {
+          "item": {
+            "type": "collabAgentToolCall",
+            "id": "call_1",
+            "tool": "spawnAgent",
+            "status": "completed",
+            "senderThreadId": "01a10616-5e8f-7623-90dc-5d88c3402e6b",
+            "receiverThreadIds": [
+              "01a10616-61fe-79d3-b451-1c49e3edf9ab"
+            ],
+            "prompt": "PROBE_CHILD: hold fixture stream only. No general work.",
+            "model": "gpt-5.4",
+            "reasoningEffort": "medium",
+            "agentsStates": {
+              "01a10616-61fe-79d3-b451-1c49e3edf9ab": {
+                "status": "pendingInit",
+                "message": null
+              }
+            }
+          },
+          "threadId": "01a10616-5e8f-7623-90dc-5d88c3402e6b",
+          "turnId": "01a10616-5ff5-7de1-b002-bdfe268013fe",
+          "completedAtMs": 1791103492674
+        },
+        "grandSpawn": {
+          "item": {
+            "type": "collabAgentToolCall",
+            "id": "call_4",
+            "tool": "spawnAgent",
+            "status": "completed",
+            "senderThreadId": "01a10616-61fe-79d3-b451-1c49e3edf9ab",
+            "receiverThreadIds": [
+              "01a10616-63fb-7901-82e9-c286d692b645"
+            ],
+            "prompt": "PROBE_GRANDCHILD: hold fixture stream only. No general work.",
+            "model": "gpt-5.4",
+            "reasoningEffort": "medium",
+            "agentsStates": {
+              "01a10616-63fb-7901-82e9-c286d692b645": {
+                "status": "pendingInit",
+                "message": null
+              }
+            }
+          },
+          "threadId": "01a10616-61fe-79d3-b451-1c49e3edf9ab",
+          "turnId": "01a10616-635d-7631-88a4-047825416b18",
+          "completedAtMs": 1791103493165
+        },
+        "childInternalNotifications": [
+          "thread/status/changed",
+          "warning",
+          "thread/status/changed",
+          "turn/started",
+          "item/started",
+          "item/completed",
+          "thread/status/changed",
+          "turn/completed",
+          "warning",
+          "thread/status/changed",
+          "turn/started",
+          "item/started",
+          "item/completed",
+          "item/started",
+          "item/completed",
+          "thread/tokenUsage/updated",
+          "thread/tokenUsage/updated",
+          "thread/status/changed",
+          "turn/completed"
+        ],
+        "grandchildInternalNotifications": [
+          "thread/status/changed",
+          "warning",
+          "thread/status/changed",
+          "turn/started",
+          "item/started",
+          "item/completed",
+          "thread/status/changed",
+          "turn/completed"
+        ]
+      }
+    },
+    {
+      "name": "managed_execution_interrupt_terminate_clean",
+      "status": "fail",
+      "error": "Timeout: managed terminal visible"
+    },
+    {
+      "name": "existing_config_unchanged",
+      "status": "pass"
+    }
+  ],
+  "modelRequests": [
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "fixtureMarker": "PROBE: spawn fixture child",
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "fixtureMarker": "PROBE: spawn fixture child",
+      "fixtureToolOutputs": [
+        "{\"agent_id\":\"01a10616-61fe-79d3-b451-1c49e3edf9ab\",\"nickname\":\"Godel\"}"
+      ],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "fixtureMarker": "PROBE_CHILD: hold fixture stream only. No general work.",
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "fixtureMarker": "PROBE: spawn fixture grandchild",
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "fixtureMarker": "PROBE: spawn fixture grandchild",
+      "fixtureToolOutputs": [
+        "{\"agent_id\":\"01a10616-63fb-7901-82e9-c286d692b645\",\"nickname\":\"Hegel\"}"
+      ],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "fixtureMarker": "PROBE_GRANDCHILD: hold fixture stream only. No general work.",
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "fixtureMarker": "PROBE: bounded managed execution interrupt",
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "fixtureMarker": "PROBE: bounded managed execution interrupt",
+      "fixtureToolOutputs": [
+        "exec_command failed: CreateProcess { message: \"Rejected(\\\"`\\\\\\\"C:\\\\\\\\\\\\\\\\Users\\\\\\\\\\\\\\\\wmasa\\\\\\\\\\\\\\\\.cache\\\\\\\\\\\\\\\\codex-runtimes\\\\\\\\\\\\\\\\codex-primary-runtime\\\\\\\\\\\\\\\\dependencies\\\\\\\\\\\\\\\\native\\\\\\\\\\\\\\\\powershell\\\\\\\\\\\\\\\\pwsh.exe\\\\\\\" -NoProfile -Command \\\\\\\"& 'C:\\\\\\\\\\\\\\\\Program Files\\\\\\\\\\\\\\\\nodejs\\\\\\\\\\\\\\\\node.exe' 'C:\\\\\\\\\\\\\\\\Users\\\\\\\\\\\\\\\\wmasa\\\\\\\\\\\\\\\\Documents\\\\\\\\\\\\\\\\Rust\\\\\\\\\\\\\\\\AgentDock\\\\\\\\\\\\\\\\probes\\\\\\\\\\\\\\\\app-server\\\\\\\\\\\\\\\\runs\\\\\\\\\\\\\\\\2026-10-04T08-44-50-813Z\\\\\\\\\\\\\\\\work\\\\\\\\\\\\\\\\managed-process-fixture.mjs'\\\\\\\"` rejected: blocked by policy\\\")\" }"
+      ],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    }
+  ],
+  "limitations": [
+    "No real cloud inference/authentication",
+    "Fixture agent observations are not universal recursive or OS descendant termination guarantees",
+    "Plugin MCP advertisement is not all plugin capability filtering",
+    "Queue observations do not implement AgentDock queue policy",
+    "Loopback WebSocket fixture is unauthenticated and experimental, not a production transport decision"
+  ]
+}

@@ -1,0 +1,98 @@
+[
+  {
+    "operation": "terminate",
+    "threadId": "01a10633-c886-7c70-a7a5-e01162095e6b",
+    "info": {
+      "itemId": "call_1",
+      "processId": "21929",
+      "command": "& 'C:\\Program Files\\nodejs\\node.exe' 'C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T09-16-58-097Z\\work\\managed-tree.mjs'",
+      "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T09-16-58-097Z\\work",
+      "osPid": null,
+      "cpuPercent": null,
+      "rssKb": null
+    },
+    "ack": {
+      "terminated": true
+    },
+    "before": [
+      {
+        "pid": 51232,
+        "alive": true
+      },
+      {
+        "pid": 20736,
+        "alive": true
+      },
+      {
+        "pid": 15204,
+        "alive": true
+      }
+    ],
+    "after": [
+      {
+        "pid": 51232,
+        "alive": false
+      },
+      {
+        "pid": 20736,
+        "alive": false
+      },
+      {
+        "pid": 15204,
+        "alive": false
+      }
+    ],
+    "list": {
+      "data": [],
+      "nextCursor": null
+    },
+    "observationMs": 500
+  },
+  {
+    "operation": "clean",
+    "threadId": "01a10633-f73d-7c22-9ed3-b43307af14f0",
+    "info": {
+      "itemId": "call_3",
+      "processId": "89345",
+      "command": "& 'C:\\Program Files\\nodejs\\node.exe' 'C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T09-16-58-097Z\\work\\managed-tree.mjs'",
+      "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T09-16-58-097Z\\work",
+      "osPid": null,
+      "cpuPercent": null,
+      "rssKb": null
+    },
+    "ack": {},
+    "before": [
+      {
+        "pid": 32360,
+        "alive": true
+      },
+      {
+        "pid": 57752,
+        "alive": true
+      },
+      {
+        "pid": 33108,
+        "alive": true
+      }
+    ],
+    "after": [
+      {
+        "pid": 32360,
+        "alive": false
+      },
+      {
+        "pid": 57752,
+        "alive": false
+      },
+      {
+        "pid": 33108,
+        "alive": false
+      }
+    ],
+    "list": {
+      "data": [],
+      "nextCursor": null
+    },
+    "observationMs": 500
+  }
+]

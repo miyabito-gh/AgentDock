@@ -1,0 +1,170 @@
+[
+  {
+    "connectionCount": 1,
+    "delayMs": 0,
+    "repeat": 1,
+    "threadId": "01a10612-de77-7c02-80f8-a915178754e2",
+    "turnId": "01a10612-deaa-7861-9f33-c6bfea70e942",
+    "retained": true,
+    "persistedStatus": "inProgress",
+    "runtimeStatus": {
+      "type": "active",
+      "activeFlags": []
+    },
+    "requestsDuringResume": 0
+  },
+  {
+    "connectionCount": 1,
+    "delayMs": 0,
+    "repeat": 2,
+    "threadId": "01a10612-e972-79f1-9ae1-f4e2836d23f3",
+    "turnId": "01a10612-e9ac-7032-b03e-03415a89e610",
+    "retained": true,
+    "persistedStatus": "inProgress",
+    "runtimeStatus": {
+      "type": "active",
+      "activeFlags": []
+    },
+    "requestsDuringResume": 0
+  },
+  {
+    "connectionCount": 1,
+    "delayMs": 500,
+    "repeat": 1,
+    "threadId": "01a10612-ebbf-7d32-9c0a-4e6b7c2ae826",
+    "turnId": "01a10612-ebef-7890-a38d-c1675e278684",
+    "retained": true,
+    "persistedStatus": "inProgress",
+    "runtimeStatus": {
+      "type": "active",
+      "activeFlags": []
+    },
+    "requestsDuringResume": 0
+  },
+  {
+    "connectionCount": 1,
+    "delayMs": 500,
+    "repeat": 2,
+    "threadId": "01a10612-efc4-79b2-b5ec-5800d38452ab",
+    "turnId": "01a10612-eff5-7da1-83ec-410cda172b26",
+    "retained": true,
+    "persistedStatus": "inProgress",
+    "runtimeStatus": {
+      "type": "active",
+      "activeFlags": []
+    },
+    "requestsDuringResume": 0
+  },
+  {
+    "connectionCount": 1,
+    "delayMs": 2500,
+    "repeat": 1,
+    "threadId": "01a10612-f3c4-74a1-aa0b-a34731a58e66",
+    "turnId": "01a10612-f3fd-7173-aeb8-7cdceebb66d3",
+    "retained": true,
+    "persistedStatus": "inProgress",
+    "runtimeStatus": {
+      "type": "active",
+      "activeFlags": []
+    },
+    "requestsDuringResume": 0
+  },
+  {
+    "connectionCount": 1,
+    "delayMs": 2500,
+    "repeat": 2,
+    "threadId": "01a10612-ffd7-7ae3-8427-993e6a17b543",
+    "turnId": "01a10613-000c-7db0-af9a-6dedb6b0aa20",
+    "retained": true,
+    "persistedStatus": "inProgress",
+    "runtimeStatus": {
+      "type": "active",
+      "activeFlags": []
+    },
+    "requestsDuringResume": 0
+  },
+  {
+    "connectionCount": 2,
+    "delayMs": 0,
+    "repeat": 1,
+    "threadId": "01a10613-0bc3-7850-a336-a45d97b72418",
+    "turnId": "01a10613-0bee-72c1-adb5-b5d5d88aff7e",
+    "retained": true,
+    "persistedStatus": "inProgress",
+    "runtimeStatus": {
+      "type": "active",
+      "activeFlags": []
+    },
+    "requestsDuringResume": 0
+  },
+  {
+    "connectionCount": 2,
+    "delayMs": 0,
+    "repeat": 2,
+    "threadId": "01a10613-0e3b-7d51-9772-5fce45d81a67",
+    "turnId": "01a10613-0e75-75f0-98e1-5cdbd9e8af24",
+    "retained": true,
+    "persistedStatus": "inProgress",
+    "runtimeStatus": {
+      "type": "active",
+      "activeFlags": []
+    },
+    "requestsDuringResume": 0
+  },
+  {
+    "connectionCount": 2,
+    "delayMs": 500,
+    "repeat": 1,
+    "threadId": "01a10613-10bc-7912-9d63-dc38589c8a19",
+    "turnId": "01a10613-10ef-77f2-8abb-d51cc1182581",
+    "retained": true,
+    "persistedStatus": "inProgress",
+    "runtimeStatus": {
+      "type": "active",
+      "activeFlags": []
+    },
+    "requestsDuringResume": 0
+  },
+  {
+    "connectionCount": 2,
+    "delayMs": 500,
+    "repeat": 2,
+    "threadId": "01a10613-1521-71b2-acdd-843fc77fa795",
+    "turnId": "01a10613-1556-7741-b82a-858e47e8791b",
+    "retained": true,
+    "persistedStatus": "inProgress",
+    "runtimeStatus": {
+      "type": "active",
+      "activeFlags": []
+    },
+    "requestsDuringResume": 0
+  },
+  {
+    "connectionCount": 2,
+    "delayMs": 2500,
+    "repeat": 1,
+    "threadId": "01a10613-1978-7e22-be49-019ab1340d39",
+    "turnId": "01a10613-19aa-7843-ba10-575e34cbc0df",
+    "retained": true,
+    "persistedStatus": "inProgress",
+    "runtimeStatus": {
+      "type": "active",
+      "activeFlags": []
+    },
+    "requestsDuringResume": 0
+  },
+  {
+    "connectionCount": 2,
+    "delayMs": 2500,
+    "repeat": 2,
+    "threadId": "01a10613-259e-7a20-b82e-7ae4cb58008b",
+    "turnId": "01a10613-25d1-79c1-a4bc-fea8f5d25d1b",
+    "retained": true,
+    "persistedStatus": "inProgress",
+    "runtimeStatus": {
+      "type": "active",
+      "activeFlags": []
+    },
+    "requestsDuringResume": 0
+  }
+]

@@ -1,0 +1,230 @@
+{
+  "roots": [
+    {
+      "label": "a",
+      "id": "01a10686-d03f-7590-a4d6-8de3f443effc",
+      "turnId": "01a10686-d051-7c61-ac61-76b84badb41f",
+      "info": {
+        "itemId": "call_1",
+        "processId": "92124",
+        "command": "& 'C:\\Program Files\\nodejs\\node.exe' 'C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-47-40-634Z\\work\\owned-tree.mjs'",
+        "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-47-40-634Z\\work",
+        "osPid": null,
+        "cpuPercent": null,
+        "rssKb": null
+      },
+      "pids": [
+        16260,
+        46692,
+        61428
+      ]
+    },
+    {
+      "label": "b",
+      "id": "01a10686-f917-72a1-8e9c-feffea45e59f",
+      "turnId": "01a10686-f94f-70b3-9615-b4e8c193104f",
+      "info": {
+        "itemId": "call_3",
+        "processId": "86638",
+        "command": "& 'C:\\Program Files\\nodejs\\node.exe' 'C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-47-40-634Z\\work\\owned-tree.mjs'",
+        "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-47-40-634Z\\work",
+        "osPid": null,
+        "cpuPercent": null,
+        "rssKb": null
+      },
+      "pids": [
+        10492,
+        47484,
+        24084
+      ]
+    }
+  ],
+  "outsider": {
+    "pid": 14468,
+    "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-47-40-634Z\\work",
+    "source": "harness-owned, not an App Server terminal"
+  },
+  "snapshots": [
+    {
+      "stage": "before",
+      "observedAt": "2026-10-04T10:48:02.610Z",
+      "pids": [
+        {
+          "pid": 14468,
+          "alive": true
+        },
+        {
+          "pid": 16260,
+          "alive": true
+        },
+        {
+          "pid": 46692,
+          "alive": true
+        },
+        {
+          "pid": 61428,
+          "alive": true
+        },
+        {
+          "pid": 10492,
+          "alive": true
+        },
+        {
+          "pid": 47484,
+          "alive": true
+        },
+        {
+          "pid": 24084,
+          "alive": true
+        }
+      ],
+      "identities": {
+        "error": "Command failed: powershell.exe -NoProfile -Command $ids=@(14468,16260,46692,61428,10492,47484,24084); Get-CimInstance Win32_Process | Where-Object { $ids -contains $_.ProcessId } | Select-Object ProcessId,ParentProcessId,CreationDate,ExecutablePath,CommandLine | ConvertTo-Json -Depth 4 -Compress\nGet-CimInstance : �A�N�Z�X�͋��ۂ���܂��� \r\n�����ꏊ �s:1 ����:52\r\n+ ... 46692,61428,10492,47484,24084); Get-CimInstance Win32_Process | Where ...\r\n+                                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\r\n    + CategoryInfo          : PermissionDenied: (root\\cimv2:Win32_Process:String) [Get-CimInstance], CimException\r\n    + FullyQualifiedErrorId : HRESULT 0x80041003,Microsoft.Management.Infrastructure.CimCmdlets.GetCimInstanceCommand\r\n \r\n"
+      }
+    },
+    {
+      "stage": "wrong-thread-request",
+      "observedAt": "2026-10-04T10:48:03.450Z",
+      "pids": [
+        {
+          "pid": 14468,
+          "alive": true
+        },
+        {
+          "pid": 16260,
+          "alive": true
+        },
+        {
+          "pid": 46692,
+          "alive": true
+        },
+        {
+          "pid": 61428,
+          "alive": true
+        },
+        {
+          "pid": 10492,
+          "alive": true
+        },
+        {
+          "pid": 47484,
+          "alive": true
+        },
+        {
+          "pid": 24084,
+          "alive": true
+        }
+      ],
+      "identities": {
+        "error": "Command failed: powershell.exe -NoProfile -Command $ids=@(14468,16260,46692,61428,10492,47484,24084); Get-CimInstance Win32_Process | Where-Object { $ids -contains $_.ProcessId } | Select-Object ProcessId,ParentProcessId,CreationDate,ExecutablePath,CommandLine | ConvertTo-Json -Depth 4 -Compress\nGet-CimInstance : �A�N�Z�X�͋��ۂ���܂��� \r\n�����ꏊ �s:1 ����:52\r\n+ ... 46692,61428,10492,47484,24084); Get-CimInstance Win32_Process | Where ...\r\n+                                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\r\n    + CategoryInfo          : PermissionDenied: (root\\cimv2:Win32_Process:String) [Get-CimInstance], CimException\r\n    + FullyQualifiedErrorId : HRESULT 0x80041003,Microsoft.Management.Infrastructure.CimCmdlets.GetCimInstanceCommand\r\n \r\n"
+      }
+    },
+    {
+      "stage": "clean-b",
+      "observedAt": "2026-10-04T10:48:04.288Z",
+      "pids": [
+        {
+          "pid": 14468,
+          "alive": true
+        },
+        {
+          "pid": 16260,
+          "alive": true
+        },
+        {
+          "pid": 46692,
+          "alive": true
+        },
+        {
+          "pid": 61428,
+          "alive": true
+        },
+        {
+          "pid": 10492,
+          "alive": false
+        },
+        {
+          "pid": 47484,
+          "alive": false
+        },
+        {
+          "pid": 24084,
+          "alive": false
+        }
+      ],
+      "identities": {
+        "error": "Command failed: powershell.exe -NoProfile -Command $ids=@(14468,16260,46692,61428,10492,47484,24084); Get-CimInstance Win32_Process | Where-Object { $ids -contains $_.ProcessId } | Select-Object ProcessId,ParentProcessId,CreationDate,ExecutablePath,CommandLine | ConvertTo-Json -Depth 4 -Compress\nGet-CimInstance : �A�N�Z�X�͋��ۂ���܂��� \r\n�����ꏊ �s:1 ����:52\r\n+ ... 46692,61428,10492,47484,24084); Get-CimInstance Win32_Process | Where ...\r\n+                                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\r\n    + CategoryInfo          : PermissionDenied: (root\\cimv2:Win32_Process:String) [Get-CimInstance], CimException\r\n    + FullyQualifiedErrorId : HRESULT 0x80041003,Microsoft.Management.Infrastructure.CimCmdlets.GetCimInstanceCommand\r\n \r\n"
+      }
+    },
+    {
+      "stage": "terminate-a",
+      "observedAt": "2026-10-04T10:48:05.106Z",
+      "pids": [
+        {
+          "pid": 14468,
+          "alive": true
+        },
+        {
+          "pid": 16260,
+          "alive": false
+        },
+        {
+          "pid": 46692,
+          "alive": false
+        },
+        {
+          "pid": 61428,
+          "alive": false
+        },
+        {
+          "pid": 10492,
+          "alive": false
+        },
+        {
+          "pid": 47484,
+          "alive": false
+        },
+        {
+          "pid": 24084,
+          "alive": false
+        }
+      ],
+      "identities": {
+        "error": "Command failed: powershell.exe -NoProfile -Command $ids=@(14468,16260,46692,61428,10492,47484,24084); Get-CimInstance Win32_Process | Where-Object { $ids -contains $_.ProcessId } | Select-Object ProcessId,ParentProcessId,CreationDate,ExecutablePath,CommandLine | ConvertTo-Json -Depth 4 -Compress\nGet-CimInstance : �A�N�Z�X�͋��ۂ���܂��� \r\n�����ꏊ �s:1 ����:52\r\n+ ... 46692,61428,10492,47484,24084); Get-CimInstance Win32_Process | Where ...\r\n+                                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\r\n    + CategoryInfo          : PermissionDenied: (root\\cimv2:Win32_Process:String) [Get-CimInstance], CimException\r\n    + FullyQualifiedErrorId : HRESULT 0x80041003,Microsoft.Management.Infrastructure.CimCmdlets.GetCimInstanceCommand\r\n \r\n"
+      }
+    }
+  ],
+  "cross": {
+    "id": 8,
+    "result": {
+      "terminated": false
+    }
+  },
+  "cleanB": {
+    "id": 9,
+    "result": {}
+  },
+  "terminateA": {
+    "id": 10,
+    "result": {
+      "terminated": true
+    }
+  },
+  "lists": [
+    {
+      "id": "01a10686-d03f-7590-a4d6-8de3f443effc",
+      "list": {
+        "data": [],
+        "nextCursor": null
+      }
+    },
+    {
+      "id": "01a10686-f917-72a1-8e9c-feffea45e59f",
+      "list": {
+        "data": [],
+        "nextCursor": null
+      }
+    }
+  ],
+  "scope": "Two loaded threads same cwd, 3-process bounded trees, wrong thread/processId pairing, independent harness process; CIM identity observations. No arbitrary process ownership, PID-reuse or detach guarantee."
+}

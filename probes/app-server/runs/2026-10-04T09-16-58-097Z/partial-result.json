@@ -1,0 +1,221 @@
+{
+  "results": [
+    {
+      "name": "deep_plugin_skill_hook_visibility",
+      "status": "fail",
+      "error": "Installed fixture skill absent"
+    },
+    {
+      "name": "deep_managed_os_descendants",
+      "status": "pass",
+      "evidence": [
+        {
+          "operation": "terminate",
+          "threadId": "01a10633-c886-7c70-a7a5-e01162095e6b",
+          "info": {
+            "itemId": "call_1",
+            "processId": "21929",
+            "command": "& 'C:\\Program Files\\nodejs\\node.exe' 'C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T09-16-58-097Z\\work\\managed-tree.mjs'",
+            "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T09-16-58-097Z\\work",
+            "osPid": null,
+            "cpuPercent": null,
+            "rssKb": null
+          },
+          "ack": {
+            "terminated": true
+          },
+          "before": [
+            {
+              "pid": 51232,
+              "alive": true
+            },
+            {
+              "pid": 20736,
+              "alive": true
+            },
+            {
+              "pid": 15204,
+              "alive": true
+            }
+          ],
+          "after": [
+            {
+              "pid": 51232,
+              "alive": false
+            },
+            {
+              "pid": 20736,
+              "alive": false
+            },
+            {
+              "pid": 15204,
+              "alive": false
+            }
+          ],
+          "list": {
+            "data": [],
+            "nextCursor": null
+          },
+          "observationMs": 500
+        },
+        {
+          "operation": "clean",
+          "threadId": "01a10633-f73d-7c22-9ed3-b43307af14f0",
+          "info": {
+            "itemId": "call_3",
+            "processId": "89345",
+            "command": "& 'C:\\Program Files\\nodejs\\node.exe' 'C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T09-16-58-097Z\\work\\managed-tree.mjs'",
+            "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T09-16-58-097Z\\work",
+            "osPid": null,
+            "cpuPercent": null,
+            "rssKb": null
+          },
+          "ack": {},
+          "before": [
+            {
+              "pid": 32360,
+              "alive": true
+            },
+            {
+              "pid": 57752,
+              "alive": true
+            },
+            {
+              "pid": 33108,
+              "alive": true
+            }
+          ],
+          "after": [
+            {
+              "pid": 32360,
+              "alive": false
+            },
+            {
+              "pid": 57752,
+              "alive": false
+            },
+            {
+              "pid": 33108,
+              "alive": false
+            }
+          ],
+          "list": {
+            "data": [],
+            "nextCursor": null
+          },
+          "observationMs": 500
+        }
+      ]
+    }
+  ],
+  "modelRequests": [
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": false,
+      "fixtureMarker": "PROBE: OS tree terminate",
+      "fixtureSkillMentioned": true,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": true,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": false,
+      "fixtureMarker": "PROBE: OS tree terminate",
+      "fixtureSkillMentioned": true,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": true,
+      "fixtureToolOutputs": [
+        "Chunk ID: 71a80d\nWall time: 10.0155 seconds\nProcess running with session ID 21929\nOriginal token count: 12\nOutput:\nPROBE_PID=51232\nPROBE_PID=20736\nPROBE_PID=15204\n"
+      ],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": false,
+      "fixtureMarker": "PROBE: OS tree clean",
+      "fixtureSkillMentioned": true,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": true,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": false,
+      "fixtureMarker": "PROBE: OS tree clean",
+      "fixtureSkillMentioned": true,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": true,
+      "fixtureToolOutputs": [
+        "Chunk ID: 7beeb8\nWall time: 10.0119 seconds\nProcess running with session ID 89345\nOriginal token count: 12\nOutput:\nPROBE_PID=32360\nPROBE_PID=57752\nPROBE_PID=33108\n"
+      ],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    }
+  ]
+}

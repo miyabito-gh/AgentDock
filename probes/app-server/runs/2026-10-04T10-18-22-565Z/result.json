@@ -1,0 +1,954 @@
+{
+  "createdAt": "2026-10-04T10:20:27.199Z",
+  "executable": "C:\\Users\\wmasa\\.vscode\\extensions\\openai.chatgpt-26.930.31730-win32-x64\\bin\\windows-x86_64\\codex.exe",
+  "version": "codex-cli 0.160.0",
+  "mode": "Real App Server with loopback model fixture; no cloud authentication",
+  "run": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-18-22-565Z",
+  "selectedChecks": [
+    "longer_disconnect_queue_read_resume"
+  ],
+  "results": [
+    {
+      "name": "longer_disconnect_queue_read_resume",
+      "status": "pass",
+      "evidence": {
+        "active": "01a1066b-fdcf-72a3-a112-7156591e3525",
+        "idle": "01a1066b-fe9b-7dd3-a949-c67ec72f01db",
+        "turn": "01a1066b-fde5-7890-8e41-69f625f3c60a",
+        "requestedGapMs": 120000,
+        "observedGapMs": 120131,
+        "before": 2,
+        "beforeRead": 3,
+        "afterRead": 3,
+        "queuesBefore": [
+          {
+            "id": "01a1066b-fdcf-72a3-a112-7156591e3525",
+            "queue": {
+              "data": [
+                {
+                  "id": "01a1066b-ffc2-7962-9c4b-a30ac4c9cd73",
+                  "input": [
+                    {
+                      "type": "text",
+                      "text": "PROBE: long active queued",
+                      "text_elements": []
+                    }
+                  ],
+                  "clientUserMessageId": "01a1066b-ffc1-7280-a2b8-90d0b07b1c2b"
+                }
+              ],
+              "nextCursor": null
+            },
+            "read": {
+              "id": "01a1066b-fdcf-72a3-a112-7156591e3525",
+              "environments": [
+                {
+                  "environmentId": "local",
+                  "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-18-22-565Z\\work",
+                  "runtimeWorkspaceRoots": [
+                    "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-18-22-565Z\\work"
+                  ]
+                }
+              ],
+              "extra": null,
+              "sessionId": "01a1066b-fdcf-72a3-a112-7156591e3525",
+              "forkedFromId": null,
+              "parentThreadId": null,
+              "preview": "PROBE: 120s active",
+              "ephemeral": false,
+              "section": null,
+              "sectionEnteredAt": null,
+              "projectId": null,
+              "historyMode": "paginated",
+              "modelProvider": "agentdock_probe",
+              "model": "gpt-5.4",
+              "reasoningEffort": null,
+              "createdAt": 1791109103,
+              "updatedAt": 1791109103,
+              "recencyAt": 1791109103,
+              "status": {
+                "type": "active",
+                "activeFlags": []
+              },
+              "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-18-22-565Z\\codex-home\\sessions\\2026\\10\\04\\rollout-2026-10-04T19-18-23-01a1066b-fdcf-72a3-a112-7156591e3525.jsonl",
+              "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-18-22-565Z\\work",
+              "cliVersion": "0.160.0",
+              "originator": "Codex Desktop",
+              "source": "vscode",
+              "canAcceptDirectInput": true,
+              "threadSource": null,
+              "agentNickname": null,
+              "agentRole": null,
+              "gitInfo": null,
+              "name": null,
+              "daybreakEnabled": null,
+              "turns": [
+                {
+                  "id": "01a1066b-fde5-7890-8e41-69f625f3c60a",
+                  "items": [
+                    {
+                      "type": "userMessage",
+                      "id": "01a1066b-fe56-7392-b02e-f1b6870ca9ad",
+                      "clientId": null,
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "PROBE: 120s active",
+                          "text_elements": []
+                        }
+                      ]
+                    }
+                  ],
+                  "itemsView": "full",
+                  "status": "inProgress",
+                  "error": null,
+                  "startedAt": 1791109103,
+                  "completedAt": null,
+                  "durationMs": null
+                }
+              ]
+            }
+          },
+          {
+            "id": "01a1066b-fe9b-7dd3-a949-c67ec72f01db",
+            "queue": {
+              "data": [
+                {
+                  "id": "01a1066c-0048-79b1-b164-3bcd39c4c750",
+                  "input": [
+                    {
+                      "type": "text",
+                      "text": "PROBE: long idle queued",
+                      "text_elements": []
+                    }
+                  ],
+                  "clientUserMessageId": "01a1066c-0047-74b2-9f9b-de60a5c3ed9e"
+                }
+              ],
+              "nextCursor": null
+            },
+            "read": {
+              "id": "01a1066b-fe9b-7dd3-a949-c67ec72f01db",
+              "environments": [
+                {
+                  "environmentId": "local",
+                  "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-18-22-565Z\\work",
+                  "runtimeWorkspaceRoots": [
+                    "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-18-22-565Z\\work"
+                  ]
+                }
+              ],
+              "extra": null,
+              "sessionId": "01a1066b-fe9b-7dd3-a949-c67ec72f01db",
+              "forkedFromId": null,
+              "parentThreadId": null,
+              "preview": "PROBE: completed baseline",
+              "ephemeral": false,
+              "section": null,
+              "sectionEnteredAt": null,
+              "projectId": null,
+              "historyMode": "paginated",
+              "modelProvider": "agentdock_probe",
+              "model": "gpt-5.4",
+              "reasoningEffort": null,
+              "createdAt": 1791109103,
+              "updatedAt": 1791109103,
+              "recencyAt": 1791109103,
+              "status": {
+                "type": "idle"
+              },
+              "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-18-22-565Z\\codex-home\\sessions\\2026\\10\\04\\rollout-2026-10-04T19-18-23-01a1066b-fe9b-7dd3-a949-c67ec72f01db.jsonl",
+              "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-18-22-565Z\\work",
+              "cliVersion": "0.160.0",
+              "originator": "Codex Desktop",
+              "source": "vscode",
+              "canAcceptDirectInput": true,
+              "threadSource": null,
+              "agentNickname": null,
+              "agentRole": null,
+              "gitInfo": null,
+              "name": null,
+              "daybreakEnabled": null,
+              "turns": [
+                {
+                  "id": "01a1066b-fec9-7fe3-a905-63582daa85b7",
+                  "items": [
+                    {
+                      "type": "userMessage",
+                      "id": "01a1066b-ff0e-7641-a6ed-118c88edd4e8",
+                      "clientId": null,
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "PROBE: completed baseline",
+                          "text_elements": []
+                        }
+                      ]
+                    },
+                    {
+                      "type": "agentMessage",
+                      "id": "msg_2",
+                      "text": "PROBE_OK",
+                      "phase": null,
+                      "memoryCitation": null,
+                      "delivery": null,
+                      "questions": null
+                    }
+                  ],
+                  "itemsView": "full",
+                  "status": "completed",
+                  "error": null,
+                  "startedAt": 1791109103,
+                  "completedAt": 1791109103,
+                  "durationMs": 143
+                }
+              ]
+            }
+          }
+        ],
+        "loaded": {
+          "data": [
+            "01a1066b-fdcf-72a3-a112-7156591e3525",
+            "01a1066b-fe9b-7dd3-a949-c67ec72f01db"
+          ],
+          "nextCursor": null
+        },
+        "rows": [
+          {
+            "id": "01a1066b-fdcf-72a3-a112-7156591e3525",
+            "read": {
+              "id": "01a1066b-fdcf-72a3-a112-7156591e3525",
+              "environments": [
+                {
+                  "environmentId": "local",
+                  "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-18-22-565Z\\work",
+                  "runtimeWorkspaceRoots": [
+                    "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-18-22-565Z\\work"
+                  ]
+                }
+              ],
+              "extra": null,
+              "sessionId": "01a1066b-fdcf-72a3-a112-7156591e3525",
+              "forkedFromId": null,
+              "parentThreadId": null,
+              "preview": "PROBE: 120s active",
+              "ephemeral": false,
+              "section": null,
+              "sectionEnteredAt": null,
+              "projectId": null,
+              "historyMode": "paginated",
+              "modelProvider": "agentdock_probe",
+              "model": "gpt-5.4",
+              "reasoningEffort": null,
+              "createdAt": 1791109103,
+              "updatedAt": 1791109103,
+              "recencyAt": 1791109103,
+              "status": {
+                "type": "active",
+                "activeFlags": []
+              },
+              "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-18-22-565Z\\codex-home\\sessions\\2026\\10\\04\\rollout-2026-10-04T19-18-23-01a1066b-fdcf-72a3-a112-7156591e3525.jsonl",
+              "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-18-22-565Z\\work",
+              "cliVersion": "0.160.0",
+              "originator": "Codex Desktop",
+              "source": "vscode",
+              "canAcceptDirectInput": true,
+              "threadSource": null,
+              "agentNickname": null,
+              "agentRole": null,
+              "gitInfo": null,
+              "name": null,
+              "daybreakEnabled": null,
+              "turns": [
+                {
+                  "id": "01a1066b-fde5-7890-8e41-69f625f3c60a",
+                  "items": [
+                    {
+                      "type": "userMessage",
+                      "id": "01a1066b-fe56-7392-b02e-f1b6870ca9ad",
+                      "clientId": null,
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "PROBE: 120s active",
+                          "text_elements": []
+                        }
+                      ]
+                    }
+                  ],
+                  "itemsView": "full",
+                  "status": "inProgress",
+                  "error": null,
+                  "startedAt": 1791109103,
+                  "completedAt": null,
+                  "durationMs": null
+                }
+              ]
+            },
+            "queue": {
+              "data": [
+                {
+                  "id": "01a1066b-ffc2-7962-9c4b-a30ac4c9cd73",
+                  "input": [
+                    {
+                      "type": "text",
+                      "text": "PROBE: long active queued",
+                      "text_elements": []
+                    }
+                  ],
+                  "clientUserMessageId": "01a1066b-ffc1-7280-a2b8-90d0b07b1c2b"
+                }
+              ],
+              "nextCursor": null
+            }
+          },
+          {
+            "id": "01a1066b-fe9b-7dd3-a949-c67ec72f01db",
+            "read": {
+              "id": "01a1066b-fe9b-7dd3-a949-c67ec72f01db",
+              "environments": [
+                {
+                  "environmentId": "local",
+                  "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-18-22-565Z\\work",
+                  "runtimeWorkspaceRoots": [
+                    "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-18-22-565Z\\work"
+                  ]
+                }
+              ],
+              "extra": null,
+              "sessionId": "01a1066b-fe9b-7dd3-a949-c67ec72f01db",
+              "forkedFromId": null,
+              "parentThreadId": null,
+              "preview": "PROBE: completed baseline",
+              "ephemeral": false,
+              "section": null,
+              "sectionEnteredAt": null,
+              "projectId": null,
+              "historyMode": "paginated",
+              "modelProvider": "agentdock_probe",
+              "model": "gpt-5.4",
+              "reasoningEffort": null,
+              "createdAt": 1791109103,
+              "updatedAt": 1791109113,
+              "recencyAt": 1791109113,
+              "status": {
+                "type": "active",
+                "activeFlags": []
+              },
+              "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-18-22-565Z\\codex-home\\sessions\\2026\\10\\04\\rollout-2026-10-04T19-18-23-01a1066b-fe9b-7dd3-a949-c67ec72f01db.jsonl",
+              "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-18-22-565Z\\work",
+              "cliVersion": "0.160.0",
+              "originator": "Codex Desktop",
+              "source": "vscode",
+              "canAcceptDirectInput": true,
+              "threadSource": null,
+              "agentNickname": null,
+              "agentRole": null,
+              "gitInfo": null,
+              "name": null,
+              "daybreakEnabled": null,
+              "turns": [
+                {
+                  "id": "01a1066b-fec9-7fe3-a905-63582daa85b7",
+                  "items": [
+                    {
+                      "type": "userMessage",
+                      "id": "01a1066b-ff0e-7641-a6ed-118c88edd4e8",
+                      "clientId": null,
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "PROBE: completed baseline",
+                          "text_elements": []
+                        }
+                      ]
+                    },
+                    {
+                      "type": "agentMessage",
+                      "id": "msg_2",
+                      "text": "PROBE_OK",
+                      "phase": null,
+                      "memoryCitation": null,
+                      "delivery": null,
+                      "questions": null
+                    }
+                  ],
+                  "itemsView": "full",
+                  "status": "completed",
+                  "error": null,
+                  "startedAt": 1791109103,
+                  "completedAt": 1791109103,
+                  "durationMs": 143
+                },
+                {
+                  "id": "01a1066c-24b6-7111-a4c5-11f262301caf",
+                  "items": [
+                    {
+                      "type": "userMessage",
+                      "id": "01a1066c-24da-7590-b442-4d0e820ad71e",
+                      "clientId": "01a1066c-0047-74b2-9f9b-de60a5c3ed9e",
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "PROBE: long idle queued",
+                          "text_elements": []
+                        }
+                      ]
+                    }
+                  ],
+                  "itemsView": "full",
+                  "status": "inProgress",
+                  "error": null,
+                  "startedAt": 1791109113,
+                  "completedAt": null,
+                  "durationMs": null
+                }
+              ]
+            },
+            "queue": {
+              "data": [],
+              "nextCursor": null
+            }
+          }
+        ],
+        "resumeRows": [
+          {
+            "id": "01a1066b-fdcf-72a3-a112-7156591e3525",
+            "wasLoaded": true,
+            "resumed": {
+              "id": 7,
+              "result": {
+                "thread": {
+                  "id": "01a1066b-fdcf-72a3-a112-7156591e3525",
+                  "environments": [
+                    {
+                      "environmentId": "local",
+                      "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-18-22-565Z\\work",
+                      "runtimeWorkspaceRoots": [
+                        "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-18-22-565Z\\work"
+                      ]
+                    }
+                  ],
+                  "extra": null,
+                  "sessionId": "01a1066b-fdcf-72a3-a112-7156591e3525",
+                  "forkedFromId": null,
+                  "parentThreadId": null,
+                  "preview": "PROBE: 120s active",
+                  "ephemeral": false,
+                  "section": null,
+                  "sectionEnteredAt": null,
+                  "projectId": null,
+                  "historyMode": "paginated",
+                  "modelProvider": "agentdock_probe",
+                  "model": "gpt-5.4",
+                  "reasoningEffort": null,
+                  "createdAt": 1791109103,
+                  "updatedAt": 1791109103,
+                  "recencyAt": 1791109103,
+                  "status": {
+                    "type": "active",
+                    "activeFlags": []
+                  },
+                  "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-18-22-565Z\\codex-home\\sessions\\2026\\10\\04\\rollout-2026-10-04T19-18-23-01a1066b-fdcf-72a3-a112-7156591e3525.jsonl",
+                  "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-18-22-565Z\\work",
+                  "cliVersion": "0.160.0",
+                  "originator": "Codex Desktop",
+                  "source": "vscode",
+                  "canAcceptDirectInput": true,
+                  "threadSource": null,
+                  "agentNickname": null,
+                  "agentRole": null,
+                  "gitInfo": null,
+                  "name": null,
+                  "daybreakEnabled": null,
+                  "turns": [
+                    {
+                      "id": "01a1066b-fde5-7890-8e41-69f625f3c60a",
+                      "items": [
+                        {
+                          "type": "userMessage",
+                          "id": "item-1",
+                          "clientId": null,
+                          "content": [
+                            {
+                              "type": "text",
+                              "text": "PROBE: 120s active",
+                              "text_elements": []
+                            }
+                          ]
+                        }
+                      ],
+                      "itemsView": "full",
+                      "status": "inProgress",
+                      "error": null,
+                      "startedAt": 1791109103,
+                      "completedAt": null,
+                      "durationMs": null
+                    }
+                  ]
+                },
+                "model": "gpt-5.4",
+                "modelProvider": "agentdock_probe",
+                "serviceTier": null,
+                "disabledPluginIds": [],
+                "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-18-22-565Z\\work",
+                "runtimeWorkspaceRoots": [
+                  "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-18-22-565Z\\work"
+                ],
+                "instructionSources": [],
+                "approvalPolicy": "never",
+                "approvalsReviewer": "user",
+                "sandbox": {
+                  "type": "readOnly",
+                  "networkAccess": false
+                },
+                "activePermissionProfile": null,
+                "reasoningEffort": null,
+                "collaborationMode": {
+                  "mode": "default",
+                  "settings": {
+                    "model": "gpt-5.4",
+                    "reasoning_effort": null,
+                    "developer_instructions": null
+                  }
+                },
+                "multiAgentMode": "explicitRequestOnly",
+                "initialTurnsPage": null,
+                "turnsBackwardsCursor": "{\"requestedThreadId\":\"01a1066b-fdcf-72a3-a112-7156591e3525\",\"rolloutOrdinal\":1,\"includeAnchor\":true,\"scope\":{\"kind\":\"turns\"}}",
+                "itemsBackwardsCursor": "{\"requestedThreadId\":\"01a1066b-fdcf-72a3-a112-7156591e3525\",\"rolloutOrdinal\":7,\"includeAnchor\":true,\"scope\":{\"kind\":\"itemsByCreatedAtOrdinal\"}}"
+              }
+            },
+            "before": 3,
+            "after": 3,
+            "queue": {
+              "data": [
+                {
+                  "id": "01a1066b-ffc2-7962-9c4b-a30ac4c9cd73",
+                  "input": [
+                    {
+                      "type": "text",
+                      "text": "PROBE: long active queued",
+                      "text_elements": []
+                    }
+                  ],
+                  "clientUserMessageId": "01a1066b-ffc1-7280-a2b8-90d0b07b1c2b"
+                }
+              ],
+              "nextCursor": null
+            },
+            "read": {
+              "id": "01a1066b-fdcf-72a3-a112-7156591e3525",
+              "environments": [
+                {
+                  "environmentId": "local",
+                  "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-18-22-565Z\\work",
+                  "runtimeWorkspaceRoots": [
+                    "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-18-22-565Z\\work"
+                  ]
+                }
+              ],
+              "extra": null,
+              "sessionId": "01a1066b-fdcf-72a3-a112-7156591e3525",
+              "forkedFromId": null,
+              "parentThreadId": null,
+              "preview": "PROBE: 120s active",
+              "ephemeral": false,
+              "section": null,
+              "sectionEnteredAt": null,
+              "projectId": null,
+              "historyMode": "paginated",
+              "modelProvider": "agentdock_probe",
+              "model": "gpt-5.4",
+              "reasoningEffort": null,
+              "createdAt": 1791109103,
+              "updatedAt": 1791109103,
+              "recencyAt": 1791109103,
+              "status": {
+                "type": "active",
+                "activeFlags": []
+              },
+              "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-18-22-565Z\\codex-home\\sessions\\2026\\10\\04\\rollout-2026-10-04T19-18-23-01a1066b-fdcf-72a3-a112-7156591e3525.jsonl",
+              "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-18-22-565Z\\work",
+              "cliVersion": "0.160.0",
+              "originator": "Codex Desktop",
+              "source": "vscode",
+              "canAcceptDirectInput": true,
+              "threadSource": null,
+              "agentNickname": null,
+              "agentRole": null,
+              "gitInfo": null,
+              "name": null,
+              "daybreakEnabled": null,
+              "turns": [
+                {
+                  "id": "01a1066b-fde5-7890-8e41-69f625f3c60a",
+                  "items": [
+                    {
+                      "type": "userMessage",
+                      "id": "01a1066b-fe56-7392-b02e-f1b6870ca9ad",
+                      "clientId": null,
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "PROBE: 120s active",
+                          "text_elements": []
+                        }
+                      ]
+                    }
+                  ],
+                  "itemsView": "full",
+                  "status": "inProgress",
+                  "error": null,
+                  "startedAt": 1791109103,
+                  "completedAt": null,
+                  "durationMs": null
+                }
+              ]
+            }
+          },
+          {
+            "id": "01a1066b-fe9b-7dd3-a949-c67ec72f01db",
+            "wasLoaded": true,
+            "resumed": {
+              "id": 10,
+              "result": {
+                "thread": {
+                  "id": "01a1066b-fe9b-7dd3-a949-c67ec72f01db",
+                  "environments": [
+                    {
+                      "environmentId": "local",
+                      "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-18-22-565Z\\work",
+                      "runtimeWorkspaceRoots": [
+                        "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-18-22-565Z\\work"
+                      ]
+                    }
+                  ],
+                  "extra": null,
+                  "sessionId": "01a1066b-fe9b-7dd3-a949-c67ec72f01db",
+                  "forkedFromId": null,
+                  "parentThreadId": null,
+                  "preview": "PROBE: completed baseline",
+                  "ephemeral": false,
+                  "section": null,
+                  "sectionEnteredAt": null,
+                  "projectId": null,
+                  "historyMode": "paginated",
+                  "modelProvider": "agentdock_probe",
+                  "model": "gpt-5.4",
+                  "reasoningEffort": null,
+                  "createdAt": 1791109103,
+                  "updatedAt": 1791109113,
+                  "recencyAt": 1791109113,
+                  "status": {
+                    "type": "active",
+                    "activeFlags": []
+                  },
+                  "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-18-22-565Z\\codex-home\\sessions\\2026\\10\\04\\rollout-2026-10-04T19-18-23-01a1066b-fe9b-7dd3-a949-c67ec72f01db.jsonl",
+                  "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-18-22-565Z\\work",
+                  "cliVersion": "0.160.0",
+                  "originator": "Codex Desktop",
+                  "source": "vscode",
+                  "canAcceptDirectInput": true,
+                  "threadSource": null,
+                  "agentNickname": null,
+                  "agentRole": null,
+                  "gitInfo": null,
+                  "name": null,
+                  "daybreakEnabled": null,
+                  "turns": [
+                    {
+                      "id": "01a1066b-fec9-7fe3-a905-63582daa85b7",
+                      "items": [
+                        {
+                          "type": "userMessage",
+                          "id": "01a1066b-ff0e-7641-a6ed-118c88edd4e8",
+                          "clientId": null,
+                          "content": [
+                            {
+                              "type": "text",
+                              "text": "PROBE: completed baseline",
+                              "text_elements": []
+                            }
+                          ]
+                        },
+                        {
+                          "type": "agentMessage",
+                          "id": "msg_2",
+                          "text": "PROBE_OK",
+                          "phase": null,
+                          "memoryCitation": null,
+                          "delivery": null,
+                          "questions": null
+                        }
+                      ],
+                      "itemsView": "full",
+                      "status": "completed",
+                      "error": null,
+                      "startedAt": 1791109103,
+                      "completedAt": 1791109103,
+                      "durationMs": 143
+                    },
+                    {
+                      "id": "01a1066c-24b6-7111-a4c5-11f262301caf",
+                      "items": [
+                        {
+                          "type": "userMessage",
+                          "id": "item-1",
+                          "clientId": "01a1066c-0047-74b2-9f9b-de60a5c3ed9e",
+                          "content": [
+                            {
+                              "type": "text",
+                              "text": "PROBE: long idle queued",
+                              "text_elements": []
+                            }
+                          ]
+                        }
+                      ],
+                      "itemsView": "full",
+                      "status": "inProgress",
+                      "error": null,
+                      "startedAt": 1791109113,
+                      "completedAt": null,
+                      "durationMs": null
+                    }
+                  ]
+                },
+                "model": "gpt-5.4",
+                "modelProvider": "agentdock_probe",
+                "serviceTier": null,
+                "disabledPluginIds": [],
+                "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-18-22-565Z\\work",
+                "runtimeWorkspaceRoots": [
+                  "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-18-22-565Z\\work"
+                ],
+                "instructionSources": [],
+                "approvalPolicy": "never",
+                "approvalsReviewer": "user",
+                "sandbox": {
+                  "type": "readOnly",
+                  "networkAccess": false
+                },
+                "activePermissionProfile": null,
+                "reasoningEffort": null,
+                "collaborationMode": {
+                  "mode": "default",
+                  "settings": {
+                    "model": "gpt-5.4",
+                    "reasoning_effort": null,
+                    "developer_instructions": null
+                  }
+                },
+                "multiAgentMode": "explicitRequestOnly",
+                "initialTurnsPage": null,
+                "turnsBackwardsCursor": "{\"requestedThreadId\":\"01a1066b-fe9b-7dd3-a949-c67ec72f01db\",\"rolloutOrdinal\":13,\"includeAnchor\":true,\"scope\":{\"kind\":\"turns\"}}",
+                "itemsBackwardsCursor": "{\"requestedThreadId\":\"01a1066b-fe9b-7dd3-a949-c67ec72f01db\",\"rolloutOrdinal\":16,\"includeAnchor\":true,\"scope\":{\"kind\":\"itemsByCreatedAtOrdinal\"}}"
+              }
+            },
+            "before": 3,
+            "after": 3,
+            "queue": {
+              "data": [],
+              "nextCursor": null
+            },
+            "read": {
+              "id": "01a1066b-fe9b-7dd3-a949-c67ec72f01db",
+              "environments": [
+                {
+                  "environmentId": "local",
+                  "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-18-22-565Z\\work",
+                  "runtimeWorkspaceRoots": [
+                    "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-18-22-565Z\\work"
+                  ]
+                }
+              ],
+              "extra": null,
+              "sessionId": "01a1066b-fe9b-7dd3-a949-c67ec72f01db",
+              "forkedFromId": null,
+              "parentThreadId": null,
+              "preview": "PROBE: completed baseline",
+              "ephemeral": false,
+              "section": null,
+              "sectionEnteredAt": null,
+              "projectId": null,
+              "historyMode": "paginated",
+              "modelProvider": "agentdock_probe",
+              "model": "gpt-5.4",
+              "reasoningEffort": null,
+              "createdAt": 1791109103,
+              "updatedAt": 1791109113,
+              "recencyAt": 1791109113,
+              "status": {
+                "type": "active",
+                "activeFlags": []
+              },
+              "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-18-22-565Z\\codex-home\\sessions\\2026\\10\\04\\rollout-2026-10-04T19-18-23-01a1066b-fe9b-7dd3-a949-c67ec72f01db.jsonl",
+              "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-18-22-565Z\\work",
+              "cliVersion": "0.160.0",
+              "originator": "Codex Desktop",
+              "source": "vscode",
+              "canAcceptDirectInput": true,
+              "threadSource": null,
+              "agentNickname": null,
+              "agentRole": null,
+              "gitInfo": null,
+              "name": null,
+              "daybreakEnabled": null,
+              "turns": [
+                {
+                  "id": "01a1066b-fec9-7fe3-a905-63582daa85b7",
+                  "items": [
+                    {
+                      "type": "userMessage",
+                      "id": "01a1066b-ff0e-7641-a6ed-118c88edd4e8",
+                      "clientId": null,
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "PROBE: completed baseline",
+                          "text_elements": []
+                        }
+                      ]
+                    },
+                    {
+                      "type": "agentMessage",
+                      "id": "msg_2",
+                      "text": "PROBE_OK",
+                      "phase": null,
+                      "memoryCitation": null,
+                      "delivery": null,
+                      "questions": null
+                    }
+                  ],
+                  "itemsView": "full",
+                  "status": "completed",
+                  "error": null,
+                  "startedAt": 1791109103,
+                  "completedAt": 1791109103,
+                  "durationMs": 143
+                },
+                {
+                  "id": "01a1066c-24b6-7111-a4c5-11f262301caf",
+                  "items": [
+                    {
+                      "type": "userMessage",
+                      "id": "01a1066c-24da-7590-b442-4d0e820ad71e",
+                      "clientId": "01a1066c-0047-74b2-9f9b-de60a5c3ed9e",
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "PROBE: long idle queued",
+                          "text_elements": []
+                        }
+                      ]
+                    }
+                  ],
+                  "itemsView": "full",
+                  "status": "inProgress",
+                  "error": null,
+                  "startedAt": 1791109113,
+                  "completedAt": null,
+                  "durationMs": null
+                }
+              ]
+            }
+          }
+        ],
+        "scope": "120s active and initially idle roots with stored queues. Resume is explicit fixture measurement, not production monitoring policy; no 30min idle expiry or sleep test."
+      }
+    },
+    {
+      "name": "existing_config_unchanged",
+      "status": "pass"
+    }
+  ],
+  "modelRequests": [
+    {
+      "observedAt": "2026-10-04T10:18:23.219Z",
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": false,
+      "fixtureMarker": "PROBE: 120s active",
+      "fixtureSkillMentioned": false,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": false,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "observedAt": "2026-10-04T10:18:23.403Z",
+      "mode": "complete",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": false,
+      "fixtureMarker": "PROBE: completed baseline",
+      "fixtureSkillMentioned": false,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": false,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "observedAt": "2026-10-04T10:18:33.076Z",
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": false,
+      "fixtureMarker": "PROBE: long idle queued",
+      "fixtureSkillMentioned": false,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": false,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    }
+  ],
+  "limitations": [
+    "No real cloud inference/authentication",
+    "Fixture agent observations are not universal recursive or OS descendant termination guarantees",
+    "Plugin MCP advertisement is not all plugin capability filtering",
+    "Queue observations do not implement AgentDock queue policy",
+    "Loopback WebSocket fixture is unauthenticated and experimental, not a production transport decision"
+  ]
+}

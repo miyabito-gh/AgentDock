@@ -1,0 +1,15 @@
+{
+  "added": {
+    "marketplaceName": "agentdock-probe",
+    "installedRoot": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-51-20-222Z\\marketplace",
+    "alreadyAdded": false
+  },
+  "installed": {
+    "pluginId": "fixture@agentdock-probe",
+    "name": "fixture",
+    "marketplaceName": "agentdock-probe",
+    "version": "0.1.0",
+    "installedPath": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-51-20-222Z\\codex-home\\plugins\\cache\\agentdock-probe\\fixture\\0.1.0",
+    "authPolicy": "ON_INSTALL"
+  }
+}

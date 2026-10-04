@@ -1,0 +1,705 @@
+[
+  {
+    "method": "remoteControl/status/changed",
+    "params": {
+      "status": "disabled",
+      "serverName": "home-win",
+      "installationId": "b7e26935-b1e0-4fb4-b0f3-bb0f83c65da5",
+      "environmentId": null
+    },
+    "emittedAtMs": 1791103388743
+  },
+  {
+    "method": "thread/started",
+    "params": {
+      "thread": {
+        "id": "01a10614-cc51-7d02-9dee-6055dcbd478c",
+        "environments": [
+          {
+            "environmentId": "local",
+            "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-43-08-227Z\\work",
+            "runtimeWorkspaceRoots": [
+              "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-43-08-227Z\\work"
+            ]
+          }
+        ],
+        "extra": null,
+        "sessionId": "01a10614-cc51-7d02-9dee-6055dcbd478c",
+        "forkedFromId": null,
+        "parentThreadId": null,
+        "preview": "",
+        "ephemeral": false,
+        "section": null,
+        "sectionEnteredAt": null,
+        "projectId": null,
+        "historyMode": "paginated",
+        "modelProvider": "agentdock_probe",
+        "model": "gpt-5.4",
+        "reasoningEffort": null,
+        "createdAt": 1791103388,
+        "updatedAt": 1791103388,
+        "recencyAt": 1791103388,
+        "status": {
+          "type": "idle"
+        },
+        "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-43-08-227Z\\codex-home\\sessions\\2026\\10\\04\\rollout-2026-10-04T17-43-08-01a10614-cc51-7d02-9dee-6055dcbd478c.jsonl",
+        "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-43-08-227Z\\work",
+        "cliVersion": "0.160.0",
+        "originator": "Codex Desktop",
+        "source": "vscode",
+        "canAcceptDirectInput": true,
+        "threadSource": null,
+        "agentNickname": null,
+        "agentRole": null,
+        "gitInfo": null,
+        "name": null,
+        "daybreakEnabled": null,
+        "turns": []
+      }
+    },
+    "emittedAtMs": 1791103388783
+  },
+  {
+    "method": "mcpServer/startupStatus/updated",
+    "params": {
+      "threadId": "01a10614-cc51-7d02-9dee-6055dcbd478c",
+      "name": "agentdock_fixture",
+      "status": "starting",
+      "error": null,
+      "failureReason": null
+    },
+    "emittedAtMs": 1791103388783
+  },
+  {
+    "method": "warning",
+    "params": {
+      "threadId": "01a10614-cc51-7d02-9dee-6055dcbd478c",
+      "message": "Model metadata for `gpt-5.4` not found. Defaulting to fallback metadata; this can degrade performance and cause issues."
+    },
+    "emittedAtMs": 1791103388805
+  },
+  {
+    "method": "thread/status/changed",
+    "params": {
+      "threadId": "01a10614-cc51-7d02-9dee-6055dcbd478c",
+      "status": {
+        "type": "active",
+        "activeFlags": []
+      }
+    },
+    "emittedAtMs": 1791103389100
+  },
+  {
+    "method": "turn/started",
+    "params": {
+      "threadId": "01a10614-cc51-7d02-9dee-6055dcbd478c",
+      "turn": {
+        "id": "01a10614-cc71-7be0-be50-93d5686a5344",
+        "items": [],
+        "itemsView": "notLoaded",
+        "status": "inProgress",
+        "error": null,
+        "startedAt": 1791103388,
+        "completedAt": null,
+        "durationMs": null
+      }
+    },
+    "emittedAtMs": 1791103389100
+  },
+  {
+    "method": "mcpServer/startupStatus/updated",
+    "params": {
+      "threadId": "01a10614-cc51-7d02-9dee-6055dcbd478c",
+      "name": "agentdock_fixture",
+      "status": "ready",
+      "error": null,
+      "failureReason": null
+    },
+    "emittedAtMs": 1791103389142
+  },
+  {
+    "method": "item/started",
+    "params": {
+      "item": {
+        "type": "userMessage",
+        "id": "01a10614-ce1d-7ae0-9f68-ec31d004abd4",
+        "clientId": null,
+        "content": [
+          {
+            "type": "text",
+            "text": "PROBE: spawn fixture child",
+            "text_elements": []
+          }
+        ]
+      },
+      "threadId": "01a10614-cc51-7d02-9dee-6055dcbd478c",
+      "turnId": "01a10614-cc71-7be0-be50-93d5686a5344",
+      "startedAtMs": 1791103389230
+    },
+    "emittedAtMs": 1791103389231
+  },
+  {
+    "method": "item/completed",
+    "params": {
+      "item": {
+        "type": "userMessage",
+        "id": "01a10614-ce1d-7ae0-9f68-ec31d004abd4",
+        "clientId": null,
+        "content": [
+          {
+            "type": "text",
+            "text": "PROBE: spawn fixture child",
+            "text_elements": []
+          }
+        ]
+      },
+      "threadId": "01a10614-cc51-7d02-9dee-6055dcbd478c",
+      "turnId": "01a10614-cc71-7be0-be50-93d5686a5344",
+      "completedAtMs": 1791103389230
+    },
+    "emittedAtMs": 1791103389250
+  },
+  {
+    "method": "item/started",
+    "params": {
+      "item": {
+        "type": "collabAgentToolCall",
+        "id": "call_1",
+        "tool": "spawnAgent",
+        "status": "inProgress",
+        "senderThreadId": "01a10614-cc51-7d02-9dee-6055dcbd478c",
+        "receiverThreadIds": [],
+        "prompt": "PROBE_CHILD: hold fixture stream only. No general work.",
+        "model": "",
+        "reasoningEffort": "medium",
+        "agentsStates": {}
+      },
+      "threadId": "01a10614-cc51-7d02-9dee-6055dcbd478c",
+      "turnId": "01a10614-cc71-7be0-be50-93d5686a5344",
+      "startedAtMs": 1791103389314
+    },
+    "emittedAtMs": 1791103389315
+  },
+  {
+    "method": "thread/status/changed",
+    "params": {
+      "threadId": "01a10614-ce83-7d23-91ac-d25cb299bc02",
+      "status": {
+        "type": "idle"
+      }
+    },
+    "emittedAtMs": 1791103389365
+  },
+  {
+    "method": "warning",
+    "params": {
+      "threadId": "01a10614-ce83-7d23-91ac-d25cb299bc02",
+      "message": "Model metadata for `gpt-5.4` not found. Defaulting to fallback metadata; this can degrade performance and cause issues."
+    },
+    "emittedAtMs": 1791103389366
+  },
+  {
+    "method": "item/completed",
+    "params": {
+      "item": {
+        "type": "collabAgentToolCall",
+        "id": "call_1",
+        "tool": "spawnAgent",
+        "status": "completed",
+        "senderThreadId": "01a10614-cc51-7d02-9dee-6055dcbd478c",
+        "receiverThreadIds": [
+          "01a10614-ce83-7d23-91ac-d25cb299bc02"
+        ],
+        "prompt": "PROBE_CHILD: hold fixture stream only. No general work.",
+        "model": "gpt-5.4",
+        "reasoningEffort": "medium",
+        "agentsStates": {
+          "01a10614-ce83-7d23-91ac-d25cb299bc02": {
+            "status": "pendingInit",
+            "message": null
+          }
+        }
+      },
+      "threadId": "01a10614-cc51-7d02-9dee-6055dcbd478c",
+      "turnId": "01a10614-cc71-7be0-be50-93d5686a5344",
+      "completedAtMs": 1791103389365
+    },
+    "emittedAtMs": 1791103389384
+  },
+  {
+    "method": "thread/status/changed",
+    "params": {
+      "threadId": "01a10614-ce83-7d23-91ac-d25cb299bc02",
+      "status": {
+        "type": "active",
+        "activeFlags": []
+      }
+    },
+    "emittedAtMs": 1791103389389
+  },
+  {
+    "method": "turn/started",
+    "params": {
+      "threadId": "01a10614-ce83-7d23-91ac-d25cb299bc02",
+      "turn": {
+        "id": "01a10614-ceb1-7c43-98e3-3bd7bb7a8200",
+        "items": [],
+        "itemsView": "notLoaded",
+        "status": "inProgress",
+        "error": null,
+        "startedAt": 1791103389,
+        "completedAt": null,
+        "durationMs": null
+      }
+    },
+    "emittedAtMs": 1791103389389
+  },
+  {
+    "method": "thread/tokenUsage/updated",
+    "params": {
+      "threadId": "01a10614-cc51-7d02-9dee-6055dcbd478c",
+      "turnId": "01a10614-cc71-7be0-be50-93d5686a5344",
+      "tokenUsage": {
+        "total": {
+          "totalTokens": 2,
+          "inputTokens": 1,
+          "cachedInputTokens": 0,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 1,
+          "reasoningOutputTokens": 0
+        },
+        "last": {
+          "totalTokens": 2,
+          "inputTokens": 1,
+          "cachedInputTokens": 0,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 1,
+          "reasoningOutputTokens": 0
+        },
+        "modelContextWindow": 258400
+      }
+    },
+    "emittedAtMs": 1791103389428
+  },
+  {
+    "method": "account/rateLimits/updated",
+    "params": {
+      "rateLimits": {
+        "limitId": "codex",
+        "limitName": null,
+        "normalModelSlug": null,
+        "primary": null,
+        "secondary": null,
+        "credits": null,
+        "individualLimit": null,
+        "spendControlReached": null,
+        "planType": null,
+        "rateLimitReachedType": null
+      }
+    },
+    "emittedAtMs": 1791103389428
+  },
+  {
+    "method": "deprecationNotice",
+    "params": {
+      "summary": "Full-history hydration is deprecated for paginated threads; omit `includeTurns` or set it to `false`, then page with `thread/turns/list` and `thread/items/list`.",
+      "details": null
+    },
+    "emittedAtMs": 1791103389439
+  },
+  {
+    "method": "deprecationNotice",
+    "params": {
+      "summary": "Full-history hydration is deprecated for paginated threads; omit `includeTurns` or set it to `false`, then page with `thread/turns/list` and `thread/items/list`.",
+      "details": null
+    },
+    "emittedAtMs": 1791103389466
+  },
+  {
+    "method": "item/started",
+    "params": {
+      "item": {
+        "type": "userMessage",
+        "id": "01a10614-cf23-72f1-af34-144410eff7a2",
+        "clientId": null,
+        "content": [
+          {
+            "type": "text",
+            "text": "PROBE_CHILD: hold fixture stream only. No general work.",
+            "text_elements": []
+          }
+        ]
+      },
+      "threadId": "01a10614-ce83-7d23-91ac-d25cb299bc02",
+      "turnId": "01a10614-ceb1-7c43-98e3-3bd7bb7a8200",
+      "startedAtMs": 1791103389495
+    },
+    "emittedAtMs": 1791103389495
+  },
+  {
+    "method": "item/completed",
+    "params": {
+      "item": {
+        "type": "userMessage",
+        "id": "01a10614-cf23-72f1-af34-144410eff7a2",
+        "clientId": null,
+        "content": [
+          {
+            "type": "text",
+            "text": "PROBE_CHILD: hold fixture stream only. No general work.",
+            "text_elements": []
+          }
+        ]
+      },
+      "threadId": "01a10614-ce83-7d23-91ac-d25cb299bc02",
+      "turnId": "01a10614-ceb1-7c43-98e3-3bd7bb7a8200",
+      "completedAtMs": 1791103389495
+    },
+    "emittedAtMs": 1791103389520
+  },
+  {
+    "method": "thread/status/changed",
+    "params": {
+      "threadId": "01a10614-ce83-7d23-91ac-d25cb299bc02",
+      "status": {
+        "type": "idle"
+      }
+    },
+    "emittedAtMs": 1791103389575
+  },
+  {
+    "method": "turn/completed",
+    "params": {
+      "threadId": "01a10614-ce83-7d23-91ac-d25cb299bc02",
+      "turn": {
+        "id": "01a10614-ceb1-7c43-98e3-3bd7bb7a8200",
+        "items": [],
+        "itemsView": "notLoaded",
+        "status": "interrupted",
+        "error": null,
+        "startedAt": 1791103389,
+        "completedAt": 1791103389,
+        "durationMs": 188
+      }
+    },
+    "emittedAtMs": 1791103389575
+  },
+  {
+    "method": "warning",
+    "params": {
+      "threadId": "01a10614-ce83-7d23-91ac-d25cb299bc02",
+      "message": "Model metadata for `gpt-5.4` not found. Defaulting to fallback metadata; this can degrade performance and cause issues."
+    },
+    "emittedAtMs": 1791103389580
+  },
+  {
+    "method": "thread/status/changed",
+    "params": {
+      "threadId": "01a10614-ce83-7d23-91ac-d25cb299bc02",
+      "status": {
+        "type": "active",
+        "activeFlags": []
+      }
+    },
+    "emittedAtMs": 1791103389608
+  },
+  {
+    "method": "turn/started",
+    "params": {
+      "threadId": "01a10614-ce83-7d23-91ac-d25cb299bc02",
+      "turn": {
+        "id": "01a10614-cf88-7800-9f7c-f6b57e2b3cfb",
+        "items": [],
+        "itemsView": "notLoaded",
+        "status": "inProgress",
+        "error": null,
+        "startedAt": 1791103389,
+        "completedAt": null,
+        "durationMs": null
+      }
+    },
+    "emittedAtMs": 1791103389608
+  },
+  {
+    "method": "item/started",
+    "params": {
+      "item": {
+        "type": "userMessage",
+        "id": "01a10614-cfc8-7f72-927e-85a673df83d9",
+        "clientId": null,
+        "content": [
+          {
+            "type": "text",
+            "text": "PROBE: spawn fixture grandchild",
+            "text_elements": []
+          }
+        ]
+      },
+      "threadId": "01a10614-ce83-7d23-91ac-d25cb299bc02",
+      "turnId": "01a10614-cf88-7800-9f7c-f6b57e2b3cfb",
+      "startedAtMs": 1791103389660
+    },
+    "emittedAtMs": 1791103389660
+  },
+  {
+    "method": "item/completed",
+    "params": {
+      "item": {
+        "type": "userMessage",
+        "id": "01a10614-cfc8-7f72-927e-85a673df83d9",
+        "clientId": null,
+        "content": [
+          {
+            "type": "text",
+            "text": "PROBE: spawn fixture grandchild",
+            "text_elements": []
+          }
+        ]
+      },
+      "threadId": "01a10614-ce83-7d23-91ac-d25cb299bc02",
+      "turnId": "01a10614-cf88-7800-9f7c-f6b57e2b3cfb",
+      "completedAtMs": 1791103389660
+    },
+    "emittedAtMs": 1791103389683
+  },
+  {
+    "method": "thread/tokenUsage/updated",
+    "params": {
+      "threadId": "01a10614-ce83-7d23-91ac-d25cb299bc02",
+      "turnId": "01a10614-cf88-7800-9f7c-f6b57e2b3cfb",
+      "tokenUsage": {
+        "total": {
+          "totalTokens": 2,
+          "inputTokens": 1,
+          "cachedInputTokens": 0,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 1,
+          "reasoningOutputTokens": 0
+        },
+        "last": {
+          "totalTokens": 2,
+          "inputTokens": 1,
+          "cachedInputTokens": 0,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 1,
+          "reasoningOutputTokens": 0
+        },
+        "modelContextWindow": 258400
+      }
+    },
+    "emittedAtMs": 1791103389779
+  },
+  {
+    "method": "account/rateLimits/updated",
+    "params": {
+      "rateLimits": {
+        "limitId": "codex",
+        "limitName": null,
+        "normalModelSlug": null,
+        "primary": null,
+        "secondary": null,
+        "credits": null,
+        "individualLimit": null,
+        "spendControlReached": null,
+        "planType": null,
+        "rateLimitReachedType": null
+      }
+    },
+    "emittedAtMs": 1791103389779
+  },
+  {
+    "method": "thread/started",
+    "params": {
+      "thread": {
+        "id": "01a10614-fee7-75b3-82c1-ab5d26833d58",
+        "environments": [
+          {
+            "environmentId": "local",
+            "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-43-08-227Z\\work",
+            "runtimeWorkspaceRoots": [
+              "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-43-08-227Z\\work"
+            ]
+          }
+        ],
+        "extra": null,
+        "sessionId": "01a10614-fee7-75b3-82c1-ab5d26833d58",
+        "forkedFromId": null,
+        "parentThreadId": null,
+        "preview": "",
+        "ephemeral": false,
+        "section": null,
+        "sectionEnteredAt": null,
+        "projectId": null,
+        "historyMode": "paginated",
+        "modelProvider": "agentdock_probe",
+        "model": "gpt-5.4",
+        "reasoningEffort": null,
+        "createdAt": 1791103401,
+        "updatedAt": 1791103401,
+        "recencyAt": 1791103401,
+        "status": {
+          "type": "idle"
+        },
+        "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-43-08-227Z\\codex-home\\sessions\\2026\\10\\04\\rollout-2026-10-04T17-43-21-01a10614-fee7-75b3-82c1-ab5d26833d58.jsonl",
+        "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-43-08-227Z\\work",
+        "cliVersion": "0.160.0",
+        "originator": "Codex Desktop",
+        "source": "vscode",
+        "canAcceptDirectInput": true,
+        "threadSource": null,
+        "agentNickname": null,
+        "agentRole": null,
+        "gitInfo": null,
+        "name": null,
+        "daybreakEnabled": null,
+        "turns": []
+      }
+    },
+    "emittedAtMs": 1791103401741
+  },
+  {
+    "method": "mcpServer/startupStatus/updated",
+    "params": {
+      "threadId": "01a10614-fee7-75b3-82c1-ab5d26833d58",
+      "name": "agentdock_fixture",
+      "status": "starting",
+      "error": null,
+      "failureReason": null
+    },
+    "emittedAtMs": 1791103401741
+  },
+  {
+    "method": "warning",
+    "params": {
+      "threadId": "01a10614-fee7-75b3-82c1-ab5d26833d58",
+      "message": "Model metadata for `gpt-5.4` not found. Defaulting to fallback metadata; this can degrade performance and cause issues."
+    },
+    "emittedAtMs": 1791103401744
+  },
+  {
+    "method": "thread/status/changed",
+    "params": {
+      "threadId": "01a10614-fee7-75b3-82c1-ab5d26833d58",
+      "status": {
+        "type": "active",
+        "activeFlags": []
+      }
+    },
+    "emittedAtMs": 1791103401767
+  },
+  {
+    "method": "turn/started",
+    "params": {
+      "threadId": "01a10614-fee7-75b3-82c1-ab5d26833d58",
+      "turn": {
+        "id": "01a10614-ff0e-7981-ac7e-b1382cff1711",
+        "items": [],
+        "itemsView": "notLoaded",
+        "status": "inProgress",
+        "error": null,
+        "startedAt": 1791103401,
+        "completedAt": null,
+        "durationMs": null
+      }
+    },
+    "emittedAtMs": 1791103401767
+  },
+  {
+    "method": "item/started",
+    "params": {
+      "item": {
+        "type": "userMessage",
+        "id": "01a10614-ff5e-71f3-bb15-02f0c61806ed",
+        "clientId": null,
+        "content": [
+          {
+            "type": "text",
+            "text": "PROBE: bounded managed execution interrupt",
+            "text_elements": []
+          }
+        ]
+      },
+      "threadId": "01a10614-fee7-75b3-82c1-ab5d26833d58",
+      "turnId": "01a10614-ff0e-7981-ac7e-b1382cff1711",
+      "startedAtMs": 1791103401836
+    },
+    "emittedAtMs": 1791103401836
+  },
+  {
+    "method": "item/completed",
+    "params": {
+      "item": {
+        "type": "userMessage",
+        "id": "01a10614-ff5e-71f3-bb15-02f0c61806ed",
+        "clientId": null,
+        "content": [
+          {
+            "type": "text",
+            "text": "PROBE: bounded managed execution interrupt",
+            "text_elements": []
+          }
+        ]
+      },
+      "threadId": "01a10614-fee7-75b3-82c1-ab5d26833d58",
+      "turnId": "01a10614-ff0e-7981-ac7e-b1382cff1711",
+      "completedAtMs": 1791103401836
+    },
+    "emittedAtMs": 1791103401851
+  },
+  {
+    "method": "mcpServer/startupStatus/updated",
+    "params": {
+      "threadId": "01a10614-fee7-75b3-82c1-ab5d26833d58",
+      "name": "agentdock_fixture",
+      "status": "ready",
+      "error": null,
+      "failureReason": null
+    },
+    "emittedAtMs": 1791103401922
+  },
+  {
+    "method": "thread/tokenUsage/updated",
+    "params": {
+      "threadId": "01a10614-fee7-75b3-82c1-ab5d26833d58",
+      "turnId": "01a10614-ff0e-7981-ac7e-b1382cff1711",
+      "tokenUsage": {
+        "total": {
+          "totalTokens": 2,
+          "inputTokens": 1,
+          "cachedInputTokens": 0,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 1,
+          "reasoningOutputTokens": 0
+        },
+        "last": {
+          "totalTokens": 2,
+          "inputTokens": 1,
+          "cachedInputTokens": 0,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 1,
+          "reasoningOutputTokens": 0
+        },
+        "modelContextWindow": 258400
+      }
+    },
+    "emittedAtMs": 1791103401938
+  },
+  {
+    "method": "account/rateLimits/updated",
+    "params": {
+      "rateLimits": {
+        "limitId": "codex",
+        "limitName": null,
+        "normalModelSlug": null,
+        "primary": null,
+        "secondary": null,
+        "credits": null,
+        "individualLimit": null,
+        "spendControlReached": null,
+        "planType": null,
+        "rateLimitReachedType": null
+      }
+    },
+    "emittedAtMs": 1791103401938
+  }
+]

@@ -1,0 +1,249 @@
+{
+  "results": [
+    {
+      "name": "managed_execution_interrupt_terminate_clean",
+      "status": "pass",
+      "evidence": [
+        {
+          "operation": "interrupt",
+          "threadId": "01a10617-9772-73d2-8aa6-8025468370ab",
+          "turnId": "01a10617-9799-76e1-89fa-56c98ffe3abe",
+          "processInfo": {
+            "itemId": "call_1",
+            "processId": "89603",
+            "command": "& 'C:\\Program Files\\nodejs\\node.exe' 'C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-46-11-423Z\\work\\managed-process-fixture.mjs'",
+            "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-46-11-423Z\\work",
+            "osPid": null,
+            "cpuPercent": null,
+            "rssKb": null
+          },
+          "pid": 39848,
+          "beforeAlive": true,
+          "ack": {},
+          "afterList": {
+            "data": [
+              {
+                "itemId": "call_1",
+                "processId": "89603",
+                "command": "& 'C:\\Program Files\\nodejs\\node.exe' 'C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-46-11-423Z\\work\\managed-process-fixture.mjs'",
+                "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-46-11-423Z\\work",
+                "osPid": null,
+                "cpuPercent": null,
+                "rssKb": null
+              }
+            ],
+            "nextCursor": null
+          },
+          "afterAlive": true,
+          "turnStatus": "interrupted"
+        },
+        {
+          "operation": "terminate",
+          "threadId": "01a10617-9772-73d2-8aa6-8025468370ab",
+          "turnId": "01a10617-c325-7eb1-ab37-8b1cb0306d04",
+          "processInfo": {
+            "itemId": "call_1",
+            "processId": "89603",
+            "command": "& 'C:\\Program Files\\nodejs\\node.exe' 'C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-46-11-423Z\\work\\managed-process-fixture.mjs'",
+            "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-46-11-423Z\\work",
+            "osPid": null,
+            "cpuPercent": null,
+            "rssKb": null
+          },
+          "pid": 35768,
+          "beforeAlive": true,
+          "ack": {
+            "terminated": true
+          },
+          "afterList": {
+            "data": [
+              {
+                "itemId": "call_3",
+                "processId": "14227",
+                "command": "& 'C:\\Program Files\\nodejs\\node.exe' 'C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-46-11-423Z\\work\\managed-process-fixture.mjs'",
+                "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-46-11-423Z\\work",
+                "osPid": null,
+                "cpuPercent": null,
+                "rssKb": null
+              }
+            ],
+            "nextCursor": null
+          },
+          "afterAlive": true,
+          "turnStatus": null
+        },
+        {
+          "operation": "clean",
+          "threadId": "01a10617-9772-73d2-8aa6-8025468370ab",
+          "turnId": "01a10617-ed43-7c70-9ed0-0d2cd19c4795",
+          "processInfo": {
+            "itemId": "call_3",
+            "processId": "14227",
+            "command": "& 'C:\\Program Files\\nodejs\\node.exe' 'C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-46-11-423Z\\work\\managed-process-fixture.mjs'",
+            "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-46-11-423Z\\work",
+            "osPid": null,
+            "cpuPercent": null,
+            "rssKb": null
+          },
+          "pid": 58908,
+          "beforeAlive": true,
+          "ack": {},
+          "afterList": {
+            "data": [],
+            "nextCursor": null
+          },
+          "afterAlive": false,
+          "turnStatus": null
+        }
+      ]
+    }
+  ],
+  "modelRequests": [
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "fixtureMarker": "PROBE: bounded managed execution interrupt",
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "fixtureMarker": "PROBE: bounded managed execution interrupt",
+      "fixtureToolOutputs": [
+        "Chunk ID: b317d9\nWall time: 10.0122 seconds\nProcess running with session ID 89603\nOriginal token count: 4\nOutput:\nPROBE_PID=39848\n"
+      ],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "fixtureMarker": "PROBE: bounded managed execution terminate",
+      "fixtureToolOutputs": [
+        "Chunk ID: b317d9\nWall time: 10.0122 seconds\nProcess running with session ID 89603\nOriginal token count: 4\nOutput:\nPROBE_PID=39848\n"
+      ],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "fixtureMarker": "PROBE: bounded managed execution terminate",
+      "fixtureToolOutputs": [
+        "Chunk ID: b317d9\nWall time: 10.0122 seconds\nProcess running with session ID 89603\nOriginal token count: 4\nOutput:\nPROBE_PID=39848\n",
+        "Chunk ID: bf6d26\nWall time: 10.0014 seconds\nProcess running with session ID 14227\nOriginal token count: 4\nOutput:\nPROBE_PID=35768\n"
+      ],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "fixtureMarker": "PROBE: bounded managed execution clean",
+      "fixtureToolOutputs": [
+        "Chunk ID: b317d9\nWall time: 10.0122 seconds\nProcess running with session ID 89603\nOriginal token count: 4\nOutput:\nPROBE_PID=39848\n",
+        "Chunk ID: bf6d26\nWall time: 10.0014 seconds\nProcess running with session ID 14227\nOriginal token count: 4\nOutput:\nPROBE_PID=35768\n"
+      ],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "fixtureMarker": "PROBE: bounded managed execution clean",
+      "fixtureToolOutputs": [
+        "Chunk ID: b317d9\nWall time: 10.0122 seconds\nProcess running with session ID 89603\nOriginal token count: 4\nOutput:\nPROBE_PID=39848\n",
+        "Chunk ID: bf6d26\nWall time: 10.0014 seconds\nProcess running with session ID 14227\nOriginal token count: 4\nOutput:\nPROBE_PID=35768\n",
+        "Chunk ID: 8cc7fe\nWall time: 10.0112 seconds\nProcess running with session ID 34081\nOriginal token count: 4\nOutput:\nPROBE_PID=58908\n"
+      ],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,922 @@
+{
+  "createdAt": "2026-10-04T08:43:26.880Z",
+  "executable": "C:\\Users\\wmasa\\.vscode\\extensions\\openai.chatgpt-26.930.31730-win32-x64\\bin\\windows-x86_64\\codex.exe",
+  "version": "codex-cli 0.160.0",
+  "mode": "Real App Server with loopback model fixture; no cloud authentication",
+  "run": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-42-30-412Z",
+  "results": [
+    {
+      "name": "fixture_plugin_capability_filter",
+      "status": "pass",
+      "evidence": {
+        "installed": {
+          "pluginId": "fixture@agentdock-probe",
+          "name": "fixture",
+          "marketplaceName": "agentdock-probe",
+          "version": "0.1.0",
+          "installedPath": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-42-30-412Z\\codex-home\\plugins\\cache\\agentdock-probe\\fixture\\0.1.0",
+          "authPolicy": "ON_INSTALL"
+        },
+        "status": {
+          "name": "plugin_fixture",
+          "runtimeStatus": "connected",
+          "pluginId": "fixture@agentdock-probe",
+          "httpOrigin": null,
+          "serverInfo": {
+            "name": "agentdock-probe-mcp",
+            "title": null,
+            "version": "0.1",
+            "description": null,
+            "icons": null,
+            "websiteUrl": null
+          },
+          "serverCapabilities": {
+            "tools": {}
+          },
+          "tools": {
+            "probe_ping": {
+              "name": "probe_ping",
+              "description": "Deterministic local adoption-test fixture. This tool is part of plugin `fixture`.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          },
+          "toolsError": null,
+          "resources": [],
+          "resourceTemplates": [],
+          "authStatus": "unsupported"
+        },
+        "namespace": "mcp__plugin_fixture",
+        "enabledTools": [
+          "exec_command",
+          "write_stdin",
+          "list_mcp_resources",
+          "list_mcp_resource_templates",
+          "read_mcp_resource",
+          "request_user_input",
+          "view_image",
+          "multi_agent_v1",
+          "mcp__agentdock_fixture",
+          "mcp__plugin_fixture",
+          "get_goal",
+          "create_goal",
+          "update_goal",
+          "web_search"
+        ],
+        "disabledTools": [
+          "exec_command",
+          "write_stdin",
+          "list_mcp_resources",
+          "list_mcp_resource_templates",
+          "read_mcp_resource",
+          "request_user_input",
+          "view_image",
+          "multi_agent_v1",
+          "mcp__agentdock_fixture",
+          "get_goal",
+          "create_goal",
+          "update_goal",
+          "web_search"
+        ],
+        "capabilityStillAdvertised": false,
+        "after": {
+          "data": [
+            {
+              "name": "agentdock_fixture",
+              "runtimeStatus": "connected",
+              "pluginId": null,
+              "httpOrigin": null,
+              "serverInfo": {
+                "name": "agentdock-probe-mcp",
+                "title": null,
+                "version": "0.1",
+                "description": null,
+                "icons": null,
+                "websiteUrl": null
+              },
+              "serverCapabilities": {
+                "tools": {}
+              },
+              "tools": {
+                "probe_ping": {
+                  "name": "probe_ping",
+                  "description": "Deterministic local adoption-test fixture.",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {}
+                  }
+                }
+              },
+              "toolsError": null,
+              "resources": [],
+              "resourceTemplates": [],
+              "authStatus": "unsupported"
+            }
+          ],
+          "nextCursor": null
+        },
+        "skills": {
+          "data": [
+            {
+              "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-42-30-412Z\\work",
+              "skills": [
+                {
+                  "name": "fixture:fixture-probe",
+                  "description": "Deterministic AgentDock probe only.",
+                  "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-42-30-412Z\\codex-home\\plugins\\cache\\agentdock-probe\\fixture\\0.1.0\\skills\\probe\\SKILL.md",
+                  "scope": "user",
+                  "enabled": true,
+                  "pluginId": "fixture@agentdock-probe"
+                },
+                {
+                  "name": "imagegen",
+                  "description": "Generate or edit raster images when the task benefits from AI-created bitmap visuals such as photos, illustrations, textures, sprites, mockups, or transparent-background cutouts. Use when Codex should create a brand-new image, transform an existing image, or derive visual variants from references, and the output should be a bitmap asset rather than repo-native code or vector. Do not use when the task is better handled by editing existing SVG/vector/code-native assets, extending an established icon or logo system, or building the visual directly in HTML/CSS/canvas.",
+                  "interface": {
+                    "displayName": "Image Gen",
+                    "shortDescription": "Generate or edit images for websites, games, and more",
+                    "iconSmall": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-42-30-412Z\\codex-home\\skills\\.system\\imagegen\\assets\\imagegen-small.svg",
+                    "iconLarge": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-42-30-412Z\\codex-home\\skills\\.system\\imagegen\\assets\\imagegen.png",
+                    "iconSmallUrl": null,
+                    "iconLargeUrl": null,
+                    "brandColor": null,
+                    "defaultPrompt": "Use $imagegen to make or edit an image for this project."
+                  },
+                  "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-42-30-412Z\\codex-home\\skills\\.system\\imagegen\\SKILL.md",
+                  "scope": "system",
+                  "enabled": true,
+                  "pluginId": null
+                },
+                {
+                  "name": "openai-docs",
+                  "description": "Use for Codex models/pricing, scheduled tasks, skills, settings, setup, troubleshooting, customization, automations, and self-knowledge—including 'you,' 'your,' 'this app,' or 'this coding agent' when they refer to Codex—and for OpenAI APIs/products and ChatGPT Work. Also use for model choice/migration, prompting, SDKs, Responses, Realtime, agents, evals, and Chat/Work/Codex comparisons. Do not use for generic app/software tasks that merely mention Codex.",
+                  "shortDescription": "Codex models/pricing, scheduled tasks, skills, settings, setup, troubleshooting, and self-knowledge; OpenAI APIs and ChatGPT Work. 'You'/'this app' means Codex only.",
+                  "interface": {
+                    "displayName": "OpenAI Docs",
+                    "shortDescription": "OpenAI and Codex docs for models, skills, tasks, and setup",
+                    "iconSmall": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-42-30-412Z\\codex-home\\skills\\.system\\openai-docs\\assets\\openai-small.svg",
+                    "iconLarge": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-42-30-412Z\\codex-home\\skills\\.system\\openai-docs\\assets\\openai.png",
+                    "iconSmallUrl": null,
+                    "iconLargeUrl": null,
+                    "brandColor": null,
+                    "defaultPrompt": "Use OpenAI Docs for official docs lookup, questions about Codex itself or Codex surfaces, model selection, model migration, and prompt-upgrade work."
+                  },
+                  "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-42-30-412Z\\codex-home\\skills\\.system\\openai-docs\\SKILL.md",
+                  "scope": "system",
+                  "enabled": true,
+                  "pluginId": null
+                },
+                {
+                  "name": "review-agent",
+                  "description": "Perform a read-only, defect-first review of a specified code change and return every actionable finding. Use when another agent delegates review of uncommitted changes, a base-branch diff, a commit, or custom review instructions.",
+                  "interface": {
+                    "displayName": "Review Agent",
+                    "shortDescription": "Find actionable bugs in code changes",
+                    "iconSmall": null,
+                    "iconLarge": null,
+                    "iconSmallUrl": null,
+                    "iconLargeUrl": null,
+                    "brandColor": null,
+                    "defaultPrompt": "Use $review-agent to review the requested code changes and return actionable findings."
+                  },
+                  "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-42-30-412Z\\codex-home\\skills\\.system\\review-agent\\SKILL.md",
+                  "scope": "system",
+                  "enabled": true,
+                  "pluginId": null
+                },
+                {
+                  "name": "skill-creator",
+                  "description": "Create or update a Codex skill with appropriately scoped instructions and any needed supporting resources.",
+                  "shortDescription": "Create or update a skill",
+                  "interface": {
+                    "displayName": "Skill Creator",
+                    "shortDescription": "Create or update a skill",
+                    "iconSmall": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-42-30-412Z\\codex-home\\skills\\.system\\skill-creator\\assets\\skill-creator-small.svg",
+                    "iconLarge": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-42-30-412Z\\codex-home\\skills\\.system\\skill-creator\\assets\\skill-creator.png",
+                    "iconSmallUrl": null,
+                    "iconLargeUrl": null,
+                    "brandColor": null,
+                    "defaultPrompt": null
+                  },
+                  "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-42-30-412Z\\codex-home\\skills\\.system\\skill-creator\\SKILL.md",
+                  "scope": "system",
+                  "enabled": true,
+                  "pluginId": null
+                },
+                {
+                  "name": "skill-installer",
+                  "description": "Install Codex skills into $CODEX_HOME/skills from a curated list or a GitHub repo path. Use when a user asks to list installable skills, install a curated skill, or install a skill from another repo (including private repos).",
+                  "shortDescription": "Install curated skills from openai/skills or other repos",
+                  "interface": {
+                    "displayName": "Skill Installer",
+                    "shortDescription": "Install curated skills from openai/skills or other repos",
+                    "iconSmall": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-42-30-412Z\\codex-home\\skills\\.system\\skill-installer\\assets\\skill-installer-small.svg",
+                    "iconLarge": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-42-30-412Z\\codex-home\\skills\\.system\\skill-installer\\assets\\skill-installer.png",
+                    "iconSmallUrl": null,
+                    "iconLargeUrl": null,
+                    "brandColor": null,
+                    "defaultPrompt": null
+                  },
+                  "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-42-30-412Z\\codex-home\\skills\\.system\\skill-installer\\SKILL.md",
+                  "scope": "system",
+                  "enabled": true,
+                  "pluginId": null
+                }
+              ],
+              "errors": []
+            }
+          ]
+        },
+        "scope": "Actual local plugin MCP advertisement; not all Skills/Hooks/Apps execution"
+      }
+    },
+    {
+      "name": "saved_queue_cold_resume_side_effect",
+      "status": "pass",
+      "evidence": {
+        "threadId": "01a10614-4026-7302-bb27-094302d8e46a",
+        "queued": "Queued message 01a10614-423b-7890-9abe-b87f7dfe24ce for thread 01a10614-4026-7302-bb27-094302d8e46a.\n",
+        "list": {
+          "data": [
+            {
+              "id": "01a10614-423b-7890-9abe-b87f7dfe24ce",
+              "input": [
+                {
+                  "type": "text",
+                  "text": "PROBE: saved queue payload",
+                  "text_elements": []
+                }
+              ],
+              "clientUserMessageId": "01a10614-4239-7bf2-8dde-705cad6c5f1f"
+            }
+          ],
+          "nextCursor": null
+        },
+        "remaining": {
+          "data": [],
+          "nextCursor": null
+        },
+        "before": 3,
+        "afterRead": 3,
+        "afterResume": 4,
+        "readInitiatedInference": false,
+        "resumeInitiatedInference": true,
+        "starts": [
+          {
+            "threadId": "01a10614-4026-7302-bb27-094302d8e46a",
+            "turn": {
+              "id": "01a10614-45d3-7810-a414-ebf51f29fe63",
+              "items": [],
+              "itemsView": "notLoaded",
+              "status": "inProgress",
+              "error": null,
+              "startedAt": 1791103354,
+              "completedAt": null,
+              "durationMs": null
+            }
+          }
+        ],
+        "resumedStatus": {
+          "type": "idle"
+        }
+      }
+    },
+    {
+      "name": "all_connection_disconnect_matrix",
+      "status": "pass",
+      "evidence": [
+        {
+          "connectionCount": 1,
+          "delayMs": 0,
+          "repeat": 1,
+          "threadId": "01a10614-4b86-7ed1-8b16-6129c73f0413",
+          "turnId": "01a10614-4bb6-7671-a330-e3248707456f",
+          "retained": true,
+          "persistedStatus": "inProgress",
+          "runtimeStatus": {
+            "type": "active",
+            "activeFlags": []
+          },
+          "requestsDuringResume": 0
+        },
+        {
+          "connectionCount": 1,
+          "delayMs": 0,
+          "repeat": 2,
+          "threadId": "01a10614-5640-7482-afe6-12450e544d71",
+          "turnId": "01a10614-5677-7692-9310-c19c30c64528",
+          "retained": true,
+          "persistedStatus": "inProgress",
+          "runtimeStatus": {
+            "type": "active",
+            "activeFlags": []
+          },
+          "requestsDuringResume": 0
+        },
+        {
+          "connectionCount": 1,
+          "delayMs": 500,
+          "repeat": 1,
+          "threadId": "01a10614-588c-74c2-a555-5d709fd8d6aa",
+          "turnId": "01a10614-58b8-7d62-8021-23758c1eb965",
+          "retained": true,
+          "persistedStatus": "inProgress",
+          "runtimeStatus": {
+            "type": "active",
+            "activeFlags": []
+          },
+          "requestsDuringResume": 0
+        },
+        {
+          "connectionCount": 1,
+          "delayMs": 500,
+          "repeat": 2,
+          "threadId": "01a10614-5c8b-79a1-bf85-3692dff0115d",
+          "turnId": "01a10614-5cbd-70c3-951e-467a78187840",
+          "retained": true,
+          "persistedStatus": "inProgress",
+          "runtimeStatus": {
+            "type": "active",
+            "activeFlags": []
+          },
+          "requestsDuringResume": 0
+        },
+        {
+          "connectionCount": 1,
+          "delayMs": 2500,
+          "repeat": 1,
+          "threadId": "01a10614-6089-7b42-abac-2c8408ea5902",
+          "turnId": "01a10614-60c1-7040-8774-3bf8c534ca1c",
+          "retained": true,
+          "persistedStatus": "inProgress",
+          "runtimeStatus": {
+            "type": "active",
+            "activeFlags": []
+          },
+          "requestsDuringResume": 0
+        },
+        {
+          "connectionCount": 1,
+          "delayMs": 2500,
+          "repeat": 2,
+          "threadId": "01a10614-6c8a-7c43-b1b0-a8fd48de65d2",
+          "turnId": "01a10614-6cc1-71d3-ae79-b329f1c2420d",
+          "retained": true,
+          "persistedStatus": "inProgress",
+          "runtimeStatus": {
+            "type": "active",
+            "activeFlags": []
+          },
+          "requestsDuringResume": 0
+        },
+        {
+          "connectionCount": 2,
+          "delayMs": 0,
+          "repeat": 1,
+          "threadId": "01a10614-78b5-7c50-994f-3335aa83a0dd",
+          "turnId": "01a10614-78e3-7e42-afb3-4467dc6a30d3",
+          "retained": true,
+          "persistedStatus": "inProgress",
+          "runtimeStatus": {
+            "type": "active",
+            "activeFlags": []
+          },
+          "requestsDuringResume": 0
+        },
+        {
+          "connectionCount": 2,
+          "delayMs": 0,
+          "repeat": 2,
+          "threadId": "01a10614-7b6e-76d2-8b74-9f85e9654ff0",
+          "turnId": "01a10614-7b9d-74a1-bcc8-bc211eb32cb5",
+          "retained": true,
+          "persistedStatus": "inProgress",
+          "runtimeStatus": {
+            "type": "active",
+            "activeFlags": []
+          },
+          "requestsDuringResume": 0
+        },
+        {
+          "connectionCount": 2,
+          "delayMs": 500,
+          "repeat": 1,
+          "threadId": "01a10614-7ddf-70d3-876c-3ce471377760",
+          "turnId": "01a10614-7e12-75c1-9fe4-c23ed07e91b0",
+          "retained": true,
+          "persistedStatus": "inProgress",
+          "runtimeStatus": {
+            "type": "active",
+            "activeFlags": []
+          },
+          "requestsDuringResume": 0
+        },
+        {
+          "connectionCount": 2,
+          "delayMs": 500,
+          "repeat": 2,
+          "threadId": "01a10614-829c-7af2-8064-6595c77a31e3",
+          "turnId": "01a10614-82d2-7140-b96c-232e7ea4aed9",
+          "retained": true,
+          "persistedStatus": "inProgress",
+          "runtimeStatus": {
+            "type": "active",
+            "activeFlags": []
+          },
+          "requestsDuringResume": 0
+        },
+        {
+          "connectionCount": 2,
+          "delayMs": 2500,
+          "repeat": 1,
+          "threadId": "01a10614-8752-72d2-b1b0-bf318866d458",
+          "turnId": "01a10614-8781-79f0-830e-99be44b08590",
+          "retained": true,
+          "persistedStatus": "inProgress",
+          "runtimeStatus": {
+            "type": "active",
+            "activeFlags": []
+          },
+          "requestsDuringResume": 0
+        },
+        {
+          "connectionCount": 2,
+          "delayMs": 2500,
+          "repeat": 2,
+          "threadId": "01a10614-9395-7ab0-a7be-72a403590f89",
+          "turnId": "01a10614-93cb-7953-8a9b-5666a2d71fb5",
+          "retained": true,
+          "persistedStatus": "inProgress",
+          "runtimeStatus": {
+            "type": "active",
+            "activeFlags": []
+          },
+          "requestsDuringResume": 0
+        }
+      ]
+    },
+    {
+      "name": "parent_child_grandchild_interrupt",
+      "status": "fail",
+      "error": "Missing notification thread/started; methods=mcpServer/startupStatus/updated,mcpServer/startupStatus/updated,warning,thread/status/changed,turn/started,item/started,item/completed,item/started,mcpServer/startupStatus/updated,thread/status/changed,warning,item/completed,thread/status/changed,turn/started,thread/tokenUsage/updated,account/rateLimits/updated,mcpServer/startupStatus/updated,item/started,item/completed,thread/tokenUsage/updated,account/rateLimits/updated,thread/status/changed,error,turn/completed,account/rateLimits/updated,thread/status/changed,error,turn/completed"
+    },
+    {
+      "name": "managed_execution_interrupt_terminate_clean",
+      "status": "fail",
+      "error": "Timeout: managed terminal visible"
+    },
+    {
+      "name": "existing_config_unchanged",
+      "status": "pass"
+    }
+  ],
+  "modelRequests": [
+    {
+      "mode": "complete",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "mcp__plugin_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "complete",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "complete",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "mcp__plugin_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "mcp__plugin_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "mcp__plugin_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "mcp__plugin_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "mcp__plugin_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "mcp__plugin_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "mcp__plugin_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "mcp__plugin_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "mcp__plugin_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "mcp__plugin_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "mcp__plugin_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "mcp__plugin_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "mcp__plugin_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "mcp__plugin_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "mcp__plugin_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "mcp__plugin_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "mcp__agentdock_fixture",
+        "mcp__plugin_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "mcp__plugin_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "mcp__plugin_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    }
+  ],
+  "limitations": [
+    "No real cloud inference/authentication",
+    "Fixture agent observations are not universal recursive or OS descendant termination guarantees",
+    "Plugin MCP advertisement is not all plugin capability filtering",
+    "Queue observations do not implement AgentDock queue policy",
+    "Loopback WebSocket fixture is unauthenticated and experimental, not a production transport decision"
+  ]
+}

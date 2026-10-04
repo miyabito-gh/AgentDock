@@ -1,0 +1,751 @@
+{
+  "results": [
+    {
+      "name": "fixture_plugin_capability_filter",
+      "status": "pass",
+      "evidence": {
+        "installed": {
+          "pluginId": "fixture@agentdock-probe",
+          "name": "fixture",
+          "marketplaceName": "agentdock-probe",
+          "version": "0.1.0",
+          "installedPath": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-49-44-364Z\\codex-home\\plugins\\cache\\agentdock-probe\\fixture\\0.1.0",
+          "authPolicy": "ON_INSTALL"
+        },
+        "status": {
+          "name": "plugin_fixture",
+          "runtimeStatus": "connected",
+          "pluginId": "fixture@agentdock-probe",
+          "httpOrigin": null,
+          "serverInfo": {
+            "name": "agentdock-probe-mcp",
+            "title": null,
+            "version": "0.1",
+            "description": null,
+            "icons": null,
+            "websiteUrl": null
+          },
+          "serverCapabilities": {
+            "tools": {}
+          },
+          "tools": {
+            "probe_ping": {
+              "name": "probe_ping",
+              "description": "Deterministic local adoption-test fixture. This tool is part of plugin `fixture`.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          },
+          "toolsError": null,
+          "resources": [],
+          "resourceTemplates": [],
+          "authStatus": "unsupported"
+        },
+        "namespace": "mcp__plugin_fixture",
+        "enabledTools": [
+          "exec_command",
+          "write_stdin",
+          "list_mcp_resources",
+          "list_mcp_resource_templates",
+          "read_mcp_resource",
+          "request_user_input",
+          "view_image",
+          "multi_agent_v1",
+          "mcp__agentdock_fixture",
+          "mcp__plugin_fixture",
+          "get_goal",
+          "create_goal",
+          "update_goal",
+          "web_search"
+        ],
+        "disabledTools": [
+          "exec_command",
+          "write_stdin",
+          "list_mcp_resources",
+          "list_mcp_resource_templates",
+          "read_mcp_resource",
+          "request_user_input",
+          "view_image",
+          "multi_agent_v1",
+          "mcp__agentdock_fixture",
+          "get_goal",
+          "create_goal",
+          "update_goal",
+          "web_search"
+        ],
+        "capabilityStillAdvertised": false,
+        "after": {
+          "data": [
+            {
+              "name": "agentdock_fixture",
+              "runtimeStatus": "connected",
+              "pluginId": null,
+              "httpOrigin": null,
+              "serverInfo": {
+                "name": "agentdock-probe-mcp",
+                "title": null,
+                "version": "0.1",
+                "description": null,
+                "icons": null,
+                "websiteUrl": null
+              },
+              "serverCapabilities": {
+                "tools": {}
+              },
+              "tools": {
+                "probe_ping": {
+                  "name": "probe_ping",
+                  "description": "Deterministic local adoption-test fixture.",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {}
+                  }
+                }
+              },
+              "toolsError": null,
+              "resources": [],
+              "resourceTemplates": [],
+              "authStatus": "unsupported"
+            }
+          ],
+          "nextCursor": null
+        },
+        "skills": {
+          "data": [
+            {
+              "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-49-44-364Z\\work",
+              "skills": [
+                {
+                  "name": "fixture:fixture-probe",
+                  "description": "Deterministic AgentDock probe only.",
+                  "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-49-44-364Z\\codex-home\\plugins\\cache\\agentdock-probe\\fixture\\0.1.0\\skills\\probe\\SKILL.md",
+                  "scope": "user",
+                  "enabled": true,
+                  "pluginId": "fixture@agentdock-probe"
+                },
+                {
+                  "name": "imagegen",
+                  "description": "Generate or edit raster images when the task benefits from AI-created bitmap visuals such as photos, illustrations, textures, sprites, mockups, or transparent-background cutouts. Use when Codex should create a brand-new image, transform an existing image, or derive visual variants from references, and the output should be a bitmap asset rather than repo-native code or vector. Do not use when the task is better handled by editing existing SVG/vector/code-native assets, extending an established icon or logo system, or building the visual directly in HTML/CSS/canvas.",
+                  "interface": {
+                    "displayName": "Image Gen",
+                    "shortDescription": "Generate or edit images for websites, games, and more",
+                    "iconSmall": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-49-44-364Z\\codex-home\\skills\\.system\\imagegen\\assets\\imagegen-small.svg",
+                    "iconLarge": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-49-44-364Z\\codex-home\\skills\\.system\\imagegen\\assets\\imagegen.png",
+                    "iconSmallUrl": null,
+                    "iconLargeUrl": null,
+                    "brandColor": null,
+                    "defaultPrompt": "Use $imagegen to make or edit an image for this project."
+                  },
+                  "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-49-44-364Z\\codex-home\\skills\\.system\\imagegen\\SKILL.md",
+                  "scope": "system",
+                  "enabled": true,
+                  "pluginId": null
+                },
+                {
+                  "name": "openai-docs",
+                  "description": "Use for Codex models/pricing, scheduled tasks, skills, settings, setup, troubleshooting, customization, automations, and self-knowledge—including 'you,' 'your,' 'this app,' or 'this coding agent' when they refer to Codex—and for OpenAI APIs/products and ChatGPT Work. Also use for model choice/migration, prompting, SDKs, Responses, Realtime, agents, evals, and Chat/Work/Codex comparisons. Do not use for generic app/software tasks that merely mention Codex.",
+                  "shortDescription": "Codex models/pricing, scheduled tasks, skills, settings, setup, troubleshooting, and self-knowledge; OpenAI APIs and ChatGPT Work. 'You'/'this app' means Codex only.",
+                  "interface": {
+                    "displayName": "OpenAI Docs",
+                    "shortDescription": "OpenAI and Codex docs for models, skills, tasks, and setup",
+                    "iconSmall": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-49-44-364Z\\codex-home\\skills\\.system\\openai-docs\\assets\\openai-small.svg",
+                    "iconLarge": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-49-44-364Z\\codex-home\\skills\\.system\\openai-docs\\assets\\openai.png",
+                    "iconSmallUrl": null,
+                    "iconLargeUrl": null,
+                    "brandColor": null,
+                    "defaultPrompt": "Use OpenAI Docs for official docs lookup, questions about Codex itself or Codex surfaces, model selection, model migration, and prompt-upgrade work."
+                  },
+                  "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-49-44-364Z\\codex-home\\skills\\.system\\openai-docs\\SKILL.md",
+                  "scope": "system",
+                  "enabled": true,
+                  "pluginId": null
+                },
+                {
+                  "name": "review-agent",
+                  "description": "Perform a read-only, defect-first review of a specified code change and return every actionable finding. Use when another agent delegates review of uncommitted changes, a base-branch diff, a commit, or custom review instructions.",
+                  "interface": {
+                    "displayName": "Review Agent",
+                    "shortDescription": "Find actionable bugs in code changes",
+                    "iconSmall": null,
+                    "iconLarge": null,
+                    "iconSmallUrl": null,
+                    "iconLargeUrl": null,
+                    "brandColor": null,
+                    "defaultPrompt": "Use $review-agent to review the requested code changes and return actionable findings."
+                  },
+                  "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-49-44-364Z\\codex-home\\skills\\.system\\review-agent\\SKILL.md",
+                  "scope": "system",
+                  "enabled": true,
+                  "pluginId": null
+                },
+                {
+                  "name": "skill-creator",
+                  "description": "Create or update a Codex skill with appropriately scoped instructions and any needed supporting resources.",
+                  "shortDescription": "Create or update a skill",
+                  "interface": {
+                    "displayName": "Skill Creator",
+                    "shortDescription": "Create or update a skill",
+                    "iconSmall": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-49-44-364Z\\codex-home\\skills\\.system\\skill-creator\\assets\\skill-creator-small.svg",
+                    "iconLarge": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-49-44-364Z\\codex-home\\skills\\.system\\skill-creator\\assets\\skill-creator.png",
+                    "iconSmallUrl": null,
+                    "iconLargeUrl": null,
+                    "brandColor": null,
+                    "defaultPrompt": null
+                  },
+                  "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-49-44-364Z\\codex-home\\skills\\.system\\skill-creator\\SKILL.md",
+                  "scope": "system",
+                  "enabled": true,
+                  "pluginId": null
+                },
+                {
+                  "name": "skill-installer",
+                  "description": "Install Codex skills into $CODEX_HOME/skills from a curated list or a GitHub repo path. Use when a user asks to list installable skills, install a curated skill, or install a skill from another repo (including private repos).",
+                  "shortDescription": "Install curated skills from openai/skills or other repos",
+                  "interface": {
+                    "displayName": "Skill Installer",
+                    "shortDescription": "Install curated skills from openai/skills or other repos",
+                    "iconSmall": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-49-44-364Z\\codex-home\\skills\\.system\\skill-installer\\assets\\skill-installer-small.svg",
+                    "iconLarge": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-49-44-364Z\\codex-home\\skills\\.system\\skill-installer\\assets\\skill-installer.png",
+                    "iconSmallUrl": null,
+                    "iconLargeUrl": null,
+                    "brandColor": null,
+                    "defaultPrompt": null
+                  },
+                  "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-49-44-364Z\\codex-home\\skills\\.system\\skill-installer\\SKILL.md",
+                  "scope": "system",
+                  "enabled": true,
+                  "pluginId": null
+                }
+              ],
+              "errors": []
+            }
+          ]
+        },
+        "disabledSkillMentioned": true,
+        "removed": {
+          "pluginId": "fixture@agentdock-probe",
+          "name": "fixture",
+          "marketplaceName": "agentdock-probe"
+        },
+        "afterRemoveTools": [
+          "exec_command",
+          "write_stdin",
+          "list_mcp_resources",
+          "list_mcp_resource_templates",
+          "read_mcp_resource",
+          "request_user_input",
+          "view_image",
+          "multi_agent_v1",
+          "mcp__agentdock_fixture",
+          "get_goal",
+          "create_goal",
+          "update_goal",
+          "web_search"
+        ],
+        "afterRemoveStatus": {
+          "data": [
+            {
+              "name": "agentdock_fixture",
+              "runtimeStatus": "connected",
+              "pluginId": null,
+              "httpOrigin": null,
+              "serverInfo": {
+                "name": "agentdock-probe-mcp",
+                "title": null,
+                "version": "0.1",
+                "description": null,
+                "icons": null,
+                "websiteUrl": null
+              },
+              "serverCapabilities": {
+                "tools": {}
+              },
+              "tools": {
+                "probe_ping": {
+                  "name": "probe_ping",
+                  "description": "Deterministic local adoption-test fixture.",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {}
+                  }
+                }
+              },
+              "toolsError": null,
+              "resources": [],
+              "resourceTemplates": [],
+              "authStatus": "unsupported"
+            }
+          ],
+          "nextCursor": null
+        },
+        "afterRemoveSkills": {
+          "data": [
+            {
+              "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-49-44-364Z\\work",
+              "skills": [
+                {
+                  "name": "imagegen",
+                  "description": "Generate or edit raster images when the task benefits from AI-created bitmap visuals such as photos, illustrations, textures, sprites, mockups, or transparent-background cutouts. Use when Codex should create a brand-new image, transform an existing image, or derive visual variants from references, and the output should be a bitmap asset rather than repo-native code or vector. Do not use when the task is better handled by editing existing SVG/vector/code-native assets, extending an established icon or logo system, or building the visual directly in HTML/CSS/canvas.",
+                  "interface": {
+                    "displayName": "Image Gen",
+                    "shortDescription": "Generate or edit images for websites, games, and more",
+                    "iconSmall": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-49-44-364Z\\codex-home\\skills\\.system\\imagegen\\assets\\imagegen-small.svg",
+                    "iconLarge": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-49-44-364Z\\codex-home\\skills\\.system\\imagegen\\assets\\imagegen.png",
+                    "iconSmallUrl": null,
+                    "iconLargeUrl": null,
+                    "brandColor": null,
+                    "defaultPrompt": "Use $imagegen to make or edit an image for this project."
+                  },
+                  "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-49-44-364Z\\codex-home\\skills\\.system\\imagegen\\SKILL.md",
+                  "scope": "system",
+                  "enabled": true,
+                  "pluginId": null
+                },
+                {
+                  "name": "openai-docs",
+                  "description": "Use for Codex models/pricing, scheduled tasks, skills, settings, setup, troubleshooting, customization, automations, and self-knowledge—including 'you,' 'your,' 'this app,' or 'this coding agent' when they refer to Codex—and for OpenAI APIs/products and ChatGPT Work. Also use for model choice/migration, prompting, SDKs, Responses, Realtime, agents, evals, and Chat/Work/Codex comparisons. Do not use for generic app/software tasks that merely mention Codex.",
+                  "shortDescription": "Codex models/pricing, scheduled tasks, skills, settings, setup, troubleshooting, and self-knowledge; OpenAI APIs and ChatGPT Work. 'You'/'this app' means Codex only.",
+                  "interface": {
+                    "displayName": "OpenAI Docs",
+                    "shortDescription": "OpenAI and Codex docs for models, skills, tasks, and setup",
+                    "iconSmall": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-49-44-364Z\\codex-home\\skills\\.system\\openai-docs\\assets\\openai-small.svg",
+                    "iconLarge": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-49-44-364Z\\codex-home\\skills\\.system\\openai-docs\\assets\\openai.png",
+                    "iconSmallUrl": null,
+                    "iconLargeUrl": null,
+                    "brandColor": null,
+                    "defaultPrompt": "Use OpenAI Docs for official docs lookup, questions about Codex itself or Codex surfaces, model selection, model migration, and prompt-upgrade work."
+                  },
+                  "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-49-44-364Z\\codex-home\\skills\\.system\\openai-docs\\SKILL.md",
+                  "scope": "system",
+                  "enabled": true,
+                  "pluginId": null
+                },
+                {
+                  "name": "review-agent",
+                  "description": "Perform a read-only, defect-first review of a specified code change and return every actionable finding. Use when another agent delegates review of uncommitted changes, a base-branch diff, a commit, or custom review instructions.",
+                  "interface": {
+                    "displayName": "Review Agent",
+                    "shortDescription": "Find actionable bugs in code changes",
+                    "iconSmall": null,
+                    "iconLarge": null,
+                    "iconSmallUrl": null,
+                    "iconLargeUrl": null,
+                    "brandColor": null,
+                    "defaultPrompt": "Use $review-agent to review the requested code changes and return actionable findings."
+                  },
+                  "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-49-44-364Z\\codex-home\\skills\\.system\\review-agent\\SKILL.md",
+                  "scope": "system",
+                  "enabled": true,
+                  "pluginId": null
+                },
+                {
+                  "name": "skill-creator",
+                  "description": "Create or update a Codex skill with appropriately scoped instructions and any needed supporting resources.",
+                  "shortDescription": "Create or update a skill",
+                  "interface": {
+                    "displayName": "Skill Creator",
+                    "shortDescription": "Create or update a skill",
+                    "iconSmall": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-49-44-364Z\\codex-home\\skills\\.system\\skill-creator\\assets\\skill-creator-small.svg",
+                    "iconLarge": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-49-44-364Z\\codex-home\\skills\\.system\\skill-creator\\assets\\skill-creator.png",
+                    "iconSmallUrl": null,
+                    "iconLargeUrl": null,
+                    "brandColor": null,
+                    "defaultPrompt": null
+                  },
+                  "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-49-44-364Z\\codex-home\\skills\\.system\\skill-creator\\SKILL.md",
+                  "scope": "system",
+                  "enabled": true,
+                  "pluginId": null
+                },
+                {
+                  "name": "skill-installer",
+                  "description": "Install Codex skills into $CODEX_HOME/skills from a curated list or a GitHub repo path. Use when a user asks to list installable skills, install a curated skill, or install a skill from another repo (including private repos).",
+                  "shortDescription": "Install curated skills from openai/skills or other repos",
+                  "interface": {
+                    "displayName": "Skill Installer",
+                    "shortDescription": "Install curated skills from openai/skills or other repos",
+                    "iconSmall": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-49-44-364Z\\codex-home\\skills\\.system\\skill-installer\\assets\\skill-installer-small.svg",
+                    "iconLarge": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-49-44-364Z\\codex-home\\skills\\.system\\skill-installer\\assets\\skill-installer.png",
+                    "iconSmallUrl": null,
+                    "iconLargeUrl": null,
+                    "brandColor": null,
+                    "defaultPrompt": null
+                  },
+                  "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-49-44-364Z\\codex-home\\skills\\.system\\skill-installer\\SKILL.md",
+                  "scope": "system",
+                  "enabled": true,
+                  "pluginId": null
+                }
+              ],
+              "errors": []
+            }
+          ]
+        },
+        "scope": "Actual local plugin MCP advertisement; not all Skills/Hooks/Apps execution"
+      }
+    },
+    {
+      "name": "parent_child_grandchild_interrupt",
+      "status": "pass",
+      "evidence": {
+        "parent": "01a1061a-e363-7260-9b28-68377c3ac195",
+        "child": "01a1061a-e43a-74b2-babf-5e70423059e1",
+        "grandchild": "01a1061a-e58c-7250-a74b-4c0802a7fce6",
+        "childTurn": "01a1061a-e512-75f1-8719-06f3e4f80a21",
+        "snapshot": [
+          {
+            "threadId": "01a1061a-e363-7260-9b28-68377c3ac195",
+            "parentThreadId": null,
+            "source": "vscode",
+            "status": {
+              "type": "idle"
+            },
+            "turns": [
+              {
+                "id": "01a1061a-e390-7d93-8fce-e9fac7f1bdcf",
+                "status": "interrupted"
+              }
+            ]
+          },
+          {
+            "threadId": "01a1061a-e43a-74b2-babf-5e70423059e1",
+            "parentThreadId": "01a1061a-e363-7260-9b28-68377c3ac195",
+            "source": {
+              "subAgent": {
+                "thread_spawn": {
+                  "parent_thread_id": "01a1061a-e363-7260-9b28-68377c3ac195",
+                  "depth": 1,
+                  "agent_path": null,
+                  "agent_nickname": "Nietzsche",
+                  "agent_role": null
+                }
+              }
+            },
+            "status": {
+              "type": "active",
+              "activeFlags": []
+            },
+            "turns": [
+              {
+                "id": "01a1061a-e465-7eb3-96a9-d7050a030945",
+                "status": "interrupted"
+              },
+              {
+                "id": "01a1061a-e512-75f1-8719-06f3e4f80a21",
+                "status": "inProgress"
+              }
+            ]
+          },
+          {
+            "threadId": "01a1061a-e58c-7250-a74b-4c0802a7fce6",
+            "parentThreadId": "01a1061a-e43a-74b2-babf-5e70423059e1",
+            "source": {
+              "subAgent": {
+                "thread_spawn": {
+                  "parent_thread_id": "01a1061a-e43a-74b2-babf-5e70423059e1",
+                  "depth": 2,
+                  "agent_path": null,
+                  "agent_nickname": "Erdos",
+                  "agent_role": null
+                }
+              }
+            },
+            "status": {
+              "type": "active",
+              "activeFlags": []
+            },
+            "turns": [
+              {
+                "id": "01a1061a-e5bd-71f0-9edf-5df52501820b",
+                "status": "inProgress"
+              }
+            ]
+          }
+        ],
+        "cleanup": [
+          {
+            "threadId": "01a1061a-e58c-7250-a74b-4c0802a7fce6",
+            "turnId": "01a1061a-e5bd-71f0-9edf-5df52501820b",
+            "status": "interrupted"
+          },
+          {
+            "threadId": "01a1061a-e43a-74b2-babf-5e70423059e1",
+            "turnId": "01a1061a-e512-75f1-8719-06f3e4f80a21",
+            "status": "interrupted"
+          }
+        ],
+        "childSpawn": {
+          "item": {
+            "type": "collabAgentToolCall",
+            "id": "call_4",
+            "tool": "spawnAgent",
+            "status": "completed",
+            "senderThreadId": "01a1061a-e363-7260-9b28-68377c3ac195",
+            "receiverThreadIds": [
+              "01a1061a-e43a-74b2-babf-5e70423059e1"
+            ],
+            "prompt": "PROBE_CHILD: hold fixture stream only. No general work.",
+            "model": "gpt-5.4",
+            "reasoningEffort": "medium",
+            "agentsStates": {
+              "01a1061a-e43a-74b2-babf-5e70423059e1": {
+                "status": "pendingInit",
+                "message": null
+              }
+            }
+          },
+          "threadId": "01a1061a-e363-7260-9b28-68377c3ac195",
+          "turnId": "01a1061a-e390-7d93-8fce-e9fac7f1bdcf",
+          "completedAtMs": 1791103788137
+        },
+        "grandSpawn": {
+          "item": {
+            "type": "collabAgentToolCall",
+            "id": "call_6",
+            "tool": "spawnAgent",
+            "status": "completed",
+            "senderThreadId": "01a1061a-e43a-74b2-babf-5e70423059e1",
+            "receiverThreadIds": [
+              "01a1061a-e58c-7250-a74b-4c0802a7fce6"
+            ],
+            "prompt": "PROBE_GRANDCHILD: hold fixture stream only. No general work.",
+            "model": "gpt-5.4",
+            "reasoningEffort": "medium",
+            "agentsStates": {
+              "01a1061a-e58c-7250-a74b-4c0802a7fce6": {
+                "status": "pendingInit",
+                "message": null
+              }
+            }
+          },
+          "threadId": "01a1061a-e43a-74b2-babf-5e70423059e1",
+          "turnId": "01a1061a-e512-75f1-8719-06f3e4f80a21",
+          "completedAtMs": 1791103788483
+        },
+        "childInternalNotifications": [
+          "thread/status/changed",
+          "warning",
+          "thread/status/changed",
+          "turn/started",
+          "item/started",
+          "item/completed",
+          "thread/status/changed",
+          "turn/completed",
+          "warning",
+          "thread/status/changed",
+          "turn/started",
+          "item/started",
+          "item/completed",
+          "item/started",
+          "item/completed",
+          "thread/tokenUsage/updated",
+          "thread/tokenUsage/updated",
+          "thread/status/changed",
+          "turn/completed"
+        ],
+        "grandchildInternalNotifications": [
+          "thread/status/changed",
+          "warning",
+          "thread/status/changed",
+          "turn/started",
+          "item/started",
+          "item/completed",
+          "thread/status/changed",
+          "turn/completed"
+        ]
+      }
+    }
+  ],
+  "modelRequests": [
+    {
+      "mode": "complete",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "fixtureMarker": "PROBE: completed baseline",
+      "fixtureSkillMentioned": true,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "mcp__plugin_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "complete",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "fixtureMarker": "PROBE: completed baseline",
+      "fixtureSkillMentioned": true,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "complete",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "fixtureMarker": "PROBE: completed baseline",
+      "fixtureSkillMentioned": true,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "fixtureMarker": "PROBE: spawn fixture child",
+      "fixtureSkillMentioned": false,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "fixtureMarker": "PROBE: spawn fixture child",
+      "fixtureSkillMentioned": false,
+      "fixtureToolOutputs": [
+        "{\"agent_id\":\"01a1061a-e43a-74b2-babf-5e70423059e1\",\"nickname\":\"Nietzsche\"}"
+      ],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "fixtureMarker": "PROBE: spawn fixture grandchild",
+      "fixtureSkillMentioned": false,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "fixtureMarker": "PROBE: spawn fixture grandchild",
+      "fixtureSkillMentioned": false,
+      "fixtureToolOutputs": [
+        "{\"agent_id\":\"01a1061a-e58c-7250-a74b-4c0802a7fce6\",\"nickname\":\"Erdos\"}"
+      ],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "fixtureMarker": "PROBE_GRANDCHILD: hold fixture stream only. No general work.",
+      "fixtureSkillMentioned": false,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    }
+  ]
+}

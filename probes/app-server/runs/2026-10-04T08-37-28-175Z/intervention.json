@@ -1,0 +1,7 @@
+{
+  "reason": "The original WebSocket close waiter had no timeout and stalled the matrix.",
+  "action": "Externally terminated only the owned fixture WebSocket App Server, PID 52932, after checking executable and parent PID 24304.",
+  "interpretation": "The matrix row printed after this intervention is contaminated by process termination and must not support disconnect-retention conclusions.",
+  "unaffected": ["fixture_plugin_capability_filter", "saved_queue_cold_resume_side_effect"],
+  "history": "The original result.json remains unchanged. The plugin result was misread in interim chat commentary and later corrected; capabilityStillAdvertised was false."
+}

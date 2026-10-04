@@ -1,0 +1,382 @@
+{
+  "id": "01a10693-4655-78d1-83f3-3f188f7528ba",
+  "turn": "01a10693-474e-74c2-9ca5-189d10b1fa03",
+  "before": 2,
+  "after": 2,
+  "rows": [
+    {
+      "text": "PROBE_PARTIAL_A ",
+      "read": {
+        "id": "01a10693-4655-78d1-83f3-3f188f7528ba",
+        "environments": [
+          {
+            "environmentId": "local",
+            "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T11-01-17-173Z\\work",
+            "runtimeWorkspaceRoots": [
+              "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T11-01-17-173Z\\work"
+            ]
+          }
+        ],
+        "extra": null,
+        "sessionId": "01a10693-4655-78d1-83f3-3f188f7528ba",
+        "forkedFromId": null,
+        "parentThreadId": null,
+        "preview": "PROBE: completed baseline",
+        "ephemeral": false,
+        "section": null,
+        "sectionEnteredAt": null,
+        "projectId": null,
+        "historyMode": "paginated",
+        "modelProvider": "agentdock_probe",
+        "model": "gpt-5.4",
+        "reasoningEffort": null,
+        "createdAt": 1791111677,
+        "updatedAt": 1791111677,
+        "recencyAt": 1791111677,
+        "status": {
+          "type": "active",
+          "activeFlags": []
+        },
+        "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T11-01-17-173Z\\codex-home\\sessions\\2026\\10\\04\\rollout-2026-10-04T20-01-17-01a10693-4655-78d1-83f3-3f188f7528ba.jsonl",
+        "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T11-01-17-173Z\\work",
+        "cliVersion": "0.160.0",
+        "originator": "Codex Desktop",
+        "source": "vscode",
+        "canAcceptDirectInput": true,
+        "threadSource": null,
+        "agentNickname": null,
+        "agentRole": null,
+        "gitInfo": null,
+        "name": null,
+        "daybreakEnabled": null,
+        "turns": [
+          {
+            "id": "01a10693-4665-7033-a95f-a9b10861268d",
+            "items": [
+              {
+                "type": "userMessage",
+                "id": "01a10693-46ce-7073-b3c2-cd12d7722c37",
+                "clientId": null,
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "PROBE: completed baseline",
+                    "text_elements": []
+                  }
+                ]
+              },
+              {
+                "type": "agentMessage",
+                "id": "msg_1",
+                "text": "PROBE_OK",
+                "phase": null,
+                "memoryCitation": null,
+                "delivery": null,
+                "questions": null
+              }
+            ],
+            "itemsView": "full",
+            "status": "completed",
+            "error": null,
+            "startedAt": 1791111677,
+            "completedAt": 1791111677,
+            "durationMs": 158
+          },
+          {
+            "id": "01a10693-474e-74c2-9ca5-189d10b1fa03",
+            "items": [
+              {
+                "type": "userMessage",
+                "id": "01a10693-476e-7791-b3d8-fc01d91ec991",
+                "clientId": null,
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "PROBE: read partial stream",
+                    "text_elements": []
+                  }
+                ]
+              }
+            ],
+            "itemsView": "full",
+            "status": "inProgress",
+            "error": null,
+            "startedAt": 1791111677,
+            "completedAt": null,
+            "durationMs": null
+          }
+        ]
+      },
+      "elapsedMs": 4,
+      "requests": 2
+    },
+    {
+      "text": "PROBE_PARTIAL_B ",
+      "read": {
+        "id": "01a10693-4655-78d1-83f3-3f188f7528ba",
+        "environments": [
+          {
+            "environmentId": "local",
+            "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T11-01-17-173Z\\work",
+            "runtimeWorkspaceRoots": [
+              "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T11-01-17-173Z\\work"
+            ]
+          }
+        ],
+        "extra": null,
+        "sessionId": "01a10693-4655-78d1-83f3-3f188f7528ba",
+        "forkedFromId": null,
+        "parentThreadId": null,
+        "preview": "PROBE: completed baseline",
+        "ephemeral": false,
+        "section": null,
+        "sectionEnteredAt": null,
+        "projectId": null,
+        "historyMode": "paginated",
+        "modelProvider": "agentdock_probe",
+        "model": "gpt-5.4",
+        "reasoningEffort": null,
+        "createdAt": 1791111677,
+        "updatedAt": 1791111677,
+        "recencyAt": 1791111677,
+        "status": {
+          "type": "active",
+          "activeFlags": []
+        },
+        "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T11-01-17-173Z\\codex-home\\sessions\\2026\\10\\04\\rollout-2026-10-04T20-01-17-01a10693-4655-78d1-83f3-3f188f7528ba.jsonl",
+        "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T11-01-17-173Z\\work",
+        "cliVersion": "0.160.0",
+        "originator": "Codex Desktop",
+        "source": "vscode",
+        "canAcceptDirectInput": true,
+        "threadSource": null,
+        "agentNickname": null,
+        "agentRole": null,
+        "gitInfo": null,
+        "name": null,
+        "daybreakEnabled": null,
+        "turns": [
+          {
+            "id": "01a10693-4665-7033-a95f-a9b10861268d",
+            "items": [
+              {
+                "type": "userMessage",
+                "id": "01a10693-46ce-7073-b3c2-cd12d7722c37",
+                "clientId": null,
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "PROBE: completed baseline",
+                    "text_elements": []
+                  }
+                ]
+              },
+              {
+                "type": "agentMessage",
+                "id": "msg_1",
+                "text": "PROBE_OK",
+                "phase": null,
+                "memoryCitation": null,
+                "delivery": null,
+                "questions": null
+              }
+            ],
+            "itemsView": "full",
+            "status": "completed",
+            "error": null,
+            "startedAt": 1791111677,
+            "completedAt": 1791111677,
+            "durationMs": 158
+          },
+          {
+            "id": "01a10693-474e-74c2-9ca5-189d10b1fa03",
+            "items": [
+              {
+                "type": "userMessage",
+                "id": "01a10693-476e-7791-b3d8-fc01d91ec991",
+                "clientId": null,
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "PROBE: read partial stream",
+                    "text_elements": []
+                  }
+                ]
+              }
+            ],
+            "itemsView": "full",
+            "status": "inProgress",
+            "error": null,
+            "startedAt": 1791111677,
+            "completedAt": null,
+            "durationMs": null
+          }
+        ]
+      },
+      "elapsedMs": 4,
+      "requests": 2
+    }
+  ],
+  "unsubscribed": {
+    "id": 4,
+    "result": {
+      "status": "notSubscribed"
+    }
+  },
+  "final": {
+    "id": "01a10693-4655-78d1-83f3-3f188f7528ba",
+    "environments": [
+      {
+        "environmentId": "local",
+        "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T11-01-17-173Z\\work",
+        "runtimeWorkspaceRoots": [
+          "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T11-01-17-173Z\\work"
+        ]
+      }
+    ],
+    "extra": null,
+    "sessionId": "01a10693-4655-78d1-83f3-3f188f7528ba",
+    "forkedFromId": null,
+    "parentThreadId": null,
+    "preview": "PROBE: completed baseline",
+    "ephemeral": false,
+    "section": null,
+    "sectionEnteredAt": null,
+    "projectId": null,
+    "historyMode": "paginated",
+    "modelProvider": "agentdock_probe",
+    "model": "gpt-5.4",
+    "reasoningEffort": null,
+    "createdAt": 1791111677,
+    "updatedAt": 1791111678,
+    "recencyAt": 1791111677,
+    "status": {
+      "type": "idle"
+    },
+    "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T11-01-17-173Z\\codex-home\\sessions\\2026\\10\\04\\rollout-2026-10-04T20-01-17-01a10693-4655-78d1-83f3-3f188f7528ba.jsonl",
+    "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T11-01-17-173Z\\work",
+    "cliVersion": "0.160.0",
+    "originator": "Codex Desktop",
+    "source": "vscode",
+    "canAcceptDirectInput": true,
+    "threadSource": null,
+    "agentNickname": null,
+    "agentRole": null,
+    "gitInfo": null,
+    "name": null,
+    "daybreakEnabled": null,
+    "turns": [
+      {
+        "id": "01a10693-4665-7033-a95f-a9b10861268d",
+        "items": [
+          {
+            "type": "userMessage",
+            "id": "01a10693-46ce-7073-b3c2-cd12d7722c37",
+            "clientId": null,
+            "content": [
+              {
+                "type": "text",
+                "text": "PROBE: completed baseline",
+                "text_elements": []
+              }
+            ]
+          },
+          {
+            "type": "agentMessage",
+            "id": "msg_1",
+            "text": "PROBE_OK",
+            "phase": null,
+            "memoryCitation": null,
+            "delivery": null,
+            "questions": null
+          }
+        ],
+        "itemsView": "full",
+        "status": "completed",
+        "error": null,
+        "startedAt": 1791111677,
+        "completedAt": 1791111677,
+        "durationMs": 158
+      },
+      {
+        "id": "01a10693-474e-74c2-9ca5-189d10b1fa03",
+        "items": [
+          {
+            "type": "userMessage",
+            "id": "01a10693-476e-7791-b3d8-fc01d91ec991",
+            "clientId": null,
+            "content": [
+              {
+                "type": "text",
+                "text": "PROBE: read partial stream",
+                "text_elements": []
+              }
+            ]
+          },
+          {
+            "type": "agentMessage",
+            "id": "msg_probe_response_2",
+            "text": "PROBE_PARTIAL_A PROBE_PARTIAL_B PROBE_OK",
+            "phase": null,
+            "memoryCitation": null,
+            "delivery": null,
+            "questions": null
+          }
+        ],
+        "itemsView": "full",
+        "status": "completed",
+        "error": null,
+        "startedAt": 1791111677,
+        "completedAt": 1791111678,
+        "durationMs": 667
+      }
+    ]
+  },
+  "notifications": [
+    {
+      "method": "remoteControl/status/changed",
+      "params": {
+        "status": "disabled",
+        "serverName": "home-win",
+        "installationId": "9b7d2494-79fe-4726-8bdd-0013700a4d2a",
+        "environmentId": null
+      },
+      "emittedAtMs": 1791111677995
+    },
+    {
+      "method": "deprecationNotice",
+      "params": {
+        "summary": "Full-history hydration is deprecated for paginated threads; omit `includeTurns` or set it to `false`, then page with `thread/turns/list` and `thread/items/list`.",
+        "details": null
+      },
+      "emittedAtMs": 1791111678201
+    },
+    {
+      "method": "deprecationNotice",
+      "params": {
+        "summary": "Full-history hydration is deprecated for paginated threads; omit `includeTurns` or set it to `false`, then page with `thread/turns/list` and `thread/items/list`.",
+        "details": null
+      },
+      "emittedAtMs": 1791111678406
+    },
+    {
+      "method": "thread/status/changed",
+      "params": {
+        "threadId": "01a10693-4655-78d1-83f3-3f188f7528ba",
+        "status": {
+          "type": "idle"
+        }
+      },
+      "emittedAtMs": 1791111678451
+    },
+    {
+      "method": "deprecationNotice",
+      "params": {
+        "summary": "Full-history hydration is deprecated for paginated threads; omit `includeTurns` or set it to `false`, then page with `thread/turns/list` and `thread/items/list`.",
+        "details": null
+      },
+      "emittedAtMs": 1791111678625
+    }
+  ],
+  "scope": "Two incremental assistant text chunks observed via read only on one loaded root without resume. Snapshot completeness and scaling/2-second latency guarantees remain untested."
+}

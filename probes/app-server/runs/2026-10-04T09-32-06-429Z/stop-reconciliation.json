@@ -1,0 +1,56 @@
+[
+  {
+    "subscribe": false,
+    "parent": "01a10641-a124-7000-bb6e-05ac4c298fb0",
+    "child": "01a10641-a1d2-7fc2-9381-8ebc584b359e",
+    "turnId": "01a10641-a1f3-7622-b778-cea15c467b6b",
+    "ack": {
+      "id": 3,
+      "result": {}
+    },
+    "elapsedMs": 543,
+    "status": "interrupted",
+    "runtimeStatus": {
+      "type": "idle"
+    },
+    "completedNotifications": [],
+    "before": 3,
+    "afterRequestCount": 3
+  },
+  {
+    "subscribe": true,
+    "parent": "01a10641-a592-7611-8677-6576d2a1cae1",
+    "child": "01a10641-a628-7910-ab73-07d74c606d72",
+    "turnId": "01a10641-a649-7e02-89d3-9896eab5e986",
+    "ack": {
+      "id": 4,
+      "result": {}
+    },
+    "elapsedMs": 537,
+    "status": "interrupted",
+    "runtimeStatus": {
+      "type": "idle"
+    },
+    "completedNotifications": [
+      {
+        "method": "turn/completed",
+        "params": {
+          "threadId": "01a10641-a628-7910-ab73-07d74c606d72",
+          "turn": {
+            "id": "01a10641-a649-7e02-89d3-9896eab5e986",
+            "items": [],
+            "itemsView": "notLoaded",
+            "status": "interrupted",
+            "error": null,
+            "startedAt": 1791106328,
+            "completedAt": 1791106328,
+            "durationMs": 251
+          }
+        },
+        "emittedAtMs": 1791106328397
+      }
+    ],
+    "before": 6,
+    "afterRequestCount": 6
+  }
+]

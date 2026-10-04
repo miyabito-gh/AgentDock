@@ -1,0 +1,48 @@
+{
+  "createdAt": "2026-10-04T08:17:28.356Z",
+  "executable": "C:\\Users\\wmasa\\.vscode\\extensions\\openai.chatgpt-26.930.31730-win32-x64\\bin\\windows-x86_64\\codex.exe",
+  "version": "codex-cli 0.160.0",
+  "mode": "Real App Server with loopback model fixture; no cloud authentication",
+  "run": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-17-27-594Z",
+  "results": [
+    {
+      "name": "handshake_required",
+      "status": "pass",
+      "evidence": {
+        "code": -32600,
+        "message": "Not initialized"
+      }
+    },
+    {
+      "name": "initialize_0_160_0",
+      "status": "pass",
+      "evidence": {
+        "userAgent": "Codex Desktop/0.160.0 (Windows 10.0.26200; x86_64) dumb (agentdock_probe; 0.1)",
+        "codexHome": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-17-27-594Z\\codex-home",
+        "platformFamily": "windows",
+        "platformOs": "windows"
+      }
+    },
+    {
+      "name": "thread_start_local_provider",
+      "status": "fail",
+      "error": "thread/start: {\"code\":-32600,\"message\":\"Invalid request: unknown variant `readOnly`, expected one of `read-only`, `workspace-write`, `danger-full-access`\"}"
+    },
+    {
+      "name": "suite_prerequisite",
+      "status": "fail",
+      "error": "Thread prerequisite failed"
+    },
+    {
+      "name": "existing_config_unchanged",
+      "status": "pass"
+    }
+  ],
+  "modelRequests": [],
+  "limitations": [
+    "No real cloud inference/authentication",
+    "No subagent or OS process termination tested",
+    "Plugin ID persistence is not capability filtering",
+    "Idle resume without queue is not live reconnection safety"
+  ]
+}

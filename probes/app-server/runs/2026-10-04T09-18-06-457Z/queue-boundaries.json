@@ -1,0 +1,178 @@
+[
+  {
+    "scenario": "normal",
+    "threadId": "01a10634-d5f7-7921-905b-d9b2970094ab",
+    "turnId": "01a10634-d626-7090-9533-fb45896b7a90",
+    "queueBefore": {
+      "data": [
+        {
+          "id": "01a10634-d7a7-7da3-9b0d-030bea466c4d",
+          "input": [
+            {
+              "type": "text",
+              "text": "PROBE: remaining normal",
+              "text_elements": []
+            }
+          ],
+          "clientUserMessageId": "01a10634-d7a5-7c23-be72-dd317012602d"
+        }
+      ],
+      "nextCursor": null
+    },
+    "queueAfter": {
+      "data": [],
+      "nextCursor": null
+    },
+    "requestsBefore": 3,
+    "requestsAfter": 4,
+    "turns": [
+      {
+        "id": "01a10634-d626-7090-9533-fb45896b7a90",
+        "status": "completed"
+      },
+      {
+        "id": "01a10634-d848-7891-acf8-aecf6e0406f6",
+        "status": "inProgress"
+      }
+    ],
+    "child": null,
+    "observationMs": 1500
+  },
+  {
+    "scenario": "failure",
+    "threadId": "01a10634-de7f-7402-9ba9-f10435f6d64e",
+    "turnId": "01a10634-dead-75e0-8e68-5b2cdf5967d4",
+    "queueBefore": {
+      "data": [
+        {
+          "id": "01a10634-e038-79e2-8253-cfc3b873c529",
+          "input": [
+            {
+              "type": "text",
+              "text": "PROBE: remaining failure",
+              "text_elements": []
+            }
+          ],
+          "clientUserMessageId": "01a10634-e037-7603-b83d-43e4ae9b395e"
+        }
+      ],
+      "nextCursor": null
+    },
+    "queueAfter": {
+      "data": [],
+      "nextCursor": null
+    },
+    "requestsBefore": 5,
+    "requestsAfter": 6,
+    "turns": [
+      {
+        "id": "01a10634-dead-75e0-8e68-5b2cdf5967d4",
+        "status": "failed"
+      },
+      {
+        "id": "01a10634-e0b4-7eb2-a233-94e3cc77fdfb",
+        "status": "inProgress"
+      }
+    ],
+    "child": null,
+    "observationMs": 1500
+  },
+  {
+    "scenario": "interrupt",
+    "threadId": "01a10634-e6da-78e3-bdea-0f023063251e",
+    "turnId": "01a10634-e704-7dc0-9e74-64635b9953c1",
+    "queueBefore": {
+      "data": [
+        {
+          "id": "01a10634-e8a7-7bb1-bfa5-b02af741cd7c",
+          "input": [
+            {
+              "type": "text",
+              "text": "PROBE: remaining interrupt",
+              "text_elements": []
+            }
+          ],
+          "clientUserMessageId": "01a10634-e8a5-7dd1-82e0-39eadcf41220"
+        }
+      ],
+      "nextCursor": null
+    },
+    "queueAfter": {
+      "data": [
+        {
+          "id": "01a10634-e8a7-7bb1-bfa5-b02af741cd7c",
+          "input": [
+            {
+              "type": "text",
+              "text": "PROBE: remaining interrupt",
+              "text_elements": []
+            }
+          ],
+          "clientUserMessageId": "01a10634-e8a5-7dd1-82e0-39eadcf41220"
+        }
+      ],
+      "nextCursor": null
+    },
+    "requestsBefore": 7,
+    "requestsAfter": 7,
+    "turns": [
+      {
+        "id": "01a10634-e704-7dc0-9e74-64635b9953c1",
+        "status": "interrupted"
+      }
+    ],
+    "child": null,
+    "observationMs": 1500
+  },
+  {
+    "scenario": "active-child",
+    "threadId": "01a10634-ef3d-7b51-8e22-fc7fd410f2c4",
+    "turnId": "01a10634-ef6d-7681-919d-8d9c2f86051a",
+    "queueBefore": {
+      "data": [
+        {
+          "id": "01a10634-f157-74a0-a6af-198e41f2da00",
+          "input": [
+            {
+              "type": "text",
+              "text": "PROBE: remaining active-child",
+              "text_elements": []
+            }
+          ],
+          "clientUserMessageId": "01a10634-f155-7861-9d61-92e323118b09"
+        }
+      ],
+      "nextCursor": null
+    },
+    "queueAfter": {
+      "data": [],
+      "nextCursor": null
+    },
+    "requestsBefore": 10,
+    "requestsAfter": 11,
+    "turns": [
+      {
+        "id": "01a10634-ef6d-7681-919d-8d9c2f86051a",
+        "status": "completed"
+      },
+      {
+        "id": "01a10634-f1f0-7b02-9852-7579804543f7",
+        "status": "inProgress"
+      }
+    ],
+    "child": {
+      "id": "01a10634-f003-78b3-bc09-835bcc5c304a",
+      "status": {
+        "type": "active",
+        "activeFlags": []
+      },
+      "turns": [
+        {
+          "id": "01a10634-f035-7db0-95da-a2502544c6f4",
+          "status": "inProgress"
+        }
+      ]
+    },
+    "observationMs": 1500
+  }
+]

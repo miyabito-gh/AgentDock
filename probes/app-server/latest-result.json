@@ -1,0 +1,251 @@
+{
+  "createdAt": "2026-10-04T08:23:58.823Z",
+  "executable": "C:\\Users\\wmasa\\.vscode\\extensions\\openai.chatgpt-26.930.31730-win32-x64\\bin\\windows-x86_64\\codex.exe",
+  "version": "codex-cli 0.160.0",
+  "mode": "Real App Server with loopback model fixture; no cloud authentication",
+  "run": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-23-53-601Z",
+  "results": [
+    {
+      "name": "handshake_required",
+      "status": "pass",
+      "evidence": {
+        "code": -32600,
+        "message": "Not initialized"
+      }
+    },
+    {
+      "name": "initialize_0_160_0",
+      "status": "pass",
+      "evidence": {
+        "userAgent": "Codex Desktop/0.160.0 (Windows 10.0.26200; x86_64) dumb (agentdock_probe; 0.1)",
+        "codexHome": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-23-53-601Z\\codex-home",
+        "platformFamily": "windows",
+        "platformOs": "windows"
+      }
+    },
+    {
+      "name": "thread_start_local_provider",
+      "status": "pass",
+      "evidence": {
+        "threadId": "01a10603-2e1a-7c82-b2af-f4f8caf3f1aa",
+        "provider": "agentdock_probe"
+      }
+    },
+    {
+      "name": "disabled_plugin_ids_saved",
+      "status": "pass",
+      "evidence": {
+        "acknowledgment": {},
+        "disabledPluginIds": [
+          "probe@local"
+        ]
+      }
+    },
+    {
+      "name": "empty_background_terminal_list",
+      "status": "pass",
+      "evidence": {
+        "data": [],
+        "nextCursor": null
+      }
+    },
+    {
+      "name": "mcp_connected_and_tool_available",
+      "status": "pass",
+      "evidence": {
+        "runtimeStatus": "connected",
+        "authStatus": "unsupported",
+        "toolNames": [
+          "probe_ping"
+        ]
+      }
+    },
+    {
+      "name": "model_response_and_completion",
+      "status": "pass",
+      "evidence": {
+        "turnId": "01a10603-2ff2-79a0-bf93-cf43580ddcca",
+        "status": "completed",
+        "requestCount": 1
+      }
+    },
+    {
+      "name": "mcp_disable_reload_removes_model_tool",
+      "status": "pass",
+      "evidence": {
+        "acknowledgment": {},
+        "removedFromModelTools": true,
+        "serverStatus": {
+          "name": "agentdock_fixture",
+          "runtimeStatus": "disabled",
+          "pluginId": null,
+          "httpOrigin": null,
+          "serverInfo": null,
+          "serverCapabilities": null,
+          "tools": {},
+          "toolsError": null,
+          "resources": [],
+          "resourceTemplates": [],
+          "authStatus": "unsupported"
+        }
+      }
+    },
+    {
+      "name": "active_turn_interrupt",
+      "status": "pass",
+      "evidence": {
+        "acknowledgment": {},
+        "status": "interrupted",
+        "elapsedMs": 92
+      }
+    },
+    {
+      "name": "restart_read_does_not_load",
+      "status": "pass",
+      "evidence": {
+        "turnCount": 3,
+        "loaded": [],
+        "requestCount": 3
+      }
+    },
+    {
+      "name": "resume_idle_thread_without_queue",
+      "status": "pass",
+      "evidence": {
+        "loaded": true,
+        "requestCount": 3,
+        "disabledPluginIds": [
+          "probe@local"
+        ]
+      }
+    },
+    {
+      "name": "experimental_gate",
+      "status": "pass",
+      "evidence": {
+        "code": -32600,
+        "message": "thread/backgroundTerminals/list requires experimentalApi capability"
+      }
+    },
+    {
+      "name": "live_websocket_reconnect_read_vs_resume",
+      "status": "pass",
+      "evidence": {
+        "loadedAfterDisconnect": true,
+        "readSubscribed": false,
+        "resumeSubscribed": true,
+        "duplicateModelRequest": false,
+        "stopStatus": "interrupted",
+        "queuedInput": false,
+        "otherConnectionKeptOpen": true,
+        "lastConnectionDisconnect": {
+          "delayMs": 500,
+          "retainedLoadedThread": true,
+          "persistedTurnStatus": "inProgress",
+          "runtimeThreadStatus": {
+            "type": "active",
+            "activeFlags": []
+          }
+        },
+        "transport": "loopback experimental websocket"
+      }
+    },
+    {
+      "name": "existing_config_unchanged",
+      "status": "pass"
+    }
+  ],
+  "modelRequests": [
+    {
+      "mode": "complete",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "complete",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    }
+  ],
+  "limitations": [
+    "No real cloud inference/authentication",
+    "No subagent or OS process termination tested",
+    "Plugin ID persistence is not capability filtering",
+    "Reconnect without queue does not establish queued-input safety",
+    "Loopback WebSocket fixture is unauthenticated and experimental, not a production transport decision"
+  ]
+}

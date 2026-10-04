@@ -1,0 +1,41 @@
+{
+  "method": "item/commandExecution/requestApproval",
+  "id": 2,
+  "params": {
+    "kind": "command",
+    "threadId": "01a10619-1cc5-7110-a91d-9cd263b45998",
+    "turnId": "01a10619-1cf3-7972-8e30-19e1708fe982",
+    "itemId": "call_5",
+    "startedAtMs": 1791103671707,
+    "environmentId": "local",
+    "reason": "Run the authorized, bounded AgentDock stop-test fixture only.",
+    "command": "\"C:\\\\Users\\\\wmasa\\\\.cache\\\\codex-runtimes\\\\codex-primary-runtime\\\\dependencies\\\\native\\\\powershell\\\\pwsh.exe\" -NoProfile -Command \"& 'C:\\\\Program Files\\\\nodejs\\\\node.exe' 'C:\\\\Users\\\\wmasa\\\\Documents\\\\Rust\\\\AgentDock\\\\probes\\\\app-server\\\\runs\\\\2026-10-04T08-47-29-135Z\\\\work\\\\managed-process-fixture.mjs'\"",
+    "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-47-29-135Z\\work",
+    "commandActions": [
+      {
+        "type": "unknown",
+        "command": "& 'C:\\Program Files\\nodejs\\node.exe' 'C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-47-29-135Z\\work\\managed-process-fixture.mjs'"
+      }
+    ],
+    "proposedExecpolicyAmendment": [
+      "C:\\Users\\wmasa\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell\\pwsh.exe",
+      "-NoProfile",
+      "-Command",
+      "& 'C:\\Program Files\\nodejs\\node.exe' 'C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-47-29-135Z\\work\\managed-process-fixture.mjs'"
+    ],
+    "availableDecisions": [
+      "accept",
+      {
+        "acceptWithExecpolicyAmendment": {
+          "execpolicy_amendment": [
+            "C:\\Users\\wmasa\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell\\pwsh.exe",
+            "-NoProfile",
+            "-Command",
+            "& 'C:\\Program Files\\nodejs\\node.exe' 'C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T08-47-29-135Z\\work\\managed-process-fixture.mjs'"
+          ]
+        }
+      },
+      "cancel"
+    ]
+  }
+}

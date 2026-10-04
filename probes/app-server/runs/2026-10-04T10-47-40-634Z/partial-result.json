@@ -1,0 +1,492 @@
+{
+  "results": [
+    {
+      "name": "managed_owner_scope_reconciliation",
+      "status": "pass",
+      "evidence": {
+        "roots": [
+          {
+            "label": "a",
+            "id": "01a10686-d03f-7590-a4d6-8de3f443effc",
+            "turnId": "01a10686-d051-7c61-ac61-76b84badb41f",
+            "info": {
+              "itemId": "call_1",
+              "processId": "92124",
+              "command": "& 'C:\\Program Files\\nodejs\\node.exe' 'C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-47-40-634Z\\work\\owned-tree.mjs'",
+              "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-47-40-634Z\\work",
+              "osPid": null,
+              "cpuPercent": null,
+              "rssKb": null
+            },
+            "pids": [
+              16260,
+              46692,
+              61428
+            ]
+          },
+          {
+            "label": "b",
+            "id": "01a10686-f917-72a1-8e9c-feffea45e59f",
+            "turnId": "01a10686-f94f-70b3-9615-b4e8c193104f",
+            "info": {
+              "itemId": "call_3",
+              "processId": "86638",
+              "command": "& 'C:\\Program Files\\nodejs\\node.exe' 'C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-47-40-634Z\\work\\owned-tree.mjs'",
+              "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-47-40-634Z\\work",
+              "osPid": null,
+              "cpuPercent": null,
+              "rssKb": null
+            },
+            "pids": [
+              10492,
+              47484,
+              24084
+            ]
+          }
+        ],
+        "outsider": {
+          "pid": 14468,
+          "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-47-40-634Z\\work",
+          "source": "harness-owned, not an App Server terminal"
+        },
+        "snapshots": [
+          {
+            "stage": "before",
+            "observedAt": "2026-10-04T10:48:02.610Z",
+            "pids": [
+              {
+                "pid": 14468,
+                "alive": true
+              },
+              {
+                "pid": 16260,
+                "alive": true
+              },
+              {
+                "pid": 46692,
+                "alive": true
+              },
+              {
+                "pid": 61428,
+                "alive": true
+              },
+              {
+                "pid": 10492,
+                "alive": true
+              },
+              {
+                "pid": 47484,
+                "alive": true
+              },
+              {
+                "pid": 24084,
+                "alive": true
+              }
+            ],
+            "identities": {
+              "error": "Command failed: powershell.exe -NoProfile -Command $ids=@(14468,16260,46692,61428,10492,47484,24084); Get-CimInstance Win32_Process | Where-Object { $ids -contains $_.ProcessId } | Select-Object ProcessId,ParentProcessId,CreationDate,ExecutablePath,CommandLine | ConvertTo-Json -Depth 4 -Compress\nGet-CimInstance : �A�N�Z�X�͋��ۂ���܂��� \r\n�����ꏊ �s:1 ����:52\r\n+ ... 46692,61428,10492,47484,24084); Get-CimInstance Win32_Process | Where ...\r\n+                                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\r\n    + CategoryInfo          : PermissionDenied: (root\\cimv2:Win32_Process:String) [Get-CimInstance], CimException\r\n    + FullyQualifiedErrorId : HRESULT 0x80041003,Microsoft.Management.Infrastructure.CimCmdlets.GetCimInstanceCommand\r\n \r\n"
+            }
+          },
+          {
+            "stage": "wrong-thread-request",
+            "observedAt": "2026-10-04T10:48:03.450Z",
+            "pids": [
+              {
+                "pid": 14468,
+                "alive": true
+              },
+              {
+                "pid": 16260,
+                "alive": true
+              },
+              {
+                "pid": 46692,
+                "alive": true
+              },
+              {
+                "pid": 61428,
+                "alive": true
+              },
+              {
+                "pid": 10492,
+                "alive": true
+              },
+              {
+                "pid": 47484,
+                "alive": true
+              },
+              {
+                "pid": 24084,
+                "alive": true
+              }
+            ],
+            "identities": {
+              "error": "Command failed: powershell.exe -NoProfile -Command $ids=@(14468,16260,46692,61428,10492,47484,24084); Get-CimInstance Win32_Process | Where-Object { $ids -contains $_.ProcessId } | Select-Object ProcessId,ParentProcessId,CreationDate,ExecutablePath,CommandLine | ConvertTo-Json -Depth 4 -Compress\nGet-CimInstance : �A�N�Z�X�͋��ۂ���܂��� \r\n�����ꏊ �s:1 ����:52\r\n+ ... 46692,61428,10492,47484,24084); Get-CimInstance Win32_Process | Where ...\r\n+                                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\r\n    + CategoryInfo          : PermissionDenied: (root\\cimv2:Win32_Process:String) [Get-CimInstance], CimException\r\n    + FullyQualifiedErrorId : HRESULT 0x80041003,Microsoft.Management.Infrastructure.CimCmdlets.GetCimInstanceCommand\r\n \r\n"
+            }
+          },
+          {
+            "stage": "clean-b",
+            "observedAt": "2026-10-04T10:48:04.288Z",
+            "pids": [
+              {
+                "pid": 14468,
+                "alive": true
+              },
+              {
+                "pid": 16260,
+                "alive": true
+              },
+              {
+                "pid": 46692,
+                "alive": true
+              },
+              {
+                "pid": 61428,
+                "alive": true
+              },
+              {
+                "pid": 10492,
+                "alive": false
+              },
+              {
+                "pid": 47484,
+                "alive": false
+              },
+              {
+                "pid": 24084,
+                "alive": false
+              }
+            ],
+            "identities": {
+              "error": "Command failed: powershell.exe -NoProfile -Command $ids=@(14468,16260,46692,61428,10492,47484,24084); Get-CimInstance Win32_Process | Where-Object { $ids -contains $_.ProcessId } | Select-Object ProcessId,ParentProcessId,CreationDate,ExecutablePath,CommandLine | ConvertTo-Json -Depth 4 -Compress\nGet-CimInstance : �A�N�Z�X�͋��ۂ���܂��� \r\n�����ꏊ �s:1 ����:52\r\n+ ... 46692,61428,10492,47484,24084); Get-CimInstance Win32_Process | Where ...\r\n+                                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\r\n    + CategoryInfo          : PermissionDenied: (root\\cimv2:Win32_Process:String) [Get-CimInstance], CimException\r\n    + FullyQualifiedErrorId : HRESULT 0x80041003,Microsoft.Management.Infrastructure.CimCmdlets.GetCimInstanceCommand\r\n \r\n"
+            }
+          },
+          {
+            "stage": "terminate-a",
+            "observedAt": "2026-10-04T10:48:05.106Z",
+            "pids": [
+              {
+                "pid": 14468,
+                "alive": true
+              },
+              {
+                "pid": 16260,
+                "alive": false
+              },
+              {
+                "pid": 46692,
+                "alive": false
+              },
+              {
+                "pid": 61428,
+                "alive": false
+              },
+              {
+                "pid": 10492,
+                "alive": false
+              },
+              {
+                "pid": 47484,
+                "alive": false
+              },
+              {
+                "pid": 24084,
+                "alive": false
+              }
+            ],
+            "identities": {
+              "error": "Command failed: powershell.exe -NoProfile -Command $ids=@(14468,16260,46692,61428,10492,47484,24084); Get-CimInstance Win32_Process | Where-Object { $ids -contains $_.ProcessId } | Select-Object ProcessId,ParentProcessId,CreationDate,ExecutablePath,CommandLine | ConvertTo-Json -Depth 4 -Compress\nGet-CimInstance : �A�N�Z�X�͋��ۂ���܂��� \r\n�����ꏊ �s:1 ����:52\r\n+ ... 46692,61428,10492,47484,24084); Get-CimInstance Win32_Process | Where ...\r\n+                                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\r\n    + CategoryInfo          : PermissionDenied: (root\\cimv2:Win32_Process:String) [Get-CimInstance], CimException\r\n    + FullyQualifiedErrorId : HRESULT 0x80041003,Microsoft.Management.Infrastructure.CimCmdlets.GetCimInstanceCommand\r\n \r\n"
+            }
+          }
+        ],
+        "cross": {
+          "id": 8,
+          "result": {
+            "terminated": false
+          }
+        },
+        "cleanB": {
+          "id": 9,
+          "result": {}
+        },
+        "terminateA": {
+          "id": 10,
+          "result": {
+            "terminated": true
+          }
+        },
+        "lists": [
+          {
+            "id": "01a10686-d03f-7590-a4d6-8de3f443effc",
+            "list": {
+              "data": [],
+              "nextCursor": null
+            }
+          },
+          {
+            "id": "01a10686-f917-72a1-8e9c-feffea45e59f",
+            "list": {
+              "data": [],
+              "nextCursor": null
+            }
+          }
+        ],
+        "scope": "Two loaded threads same cwd, 3-process bounded trees, wrong thread/processId pairing, independent harness process; CIM identity observations. No arbitrary process ownership, PID-reuse or detach guarantee."
+      }
+    }
+  ],
+  "modelRequests": [
+    {
+      "observedAt": "2026-10-04T10:47:41.011Z",
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": false,
+      "skillV2Injected": false,
+      "skillTokenInputs": [
+        {
+          "index": 0,
+          "role": "developer",
+          "type": "message",
+          "shapeHash": "598eedd691108a18bac060fd572107fd6c6d8fff77b35319b3a8c32c08104eeb",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 1,
+          "role": "user",
+          "type": "message",
+          "shapeHash": "696b69b59289ee9444dc49ddbcddacc3285a2fa86cc8815b09f87c096bd92401",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 2,
+          "role": "user",
+          "type": "message",
+          "shapeHash": "a2ed0283c470a756930edd1de683870e033d657413489a3528df6e4ed3c289e4",
+          "v1Count": 0,
+          "v2Count": 0
+        }
+      ],
+      "fixtureMarker": "PROBE: scoped managed tree a",
+      "fixtureSkillMentioned": false,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": false,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "observedAt": "2026-10-04T10:47:51.252Z",
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": false,
+      "skillV2Injected": false,
+      "skillTokenInputs": [
+        {
+          "index": 0,
+          "role": "developer",
+          "type": "message",
+          "shapeHash": "598eedd691108a18bac060fd572107fd6c6d8fff77b35319b3a8c32c08104eeb",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 1,
+          "role": "user",
+          "type": "message",
+          "shapeHash": "696b69b59289ee9444dc49ddbcddacc3285a2fa86cc8815b09f87c096bd92401",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 2,
+          "role": "user",
+          "type": "message",
+          "shapeHash": "a2ed0283c470a756930edd1de683870e033d657413489a3528df6e4ed3c289e4",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 3,
+          "role": null,
+          "type": "function_call",
+          "shapeHash": "e1980acd46aed4bc12d87cfcd529b0aa40ab1e79bd4a863c8a6e68832a33f104",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 4,
+          "role": null,
+          "type": "function_call_output",
+          "shapeHash": "ecee4156290bd05361da36fca61d1b5cef2ee0284e31e53bd976993dee778623",
+          "v1Count": 0,
+          "v2Count": 0
+        }
+      ],
+      "fixtureMarker": "PROBE: scoped managed tree a",
+      "fixtureSkillMentioned": false,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": false,
+      "fixtureToolOutputs": [
+        "Chunk ID: 9b2fe6\nWall time: 10.0069 seconds\nProcess running with session ID 92124\nOriginal token count: 12\nOutput:\nPROBE_PID=16260\nPROBE_PID=46692\nPROBE_PID=61428\n"
+      ],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "observedAt": "2026-10-04T10:47:51.451Z",
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": false,
+      "skillV2Injected": false,
+      "skillTokenInputs": [
+        {
+          "index": 0,
+          "role": "developer",
+          "type": "message",
+          "shapeHash": "d4969086b874b5135b62d92b59c9d81f71117a6ae3aab8b6f18218584914f993",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 1,
+          "role": "user",
+          "type": "message",
+          "shapeHash": "db65489c7bd2e5b24364f31001f6e94f2440cc3ad2a48845c34e09207a489513",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 2,
+          "role": "user",
+          "type": "message",
+          "shapeHash": "1380ac66117dc2272409c29623c9595707010a8cd715c1008f9e9c7e4f915b7c",
+          "v1Count": 0,
+          "v2Count": 0
+        }
+      ],
+      "fixtureMarker": "PROBE: scoped managed tree b",
+      "fixtureSkillMentioned": false,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": false,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "observedAt": "2026-10-04T10:48:01.666Z",
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": false,
+      "skillV2Injected": false,
+      "skillTokenInputs": [
+        {
+          "index": 0,
+          "role": "developer",
+          "type": "message",
+          "shapeHash": "d4969086b874b5135b62d92b59c9d81f71117a6ae3aab8b6f18218584914f993",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 1,
+          "role": "user",
+          "type": "message",
+          "shapeHash": "db65489c7bd2e5b24364f31001f6e94f2440cc3ad2a48845c34e09207a489513",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 2,
+          "role": "user",
+          "type": "message",
+          "shapeHash": "1380ac66117dc2272409c29623c9595707010a8cd715c1008f9e9c7e4f915b7c",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 3,
+          "role": null,
+          "type": "function_call",
+          "shapeHash": "0b767f8ec734e42c7ace43bfeda166b3fe53d788549ee9362141b8e1d2532f9e",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 4,
+          "role": null,
+          "type": "function_call_output",
+          "shapeHash": "b9829ac39f20836f2cd5db1318a396d559d9326551e469d76aac130214b6309c",
+          "v1Count": 0,
+          "v2Count": 0
+        }
+      ],
+      "fixtureMarker": "PROBE: scoped managed tree b",
+      "fixtureSkillMentioned": false,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": false,
+      "fixtureToolOutputs": [
+        "Chunk ID: 98fb81\nWall time: 10.0037 seconds\nProcess running with session ID 86638\nOriginal token count: 12\nOutput:\nPROBE_PID=10492\nPROBE_PID=47484\nPROBE_PID=24084\n"
+      ],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    }
+  ]
+}

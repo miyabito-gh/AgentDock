@@ -1,0 +1,62 @@
+{
+  "results": [
+    {
+      "name": "plugin_cli_partial_config_write_failure",
+      "status": "pass",
+      "evidence": {
+        "fixture": {
+          "marketplace": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-33-01-637Z\\marketplace",
+          "added": {
+            "marketplaceName": "agentdock-probe",
+            "installedRoot": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-33-01-637Z\\marketplace",
+            "alreadyAdded": false
+          }
+        },
+        "rows": [
+          {
+            "operation": "add",
+            "result": {
+              "exitCode": 1,
+              "stdout": "",
+              "stderr": "Error: アクセスが拒否されました。 (os error 5)\n\nCaused by:\n    アクセスが拒否されました。 (os error 5)\n",
+              "error": "Command failed: C:\\Users\\wmasa\\.vscode\\extensions\\openai.chatgpt-26.930.31730-win32-x64\\bin\\windows-x86_64\\codex.exe plugin add fixture@agentdock-probe --json\nError: アクセスが拒否されました。 (os error 5)\n\nCaused by:\n    アクセスが拒否されました。 (os error 5)\n"
+            },
+            "configUnchanged": true,
+            "configContainsPlugin": false,
+            "cacheBefore": false,
+            "cacheAfter": true,
+            "list": {
+              "exitCode": 0,
+              "stdout": "{\n  \"installed\": [],\n  \"available\": []\n}\n"
+            },
+            "cacheAfterList": true,
+            "explicitRepair": {
+              "exitCode": 0,
+              "stdout": "{\n  \"pluginId\": \"fixture@agentdock-probe\",\n  \"name\": \"fixture\",\n  \"marketplaceName\": \"agentdock-probe\",\n  \"version\": \"0.1.0\",\n  \"installedPath\": \"C:\\\\Users\\\\wmasa\\\\Documents\\\\Rust\\\\AgentDock\\\\probes\\\\app-server\\\\runs\\\\2026-10-04T10-33-01-637Z\\\\codex-home\\\\plugins\\\\cache\\\\agentdock-probe\\\\fixture\\\\0.1.0\",\n  \"authPolicy\": \"ON_INSTALL\"\n}\n"
+            }
+          },
+          {
+            "operation": "remove",
+            "result": {
+              "exitCode": 1,
+              "stdout": "",
+              "stderr": "Error: アクセスが拒否されました。 (os error 5)\n\nCaused by:\n    アクセスが拒否されました。 (os error 5)\n",
+              "error": "Command failed: C:\\Users\\wmasa\\.vscode\\extensions\\openai.chatgpt-26.930.31730-win32-x64\\bin\\windows-x86_64\\codex.exe plugin remove fixture@agentdock-probe --json\nError: アクセスが拒否されました。 (os error 5)\n\nCaused by:\n    アクセスが拒否されました。 (os error 5)\n"
+            },
+            "configUnchanged": true,
+            "configContainsPlugin": true,
+            "cacheBefore": true,
+            "cacheAfter": false,
+            "list": {
+              "exitCode": 0,
+              "stdout": "{\n  \"installed\": [],\n  \"available\": []\n}\n"
+            },
+            "cacheAfterList": false
+          }
+        ],
+        "scope": "Windows readonly attribute on this fixture config only, restored in finally. Store/cache presence before/after operation and CLI list kept separate. No rollback or general concurrency guarantee."
+      }
+    }
+  ],
+  "modelRequests": []
+}

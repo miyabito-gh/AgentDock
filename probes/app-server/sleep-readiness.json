@@ -1,0 +1,30 @@
+{
+  "observedAt": "2026-10-04 11:06:58 UTC",
+  "command": "powercfg /a",
+  "exitCode": 0,
+  "scope": "Read-only system sleep capability query. No sleep, hibernate or power configuration change performed.",
+  "available": [
+    "Standby (S3)",
+    "Hibernate",
+    "Fast Startup"
+  ],
+  "unavailable": [
+    {
+      "state": "Standby (S1)",
+      "reason": "Firmware unsupported"
+    },
+    {
+      "state": "Standby (S2)",
+      "reason": "Firmware unsupported"
+    },
+    {
+      "state": "Standby (S0 Low Power Idle)",
+      "reason": "Firmware unsupported"
+    },
+    {
+      "state": "Hybrid Sleep",
+      "reason": "Hypervisor unsupported"
+    }
+  ],
+  "interpretation": "This PC is an S3/hibernate candidate for future explicit OS-wide sleep/wake testing. Capability listing is not an execution or recovery test."
+}

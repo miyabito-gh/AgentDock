@@ -1,0 +1,22 @@
+[
+  {
+    "method": "remoteControl/status/changed",
+    "params": {
+      "status": "disabled",
+      "serverName": "home-win",
+      "installationId": "0225167e-cefc-4af4-a75f-67fff5e7adea",
+      "environmentId": null
+    },
+    "emittedAtMs": 1791105418509
+  },
+  {
+    "method": "remoteControl/status/changed",
+    "params": {
+      "status": "disabled",
+      "serverName": "home-win",
+      "installationId": "0225167e-cefc-4af4-a75f-67fff5e7adea",
+      "environmentId": null
+    },
+    "emittedAtMs": 1791105419335
+  }
+]

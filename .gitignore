@@ -1,0 +1,9 @@
+# 検証試行の専用CODEX_HOME・作業領域・fixture repo（履歴DB・セッション本文を含むためgit管理しない。ファイル自体は削除しない）
+probes/app-server/runs/*/codex-home/
+probes/app-server/runs/*/work/
+probes/app-server/runs/*/marketplace/
+
+# 将来のビルド成果物
+target/
+node_modules/
+dist/

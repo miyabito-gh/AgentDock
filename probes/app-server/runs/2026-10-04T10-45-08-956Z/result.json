@@ -1,0 +1,2382 @@
+{
+  "createdAt": "2026-10-04T10:45:17.644Z",
+  "executable": "C:\\Users\\wmasa\\.vscode\\extensions\\openai.chatgpt-26.930.31730-win32-x64\\bin\\windows-x86_64\\codex.exe",
+  "version": "codex-cli 0.160.0",
+  "mode": "Real App Server with loopback model fixture; no cloud authentication",
+  "run": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z",
+  "selectedChecks": [
+    "plugin_version_refresh_remove_existing",
+    "plugin_concurrent_cli_config"
+  ],
+  "results": [
+    {
+      "name": "plugin_concurrent_cli_config",
+      "status": "pass",
+      "evidence": {
+        "fixture": {
+          "marketplace": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\marketplace",
+          "added": {
+            "marketplaceName": "agentdock-probe",
+            "installedRoot": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\marketplace",
+            "alreadyAdded": false
+          }
+        },
+        "rows": [
+          {
+            "round": 0,
+            "operation": "add",
+            "operations": [
+              {
+                "args": [
+                  "plugin",
+                  "add",
+                  "fixture@agentdock-probe",
+                  "--json"
+                ],
+                "began": 1791110709232,
+                "ended": 1791110709292,
+                "exitCode": 0,
+                "signal": null,
+                "stdout": "{\n  \"pluginId\": \"fixture@agentdock-probe\",\n  \"name\": \"fixture\",\n  \"marketplaceName\": \"agentdock-probe\",\n  \"version\": \"0.1.0\",\n  \"installedPath\": \"C:\\\\Users\\\\wmasa\\\\Documents\\\\Rust\\\\AgentDock\\\\probes\\\\app-server\\\\runs\\\\2026-10-04T10-45-08-956Z\\\\codex-home\\\\plugins\\\\cache\\\\agentdock-probe\\\\fixture\\\\0.1.0\",\n  \"authPolicy\": \"ON_INSTALL\"\n}\n",
+                "stderr": ""
+              },
+              {
+                "args": [
+                  "plugin",
+                  "add",
+                  "second@agentdock-probe",
+                  "--json"
+                ],
+                "began": 1791110709239,
+                "ended": 1791110709303,
+                "exitCode": 0,
+                "signal": null,
+                "stdout": "{\n  \"pluginId\": \"second@agentdock-probe\",\n  \"name\": \"second\",\n  \"marketplaceName\": \"agentdock-probe\",\n  \"version\": \"0.1.0\",\n  \"installedPath\": \"C:\\\\Users\\\\wmasa\\\\Documents\\\\Rust\\\\AgentDock\\\\probes\\\\app-server\\\\runs\\\\2026-10-04T10-45-08-956Z\\\\codex-home\\\\plugins\\\\cache\\\\agentdock-probe\\\\second\\\\0.1.0\",\n  \"authPolicy\": \"ON_INSTALL\"\n}\n",
+                "stderr": ""
+              }
+            ],
+            "before": "model = \"gpt-5.4\"\nmodel_provider = \"agentdock_probe\"\ncli_auth_credentials_store = \"file\"\napproval_policy = \"never\"\nsandbox_mode = \"read-only\"\n[analytics]\nenabled = false\n[model_providers.agentdock_probe]\nname = \"AgentDock local fixture\"\nbase_url = \"http://127.0.0.1:49396/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\nsupports_websockets = false\nrequest_max_retries = 0\nstream_max_retries = 0\nstream_idle_timeout_ms = 60000\n[agents]\nmax_depth = 2\n\n[mcp_servers.agentdock_fixture]\ncommand = \"C:/Program Files/nodejs/node.exe\"\nargs = [\"C:/Users/wmasa/Documents/Rust/AgentDock/probes/app-server/mcp-fixture.mjs\"]\nenabled = true\nstartup_timeout_sec = 5\n\n[marketplaces.agentdock-probe]\nsource_type = \"local\"\nsource = '\\\\?\\C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\marketplace'\n",
+            "after": "model = \"gpt-5.4\"\nmodel_provider = \"agentdock_probe\"\ncli_auth_credentials_store = \"file\"\napproval_policy = \"never\"\nsandbox_mode = \"read-only\"\n[analytics]\nenabled = false\n[model_providers.agentdock_probe]\nname = \"AgentDock local fixture\"\nbase_url = \"http://127.0.0.1:49396/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\nsupports_websockets = false\nrequest_max_retries = 0\nstream_max_retries = 0\nstream_idle_timeout_ms = 60000\n[agents]\nmax_depth = 2\n\n[mcp_servers.agentdock_fixture]\ncommand = \"C:/Program Files/nodejs/node.exe\"\nargs = [\"C:/Users/wmasa/Documents/Rust/AgentDock/probes/app-server/mcp-fixture.mjs\"]\nenabled = true\nstartup_timeout_sec = 5\n\n[marketplaces.agentdock-probe]\nsource_type = \"local\"\nsource = '\\\\?\\C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\marketplace'\n\n[plugins.\"fixture@agentdock-probe\"]\nenabled = true\n\n[plugins.\"second@agentdock-probe\"]\nenabled = true\n",
+            "list": {
+              "exitCode": 0,
+              "stdout": "{\n  \"installed\": [\n    {\n      \"pluginId\": \"fixture@agentdock-probe\",\n      \"name\": \"fixture\",\n      \"marketplaceName\": \"agentdock-probe\",\n      \"version\": \"0.1.0\",\n      \"installed\": true,\n      \"enabled\": true,\n      \"source\": {\n        \"source\": \"local\",\n        \"path\": \"C:\\\\Users\\\\wmasa\\\\Documents\\\\Rust\\\\AgentDock\\\\probes\\\\app-server\\\\runs\\\\2026-10-04T10-45-08-956Z\\\\marketplace\\\\fixture\"\n      },\n      \"marketplaceSource\": {\n        \"sourceType\": \"local\",\n        \"source\": \"\\\\\\\\?\\\\C:\\\\Users\\\\wmasa\\\\Documents\\\\Rust\\\\AgentDock\\\\probes\\\\app-server\\\\runs\\\\2026-10-04T10-45-08-956Z\\\\marketplace\"\n      },\n      \"installPolicy\": \"AVAILABLE\",\n      \"authPolicy\": \"ON_INSTALL\"\n    },\n    {\n      \"pluginId\": \"second@agentdock-probe\",\n      \"name\": \"second\",\n      \"marketplaceName\": \"agentdock-probe\",\n      \"version\": \"0.1.0\",\n      \"installed\": true,\n      \"enabled\": true,\n      \"source\": {\n        \"source\": \"local\",\n        \"path\": \"C:\\\\Users\\\\wmasa\\\\Documents\\\\Rust\\\\AgentDock\\\\probes\\\\app-server\\\\runs\\\\2026-10-04T10-45-08-956Z\\\\marketplace\\\\second\"\n      },\n      \"marketplaceSource\": {\n        \"sourceType\": \"local\",\n        \"source\": \"\\\\\\\\?\\\\C:\\\\Users\\\\wmasa\\\\Documents\\\\Rust\\\\AgentDock\\\\probes\\\\app-server\\\\runs\\\\2026-10-04T10-45-08-956Z\\\\marketplace\"\n      },\n      \"installPolicy\": \"AVAILABLE\",\n      \"authPolicy\": \"ON_INSTALL\"\n    }\n  ],\n  \"available\": []\n}\n"
+            },
+            "cache": [
+              {
+                "name": "fixture",
+                "exists": true
+              },
+              {
+                "name": "second",
+                "exists": true
+              }
+            ]
+          },
+          {
+            "round": 0,
+            "operation": "remove",
+            "operations": [
+              {
+                "args": [
+                  "plugin",
+                  "remove",
+                  "fixture@agentdock-probe",
+                  "--json"
+                ],
+                "began": 1791110709355,
+                "ended": 1791110709410,
+                "exitCode": 0,
+                "signal": null,
+                "stdout": "{\n  \"pluginId\": \"fixture@agentdock-probe\",\n  \"name\": \"fixture\",\n  \"marketplaceName\": \"agentdock-probe\"\n}\n",
+                "stderr": ""
+              },
+              {
+                "args": [
+                  "plugin",
+                  "remove",
+                  "second@agentdock-probe",
+                  "--json"
+                ],
+                "began": 1791110709363,
+                "ended": 1791110709426,
+                "exitCode": 0,
+                "signal": null,
+                "stdout": "{\n  \"pluginId\": \"second@agentdock-probe\",\n  \"name\": \"second\",\n  \"marketplaceName\": \"agentdock-probe\"\n}\n",
+                "stderr": ""
+              }
+            ],
+            "before": "model = \"gpt-5.4\"\nmodel_provider = \"agentdock_probe\"\ncli_auth_credentials_store = \"file\"\napproval_policy = \"never\"\nsandbox_mode = \"read-only\"\n[analytics]\nenabled = false\n[model_providers.agentdock_probe]\nname = \"AgentDock local fixture\"\nbase_url = \"http://127.0.0.1:49396/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\nsupports_websockets = false\nrequest_max_retries = 0\nstream_max_retries = 0\nstream_idle_timeout_ms = 60000\n[agents]\nmax_depth = 2\n\n[mcp_servers.agentdock_fixture]\ncommand = \"C:/Program Files/nodejs/node.exe\"\nargs = [\"C:/Users/wmasa/Documents/Rust/AgentDock/probes/app-server/mcp-fixture.mjs\"]\nenabled = true\nstartup_timeout_sec = 5\n\n[marketplaces.agentdock-probe]\nsource_type = \"local\"\nsource = '\\\\?\\C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\marketplace'\n\n[plugins.\"fixture@agentdock-probe\"]\nenabled = true\n\n[plugins.\"second@agentdock-probe\"]\nenabled = true\n",
+            "after": "model = \"gpt-5.4\"\nmodel_provider = \"agentdock_probe\"\ncli_auth_credentials_store = \"file\"\napproval_policy = \"never\"\nsandbox_mode = \"read-only\"\n[analytics]\nenabled = false\n[model_providers.agentdock_probe]\nname = \"AgentDock local fixture\"\nbase_url = \"http://127.0.0.1:49396/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\nsupports_websockets = false\nrequest_max_retries = 0\nstream_max_retries = 0\nstream_idle_timeout_ms = 60000\n[agents]\nmax_depth = 2\n\n[mcp_servers.agentdock_fixture]\ncommand = \"C:/Program Files/nodejs/node.exe\"\nargs = [\"C:/Users/wmasa/Documents/Rust/AgentDock/probes/app-server/mcp-fixture.mjs\"]\nenabled = true\nstartup_timeout_sec = 5\n\n[marketplaces.agentdock-probe]\nsource_type = \"local\"\nsource = '\\\\?\\C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\marketplace'\n",
+            "list": {
+              "exitCode": 0,
+              "stdout": "{\n  \"installed\": [],\n  \"available\": []\n}\n"
+            },
+            "cache": [
+              {
+                "name": "fixture",
+                "exists": false
+              },
+              {
+                "name": "second",
+                "exists": false
+              }
+            ]
+          },
+          {
+            "round": 1,
+            "operation": "add",
+            "operations": [
+              {
+                "args": [
+                  "plugin",
+                  "add",
+                  "fixture@agentdock-probe",
+                  "--json"
+                ],
+                "began": 1791110709489,
+                "ended": 1791110709548,
+                "exitCode": 0,
+                "signal": null,
+                "stdout": "{\n  \"pluginId\": \"fixture@agentdock-probe\",\n  \"name\": \"fixture\",\n  \"marketplaceName\": \"agentdock-probe\",\n  \"version\": \"0.1.0\",\n  \"installedPath\": \"C:\\\\Users\\\\wmasa\\\\Documents\\\\Rust\\\\AgentDock\\\\probes\\\\app-server\\\\runs\\\\2026-10-04T10-45-08-956Z\\\\codex-home\\\\plugins\\\\cache\\\\agentdock-probe\\\\fixture\\\\0.1.0\",\n  \"authPolicy\": \"ON_INSTALL\"\n}\n",
+                "stderr": ""
+              },
+              {
+                "args": [
+                  "plugin",
+                  "add",
+                  "second@agentdock-probe",
+                  "--json"
+                ],
+                "began": 1791110709496,
+                "ended": 1791110709556,
+                "exitCode": 0,
+                "signal": null,
+                "stdout": "{\n  \"pluginId\": \"second@agentdock-probe\",\n  \"name\": \"second\",\n  \"marketplaceName\": \"agentdock-probe\",\n  \"version\": \"0.1.0\",\n  \"installedPath\": \"C:\\\\Users\\\\wmasa\\\\Documents\\\\Rust\\\\AgentDock\\\\probes\\\\app-server\\\\runs\\\\2026-10-04T10-45-08-956Z\\\\codex-home\\\\plugins\\\\cache\\\\agentdock-probe\\\\second\\\\0.1.0\",\n  \"authPolicy\": \"ON_INSTALL\"\n}\n",
+                "stderr": ""
+              }
+            ],
+            "before": "model = \"gpt-5.4\"\nmodel_provider = \"agentdock_probe\"\ncli_auth_credentials_store = \"file\"\napproval_policy = \"never\"\nsandbox_mode = \"read-only\"\n[analytics]\nenabled = false\n[model_providers.agentdock_probe]\nname = \"AgentDock local fixture\"\nbase_url = \"http://127.0.0.1:49396/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\nsupports_websockets = false\nrequest_max_retries = 0\nstream_max_retries = 0\nstream_idle_timeout_ms = 60000\n[agents]\nmax_depth = 2\n\n[mcp_servers.agentdock_fixture]\ncommand = \"C:/Program Files/nodejs/node.exe\"\nargs = [\"C:/Users/wmasa/Documents/Rust/AgentDock/probes/app-server/mcp-fixture.mjs\"]\nenabled = true\nstartup_timeout_sec = 5\n\n[marketplaces.agentdock-probe]\nsource_type = \"local\"\nsource = '\\\\?\\C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\marketplace'\n",
+            "after": "model = \"gpt-5.4\"\nmodel_provider = \"agentdock_probe\"\ncli_auth_credentials_store = \"file\"\napproval_policy = \"never\"\nsandbox_mode = \"read-only\"\n[analytics]\nenabled = false\n[model_providers.agentdock_probe]\nname = \"AgentDock local fixture\"\nbase_url = \"http://127.0.0.1:49396/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\nsupports_websockets = false\nrequest_max_retries = 0\nstream_max_retries = 0\nstream_idle_timeout_ms = 60000\n[agents]\nmax_depth = 2\n\n[mcp_servers.agentdock_fixture]\ncommand = \"C:/Program Files/nodejs/node.exe\"\nargs = [\"C:/Users/wmasa/Documents/Rust/AgentDock/probes/app-server/mcp-fixture.mjs\"]\nenabled = true\nstartup_timeout_sec = 5\n\n[marketplaces.agentdock-probe]\nsource_type = \"local\"\nsource = '\\\\?\\C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\marketplace'\n\n[plugins.\"fixture@agentdock-probe\"]\nenabled = true\n\n[plugins.\"second@agentdock-probe\"]\nenabled = true\n",
+            "list": {
+              "exitCode": 0,
+              "stdout": "{\n  \"installed\": [\n    {\n      \"pluginId\": \"fixture@agentdock-probe\",\n      \"name\": \"fixture\",\n      \"marketplaceName\": \"agentdock-probe\",\n      \"version\": \"0.1.0\",\n      \"installed\": true,\n      \"enabled\": true,\n      \"source\": {\n        \"source\": \"local\",\n        \"path\": \"C:\\\\Users\\\\wmasa\\\\Documents\\\\Rust\\\\AgentDock\\\\probes\\\\app-server\\\\runs\\\\2026-10-04T10-45-08-956Z\\\\marketplace\\\\fixture\"\n      },\n      \"marketplaceSource\": {\n        \"sourceType\": \"local\",\n        \"source\": \"\\\\\\\\?\\\\C:\\\\Users\\\\wmasa\\\\Documents\\\\Rust\\\\AgentDock\\\\probes\\\\app-server\\\\runs\\\\2026-10-04T10-45-08-956Z\\\\marketplace\"\n      },\n      \"installPolicy\": \"AVAILABLE\",\n      \"authPolicy\": \"ON_INSTALL\"\n    },\n    {\n      \"pluginId\": \"second@agentdock-probe\",\n      \"name\": \"second\",\n      \"marketplaceName\": \"agentdock-probe\",\n      \"version\": \"0.1.0\",\n      \"installed\": true,\n      \"enabled\": true,\n      \"source\": {\n        \"source\": \"local\",\n        \"path\": \"C:\\\\Users\\\\wmasa\\\\Documents\\\\Rust\\\\AgentDock\\\\probes\\\\app-server\\\\runs\\\\2026-10-04T10-45-08-956Z\\\\marketplace\\\\second\"\n      },\n      \"marketplaceSource\": {\n        \"sourceType\": \"local\",\n        \"source\": \"\\\\\\\\?\\\\C:\\\\Users\\\\wmasa\\\\Documents\\\\Rust\\\\AgentDock\\\\probes\\\\app-server\\\\runs\\\\2026-10-04T10-45-08-956Z\\\\marketplace\"\n      },\n      \"installPolicy\": \"AVAILABLE\",\n      \"authPolicy\": \"ON_INSTALL\"\n    }\n  ],\n  \"available\": []\n}\n"
+            },
+            "cache": [
+              {
+                "name": "fixture",
+                "exists": true
+              },
+              {
+                "name": "second",
+                "exists": true
+              }
+            ]
+          },
+          {
+            "round": 1,
+            "operation": "remove",
+            "operations": [
+              {
+                "args": [
+                  "plugin",
+                  "remove",
+                  "fixture@agentdock-probe",
+                  "--json"
+                ],
+                "began": 1791110709607,
+                "ended": 1791110709659,
+                "exitCode": 0,
+                "signal": null,
+                "stdout": "{\n  \"pluginId\": \"fixture@agentdock-probe\",\n  \"name\": \"fixture\",\n  \"marketplaceName\": \"agentdock-probe\"\n}\n",
+                "stderr": ""
+              },
+              {
+                "args": [
+                  "plugin",
+                  "remove",
+                  "second@agentdock-probe",
+                  "--json"
+                ],
+                "began": 1791110709614,
+                "ended": 1791110709674,
+                "exitCode": 0,
+                "signal": null,
+                "stdout": "{\n  \"pluginId\": \"second@agentdock-probe\",\n  \"name\": \"second\",\n  \"marketplaceName\": \"agentdock-probe\"\n}\n",
+                "stderr": ""
+              }
+            ],
+            "before": "model = \"gpt-5.4\"\nmodel_provider = \"agentdock_probe\"\ncli_auth_credentials_store = \"file\"\napproval_policy = \"never\"\nsandbox_mode = \"read-only\"\n[analytics]\nenabled = false\n[model_providers.agentdock_probe]\nname = \"AgentDock local fixture\"\nbase_url = \"http://127.0.0.1:49396/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\nsupports_websockets = false\nrequest_max_retries = 0\nstream_max_retries = 0\nstream_idle_timeout_ms = 60000\n[agents]\nmax_depth = 2\n\n[mcp_servers.agentdock_fixture]\ncommand = \"C:/Program Files/nodejs/node.exe\"\nargs = [\"C:/Users/wmasa/Documents/Rust/AgentDock/probes/app-server/mcp-fixture.mjs\"]\nenabled = true\nstartup_timeout_sec = 5\n\n[marketplaces.agentdock-probe]\nsource_type = \"local\"\nsource = '\\\\?\\C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\marketplace'\n\n[plugins.\"fixture@agentdock-probe\"]\nenabled = true\n\n[plugins.\"second@agentdock-probe\"]\nenabled = true\n",
+            "after": "model = \"gpt-5.4\"\nmodel_provider = \"agentdock_probe\"\ncli_auth_credentials_store = \"file\"\napproval_policy = \"never\"\nsandbox_mode = \"read-only\"\n[analytics]\nenabled = false\n[model_providers.agentdock_probe]\nname = \"AgentDock local fixture\"\nbase_url = \"http://127.0.0.1:49396/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\nsupports_websockets = false\nrequest_max_retries = 0\nstream_max_retries = 0\nstream_idle_timeout_ms = 60000\n[agents]\nmax_depth = 2\n\n[mcp_servers.agentdock_fixture]\ncommand = \"C:/Program Files/nodejs/node.exe\"\nargs = [\"C:/Users/wmasa/Documents/Rust/AgentDock/probes/app-server/mcp-fixture.mjs\"]\nenabled = true\nstartup_timeout_sec = 5\n\n[marketplaces.agentdock-probe]\nsource_type = \"local\"\nsource = '\\\\?\\C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\marketplace'\n",
+            "list": {
+              "exitCode": 0,
+              "stdout": "{\n  \"installed\": [],\n  \"available\": []\n}\n"
+            },
+            "cache": [
+              {
+                "name": "fixture",
+                "exists": false
+              },
+              {
+                "name": "second",
+                "exists": false
+              }
+            ]
+          },
+          {
+            "round": 2,
+            "operation": "add",
+            "operations": [
+              {
+                "args": [
+                  "plugin",
+                  "add",
+                  "fixture@agentdock-probe",
+                  "--json"
+                ],
+                "began": 1791110709726,
+                "ended": 1791110709783,
+                "exitCode": 0,
+                "signal": null,
+                "stdout": "{\n  \"pluginId\": \"fixture@agentdock-probe\",\n  \"name\": \"fixture\",\n  \"marketplaceName\": \"agentdock-probe\",\n  \"version\": \"0.1.0\",\n  \"installedPath\": \"C:\\\\Users\\\\wmasa\\\\Documents\\\\Rust\\\\AgentDock\\\\probes\\\\app-server\\\\runs\\\\2026-10-04T10-45-08-956Z\\\\codex-home\\\\plugins\\\\cache\\\\agentdock-probe\\\\fixture\\\\0.1.0\",\n  \"authPolicy\": \"ON_INSTALL\"\n}\n",
+                "stderr": ""
+              },
+              {
+                "args": [
+                  "plugin",
+                  "add",
+                  "second@agentdock-probe",
+                  "--json"
+                ],
+                "began": 1791110709733,
+                "ended": 1791110709794,
+                "exitCode": 0,
+                "signal": null,
+                "stdout": "{\n  \"pluginId\": \"second@agentdock-probe\",\n  \"name\": \"second\",\n  \"marketplaceName\": \"agentdock-probe\",\n  \"version\": \"0.1.0\",\n  \"installedPath\": \"C:\\\\Users\\\\wmasa\\\\Documents\\\\Rust\\\\AgentDock\\\\probes\\\\app-server\\\\runs\\\\2026-10-04T10-45-08-956Z\\\\codex-home\\\\plugins\\\\cache\\\\agentdock-probe\\\\second\\\\0.1.0\",\n  \"authPolicy\": \"ON_INSTALL\"\n}\n",
+                "stderr": ""
+              }
+            ],
+            "before": "model = \"gpt-5.4\"\nmodel_provider = \"agentdock_probe\"\ncli_auth_credentials_store = \"file\"\napproval_policy = \"never\"\nsandbox_mode = \"read-only\"\n[analytics]\nenabled = false\n[model_providers.agentdock_probe]\nname = \"AgentDock local fixture\"\nbase_url = \"http://127.0.0.1:49396/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\nsupports_websockets = false\nrequest_max_retries = 0\nstream_max_retries = 0\nstream_idle_timeout_ms = 60000\n[agents]\nmax_depth = 2\n\n[mcp_servers.agentdock_fixture]\ncommand = \"C:/Program Files/nodejs/node.exe\"\nargs = [\"C:/Users/wmasa/Documents/Rust/AgentDock/probes/app-server/mcp-fixture.mjs\"]\nenabled = true\nstartup_timeout_sec = 5\n\n[marketplaces.agentdock-probe]\nsource_type = \"local\"\nsource = '\\\\?\\C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\marketplace'\n",
+            "after": "model = \"gpt-5.4\"\nmodel_provider = \"agentdock_probe\"\ncli_auth_credentials_store = \"file\"\napproval_policy = \"never\"\nsandbox_mode = \"read-only\"\n[analytics]\nenabled = false\n[model_providers.agentdock_probe]\nname = \"AgentDock local fixture\"\nbase_url = \"http://127.0.0.1:49396/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\nsupports_websockets = false\nrequest_max_retries = 0\nstream_max_retries = 0\nstream_idle_timeout_ms = 60000\n[agents]\nmax_depth = 2\n\n[mcp_servers.agentdock_fixture]\ncommand = \"C:/Program Files/nodejs/node.exe\"\nargs = [\"C:/Users/wmasa/Documents/Rust/AgentDock/probes/app-server/mcp-fixture.mjs\"]\nenabled = true\nstartup_timeout_sec = 5\n\n[marketplaces.agentdock-probe]\nsource_type = \"local\"\nsource = '\\\\?\\C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\marketplace'\n\n[plugins.\"fixture@agentdock-probe\"]\nenabled = true\n\n[plugins.\"second@agentdock-probe\"]\nenabled = true\n",
+            "list": {
+              "exitCode": 0,
+              "stdout": "{\n  \"installed\": [\n    {\n      \"pluginId\": \"fixture@agentdock-probe\",\n      \"name\": \"fixture\",\n      \"marketplaceName\": \"agentdock-probe\",\n      \"version\": \"0.1.0\",\n      \"installed\": true,\n      \"enabled\": true,\n      \"source\": {\n        \"source\": \"local\",\n        \"path\": \"C:\\\\Users\\\\wmasa\\\\Documents\\\\Rust\\\\AgentDock\\\\probes\\\\app-server\\\\runs\\\\2026-10-04T10-45-08-956Z\\\\marketplace\\\\fixture\"\n      },\n      \"marketplaceSource\": {\n        \"sourceType\": \"local\",\n        \"source\": \"\\\\\\\\?\\\\C:\\\\Users\\\\wmasa\\\\Documents\\\\Rust\\\\AgentDock\\\\probes\\\\app-server\\\\runs\\\\2026-10-04T10-45-08-956Z\\\\marketplace\"\n      },\n      \"installPolicy\": \"AVAILABLE\",\n      \"authPolicy\": \"ON_INSTALL\"\n    },\n    {\n      \"pluginId\": \"second@agentdock-probe\",\n      \"name\": \"second\",\n      \"marketplaceName\": \"agentdock-probe\",\n      \"version\": \"0.1.0\",\n      \"installed\": true,\n      \"enabled\": true,\n      \"source\": {\n        \"source\": \"local\",\n        \"path\": \"C:\\\\Users\\\\wmasa\\\\Documents\\\\Rust\\\\AgentDock\\\\probes\\\\app-server\\\\runs\\\\2026-10-04T10-45-08-956Z\\\\marketplace\\\\second\"\n      },\n      \"marketplaceSource\": {\n        \"sourceType\": \"local\",\n        \"source\": \"\\\\\\\\?\\\\C:\\\\Users\\\\wmasa\\\\Documents\\\\Rust\\\\AgentDock\\\\probes\\\\app-server\\\\runs\\\\2026-10-04T10-45-08-956Z\\\\marketplace\"\n      },\n      \"installPolicy\": \"AVAILABLE\",\n      \"authPolicy\": \"ON_INSTALL\"\n    }\n  ],\n  \"available\": []\n}\n"
+            },
+            "cache": [
+              {
+                "name": "fixture",
+                "exists": true
+              },
+              {
+                "name": "second",
+                "exists": true
+              }
+            ]
+          },
+          {
+            "round": 2,
+            "operation": "remove",
+            "operations": [
+              {
+                "args": [
+                  "plugin",
+                  "remove",
+                  "fixture@agentdock-probe",
+                  "--json"
+                ],
+                "began": 1791110709843,
+                "ended": 1791110709893,
+                "exitCode": 0,
+                "signal": null,
+                "stdout": "{\n  \"pluginId\": \"fixture@agentdock-probe\",\n  \"name\": \"fixture\",\n  \"marketplaceName\": \"agentdock-probe\"\n}\n",
+                "stderr": ""
+              },
+              {
+                "args": [
+                  "plugin",
+                  "remove",
+                  "second@agentdock-probe",
+                  "--json"
+                ],
+                "began": 1791110709848,
+                "ended": 1791110709899,
+                "exitCode": 0,
+                "signal": null,
+                "stdout": "{\n  \"pluginId\": \"second@agentdock-probe\",\n  \"name\": \"second\",\n  \"marketplaceName\": \"agentdock-probe\"\n}\n",
+                "stderr": ""
+              }
+            ],
+            "before": "model = \"gpt-5.4\"\nmodel_provider = \"agentdock_probe\"\ncli_auth_credentials_store = \"file\"\napproval_policy = \"never\"\nsandbox_mode = \"read-only\"\n[analytics]\nenabled = false\n[model_providers.agentdock_probe]\nname = \"AgentDock local fixture\"\nbase_url = \"http://127.0.0.1:49396/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\nsupports_websockets = false\nrequest_max_retries = 0\nstream_max_retries = 0\nstream_idle_timeout_ms = 60000\n[agents]\nmax_depth = 2\n\n[mcp_servers.agentdock_fixture]\ncommand = \"C:/Program Files/nodejs/node.exe\"\nargs = [\"C:/Users/wmasa/Documents/Rust/AgentDock/probes/app-server/mcp-fixture.mjs\"]\nenabled = true\nstartup_timeout_sec = 5\n\n[marketplaces.agentdock-probe]\nsource_type = \"local\"\nsource = '\\\\?\\C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\marketplace'\n\n[plugins.\"fixture@agentdock-probe\"]\nenabled = true\n\n[plugins.\"second@agentdock-probe\"]\nenabled = true\n",
+            "after": "model = \"gpt-5.4\"\nmodel_provider = \"agentdock_probe\"\ncli_auth_credentials_store = \"file\"\napproval_policy = \"never\"\nsandbox_mode = \"read-only\"\n[analytics]\nenabled = false\n[model_providers.agentdock_probe]\nname = \"AgentDock local fixture\"\nbase_url = \"http://127.0.0.1:49396/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\nsupports_websockets = false\nrequest_max_retries = 0\nstream_max_retries = 0\nstream_idle_timeout_ms = 60000\n[agents]\nmax_depth = 2\n\n[mcp_servers.agentdock_fixture]\ncommand = \"C:/Program Files/nodejs/node.exe\"\nargs = [\"C:/Users/wmasa/Documents/Rust/AgentDock/probes/app-server/mcp-fixture.mjs\"]\nenabled = true\nstartup_timeout_sec = 5\n\n[marketplaces.agentdock-probe]\nsource_type = \"local\"\nsource = '\\\\?\\C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\marketplace'\n",
+            "list": {
+              "exitCode": 0,
+              "stdout": "{\n  \"installed\": [],\n  \"available\": []\n}\n"
+            },
+            "cache": [
+              {
+                "name": "fixture",
+                "exists": false
+              },
+              {
+                "name": "second",
+                "exists": false
+              }
+            ]
+          },
+          {
+            "round": 3,
+            "operation": "add",
+            "operations": [
+              {
+                "args": [
+                  "plugin",
+                  "add",
+                  "fixture@agentdock-probe",
+                  "--json"
+                ],
+                "began": 1791110709947,
+                "ended": 1791110710006,
+                "exitCode": 0,
+                "signal": null,
+                "stdout": "{\n  \"pluginId\": \"fixture@agentdock-probe\",\n  \"name\": \"fixture\",\n  \"marketplaceName\": \"agentdock-probe\",\n  \"version\": \"0.1.0\",\n  \"installedPath\": \"C:\\\\Users\\\\wmasa\\\\Documents\\\\Rust\\\\AgentDock\\\\probes\\\\app-server\\\\runs\\\\2026-10-04T10-45-08-956Z\\\\codex-home\\\\plugins\\\\cache\\\\agentdock-probe\\\\fixture\\\\0.1.0\",\n  \"authPolicy\": \"ON_INSTALL\"\n}\n",
+                "stderr": ""
+              },
+              {
+                "args": [
+                  "plugin",
+                  "add",
+                  "second@agentdock-probe",
+                  "--json"
+                ],
+                "began": 1791110709953,
+                "ended": 1791110710013,
+                "exitCode": 0,
+                "signal": null,
+                "stdout": "{\n  \"pluginId\": \"second@agentdock-probe\",\n  \"name\": \"second\",\n  \"marketplaceName\": \"agentdock-probe\",\n  \"version\": \"0.1.0\",\n  \"installedPath\": \"C:\\\\Users\\\\wmasa\\\\Documents\\\\Rust\\\\AgentDock\\\\probes\\\\app-server\\\\runs\\\\2026-10-04T10-45-08-956Z\\\\codex-home\\\\plugins\\\\cache\\\\agentdock-probe\\\\second\\\\0.1.0\",\n  \"authPolicy\": \"ON_INSTALL\"\n}\n",
+                "stderr": ""
+              }
+            ],
+            "before": "model = \"gpt-5.4\"\nmodel_provider = \"agentdock_probe\"\ncli_auth_credentials_store = \"file\"\napproval_policy = \"never\"\nsandbox_mode = \"read-only\"\n[analytics]\nenabled = false\n[model_providers.agentdock_probe]\nname = \"AgentDock local fixture\"\nbase_url = \"http://127.0.0.1:49396/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\nsupports_websockets = false\nrequest_max_retries = 0\nstream_max_retries = 0\nstream_idle_timeout_ms = 60000\n[agents]\nmax_depth = 2\n\n[mcp_servers.agentdock_fixture]\ncommand = \"C:/Program Files/nodejs/node.exe\"\nargs = [\"C:/Users/wmasa/Documents/Rust/AgentDock/probes/app-server/mcp-fixture.mjs\"]\nenabled = true\nstartup_timeout_sec = 5\n\n[marketplaces.agentdock-probe]\nsource_type = \"local\"\nsource = '\\\\?\\C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\marketplace'\n",
+            "after": "model = \"gpt-5.4\"\nmodel_provider = \"agentdock_probe\"\ncli_auth_credentials_store = \"file\"\napproval_policy = \"never\"\nsandbox_mode = \"read-only\"\n[analytics]\nenabled = false\n[model_providers.agentdock_probe]\nname = \"AgentDock local fixture\"\nbase_url = \"http://127.0.0.1:49396/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\nsupports_websockets = false\nrequest_max_retries = 0\nstream_max_retries = 0\nstream_idle_timeout_ms = 60000\n[agents]\nmax_depth = 2\n\n[mcp_servers.agentdock_fixture]\ncommand = \"C:/Program Files/nodejs/node.exe\"\nargs = [\"C:/Users/wmasa/Documents/Rust/AgentDock/probes/app-server/mcp-fixture.mjs\"]\nenabled = true\nstartup_timeout_sec = 5\n\n[marketplaces.agentdock-probe]\nsource_type = \"local\"\nsource = '\\\\?\\C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\marketplace'\n\n[plugins.\"fixture@agentdock-probe\"]\nenabled = true\n\n[plugins.\"second@agentdock-probe\"]\nenabled = true\n",
+            "list": {
+              "exitCode": 0,
+              "stdout": "{\n  \"installed\": [\n    {\n      \"pluginId\": \"fixture@agentdock-probe\",\n      \"name\": \"fixture\",\n      \"marketplaceName\": \"agentdock-probe\",\n      \"version\": \"0.1.0\",\n      \"installed\": true,\n      \"enabled\": true,\n      \"source\": {\n        \"source\": \"local\",\n        \"path\": \"C:\\\\Users\\\\wmasa\\\\Documents\\\\Rust\\\\AgentDock\\\\probes\\\\app-server\\\\runs\\\\2026-10-04T10-45-08-956Z\\\\marketplace\\\\fixture\"\n      },\n      \"marketplaceSource\": {\n        \"sourceType\": \"local\",\n        \"source\": \"\\\\\\\\?\\\\C:\\\\Users\\\\wmasa\\\\Documents\\\\Rust\\\\AgentDock\\\\probes\\\\app-server\\\\runs\\\\2026-10-04T10-45-08-956Z\\\\marketplace\"\n      },\n      \"installPolicy\": \"AVAILABLE\",\n      \"authPolicy\": \"ON_INSTALL\"\n    },\n    {\n      \"pluginId\": \"second@agentdock-probe\",\n      \"name\": \"second\",\n      \"marketplaceName\": \"agentdock-probe\",\n      \"version\": \"0.1.0\",\n      \"installed\": true,\n      \"enabled\": true,\n      \"source\": {\n        \"source\": \"local\",\n        \"path\": \"C:\\\\Users\\\\wmasa\\\\Documents\\\\Rust\\\\AgentDock\\\\probes\\\\app-server\\\\runs\\\\2026-10-04T10-45-08-956Z\\\\marketplace\\\\second\"\n      },\n      \"marketplaceSource\": {\n        \"sourceType\": \"local\",\n        \"source\": \"\\\\\\\\?\\\\C:\\\\Users\\\\wmasa\\\\Documents\\\\Rust\\\\AgentDock\\\\probes\\\\app-server\\\\runs\\\\2026-10-04T10-45-08-956Z\\\\marketplace\"\n      },\n      \"installPolicy\": \"AVAILABLE\",\n      \"authPolicy\": \"ON_INSTALL\"\n    }\n  ],\n  \"available\": []\n}\n"
+            },
+            "cache": [
+              {
+                "name": "fixture",
+                "exists": true
+              },
+              {
+                "name": "second",
+                "exists": true
+              }
+            ]
+          },
+          {
+            "round": 3,
+            "operation": "remove",
+            "operations": [
+              {
+                "args": [
+                  "plugin",
+                  "remove",
+                  "fixture@agentdock-probe",
+                  "--json"
+                ],
+                "began": 1791110710061,
+                "ended": 1791110710116,
+                "exitCode": 0,
+                "signal": null,
+                "stdout": "{\n  \"pluginId\": \"fixture@agentdock-probe\",\n  \"name\": \"fixture\",\n  \"marketplaceName\": \"agentdock-probe\"\n}\n",
+                "stderr": ""
+              },
+              {
+                "args": [
+                  "plugin",
+                  "remove",
+                  "second@agentdock-probe",
+                  "--json"
+                ],
+                "began": 1791110710071,
+                "ended": 1791110710124,
+                "exitCode": 0,
+                "signal": null,
+                "stdout": "{\n  \"pluginId\": \"second@agentdock-probe\",\n  \"name\": \"second\",\n  \"marketplaceName\": \"agentdock-probe\"\n}\n",
+                "stderr": ""
+              }
+            ],
+            "before": "model = \"gpt-5.4\"\nmodel_provider = \"agentdock_probe\"\ncli_auth_credentials_store = \"file\"\napproval_policy = \"never\"\nsandbox_mode = \"read-only\"\n[analytics]\nenabled = false\n[model_providers.agentdock_probe]\nname = \"AgentDock local fixture\"\nbase_url = \"http://127.0.0.1:49396/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\nsupports_websockets = false\nrequest_max_retries = 0\nstream_max_retries = 0\nstream_idle_timeout_ms = 60000\n[agents]\nmax_depth = 2\n\n[mcp_servers.agentdock_fixture]\ncommand = \"C:/Program Files/nodejs/node.exe\"\nargs = [\"C:/Users/wmasa/Documents/Rust/AgentDock/probes/app-server/mcp-fixture.mjs\"]\nenabled = true\nstartup_timeout_sec = 5\n\n[marketplaces.agentdock-probe]\nsource_type = \"local\"\nsource = '\\\\?\\C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\marketplace'\n\n[plugins.\"fixture@agentdock-probe\"]\nenabled = true\n\n[plugins.\"second@agentdock-probe\"]\nenabled = true\n",
+            "after": "model = \"gpt-5.4\"\nmodel_provider = \"agentdock_probe\"\ncli_auth_credentials_store = \"file\"\napproval_policy = \"never\"\nsandbox_mode = \"read-only\"\n[analytics]\nenabled = false\n[model_providers.agentdock_probe]\nname = \"AgentDock local fixture\"\nbase_url = \"http://127.0.0.1:49396/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\nsupports_websockets = false\nrequest_max_retries = 0\nstream_max_retries = 0\nstream_idle_timeout_ms = 60000\n[agents]\nmax_depth = 2\n\n[mcp_servers.agentdock_fixture]\ncommand = \"C:/Program Files/nodejs/node.exe\"\nargs = [\"C:/Users/wmasa/Documents/Rust/AgentDock/probes/app-server/mcp-fixture.mjs\"]\nenabled = true\nstartup_timeout_sec = 5\n\n[marketplaces.agentdock-probe]\nsource_type = \"local\"\nsource = '\\\\?\\C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\marketplace'\n",
+            "list": {
+              "exitCode": 0,
+              "stdout": "{\n  \"installed\": [],\n  \"available\": []\n}\n"
+            },
+            "cache": [
+              {
+                "name": "fixture",
+                "exists": false
+              },
+              {
+                "name": "second",
+                "exists": false
+              }
+            ]
+          },
+          {
+            "round": 4,
+            "operation": "add",
+            "operations": [
+              {
+                "args": [
+                  "plugin",
+                  "add",
+                  "fixture@agentdock-probe",
+                  "--json"
+                ],
+                "began": 1791110710173,
+                "ended": 1791110710232,
+                "exitCode": 0,
+                "signal": null,
+                "stdout": "{\n  \"pluginId\": \"fixture@agentdock-probe\",\n  \"name\": \"fixture\",\n  \"marketplaceName\": \"agentdock-probe\",\n  \"version\": \"0.1.0\",\n  \"installedPath\": \"C:\\\\Users\\\\wmasa\\\\Documents\\\\Rust\\\\AgentDock\\\\probes\\\\app-server\\\\runs\\\\2026-10-04T10-45-08-956Z\\\\codex-home\\\\plugins\\\\cache\\\\agentdock-probe\\\\fixture\\\\0.1.0\",\n  \"authPolicy\": \"ON_INSTALL\"\n}\n",
+                "stderr": ""
+              },
+              {
+                "args": [
+                  "plugin",
+                  "add",
+                  "second@agentdock-probe",
+                  "--json"
+                ],
+                "began": 1791110710179,
+                "ended": 1791110710239,
+                "exitCode": 0,
+                "signal": null,
+                "stdout": "{\n  \"pluginId\": \"second@agentdock-probe\",\n  \"name\": \"second\",\n  \"marketplaceName\": \"agentdock-probe\",\n  \"version\": \"0.1.0\",\n  \"installedPath\": \"C:\\\\Users\\\\wmasa\\\\Documents\\\\Rust\\\\AgentDock\\\\probes\\\\app-server\\\\runs\\\\2026-10-04T10-45-08-956Z\\\\codex-home\\\\plugins\\\\cache\\\\agentdock-probe\\\\second\\\\0.1.0\",\n  \"authPolicy\": \"ON_INSTALL\"\n}\n",
+                "stderr": ""
+              }
+            ],
+            "before": "model = \"gpt-5.4\"\nmodel_provider = \"agentdock_probe\"\ncli_auth_credentials_store = \"file\"\napproval_policy = \"never\"\nsandbox_mode = \"read-only\"\n[analytics]\nenabled = false\n[model_providers.agentdock_probe]\nname = \"AgentDock local fixture\"\nbase_url = \"http://127.0.0.1:49396/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\nsupports_websockets = false\nrequest_max_retries = 0\nstream_max_retries = 0\nstream_idle_timeout_ms = 60000\n[agents]\nmax_depth = 2\n\n[mcp_servers.agentdock_fixture]\ncommand = \"C:/Program Files/nodejs/node.exe\"\nargs = [\"C:/Users/wmasa/Documents/Rust/AgentDock/probes/app-server/mcp-fixture.mjs\"]\nenabled = true\nstartup_timeout_sec = 5\n\n[marketplaces.agentdock-probe]\nsource_type = \"local\"\nsource = '\\\\?\\C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\marketplace'\n",
+            "after": "model = \"gpt-5.4\"\nmodel_provider = \"agentdock_probe\"\ncli_auth_credentials_store = \"file\"\napproval_policy = \"never\"\nsandbox_mode = \"read-only\"\n[analytics]\nenabled = false\n[model_providers.agentdock_probe]\nname = \"AgentDock local fixture\"\nbase_url = \"http://127.0.0.1:49396/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\nsupports_websockets = false\nrequest_max_retries = 0\nstream_max_retries = 0\nstream_idle_timeout_ms = 60000\n[agents]\nmax_depth = 2\n\n[mcp_servers.agentdock_fixture]\ncommand = \"C:/Program Files/nodejs/node.exe\"\nargs = [\"C:/Users/wmasa/Documents/Rust/AgentDock/probes/app-server/mcp-fixture.mjs\"]\nenabled = true\nstartup_timeout_sec = 5\n\n[marketplaces.agentdock-probe]\nsource_type = \"local\"\nsource = '\\\\?\\C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\marketplace'\n\n[plugins.\"fixture@agentdock-probe\"]\nenabled = true\n\n[plugins.\"second@agentdock-probe\"]\nenabled = true\n",
+            "list": {
+              "exitCode": 0,
+              "stdout": "{\n  \"installed\": [\n    {\n      \"pluginId\": \"fixture@agentdock-probe\",\n      \"name\": \"fixture\",\n      \"marketplaceName\": \"agentdock-probe\",\n      \"version\": \"0.1.0\",\n      \"installed\": true,\n      \"enabled\": true,\n      \"source\": {\n        \"source\": \"local\",\n        \"path\": \"C:\\\\Users\\\\wmasa\\\\Documents\\\\Rust\\\\AgentDock\\\\probes\\\\app-server\\\\runs\\\\2026-10-04T10-45-08-956Z\\\\marketplace\\\\fixture\"\n      },\n      \"marketplaceSource\": {\n        \"sourceType\": \"local\",\n        \"source\": \"\\\\\\\\?\\\\C:\\\\Users\\\\wmasa\\\\Documents\\\\Rust\\\\AgentDock\\\\probes\\\\app-server\\\\runs\\\\2026-10-04T10-45-08-956Z\\\\marketplace\"\n      },\n      \"installPolicy\": \"AVAILABLE\",\n      \"authPolicy\": \"ON_INSTALL\"\n    },\n    {\n      \"pluginId\": \"second@agentdock-probe\",\n      \"name\": \"second\",\n      \"marketplaceName\": \"agentdock-probe\",\n      \"version\": \"0.1.0\",\n      \"installed\": true,\n      \"enabled\": true,\n      \"source\": {\n        \"source\": \"local\",\n        \"path\": \"C:\\\\Users\\\\wmasa\\\\Documents\\\\Rust\\\\AgentDock\\\\probes\\\\app-server\\\\runs\\\\2026-10-04T10-45-08-956Z\\\\marketplace\\\\second\"\n      },\n      \"marketplaceSource\": {\n        \"sourceType\": \"local\",\n        \"source\": \"\\\\\\\\?\\\\C:\\\\Users\\\\wmasa\\\\Documents\\\\Rust\\\\AgentDock\\\\probes\\\\app-server\\\\runs\\\\2026-10-04T10-45-08-956Z\\\\marketplace\"\n      },\n      \"installPolicy\": \"AVAILABLE\",\n      \"authPolicy\": \"ON_INSTALL\"\n    }\n  ],\n  \"available\": []\n}\n"
+            },
+            "cache": [
+              {
+                "name": "fixture",
+                "exists": true
+              },
+              {
+                "name": "second",
+                "exists": true
+              }
+            ]
+          },
+          {
+            "round": 4,
+            "operation": "remove",
+            "operations": [
+              {
+                "args": [
+                  "plugin",
+                  "remove",
+                  "fixture@agentdock-probe",
+                  "--json"
+                ],
+                "began": 1791110710287,
+                "ended": 1791110710338,
+                "exitCode": 0,
+                "signal": null,
+                "stdout": "{\n  \"pluginId\": \"fixture@agentdock-probe\",\n  \"name\": \"fixture\",\n  \"marketplaceName\": \"agentdock-probe\"\n}\n",
+                "stderr": ""
+              },
+              {
+                "args": [
+                  "plugin",
+                  "remove",
+                  "second@agentdock-probe",
+                  "--json"
+                ],
+                "began": 1791110710293,
+                "ended": 1791110710344,
+                "exitCode": 0,
+                "signal": null,
+                "stdout": "{\n  \"pluginId\": \"second@agentdock-probe\",\n  \"name\": \"second\",\n  \"marketplaceName\": \"agentdock-probe\"\n}\n",
+                "stderr": ""
+              }
+            ],
+            "before": "model = \"gpt-5.4\"\nmodel_provider = \"agentdock_probe\"\ncli_auth_credentials_store = \"file\"\napproval_policy = \"never\"\nsandbox_mode = \"read-only\"\n[analytics]\nenabled = false\n[model_providers.agentdock_probe]\nname = \"AgentDock local fixture\"\nbase_url = \"http://127.0.0.1:49396/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\nsupports_websockets = false\nrequest_max_retries = 0\nstream_max_retries = 0\nstream_idle_timeout_ms = 60000\n[agents]\nmax_depth = 2\n\n[mcp_servers.agentdock_fixture]\ncommand = \"C:/Program Files/nodejs/node.exe\"\nargs = [\"C:/Users/wmasa/Documents/Rust/AgentDock/probes/app-server/mcp-fixture.mjs\"]\nenabled = true\nstartup_timeout_sec = 5\n\n[marketplaces.agentdock-probe]\nsource_type = \"local\"\nsource = '\\\\?\\C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\marketplace'\n\n[plugins.\"fixture@agentdock-probe\"]\nenabled = true\n\n[plugins.\"second@agentdock-probe\"]\nenabled = true\n",
+            "after": "model = \"gpt-5.4\"\nmodel_provider = \"agentdock_probe\"\ncli_auth_credentials_store = \"file\"\napproval_policy = \"never\"\nsandbox_mode = \"read-only\"\n[analytics]\nenabled = false\n[model_providers.agentdock_probe]\nname = \"AgentDock local fixture\"\nbase_url = \"http://127.0.0.1:49396/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\nsupports_websockets = false\nrequest_max_retries = 0\nstream_max_retries = 0\nstream_idle_timeout_ms = 60000\n[agents]\nmax_depth = 2\n\n[mcp_servers.agentdock_fixture]\ncommand = \"C:/Program Files/nodejs/node.exe\"\nargs = [\"C:/Users/wmasa/Documents/Rust/AgentDock/probes/app-server/mcp-fixture.mjs\"]\nenabled = true\nstartup_timeout_sec = 5\n\n[marketplaces.agentdock-probe]\nsource_type = \"local\"\nsource = '\\\\?\\C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\marketplace'\n",
+            "list": {
+              "exitCode": 0,
+              "stdout": "{\n  \"installed\": [],\n  \"available\": []\n}\n"
+            },
+            "cache": [
+              {
+                "name": "fixture",
+                "exists": false
+              },
+              {
+                "name": "second",
+                "exists": false
+              }
+            ]
+          }
+        ],
+        "scope": "5 pairs of concurrent add/remove for distinct plugins, same isolated config; overlap recorded but internal read/write interleaving not forced. Not universal lost-update guarantee."
+      }
+    },
+    {
+      "name": "plugin_version_refresh_remove_existing",
+      "status": "pass",
+      "evidence": {
+        "fixture": {
+          "marketplace": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\marketplace",
+          "added": {
+            "marketplaceName": "agentdock-probe",
+            "installedRoot": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\marketplace",
+            "alreadyAdded": true
+          }
+        },
+        "installed": {
+          "pluginId": "fixture@agentdock-probe",
+          "name": "fixture",
+          "marketplaceName": "agentdock-probe",
+          "version": "0.1.0",
+          "installedPath": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\codex-home\\plugins\\cache\\agentdock-probe\\fixture\\0.1.0",
+          "authPolicy": "ON_INSTALL"
+        },
+        "initialHook": {
+          "key": "fixture@agentdock-probe:hooks/hooks.json:user_prompt_submit:0:0",
+          "eventName": "userPromptSubmit",
+          "handlerType": "command",
+          "command": "& 'C:\\Program Files\\nodejs\\node.exe' 'C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\marketplace\\fixture\\hooks\\fixture.mjs'",
+          "async": false,
+          "matcher": null,
+          "timeoutSec": 3,
+          "statusMessage": null,
+          "additionalContextLimit": null,
+          "sourcePath": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\codex-home\\plugins\\cache\\agentdock-probe\\fixture\\0.1.0\\hooks\\hooks.json",
+          "source": "plugin",
+          "pluginId": "fixture@agentdock-probe",
+          "displayOrder": 0,
+          "enabled": true,
+          "isManaged": false,
+          "currentHash": "sha256:ba39bd237cbfcf551f58648e3406830f481163f7f7bdba08ab6a0534d902aaca",
+          "trustStatus": "untrusted"
+        },
+        "upgrade": {
+          "exitCode": 1,
+          "stdout": "",
+          "stderr": "Error: marketplace `agentdock-probe` is not configured as a Git marketplace\n",
+          "error": "Command failed: C:\\Users\\wmasa\\.vscode\\extensions\\openai.chatgpt-26.930.31730-win32-x64\\bin\\windows-x86_64\\codex.exe plugin marketplace upgrade agentdock-probe --json\nError: marketplace `agentdock-probe` is not configured as a Git marketplace\n"
+        },
+        "refreshed": {
+          "exitCode": 0,
+          "stdout": "{\n  \"pluginId\": \"fixture@agentdock-probe\",\n  \"name\": \"fixture\",\n  \"marketplaceName\": \"agentdock-probe\",\n  \"version\": \"0.2.0\",\n  \"installedPath\": \"C:\\\\Users\\\\wmasa\\\\Documents\\\\Rust\\\\AgentDock\\\\probes\\\\app-server\\\\runs\\\\2026-10-04T10-45-08-956Z\\\\codex-home\\\\plugins\\\\cache\\\\agentdock-probe\\\\fixture\\\\0.2.0\",\n  \"authPolicy\": \"ON_INSTALL\"\n}\n"
+        },
+        "removed": {
+          "exitCode": 0,
+          "stdout": "{\n  \"pluginId\": \"fixture@agentdock-probe\",\n  \"name\": \"fixture\",\n  \"marketplaceName\": \"agentdock-probe\"\n}\n"
+        },
+        "rows": [
+          {
+            "stage": "installed-v1",
+            "kind": "existing",
+            "id": "01a10684-862e-7f41-b189-651eb2e535ac",
+            "skills": [
+              {
+                "name": "fixture:fixture-probe",
+                "description": "Authorized local fixture only.",
+                "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\codex-home\\plugins\\cache\\agentdock-probe\\fixture\\0.1.0\\skills\\probe\\SKILL.md",
+                "scope": "user",
+                "enabled": true,
+                "pluginId": "fixture@agentdock-probe"
+              }
+            ],
+            "hooks": [
+              {
+                "key": "fixture@agentdock-probe:hooks/hooks.json:user_prompt_submit:0:0",
+                "eventName": "userPromptSubmit",
+                "handlerType": "command",
+                "command": "& 'C:\\Program Files\\nodejs\\node.exe' 'C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\marketplace\\fixture\\hooks\\fixture.mjs'",
+                "async": false,
+                "matcher": null,
+                "timeoutSec": 3,
+                "statusMessage": null,
+                "additionalContextLimit": null,
+                "sourcePath": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\codex-home\\plugins\\cache\\agentdock-probe\\fixture\\0.1.0\\hooks\\hooks.json",
+                "source": "plugin",
+                "pluginId": "fixture@agentdock-probe",
+                "displayOrder": 0,
+                "enabled": true,
+                "isManaged": false,
+                "currentHash": "sha256:ba39bd237cbfcf551f58648e3406830f481163f7f7bdba08ab6a0534d902aaca",
+                "trustStatus": "trusted"
+              }
+            ],
+            "mcp": {
+              "data": [
+                {
+                  "name": "agentdock_fixture",
+                  "runtimeStatus": "connected",
+                  "pluginId": null,
+                  "httpOrigin": null,
+                  "serverInfo": {
+                    "name": "agentdock-probe-mcp",
+                    "title": null,
+                    "version": "0.1",
+                    "description": null,
+                    "icons": null,
+                    "websiteUrl": null
+                  },
+                  "serverCapabilities": {
+                    "tools": {}
+                  },
+                  "tools": {
+                    "probe_ping": {
+                      "name": "probe_ping",
+                      "description": "Deterministic local adoption-test fixture.",
+                      "inputSchema": {
+                        "type": "object",
+                        "properties": {}
+                      }
+                    }
+                  },
+                  "toolsError": null,
+                  "resources": [],
+                  "resourceTemplates": [],
+                  "authStatus": "unsupported"
+                },
+                {
+                  "name": "plugin_fixture",
+                  "runtimeStatus": "connected",
+                  "pluginId": "fixture@agentdock-probe",
+                  "httpOrigin": null,
+                  "serverInfo": {
+                    "name": "agentdock-probe-mcp",
+                    "title": null,
+                    "version": "0.1",
+                    "description": null,
+                    "icons": null,
+                    "websiteUrl": null
+                  },
+                  "serverCapabilities": {
+                    "tools": {}
+                  },
+                  "tools": {
+                    "probe_ping": {
+                      "name": "probe_ping",
+                      "description": "Deterministic local adoption-test fixture. This tool is part of plugin `fixture`.",
+                      "inputSchema": {
+                        "type": "object",
+                        "properties": {}
+                      }
+                    }
+                  },
+                  "toolsError": null,
+                  "resources": [],
+                  "resourceTemplates": [],
+                  "authStatus": "unsupported"
+                }
+              ],
+              "nextCursor": null
+            },
+            "turn": {
+              "id": "01a10684-862e-7f41-b189-651eb2e535ac",
+              "turnId": "01a10684-8676-7581-9783-a6c9b4b90dc7",
+              "status": "completed",
+              "calls": [
+                {
+                  "observedAt": "2026-10-04T10:45:11.358Z",
+                  "mode": "complete",
+                  "model": "gpt-5.4",
+                  "serviceTier": null,
+                  "skillBodyInjected": true,
+                  "skillV2Injected": false,
+                  "fixtureMarker": "PROBE_OK.",
+                  "fixtureSkillMentioned": true,
+                  "fixtureSkillInInstructions": false,
+                  "fixtureSkillInLastDeveloper": true,
+                  "fixtureToolOutputs": [],
+                  "tools": [
+                    "exec_command",
+                    "write_stdin",
+                    "list_mcp_resources",
+                    "list_mcp_resource_templates",
+                    "read_mcp_resource",
+                    "request_user_input",
+                    "view_image",
+                    "multi_agent_v1",
+                    "mcp__agentdock_fixture",
+                    "mcp__plugin_fixture",
+                    "get_goal",
+                    "create_goal",
+                    "update_goal",
+                    "web_search"
+                  ]
+                }
+              ],
+              "hookNotifications": [
+                {
+                  "method": "hook/started",
+                  "params": {
+                    "threadId": "01a10684-862e-7f41-b189-651eb2e535ac",
+                    "turnId": "01a10684-8676-7581-9783-a6c9b4b90dc7",
+                    "run": {
+                      "id": "user-prompt-submit:0:C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\codex-home\\plugins\\cache\\agentdock-probe\\fixture\\0.1.0\\hooks\\hooks.json",
+                      "eventName": "userPromptSubmit",
+                      "handlerType": "command",
+                      "executionMode": "sync",
+                      "scope": "turn",
+                      "sourcePath": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\codex-home\\plugins\\cache\\agentdock-probe\\fixture\\0.1.0\\hooks\\hooks.json",
+                      "source": "plugin",
+                      "displayOrder": 0,
+                      "status": "running",
+                      "statusMessage": null,
+                      "startedAt": 1791110711,
+                      "completedAt": null,
+                      "durationMs": null,
+                      "entries": []
+                    }
+                  },
+                  "emittedAtMs": 1791110711017
+                },
+                {
+                  "method": "hook/completed",
+                  "params": {
+                    "threadId": "01a10684-862e-7f41-b189-651eb2e535ac",
+                    "turnId": "01a10684-8676-7581-9783-a6c9b4b90dc7",
+                    "run": {
+                      "id": "user-prompt-submit:0:C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\codex-home\\plugins\\cache\\agentdock-probe\\fixture\\0.1.0\\hooks\\hooks.json",
+                      "eventName": "userPromptSubmit",
+                      "handlerType": "command",
+                      "executionMode": "sync",
+                      "scope": "turn",
+                      "sourcePath": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\codex-home\\plugins\\cache\\agentdock-probe\\fixture\\0.1.0\\hooks\\hooks.json",
+                      "source": "plugin",
+                      "displayOrder": 0,
+                      "status": "completed",
+                      "statusMessage": null,
+                      "startedAt": 1791110711,
+                      "completedAt": 1791110711,
+                      "durationMs": 310,
+                      "entries": []
+                    }
+                  },
+                  "emittedAtMs": 1791110711318
+                }
+              ],
+              "hookLog": "PROBE_HOOK_V1\n"
+            }
+          },
+          {
+            "stage": "installed-v1",
+            "kind": "fresh",
+            "id": "01a10684-8656-7a62-a243-137033308795",
+            "skills": [
+              {
+                "name": "fixture:fixture-probe",
+                "description": "Authorized local fixture only.",
+                "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\codex-home\\plugins\\cache\\agentdock-probe\\fixture\\0.1.0\\skills\\probe\\SKILL.md",
+                "scope": "user",
+                "enabled": true,
+                "pluginId": "fixture@agentdock-probe"
+              }
+            ],
+            "hooks": [
+              {
+                "key": "fixture@agentdock-probe:hooks/hooks.json:user_prompt_submit:0:0",
+                "eventName": "userPromptSubmit",
+                "handlerType": "command",
+                "command": "& 'C:\\Program Files\\nodejs\\node.exe' 'C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\marketplace\\fixture\\hooks\\fixture.mjs'",
+                "async": false,
+                "matcher": null,
+                "timeoutSec": 3,
+                "statusMessage": null,
+                "additionalContextLimit": null,
+                "sourcePath": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\codex-home\\plugins\\cache\\agentdock-probe\\fixture\\0.1.0\\hooks\\hooks.json",
+                "source": "plugin",
+                "pluginId": "fixture@agentdock-probe",
+                "displayOrder": 0,
+                "enabled": true,
+                "isManaged": false,
+                "currentHash": "sha256:ba39bd237cbfcf551f58648e3406830f481163f7f7bdba08ab6a0534d902aaca",
+                "trustStatus": "trusted"
+              }
+            ],
+            "mcp": {
+              "data": [
+                {
+                  "name": "agentdock_fixture",
+                  "runtimeStatus": "connected",
+                  "pluginId": null,
+                  "httpOrigin": null,
+                  "serverInfo": {
+                    "name": "agentdock-probe-mcp",
+                    "title": null,
+                    "version": "0.1",
+                    "description": null,
+                    "icons": null,
+                    "websiteUrl": null
+                  },
+                  "serverCapabilities": {
+                    "tools": {}
+                  },
+                  "tools": {
+                    "probe_ping": {
+                      "name": "probe_ping",
+                      "description": "Deterministic local adoption-test fixture.",
+                      "inputSchema": {
+                        "type": "object",
+                        "properties": {}
+                      }
+                    }
+                  },
+                  "toolsError": null,
+                  "resources": [],
+                  "resourceTemplates": [],
+                  "authStatus": "unsupported"
+                },
+                {
+                  "name": "plugin_fixture",
+                  "runtimeStatus": "connected",
+                  "pluginId": "fixture@agentdock-probe",
+                  "httpOrigin": null,
+                  "serverInfo": {
+                    "name": "agentdock-probe-mcp",
+                    "title": null,
+                    "version": "0.1",
+                    "description": null,
+                    "icons": null,
+                    "websiteUrl": null
+                  },
+                  "serverCapabilities": {
+                    "tools": {}
+                  },
+                  "tools": {
+                    "probe_ping": {
+                      "name": "probe_ping",
+                      "description": "Deterministic local adoption-test fixture. This tool is part of plugin `fixture`.",
+                      "inputSchema": {
+                        "type": "object",
+                        "properties": {}
+                      }
+                    }
+                  },
+                  "toolsError": null,
+                  "resources": [],
+                  "resourceTemplates": [],
+                  "authStatus": "unsupported"
+                }
+              ],
+              "nextCursor": null
+            },
+            "turn": {
+              "id": "01a10684-8656-7a62-a243-137033308795",
+              "turnId": "01a10684-88c5-7860-94d1-a188d9c9877c",
+              "status": "completed",
+              "calls": [
+                {
+                  "observedAt": "2026-10-04T10:45:11.891Z",
+                  "mode": "complete",
+                  "model": "gpt-5.4",
+                  "serviceTier": null,
+                  "skillBodyInjected": true,
+                  "skillV2Injected": false,
+                  "fixtureMarker": "PROBE_OK.",
+                  "fixtureSkillMentioned": true,
+                  "fixtureSkillInInstructions": false,
+                  "fixtureSkillInLastDeveloper": true,
+                  "fixtureToolOutputs": [],
+                  "tools": [
+                    "exec_command",
+                    "write_stdin",
+                    "list_mcp_resources",
+                    "list_mcp_resource_templates",
+                    "read_mcp_resource",
+                    "request_user_input",
+                    "view_image",
+                    "multi_agent_v1",
+                    "mcp__agentdock_fixture",
+                    "mcp__plugin_fixture",
+                    "get_goal",
+                    "create_goal",
+                    "update_goal",
+                    "web_search"
+                  ]
+                }
+              ],
+              "hookNotifications": [
+                {
+                  "method": "hook/started",
+                  "params": {
+                    "threadId": "01a10684-8656-7a62-a243-137033308795",
+                    "turnId": "01a10684-88c5-7860-94d1-a188d9c9877c",
+                    "run": {
+                      "id": "user-prompt-submit:0:C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\codex-home\\plugins\\cache\\agentdock-probe\\fixture\\0.1.0\\hooks\\hooks.json",
+                      "eventName": "userPromptSubmit",
+                      "handlerType": "command",
+                      "executionMode": "sync",
+                      "scope": "turn",
+                      "sourcePath": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\codex-home\\plugins\\cache\\agentdock-probe\\fixture\\0.1.0\\hooks\\hooks.json",
+                      "source": "plugin",
+                      "displayOrder": 0,
+                      "status": "running",
+                      "statusMessage": null,
+                      "startedAt": 1791110711,
+                      "completedAt": null,
+                      "durationMs": null,
+                      "entries": []
+                    }
+                  },
+                  "emittedAtMs": 1791110711544
+                },
+                {
+                  "method": "hook/completed",
+                  "params": {
+                    "threadId": "01a10684-8656-7a62-a243-137033308795",
+                    "turnId": "01a10684-88c5-7860-94d1-a188d9c9877c",
+                    "run": {
+                      "id": "user-prompt-submit:0:C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\codex-home\\plugins\\cache\\agentdock-probe\\fixture\\0.1.0\\hooks\\hooks.json",
+                      "eventName": "userPromptSubmit",
+                      "handlerType": "command",
+                      "executionMode": "sync",
+                      "scope": "turn",
+                      "sourcePath": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\codex-home\\plugins\\cache\\agentdock-probe\\fixture\\0.1.0\\hooks\\hooks.json",
+                      "source": "plugin",
+                      "displayOrder": 0,
+                      "status": "completed",
+                      "statusMessage": null,
+                      "startedAt": 1791110711,
+                      "completedAt": 1791110711,
+                      "durationMs": 300,
+                      "entries": []
+                    }
+                  },
+                  "emittedAtMs": 1791110711841
+                }
+              ],
+              "hookLog": "PROBE_HOOK_V1\nPROBE_HOOK_V1\n"
+            }
+          },
+          {
+            "stage": "local-v2-reinstalled",
+            "kind": "existing",
+            "id": "01a10684-862e-7f41-b189-651eb2e535ac",
+            "skills": [
+              {
+                "name": "fixture:fixture-probe",
+                "description": "Authorized local fixture V2 only.",
+                "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\codex-home\\plugins\\cache\\agentdock-probe\\fixture\\0.2.0\\skills\\probe\\SKILL.md",
+                "scope": "user",
+                "enabled": true,
+                "pluginId": "fixture@agentdock-probe"
+              }
+            ],
+            "hooks": [
+              {
+                "key": "fixture@agentdock-probe:hooks/hooks.json:user_prompt_submit:0:0",
+                "eventName": "userPromptSubmit",
+                "handlerType": "command",
+                "command": "& 'C:\\Program Files\\nodejs\\node.exe' 'C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\marketplace\\fixture\\hooks\\fixture.mjs' reviewed-v2",
+                "async": false,
+                "matcher": null,
+                "timeoutSec": 3,
+                "statusMessage": null,
+                "additionalContextLimit": null,
+                "sourcePath": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\codex-home\\plugins\\cache\\agentdock-probe\\fixture\\0.2.0\\hooks\\hooks.json",
+                "source": "plugin",
+                "pluginId": "fixture@agentdock-probe",
+                "displayOrder": 0,
+                "enabled": true,
+                "isManaged": false,
+                "currentHash": "sha256:bed7cd11be33fa9b1f39572600f3428c897eb2de1ca4d9c3204fd70a4e8c3b61",
+                "trustStatus": "modified"
+              }
+            ],
+            "mcp": {
+              "data": [
+                {
+                  "name": "agentdock_fixture",
+                  "runtimeStatus": "connected",
+                  "pluginId": null,
+                  "httpOrigin": null,
+                  "serverInfo": {
+                    "name": "agentdock-probe-mcp",
+                    "title": null,
+                    "version": "0.1",
+                    "description": null,
+                    "icons": null,
+                    "websiteUrl": null
+                  },
+                  "serverCapabilities": {
+                    "tools": {}
+                  },
+                  "tools": {
+                    "probe_ping": {
+                      "name": "probe_ping",
+                      "description": "Deterministic local adoption-test fixture.",
+                      "inputSchema": {
+                        "type": "object",
+                        "properties": {}
+                      }
+                    }
+                  },
+                  "toolsError": null,
+                  "resources": [],
+                  "resourceTemplates": [],
+                  "authStatus": "unsupported"
+                },
+                {
+                  "name": "plugin_fixture_v2",
+                  "runtimeStatus": null,
+                  "pluginId": "fixture@agentdock-probe",
+                  "httpOrigin": null,
+                  "serverInfo": {
+                    "name": "agentdock-probe-mcp",
+                    "title": null,
+                    "version": "0.1",
+                    "description": null,
+                    "icons": null,
+                    "websiteUrl": null
+                  },
+                  "serverCapabilities": {
+                    "tools": {}
+                  },
+                  "tools": {
+                    "probe_ping": {
+                      "name": "probe_ping",
+                      "description": "Deterministic local adoption-test fixture. This tool is part of plugin `fixture`.",
+                      "inputSchema": {
+                        "type": "object",
+                        "properties": {}
+                      }
+                    }
+                  },
+                  "toolsError": null,
+                  "resources": [],
+                  "resourceTemplates": [],
+                  "authStatus": "unsupported"
+                }
+              ],
+              "nextCursor": null
+            },
+            "turn": {
+              "id": "01a10684-862e-7f41-b189-651eb2e535ac",
+              "turnId": "01a10684-8bb0-7db2-9024-52713796e3d9",
+              "status": "completed",
+              "calls": [
+                {
+                  "observedAt": "2026-10-04T10:45:12.332Z",
+                  "mode": "complete",
+                  "model": "gpt-5.4",
+                  "serviceTier": null,
+                  "skillBodyInjected": true,
+                  "skillV2Injected": true,
+                  "fixtureMarker": "PROBE_OK.",
+                  "fixtureSkillMentioned": true,
+                  "fixtureSkillInInstructions": false,
+                  "fixtureSkillInLastDeveloper": true,
+                  "fixtureToolOutputs": [],
+                  "tools": [
+                    "exec_command",
+                    "write_stdin",
+                    "list_mcp_resources",
+                    "list_mcp_resource_templates",
+                    "read_mcp_resource",
+                    "request_user_input",
+                    "view_image",
+                    "multi_agent_v1",
+                    "mcp__agentdock_fixture",
+                    "mcp__plugin_fixture",
+                    "get_goal",
+                    "create_goal",
+                    "update_goal",
+                    "web_search"
+                  ]
+                }
+              ],
+              "hookNotifications": [],
+              "hookLog": "PROBE_HOOK_V1\nPROBE_HOOK_V1\n"
+            }
+          },
+          {
+            "stage": "local-v2-reinstalled",
+            "kind": "fresh",
+            "id": "01a10684-8b61-7433-b98c-79edde6c6a7a",
+            "skills": [
+              {
+                "name": "fixture:fixture-probe",
+                "description": "Authorized local fixture V2 only.",
+                "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\codex-home\\plugins\\cache\\agentdock-probe\\fixture\\0.2.0\\skills\\probe\\SKILL.md",
+                "scope": "user",
+                "enabled": true,
+                "pluginId": "fixture@agentdock-probe"
+              }
+            ],
+            "hooks": [
+              {
+                "key": "fixture@agentdock-probe:hooks/hooks.json:user_prompt_submit:0:0",
+                "eventName": "userPromptSubmit",
+                "handlerType": "command",
+                "command": "& 'C:\\Program Files\\nodejs\\node.exe' 'C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\marketplace\\fixture\\hooks\\fixture.mjs' reviewed-v2",
+                "async": false,
+                "matcher": null,
+                "timeoutSec": 3,
+                "statusMessage": null,
+                "additionalContextLimit": null,
+                "sourcePath": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\codex-home\\plugins\\cache\\agentdock-probe\\fixture\\0.2.0\\hooks\\hooks.json",
+                "source": "plugin",
+                "pluginId": "fixture@agentdock-probe",
+                "displayOrder": 0,
+                "enabled": true,
+                "isManaged": false,
+                "currentHash": "sha256:bed7cd11be33fa9b1f39572600f3428c897eb2de1ca4d9c3204fd70a4e8c3b61",
+                "trustStatus": "modified"
+              }
+            ],
+            "mcp": {
+              "data": [
+                {
+                  "name": "agentdock_fixture",
+                  "runtimeStatus": "connected",
+                  "pluginId": null,
+                  "httpOrigin": null,
+                  "serverInfo": {
+                    "name": "agentdock-probe-mcp",
+                    "title": null,
+                    "version": "0.1",
+                    "description": null,
+                    "icons": null,
+                    "websiteUrl": null
+                  },
+                  "serverCapabilities": {
+                    "tools": {}
+                  },
+                  "tools": {
+                    "probe_ping": {
+                      "name": "probe_ping",
+                      "description": "Deterministic local adoption-test fixture.",
+                      "inputSchema": {
+                        "type": "object",
+                        "properties": {}
+                      }
+                    }
+                  },
+                  "toolsError": null,
+                  "resources": [],
+                  "resourceTemplates": [],
+                  "authStatus": "unsupported"
+                },
+                {
+                  "name": "plugin_fixture_v2",
+                  "runtimeStatus": "connected",
+                  "pluginId": "fixture@agentdock-probe",
+                  "httpOrigin": null,
+                  "serverInfo": {
+                    "name": "agentdock-probe-mcp",
+                    "title": null,
+                    "version": "0.1",
+                    "description": null,
+                    "icons": null,
+                    "websiteUrl": null
+                  },
+                  "serverCapabilities": {
+                    "tools": {}
+                  },
+                  "tools": {
+                    "probe_ping": {
+                      "name": "probe_ping",
+                      "description": "Deterministic local adoption-test fixture. This tool is part of plugin `fixture`.",
+                      "inputSchema": {
+                        "type": "object",
+                        "properties": {}
+                      }
+                    }
+                  },
+                  "toolsError": null,
+                  "resources": [],
+                  "resourceTemplates": [],
+                  "authStatus": "unsupported"
+                }
+              ],
+              "nextCursor": null
+            },
+            "turn": {
+              "id": "01a10684-8b61-7433-b98c-79edde6c6a7a",
+              "turnId": "01a10684-8c91-7123-bf59-b7a988583c93",
+              "status": "completed",
+              "calls": [
+                {
+                  "observedAt": "2026-10-04T10:45:12.548Z",
+                  "mode": "complete",
+                  "model": "gpt-5.4",
+                  "serviceTier": null,
+                  "skillBodyInjected": false,
+                  "skillV2Injected": true,
+                  "fixtureMarker": "PROBE_OK.",
+                  "fixtureSkillMentioned": true,
+                  "fixtureSkillInInstructions": false,
+                  "fixtureSkillInLastDeveloper": true,
+                  "fixtureToolOutputs": [],
+                  "tools": [
+                    "exec_command",
+                    "write_stdin",
+                    "list_mcp_resources",
+                    "list_mcp_resource_templates",
+                    "read_mcp_resource",
+                    "request_user_input",
+                    "view_image",
+                    "multi_agent_v1",
+                    "mcp__agentdock_fixture",
+                    "mcp__plugin_fixture_v2",
+                    "get_goal",
+                    "create_goal",
+                    "update_goal",
+                    "web_search"
+                  ]
+                }
+              ],
+              "hookNotifications": [],
+              "hookLog": "PROBE_HOOK_V1\nPROBE_HOOK_V1\n"
+            }
+          },
+          {
+            "stage": "v2-after-reload",
+            "kind": "existing",
+            "id": "01a10684-862e-7f41-b189-651eb2e535ac",
+            "skills": [
+              {
+                "name": "fixture:fixture-probe",
+                "description": "Authorized local fixture V2 only.",
+                "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\codex-home\\plugins\\cache\\agentdock-probe\\fixture\\0.2.0\\skills\\probe\\SKILL.md",
+                "scope": "user",
+                "enabled": true,
+                "pluginId": "fixture@agentdock-probe"
+              }
+            ],
+            "hooks": [
+              {
+                "key": "fixture@agentdock-probe:hooks/hooks.json:user_prompt_submit:0:0",
+                "eventName": "userPromptSubmit",
+                "handlerType": "command",
+                "command": "& 'C:\\Program Files\\nodejs\\node.exe' 'C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\marketplace\\fixture\\hooks\\fixture.mjs' reviewed-v2",
+                "async": false,
+                "matcher": null,
+                "timeoutSec": 3,
+                "statusMessage": null,
+                "additionalContextLimit": null,
+                "sourcePath": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\codex-home\\plugins\\cache\\agentdock-probe\\fixture\\0.2.0\\hooks\\hooks.json",
+                "source": "plugin",
+                "pluginId": "fixture@agentdock-probe",
+                "displayOrder": 0,
+                "enabled": true,
+                "isManaged": false,
+                "currentHash": "sha256:bed7cd11be33fa9b1f39572600f3428c897eb2de1ca4d9c3204fd70a4e8c3b61",
+                "trustStatus": "modified"
+              }
+            ],
+            "mcp": {
+              "data": [
+                {
+                  "name": "agentdock_fixture",
+                  "runtimeStatus": "connected",
+                  "pluginId": null,
+                  "httpOrigin": null,
+                  "serverInfo": {
+                    "name": "agentdock-probe-mcp",
+                    "title": null,
+                    "version": "0.1",
+                    "description": null,
+                    "icons": null,
+                    "websiteUrl": null
+                  },
+                  "serverCapabilities": {
+                    "tools": {}
+                  },
+                  "tools": {
+                    "probe_ping": {
+                      "name": "probe_ping",
+                      "description": "Deterministic local adoption-test fixture.",
+                      "inputSchema": {
+                        "type": "object",
+                        "properties": {}
+                      }
+                    }
+                  },
+                  "toolsError": null,
+                  "resources": [],
+                  "resourceTemplates": [],
+                  "authStatus": "unsupported"
+                },
+                {
+                  "name": "plugin_fixture_v2",
+                  "runtimeStatus": "connected",
+                  "pluginId": "fixture@agentdock-probe",
+                  "httpOrigin": null,
+                  "serverInfo": {
+                    "name": "agentdock-probe-mcp",
+                    "title": null,
+                    "version": "0.1",
+                    "description": null,
+                    "icons": null,
+                    "websiteUrl": null
+                  },
+                  "serverCapabilities": {
+                    "tools": {}
+                  },
+                  "tools": {
+                    "probe_ping": {
+                      "name": "probe_ping",
+                      "description": "Deterministic local adoption-test fixture. This tool is part of plugin `fixture`.",
+                      "inputSchema": {
+                        "type": "object",
+                        "properties": {}
+                      }
+                    }
+                  },
+                  "toolsError": null,
+                  "resources": [],
+                  "resourceTemplates": [],
+                  "authStatus": "unsupported"
+                }
+              ],
+              "nextCursor": null
+            },
+            "turn": {
+              "id": "01a10684-862e-7f41-b189-651eb2e535ac",
+              "turnId": "01a10684-938a-7fa0-8b1b-dade532295e6",
+              "status": "completed",
+              "calls": [
+                {
+                  "observedAt": "2026-10-04T10:45:14.321Z",
+                  "mode": "complete",
+                  "model": "gpt-5.4",
+                  "serviceTier": null,
+                  "skillBodyInjected": true,
+                  "skillV2Injected": true,
+                  "fixtureMarker": "PROBE_OK.",
+                  "fixtureSkillMentioned": true,
+                  "fixtureSkillInInstructions": false,
+                  "fixtureSkillInLastDeveloper": true,
+                  "fixtureToolOutputs": [],
+                  "tools": [
+                    "exec_command",
+                    "write_stdin",
+                    "list_mcp_resources",
+                    "list_mcp_resource_templates",
+                    "read_mcp_resource",
+                    "request_user_input",
+                    "view_image",
+                    "multi_agent_v1",
+                    "mcp__agentdock_fixture",
+                    "mcp__plugin_fixture_v2",
+                    "get_goal",
+                    "create_goal",
+                    "update_goal",
+                    "web_search"
+                  ]
+                }
+              ],
+              "hookNotifications": [],
+              "hookLog": "PROBE_HOOK_V1\nPROBE_HOOK_V1\n"
+            }
+          },
+          {
+            "stage": "v2-after-reload",
+            "kind": "fresh",
+            "id": "01a10684-9349-7db1-84a8-4ed73eb860bc",
+            "skills": [
+              {
+                "name": "fixture:fixture-probe",
+                "description": "Authorized local fixture V2 only.",
+                "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\codex-home\\plugins\\cache\\agentdock-probe\\fixture\\0.2.0\\skills\\probe\\SKILL.md",
+                "scope": "user",
+                "enabled": true,
+                "pluginId": "fixture@agentdock-probe"
+              }
+            ],
+            "hooks": [
+              {
+                "key": "fixture@agentdock-probe:hooks/hooks.json:user_prompt_submit:0:0",
+                "eventName": "userPromptSubmit",
+                "handlerType": "command",
+                "command": "& 'C:\\Program Files\\nodejs\\node.exe' 'C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\marketplace\\fixture\\hooks\\fixture.mjs' reviewed-v2",
+                "async": false,
+                "matcher": null,
+                "timeoutSec": 3,
+                "statusMessage": null,
+                "additionalContextLimit": null,
+                "sourcePath": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\codex-home\\plugins\\cache\\agentdock-probe\\fixture\\0.2.0\\hooks\\hooks.json",
+                "source": "plugin",
+                "pluginId": "fixture@agentdock-probe",
+                "displayOrder": 0,
+                "enabled": true,
+                "isManaged": false,
+                "currentHash": "sha256:bed7cd11be33fa9b1f39572600f3428c897eb2de1ca4d9c3204fd70a4e8c3b61",
+                "trustStatus": "modified"
+              }
+            ],
+            "mcp": {
+              "data": [
+                {
+                  "name": "agentdock_fixture",
+                  "runtimeStatus": "connected",
+                  "pluginId": null,
+                  "httpOrigin": null,
+                  "serverInfo": {
+                    "name": "agentdock-probe-mcp",
+                    "title": null,
+                    "version": "0.1",
+                    "description": null,
+                    "icons": null,
+                    "websiteUrl": null
+                  },
+                  "serverCapabilities": {
+                    "tools": {}
+                  },
+                  "tools": {
+                    "probe_ping": {
+                      "name": "probe_ping",
+                      "description": "Deterministic local adoption-test fixture.",
+                      "inputSchema": {
+                        "type": "object",
+                        "properties": {}
+                      }
+                    }
+                  },
+                  "toolsError": null,
+                  "resources": [],
+                  "resourceTemplates": [],
+                  "authStatus": "unsupported"
+                },
+                {
+                  "name": "plugin_fixture_v2",
+                  "runtimeStatus": "connected",
+                  "pluginId": "fixture@agentdock-probe",
+                  "httpOrigin": null,
+                  "serverInfo": {
+                    "name": "agentdock-probe-mcp",
+                    "title": null,
+                    "version": "0.1",
+                    "description": null,
+                    "icons": null,
+                    "websiteUrl": null
+                  },
+                  "serverCapabilities": {
+                    "tools": {}
+                  },
+                  "tools": {
+                    "probe_ping": {
+                      "name": "probe_ping",
+                      "description": "Deterministic local adoption-test fixture. This tool is part of plugin `fixture`.",
+                      "inputSchema": {
+                        "type": "object",
+                        "properties": {}
+                      }
+                    }
+                  },
+                  "toolsError": null,
+                  "resources": [],
+                  "resourceTemplates": [],
+                  "authStatus": "unsupported"
+                }
+              ],
+              "nextCursor": null
+            },
+            "turn": {
+              "id": "01a10684-9349-7db1-84a8-4ed73eb860bc",
+              "turnId": "01a10684-9451-72e1-b3e1-e150205bf9ab",
+              "status": "completed",
+              "calls": [
+                {
+                  "observedAt": "2026-10-04T10:45:14.519Z",
+                  "mode": "complete",
+                  "model": "gpt-5.4",
+                  "serviceTier": null,
+                  "skillBodyInjected": false,
+                  "skillV2Injected": true,
+                  "fixtureMarker": "PROBE_OK.",
+                  "fixtureSkillMentioned": true,
+                  "fixtureSkillInInstructions": false,
+                  "fixtureSkillInLastDeveloper": true,
+                  "fixtureToolOutputs": [],
+                  "tools": [
+                    "exec_command",
+                    "write_stdin",
+                    "list_mcp_resources",
+                    "list_mcp_resource_templates",
+                    "read_mcp_resource",
+                    "request_user_input",
+                    "view_image",
+                    "multi_agent_v1",
+                    "mcp__agentdock_fixture",
+                    "mcp__plugin_fixture_v2",
+                    "get_goal",
+                    "create_goal",
+                    "update_goal",
+                    "web_search"
+                  ]
+                }
+              ],
+              "hookNotifications": [],
+              "hookLog": "PROBE_HOOK_V1\nPROBE_HOOK_V1\n"
+            }
+          },
+          {
+            "stage": "removed-before-reload",
+            "kind": "existing",
+            "id": "01a10684-862e-7f41-b189-651eb2e535ac",
+            "skills": [],
+            "hooks": [],
+            "mcp": {
+              "data": [
+                {
+                  "name": "agentdock_fixture",
+                  "runtimeStatus": "connected",
+                  "pluginId": null,
+                  "httpOrigin": null,
+                  "serverInfo": {
+                    "name": "agentdock-probe-mcp",
+                    "title": null,
+                    "version": "0.1",
+                    "description": null,
+                    "icons": null,
+                    "websiteUrl": null
+                  },
+                  "serverCapabilities": {
+                    "tools": {}
+                  },
+                  "tools": {
+                    "probe_ping": {
+                      "name": "probe_ping",
+                      "description": "Deterministic local adoption-test fixture.",
+                      "inputSchema": {
+                        "type": "object",
+                        "properties": {}
+                      }
+                    }
+                  },
+                  "toolsError": null,
+                  "resources": [],
+                  "resourceTemplates": [],
+                  "authStatus": "unsupported"
+                }
+              ],
+              "nextCursor": null
+            },
+            "turn": {
+              "id": "01a10684-862e-7f41-b189-651eb2e535ac",
+              "turnId": "01a10684-958e-7f91-94f6-a54b2ddcbd4a",
+              "status": "completed",
+              "calls": [
+                {
+                  "observedAt": "2026-10-04T10:45:14.836Z",
+                  "mode": "complete",
+                  "model": "gpt-5.4",
+                  "serviceTier": null,
+                  "skillBodyInjected": true,
+                  "skillV2Injected": true,
+                  "fixtureMarker": "PROBE: plugin version remove removed-before-reload existing",
+                  "fixtureSkillMentioned": true,
+                  "fixtureSkillInInstructions": false,
+                  "fixtureSkillInLastDeveloper": false,
+                  "fixtureToolOutputs": [],
+                  "tools": [
+                    "exec_command",
+                    "write_stdin",
+                    "list_mcp_resources",
+                    "list_mcp_resource_templates",
+                    "read_mcp_resource",
+                    "request_user_input",
+                    "view_image",
+                    "multi_agent_v1",
+                    "mcp__agentdock_fixture",
+                    "mcp__plugin_fixture_v2",
+                    "get_goal",
+                    "create_goal",
+                    "update_goal",
+                    "web_search"
+                  ]
+                }
+              ],
+              "hookNotifications": [],
+              "hookLog": "PROBE_HOOK_V1\nPROBE_HOOK_V1\n"
+            }
+          },
+          {
+            "stage": "removed-before-reload",
+            "kind": "fresh",
+            "id": "01a10684-954b-7a62-bf2f-14a167e3762c",
+            "skills": [],
+            "hooks": [],
+            "mcp": {
+              "data": [
+                {
+                  "name": "agentdock_fixture",
+                  "runtimeStatus": "connected",
+                  "pluginId": null,
+                  "httpOrigin": null,
+                  "serverInfo": {
+                    "name": "agentdock-probe-mcp",
+                    "title": null,
+                    "version": "0.1",
+                    "description": null,
+                    "icons": null,
+                    "websiteUrl": null
+                  },
+                  "serverCapabilities": {
+                    "tools": {}
+                  },
+                  "tools": {
+                    "probe_ping": {
+                      "name": "probe_ping",
+                      "description": "Deterministic local adoption-test fixture.",
+                      "inputSchema": {
+                        "type": "object",
+                        "properties": {}
+                      }
+                    }
+                  },
+                  "toolsError": null,
+                  "resources": [],
+                  "resourceTemplates": [],
+                  "authStatus": "unsupported"
+                }
+              ],
+              "nextCursor": null
+            },
+            "turn": {
+              "id": "01a10684-954b-7a62-bf2f-14a167e3762c",
+              "turnId": "01a10684-9645-7200-80d1-054ab512cab3",
+              "status": "completed",
+              "calls": [
+                {
+                  "observedAt": "2026-10-04T10:45:15.008Z",
+                  "mode": "complete",
+                  "model": "gpt-5.4",
+                  "serviceTier": null,
+                  "skillBodyInjected": false,
+                  "skillV2Injected": false,
+                  "fixtureMarker": "PROBE: plugin version remove removed-before-reload fresh",
+                  "fixtureSkillMentioned": false,
+                  "fixtureSkillInInstructions": false,
+                  "fixtureSkillInLastDeveloper": false,
+                  "fixtureToolOutputs": [],
+                  "tools": [
+                    "exec_command",
+                    "write_stdin",
+                    "list_mcp_resources",
+                    "list_mcp_resource_templates",
+                    "read_mcp_resource",
+                    "request_user_input",
+                    "view_image",
+                    "multi_agent_v1",
+                    "mcp__agentdock_fixture",
+                    "get_goal",
+                    "create_goal",
+                    "update_goal",
+                    "web_search"
+                  ]
+                }
+              ],
+              "hookNotifications": [],
+              "hookLog": "PROBE_HOOK_V1\nPROBE_HOOK_V1\n"
+            }
+          },
+          {
+            "stage": "removed-after-reload",
+            "kind": "existing",
+            "id": "01a10684-862e-7f41-b189-651eb2e535ac",
+            "skills": [],
+            "hooks": [],
+            "mcp": {
+              "data": [
+                {
+                  "name": "agentdock_fixture",
+                  "runtimeStatus": "connected",
+                  "pluginId": null,
+                  "httpOrigin": null,
+                  "serverInfo": {
+                    "name": "agentdock-probe-mcp",
+                    "title": null,
+                    "version": "0.1",
+                    "description": null,
+                    "icons": null,
+                    "websiteUrl": null
+                  },
+                  "serverCapabilities": {
+                    "tools": {}
+                  },
+                  "tools": {
+                    "probe_ping": {
+                      "name": "probe_ping",
+                      "description": "Deterministic local adoption-test fixture.",
+                      "inputSchema": {
+                        "type": "object",
+                        "properties": {}
+                      }
+                    }
+                  },
+                  "toolsError": null,
+                  "resources": [],
+                  "resourceTemplates": [],
+                  "authStatus": "unsupported"
+                }
+              ],
+              "nextCursor": null
+            },
+            "turn": {
+              "id": "01a10684-862e-7f41-b189-651eb2e535ac",
+              "turnId": "01a10684-9d21-7f70-a6a1-9501b299dd58",
+              "status": "completed",
+              "calls": [
+                {
+                  "observedAt": "2026-10-04T10:45:16.756Z",
+                  "mode": "complete",
+                  "model": "gpt-5.4",
+                  "serviceTier": null,
+                  "skillBodyInjected": true,
+                  "skillV2Injected": true,
+                  "fixtureMarker": "PROBE: plugin version remove removed-after-reload existing",
+                  "fixtureSkillMentioned": true,
+                  "fixtureSkillInInstructions": false,
+                  "fixtureSkillInLastDeveloper": false,
+                  "fixtureToolOutputs": [],
+                  "tools": [
+                    "exec_command",
+                    "write_stdin",
+                    "list_mcp_resources",
+                    "list_mcp_resource_templates",
+                    "read_mcp_resource",
+                    "request_user_input",
+                    "view_image",
+                    "multi_agent_v1",
+                    "mcp__agentdock_fixture",
+                    "get_goal",
+                    "create_goal",
+                    "update_goal",
+                    "web_search"
+                  ]
+                }
+              ],
+              "hookNotifications": [],
+              "hookLog": "PROBE_HOOK_V1\nPROBE_HOOK_V1\n"
+            }
+          },
+          {
+            "stage": "removed-after-reload",
+            "kind": "fresh",
+            "id": "01a10684-9ce5-7922-a3c0-554050266385",
+            "skills": [],
+            "hooks": [],
+            "mcp": {
+              "data": [
+                {
+                  "name": "agentdock_fixture",
+                  "runtimeStatus": "connected",
+                  "pluginId": null,
+                  "httpOrigin": null,
+                  "serverInfo": {
+                    "name": "agentdock-probe-mcp",
+                    "title": null,
+                    "version": "0.1",
+                    "description": null,
+                    "icons": null,
+                    "websiteUrl": null
+                  },
+                  "serverCapabilities": {
+                    "tools": {}
+                  },
+                  "tools": {
+                    "probe_ping": {
+                      "name": "probe_ping",
+                      "description": "Deterministic local adoption-test fixture.",
+                      "inputSchema": {
+                        "type": "object",
+                        "properties": {}
+                      }
+                    }
+                  },
+                  "toolsError": null,
+                  "resources": [],
+                  "resourceTemplates": [],
+                  "authStatus": "unsupported"
+                }
+              ],
+              "nextCursor": null
+            },
+            "turn": {
+              "id": "01a10684-9ce5-7922-a3c0-554050266385",
+              "turnId": "01a10684-9dd9-7363-8ad0-4a10ef54e35d",
+              "status": "completed",
+              "calls": [
+                {
+                  "observedAt": "2026-10-04T10:45:16.947Z",
+                  "mode": "complete",
+                  "model": "gpt-5.4",
+                  "serviceTier": null,
+                  "skillBodyInjected": false,
+                  "skillV2Injected": false,
+                  "fixtureMarker": "PROBE: plugin version remove removed-after-reload fresh",
+                  "fixtureSkillMentioned": false,
+                  "fixtureSkillInInstructions": false,
+                  "fixtureSkillInLastDeveloper": false,
+                  "fixtureToolOutputs": [],
+                  "tools": [
+                    "exec_command",
+                    "write_stdin",
+                    "list_mcp_resources",
+                    "list_mcp_resource_templates",
+                    "read_mcp_resource",
+                    "request_user_input",
+                    "view_image",
+                    "multi_agent_v1",
+                    "mcp__agentdock_fixture",
+                    "get_goal",
+                    "create_goal",
+                    "update_goal",
+                    "web_search"
+                  ]
+                }
+              ],
+              "hookNotifications": [],
+              "hookLog": "PROBE_HOOK_V1\nPROBE_HOOK_V1\n"
+            }
+          },
+          {
+            "stage": "removed-after-restart",
+            "kind": "existing",
+            "id": "01a10684-862e-7f41-b189-651eb2e535ac",
+            "skills": [],
+            "hooks": [],
+            "mcp": {
+              "data": [
+                {
+                  "name": "agentdock_fixture",
+                  "runtimeStatus": "connected",
+                  "pluginId": null,
+                  "httpOrigin": null,
+                  "serverInfo": {
+                    "name": "agentdock-probe-mcp",
+                    "title": null,
+                    "version": "0.1",
+                    "description": null,
+                    "icons": null,
+                    "websiteUrl": null
+                  },
+                  "serverCapabilities": {
+                    "tools": {}
+                  },
+                  "tools": {
+                    "probe_ping": {
+                      "name": "probe_ping",
+                      "description": "Deterministic local adoption-test fixture.",
+                      "inputSchema": {
+                        "type": "object",
+                        "properties": {}
+                      }
+                    }
+                  },
+                  "toolsError": null,
+                  "resources": [],
+                  "resourceTemplates": [],
+                  "authStatus": "unsupported"
+                }
+              ],
+              "nextCursor": null
+            },
+            "turn": {
+              "id": "01a10684-862e-7f41-b189-651eb2e535ac",
+              "turnId": "01a10684-9f6e-71a3-9644-b3acd74fe80e",
+              "status": "completed",
+              "calls": [
+                {
+                  "observedAt": "2026-10-04T10:45:17.348Z",
+                  "mode": "complete",
+                  "model": "gpt-5.4",
+                  "serviceTier": null,
+                  "skillBodyInjected": true,
+                  "skillV2Injected": true,
+                  "fixtureMarker": "PROBE: plugin version remove removed-after-restart existing",
+                  "fixtureSkillMentioned": true,
+                  "fixtureSkillInInstructions": false,
+                  "fixtureSkillInLastDeveloper": false,
+                  "fixtureToolOutputs": [],
+                  "tools": [
+                    "exec_command",
+                    "write_stdin",
+                    "list_mcp_resources",
+                    "list_mcp_resource_templates",
+                    "read_mcp_resource",
+                    "request_user_input",
+                    "view_image",
+                    "multi_agent_v1",
+                    "mcp__agentdock_fixture",
+                    "get_goal",
+                    "create_goal",
+                    "update_goal",
+                    "web_search"
+                  ]
+                }
+              ],
+              "hookNotifications": [],
+              "hookLog": "PROBE_HOOK_V1\nPROBE_HOOK_V1\n"
+            }
+          },
+          {
+            "stage": "removed-after-restart",
+            "kind": "fresh",
+            "id": "01a10684-9f33-7be2-a3c6-ebb948ff16d4",
+            "skills": [],
+            "hooks": [],
+            "mcp": {
+              "data": [
+                {
+                  "name": "agentdock_fixture",
+                  "runtimeStatus": "connected",
+                  "pluginId": null,
+                  "httpOrigin": null,
+                  "serverInfo": {
+                    "name": "agentdock-probe-mcp",
+                    "title": null,
+                    "version": "0.1",
+                    "description": null,
+                    "icons": null,
+                    "websiteUrl": null
+                  },
+                  "serverCapabilities": {
+                    "tools": {}
+                  },
+                  "tools": {
+                    "probe_ping": {
+                      "name": "probe_ping",
+                      "description": "Deterministic local adoption-test fixture.",
+                      "inputSchema": {
+                        "type": "object",
+                        "properties": {}
+                      }
+                    }
+                  },
+                  "toolsError": null,
+                  "resources": [],
+                  "resourceTemplates": [],
+                  "authStatus": "unsupported"
+                }
+              ],
+              "nextCursor": null
+            },
+            "turn": {
+              "id": "01a10684-9f33-7be2-a3c6-ebb948ff16d4",
+              "turnId": "01a10684-a00d-7c31-b27c-09193e362d78",
+              "status": "completed",
+              "calls": [
+                {
+                  "observedAt": "2026-10-04T10:45:17.510Z",
+                  "mode": "complete",
+                  "model": "gpt-5.4",
+                  "serviceTier": null,
+                  "skillBodyInjected": false,
+                  "skillV2Injected": false,
+                  "fixtureMarker": "PROBE: plugin version remove removed-after-restart fresh",
+                  "fixtureSkillMentioned": false,
+                  "fixtureSkillInInstructions": false,
+                  "fixtureSkillInLastDeveloper": false,
+                  "fixtureToolOutputs": [],
+                  "tools": [
+                    "exec_command",
+                    "write_stdin",
+                    "list_mcp_resources",
+                    "list_mcp_resource_templates",
+                    "read_mcp_resource",
+                    "request_user_input",
+                    "view_image",
+                    "multi_agent_v1",
+                    "mcp__agentdock_fixture",
+                    "get_goal",
+                    "create_goal",
+                    "update_goal",
+                    "web_search"
+                  ]
+                }
+              ],
+              "hookNotifications": [],
+              "hookLog": "PROBE_HOOK_V1\nPROBE_HOOK_V1\n"
+            }
+          }
+        ],
+        "beforeRestartLog": "PROBE_HOOK_V1\nPROBE_HOOK_V1\n",
+        "afterRestartLog": "PROBE_HOOK_V1\nPROBE_HOOK_V1\n",
+        "config": "model = \"gpt-5.4\"\nmodel_provider = \"agentdock_probe\"\ncli_auth_credentials_store = \"file\"\napproval_policy = \"never\"\nsandbox_mode = \"read-only\"\n[analytics]\nenabled = false\n[model_providers.agentdock_probe]\nname = \"AgentDock local fixture\"\nbase_url = \"http://127.0.0.1:49396/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\nsupports_websockets = false\nrequest_max_retries = 0\nstream_max_retries = 0\nstream_idle_timeout_ms = 60000\n[agents]\nmax_depth = 2\n\n[mcp_servers.agentdock_fixture]\ncommand = \"C:/Program Files/nodejs/node.exe\"\nargs = [\"C:/Users/wmasa/Documents/Rust/AgentDock/probes/app-server/mcp-fixture.mjs\"]\nenabled = true\nstartup_timeout_sec = 5\n\n[marketplaces.agentdock-probe]\nsource_type = \"local\"\nsource = '\\\\?\\C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-45-08-956Z\\marketplace'\n\n[hooks.state.\"fixture@agentdock-probe:hooks/hooks.json:user_prompt_submit:0:0\"]\ntrusted_hash = \"sha256:ba39bd237cbfcf551f58648e3406830f481163f7f7bdba08ab6a0534d902aaca\"\nenabled = true\n",
+        "caches": [
+          {
+            "version": "0.1.0",
+            "exists": false
+          },
+          {
+            "version": "0.2.0",
+            "exists": false
+          }
+        ],
+        "scope": "Local marketplace source version edit and explicit CLI re-add; upgrade response recorded separately, not a Git marketplace refresh. Fresh/existing explicit Skill, MCP advertisement and trusted Hook after remove; queued/auth/Apps not tested."
+      }
+    },
+    {
+      "name": "existing_config_unchanged",
+      "status": "pass"
+    }
+  ],
+  "modelRequests": [
+    {
+      "observedAt": "2026-10-04T10:45:11.358Z",
+      "mode": "complete",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": true,
+      "skillV2Injected": false,
+      "fixtureMarker": "PROBE_OK.",
+      "fixtureSkillMentioned": true,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": true,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "mcp__plugin_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "observedAt": "2026-10-04T10:45:11.891Z",
+      "mode": "complete",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": true,
+      "skillV2Injected": false,
+      "fixtureMarker": "PROBE_OK.",
+      "fixtureSkillMentioned": true,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": true,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "mcp__plugin_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "observedAt": "2026-10-04T10:45:12.332Z",
+      "mode": "complete",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": true,
+      "skillV2Injected": true,
+      "fixtureMarker": "PROBE_OK.",
+      "fixtureSkillMentioned": true,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": true,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "mcp__plugin_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "observedAt": "2026-10-04T10:45:12.548Z",
+      "mode": "complete",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": false,
+      "skillV2Injected": true,
+      "fixtureMarker": "PROBE_OK.",
+      "fixtureSkillMentioned": true,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": true,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "mcp__plugin_fixture_v2",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "observedAt": "2026-10-04T10:45:14.321Z",
+      "mode": "complete",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": true,
+      "skillV2Injected": true,
+      "fixtureMarker": "PROBE_OK.",
+      "fixtureSkillMentioned": true,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": true,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "mcp__plugin_fixture_v2",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "observedAt": "2026-10-04T10:45:14.519Z",
+      "mode": "complete",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": false,
+      "skillV2Injected": true,
+      "fixtureMarker": "PROBE_OK.",
+      "fixtureSkillMentioned": true,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": true,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "mcp__plugin_fixture_v2",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "observedAt": "2026-10-04T10:45:14.836Z",
+      "mode": "complete",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": true,
+      "skillV2Injected": true,
+      "fixtureMarker": "PROBE: plugin version remove removed-before-reload existing",
+      "fixtureSkillMentioned": true,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": false,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "mcp__plugin_fixture_v2",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "observedAt": "2026-10-04T10:45:15.008Z",
+      "mode": "complete",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": false,
+      "skillV2Injected": false,
+      "fixtureMarker": "PROBE: plugin version remove removed-before-reload fresh",
+      "fixtureSkillMentioned": false,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": false,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "observedAt": "2026-10-04T10:45:16.756Z",
+      "mode": "complete",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": true,
+      "skillV2Injected": true,
+      "fixtureMarker": "PROBE: plugin version remove removed-after-reload existing",
+      "fixtureSkillMentioned": true,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": false,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "observedAt": "2026-10-04T10:45:16.947Z",
+      "mode": "complete",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": false,
+      "skillV2Injected": false,
+      "fixtureMarker": "PROBE: plugin version remove removed-after-reload fresh",
+      "fixtureSkillMentioned": false,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": false,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "observedAt": "2026-10-04T10:45:17.348Z",
+      "mode": "complete",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": true,
+      "skillV2Injected": true,
+      "fixtureMarker": "PROBE: plugin version remove removed-after-restart existing",
+      "fixtureSkillMentioned": true,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": false,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "observedAt": "2026-10-04T10:45:17.510Z",
+      "mode": "complete",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": false,
+      "skillV2Injected": false,
+      "fixtureMarker": "PROBE: plugin version remove removed-after-restart fresh",
+      "fixtureSkillMentioned": false,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": false,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    }
+  ],
+  "limitations": [
+    "No real cloud inference/authentication",
+    "Fixture agent observations are not universal recursive or OS descendant termination guarantees",
+    "Plugin MCP advertisement is not all plugin capability filtering",
+    "Queue observations do not implement AgentDock queue policy",
+    "Loopback WebSocket fixture is unauthenticated and experimental, not a production transport decision"
+  ]
+}

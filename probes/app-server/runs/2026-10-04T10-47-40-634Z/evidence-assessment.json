@@ -1,0 +1,6 @@
+{
+  "classification": "Not selected as OS ownership evidence",
+  "reason": "CIM returned access denied. The initial harness treated empty stdout as an empty identity list and did not assert identity availability. Original result and snapshot are retained unchanged.",
+  "replacement": "2026-10-04T10-49-50-044Z",
+  "replacementConditions": "Explicit sandbox escalation approval; terminating CIM errors; identity availability assertion; fixture PID filters. Scope/termination observations remain distinct from OS identity evidence."
+}

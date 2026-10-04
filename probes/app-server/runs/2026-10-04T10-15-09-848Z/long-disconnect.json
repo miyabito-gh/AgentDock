@@ -1,0 +1,236 @@
+{
+  "active": "01a10669-0c97-7b31-9a2e-2d665547b778",
+  "idle": "01a10669-0d61-7e21-bb32-f65b797a4bfc",
+  "before": 2,
+  "afterRead": 4,
+  "loaded": {
+    "data": [
+      "01a10669-0c97-7b31-9a2e-2d665547b778",
+      "01a10669-0d61-7e21-bb32-f65b797a4bfc"
+    ],
+    "nextCursor": null
+  },
+  "rows": [
+    {
+      "id": "01a10669-0c97-7b31-9a2e-2d665547b778",
+      "read": {
+        "id": "01a10669-0c97-7b31-9a2e-2d665547b778",
+        "environments": [
+          {
+            "environmentId": "local",
+            "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-15-09-848Z\\work",
+            "runtimeWorkspaceRoots": [
+              "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-15-09-848Z\\work"
+            ]
+          }
+        ],
+        "extra": null,
+        "sessionId": "01a10669-0c97-7b31-9a2e-2d665547b778",
+        "forkedFromId": null,
+        "parentThreadId": null,
+        "preview": "PROBE: 120s active",
+        "ephemeral": false,
+        "section": null,
+        "sectionEnteredAt": null,
+        "projectId": null,
+        "historyMode": "paginated",
+        "modelProvider": "agentdock_probe",
+        "model": "gpt-5.4",
+        "reasoningEffort": null,
+        "createdAt": 1791108910,
+        "updatedAt": 1791109030,
+        "recencyAt": 1791108970,
+        "status": {
+          "type": "systemError"
+        },
+        "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-15-09-848Z\\codex-home\\sessions\\2026\\10\\04\\rollout-2026-10-04T19-15-10-01a10669-0c97-7b31-9a2e-2d665547b778.jsonl",
+        "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-15-09-848Z\\work",
+        "cliVersion": "0.160.0",
+        "originator": "Codex Desktop",
+        "source": "vscode",
+        "canAcceptDirectInput": true,
+        "threadSource": null,
+        "agentNickname": null,
+        "agentRole": null,
+        "gitInfo": null,
+        "name": null,
+        "daybreakEnabled": null,
+        "turns": [
+          {
+            "id": "01a10669-0caa-7052-b810-3ebe3eb5c0b6",
+            "items": [
+              {
+                "type": "userMessage",
+                "id": "01a10669-0d12-7a71-802a-d2fb6abb3e7b",
+                "clientId": null,
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "PROBE: 120s active",
+                    "text_elements": []
+                  }
+                ]
+              }
+            ],
+            "itemsView": "full",
+            "status": "failed",
+            "error": {
+              "message": "stream disconnected before completion: idle timeout waiting for SSE",
+              "codexErrorInfo": "other",
+              "additionalDetails": null,
+              "misalignment": null
+            },
+            "startedAt": 1791108910,
+            "completedAt": 1791108970,
+            "durationMs": 60136
+          },
+          {
+            "id": "01a10669-f7af-7312-b0a8-c5ff029cb426",
+            "items": [
+              {
+                "type": "userMessage",
+                "id": "01a10669-f7d1-7aa3-8e57-c2a9c60acaf4",
+                "clientId": "01a10669-0e7b-7f13-8993-6777a8f1b493",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "PROBE: long active queued",
+                    "text_elements": []
+                  }
+                ]
+              }
+            ],
+            "itemsView": "full",
+            "status": "failed",
+            "error": {
+              "message": "stream disconnected before completion: idle timeout waiting for SSE",
+              "codexErrorInfo": "other",
+              "additionalDetails": null,
+              "misalignment": null
+            },
+            "startedAt": 1791108970,
+            "completedAt": 1791109030,
+            "durationMs": 60085
+          }
+        ]
+      },
+      "queue": {
+        "data": [],
+        "nextCursor": null
+      }
+    },
+    {
+      "id": "01a10669-0d61-7e21-bb32-f65b797a4bfc",
+      "read": {
+        "id": "01a10669-0d61-7e21-bb32-f65b797a4bfc",
+        "environments": [
+          {
+            "environmentId": "local",
+            "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-15-09-848Z\\work",
+            "runtimeWorkspaceRoots": [
+              "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-15-09-848Z\\work"
+            ]
+          }
+        ],
+        "extra": null,
+        "sessionId": "01a10669-0d61-7e21-bb32-f65b797a4bfc",
+        "forkedFromId": null,
+        "parentThreadId": null,
+        "preview": "PROBE: completed baseline",
+        "ephemeral": false,
+        "section": null,
+        "sectionEnteredAt": null,
+        "projectId": null,
+        "historyMode": "paginated",
+        "modelProvider": "agentdock_probe",
+        "model": "gpt-5.4",
+        "reasoningEffort": null,
+        "createdAt": 1791108910,
+        "updatedAt": 1791108980,
+        "recencyAt": 1791108920,
+        "status": {
+          "type": "systemError"
+        },
+        "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-15-09-848Z\\codex-home\\sessions\\2026\\10\\04\\rollout-2026-10-04T19-15-10-01a10669-0d61-7e21-bb32-f65b797a4bfc.jsonl",
+        "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-15-09-848Z\\work",
+        "cliVersion": "0.160.0",
+        "originator": "Codex Desktop",
+        "source": "vscode",
+        "canAcceptDirectInput": true,
+        "threadSource": null,
+        "agentNickname": null,
+        "agentRole": null,
+        "gitInfo": null,
+        "name": null,
+        "daybreakEnabled": null,
+        "turns": [
+          {
+            "id": "01a10669-0d90-7310-9b2b-75f780226db3",
+            "items": [
+              {
+                "type": "userMessage",
+                "id": "01a10669-0dcc-7d71-8f5d-0b862c58be40",
+                "clientId": null,
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "PROBE: completed baseline",
+                    "text_elements": []
+                  }
+                ]
+              },
+              {
+                "type": "agentMessage",
+                "id": "msg_2",
+                "text": "PROBE_OK",
+                "phase": null,
+                "memoryCitation": null,
+                "delivery": null,
+                "questions": null
+              }
+            ],
+            "itemsView": "full",
+            "status": "completed",
+            "error": null,
+            "startedAt": 1791108910,
+            "completedAt": 1791108910,
+            "durationMs": 128
+          },
+          {
+            "id": "01a10669-3384-7810-b1f8-531b94c7548d",
+            "items": [
+              {
+                "type": "userMessage",
+                "id": "01a10669-33a6-7083-9570-093e556f0a4f",
+                "clientId": "01a10669-0ece-79f3-8539-ac754b29bd16",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "PROBE: long idle queued",
+                    "text_elements": []
+                  }
+                ]
+              }
+            ],
+            "itemsView": "full",
+            "status": "failed",
+            "error": {
+              "message": "stream disconnected before completion: idle timeout waiting for SSE",
+              "codexErrorInfo": "other",
+              "additionalDetails": null,
+              "misalignment": null
+            },
+            "startedAt": 1791108920,
+            "completedAt": 1791108980,
+            "durationMs": 60095
+          }
+        ]
+      },
+      "queue": {
+        "data": [],
+        "nextCursor": null
+      }
+    }
+  ],
+  "elapsedMs": 120134
+}

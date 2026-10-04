@@ -1,0 +1,498 @@
+[
+  {
+    "disconnectMs": 15000,
+    "observedDisconnectMs": 15122,
+    "spawningParent": "01a10642-4736-72d2-9388-e811702fecc5",
+    "discovered": {
+      "pages": [
+        {
+          "data": [
+            {
+              "id": "01a10642-4ad5-7533-a20e-5e033c21c773",
+              "environments": [
+                {
+                  "environmentId": "local",
+                  "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T09-32-48-928Z\\work",
+                  "runtimeWorkspaceRoots": [
+                    "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T09-32-48-928Z\\work"
+                  ]
+                }
+              ],
+              "extra": null,
+              "sessionId": "01a10642-4ad5-7533-a20e-5e033c21c773",
+              "forkedFromId": null,
+              "parentThreadId": "01a10642-4736-72d2-9388-e811702fecc5",
+              "preview": "PROBE_UNSEEN_0: hold local fixture",
+              "ephemeral": false,
+              "section": null,
+              "sectionEnteredAt": null,
+              "projectId": null,
+              "historyMode": "paginated",
+              "modelProvider": "agentdock_probe",
+              "model": "gpt-5.4",
+              "reasoningEffort": null,
+              "createdAt": 1791106370,
+              "updatedAt": 1791106370,
+              "recencyAt": 1791106370,
+              "status": {
+                "type": "idle"
+              },
+              "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T09-32-48-928Z\\codex-home\\sessions\\2026\\10\\04\\rollout-2026-10-04T18-32-50-01a10642-4ad5-7533-a20e-5e033c21c773.jsonl",
+              "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T09-32-48-928Z\\work",
+              "cliVersion": "0.160.0",
+              "originator": "Codex Desktop",
+              "source": {
+                "subAgent": {
+                  "thread_spawn": {
+                    "parent_thread_id": "01a10642-4736-72d2-9388-e811702fecc5",
+                    "depth": 1,
+                    "agent_path": null,
+                    "agent_nickname": "James",
+                    "agent_role": null
+                  }
+                }
+              },
+              "canAcceptDirectInput": true,
+              "threadSource": null,
+              "agentNickname": "James",
+              "agentRole": null,
+              "gitInfo": null,
+              "name": null,
+              "daybreakEnabled": null,
+              "turns": []
+            }
+          ],
+          "nextCursor": null,
+          "backwardsCursor": "2026-10-04T09:32:49.999Z"
+        }
+      ],
+      "threads": [
+        {
+          "id": "01a10642-4ad5-7533-a20e-5e033c21c773",
+          "environments": [
+            {
+              "environmentId": "local",
+              "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T09-32-48-928Z\\work",
+              "runtimeWorkspaceRoots": [
+                "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T09-32-48-928Z\\work"
+              ]
+            }
+          ],
+          "extra": null,
+          "sessionId": "01a10642-4736-72d2-9388-e811702fecc5",
+          "forkedFromId": null,
+          "parentThreadId": "01a10642-4736-72d2-9388-e811702fecc5",
+          "preview": "PROBE_UNSEEN_0: hold local fixture",
+          "ephemeral": false,
+          "section": null,
+          "sectionEnteredAt": null,
+          "projectId": null,
+          "historyMode": "paginated",
+          "modelProvider": "agentdock_probe",
+          "model": "gpt-5.4",
+          "reasoningEffort": null,
+          "createdAt": 1791106370,
+          "updatedAt": 1791106370,
+          "recencyAt": 1791106370,
+          "status": {
+            "type": "active",
+            "activeFlags": []
+          },
+          "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T09-32-48-928Z\\codex-home\\sessions\\2026\\10\\04\\rollout-2026-10-04T18-32-50-01a10642-4ad5-7533-a20e-5e033c21c773.jsonl",
+          "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T09-32-48-928Z\\work",
+          "cliVersion": "0.160.0",
+          "originator": "Codex Desktop",
+          "source": {
+            "subAgent": {
+              "thread_spawn": {
+                "parent_thread_id": "01a10642-4736-72d2-9388-e811702fecc5",
+                "depth": 1,
+                "agent_path": null,
+                "agent_nickname": "James",
+                "agent_role": null
+              }
+            }
+          },
+          "canAcceptDirectInput": true,
+          "threadSource": "subagent",
+          "agentNickname": "James",
+          "agentRole": null,
+          "gitInfo": null,
+          "name": null,
+          "daybreakEnabled": null,
+          "turns": [
+            {
+              "id": "01a10642-4afb-7ee0-bae0-36ad3336edc1",
+              "items": [
+                {
+                  "type": "userMessage",
+                  "id": "01a10642-4b32-7ba3-959f-b394c481834e",
+                  "clientId": null,
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "PROBE_UNSEEN_0: hold local fixture",
+                      "text_elements": []
+                    }
+                  ]
+                }
+              ],
+              "itemsView": "full",
+              "status": "inProgress",
+              "error": null,
+              "startedAt": 1791106370,
+              "completedAt": null,
+              "durationMs": null
+            }
+          ]
+        }
+      ]
+    },
+    "before": 3,
+    "after": 3,
+    "missedSpawnResult": true
+  },
+  {
+    "disconnectMs": 500,
+    "observedDisconnectMs": 914,
+    "spawningParent": "01a10642-4ad5-7533-a20e-5e033c21c773",
+    "discovered": {
+      "pages": [
+        {
+          "data": [
+            {
+              "id": "01a10642-86a4-73f3-ab2c-353f34a74ab7",
+              "environments": [
+                {
+                  "environmentId": "local",
+                  "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T09-32-48-928Z\\work",
+                  "runtimeWorkspaceRoots": [
+                    "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T09-32-48-928Z\\work"
+                  ]
+                }
+              ],
+              "extra": null,
+              "sessionId": "01a10642-86a4-73f3-ab2c-353f34a74ab7",
+              "forkedFromId": null,
+              "parentThreadId": "01a10642-4ad5-7533-a20e-5e033c21c773",
+              "preview": "PROBE_UNSEEN_1: hold local fixture",
+              "ephemeral": false,
+              "section": null,
+              "sectionEnteredAt": null,
+              "projectId": null,
+              "historyMode": "paginated",
+              "modelProvider": "agentdock_probe",
+              "model": "gpt-5.4",
+              "reasoningEffort": null,
+              "createdAt": 1791106385,
+              "updatedAt": 1791106385,
+              "recencyAt": 1791106385,
+              "status": {
+                "type": "idle"
+              },
+              "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T09-32-48-928Z\\codex-home\\sessions\\2026\\10\\04\\rollout-2026-10-04T18-33-05-01a10642-86a4-73f3-ab2c-353f34a74ab7.jsonl",
+              "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T09-32-48-928Z\\work",
+              "cliVersion": "0.160.0",
+              "originator": "Codex Desktop",
+              "source": {
+                "subAgent": {
+                  "thread_spawn": {
+                    "parent_thread_id": "01a10642-4ad5-7533-a20e-5e033c21c773",
+                    "depth": 2,
+                    "agent_path": null,
+                    "agent_nickname": "Mencius",
+                    "agent_role": null
+                  }
+                }
+              },
+              "canAcceptDirectInput": true,
+              "threadSource": null,
+              "agentNickname": "Mencius",
+              "agentRole": null,
+              "gitInfo": null,
+              "name": null,
+              "daybreakEnabled": null,
+              "turns": []
+            }
+          ],
+          "nextCursor": "2026-10-04T09:33:05.572Z|01a10642-86a4-73f3-ab2c-353f34a74ab7",
+          "backwardsCursor": "2026-10-04T09:33:04.999Z"
+        },
+        {
+          "data": [
+            {
+              "id": "01a10642-4ad5-7533-a20e-5e033c21c773",
+              "environments": [
+                {
+                  "environmentId": "local",
+                  "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T09-32-48-928Z\\work",
+                  "runtimeWorkspaceRoots": [
+                    "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T09-32-48-928Z\\work"
+                  ]
+                }
+              ],
+              "extra": null,
+              "sessionId": "01a10642-4ad5-7533-a20e-5e033c21c773",
+              "forkedFromId": null,
+              "parentThreadId": "01a10642-4736-72d2-9388-e811702fecc5",
+              "preview": "PROBE_UNSEEN_0: hold local fixture",
+              "ephemeral": false,
+              "section": null,
+              "sectionEnteredAt": null,
+              "projectId": null,
+              "historyMode": "paginated",
+              "modelProvider": "agentdock_probe",
+              "model": "gpt-5.4",
+              "reasoningEffort": null,
+              "createdAt": 1791106370,
+              "updatedAt": 1791106385,
+              "recencyAt": 1791106384,
+              "status": {
+                "type": "idle"
+              },
+              "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T09-32-48-928Z\\codex-home\\sessions\\2026\\10\\04\\rollout-2026-10-04T18-32-50-01a10642-4ad5-7533-a20e-5e033c21c773.jsonl",
+              "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T09-32-48-928Z\\work",
+              "cliVersion": "0.160.0",
+              "originator": "Codex Desktop",
+              "source": {
+                "subAgent": {
+                  "thread_spawn": {
+                    "parent_thread_id": "01a10642-4736-72d2-9388-e811702fecc5",
+                    "depth": 1,
+                    "agent_path": null,
+                    "agent_nickname": "James",
+                    "agent_role": null
+                  }
+                }
+              },
+              "canAcceptDirectInput": true,
+              "threadSource": null,
+              "agentNickname": "James",
+              "agentRole": null,
+              "gitInfo": null,
+              "name": null,
+              "daybreakEnabled": null,
+              "turns": []
+            }
+          ],
+          "nextCursor": null,
+          "backwardsCursor": "2026-10-04T09:32:49.999Z"
+        }
+      ],
+      "threads": [
+        {
+          "id": "01a10642-86a4-73f3-ab2c-353f34a74ab7",
+          "environments": [
+            {
+              "environmentId": "local",
+              "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T09-32-48-928Z\\work",
+              "runtimeWorkspaceRoots": [
+                "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T09-32-48-928Z\\work"
+              ]
+            }
+          ],
+          "extra": null,
+          "sessionId": "01a10642-4736-72d2-9388-e811702fecc5",
+          "forkedFromId": null,
+          "parentThreadId": "01a10642-4ad5-7533-a20e-5e033c21c773",
+          "preview": "PROBE_UNSEEN_1: hold local fixture",
+          "ephemeral": false,
+          "section": null,
+          "sectionEnteredAt": null,
+          "projectId": null,
+          "historyMode": "paginated",
+          "modelProvider": "agentdock_probe",
+          "model": "gpt-5.4",
+          "reasoningEffort": null,
+          "createdAt": 1791106385,
+          "updatedAt": 1791106385,
+          "recencyAt": 1791106385,
+          "status": {
+            "type": "active",
+            "activeFlags": []
+          },
+          "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T09-32-48-928Z\\codex-home\\sessions\\2026\\10\\04\\rollout-2026-10-04T18-33-05-01a10642-86a4-73f3-ab2c-353f34a74ab7.jsonl",
+          "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T09-32-48-928Z\\work",
+          "cliVersion": "0.160.0",
+          "originator": "Codex Desktop",
+          "source": {
+            "subAgent": {
+              "thread_spawn": {
+                "parent_thread_id": "01a10642-4ad5-7533-a20e-5e033c21c773",
+                "depth": 2,
+                "agent_path": null,
+                "agent_nickname": "Mencius",
+                "agent_role": null
+              }
+            }
+          },
+          "canAcceptDirectInput": true,
+          "threadSource": "subagent",
+          "agentNickname": "Mencius",
+          "agentRole": null,
+          "gitInfo": null,
+          "name": null,
+          "daybreakEnabled": null,
+          "turns": [
+            {
+              "id": "01a10642-86d4-73f2-8442-a7ef4396fafb",
+              "items": [
+                {
+                  "type": "userMessage",
+                  "id": "01a10642-870b-7af1-9d43-605334a3def7",
+                  "clientId": null,
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "PROBE_UNSEEN_1: hold local fixture",
+                      "text_elements": []
+                    }
+                  ]
+                }
+              ],
+              "itemsView": "full",
+              "status": "inProgress",
+              "error": null,
+              "startedAt": 1791106385,
+              "completedAt": null,
+              "durationMs": null
+            }
+          ]
+        },
+        {
+          "id": "01a10642-4ad5-7533-a20e-5e033c21c773",
+          "environments": [
+            {
+              "environmentId": "local",
+              "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T09-32-48-928Z\\work",
+              "runtimeWorkspaceRoots": [
+                "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T09-32-48-928Z\\work"
+              ]
+            }
+          ],
+          "extra": null,
+          "sessionId": "01a10642-4736-72d2-9388-e811702fecc5",
+          "forkedFromId": null,
+          "parentThreadId": "01a10642-4736-72d2-9388-e811702fecc5",
+          "preview": "PROBE_UNSEEN_0: hold local fixture",
+          "ephemeral": false,
+          "section": null,
+          "sectionEnteredAt": null,
+          "projectId": null,
+          "historyMode": "paginated",
+          "modelProvider": "agentdock_probe",
+          "model": "gpt-5.4",
+          "reasoningEffort": null,
+          "createdAt": 1791106370,
+          "updatedAt": 1791106385,
+          "recencyAt": 1791106384,
+          "status": {
+            "type": "active",
+            "activeFlags": []
+          },
+          "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T09-32-48-928Z\\codex-home\\sessions\\2026\\10\\04\\rollout-2026-10-04T18-32-50-01a10642-4ad5-7533-a20e-5e033c21c773.jsonl",
+          "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T09-32-48-928Z\\work",
+          "cliVersion": "0.160.0",
+          "originator": "Codex Desktop",
+          "source": {
+            "subAgent": {
+              "thread_spawn": {
+                "parent_thread_id": "01a10642-4736-72d2-9388-e811702fecc5",
+                "depth": 1,
+                "agent_path": null,
+                "agent_nickname": "James",
+                "agent_role": null
+              }
+            }
+          },
+          "canAcceptDirectInput": true,
+          "threadSource": "subagent",
+          "agentNickname": "James",
+          "agentRole": null,
+          "gitInfo": null,
+          "name": null,
+          "daybreakEnabled": null,
+          "turns": [
+            {
+              "id": "01a10642-4afb-7ee0-bae0-36ad3336edc1",
+              "items": [
+                {
+                  "type": "userMessage",
+                  "id": "01a10642-4b32-7ba3-959f-b394c481834e",
+                  "clientId": null,
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "PROBE_UNSEEN_0: hold local fixture",
+                      "text_elements": []
+                    }
+                  ]
+                },
+                {
+                  "type": "agentMessage",
+                  "id": "msg_probe_response_3",
+                  "text": "PROBE_OK",
+                  "phase": null,
+                  "memoryCitation": null,
+                  "delivery": null,
+                  "questions": null
+                }
+              ],
+              "itemsView": "full",
+              "status": "completed",
+              "error": null,
+              "startedAt": 1791106370,
+              "completedAt": 1791106384,
+              "durationMs": 14401
+            },
+            {
+              "id": "01a10642-8374-7cd2-9ef4-a56340fa2be2",
+              "items": [
+                {
+                  "type": "userMessage",
+                  "id": "01a10642-838f-7580-8650-d1ed4144e5ba",
+                  "clientId": null,
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "PROBE: unseen spawn 1",
+                      "text_elements": []
+                    }
+                  ]
+                },
+                {
+                  "type": "collabAgentToolCall",
+                  "id": "call_4",
+                  "tool": "spawnAgent",
+                  "status": "completed",
+                  "senderThreadId": "01a10642-4ad5-7533-a20e-5e033c21c773",
+                  "receiverThreadIds": [
+                    "01a10642-86a4-73f3-ab2c-353f34a74ab7"
+                  ],
+                  "prompt": "PROBE_UNSEEN_1: hold local fixture",
+                  "model": "gpt-5.4",
+                  "reasoningEffort": "medium",
+                  "agentsStates": {
+                    "01a10642-86a4-73f3-ab2c-353f34a74ab7": {
+                      "status": "pendingInit",
+                      "message": null
+                    }
+                  }
+                }
+              ],
+              "itemsView": "full",
+              "status": "inProgress",
+              "error": null,
+              "startedAt": 1791106384,
+              "completedAt": null,
+              "durationMs": null
+            }
+          ]
+        }
+      ]
+    },
+    "before": 6,
+    "after": 6,
+    "missedSpawnResult": true
+  }
+]

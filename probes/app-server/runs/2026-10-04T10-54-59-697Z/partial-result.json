@@ -1,0 +1,635 @@
+{
+  "results": [
+    {
+      "name": "read_subscription_and_explicit_continue",
+      "status": "pass",
+      "evidence": {
+        "id": "01a1068d-83d8-78b2-8a73-96a2d7efcad0",
+        "held": "01a1068d-84b5-73c0-84cb-9779103e3940",
+        "loaded": {
+          "data": [
+            "01a1068d-83d8-78b2-8a73-96a2d7efcad0"
+          ],
+          "nextCursor": null
+        },
+        "read": {
+          "id": "01a1068d-83d8-78b2-8a73-96a2d7efcad0",
+          "environments": [
+            {
+              "environmentId": "local",
+              "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-54-59-697Z\\work",
+              "runtimeWorkspaceRoots": [
+                "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-54-59-697Z\\work"
+              ]
+            }
+          ],
+          "extra": null,
+          "sessionId": "01a1068d-83d8-78b2-8a73-96a2d7efcad0",
+          "forkedFromId": null,
+          "parentThreadId": null,
+          "preview": "PROBE: completed baseline",
+          "ephemeral": false,
+          "section": null,
+          "sectionEnteredAt": null,
+          "projectId": null,
+          "historyMode": "paginated",
+          "modelProvider": "agentdock_probe",
+          "model": "gpt-5.4",
+          "reasoningEffort": null,
+          "createdAt": 1791111300,
+          "updatedAt": 1791111300,
+          "recencyAt": 1791111300,
+          "status": {
+            "type": "active",
+            "activeFlags": []
+          },
+          "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-54-59-697Z\\codex-home\\sessions\\2026\\10\\04\\rollout-2026-10-04T19-55-00-01a1068d-83d8-78b2-8a73-96a2d7efcad0.jsonl",
+          "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-54-59-697Z\\work",
+          "cliVersion": "0.160.0",
+          "originator": "Codex Desktop",
+          "source": "vscode",
+          "canAcceptDirectInput": true,
+          "threadSource": null,
+          "agentNickname": null,
+          "agentRole": null,
+          "gitInfo": null,
+          "name": null,
+          "daybreakEnabled": null,
+          "turns": [
+            {
+              "id": "01a1068d-83e7-7da1-9b5b-4a431286acfb",
+              "items": [
+                {
+                  "type": "userMessage",
+                  "id": "01a1068d-8447-76e1-b949-48077931632b",
+                  "clientId": null,
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "PROBE: completed baseline",
+                      "text_elements": []
+                    }
+                  ]
+                },
+                {
+                  "type": "agentMessage",
+                  "id": "msg_1",
+                  "text": "PROBE_OK",
+                  "phase": null,
+                  "memoryCitation": null,
+                  "delivery": null,
+                  "questions": null
+                }
+              ],
+              "itemsView": "full",
+              "status": "completed",
+              "error": null,
+              "startedAt": 1791111300,
+              "completedAt": 1791111300,
+              "durationMs": 169
+            },
+            {
+              "id": "01a1068d-84b5-73c0-84cb-9779103e3940",
+              "items": [
+                {
+                  "type": "userMessage",
+                  "id": "01a1068d-84d6-7230-98b9-34ed714ad5bb",
+                  "clientId": null,
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "PROBE: subscription gap hold",
+                      "text_elements": []
+                    }
+                  ]
+                }
+              ],
+              "itemsView": "full",
+              "status": "inProgress",
+              "error": null,
+              "startedAt": 1791111300,
+              "completedAt": null,
+              "durationMs": null
+            }
+          ]
+        },
+        "unsubscribe": {
+          "id": 4,
+          "result": {
+            "status": "notSubscribed"
+          }
+        },
+        "before": 2,
+        "afterRead": 2,
+        "completed": {
+          "id": "01a1068d-83d8-78b2-8a73-96a2d7efcad0",
+          "environments": [
+            {
+              "environmentId": "local",
+              "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-54-59-697Z\\work",
+              "runtimeWorkspaceRoots": [
+                "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-54-59-697Z\\work"
+              ]
+            }
+          ],
+          "extra": null,
+          "sessionId": "01a1068d-83d8-78b2-8a73-96a2d7efcad0",
+          "forkedFromId": null,
+          "parentThreadId": null,
+          "preview": "PROBE: completed baseline",
+          "ephemeral": false,
+          "section": null,
+          "sectionEnteredAt": null,
+          "projectId": null,
+          "historyMode": "paginated",
+          "modelProvider": "agentdock_probe",
+          "model": "gpt-5.4",
+          "reasoningEffort": null,
+          "createdAt": 1791111300,
+          "updatedAt": 1791111300,
+          "recencyAt": 1791111300,
+          "status": {
+            "type": "idle"
+          },
+          "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-54-59-697Z\\codex-home\\sessions\\2026\\10\\04\\rollout-2026-10-04T19-55-00-01a1068d-83d8-78b2-8a73-96a2d7efcad0.jsonl",
+          "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-54-59-697Z\\work",
+          "cliVersion": "0.160.0",
+          "originator": "Codex Desktop",
+          "source": "vscode",
+          "canAcceptDirectInput": true,
+          "threadSource": null,
+          "agentNickname": null,
+          "agentRole": null,
+          "gitInfo": null,
+          "name": null,
+          "daybreakEnabled": null,
+          "turns": [
+            {
+              "id": "01a1068d-83e7-7da1-9b5b-4a431286acfb",
+              "items": [
+                {
+                  "type": "userMessage",
+                  "id": "01a1068d-8447-76e1-b949-48077931632b",
+                  "clientId": null,
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "PROBE: completed baseline",
+                      "text_elements": []
+                    }
+                  ]
+                },
+                {
+                  "type": "agentMessage",
+                  "id": "msg_1",
+                  "text": "PROBE_OK",
+                  "phase": null,
+                  "memoryCitation": null,
+                  "delivery": null,
+                  "questions": null
+                }
+              ],
+              "itemsView": "full",
+              "status": "completed",
+              "error": null,
+              "startedAt": 1791111300,
+              "completedAt": 1791111300,
+              "durationMs": 169
+            },
+            {
+              "id": "01a1068d-84b5-73c0-84cb-9779103e3940",
+              "items": [
+                {
+                  "type": "userMessage",
+                  "id": "01a1068d-84d6-7230-98b9-34ed714ad5bb",
+                  "clientId": null,
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "PROBE: subscription gap hold",
+                      "text_elements": []
+                    }
+                  ]
+                },
+                {
+                  "type": "agentMessage",
+                  "id": "msg_probe_response_2",
+                  "text": "PROBE_OK",
+                  "phase": null,
+                  "memoryCitation": null,
+                  "delivery": null,
+                  "questions": null
+                }
+              ],
+              "itemsView": "full",
+              "status": "completed",
+              "error": null,
+              "startedAt": 1791111300,
+              "completedAt": 1791111300,
+              "durationMs": 265
+            }
+          ]
+        },
+        "completionNotifications": [],
+        "continued": {
+          "id": 6,
+          "result": {
+            "turn": {
+              "id": "01a1068d-8799-7f82-b067-554a1b2e8d59",
+              "items": [],
+              "itemsView": "notLoaded",
+              "status": "inProgress",
+              "error": null,
+              "startedAt": null,
+              "completedAt": null,
+              "durationMs": null
+            }
+          }
+        },
+        "continuedRead": {
+          "id": "01a1068d-83d8-78b2-8a73-96a2d7efcad0",
+          "environments": [
+            {
+              "environmentId": "local",
+              "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-54-59-697Z\\work",
+              "runtimeWorkspaceRoots": [
+                "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-54-59-697Z\\work"
+              ]
+            }
+          ],
+          "extra": null,
+          "sessionId": "01a1068d-83d8-78b2-8a73-96a2d7efcad0",
+          "forkedFromId": null,
+          "parentThreadId": null,
+          "preview": "PROBE: completed baseline",
+          "ephemeral": false,
+          "section": null,
+          "sectionEnteredAt": null,
+          "projectId": null,
+          "historyMode": "paginated",
+          "modelProvider": "agentdock_probe",
+          "model": "gpt-5.4",
+          "reasoningEffort": null,
+          "createdAt": 1791111300,
+          "updatedAt": 1791111301,
+          "recencyAt": 1791111301,
+          "status": {
+            "type": "idle"
+          },
+          "path": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-54-59-697Z\\codex-home\\sessions\\2026\\10\\04\\rollout-2026-10-04T19-55-00-01a1068d-83d8-78b2-8a73-96a2d7efcad0.jsonl",
+          "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-54-59-697Z\\work",
+          "cliVersion": "0.160.0",
+          "originator": "Codex Desktop",
+          "source": "vscode",
+          "canAcceptDirectInput": true,
+          "threadSource": null,
+          "agentNickname": null,
+          "agentRole": null,
+          "gitInfo": null,
+          "name": null,
+          "daybreakEnabled": null,
+          "turns": [
+            {
+              "id": "01a1068d-83e7-7da1-9b5b-4a431286acfb",
+              "items": [
+                {
+                  "type": "userMessage",
+                  "id": "01a1068d-8447-76e1-b949-48077931632b",
+                  "clientId": null,
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "PROBE: completed baseline",
+                      "text_elements": []
+                    }
+                  ]
+                },
+                {
+                  "type": "agentMessage",
+                  "id": "msg_1",
+                  "text": "PROBE_OK",
+                  "phase": null,
+                  "memoryCitation": null,
+                  "delivery": null,
+                  "questions": null
+                }
+              ],
+              "itemsView": "full",
+              "status": "completed",
+              "error": null,
+              "startedAt": 1791111300,
+              "completedAt": 1791111300,
+              "durationMs": 169
+            },
+            {
+              "id": "01a1068d-84b5-73c0-84cb-9779103e3940",
+              "items": [
+                {
+                  "type": "userMessage",
+                  "id": "01a1068d-84d6-7230-98b9-34ed714ad5bb",
+                  "clientId": null,
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "PROBE: subscription gap hold",
+                      "text_elements": []
+                    }
+                  ]
+                },
+                {
+                  "type": "agentMessage",
+                  "id": "msg_probe_response_2",
+                  "text": "PROBE_OK",
+                  "phase": null,
+                  "memoryCitation": null,
+                  "delivery": null,
+                  "questions": null
+                }
+              ],
+              "itemsView": "full",
+              "status": "completed",
+              "error": null,
+              "startedAt": 1791111300,
+              "completedAt": 1791111300,
+              "durationMs": 265
+            },
+            {
+              "id": "01a1068d-8799-7f82-b067-554a1b2e8d59",
+              "items": [
+                {
+                  "type": "userMessage",
+                  "id": "01a1068d-87b9-7953-8ef1-4816f143f04c",
+                  "clientId": null,
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "PROBE: explicit continued input without resume",
+                      "text_elements": []
+                    }
+                  ]
+                },
+                {
+                  "type": "agentMessage",
+                  "id": "msg_3",
+                  "text": "PROBE_OK",
+                  "phase": null,
+                  "memoryCitation": null,
+                  "delivery": null,
+                  "questions": null
+                }
+              ],
+              "itemsView": "full",
+              "status": "completed",
+              "error": null,
+              "startedAt": 1791111301,
+              "completedAt": 1791111301,
+              "durationMs": 94
+            }
+          ]
+        },
+        "continueNotifications": [
+          {
+            "method": "thread/status/changed",
+            "params": {
+              "threadId": "01a1068d-83d8-78b2-8a73-96a2d7efcad0",
+              "status": {
+                "type": "active",
+                "activeFlags": []
+              }
+            },
+            "emittedAtMs": 1791111301031
+          },
+          {
+            "method": "thread/status/changed",
+            "params": {
+              "threadId": "01a1068d-83d8-78b2-8a73-96a2d7efcad0",
+              "status": {
+                "type": "idle"
+              }
+            },
+            "emittedAtMs": 1791111301122
+          }
+        ],
+        "afterContinueUnsubscribe": {
+          "id": 8,
+          "result": {
+            "status": "notSubscribed"
+          }
+        },
+        "scope": "Read and unsubscribe status distinguish subscription; explicit new input on still-loaded thread measured separately. No queued/cold resume or universal subscribe guarantee."
+      }
+    }
+  ],
+  "modelRequests": [
+    {
+      "observedAt": "2026-10-04T10:55:00.197Z",
+      "mode": "complete",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": false,
+      "skillV2Injected": false,
+      "skillTokenInputs": [
+        {
+          "index": 0,
+          "role": "developer",
+          "type": "message",
+          "shapeHash": "af725eee63f3574889f36ec8594dcd26d27a1a6695a20af3da07066bb26ec693",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 1,
+          "role": "user",
+          "type": "message",
+          "shapeHash": "97b3e5426ed4d8072902e7143204c40e143013a7ef28d216d55efa53fc699e83",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 2,
+          "role": "user",
+          "type": "message",
+          "shapeHash": "b6517bfe8a08a4b22d92c4ccece7696ebf5666f6c189a764e9e40a3844a174c4",
+          "v1Count": 0,
+          "v2Count": 0
+        }
+      ],
+      "fixtureMarker": "PROBE: completed baseline",
+      "fixtureSkillMentioned": false,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": false,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "observedAt": "2026-10-04T10:55:00.337Z",
+      "mode": "hold",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": false,
+      "skillV2Injected": false,
+      "skillTokenInputs": [
+        {
+          "index": 0,
+          "role": "developer",
+          "type": "message",
+          "shapeHash": "af725eee63f3574889f36ec8594dcd26d27a1a6695a20af3da07066bb26ec693",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 1,
+          "role": "user",
+          "type": "message",
+          "shapeHash": "97b3e5426ed4d8072902e7143204c40e143013a7ef28d216d55efa53fc699e83",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 2,
+          "role": "user",
+          "type": "message",
+          "shapeHash": "b6517bfe8a08a4b22d92c4ccece7696ebf5666f6c189a764e9e40a3844a174c4",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 3,
+          "role": "assistant",
+          "type": "message",
+          "shapeHash": "fe55c6d96c78822e2925d04f11e6560b1a62e4b2ad7e3a997ebe4a13678aa398",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 4,
+          "role": "user",
+          "type": "message",
+          "shapeHash": "5ff698dbe5a516aef12c7a2aebb3f48fa892a707518fb881637b7ff413bf13a6",
+          "v1Count": 0,
+          "v2Count": 0
+        }
+      ],
+      "fixtureMarker": "PROBE: subscription gap hold",
+      "fixtureSkillMentioned": false,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": false,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    },
+    {
+      "observedAt": "2026-10-04T10:55:01.071Z",
+      "mode": "complete",
+      "model": "gpt-5.4",
+      "serviceTier": null,
+      "skillBodyInjected": false,
+      "skillV2Injected": false,
+      "skillTokenInputs": [
+        {
+          "index": 0,
+          "role": "developer",
+          "type": "message",
+          "shapeHash": "af725eee63f3574889f36ec8594dcd26d27a1a6695a20af3da07066bb26ec693",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 1,
+          "role": "user",
+          "type": "message",
+          "shapeHash": "97b3e5426ed4d8072902e7143204c40e143013a7ef28d216d55efa53fc699e83",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 2,
+          "role": "user",
+          "type": "message",
+          "shapeHash": "b6517bfe8a08a4b22d92c4ccece7696ebf5666f6c189a764e9e40a3844a174c4",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 3,
+          "role": "assistant",
+          "type": "message",
+          "shapeHash": "fe55c6d96c78822e2925d04f11e6560b1a62e4b2ad7e3a997ebe4a13678aa398",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 4,
+          "role": "user",
+          "type": "message",
+          "shapeHash": "5ff698dbe5a516aef12c7a2aebb3f48fa892a707518fb881637b7ff413bf13a6",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 5,
+          "role": "assistant",
+          "type": "message",
+          "shapeHash": "51a46a2db12337a6dcb941b72636a2f1e5c172ac0f4f72bfa526d1870d37eda0",
+          "v1Count": 0,
+          "v2Count": 0
+        },
+        {
+          "index": 6,
+          "role": "user",
+          "type": "message",
+          "shapeHash": "d57b9566b640944833ef9d5c9a19f779683076a7f2aedf90d3ff14e00625237a",
+          "v1Count": 0,
+          "v2Count": 0
+        }
+      ],
+      "fixtureMarker": "PROBE: explicit continued input without resume",
+      "fixtureSkillMentioned": false,
+      "fixtureSkillInInstructions": false,
+      "fixtureSkillInLastDeveloper": false,
+      "fixtureToolOutputs": [],
+      "tools": [
+        "exec_command",
+        "write_stdin",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "request_user_input",
+        "view_image",
+        "multi_agent_v1",
+        "mcp__agentdock_fixture",
+        "get_goal",
+        "create_goal",
+        "update_goal",
+        "web_search"
+      ]
+    }
+  ]
+}

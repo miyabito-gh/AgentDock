@@ -1,0 +1,41 @@
+{
+  "method": "item/commandExecution/requestApproval",
+  "id": 1,
+  "params": {
+    "kind": "command",
+    "threadId": "01a10688-f2d8-7331-9739-fb727817e5b5",
+    "turnId": "01a10688-f305-7982-8393-9ecd67c24d5a",
+    "itemId": "call_3",
+    "startedAtMs": 1791111000940,
+    "environmentId": "local",
+    "reason": "Run only the authorized bounded ownership fixture.",
+    "command": "\"C:\\\\Users\\\\wmasa\\\\.cache\\\\codex-runtimes\\\\codex-primary-runtime\\\\dependencies\\\\native\\\\powershell\\\\pwsh.exe\" -NoProfile -Command \"& 'C:\\\\Program Files\\\\nodejs\\\\node.exe' 'C:\\\\Users\\\\wmasa\\\\Documents\\\\Rust\\\\AgentDock\\\\probes\\\\app-server\\\\runs\\\\2026-10-04T10-49-50-044Z\\\\work\\\\owned-tree.mjs'\"",
+    "cwd": "C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work",
+    "commandActions": [
+      {
+        "type": "unknown",
+        "command": "& 'C:\\Program Files\\nodejs\\node.exe' 'C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work\\owned-tree.mjs'"
+      }
+    ],
+    "proposedExecpolicyAmendment": [
+      "C:\\Users\\wmasa\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell\\pwsh.exe",
+      "-NoProfile",
+      "-Command",
+      "& 'C:\\Program Files\\nodejs\\node.exe' 'C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work\\owned-tree.mjs'"
+    ],
+    "availableDecisions": [
+      "accept",
+      {
+        "acceptWithExecpolicyAmendment": {
+          "execpolicy_amendment": [
+            "C:\\Users\\wmasa\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell\\pwsh.exe",
+            "-NoProfile",
+            "-Command",
+            "& 'C:\\Program Files\\nodejs\\node.exe' 'C:\\Users\\wmasa\\Documents\\Rust\\AgentDock\\probes\\app-server\\runs\\2026-10-04T10-49-50-044Z\\work\\owned-tree.mjs'"
+          ]
+        }
+      },
+      "cancel"
+    ]
+  }
+}
