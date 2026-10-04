@@ -1,7 +1,7 @@
 # AgentDock 要件定義書（統合版）
 
-版: 1.0-draft2（2026-10-05、他AI接続への備え（§2.3）を追加）
-状態: **草案**。ユーザーの承認後に実装・新モックの基準とする。承認までは`Agent_Monitor_Requirements.md`（v0.50）が正本。
+版: 1.0（2026-10-05 ユーザー承認。draft2: 他AI接続への備え（§2.3）を追加）
+状態: **正本**（2026-10-05承認）。実装・新モックの基準。`Agent_Monitor_Requirements.md`（v0.50まで）は経緯・証拠記録。
 元資料: `Agent_Monitor_Requirements.md` v0.50（第1〜52節）、`AgentDock_Responsibility_Technology_Review.md`、`AgentDock_App_Server_Assessment.md`、各Probeレビュー、`probes/app-server/schema/0.160.0/`。
 
 ## 0. この文書について
@@ -13,7 +13,7 @@ v0.50までの正本は調査・合意・検証の経緯を時系列に追記し
 - 新しい要件・合意を追加していない。各項目は元資料の節番号を`［§n］`で示す。元資料にない記述は「設計案」と明示する。
 - M（必須）・A（受入）・D（設計方針）・V（確認項目）・B（技術的な未解決境界）の既存IDを維持する。M22は既存の欠番。
 - 経緯・証拠・試行記録は元資料と各レビューに残す。本書は経緯を繰り返さない。
-- 承認後は本書を正本とし、`Agent_Monitor_Requirements.md`は「経緯・証拠記録」として保持する（削除しない）。
+- 2026-10-05の承認により本書が正本。`Agent_Monitor_Requirements.md`は「経緯・証拠記録」として保持する（削除しない）。以後の要件変更は本書を版更新する。
 
 ### 0.2 証拠区分
 

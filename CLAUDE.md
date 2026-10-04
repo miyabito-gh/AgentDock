@@ -18,7 +18,7 @@
 - 正式名称 **AgentDock**（エージェントドック）。旧仮称Agent Monitor。既存資料のファイル名（`Agent_Monitor_*`）は参照継続のため変更しない。
 - Windows向けの独立Codexクライアント。アプリ内でCodexの起動・チャット・承認・質問・中断・履歴を扱い、親エージェントと動的に生成された子・孫を監視する。VS Codeを実行時依存にしない。
 - 対象環境（ユーザー申告で確認済み、再質問しない）: **Windows 11**（Pro 10.0.26200）、Windows直接起動（PowerShell）、Codex CLI 0.160.0、VS Code Codex拡張26.917.62051。
-- 技術方針: ローカルCodex App Serverを第一候補（最終採用は保留）。App Server＋限定CLI補助＋AgentDock側管理が比較の中心。通信はstdio優先評価。UIは**Tauri 2＋React＋TypeScript**（正本第52節で合意）。
+- 技術方針: ローカルCodex App Serverを第一候補（最終採用は保留）。App Server＋限定CLI補助＋AgentDock側管理が比較の中心。通信はstdio優先評価。UIは**Tauri 2＋React＋TypeScript**（合意A4、正本§1.2）。
 - 実装前方針（第52節）: codex.exeは設定でパス指定／既存CODEX_HOMEを共有し、config.tomlはユーザー明示操作時のみ変更して前後照合／段階①ホスト・会話・承認・中断・履歴＋三領域画面＋子孫監視→②トレイ・通知・キュー・添付→③18操作／未解決制約（B01〜B03）は未確認表示で着手／既存モックは直さず、要件修正後に新モックを作ってから実装。A1は個人利用（配布・署名・自動更新は初期範囲外）。
 - 将来の他AI接続（第一候補Claude Code、チャットごとに選択）に備え、ホストにAIバックエンド境界を置く。Codex固有の型（thread/turn等）をUI・保存形式へ直接持ち込まない（統合版草案§2.3）。
 - このフォルダ（`AgentDock_claude`）はClaude引継ぎ用のコピー。元は`..\AgentDock`。2026-10-05にgit init済み（`core.autocrlf=false`、検証runsのcodex-home/work/marketplaceは.gitignore）。
@@ -40,11 +40,11 @@
 
 ## 資料と読む順序
 
-最新状況は正本v0.49・第51節、`AgentDock_Idle_Stop_Plugin_Followup_Review.md`、`probes/app-server/batch-result.json`を優先する。
+要件は`AgentDock_Requirements.md`（正本1.0）を基準にする。技術証拠の最新は旧正本第51〜52節、`AgentDock_Idle_Stop_Plugin_Followup_Review.md`、`probes/app-server/batch-result.json`。
 
-0. `AgentDock_Requirements.md` — **統合版要件の草案**（1.0-draft1）。承認後はこれが正本になり、`Agent_Monitor_Requirements.md`は経緯・証拠記録になる。承認前は参照用
+0. `AgentDock_Requirements.md` — **要件正本**（1.0、2026-10-05承認）。要件変更はこのファイルを版更新する
 1. `Agent_Monitor_Handoff.md` — 引継ぎ要約と版ごとの経緯
-2. `Agent_Monitor_Requirements.md` — **要件正本**（v0.49、約170KB）。M/A/V/D番号の索引
+2. `Agent_Monitor_Requirements.md` — 経緯・証拠記録（v0.50まで、約170KB）。M/A/V/D番号の出典
 3. `Agent_Monitor_Mock_Review.md` — 過去のモックレビュー記録
 4. `Agent_Monitor_Mock.html` — 最新操作モック（表示名AgentDock）。製品実装・技術検証の証拠ではない
 5. `AgentDock_Probe_Recovery_Review.md`
@@ -67,11 +67,11 @@
 
 - ユーザーに実行してもらうコマンドはWindows 11のPowerShell用に書き、`powershell`タグのコードブロックで示す。
 
-- 事実（公式文書／公開実装／対象版実測）・推測／設計仮説・未確認・合意済みを必ず区別する（正本第2節）。
+- 事実（公式文書／公開実装／対象版実測）・推測／設計仮説・未確認・合意済みを必ず区別する（正本§0.2）。
 - 現在の公開文書と、対象版（0.160.0）の固定ソース・実測を区別する。
 - 測定手順のpassを製品受入合格・全suite合格と扱わない。初回・不成立・証拠不足の試行も削除・改変せず保持し、不採用理由は`evidence-assessment.json`等で併記する。
 - 資料がない事項は推測で埋めず報告する。
-- 正本を更新するときは版番号（冒頭「版:」）を上げて新しい節を追加し、`Agent_Monitor_Handoff.md`冒頭の最新版要約、関連レビュー（Assessment／Responsibility）の該当節、必要なら`AgentDock_Start.md`も合わせて更新する。旧節の「最新」表記は当時の記録として残す。
+- 正本`AgentDock_Requirements.md`を更新するときは版番号（冒頭「版:」）を上げ、該当領域の節を直接書き換える（経緯は書かない）。新しい合意・検証結果の経緯は旧正本やレビュー資料へ記録し、`Agent_Monitor_Handoff.md`冒頭の最新版要約、関連レビュー（Assessment／Responsibility）の該当節、必要なら`AgentDock_Start.md`も合わせて更新する。旧節の「最新」表記は当時の記録として残す。
 
 ## 検証モジュール（probes/app-server）
 
@@ -90,13 +90,12 @@ node probes/app-server/summarize-batch.mjs
 - `batch-result.json`は選択試行の統合（全suite合格ではない）。`latest-*.json`は最後のrunのみ。
 - `source-cache/`・`source-followup/`は対象タグ（rust-v0.160.0）のソース取得記録。
 
-## 次の作業候補（正本第51〜52節・Handoffより）
+## 次の作業候補（正本§9〜10・Handoffより）
 
-- 直近: 統合版要件草案`AgentDock_Requirements.md`のユーザー確認・承認 → 新モック作成（同書§10が入力）・確認 → 実装依頼後に段階①から実装。
+- 直近: 新モック`AgentDock_Mock.html`の作成（正本§10が入力、frontend-designスキルの手順）・ユーザー確認 → 実装依頼後に段階①から実装。旧`Agent_Monitor_Mock.html`は変更しない。
 - B1〜B4は許可済み。schema生成（`probes/app-server/schema/0.160.0/`、methods-*.txtにメソッド一覧）とgit initは完了。B1の`probes/app-server/live-smoke.mjs`は自動許可判定で拒否されたので、ユーザーが実行して`latest-live-result.json`を渡してもらう。B4（実sleep）は本人操作で後日。
 
 - B01: 実Windows sleep（本人操作）と安全な購読専用経路、30分超sleep、保存途中・異常終了、100agent／2秒。
 - B02: 任意構成・PID再利用・detach・遅延生成を含む停止対象の所有照合。
 - B03: Plugins更新途中の失敗、暗黙Skill、進行中ツール取消、非同期Hook、Apps/OAuth。
-- モックと正本の整合（例: 終了済み表示規則。正本は選択会話で完了も表示、モックはチェックで切替）。モックで要件を上書きしない。
 - 第30.5節の実装開始条件の充足状況整理 → ユーザーへの一括確認 → 実装依頼を受けてから実装。
