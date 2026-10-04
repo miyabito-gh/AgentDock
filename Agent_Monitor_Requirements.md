@@ -1359,6 +1359,7 @@ Claude Codeへの引継ぎ後、実装前の確認事項A1〜A7を一括提示�
 |A6|未解決技術制約下での着手|合意: 着手する。B01はread補完＋live未復旧表示、B02は停止未確認として保留、B03はCLI補助。公開経路未確認の同等性操作（side・クラウド委任・worktree・personality・安全な変更復元等）は台帳どおり未確認表示とし、後段で照合|
 |A7|モック|合意: 既存Agent_Monitor_Mock.htmlは修正しない。実装開始前に、要件修正を反映した新しいモックを再作成し確認する|
 
+- 対象OSはWindows 11（ユーザー申告2026-10-05、実PCはWindows 11 Pro 10.0.26200）。以前の「Windows」表記はWindows 11として読む。Windows 10対応は合意していない。
 - 実PCのPATH上のcodexは`%LOCALAPPDATA%\Programs\OpenAI\Codex\bin\codex.exe`（codex-cli 0.160.0、単体インストール）と2026-10-05に確認（V01の導入経路の一部）。拡張26.930.31730同梱exeとSHA-256が一致（fdda5fa3…6d1d）し、これまでの検証exeと同一ビルド。
 - 方式の再確認（2026-10-05、公式文書をブラウザで確認）: 本書の方式CはApp Server（`codex app-server`の独自JSON-RPC）であり、削除済みの`codex mcp-server`には依存しない。[移行案内](https://learn.chatgpt.com/docs/mcp-server)は認証・会話履歴・承認・逐次イベントが必要な連携にApp Serverを指定し、MCP互換ではないと説明する。[Codex SDK](https://learn.chatgpt.com/docs/codex-sdk)はCI等の自動化向けにSDK、独自クライアントにApp Serverを推奨。TypeScript SDKはthread開始・継続・再開。Python SDKはApp ServerをJSON-RPCで操作し「stable release」で、固定版CLIを同梱する。SDKの安定版表記をApp Serverプロトコルの本番サポートとは扱わない（事実・公式文書。対象版での確認は未実施）。
 - 次の作業: 要件の修正（第30.5節①〜④の整理を含む）→ 新モック作成・確認 → 実装依頼後に段階①から実装。App Server最終採用は機能充足の確認後に判断する。

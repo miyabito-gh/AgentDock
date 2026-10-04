@@ -17,7 +17,7 @@
 
 - 正式名称 **AgentDock**（エージェントドック）。旧仮称Agent Monitor。既存資料のファイル名（`Agent_Monitor_*`）は参照継続のため変更しない。
 - Windows向けの独立Codexクライアント。アプリ内でCodexの起動・チャット・承認・質問・中断・履歴を扱い、親エージェントと動的に生成された子・孫を監視する。VS Codeを実行時依存にしない。
-- 対象環境（ユーザー申告で確認済み、再質問しない）: Windows直接起動（PowerShell）、Codex CLI 0.160.0、VS Code Codex拡張26.917.62051。
+- 対象環境（ユーザー申告で確認済み、再質問しない）: **Windows 11**（Pro 10.0.26200）、Windows直接起動（PowerShell）、Codex CLI 0.160.0、VS Code Codex拡張26.917.62051。
 - 技術方針: ローカルCodex App Serverを第一候補（最終採用は保留）。App Server＋限定CLI補助＋AgentDock側管理が比較の中心。通信はstdio優先評価。UIは**Tauri 2＋React＋TypeScript**（正本第52節で合意）。
 - 実装前方針（第52節）: codex.exeは設定でパス指定／既存CODEX_HOMEを共有し、config.tomlはユーザー明示操作時のみ変更して前後照合／段階①ホスト・会話・承認・中断・履歴＋三領域画面＋子孫監視→②トレイ・通知・キュー・添付→③18操作／未解決制約（B01〜B03）は未確認表示で着手／既存モックは直さず、要件修正後に新モックを作ってから実装。A1は個人利用（配布・署名・自動更新は初期範囲外）。
 - このフォルダ（`AgentDock_claude`）はClaude引継ぎ用のコピー。元は`..\AgentDock`。2026-10-05にgit init済み（`core.autocrlf=false`、検証runsのcodex-home/work/marketplaceは.gitignore）。
@@ -62,6 +62,8 @@
 - ユーザーは確認事項を「全項目選択式で一括回答」「ある程度まとめて確認して報告」する進め方を希望している。細目ごとに報告しない。
 
 ## 記述の作法
+
+- ユーザーに実行してもらうコマンドはWindows 11のPowerShell用に書き、`powershell`タグのコードブロックで示す。
 
 - 事実（公式文書／公開実装／対象版実測）・推測／設計仮説・未確認・合意済みを必ず区別する（正本第2節）。
 - 現在の公開文書と、対象版（0.160.0）の固定ソース・実測を区別する。
