@@ -92,7 +92,7 @@ node probes/app-server/summarize-batch.mjs
 
 ## 次の作業候補（正本§9〜10・Handoffより）
 
-- 直近: 新モック`AgentDock_Mock.html`の作成（正本§10が入力、frontend-designスキルの手順）・ユーザー確認 → 実装依頼後に段階①から実装。旧`Agent_Monitor_Mock.html`は変更しない。
+- 直近: 新モック`AgentDock_Mock.html`（初版作成済み、正本§10が入力、frontend-designスキルの手順）のユーザー確認・修正 → 実装依頼後に段階①から実装。旧`Agent_Monitor_Mock.html`は変更しない。
 - B1〜B4は許可済み。schema生成（`probes/app-server/schema/0.160.0/`、methods-*.txtにメソッド一覧）とgit initは完了。B1の`probes/app-server/live-smoke.mjs`は自動許可判定で拒否されたので、ユーザーが実行して`latest-live-result.json`を渡してもらう。B4（実sleep）は本人操作で後日。
 
 - B01: 実Windows sleep（本人操作）と安全な購読専用経路、30分超sleep、保存途中・異常終了、100agent／2秒。

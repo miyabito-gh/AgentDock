@@ -6,6 +6,8 @@
 
 **正本切替（2026-10-05）: [AgentDock_Requirements.md](AgentDock_Requirements.md) 1.0をユーザーが承認し正本とした。Agent_Monitor_Requirements.md（v0.50まで）は経緯・証拠記録。次は新モック（同書§10が入力、ファイルはAgentDock_Mock.html）。**
 
+新モック初版（2026-10-05）: [AgentDock_Mock.html](AgentDock_Mock.html)。frontend-designの手順で作成（HTML先頭コメントにデザイン計画）。三領域＋文字メニュー、右は係留線でつないだ「ドック」と信号旗の状態表示。正本§10の画面状態12種を左下（狭幅は上部）の「モックの状態」で切替。ブラウザで1280px・390pxを確認、全シナリオ・ダイアログでエラーと横はみ出しなし。外部通信なし、データは例。ユーザー確認待ち。旧Agent_Monitor_Mock.htmlは無変更。
+
 統合版草案の経緯: 1.0-draft2。draft2で将来の他AI接続（Claude Code、チャットごとに選択、初期はCodexのみ実装しバックエンド境界で備える）を§2.3に追加。v0.50までの有効な要件を機能領域ごとに再構成し、schema（安定／experimental）の根拠と新モックへの入力を追加。ユーザー承認後に正本へ切替え、本書群は経緯・証拠記録として保持する。承認までは下記v0.50が正本。
 
 最新v0.50（2026-10-05、Claude Code引継ぎ）: 正本第52節。実装前方針A1〜A7に回答。A2 codex.exeは設定でパス指定、A3 既存CODEX_HOME共有（config.toml変更は明示操作時のみ）、A4 Tauri 2＋React＋TypeScript、A5 段階①ホスト・会話・履歴・三領域・子孫監視→②トレイ・通知・キュー・添付→③18操作、A6 未解決制約下で着手、A7 既存モックは修正せず要件修正後に新モックを再作成してから実装。A1は個人利用（公式変更履歴2026-09-05「app-serverはexperimental・本番ワークロード非サポート」を互換性リスクとして受容）。B1〜B4許可済み: schema生成済み（probes/app-server/schema/0.160.0）、git init済み、単体版codex.exeは検証exeと同一ハッシュ。B1実認証スモーク（live-smoke.mjs）は自動許可判定で拒否され未実行、ユーザー実行待ち。次は要件修正→新モック。

@@ -1,0 +1,884 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AgentDock モック</title>
+<!--
+AgentDock 操作モック（正本 AgentDock_Requirements.md 1.0 §10 を入力に作成、2026-10-05）
+製品実装・Codex接続・技術成立の証拠ではない。データは例で、再読込みで初期化される。外部通信なし。
+
+デザイン計画（frontend-design の手順）
+  題材: Windows 11 上で Codex を使う個人用クライアント。主作業は会話、常時の関心は「どのエージェントが今どうなっているか」。
+  色:   paper #F3F5F4 / surface #FFFFFF / rail #E7ECEB / ink #1B2A31 / harbor #1E4D6B（主色）
+        状態は信号旗の考え方で色＋文字＋形を併用: 実行中 #2462A8 / 対応待ち #E2B12F（文字は濃色）/ 失敗 #B3261E /
+        中断 #6E56A0 / 完了 #5E6E75 / 不明 斜線
+  書体: BIZ UDPGothic（Windows標準のUD書体。小さい文字の判読性）、ID・パス・コードのみ Cascadia Mono
+  配置: 合意済みの三領域（左 履歴／中央 会話／右 ドック）＋文字だけの上部メニュー。ボタン28px・送信32px・アイコン14px。
+  方針: 大胆さは右の「ドック」1か所に集める。エージェントは係留線（親子線）でつながった停泊札として並び、
+        状態は小さな信号旗で示す。他の領域は静かに保つ。
+  見直し: 当初案「全面カード＋同じ影」はSaaSカードの既定に寄るため、カードは監視の停泊札だけにし、影は使わず
+        左の状態帯と係留線で階層を示す形に変更。全大文字の見出し・中黒つなぎ・ボタンの「→」は使わない。
+-->
+<style>
+:root{
+  --paper:#F3F5F4; --surface:#FFFFFF; --rail:#E7ECEB; --ink:#1B2A31; --ink2:#4C5E66; --ink3:#73848B;
+  --line:#D3DBDA; --line2:#E3E9E8; --harbor:#1E4D6B; --harbor-ink:#FFFFFF; --harbor-weak:#E2ECF2;
+  --run:#2462A8; --run-bg:#E6EEF8; --wait:#E2B12F; --wait-ink:#5B4300; --wait-bg:#FFF6DA;
+  --fail:#B3261E; --fail-bg:#FBEAE8; --int:#6E56A0; --int-bg:#EFEBF6; --done:#5E6E75; --done-bg:#EEF1F1;
+  --unk:#8A979C; --stale:#9A6A00;
+  --r-s:4px; --r-m:7px; --r-l:10px;
+  --font:"BIZ UDPGothic","Yu Gothic UI","Meiryo",system-ui,sans-serif;
+  --mono:"Cascadia Mono","Consolas",monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{font:13px/1.6 var(--font);color:var(--ink);background:#C9D3D2;}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer;border:1px solid transparent;background:transparent;border-radius:var(--r-s);height:28px;padding:0 9px;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+button:hover{background:var(--harbor-weak)}
+button:disabled{opacity:.45;cursor:not-allowed;background:transparent}
+:focus-visible{outline:2px solid var(--run);outline-offset:2px}
+.btn-line{border-color:var(--line);background:var(--surface)}
+.btn-line:hover{border-color:#B9C5C4;background:var(--surface)}
+.btn-main{background:var(--harbor);color:var(--harbor-ink)}
+.btn-main:hover{background:#163C55}
+.btn-danger{border-color:#E3B9B5;color:var(--fail);background:var(--surface)}
+.btn-danger:hover{background:var(--fail-bg)}
+svg.i{width:14px;height:14px;flex:none;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+input[type=text],input[type=search],select,textarea{border:1px solid var(--line);border-radius:var(--r-s);background:var(--surface);padding:4px 8px}
+input[type=text],input[type=search],select{height:28px}
+label{display:inline-flex;align-items:center;gap:6px}
+.mono{font-family:var(--mono);font-size:12px}
+.muted{color:var(--ink3)}
+.small{font-size:11.5px}
+[hidden]{display:none!important}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+/* window frame */
+.window{position:fixed;inset:16px;display:flex;flex-direction:column;background:var(--paper);border:1px solid #9FB0AF;border-radius:var(--r-l);overflow:hidden}
+.titlebar{height:34px;display:flex;align-items:center;gap:10px;padding-left:12px;background:var(--surface);border-bottom:1px solid var(--line2);-webkit-user-select:none;user-select:none}
+.app-mark{width:16px;height:16px;border-radius:3px;background:var(--harbor);position:relative;flex:none}
+.app-mark:after{content:"";position:absolute;left:3px;right:3px;bottom:3px;height:3px;background:#fff;border-radius:1px}
+.titlebar .title{font-weight:700}
+.mock-tag{font-size:11px;color:var(--ink3);border:1px dashed var(--line);border-radius:var(--r-s);padding:0 6px}
+.titlebar .grow{flex:1}
+.winbtn{width:46px;height:34px;border-radius:0;justify-content:center;padding:0}
+.winbtn:hover{background:var(--rail)}
+.winbtn.close:hover{background:#C42B1C;color:#fff}
+.menubar{display:flex;gap:2px;padding:2px 8px;background:var(--surface);border-bottom:1px solid var(--line)}
+.menu{position:relative}
+.menu > button{height:26px}
+.menu > button[aria-expanded=true]{background:var(--harbor-weak)}
+.dropdown{position:absolute;left:0;top:28px;z-index:30;min-width:250px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);padding:4px;box-shadow:0 8px 24px rgba(27,42,49,.14)}
+.dropdown button{width:100%;justify-content:space-between;height:30px}
+.dropdown .kbd{color:var(--ink3);font-size:11px}
+.dropdown hr{border:0;border-top:1px solid var(--line2);margin:4px 2px}
+.tag{font-size:10.5px;line-height:16px;padding:0 5px;border-radius:3px;border:1px solid var(--line);color:var(--ink2);background:var(--paper)}
+.tag.unv{border-color:#E4CF92;background:var(--wait-bg);color:var(--wait-ink)}
+.tag.ai{border-color:#B9CDDA;background:var(--harbor-weak);color:var(--harbor)}
+
+/* global banner */
+.gbanner{display:flex;align-items:center;gap:10px;padding:6px 12px;border-bottom:1px solid;font-size:12.5px}
+.gbanner.warn{background:var(--wait-bg);border-color:#EBD596;color:var(--wait-ink)}
+.gbanner.err{background:var(--fail-bg);border-color:#EBC2BE;color:#7A1A14}
+.gbanner .grow{flex:1;min-width:0}
+
+/* layout */
+.body{flex:1;display:grid;grid-template-columns:var(--lw,232px) minmax(0,1fr) var(--rw,300px);min-height:0}
+.body.l-off{--lw:0px}.body.r-off{--rw:0px}
+.left,.right{min-height:0;overflow:hidden}
+.left{background:var(--rail);border-right:1px solid var(--line);display:flex;flex-direction:column}
+.right{background:var(--surface);border-left:1px solid var(--line);display:flex;flex-direction:column}
+.l-off .left,.r-off .right{display:none}
+.left{grid-column:1}.center{grid-column:2}.right{grid-column:3}
+.center{min-width:0;display:flex;flex-direction:column;min-height:0;background:var(--surface)}
+
+/* left list */
+.left-top{padding:10px;display:flex;flex-direction:column;gap:8px;border-bottom:1px solid var(--line)}
+.left-top .btn-line{justify-content:flex-start}
+.left-scroll{overflow:auto;flex:1;padding:6px 6px 12px}
+.list-h{font-size:11.5px;color:var(--ink3);margin:10px 6px 4px;display:flex;justify-content:space-between}
+.row-chat{width:100%;height:auto;min-height:44px;display:grid;grid-template-columns:1fr auto;align-items:center;text-align:left;padding:6px 8px;border-radius:var(--r-m);gap:2px 6px}
+.row-chat:hover{background:#DCE4E3}
+.row-chat.sel{background:var(--surface);border-color:var(--line)}
+.row-chat .nm{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row-chat .sub{grid-column:1/-1;font-size:11.5px;color:var(--ink2);display:flex;gap:6px;align-items:center;overflow:hidden;white-space:nowrap}
+.marks{display:flex;gap:4px}
+.mark{font-size:10.5px;line-height:16px;padding:0 5px;border-radius:3px;font-weight:700}
+.mark.wait{background:var(--wait);color:#3A2B00}
+.mark.fail{background:var(--fail);color:#fff}
+.mark.hold{background:var(--int);color:#fff}
+.left-foot{border-top:1px solid var(--line);padding:6px 10px;font-size:11.5px;color:var(--ink2);display:flex;justify-content:space-between}
+
+/* center */
+.chead{display:flex;align-items:center;gap:10px;padding:8px 16px;border-bottom:1px solid var(--line2);min-height:48px}
+.chead .ttl{font-size:15px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chead .meta{display:flex;gap:8px;align-items:center;color:var(--ink2);font-size:11.5px;flex-wrap:wrap;min-width:0}
+.chead .meta .mono{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%;min-width:0}
+.chead .grow{flex:1;min-width:0}
+.fresh{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;padding:0 6px;border-radius:3px;line-height:18px}
+.fresh:before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
+.fresh.live{color:#1F6B45;background:#E5F3EB}
+.fresh.stale{color:var(--stale);background:var(--wait-bg)}
+.fresh.stale:before{background:transparent;border:1.5px dashed currentColor}
+.fresh.check{color:var(--wait-ink);background:var(--wait-bg)}
+.fresh.off{color:var(--fail);background:var(--fail-bg)}
+.goal{display:flex;gap:8px;align-items:center;padding:5px 16px;border-bottom:1px solid var(--line2);background:#F7F9F8;font-size:12px}
+.goal b{color:var(--harbor)}
+.cbanner{margin:10px 16px 0;border:1px solid;border-radius:var(--r-m);padding:10px 12px;font-size:12.5px}
+.cbanner h4{margin:0 0 4px;font-size:13px}
+.cbanner.warn{background:var(--wait-bg);border-color:#EBD596}
+.cbanner.err{background:var(--fail-bg);border-color:#EBC2BE}
+.cbanner.info{background:var(--harbor-weak);border-color:#C3D5E1}
+.cbanner .acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.targets{margin:6px 0 0;padding:0;list-style:none;display:grid;gap:3px}
+.targets li{display:grid;grid-template-columns:150px 1fr;gap:8px}
+.msgs{flex:1;overflow:auto;padding:16px 16px 8px}
+.msg{max-width:760px;margin:0 auto 16px}
+.msg .who{font-size:11.5px;color:var(--ink3);margin-bottom:3px;display:flex;gap:8px}
+.msg.user .bubble{background:var(--paper);border:1px solid var(--line2);border-radius:var(--r-l);padding:8px 12px;margin-left:60px}
+.msg.ai .bubble p{margin:0 0 8px}
+.msg pre{background:#F6F8F8;border:1px solid var(--line2);border-radius:var(--r-s);padding:8px 10px;overflow:auto;font:12px/1.5 var(--mono);margin:6px 0}
+.msg .acts{display:flex;gap:2px;margin-top:2px;color:var(--ink3)}
+.msg .acts button{height:24px;font-size:11.5px}
+.activity{font-size:12px;color:var(--ink2);border-left:2px solid var(--line);padding:2px 0 2px 10px;margin:6px 0}
+.activity summary{cursor:pointer}
+.files{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.file{display:inline-flex;gap:6px;align-items:center;border:1px solid var(--line);border-radius:var(--r-s);padding:2px 4px 2px 8px;font-size:12px;background:var(--surface)}
+.file.missing{border-style:dashed;color:var(--ink3)}
+.req{max-width:760px;margin:0 auto 16px;border:1px solid #EBD596;background:var(--wait-bg);border-radius:var(--r-m);padding:10px 12px}
+.req .h{display:flex;gap:8px;align-items:center;font-weight:700;color:var(--wait-ink)}
+.req .t{margin:6px 0;font-size:12.5px}
+.req code{display:block;background:#FFFDF4;border:1px solid #EFE2B6;border-radius:var(--r-s);padding:6px 8px;font:12px/1.5 var(--mono);overflow-wrap:anywhere}
+.req .opts{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.req .scope{font-size:11.5px;color:var(--wait-ink);margin-top:6px}
+
+/* composer */
+.queue{max-width:792px;width:100%;margin:0 auto;padding:0 16px}
+.queue details{border:1px solid var(--line);border-radius:var(--r-m);margin-bottom:6px;background:#FAFBFB}
+.queue summary{cursor:pointer;padding:5px 10px;font-size:12px;display:flex;gap:8px;align-items:center}
+.queue summary::-webkit-details-marker{display:none}
+.qitem{display:grid;grid-template-columns:22px 1fr auto;gap:8px;align-items:center;padding:5px 10px;border-top:1px solid var(--line2);font-size:12px}
+.qitem .why{font-size:11.5px;color:var(--wait-ink)}
+.qitem .why.err{color:var(--fail)}
+.qnum{font-family:var(--mono);color:var(--ink3)}
+.composer{max-width:792px;width:100%;margin:0 auto;padding:4px 16px 12px}
+.shell{border:1px solid #BCC8C7;border-radius:var(--r-l);background:var(--surface);padding:6px 8px}
+.shell:focus-within{border-color:var(--harbor)}
+.shell.locked{background:#F6F7F7}
+.chips{display:flex;flex-wrap:wrap;gap:6px;padding:2px 0 4px}
+.chip{display:inline-flex;flex-wrap:wrap;align-items:center;gap:2px 6px;border:1px solid var(--line);border-radius:var(--r-s);padding:1px 2px 1px 6px;font-size:11.5px;background:var(--paper);max-width:100%}
+.chip .st{color:var(--ink3)}
+.chip.bad{border-color:#EBC2BE;background:var(--fail-bg)}
+.chip.bad .st{color:var(--fail)}
+.chip button{height:20px;padding:0 4px}
+.thumb{width:22px;height:22px;border-radius:3px;background:linear-gradient(135deg,#9FC2D8,#476E86);flex:none}
+textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;padding:4px;outline:none;background:transparent;line-height:1.6}
+.ctrl{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
+.ctrl .grow{flex:1}
+.ctrl select{border:0;background:transparent;height:26px;padding:0 4px;font-size:12px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:var(--r-s);overflow:hidden}
+.seg button{border-radius:0;height:24px;font-size:11.5px}
+.seg button[aria-pressed=true]{background:var(--harbor);color:#fff}
+.send{width:32px;height:32px;justify-content:center;padding:0;border-radius:var(--r-m)}
+.send svg.i{width:17px;height:17px}
+.hint{font-size:11.5px;color:var(--ink3);margin-top:4px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.lockmsg{font-size:12px;color:var(--fail);padding:4px}
+
+/* right dock */
+.dock-top{padding:8px 10px;border-bottom:1px solid var(--line2);display:flex;flex-direction:column;gap:6px}
+.dock-top .seg{align-self:flex-start}
+.dock-scroll{flex:1;overflow:auto;padding:8px 10px 14px}
+.root-h{display:flex;align-items:center;gap:6px;margin:10px 0 4px;font-size:12px;font-weight:700}
+.root-h button{height:22px;font-size:11.5px;font-weight:400}
+.tree{list-style:none;margin:0;padding:0}
+.tree .tree{margin-left:13px;padding-left:12px;border-left:1.5px solid #B8C6C5}
+.tree li{position:relative}
+.tree .tree > li:before{content:"";position:absolute;left:-12px;top:19px;width:11px;border-top:1.5px solid #B8C6C5}
+.tree .tree > li:last-child:after{content:"";position:absolute;left:-13.5px;top:20px;bottom:0;border-left:3px solid var(--surface)}
+.berth{border:1px solid var(--line);border-left:4px solid var(--done);border-radius:var(--r-s);padding:5px 8px;margin:4px 0;background:var(--surface)}
+.berth.run{border-left-color:var(--run)} .berth.wait{border-left-color:var(--wait);background:#FFFCF1}
+.berth.fail{border-left-color:var(--fail);background:#FFF8F7} .berth.int{border-left-color:var(--int)}
+.berth.unk{border-left-color:var(--unk);border-left-style:dashed}
+.berth.stale{border-style:dashed}
+.berth .l1{display:flex;align-items:center;gap:6px}
+.berth .nm{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.berth .rel{font-size:10.5px;color:var(--ink3)}
+.berth .l2{font-size:11.5px;color:var(--ink2);margin-top:1px}
+.berth .l3{font-size:11.5px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.berth .l4{font-size:10.5px;color:var(--ink3);display:flex;gap:8px;margin-top:1px}
+.berth .acts{display:flex;gap:4px;margin-top:4px}
+.berth .acts button{height:24px;font-size:11.5px}
+.st{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;margin-left:auto;white-space:nowrap}
+.st svg{width:11px;height:11px}
+.st.run{color:var(--run)} .st.wait{color:var(--wait-ink)} .st.fail{color:var(--fail)} .st.int{color:var(--int)}
+.st.done{color:var(--done)} .st.unk{color:var(--unk)} .st.idle{color:var(--ink2)}
+.flag{fill:currentColor;stroke:none}
+.flag.unk{fill:url(#hatch)}
+.empty-note{font-size:12px;color:var(--ink3);padding:14px 4px;text-align:center}
+.dock-foot{border-top:1px solid var(--line2);padding:6px 10px;font-size:11px;color:var(--ink3)}
+
+/* overlays */
+.scrim{position:fixed;inset:0;background:rgba(20,32,38,.32);z-index:40;display:flex;align-items:center;justify-content:center;padding:16px}
+.dialog{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);width:min(620px,100%);max-height:calc(100vh - 32px);display:flex;flex-direction:column;box-shadow:0 16px 48px rgba(20,32,38,.25)}
+.dialog.wide{width:min(860px,100%)}
+.dialog header{display:flex;align-items:center;padding:10px 14px;border-bottom:1px solid var(--line2)}
+.dialog header h3{margin:0;font-size:14px;flex:1}
+.dialog .content{padding:12px 14px;overflow:auto}
+.dialog footer{display:flex;justify-content:flex-end;gap:6px;padding:10px 14px;border-top:1px solid var(--line2)}
+.dialog p{margin:0 0 8px}
+.field{display:grid;grid-template-columns:150px 1fr;gap:6px 12px;align-items:center;margin-bottom:10px}
+.field .note{grid-column:2;font-size:11.5px;color:var(--ink3)}
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line2);padding:0 10px;overflow-x:auto;flex:none}
+.tabs button{border-radius:0;height:32px;border-bottom:2px solid transparent}
+.tabs button[aria-selected=true]{border-bottom-color:var(--harbor);font-weight:700}
+.diff{display:grid;grid-template-columns:200px 1fr;gap:10px}
+.diff pre{margin:0;font:12px/1.55 var(--mono);background:#F7F9F9;border:1px solid var(--line2);border-radius:var(--r-s);padding:6px 0;overflow:auto}
+.diff pre span{display:block;padding:0 10px}
+.diff .add{background:#E6F4EA}.diff .del{background:#FCE9E7}
+.check-list{margin:6px 0;padding-left:18px}
+.toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:var(--ink);color:#fff;border-radius:var(--r-m);padding:8px 14px;z-index:60;font-size:12.5px;max-width:calc(100% - 32px)}
+
+/* compact monitor window */
+.mini{position:fixed;right:34px;bottom:34px;width:300px;max-height:420px;background:var(--surface);border:1px solid #9FB0AF;border-radius:var(--r-m);z-index:35;display:flex;flex-direction:column;box-shadow:0 10px 30px rgba(20,32,38,.22)}
+.mini .titlebar{height:30px;gap:6px;padding-left:8px}
+.mini .titlebar .title,.mini .titlebar label{white-space:nowrap;font-size:12px}
+.mini .winbtn{width:38px;height:30px}
+.mini .dock-scroll{padding:4px 8px 10px}
+.mini .berth{padding:3px 6px}
+
+/* mock control */
+.mockctl{position:fixed;left:24px;bottom:24px;z-index:50}
+.mockctl > button{background:var(--ink);color:#fff;border-radius:var(--r-m)}
+.mockctl .panel{position:absolute;left:0;bottom:34px;width:280px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);padding:6px;box-shadow:0 10px 30px rgba(20,32,38,.2)}
+.mockctl .panel p{margin:4px 6px 6px;font-size:11.5px;color:var(--ink3)}
+.mockctl .panel button{width:100%;justify-content:flex-start;height:28px}
+.mockctl .panel button[aria-current=true]{background:var(--harbor-weak);font-weight:700}
+
+/* narrow: D07 left/right become temporary panels */
+@media (max-width:900px){
+  .window{inset:0;border-radius:0;border:0}
+  .body{grid-template-columns:minmax(0,1fr)!important}
+  .left,.right{position:fixed;top:0;bottom:0;z-index:25;width:min(300px,86vw);display:none;box-shadow:0 0 30px rgba(20,32,38,.25)}
+  .left{left:0}.right{right:0}
+  .center{grid-column:1}
+  .body.n-l .left,.body.n-r .right{display:flex}
+  .winbtn{width:38px}
+  .titlebar .mock-tag{display:none}
+  .chead{padding:8px 10px;flex-wrap:wrap}
+  .chead .grow{order:-1;flex-basis:100%}
+  .chead .hide-s{display:none}
+  .gbanner{flex-wrap:wrap}
+  .gbanner .grow{flex-basis:calc(100% - 30px)}
+  .msgs{padding:12px 10px}
+  .msg.user .bubble{margin-left:20px}
+  .composer,.queue{padding-left:10px;padding-right:10px}
+  .field{grid-template-columns:1fr}
+  .field .note{grid-column:1}
+  .diff{grid-template-columns:1fr}
+  .targets li{grid-template-columns:1fr}
+  .mini{right:8px;left:8px;width:auto;bottom:70px}
+  .mockctl{left:auto;bottom:auto;right:130px;top:4px}
+  .mockctl > button{height:26px;font-size:12px}
+  .mockctl .panel{left:auto;right:-120px;bottom:auto;top:32px;max-height:70vh;overflow:auto}
+}
+@media (min-width:901px){ .only-narrow{display:none!important} }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs><pattern id="hatch" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="2" height="4" fill="#8A979C"/></pattern></defs>
+</svg>
+<div id="app"></div>
+<script>
+"use strict";
+// ---------- helpers ----------
+const $ = (s, r = document) => r.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const ICON = {
+  plus:'<path d="M12 5v14M5 12h14"/>', search:'<circle cx="11" cy="11" r="6"/><path d="m20 20-4.5-4.5"/>',
+  pin:'<path d="M9 4h6l-1 6 3 3H7l3-3z"/><path d="M12 13v7"/>', archive:'<rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v10h14V9M10 13h4"/>',
+  send:'<path d="M12 19V5M6 11l6-6 6 6"/>', stop:'<rect x="6" y="6" width="12" height="12" rx="1.5"/>',
+  clip:'<path d="m20 11-8.5 8.5a5 5 0 0 1-7-7L13 4a3.3 3.3 0 0 1 4.7 4.7L9.2 17.2a1.7 1.7 0 0 1-2.4-2.4L14.5 7"/>',
+  folder:'<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  gear:'<circle cx="12" cy="12" r="3"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6 7 7M17 17l1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4"/>',
+  dock:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/>', list:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/>',
+  copy:'<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/>',
+  x:'<path d="M6 6l12 12M18 6 6 18"/>', min:'<path d="M6 12h12"/>', max:'<rect x="6" y="6" width="12" height="12" rx="1"/>',
+  refresh:'<path d="M20 11a8 8 0 0 0-14.6-4.5L4 8M4 4v4h4M4 13a8 8 0 0 0 14.6 4.5L20 16M20 20v-4h-4"/>',
+  branch:'<circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="8" r="2"/><path d="M6 7v10M18 10c0 4-6 3-12 7"/>',
+  diff:'<path d="M8 4v10M3 9h10M11 20h10"/>', alert:'<path d="M12 4 2.5 20h19z"/><path d="M12 10v4M12 17v.5"/>',
+  open:'<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
+  img:'<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="m21 16-5-5-9 8"/>',
+  check:'<path d="m5 12 4.5 4.5L19 7"/>', target:'<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/>',
+  chat:'<path d="M4 5h16v11H9l-5 4z"/>'
+};
+const icon = n => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${ICON[n] || ""}</svg>`;
+const STATE = {
+  running:{t:"実行中",c:"run"}, waiting:{t:"対応待ち",c:"wait"}, failed:{t:"失敗",c:"fail"}, interrupted:{t:"中断",c:"int"},
+  done:{t:"完了",c:"done"}, idle:{t:"待機（idle）",c:"idle"}, unknown:{t:"状態不明",c:"unk"}, initializing:{t:"初期化中",c:"run"}, closed:{t:"終了",c:"done"}
+};
+const flag = c => `<svg viewBox="0 0 12 12" aria-hidden="true"><path class="flag ${c === "unk" ? "unk" : ""}" d="M2 1.5v9h1.2V7.2L10.5 4.4 3.2 1.5z"/></svg>`;
+const stBadge = s => { const m = STATE[s] || STATE.unknown; return `<span class="st ${m.c}">${flag(m.c)}${m.t}</span>`; };
+const FRESH = { live:["live","受信中"], stale:["stale","履歴取得済み・live未復旧"], check:["check","要照合"], off:["off","切断"] };
+const freshBadge = f => { const [c, t] = FRESH[f] || FRESH.live; return `<span class="fresh ${c}" title="収集の鮮度。エージェントの状態とは別">${t}</span>`; };
+
+// ---------- data ----------
+function makeData() {
+  return {
+    chats: [
+      { id:"a", name:"通信モジュールの不具合調査", ai:"Codex", kind:"dev", folder:"C:\\Users\\wmasa\\Documents\\Rust\\Sample", pinned:true, archived:false,
+        running:true, fresh:"live", model:"gpt-6.1-sol", effort:"中", accepted:{model:"gpt-6.1-sol", effort:"中"}, goal:"再接続時の二重送信を再現し、修正案を出す",
+        draft:"", mode:"after", attach:[{type:"img", name:"エラー画面.png", st:"コピー済み", at:"10/05 14:20"}, {type:"file", name:"server.log", st:"コピー済み", at:"10/05 14:21"}],
+        queue:[{text:"修正後に、変更点を箇条書きでまとめて", st:"wait"}],
+        msgs:[
+          {who:"user", text:"再接続したときに同じ依頼が二重に送られる不具合を調べて。ログも添付する。", files:[{name:"server.log"}, {name:"エラー画面.png"}]},
+          {who:"ai", html:"<p>ログを確認しました。再接続直後に未確認の送信が再送されています。調査をサブエージェントに分けて進めます。</p><pre>reconnect() -> resend_pending()  // 受理確認前に再送</pre>",
+            activity:["Explorer を生成: 再送経路の洗い出し", "Worker を生成: 修正案の実装", "Worker が Tester を生成: 再現テスト"]},
+        ],
+        agents:[
+          {id:"a0", parent:null, name:"メイン", role:"main", task:"不具合調査の統括", state:"running", act:"サブエージェントの結果を待っています", at:"14:32:10", src:"直接取得"},
+          {id:"a1", parent:"a0", name:"Explorer", role:"explorer", task:"再送経路の洗い出し", state:"done", act:"再送箇所を3件報告", at:"14:29:41", src:"直接取得"},
+          {id:"a2", parent:"a0", name:"Worker", role:"worker", task:"受理確認後に再送するよう修正", state:"running", act:"src/reconnect.rs を編集中", at:"14:32:05", src:"直接取得"},
+          {id:"a3", parent:"a2", name:"Tester", role:"tester", task:"二重送信の再現テスト", state:"running", act:"cargo test reconnect を準備", at:"14:31:58", src:"直接取得"},
+          {id:"a4", parent:"a0", name:"reviewer-2", role:"（未知のrole）", task:"未取得", state:"idle", act:"活動なし", at:"14:30:12", src:"直接取得"},
+          {id:"a5", parent:"?", name:"agent-7f3c", role:"未取得", task:"未取得", state:"unknown", act:"直接親が取得できません", at:"14:30:40", src:"推定なし"},
+        ] },
+      { id:"c", name:"依存ライブラリの更新", ai:"Codex", kind:"dev", folder:"C:\\Users\\wmasa\\Documents\\Rust\\Tool", pinned:false, archived:false,
+        running:true, fresh:"live", model:"gpt-6.1-sol", effort:"低", accepted:{model:"gpt-6.1-sol", effort:"低"}, goal:"", draft:"", mode:"after", attach:[], queue:[],
+        msgs:[{who:"user", text:"依存ライブラリを最新にして、ビルドが通るか確認して。"}, {who:"ai", html:"<p>tokio を 1.x 系の最新に上げます。メジャー更新が必要な crate が1件あります。</p>"}],
+        agents:[{id:"c0", parent:null, name:"メイン", role:"main", task:"依存更新", state:"running", act:"Cargo.toml を確認", at:"14:31:00", src:"直接取得"}] },
+      { id:"b", name:"要件定義の文章整理", ai:"Codex", kind:"general", folder:null, pinned:false, archived:false,
+        running:false, fresh:"live", model:"gpt-6.1-sol", effort:"中", accepted:{model:"gpt-6.1-sol", effort:"中"}, goal:"", draft:"第3章の言い回しを", mode:"after", attach:[], queue:[],
+        msgs:[{who:"user", text:"この要件の文章を読みやすく整えて。"}, {who:"ai", html:"<p>整えた版を作りました。成果物として保存しています。</p>", out:[{name:"要件_整理版.md"}, {name:"旧メモ.txt", missing:true}]}],
+        agents:[{id:"b0", parent:null, name:"メイン", role:"main", task:"文章整理", state:"done", act:"要件_整理版.md を作成", at:"13:58:02", src:"直接取得"}] },
+      { id:"d", name:"週報の下書き", ai:"Codex", kind:"general", folder:null, pinned:false, archived:true,
+        running:true, fresh:"live", model:"gpt-6.1-sol", effort:"低", accepted:{model:"gpt-6.1-sol", effort:"低"}, goal:"", draft:"", mode:"after", attach:[], queue:[],
+        msgs:[{who:"user", text:"今週の作業から週報の下書きを作って。"}],
+        agents:[{id:"d0", parent:null, name:"メイン", role:"main", task:"週報作成", state:"running", act:"本文を作成中", at:"14:32:00", src:"直接取得"}] },
+      { id:"e", name:"ビルド設定の見直し", ai:"Codex", kind:"dev", folder:"C:\\Users\\wmasa\\Documents\\Rust\\Lumark", pinned:false, archived:false, external:"CLI",
+        running:false, fresh:"check", model:"gpt-6.1-sol", effort:"中", accepted:{model:"gpt-6.1-sol", effort:"中"}, goal:"", draft:"", mode:"after", attach:[], queue:[],
+        msgs:[{who:"user", text:"release ビルドの設定を見直して。"}, {who:"ai", html:"<p>（CLIで作成された保存履歴）profile.release の設定を提案しました。</p>"}],
+        agents:[{id:"e0", parent:null, name:"メイン", role:"main", task:"外部で作成", state:"unknown", act:"外部で実行中かどうか確認できません", at:"—", src:"保存履歴"}] },
+    ],
+    sel:"a", scope:"sel", showDone:false, includeArchiveSearch:false, showArchive:false, query:"",
+    leftOpen:true, rightOpen:true, mini:false, miniScope:"sel", miniTop:false, mainTop:false,
+    enter:"ctrl", banner:null, cBanner:{}, locked:{}, reqs:[], dialog:null, toast:null, menu:null, mock:false, scenario:"normal",
+    fails:{}, holdDelete:{}
+  };
+}
+let S = makeData();
+const narrow = () => matchMedia("(max-width:900px)").matches;
+const chat = id => S.chats.find(c => c.id === (id ?? S.sel));
+
+// ---------- scenarios (§10 screen states) ----------
+const SCENARIOS = [
+  ["normal","通常（実行中・子孫あり）"],
+  ["requests","承認と質問が別チャットで同時"],
+  ["stale","接続断の後・live未復旧"],
+  ["stop","中断後10秒・停止未確認"],
+  ["deletePending","削除保留（停止未確認）"],
+  ["queue","キュー保留と受理不明"],
+  ["childFail","子の失敗あり（親は継続）"],
+  ["launch","起動失敗・版の警告"],
+  ["auth","認証切れ・利用上限"],
+  ["storage","保存失敗・容量不足"],
+  ["external","外部履歴（閲覧のみ）"],
+  ["empty","初回起動（チャットなし）"],
+];
+function applyScenario(name) {
+  const keep = { enter:S.enter, leftOpen:S.leftOpen, rightOpen:S.rightOpen };
+  S = Object.assign(makeData(), keep, { scenario:name });
+  const a = chat("a");
+  if (name === "requests") {
+    a.agents.find(x => x.id === "a3").state = "waiting";
+    a.agents.find(x => x.id === "a3").act = "承認待ち: cargo test の実行";
+    S.reqs = [
+      { id:"r1", chat:"a", agent:"Tester（Worker の子）", kind:"cmd", title:"コマンドの実行を許可しますか", cmd:"cargo test reconnect -- --nocapture", cwd:a.folder, scope:"このコマンドを1回だけ／このセッション中は同じコマンドを許可" },
+      { id:"r2", chat:"c", agent:"メイン", kind:"q", title:"質問に回答してください", q:"tokio をメジャー更新すると API 変更が必要です。どうしますか？", opts:["メジャー更新して修正も行う", "マイナー更新だけにする", "今回は見送る"] },
+    ];
+    chat("c").agents[0].state = "waiting"; chat("c").agents[0].act = "質問への回答待ち";
+  }
+  if (name === "stale") {
+    a.fresh = "stale";
+    a.queue = [{text:"修正後に、変更点を箇条書きでまとめて", st:"hold", why:"live監視が未復旧のため保留（状態を照合中）"}];
+    S.cBanner.a = { cls:"info", h:"接続を回復しましたが、ライブ監視はまだ戻っていません", body:"保存履歴から最新の状態を取得しました（14:35:12）。実行中の途中経過は表示されず、完了後に全文を取得します。送信待ちは照合が終わるまで保留します。",
+      acts:[["状態を再照合","recheck"], ["保存履歴を再取得","reread"]] };
+    a.agents.forEach(x => { if (x.state === "running") x.stale = true; });
+  }
+  if (name === "stop") {
+    a.running = true;
+    a.agents.find(x => x.id === "a0").state = "interrupted"; a.agents.find(x => x.id === "a0").act = "中断を確認（turn終端あり）";
+    a.agents.find(x => x.id === "a2").act = "停止未確認（中断要求後10秒）";
+    a.agents.find(x => x.id === "a3").act = "停止未確認（管理実行 cargo test が残存）";
+    S.cBanner.a = { cls:"warn", h:"停止を確認できていない対象があります（中断要求から10秒）",
+      targets:[["メイン","中断を確認しました"], ["Worker","中断要求済み・turn終端を未確認"], ["Tester","中断要求済み・管理実行（cargo test）が残存"], ["agent-7f3c","所有を確認できないため停止対象に含めていません"]],
+      body:"時間の経過だけで停止や失敗とは判断しません。保存済み: 会話本文。保存を確認中: 最後の活動ログ。",
+      acts:[["待つ","wait"], ["中断を再試行","retry"], ["終了を取り消す","cancelQuit"], ["強制終了…","force"]] };
+  }
+  if (name === "deletePending") {
+    S.holdDelete.a = true;
+    a.agents.find(x => x.id === "a2").act = "停止未確認";
+    S.cBanner.a = { cls:"err", h:"削除を保留しています（停止を確認できていません）",
+      body:"Worker と Tester の停止を確認できるまで、会話・添付・成果物を保持します。保留はアプリを再起動しても続きます。このチャットへの新しい送信は止めています。削除を取り消しても、実行状態が不明なことは変わりません。",
+      acts:[["停止を再確認","recheck"], ["中断を再試行","retry"], ["削除を取り消す","cancelDelete"]] };
+    S.locked.a = "削除保留中のため送信できません。停止を確認するか、削除を取り消してください。";
+  }
+  if (name === "queue") {
+    a.queue = [
+      {text:"修正後に、変更点を箇条書きでまとめて", st:"hold", why:"子孫が作業中のため保留: Worker、Tester"},
+      {text:"テストが通ったらコミットメッセージ案も", st:"wait"},
+      {text:"README の該当箇所も直して", st:"unknown", why:"送信中に接続が切れ、受理されたか不明です。履歴と照合するまで再送しません"},
+    ];
+  }
+  if (name === "childFail") {
+    const t = a.agents.find(x => x.id === "a3"); t.state = "failed"; t.act = "テストが失敗して終了（exit 101）"; S.fails.a3 = "unconfirmed";
+    a.queue = [{text:"修正後に、変更点を箇条書きでまとめて", st:"stopped", why:"子孫の失敗でキューを止めています"}];
+  }
+  if (name === "launch") {
+    S.banner = { cls:"err", text:"Codex を起動できませんでした。指定のパスに codex.exe がありません: C:\\Tools\\codex\\codex.exe", acts:[["Codex の設定を開く","settings:codex"], ["再試行","retryLaunch"]] };
+    S.chats.forEach(c => { c.running = false; c.fresh = "off"; c.agents.forEach(x => { if (["running","waiting"].includes(x.state)) x.state = "unknown"; }); });
+    S.cBanner.a = { cls:"warn", h:"版の警告（別の例）", body:"指定の codex.exe は 0.161.0 です。AgentDock の対象版は 0.160.0 のため、一部の機能が動かない可能性があります。続けて使うかを選べます。", acts:[["この版で続ける","ack"], ["Codex の設定を開く","settings:codex"]] };
+  }
+  if (name === "auth") {
+    S.banner = { cls:"warn", text:"ChatGPT の利用上限に達しました。リセット予定は 15:10 です。API 課金へ自動で切り替えることはありません。", acts:[["利用状況を見る","usage"]] };
+    S.cBanner.a = { cls:"err", h:"ChatGPT の認証の有効期限が切れています", body:"会話履歴はそのまま残っています。再ログイン後に、このチャットを続けられるか確認します。未確認の依頼を自動で再送することはありません。", acts:[["ChatGPT に再ログイン","login"]] };
+    a.running = false; a.agents.forEach(x => { if (x.state === "running") x.state = "unknown"; });
+  }
+  if (name === "storage") {
+    S.cBanner.a = { cls:"err", h:"一部を保存できませんでした", body:"保存済み: 会話本文 12件、添付 2件。未保存: 監視活動ログ 2件（ディスクへの書込みに失敗）。保存できていない内容を保存済みとは表示しません。", acts:[["保存を再試行","retrySave"], ["容量を確認","settings:storage"]] };
+    a.attach.push({type:"file", name:"大きな資料.pdf", st:"コピーできません（空き容量不足: 必要 1.2 GB、空き 0.4 GB）", at:"", bad:true});
+  }
+  if (name === "external") { S.sel = "e"; }
+  if (name === "empty") { S.chats = []; S.sel = null; }
+  S.scenario = name;
+}
+
+// ---------- render ----------
+function render() {
+  const c = chat();
+  const ae = document.activeElement; const keepId = ae && ae.id;
+  $("#app").innerHTML = `
+  <div class="window" role="application" aria-label="AgentDock">
+    ${titlebar("AgentDock", false)}
+    ${menubar()}
+    ${S.banner ? `<div class="gbanner ${S.banner.cls}" role="alert">${icon("alert")}<span class="grow">${esc(S.banner.text)}</span>${S.banner.acts.map(([t, a]) => `<button class="btn-line" data-act="${a}">${esc(t)}</button>`).join("")}</div>` : ""}
+    <div class="body ${S.leftOpen ? "" : "l-off"} ${S.rightOpen ? "" : "r-off"} ${S.lNarrow ? "n-l" : ""} ${S.rNarrow ? "n-r" : ""}">
+      <aside class="left" aria-label="チャット一覧">${leftPane()}</aside>
+      <main class="center">${c ? centerPane(c) : emptyCenter()}</main>
+      <aside class="right" aria-label="エージェントのドック">${dockPane(false)}</aside>
+    </div>
+  </div>
+  ${S.mini ? miniWindow() : ""}
+  ${S.dialog ? dialogView() : ""}
+  ${S.toast ? `<div class="toast" role="status">${esc(S.toast)}</div>` : ""}
+  ${mockControl()}`;
+  if (keepId && document.getElementById(keepId)) { const el = document.getElementById(keepId); el.focus(); if (el.setSelectionRange && el.value != null) { const n = el.value.length; el.setSelectionRange(n, n); } }
+}
+function titlebar(title, mini) {
+  return `<div class="titlebar"><span class="app-mark" aria-hidden="true"></span><span class="title">${esc(title)}</span>${mini ? "" : `<span class="mock-tag">モック</span>`}<span class="grow"></span>
+    ${mini ? `<label class="small"><input type="checkbox" data-act="miniTop" ${S.miniTop ? "checked" : ""}>最前面</label>` : ""}
+    <button class="winbtn" aria-label="最小化" data-act="${mini ? "noop" : "minimize"}">${icon("min")}</button>
+    ${mini ? "" : `<button class="winbtn" aria-label="最大化" data-act="noop">${icon("max")}</button>`}
+    <button class="winbtn close" aria-label="${mini ? "監視窓を閉じる" : "閉じる（トレイに格納）"}" data-act="${mini ? "closeMini" : "closeToTray"}">${icon("x")}</button></div>`;
+}
+const MENUS = {
+  "チャット":[["新しいチャット","newChat","Ctrl+N"],["名前を変更","rename"],["ピン留めを切替","pin"],["アーカイブ","archive"],["Markdown にエクスポート…","export"],"-",["削除…","delete"],"-",["AgentDock を終了…","quit"]],
+  "作業":[["差分を確認","diff"],["変更を戻す…","undo"],["コードレビュー…","review"],["計画／実行の切替","unv:Plan（collaborationMode）は experimental"],["会話を分岐","fork"],["文脈を圧縮","compact"],["過去の会話を参考に指定…","reference"],["Goal を設定…","goal"],["side 相談を開く","side"],["worktree で開始…","unv:worktree の公開経路は未確認"],["クラウドに委任…","unv:クラウド委任の公開経路は未確認"],"-",["中断","interrupt","Esc"]],
+  "表示":[["チャット一覧","toggleLeft"],["エージェントのドック","toggleRight"],["コンパクト監視窓","toggleMini"],["最前面に表示","toggleTop"],"-",["終了済みも表示（全チャット）","toggleDone"]],
+  "設定":[["設定…","settings:general"],["MCP・Plugins…","settings:mcp"],["Skills・AGENTS.md…","settings:skills"]],
+  "ヘルプ":[["状態の見方","help"],["Codex の状態","status"],["バージョン情報","about"]],
+};
+function menubar() {
+  return `<nav class="menubar" aria-label="メニュー">${Object.keys(MENUS).map(m => `<div class="menu"><button aria-haspopup="true" aria-expanded="${S.menu === m}" data-menu="${m}">${m}</button>
+    ${S.menu === m ? `<div class="dropdown" role="menu">${MENUS[m].map(it => it === "-" ? "<hr>" : menuItem(it)).join("")}</div>` : ""}</div>`).join("")}</nav>`;
+}
+function menuItem([t, a, k]) {
+  const unv = a.startsWith("unv:");
+  const on = (a === "toggleTop" && S.mainTop) || (a === "toggleDone" && S.showDone) || (a === "toggleMini" && S.mini) || (a === "toggleLeft" && (narrow() ? S.lNarrow : S.leftOpen)) || (a === "toggleRight" && (narrow() ? S.rNarrow : S.rightOpen));
+  return `<button role="menuitem" data-act="${esc(a)}"><span>${on ? "✓ " : ""}${esc(t)}</span>${unv ? `<span class="tag unv">未確認</span>` : k ? `<span class="kbd">${k}</span>` : ""}</button>`;
+}
+
+function chatStatus(c) {
+  const ags = c.agents;
+  if (S.holdDelete[c.id]) return "削除保留";
+  if (S.reqs.some(r => r.chat === c.id)) return "対応待ち";
+  const main = ags.find(x => !x.parent) || {};
+  const childFail = ags.some(x => x.parent && x.state === "failed");
+  if (main.state === "running" && childFail) return "作業中・子の失敗あり";
+  if (c.external) return `外部（${c.external}）・状態不明`;
+  return (STATE[main.state] || STATE.unknown).t;
+}
+function chatMarks(c) {
+  let m = "";
+  if (S.reqs.some(r => r.chat === c.id)) m += `<span class="mark wait" title="承認・質問待ち">待</span>`;
+  if (c.agents.some(x => S.fails[x.id] === "unconfirmed")) m += `<span class="mark fail" title="未確認の失敗">失</span>`;
+  if (S.holdDelete[c.id]) m += `<span class="mark hold" title="削除保留">保</span>`;
+  return `<span class="marks">${m}</span>`;
+}
+function leftPane() {
+  const q = S.query.trim();
+  const match = c => !q || c.name.includes(q);
+  const visible = S.chats.filter(c => (S.showArchive ? c.archived : !c.archived || (q && S.includeArchiveSearch)) && match(c));
+  const pinned = visible.filter(c => c.pinned && !S.showArchive);
+  const rest = visible.filter(c => !c.pinned || S.showArchive);
+  const row = c => `<button class="row-chat ${c.id === S.sel ? "sel" : ""}" data-chat="${c.id}" aria-current="${c.id === S.sel}">
+      <span class="nm">${esc(c.name)}</span>${chatMarks(c)}
+      <span class="sub">${c.kind === "general" ? "一般" : icon("folder")}<span>${esc(chatStatus(c))}</span>${c.archived ? `<span class="tag">アーカイブ</span>` : ""}</span></button>`;
+  return `<div class="left-top">
+      <button class="btn-line" data-act="newChat">${icon("plus")}新しいチャット</button>
+      <input type="search" id="q" placeholder="名前で検索" aria-label="チャットを名前で検索" value="${esc(S.query)}">
+      <label class="small"><input type="checkbox" data-act="archSearch" ${S.includeArchiveSearch ? "checked" : ""}>アーカイブも含める</label>
+    </div>
+    <div class="left-scroll">
+      ${S.showArchive ? `<div class="list-h"><span>アーカイブ</span><button class="small" data-act="hideArchive" style="height:20px">戻る</button></div>${rest.map(row).join("") || `<div class="empty-note">アーカイブしたチャットはありません</div>`}` : `
+      ${pinned.length ? `<div class="list-h"><span>ピン留め</span></div>${pinned.map(row).join("")}` : ""}
+      <div class="list-h"><span>最近使った順</span></div>${rest.map(row).join("") || `<div class="empty-note">${q ? "一致するチャットはありません" : "まだチャットがありません"}</div>`}`}
+    </div>
+    <div class="left-foot"><button class="small" data-act="showArchive" style="height:22px">${icon("archive")}アーカイブ（${S.chats.filter(c => c.archived).length}）</button><span class="only-narrow"><button class="small" data-act="toggleLeft" style="height:22px">閉じる</button></span></div>`;
+}
+function emptyCenter() {
+  return `<div class="msgs" style="display:flex;align-items:center;justify-content:center"><div style="max-width:420px">
+    <h2 style="font-size:17px;margin:0 0 8px">最初のチャットを始めましょう</h2>
+    <p class="muted" style="margin:0 0 12px">作業フォルダを選ばずに、相談や文章作成から始められます。コードを扱うときはフォルダを指定します。</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn-main" data-act="newChat">${icon("chat")}一般チャットを始める</button><button class="btn-line" data-act="newChat">${icon("folder")}フォルダを指定して始める</button></div>
+    <p class="small muted" style="margin-top:14px">CLI や VS Code で作った会話は、左の一覧から開けます（外部で実行中なら閲覧のみ）。</p></div></div>`;
+}
+function centerPane(c) {
+  const reqs = S.reqs.filter(r => r.chat === c.id);
+  const b = S.cBanner[c.id];
+  const ext = c.external;
+  return `<div class="chead">
+      <button class="only-narrow" data-act="toggleLeft" aria-label="チャット一覧を開く">${icon("list")}</button>
+      <div class="grow"><div class="ttl">${esc(c.name)}</div>
+        <div class="meta"><span class="tag ai" title="この会話のAI">${esc(c.ai)}</span>${c.folder ? `<span class="mono" title="作業フォルダ">${esc(c.folder)}</span>` : `<span>一般チャット（作業フォルダなし）</span>`}${freshBadge(c.fresh)}<span>${esc(chatStatus(c))}</span></div></div>
+      ${c.running ? `<button class="btn-line" data-act="interrupt" title="Esc">${icon("stop")}中断</button>` : ""}
+      <button data-act="diff" aria-label="差分を確認">${icon("diff")}<span class="hide-s">差分</span></button>
+      <button class="only-narrow" data-act="toggleRight" aria-label="エージェントのドックを開く">${icon("dock")}</button>
+    </div>
+    ${c.goal ? `<div class="goal"><b>Goal</b><span style="flex:1">${esc(c.goal)}</span><button class="small" data-act="goal" style="height:22px">変更</button><button class="small" data-act="goalClear" style="height:22px">解除</button></div>` : ""}
+    ${ext ? `<div class="cbanner warn"><h4>${esc(ext)} で作成された会話です（閲覧のみ）</h4>${esc(ext)} 側でまだ実行中かどうか確認できていません。外部での実行が終わったことを確認してから、このアプリで続きを送れます。元の作業フォルダやファイルは参照のみで、削除の対象にしません。<div class="acts"><button class="btn-line" data-act="recheck">実行状態を確認</button><button class="btn-line" data-act="resumeExt">終了を確認したので再開する</button></div></div>` : ""}
+    ${b ? `<div class="cbanner ${b.cls}" role="alert"><h4>${esc(b.h)}</h4>${b.targets ? `<ul class="targets">${b.targets.map(([n, s]) => `<li><b>${esc(n)}</b><span>${esc(s)}</span></li>`).join("")}</ul>` : ""}<div style="margin-top:4px">${esc(b.body)}</div><div class="acts">${b.acts.map(([t, a]) => `<button class="${a === "force" ? "btn-danger" : "btn-line"}" data-act="${a}">${esc(t)}</button>`).join("")}</div></div>` : ""}
+    <div class="msgs" id="msgs" aria-live="polite">
+      ${c.msgs.map((m, i) => msgView(m, i)).join("")}
+      ${reqs.map(reqView).join("")}
+      ${c.running && !b ? `<div class="msg ai"><div class="who">Codex</div><div class="activity">作業中です。右のドックで各エージェントの状況を確認できます。</div></div>` : ""}
+    </div>
+    ${queueView(c)}
+    ${composer(c)}`;
+}
+function msgView(m, i) {
+  if (m.who === "user") return `<div class="msg user"><div class="who" style="justify-content:flex-end">あなた</div><div class="bubble">${esc(m.text)}${m.files ? `<div class="files">${m.files.map(f => `<span class="file">${icon("clip")}${esc(f.name)}</span>`).join("")}</div>` : ""}</div></div>`;
+  return `<div class="msg ai"><div class="who">Codex</div><div class="bubble">${m.html}
+    ${m.activity ? `<details class="activity"><summary>作業の記録（${m.activity.length}件）</summary><ul style="margin:4px 0;padding-left:18px">${m.activity.map(a => `<li>${esc(a)}</li>`).join("")}</ul></details>` : ""}
+    ${m.out ? `<div class="files">${m.out.map(f => f.missing ? `<span class="file missing" title="ファイルが見つかりません">${icon("alert")}${esc(f.name)}（見つかりません）</span>` : `<span class="file">${icon("clip")}${esc(f.name)}<button data-act="openFile" style="height:22px">開く</button><button data-act="saveFile" style="height:22px">保存</button></span>`).join("")}</div>` : ""}
+    </div><div class="acts"><button data-act="copy">${icon("copy")}コピー</button><button data-act="fork">${icon("branch")}ここから分岐</button></div></div>`;
+}
+function reqView(r) {
+  if (r.kind === "cmd") return `<div class="req" role="group" aria-label="承認要求"><div class="h">${icon("alert")}${esc(r.title)}</div>
+    <div class="t">要求元: ${esc(r.agent)}　作業フォルダ: <span class="mono">${esc(r.cwd)}</span></div><code>${esc(r.cmd)}</code>
+    <div class="opts"><button class="btn-main" data-req="${r.id}" data-ans="once">1回だけ許可</button><button class="btn-line" data-req="${r.id}" data-ans="session">このセッション中は許可</button><button class="btn-danger" data-req="${r.id}" data-ans="deny">拒否</button></div>
+    <div class="scope">選択肢と効力範囲は Codex が示したものを表示します。</div></div>`;
+  return `<div class="req" role="group" aria-label="質問"><div class="h">${icon("chat")}${esc(r.title)}</div><div class="t">要求元: ${esc(r.agent)}</div><div class="t">${esc(r.q)}</div>
+    <div class="opts">${r.opts.map((o, i) => `<button class="${i ? "btn-line" : "btn-main"}" data-req="${r.id}" data-ans="${esc(o)}">${esc(o)}</button>`).join("")}</div></div>`;
+}
+function queueView(c) {
+  if (!c.queue.length) return "";
+  const held = c.queue.some(q => q.st !== "wait");
+  const stopped = c.queue.some(q => q.st === "stopped");
+  const label = { wait:"送信待ち", hold:"保留", unknown:"受理不明", stopped:"停止中" };
+  return `<div class="queue"><details ${narrow() && !held ? "" : "open"}><summary>${icon("clock" in ICON ? "clock" : "list")}<b>完了後に送る依頼 ${c.queue.length}件</b><span class="muted">${held ? "自動送信を止めています" : "親と子孫の作業が終わると、登録順に1件ずつ送ります"}</span></summary>
+    ${c.queue.map((q, i) => `<div class="qitem"><span class="qnum">${i + 1}</span><div><div>${esc(q.text)}</div>${q.why ? `<div class="why ${q.st === "unknown" || q.st === "stopped" ? "err" : ""}">${esc(label[q.st])}: ${esc(q.why)}</div>` : ""}</div>
+      <div style="display:flex;gap:2px">${q.st === "unknown" ? `<button class="small" data-act="reconcile">履歴と照合</button>` : `<button class="small" data-qedit="${i}">編集</button>`}<button class="small" data-qdel="${i}">取消</button></div></div>`).join("")}
+    ${stopped ? `<div class="qitem" style="grid-template-columns:1fr auto"><span class="small muted">失敗した依頼そのものは再実行しません。「確認済み」にしてもキューは再開しません。</span><button class="btn-line" data-act="resumeQueue">キューを再開</button></div>` : ""}
+    </details></div>`;
+}
+function composer(c) {
+  const lock = S.locked[c.id] || (c.external ? "外部で実行中かどうか確認できるまで、この会話には送信できません。" : null);
+  const ctrlSend = S.enter === "ctrl";
+  const changed = c.model !== c.accepted.model || c.effort !== c.accepted.effort;
+  return `<div class="composer"><div class="shell ${lock ? "locked" : ""}">
+    ${c.attach.length ? `<div class="chips">${c.attach.map((f, i) => `<span class="chip ${f.bad ? "bad" : ""}">${f.type === "img" ? `<span class="thumb" title="画像プレビュー（例）"></span>` : icon("clip")}<span>${esc(f.name)}</span><span class="st">${esc(f.st)}${f.at ? `　${esc(f.at)}` : ""}</span><button aria-label="${esc(f.name)}を取り外す" data-unattach="${i}">${icon("x")}</button></span>`).join("")}</div>` : ""}
+    ${lock ? `<div class="lockmsg">${esc(lock)}</div>` : ""}
+    <textarea id="draft" aria-label="メッセージ" placeholder="${c.running ? (c.mode === "steer" ? "現在の作業への追加指示" : "完了後に送る次の依頼") : "メッセージを入力"}" ${lock ? "disabled" : ""}>${esc(c.draft)}</textarea>
+    <div class="ctrl">
+      <button aria-label="ファイル・画像・参考情報を追加" data-act="attachMenu" ${lock ? "disabled" : ""}>${icon("clip")}</button>
+      <select aria-label="モデル" data-sel="model"><option ${c.model === "gpt-6.1-sol" ? "selected" : ""}>gpt-6.1-sol</option><option ${c.model === "gpt-6.1-mini" ? "selected" : ""}>gpt-6.1-mini</option></select>
+      <select aria-label="推論の強さ" data-sel="effort">${["低", "中", "高"].map(e => `<option ${c.effort === e ? "selected" : ""}>${e}</option>`).join("")}</select>
+      ${c.running ? `<span class="seg" role="group" aria-label="実行中の送信方法"><button aria-pressed="${c.mode === "steer"}" data-mode="steer">追加指示</button><button aria-pressed="${c.mode === "after"}" data-mode="after">完了後に送信</button></span>` : ""}
+      <span class="grow"></span>
+      <button class="btn-main send" data-act="send" aria-label="${c.running ? (c.mode === "steer" ? "追加指示を送る" : "完了後に送る依頼として登録") : "送信"}" ${lock ? "disabled" : ""}>${icon("send")}</button>
+    </div></div>
+    <div class="hint"><span>${ctrlSend ? "Ctrl＋Enter で送信、Enter で改行" : "Enter で送信、Shift＋Enter で改行"}</span><span>${changed ? `選択: ${esc(c.model)}／${esc(c.effort)}（未受理。次のターンから適用）　受理済み: ${esc(c.accepted.model)}／${esc(c.accepted.effort)}` : `受理済み: ${esc(c.accepted.model)}／${esc(c.accepted.effort)}`}</span></div></div>`;
+}
+
+// ---------- dock ----------
+function dockChats(scope) {
+  return scope === "sel" ? S.chats.filter(c => c.id === S.sel) : S.chats;
+}
+function visibleAgents(c, scope) {
+  const doneLike = s => ["done", "closed", "interrupted"].includes(s);
+  return c.agents.filter(x => {
+    if (scope === "sel") return true;                       // 選択中: 完了済みも常に表示
+    if (x.state === "failed") return S.fails[x.id] !== "confirmed" || S.showDone;
+    if (doneLike(x.state) || x.state === "idle") return S.showDone;
+    return true;                                             // 作業中・対応待ち・不明は基本対象
+  });
+}
+function dockPane(mini) {
+  const scope = mini ? S.miniScope : S.scope;
+  const chats = dockChats(scope).filter(c => scope === "sel" || visibleAgents(c, scope).length);
+  return `<div class="dock-top">
+      ${mini ? "" : `<div style="display:flex;align-items:center;gap:6px"><b style="flex:1">エージェントのドック</b><button class="only-narrow small" data-act="toggleRight">閉じる</button></div>`}
+      <span class="seg" role="group" aria-label="表示範囲"><button aria-pressed="${scope === "sel"}" data-scope="sel" data-mini="${mini}">選択中のチャット</button><button aria-pressed="${scope === "all"}" data-scope="all" data-mini="${mini}">全チャット</button></span>
+      ${scope === "all" ? `<label class="small"><input type="checkbox" data-act="toggleDone" ${S.showDone ? "checked" : ""}>終了済みも表示（完了・停止・確認済みの失敗）</label>` : `<span class="small muted">完了したエージェントも表示しています</span>`}
+    </div>
+    <div class="dock-scroll">
+      ${chats.length ? chats.map(c => rootBlock(c, scope, mini)).join("") : `<div class="empty-note">${S.chats.length ? "作業中・対応待ちのエージェントはありません" : "チャットを始めると、ここにエージェントが表示されます"}</div>`}
+    </div>
+    ${mini ? "" : `<div class="dock-foot">状態は Codex から取得した情報です。取得できない項目は「未取得」と表示します。</div>`}`;
+}
+function rootBlock(c, scope, mini) {
+  const ags = visibleAgents(c, scope);
+  const known = new Set(c.agents.map(a => a.id));
+  const kids = p => ags.filter(a => a.parent === p);
+  const node = a => `<li>${berth(a, c, mini)}${kids(a.id).length ? `<ul class="tree">${kids(a.id).map(node).join("")}</ul>` : ""}</li>`;
+  const roots = ags.filter(a => a.parent === null || (a.parent !== "?" && !known.has(a.parent)) || (a.parent && a.parent !== "?" && !ags.find(x => x.id === a.parent)));
+  const orphan = ags.filter(a => a.parent === "?");
+  return `<div>${scope === "all" || mini ? `<div class="root-h"><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.name)}</span>${c.archived ? `<span class="tag">アーカイブ</span>` : ""}${c.id !== S.sel ? `<button data-chat="${c.id}">開く</button>` : ""}</div>` : ""}
+    <ul class="tree">${roots.map(node).join("")}</ul>
+    ${orphan.length ? `<div class="small muted" style="margin:6px 0 0">直接の親が分からないエージェント</div><ul class="tree">${orphan.map(a => `<li>${berth(a, c, mini)}</li>`).join("")}</ul>` : ""}</div>`;
+}
+function berth(a, c, mini) {
+  const m = STATE[a.state] || STATE.unknown;
+  const depth = (() => { let d = 0, p = a.parent; while (p && p !== "?") { d++; p = (c.agents.find(x => x.id === p) || {}).parent; } return d; })();
+  const rel = a.parent === "?" ? "親不明" : ["メイン", "子", "孫", "ひ孫"][depth] || `${depth}階層下`;
+  const failUnconf = a.state === "failed" && S.fails[a.id] === "unconfirmed";
+  return `<div class="berth ${m.c} ${a.stale ? "stale" : ""}">
+    <div class="l1"><span class="nm">${esc(a.name)}</span><span class="rel">${rel}</span>${stBadge(a.state)}</div>
+    ${mini ? "" : `<div class="l2">役割: ${esc(a.role)}　担当: ${esc(a.task)}</div>`}
+    <div class="l3" title="${esc(a.act)}">${esc(a.act)}</div>
+    ${mini ? "" : `<div class="l4"><span>${esc(a.at)}</span><span>${esc(a.src)}</span>${a.stale ? `<span style="color:var(--stale)">live未復旧</span>` : ""}</div>`}
+    ${failUnconf && !mini ? `<div class="acts"><button class="btn-line" data-confirm="${a.id}">${icon("check")}失敗を確認済みにする</button></div>` : ""}</div>`;
+}
+function miniWindow() {
+  return `<div class="mini" role="dialog" aria-label="コンパクト監視窓">${titlebar("AgentDock 監視", true)}${dockPane(true)}</div>`;
+}
+
+// ---------- dialogs ----------
+function dialogView() {
+  const d = S.dialog; const c = chat();
+  const shell = (title, body, foot, wide) => `<div class="scrim" data-act="closeDialogBg"><div class="dialog ${wide ? "wide" : ""}" role="dialog" aria-modal="true" aria-label="${esc(title)}"><header><h3>${esc(title)}</h3><button aria-label="閉じる" data-act="closeDialog">${icon("x")}</button></header>${body}${foot ? `<footer>${foot}</footer>` : ""}</div></div>`;
+  if (d.type === "settings") {
+    const tabs = [["general","全般"],["notify","通知"],["input","入力"],["model","モデル"],["codex","Codex"],["mcp","MCP・Plugins"],["skills","Skills"],["storage","保存と容量"]];
+    const body = {
+      general:`<div class="field"><span>ログイン時に起動</span><label><input type="checkbox">Windows にサインインしたら起動する</label><span class="note">オンにすると、通常画面は開かずトレイに入った状態で起動します。起動しただけで過去の依頼を再実行しません。</span></div>
+        <div class="field"><span>最前面</span><div><label><input type="checkbox" ${S.mainTop ? "checked" : ""} data-act="toggleTop">通常画面</label>　<label><input type="checkbox" ${S.miniTop ? "checked" : ""} data-act="miniTop">監視窓</label></div><span class="note">最前面にしても入力フォーカスは奪いません。</span></div>
+        <div class="field"><span>閉じるボタン</span><span>トレイに格納して作業を続ける（終了はメニューの「AgentDock を終了」）</span></div>`,
+      notify:`<div class="field"><span>通知</span><label><input type="checkbox" checked>通知を使う</label></div>
+        <div class="field"><span>種類</span><div><label><input type="checkbox" checked>承認・質問待ち</label>　<label><input type="checkbox" checked>完了</label>　<label><input type="checkbox" checked>失敗</label></div><span class="note">子・孫の完了と失敗は、チャットごとに2秒間まとめて通知します。承認と質問は待たずに通知します。</span></div>
+        <div class="field"><span>音</span><label><input type="checkbox" checked>Windows の標準の音を鳴らす</label></div>
+        <div class="field"><span>チャット名</span><label><input type="checkbox">通知にチャット名を出さず、状態だけ表示する</label></div>
+        <div class="field"><span>抑制</span><span class="small">通常画面を操作している間だけ、選択中のチャットの通知を止めます。</span></div>`,
+      input:`<div class="field"><span>送信キー</span><div><label><input type="radio" name="ek" ${S.enter === "ctrl" ? "checked" : ""} data-enter="ctrl">Ctrl＋Enter で送信／Enter で改行</label><br><label><input type="radio" name="ek" ${S.enter === "enter" ? "checked" : ""} data-enter="enter">Enter で送信／Shift＋Enter で改行</label></div></div>
+        <div class="field"><span>実行中の入力</span><span>初期値は「完了後に送信」</span></div>`,
+      model:`<div class="field"><span>新しいチャットの既定</span><div style="display:flex;gap:6px"><select><option>gpt-6.1-sol</option><option>gpt-6.1-mini</option></select><select><option>中</option><option>低</option><option>高</option></select></div><span class="note">既定値を変えても、既存のチャットの設定は変わりません。選択肢は Codex から取得します。</span></div>
+        <div class="field"><span>権限の初期値</span><span>作業領域内の操作を許可し、必要なときに確認する</span></div>`,
+      codex:`<div class="field"><span>codex.exe の場所</span><div style="display:flex;gap:6px"><input type="text" class="mono" style="flex:1" value="C:\\Users\\wmasa\\AppData\\Local\\Programs\\OpenAI\\Codex\\bin\\codex.exe" aria-label="codex.exe のパス"><button class="btn-line">参照…</button></div><span class="note">空欄なら PATH の codex を使います。</span></div>
+        <div class="field"><span>検出結果</span><span>${S.scenario === "launch" ? `<span style="color:var(--fail)">見つかりません</span>` : `codex-cli 0.160.0（対象版）`}</span></div>
+        <div class="field"><span>Codex のホーム</span><span class="mono">%USERPROFILE%\\.codex</span><span class="note">CLI・VS Code と共有しています。設定ファイルは、あなたが変更を選んだときだけ書き換えます。</span></div>
+        <div class="field"><span>接続</span><span>App Server（stdio）</span></div>
+        <div class="field"><span>アカウント</span><span>ChatGPT でログイン中　<button class="btn-line">ログアウト</button></span></div>`,
+      mcp:`<p class="small muted">導入・有効・信頼・認証・接続・会話への反映を分けて表示します。一覧に出ていても、既存の会話に反映済みとは限りません。</p>
+        <table class="small" style="width:100%;border-collapse:collapse"><tr style="text-align:left;color:var(--ink3)"><th>名前</th><th>種類</th><th>状態</th><th></th></tr>
+        <tr><td>github</td><td>MCP</td><td>接続済み・認証済み</td><td><button class="btn-line">再読込み</button></td></tr>
+        <tr><td>docs-search</td><td>Plugin</td><td>導入済み・この会話には未反映（再読込みが必要）</td><td><button class="btn-line">再読込み</button></td></tr>
+        <tr><td>build-hooks</td><td>Plugin</td><td>Hook の定義が変更されたため停止中（信頼の再確認が必要）</td><td><button class="btn-line">確認…</button></td></tr></table>
+        <p class="small" style="margin-top:10px">Plugin の追加・削除は codex plugin で行い、前後の設定を照合します。<span class="tag unv">一部未確認</span></p>`,
+      skills:`<div class="field"><span>AGENTS.md</span><span class="mono">C:\\Users\\wmasa\\Documents\\Rust\\Sample\\AGENTS.md</span><span class="note">このチャットに適用される指示ファイル。初期化は内容を確認してから書き込みます。</span></div>
+        <div class="field"><span>Skills</span><span>review-agent、skill-creator ほか4件　<button class="btn-line">一覧</button></span></div>`,
+      storage:`<div class="field"><span>使用量</span><span>全体 3.8 GB（会話キャッシュ 0.6 GB／添付と成果物 3.1 GB／監視活動 0.1 GB）</span></div>
+        <div class="field"><span>このチャット</span><span>1.4 GB</span></div>
+        <div class="field"><span>空き容量</span><span ${S.scenario === "storage" ? `style="color:var(--fail)"` : ""}>${S.scenario === "storage" ? "0.4 GB（不足しています）" : "128 GB"}</span><span class="note">保存期限はありません。容量が足りなくても自動で削除しません。足りないときは、その操作を止めてお知らせします。</span></div>
+        <div class="field"><span>保存場所</span><span class="mono">%LOCALAPPDATA%\\AgentDock</span></div>`
+    }[d.tab];
+    return shell("設定", `<div class="tabs" role="tablist">${tabs.map(([k, t]) => `<button role="tab" aria-selected="${d.tab === k}" data-tab="${k}">${t}</button>`).join("")}</div><div class="content">${body}</div>`, `<button class="btn-main" data-act="closeDialog">閉じる</button>`, true);
+  }
+  if (d.type === "newChat") return shell("新しいチャット", `<div class="content">
+      <div class="field"><span>AI</span><div><label><input type="radio" checked>Codex</label><div class="small muted">他の AI は今後追加できるようにする予定です。</div></div></div>
+      <div class="field"><span>作業フォルダ</span><div><label><input type="radio" name="k" checked>指定しない（一般チャット）</label><br><label><input type="radio" name="k">フォルダを指定する</label>　<button class="btn-line">${icon("folder")}選択…</button></div></div>
+      <div class="field"><span>モデル</span><div style="display:flex;gap:6px"><select><option>gpt-6.1-sol</option></select><select><option>中</option></select></div><span class="note">新しいチャットの既定値です。</span></div>
+      <div class="field"><span>権限</span><span>作業領域内の操作を許可し、必要なときに確認する</span></div></div>`,
+    `<button class="btn-line" data-act="closeDialog">キャンセル</button><button class="btn-main" data-act="createChat">作成</button>`);
+  if (d.type === "delete") return shell("チャットを削除", `<div class="content"><p><b>${esc(c.name)}</b> を削除します。</p>
+      <p>削除するもの:</p><ul class="check-list"><li>会話の履歴と、関連する子・孫の履歴</li><li>このチャット用に保存した添付のコピーと成果物</li></ul>
+      <p>削除しないもの:</p><ul class="check-list"><li>添付の元のファイル、別の場所に保存したファイル</li><li>作業フォルダ内のファイル、他のチャットのファイル</li></ul>
+      ${c.running ? `<p style="color:var(--fail)">このチャットは作業中です。作業を中断し、停止を確認してから削除します。停止を確認できなければ削除を保留します。</p>` : ""}</div>`,
+    `<button class="btn-line" data-act="closeDialog">キャンセル</button><button class="btn-danger" data-act="doDelete">${c.running ? "中断して削除" : "削除"}</button>`);
+  if (d.type === "quit") {
+    const busy = S.chats.filter(x => x.running);
+    return shell("AgentDock を終了", `<div class="content">${busy.length ? `<p>作業中のチャットがあります。</p><ul class="check-list">${busy.map(x => `<li>${esc(x.name)}（${esc(chatStatus(x))}）</li>`).join("")}</ul><p class="small muted">「作業を中断して終了」では、各対象の停止と保存を確認してから終了します。停止を確認できない対象があれば、その内容を表示します。</p>` : `<p>終了します。</p>`}</div>`,
+      `<button class="btn-line" data-act="closeDialog">終了を取り消す</button><button class="btn-danger" data-act="quitStop">${busy.length ? "作業を中断して終了" : "終了"}</button>`);
+  }
+  if (d.type === "force") return shell("強制終了", `<div class="content"><p>停止を確認できていない対象を強制終了します。</p><ul class="check-list"><li>Worker（turn 終端を未確認）</li><li>Tester の管理実行（cargo test）</li></ul><p>保存されていない内容が失われたり、処理の一部が残ったりする可能性があります。このアプリが起動していない実行は対象にしません。強制終了の後も、停止を確認できるまでは「停止未確認」として扱います。</p></div>`,
+    `<button class="btn-line" data-act="closeDialog">やめる</button><button class="btn-danger" data-act="doForce">強制終了する</button>`);
+  if (d.type === "export") return shell("Markdown にエクスポート", `<div class="content"><p>会話本文と、送信した添付・成果物のファイル名を書き出します。ファイルの中身は含めません。</p><label><input type="checkbox">監視活動の履歴も含める（子・孫を含む）</label></div>`,
+    `<button class="btn-line" data-act="closeDialog">キャンセル</button><button class="btn-main" data-act="doExport">保存先を選ぶ…</button>`);
+  if (d.type === "diff") return shell("変更の確認", `<div class="content"><div class="diff"><div><div class="small muted" style="margin-bottom:4px">このチャットで変更したファイル</div>
+      <button class="btn-line" style="width:100%;justify-content:flex-start">src/reconnect.rs</button><button style="width:100%;justify-content:flex-start">tests/reconnect.rs</button></div>
+      <pre><span>@@ fn reconnect()</span><span class="del">-    resend_pending();</span><span class="add">+    if self.confirmed_receipt() {</span><span class="add">+        resend_unconfirmed();</span><span class="add">+    }</span></pre></div>
+      <p class="small muted" style="margin-top:8px">作業前からあった変更や、他のチャットの変更と区別できない場合は、戻す操作を止めてお知らせします。</p></div>`,
+    `<button class="btn-line" data-act="undo">この変更を戻す…</button><button class="btn-main" data-act="closeDialog">閉じる</button>`, true);
+  if (d.type === "unv") return shell("この操作はまだ使えません", `<div class="content"><p>${esc(d.why)}。</p><p class="small muted">Codex 側の経路と動作を確認できるまで、成功したように見せることはしません。</p></div>`, `<button class="btn-main" data-act="closeDialog">閉じる</button>`);
+  if (d.type === "side") return shell("side 相談", `<div class="content"><p class="small muted">主の作業はそのまま続きます。ここでの相談は主の会話に入りません。必要な内容だけを「主の会話へ渡す」で送れます。</p>
+      <div class="shell"><textarea aria-label="side 相談の入力" placeholder="ちょっと聞きたいこと"></textarea></div></div>`,
+    `<button class="btn-line" data-act="closeDialog">閉じる</button><button class="btn-line" data-act="sideHand">主の会話へ渡す</button><button class="btn-main" data-act="closeDialog">送信</button>`);
+  if (d.type === "goal") return shell("Goal", `<div class="content"><div class="field"><span>目標</span><input type="text" value="${esc(c.goal)}" aria-label="Goal"></div></div>`, `<button class="btn-line" data-act="closeDialog">キャンセル</button><button class="btn-main" data-act="closeDialog">保存</button>`);
+  if (d.type === "attach") return shell("追加", `<div class="content" style="display:grid;gap:6px">
+      <button class="btn-line" data-act="addFile">${icon("clip")}ファイルを選ぶ（このチャット用にコピーします）</button>
+      <button class="btn-line" data-act="addImage">${icon("img")}クリップボードの画像を貼り付ける</button>
+      <button class="btn-line" data-act="closeDialog">${icon("chat")}過去の会話を参考に指定</button>
+      <button class="btn-line" data-act="closeDialog">${icon("copy")}文章・コードの選択範囲を貼り付ける</button>
+      <button class="btn-line" data-act="closeDialog">${icon("target")}Skill を指定</button>
+      <p class="small muted">ドラッグ＆ドロップでも追加できます。フォルダは作業フォルダの指定として扱い、中身をコピーしません。</p></div>`, null);
+  if (d.type === "info") return shell(d.title, `<div class="content">${d.html}</div>`, `<button class="btn-main" data-act="closeDialog">閉じる</button>`);
+  return "";
+}
+function mockControl() {
+  return `<div class="mockctl"><button data-act="mockToggle" aria-expanded="${S.mock}">モックの状態</button>
+    ${S.mock ? `<div class="panel" role="menu"><p>製品の画面ではありません。正本 §10 の画面状態を切り替えて確認します。</p>${SCENARIOS.map(([k, t]) => `<button role="menuitemradio" aria-current="${S.scenario === k}" data-scn="${k}">${esc(t)}</button>`).join("")}</div>` : ""}</div>`;
+}
+
+// ---------- actions ----------
+let toastTimer;
+function toast(t) { S.toast = t; clearTimeout(toastTimer); toastTimer = setTimeout(() => { S.toast = null; render(); }, 2600); }
+function info(title, html) { S.dialog = { type:"info", title, html }; }
+function act(a, el) {
+  const c = chat();
+  if (a.startsWith("unv:")) { S.dialog = { type:"unv", why:a.slice(4) }; return; }
+  if (a.startsWith("settings:")) { S.dialog = { type:"settings", tab:a.split(":")[1] }; return; }
+  switch (a) {
+    case "noop": break;
+    case "closeToTray": toast("トレイに格納しました。作業と監視は続いています。"); break;
+    case "minimize": toast("最小化しました（モック）"); break;
+    case "closeMini": S.mini = false; toast("監視窓だけを閉じました。作業は続いています。"); break;
+    case "miniTop": S.miniTop = !S.miniTop; break;
+    case "toggleTop": S.mainTop = !S.mainTop; toast(S.mainTop ? "通常画面を最前面に表示します" : "最前面を解除しました"); break;
+    case "toggleLeft": if (narrow()) { S.lNarrow = !S.lNarrow; S.rNarrow = false; } else S.leftOpen = !S.leftOpen; break;
+    case "toggleRight": if (narrow()) { S.rNarrow = !S.rNarrow; S.lNarrow = false; } else S.rightOpen = !S.rightOpen; break;
+    case "toggleMini": S.mini = !S.mini; break;
+    case "toggleDone": S.showDone = !S.showDone; break;
+    case "archSearch": S.includeArchiveSearch = !S.includeArchiveSearch; break;
+    case "showArchive": S.showArchive = true; break;
+    case "hideArchive": S.showArchive = false; break;
+    case "newChat": S.dialog = { type:"newChat" }; break;
+    case "createChat": { const id = "n" + Date.now(); S.chats.unshift({ id, name:"新しいチャット", ai:"Codex", kind:"general", folder:null, pinned:false, archived:false, running:false, fresh:"live", model:"gpt-6.1-sol", effort:"中", accepted:{model:"gpt-6.1-sol", effort:"中"}, goal:"", draft:"", mode:"after", attach:[], queue:[], msgs:[], agents:[{id:id + "0", parent:null, name:"メイン", role:"main", task:"未取得", state:"idle", act:"最初の依頼を待っています", at:"—", src:"直接取得"}] }); S.sel = id; S.dialog = null; break; }
+    case "rename": if (c) { const n = prompt("チャット名", c.name); if (n) c.name = n; } break;
+    case "pin": if (c) c.pinned = !c.pinned; break;
+    case "archive": if (c) { c.archived = !c.archived; toast(c.archived ? (c.running ? "アーカイブしました。作業・通知・送信待ちは続いています。" : "アーカイブしました") : "アーカイブから戻しました"); } break;
+    case "export": S.dialog = { type:"export" }; break;
+    case "doExport": S.dialog = null; toast("書き出しました（モック）"); break;
+    case "delete": if (c) S.dialog = { type:"delete" }; break;
+    case "doDelete": S.dialog = null; if (c.running) { applyScenario("deletePending"); } else { S.chats = S.chats.filter(x => x !== c); S.sel = S.chats[0] && S.chats[0].id; toast("削除しました"); } break;
+    case "cancelDelete": delete S.holdDelete[c.id]; delete S.locked[c.id]; delete S.cBanner[c.id]; toast("削除を取り消しました。実行状態はまだ確認できていません。"); break;
+    case "quit": S.dialog = { type:"quit" }; break;
+    case "quitStop": S.dialog = null; applyScenario("stop"); break;
+    case "interrupt": if (c && c.running) { toast("中断を要求しました。停止を確認しています…"); setTimeout(() => { if (S.scenario !== "stop") { applyScenario("stop"); render(); } }, 1200); } break;
+    case "wait": toast("引き続き停止を確認します"); break;
+    case "retry": toast("中断を再試行しました"); break;
+    case "cancelQuit": delete S.cBanner[c.id]; c.agents.forEach(x => { if (x.state === "interrupted") x.state = "running"; }); toast("終了を取り消しました。作業と監視は続いています。"); break;
+    case "force": S.dialog = { type:"force" }; break;
+    case "doForce": S.dialog = null; toast("強制終了を要求しました。停止の確認を続けます。"); break;
+    case "recheck": toast("状態を照合しています…"); break;
+    case "reread": toast("保存履歴を再取得しました"); break;
+    case "reconcile": toast("履歴と照合しています。一致を確認できるまで再送しません。"); break;
+    case "resumeQueue": c.queue.forEach(q => { if (q.st === "stopped") { q.st = "wait"; delete q.why; } }); toast("残りの依頼を登録順に送ります"); break;
+    case "resumeExt": toast("外部での実行が終わったことを確認できたら再開します（モック）"); break;
+    case "retryLaunch": toast("起動を再試行しています…"); break;
+    case "ack": delete S.cBanner[c.id]; break;
+    case "login": info("ChatGPT に再ログイン", "<p>公式のログイン画面をブラウザで開きます。AgentDock がパスワードを受け取ることはありません。</p>"); break;
+    case "usage": info("利用状況", "<p>5時間枠: 上限に到達（15:10 にリセット）</p><p>週の枠: 62%</p><p class='small muted'>残量を取得できないときは「不明」と表示します。</p>"); break;
+    case "retrySave": toast("保存を再試行しています…"); break;
+    case "diff": S.dialog = { type:"diff" }; break;
+    case "undo": info("変更を戻す", "<p>次の変更を戻します。</p><ul class='check-list'><li>src/reconnect.rs（このチャットで変更）</li></ul><p class='small muted'>tests/reconnect.rs には作業前からの変更が含まれるため、対象から外しました。</p>"); break;
+    case "review": info("コードレビュー", "<div class='field'><span>対象</span><span><label><input type='radio' name='rv' checked>未コミットの変更</label>　<label><input type='radio' name='rv'>基準ブランチとの差分</label></span></div><div class='field'><span>結果の表示先</span><span><label><input type='radio' name='rd' checked>このチャット</label>　<label><input type='radio' name='rd'>別のチャット</label></span></div>"); break;
+    case "fork": toast("この時点から分岐した新しいチャットを作りました（分岐元に戻る導線を表示）"); break;
+    case "compact": info("文脈を圧縮", "<p>会話の文脈を圧縮します。圧縮前の本文は保存されたまま、後から読めます。</p><p class='small muted'>受付と完了は分けて表示します。</p>"); break;
+    case "reference": info("過去の会話を参考に指定", "<p>参考にする会話を選ぶと、送信前に参照する範囲を表示します。</p>"); break;
+    case "goal": S.dialog = { type:"goal" }; break;
+    case "goalClear": c.goal = ""; toast("Goal を解除しました"); break;
+    case "side": S.dialog = { type:"side" }; break;
+    case "sideHand": S.dialog = null; toast("選んだ内容を主の会話の入力欄へ渡しました（自動では送信しません）"); break;
+    case "help": info("状態の見方", "<p>旗の色と文字で状態を示します。実行中（青）、対応待ち（黄）、失敗（赤）、中断（紫）、完了（灰）、状態不明（斜線）。</p><p>「受信中」「live未復旧」「要照合」「切断」は情報の鮮度で、エージェントの状態とは別です。</p>"); break;
+    case "status": info("Codex の状態", "<p>codex-cli 0.160.0（App Server、stdio）</p><p>アカウント: ChatGPT</p>"); break;
+    case "about": info("バージョン情報", "<p>AgentDock 操作モック（正本 1.0 §10）</p>"); break;
+    case "attachMenu": S.dialog = { type:"attach" }; break;
+    case "addFile": c.attach.push({type:"file", name:"仕様メモ.docx", st:"コピー済み", at:"10/05 14:40"}); S.dialog = null; break;
+    case "addImage": c.attach.push({type:"img", name:"貼り付け画像.png", st:"コピー済み", at:"10/05 14:41"}); S.dialog = null; break;
+    case "openFile": toast("関連付けられたアプリで開きます（モック）"); break;
+    case "saveFile": toast("保存先を選んでください。同名のファイルがあれば確認します。"); break;
+    case "copy": toast("コピーしました"); break;
+    case "send": send(c); break;
+    case "closeDialog": S.dialog = null; break;
+    case "mockToggle": S.mock = !S.mock; break;
+  }
+}
+function send(c) {
+  const t = c.draft.trim();
+  if (!t) { toast("メッセージを入力してください"); return; }
+  if (c.running && c.mode === "after") { c.queue.push({ text:t, st:"wait" }); toast("完了後に送る依頼として登録しました"); }
+  else if (c.running) { c.msgs.push({ who:"user", text:"（追加指示）" + t }); toast("現在の作業への追加指示を送りました。反映されたかは応答で確認します。"); }
+  else { c.msgs.push({ who:"user", text:t }); c.running = true; const m = c.agents.find(x => !x.parent); if (m) { m.state = "running"; m.act = "依頼を処理中"; } }
+  c.draft = "";
+  if (c.name === "新しいチャット") c.name = t.replace(/\s+/g, " ").slice(0, 18);
+}
+
+document.addEventListener("click", e => {
+  const el = e.target.closest("[data-act],[data-menu],[data-chat],[data-scope],[data-mode],[data-tab],[data-scn],[data-req],[data-confirm],[data-qdel],[data-qedit],[data-unattach],[data-enter]");
+  if (!el) { if (S.menu) { S.menu = null; render(); } return; }
+  if (el.dataset.act === "closeDialogBg" && e.target !== el) return;
+  const d = el.dataset;
+  if (d.menu) { S.menu = S.menu === d.menu ? null : d.menu; render(); return; }
+  S.menu = null;
+  if (d.act === "closeDialogBg") { S.dialog = null; }
+  else if (d.act) act(d.act, el);
+  else if (d.chat) { S.sel = d.chat; S.lNarrow = false; S.rNarrow = false; }
+  else if (d.scope) { if (d.mini === "true") S.miniScope = d.scope; else S.scope = d.scope; }
+  else if (d.mode) chat().mode = d.mode;
+  else if (d.tab) S.dialog.tab = d.tab;
+  else if (d.scn) { applyScenario(d.scn); S.mock = true; }
+  else if (d.req) { const r = S.reqs.find(x => x.id === d.req); S.reqs = S.reqs.filter(x => x !== r); const c = chat(r.chat); const w = c.agents.find(x => x.state === "waiting"); if (w) { w.state = "running"; w.act = "回答を受けて続行"; } toast(`回答を送りました: ${d.ans === "deny" ? "拒否" : d.ans === "once" ? "1回だけ許可" : d.ans === "session" ? "このセッション中は許可" : d.ans}`); }
+  else if (d.confirm) { S.fails[d.confirm] = "confirmed"; toast("確認済みにしました。失敗の記録は残り、キューは再開しません。"); }
+  else if (d.qdel) { chat().queue.splice(+d.qdel, 1); }
+  else if (d.qedit) { const q = chat().queue[+d.qedit]; const n = prompt("依頼を編集", q.text); if (n) q.text = n; }
+  else if (d.unattach) { chat().attach.splice(+d.unattach, 1); }
+  else if (d.enter) S.enter = d.enter;
+  render();
+});
+document.addEventListener("input", e => {
+  if (e.target.id === "draft") { chat().draft = e.target.value; return; }
+  if (e.target.id === "q") { S.query = e.target.value; render(); }
+});
+document.addEventListener("change", e => {
+  const s = e.target.dataset.sel; if (!s) return;
+  const c = chat(); c[s] = e.target.value; render();
+});
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") { if (S.dialog) { S.dialog = null; render(); return; } if (S.menu) { S.menu = null; render(); return; } }
+  if (e.target.id === "draft" && e.key === "Enter") {
+    const sendNow = S.enter === "ctrl" ? e.ctrlKey : !e.shiftKey && !e.ctrlKey;
+    if (sendNow) { e.preventDefault(); send(chat()); render(); }
+  }
+  if (e.ctrlKey && (e.key === "n" || e.key === "N")) { e.preventDefault(); S.dialog = { type:"newChat" }; render(); }
+});
+document.addEventListener("dragover", e => e.preventDefault());
+document.addEventListener("drop", e => {
+  e.preventDefault(); const c = chat(); if (!c || S.locked[c.id]) return;
+  [...e.dataTransfer.files].forEach(f => c.attach.push({ type:/^image\//.test(f.type) ? "img" : "file", name:f.name, st:"コピー済み（モックでは名前だけ）", at:"今" }));
+  render();
+});
+render();
+</script>
+</body>
+</html>
