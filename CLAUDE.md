@@ -20,6 +20,7 @@
 - 対象環境（ユーザー申告で確認済み、再質問しない）: **Windows 11**（Pro 10.0.26200）、Windows直接起動（PowerShell）、Codex CLI 0.160.0、VS Code Codex拡張26.917.62051。
 - 技術方針: ローカルCodex App Serverを第一候補（最終採用は保留）。App Server＋限定CLI補助＋AgentDock側管理が比較の中心。通信はstdio優先評価。UIは**Tauri 2＋React＋TypeScript**（正本第52節で合意）。
 - 実装前方針（第52節）: codex.exeは設定でパス指定／既存CODEX_HOMEを共有し、config.tomlはユーザー明示操作時のみ変更して前後照合／段階①ホスト・会話・承認・中断・履歴＋三領域画面＋子孫監視→②トレイ・通知・キュー・添付→③18操作／未解決制約（B01〜B03）は未確認表示で着手／既存モックは直さず、要件修正後に新モックを作ってから実装。A1は個人利用（配布・署名・自動更新は初期範囲外）。
+- 将来の他AI接続（第一候補Claude Code、チャットごとに選択）に備え、ホストにAIバックエンド境界を置く。Codex固有の型（thread/turn等）をUI・保存形式へ直接持ち込まない（統合版草案§2.3）。
 - このフォルダ（`AgentDock_claude`）はClaude引継ぎ用のコピー。元は`..\AgentDock`。2026-10-05にgit init済み（`core.autocrlf=false`、検証runsのcodex-home/work/marketplaceは.gitignore）。
 
 ## 現在のフェーズと許可範囲
