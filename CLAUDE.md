@@ -41,6 +41,7 @@
 
 最新状況は正本v0.49・第51節、`AgentDock_Idle_Stop_Plugin_Followup_Review.md`、`probes/app-server/batch-result.json`を優先する。
 
+0. `AgentDock_Requirements.md` — **統合版要件の草案**（1.0-draft1）。承認後はこれが正本になり、`Agent_Monitor_Requirements.md`は経緯・証拠記録になる。承認前は参照用
 1. `Agent_Monitor_Handoff.md` — 引継ぎ要約と版ごとの経緯
 2. `Agent_Monitor_Requirements.md` — **要件正本**（v0.49、約170KB）。M/A/V/D番号の索引
 3. `Agent_Monitor_Mock_Review.md` — 過去のモックレビュー記録
@@ -90,7 +91,7 @@ node probes/app-server/summarize-batch.mjs
 
 ## 次の作業候補（正本第51〜52節・Handoffより）
 
-- 直近: 要件の修正（第52節の反映、第30.5節①〜④の整理）→ 新モック作成・確認 → 実装依頼後に段階①から実装。
+- 直近: 統合版要件草案`AgentDock_Requirements.md`のユーザー確認・承認 → 新モック作成（同書§10が入力）・確認 → 実装依頼後に段階①から実装。
 - B1〜B4は許可済み。schema生成（`probes/app-server/schema/0.160.0/`、methods-*.txtにメソッド一覧）とgit initは完了。B1の`probes/app-server/live-smoke.mjs`は自動許可判定で拒否されたので、ユーザーが実行して`latest-live-result.json`を渡してもらう。B4（実sleep）は本人操作で後日。
 
 - B01: 実Windows sleep（本人操作）と安全な購読専用経路、30分超sleep、保存途中・異常終了、100agent／2秒。

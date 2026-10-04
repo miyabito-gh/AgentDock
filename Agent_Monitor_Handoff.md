@@ -4,6 +4,8 @@
 移行先: C:\Users\wmasa\Documents\Rust\AgentDock
 フェーズ: 要件定義・UIモック。製品実装未着手。承認済みの隔離App Server小規模検証を実施済み。
 
+統合版草案（2026-10-05）: [AgentDock_Requirements.md](AgentDock_Requirements.md) 1.0-draft1。v0.50までの有効な要件を機能領域ごとに再構成し、schema（安定／experimental）の根拠と新モックへの入力を追加。ユーザー承認後に正本へ切替え、本書群は経緯・証拠記録として保持する。承認までは下記v0.50が正本。
+
 最新v0.50（2026-10-05、Claude Code引継ぎ）: 正本第52節。実装前方針A1〜A7に回答。A2 codex.exeは設定でパス指定、A3 既存CODEX_HOME共有（config.toml変更は明示操作時のみ）、A4 Tauri 2＋React＋TypeScript、A5 段階①ホスト・会話・履歴・三領域・子孫監視→②トレイ・通知・キュー・添付→③18操作、A6 未解決制約下で着手、A7 既存モックは修正せず要件修正後に新モックを再作成してから実装。A1は個人利用（公式変更履歴2026-09-05「app-serverはexperimental・本番ワークロード非サポート」を互換性リスクとして受容）。B1〜B4許可済み: schema生成済み（probes/app-server/schema/0.160.0）、git init済み、単体版codex.exeは検証exeと同一ハッシュ。B1実認証スモーク（live-smoke.mjs）は自動許可判定で拒否され未実行、ユーザー実行待ち。次は要件修正→新モック。
 
 v0.49時点: [AgentDock_Idle_Stop_Plugin_Followup_Review.md](AgentDock_Idle_Stop_Plugin_Followup_Review.md)・正本第51節。31分の無購読idle後はloaded空／read notLoadedで完了履歴回収、モデル要求増加なし。readはturn/item購読や進行中部分本文を復旧しない条件を確認。会話別管理IDとCIMで所有・親子孫各3PIDの実終了を限定照合。Plugins同時設定操作、stale API版拒否、loopback Git marketplace更新、削除後の会話別MCPと過去Skill本文を別照合。累計26測定／24選択試行、全suite・製品受入ではない。実Windows sleepは未実施、powercfg読取りでS3／休止利用可。次は実sleep／安全な購読、任意停止所有、更新途中失敗と未確認能力。最終採用保留、既存設定／認証・本体・HTML・クラウド推論変更なし。
