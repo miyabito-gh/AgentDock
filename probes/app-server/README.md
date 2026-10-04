@@ -60,3 +60,15 @@ Git marketplace測定は試行内だけにsource/bare fixture repositoryを作�
 Skill本文の全要求内boolは履歴残存も含む。更新／削除の新規注入判定はinput位置・opaque hash・token出現数を用い、fresh会話と比較する。要求本文・認証headerを保存する方式へ拡張していない。read-only部分本文測定の保存データは自作fixture本文のみ。
 
 詳しくは [追加検証レビュー](../../AgentDock_Idle_Stop_Plugin_Followup_Review.md)。source-followup/manifest.jsonは追加した対象タグソースの取得記録。batch-resultは選択試行の統合であり、全suite・製品受入ではない。
+
+## 実認証スモーク（B1、2026-10-05許可）
+
+`live-smoke.mjs` は共有既定CODEX_HOME（A3）の既存ChatGPTログインで、stable APIのみ・ephemeral・read-onlyの一般チャット1ターンを実推論する。account/read、rateLimits、model/list、thread/start、turn/start（effort=low、固定トークンの返答確認）、thread/readを記録。メール・トークン・認証header・自由文本文は保存せず、config.tomlの前後hashとauth.jsonの変化有無を記録する。結果は `runs/<日時>-live/result.json` と `latest-live-result.json`。利用枠を少量消費する。
+
+```powershell
+node probes/app-server/live-smoke.mjs 'C:\Users\wmasa\AppData\Local\Programs\OpenAI\Codex\bin\codex.exe'
+```
+
+## 生成schema
+
+`schema/0.160.0/` に `generate-json-schema`／`generate-ts` の通常版と `--experimental` 版を保存。`methods-*.txt` はClientRequest／ServerRequest／ServerNotificationのメソッド一覧。

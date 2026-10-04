@@ -19,8 +19,8 @@
 - Windows向けの独立Codexクライアント。アプリ内でCodexの起動・チャット・承認・質問・中断・履歴を扱い、親エージェントと動的に生成された子・孫を監視する。VS Codeを実行時依存にしない。
 - 対象環境（ユーザー申告で確認済み、再質問しない）: Windows直接起動（PowerShell）、Codex CLI 0.160.0、VS Code Codex拡張26.917.62051。
 - 技術方針: ローカルCodex App Serverを第一候補（最終採用は保留）。App Server＋限定CLI補助＋AgentDock側管理が比較の中心。通信はstdio優先評価。UIは**Tauri 2＋React＋TypeScript**（正本第52節で合意）。
-- 実装前方針（第52節）: codex.exeは設定でパス指定／既存CODEX_HOMEを共有し、config.tomlはユーザー明示操作時のみ変更して前後照合／段階①ホスト・会話・承認・中断・履歴＋三領域画面＋子孫監視→②トレイ・通知・キュー・添付→③18操作／未解決制約（B01〜B03）は未確認表示で着手／既存モックは直さず、要件修正後に新モックを作ってから実装。A1（個人利用か配布か）は未回答。
-- このフォルダ（`AgentDock_claude`）はClaude引継ぎ用のコピー。元は`..\AgentDock`。gitリポジトリではない。
+- 実装前方針（第52節）: codex.exeは設定でパス指定／既存CODEX_HOMEを共有し、config.tomlはユーザー明示操作時のみ変更して前後照合／段階①ホスト・会話・承認・中断・履歴＋三領域画面＋子孫監視→②トレイ・通知・キュー・添付→③18操作／未解決制約（B01〜B03）は未確認表示で着手／既存モックは直さず、要件修正後に新モックを作ってから実装。A1は個人利用（配布・署名・自動更新は初期範囲外）。
+- このフォルダ（`AgentDock_claude`）はClaude引継ぎ用のコピー。元は`..\AgentDock`。2026-10-05にgit init済み（`core.autocrlf=false`、検証runsのcodex-home/work/marketplaceは.gitignore）。
 
 ## 現在のフェーズと許可範囲
 
@@ -34,7 +34,7 @@
 - 製品本体の実装（第30.5節の到達条件と「実装へ進む依頼」が前提）。
 - `Agent_Monitor_Mock.html`の変更。
 - 既存Codex設定（`~/.codex/config.toml`等）・認証（auth.json）の変更やコピー、既存アカウントへのログイン。
-- 実クラウド推論・実クラウドmarketplace・OAuth。
+- 実クラウド推論・実クラウドmarketplace・OAuth（例外: B1の最小スモーク`live-smoke.mjs`は許可済み）。
 - PC全体に影響する操作（実Windows sleep、電源設定変更など）。sleep測定は本人がsleep/wakeを行う前提。
 
 ## 資料と読む順序
@@ -79,7 +79,7 @@ node probes/app-server/extended-probe.mjs '<codex.exe>' <測定名,測定名>
 node probes/app-server/summarize-batch.mjs
 ```
 
-- 対象exeはVS Code拡張同梱の0.160.0: `C:\Users\wmasa\.vscode\extensions\openai.chatgpt-26.930.31730-win32-x64\bin\windows-x86_64\codex.exe`（PATHのcodexは0.159.0-alpha系なので使わない）。対象版以外は停止する。
+- 対象exeは0.160.0。単体版 `C:\Users\wmasa\AppData\Local\Programs\OpenAI\Codex\bin\codex.exe`（実PCのPATH）と拡張26.930.31730同梱exeは同一ハッシュ。対象版以外は停止する。
 - `extended-probe.mjs`は**測定名を明示してfocused run**する。`idle_31min_read_recovery`は明示時のみ31分の実時間待機。
 - 毎回`runs/<日時>/codex-home`と`work`を新規作成し、CODEX_HOMEは子プロセスだけに指定。原本config.tomlの前後hashを比較する。
 - 要求本文・認証headerは記録しない。runs以下は自動削除しない。
@@ -89,7 +89,7 @@ node probes/app-server/summarize-batch.mjs
 ## 次の作業候補（正本第51〜52節・Handoffより）
 
 - 直近: 要件の修正（第52節の反映、第30.5節①〜④の整理）→ 新モック作成・確認 → 実装依頼後に段階①から実装。
-- 許可待ち: 実ChatGPT認証・実推論の最小確認、`codex app-server generate-json-schema`、git init。
+- B1〜B4は許可済み。schema生成（`probes/app-server/schema/0.160.0/`、methods-*.txtにメソッド一覧）とgit initは完了。B1の`probes/app-server/live-smoke.mjs`は自動許可判定で拒否されたので、ユーザーが実行して`latest-live-result.json`を渡してもらう。B4（実sleep）は本人操作で後日。
 
 - B01: 実Windows sleep（本人操作）と安全な購読専用経路、30分超sleep、保存途中・異常終了、100agent／2秒。
 - B02: 任意構成・PID再利用・detach・遅延生成を含む停止対象の所有照合。

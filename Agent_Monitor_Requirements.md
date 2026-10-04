@@ -1351,7 +1351,7 @@ Claude Codeへの引継ぎ後、実装前の確認事項A1〜A7を一括提示�
 
 |ID|論点|回答・扱い|
 |---|---|---|
-|A1|利用範囲（個人利用／配布）とApp Serverのサポート範囲|未回答。出典を再確認: 公式変更履歴2026-09-05「Codex MCP server removed」項目の “The app-server command is experimental and isn’t supported for production workloads.”（2026-10-05ブラウザで本文確認）。検証用環境の記述ではなく、app-serverコマンド自体の公式説明。動作不能・利用禁止の意味ではない|
+|A1|利用範囲（個人利用／配布）とApp Serverのサポート範囲|合意: 個人利用。インストーラ配布・コード署名・自動更新・商標確認は初期範囲に含めない（Windows通知に必要な最小限のインストール形態は設計事項）。App Serverの「本番ワークロード非サポート」は個人利用での互換性リスクとして受容し、プロトコル層の分離と版確認で対処する。出典: 公式変更履歴2026-09-05「Codex MCP server removed」項目の “The app-server command is experimental and isn’t supported for production workloads.”（2026-10-05ブラウザで本文確認）。検証用環境の記述ではなく、app-serverコマンド自体の公式説明。動作不能・利用禁止の意味ではない|
 |A2|起動するcodex.exe|合意: 設定でパスを指定可能にする。既定値・対象版外の扱いは設計事項（推奨案: 既定PATH、0.160.0以外は警告）|
 |A3|CODEX_HOME・認証・設定|合意: 既存のCODEX_HOMEを共有する。D05「共通config.tomlを無断変更しない」は、ユーザーの明示操作（Plugins管理等）時のみ変更し前後を照合する、と読む|
 |A4|UI技術|合意: Tauri 2＋React＋TypeScript。第5節以降の「UI未選定」はこの回答で解消|
@@ -1359,6 +1359,11 @@ Claude Codeへの引継ぎ後、実装前の確認事項A1〜A7を一括提示�
 |A6|未解決技術制約下での着手|合意: 着手する。B01はread補完＋live未復旧表示、B02は停止未確認として保留、B03はCLI補助。公開経路未確認の同等性操作（side・クラウド委任・worktree・personality・安全な変更復元等）は台帳どおり未確認表示とし、後段で照合|
 |A7|モック|合意: 既存Agent_Monitor_Mock.htmlは修正しない。実装開始前に、要件修正を反映した新しいモックを再作成し確認する|
 
-- 実PCのPATH上のcodexは`%LOCALAPPDATA%\Programs\OpenAI\Codex\bin\codex.exe`（codex-cli 0.160.0、単体インストール）と2026-10-05に確認（V01の導入経路の一部）。これまでの検証は拡張同梱0.160.0で実施しており、同一ビルドかは未照合。
+- 実PCのPATH上のcodexは`%LOCALAPPDATA%\Programs\OpenAI\Codex\bin\codex.exe`（codex-cli 0.160.0、単体インストール）と2026-10-05に確認（V01の導入経路の一部）。拡張26.930.31730同梱exeとSHA-256が一致（fdda5fa3…6d1d）し、これまでの検証exeと同一ビルド。
 - 方式の再確認（2026-10-05、公式文書をブラウザで確認）: 本書の方式CはApp Server（`codex app-server`の独自JSON-RPC）であり、削除済みの`codex mcp-server`には依存しない。[移行案内](https://learn.chatgpt.com/docs/mcp-server)は認証・会話履歴・承認・逐次イベントが必要な連携にApp Serverを指定し、MCP互換ではないと説明する。[Codex SDK](https://learn.chatgpt.com/docs/codex-sdk)はCI等の自動化向けにSDK、独自クライアントにApp Serverを推奨。TypeScript SDKはthread開始・継続・再開。Python SDKはApp ServerをJSON-RPCで操作し「stable release」で、固定版CLIを同梱する。SDKの安定版表記をApp Serverプロトコルの本番サポートとは扱わない（事実・公式文書。対象版での確認は未実施）。
-- 次の作業: 要件の修正（第30.5節①〜④の整理を含む）→ 新モック作成・確認 → 実装依頼後に段階①から実装。実ChatGPT認証・実推論での確認、schema生成、git initは別途許可待ち。App Server最終採用はA1回答と機能充足の確認後に判断する。
+- 次の作業: 要件の修正（第30.5節①〜④の整理を含む）→ 新モック作成・確認 → 実装依頼後に段階①から実装。App Server最終採用は機能充足の確認後に判断する。
+- B1〜B4（実認証・実推論の最小確認、schema生成、git init、本人操作の実sleep測定）は2026-10-05にユーザーが許可。
+  - B2実施: 0.160.0単体版で`app-server generate-json-schema`／`generate-ts`を通常・`--experimental`の4種生成し`probes/app-server/schema/0.160.0/`へ保存（専用一時CODEX_HOME、既存config hash一致）。ClientRequestは安定104／experimental込み167、ServerRequest 10／11、ServerNotification 83。安定側にthread/attachment・goal・compact・fork・review/start・turn/steer・plugin/*等、experimental側にthread/queue/*・backgroundTerminals/*・thread/search・project/*等。メソッド一覧は同フォルダのmethods-*.txt。生成schemaは対象版の型であり動作保証ではない。
+  - B3実施: git init、初回commit。検証runsのcodex-home・work・marketplaceは履歴DB・セッション本文を含むため.gitignoreで除外（削除はしない）。
+  - B1: 確認用`probes/app-server/live-smoke.mjs`を作成（共有既定CODEX_HOME、stable APIのみ、ephemeral・read-onlyの一般チャット1ターン、メール・トークン・本文は記録しない）。Claude Code側の自動許可判定で実行が拒否されたため未実行。ユーザー実行またはローカル許可設定後に実施する。
+  - B4: 本人のsleep/wake操作が必要なため後日。
