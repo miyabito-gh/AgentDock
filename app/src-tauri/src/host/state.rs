@@ -54,8 +54,8 @@ pub struct HostData {
     last_end: HashMap<AgentKey, (ExternalId, TurnEnd, UnixMillis)>,
     /// このセッションで非終端（initializing/running/waiting）を観測したエージェント。通知は「非終端→終端」だけを起点にする。
     nonterminal_seen: HashSet<AgentKey>,
-    /// このセッションで観測した失敗の終端（一覧の印用。確認済みは `locals[..].acknowledged_failures`）。
-    failures: Vec<(ChatKey, TurnKey)>,
+    /// 現在の状態が失敗のエージェント（印の更新イベントを状態の出入りのときだけ出すため）。
+    failed_seen: HashSet<AgentKey>,
     /// 通知の入力（ホストが `mutate` の直後に取り出して `Notifier` へ渡す）。
     pub notify_inbox: Vec<NotifyInput>,
 }
@@ -84,7 +84,7 @@ impl Default for HostData {
             latest_turn_start: HashMap::new(),
             last_end: HashMap::new(),
             nonterminal_seen: HashSet::new(),
-            failures: Vec::new(),
+            failed_seen: HashSet::new(),
             notify_inbox: Vec::new(),
         }
     }
@@ -355,36 +355,51 @@ impl HostData {
 
     // ── 通知の入力・一覧の印（P5） ──
 
-    /// 一覧の印。状態から導く（通知設定に関係なく付ける）。
-    pub fn marks_of(&self, chat: &ChatKey) -> ChatMarks {
+    /// 現在の状態が失敗のエージェントの、失敗したturn（確認済みの照合キー）。turnが取れないときは最新turn、それも無ければ空ID。
+    fn failed_turn_of(v: &AgentView) -> Option<TurnKey> {
+        if v.status.state != AgentState::Failed {
+            return None;
+        }
+        let turn_id = v.status.turn.clone().or_else(|| v.agent.latest_turn.clone()).unwrap_or_else(|| ExternalId(String::new()));
+        Some(TurnKey { agent: v.agent.key.clone(), turn_id })
+    }
+
+    /// まだ確認していない失敗（チャット内。`agent` 指定ならそのエージェントだけ）。現在の状態から導く（再起動後も同じ）。
+    pub fn unacknowledged_failures(&self, chat: &ChatKey, agent: Option<&AgentKey>) -> Vec<TurnKey> {
         let acked = self.locals.get(chat).map(|l| l.acknowledged_failures.as_slice()).unwrap_or(&[]);
+        self.agents
+            .iter()
+            .filter(|v| &v.agent.chat == chat && agent.map_or(true, |a| a == &v.agent.key))
+            .filter_map(Self::failed_turn_of)
+            .filter(|t| !acked.contains(t))
+            .collect()
+    }
+
+    /// 一覧の印。状態から導く（通知設定・通知の起点に関係なく付ける）。
+    pub fn marks_of(&self, chat: &ChatKey) -> ChatMarks {
         ChatMarks {
             awaiting_answer: self.requests.iter().any(|r| &r.chat == chat && r.state == RequestState::Pending),
-            unacknowledged_failure: self.failures.iter().any(|(c, t)| c == chat && !acked.contains(t)),
+            unacknowledged_failure: !self.unacknowledged_failures(chat, None).is_empty(),
         }
     }
 
-    /// 印が変わり得るチャットの更新イベント（補足情報がまだ無いチャットは、ホストが作ったあとに出る）。
+    /// 印が変わり得るチャットの更新イベント（補足情報がまだ無いチャットは、UIが状態から出す）。
     pub fn marks_event(&self, chat: &ChatKey) -> Option<HostEvent> {
         self.local_view(chat).map(|local| HostEvent::ChatLocalUpdated { local })
     }
 
-    /// まだ確認していない失敗の終端（チャット内。`agent` 指定ならそのエージェントだけ）。
-    pub fn unacknowledged_failures(&self, chat: &ChatKey, agent: Option<&AgentKey>) -> Vec<TurnKey> {
-        let acked = self.locals.get(chat).map(|l| l.acknowledged_failures.as_slice()).unwrap_or(&[]);
-        self.failures
-            .iter()
-            .filter(|(c, t)| c == chat && agent.map_or(true, |a| a == &t.agent) && !acked.contains(t))
-            .map(|(_, t)| t.clone())
-            .collect()
-    }
-
-    /// 状態の観測を通知の入力にする。終端の判定は turn が分かるものだけ（推測で作らない）。
+    /// 状態の観測を反映する。①失敗状態の出入りで印を更新（通知の起点とは無関係） ②通知の入力（非終端→終端だけ）。
     fn note_state(&mut self, agent: &AgentKey, state: AgentState, turn: Option<ExternalId>) -> Vec<HostEvent> {
+        let mut out = Vec::new();
+        let changed = if state == AgentState::Failed { self.failed_seen.insert(agent.clone()) } else { self.failed_seen.remove(agent) };
+        if changed {
+            if let Some(chat) = self.view(agent).map(|v| v.agent.chat.clone()) {
+                out.extend(self.marks_event(&chat));
+            }
+        }
         match state {
             AgentState::Initializing | AgentState::Running | AgentState::Waiting => {
                 self.nonterminal_seen.insert(agent.clone());
-                Vec::new()
             }
             AgentState::Done | AgentState::Failed | AgentState::Interrupted => {
                 let end = match state {
@@ -392,33 +407,24 @@ impl HostData {
                     AgentState::Failed => TurnEnd::Failed,
                     _ => TurnEnd::Interrupted,
                 };
-                match turn {
-                    Some(t) => {
-                        let was = self.nonterminal_seen.remove(agent);
-                        self.note_end(agent, t, end, was)
-                    }
-                    None => Vec::new(),
+                if let Some(t) = turn {
+                    let was = self.nonterminal_seen.remove(agent);
+                    self.note_end(agent, t, end, was);
                 }
             }
-            _ => Vec::new(),
+            _ => {}
         }
+        out
     }
 
-    fn note_end(&mut self, agent: &AgentKey, turn: ExternalId, end: TurnEnd, was_nonterminal: bool) -> Vec<HostEvent> {
+    /// 終端を通知の入力にする（非終端を観測していたものだけ。初観測は通知しない）。
+    fn note_end(&mut self, agent: &AgentKey, turn: ExternalId, end: TurnEnd, was_nonterminal: bool) {
         if !was_nonterminal {
-            return Vec::new();
+            return;
         }
-        let Some(chat) = self.view(agent).map(|v| v.agent.chat.clone()) else { return Vec::new() };
+        let Some(chat) = self.view(agent).map(|v| v.agent.chat.clone()) else { return };
         let is_root = self.is_root(agent);
-        self.notify_inbox.push(NotifyInput::Ended { chat: chat.clone(), agent: agent.clone(), is_root, turn: turn.clone(), end, was_nonterminal });
-        if end == TurnEnd::Failed {
-            let tk = TurnKey { agent: agent.clone(), turn_id: turn };
-            if !self.failures.iter().any(|(_, t)| t == &tk) {
-                self.failures.push((chat.clone(), tk));
-                return self.marks_event(&chat).into_iter().collect();
-            }
-        }
-        Vec::new()
+        self.notify_inbox.push(NotifyInput::Ended { chat, agent: agent.clone(), is_root, turn, end, was_nonterminal });
     }
 
     // ── バックエンドイベント ──
@@ -563,7 +569,7 @@ impl HostData {
                     self.running_turn.remove(&turn.agent);
                     was_nonterminal = true;
                 }
-                out.extend(self.note_end(&turn.agent, turn.turn_id.clone(), *end, was_nonterminal));
+                self.note_end(&turn.agent, turn.turn_id.clone(), *end, was_nonterminal);
                 let at = ev.source_time.unwrap_or(now);
                 self.last_end.insert(turn.agent.clone(), (turn.turn_id.clone(), *end, at));
                 out.push(HostEvent::TurnUpdated { turn: turn.clone(), end: Some(*end) });
@@ -713,28 +719,30 @@ mod tests {
     }
 
     #[test]
-    fn only_observed_nonterminal_to_terminal_feeds_notifications_and_failure_marks() {
+    fn failure_mark_follows_current_state_not_notification_origin() {
         let mut d = HostData::default();
-        // 初観測が終端（履歴の読込みなど）は通知にも印にもしない。
+        // 起動後の初観測（履歴・走査）の失敗: 通知はしないが、印は付く（再起動相当）。
         d.set_live(agent("root", true), status(AgentState::Failed, Some("t0"), StateScope::Turn));
         assert!(d.notify_inbox.is_empty());
+        assert!(d.marks_of(&ck("root")).unacknowledged_failure);
+        // 確認済みで外れる。別のturnの確認済みでは外れない。
+        let mut f = ChatLocalFile::new(LocalId("d".into()), Some(ck("root")));
+        f.acknowledged_failures = vec![tk("root", "tX")];
+        d.locals.insert(ck("root"), f);
+        assert!(d.marks_of(&ck("root")).unacknowledged_failure);
+        d.locals.get_mut(&ck("root")).unwrap().acknowledged_failures = d.unacknowledged_failures(&ck("root"), None);
         assert!(!d.marks_of(&ck("root")).unacknowledged_failure);
-        // 非終端を観測したあとの失敗は入力になり、印が付く。確認済みで外れる。
+        // 新しいturnが走り出せば印は消え、そのturnが失敗すれば再び付く（通知の入力にもなる）。
         d.apply_event(&env(1, 1, BackendEvent::TurnStarted { turn: tk("root", "t1"), evidence: evidence(EvidenceSource::LiveEvent, "x", UnixMillis(1)) }), &caps());
+        d.apply_event(&env(2, 2, BackendEvent::AgentStatus { agent: ak("root"), status: status(AgentState::Running, Some("t1"), StateScope::Turn) }), &caps());
+        d.apply_event(&env(3, 3, BackendEvent::AgentStatus { agent: ak("root"), status: status(AgentState::Failed, Some("t1"), StateScope::Turn) }), &caps());
+        assert_eq!(d.notify_inbox.len(), 1);
+        assert_eq!(d.unacknowledged_failures(&ck("root"), None), vec![tk("root", "t1")]);
+        // 同じ終端のTurnEndedは通知を二重にしない（状態通知で終端を消費済み）。
         d.apply_event(
-            &env(2, 2, BackendEvent::TurnEnded { turn: tk("root", "t1"), end: TurnEnd::Failed, error: None, evidence: evidence(EvidenceSource::LiveEvent, "x", UnixMillis(2)) }),
+            &env(4, 4, BackendEvent::TurnEnded { turn: tk("root", "t1"), end: TurnEnd::Failed, error: None, evidence: evidence(EvidenceSource::LiveEvent, "x", UnixMillis(4)) }),
             &caps(),
         );
-        assert_eq!(d.notify_inbox.len(), 1);
-        assert!(d.marks_of(&ck("root")).unacknowledged_failure);
-        let t = d.unacknowledged_failures(&ck("root"), None);
-        assert_eq!(t, vec![tk("root", "t1")]);
-        let mut f = ChatLocalFile::new(LocalId("d".into()), Some(ck("root")));
-        f.acknowledged_failures = t;
-        d.locals.insert(ck("root"), f);
-        assert!(!d.marks_of(&ck("root")).unacknowledged_failure);
-        // 同じ終端を状態通知でも観測しても二重にならない（非終端を挟んでいない）。
-        d.apply_event(&env(3, 3, BackendEvent::AgentStatus { agent: ak("root"), status: status(AgentState::Failed, Some("t1"), StateScope::Turn) }), &caps());
         assert_eq!(d.notify_inbox.len(), 1);
     }
 

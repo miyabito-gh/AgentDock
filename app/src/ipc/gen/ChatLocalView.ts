@@ -7,6 +7,7 @@ import type { ListVisibility } from "./ListVisibility";
 import type { ModelChoice } from "./ModelChoice";
 import type { PermissionPreset } from "./PermissionPreset";
 import type { SaveState } from "./SaveState";
+import type { TurnKey } from "./TurnKey";
 import type { UnixMillis } from "./UnixMillis";
 
 /**
@@ -28,4 +29,8 @@ permission: PermissionPreset | null,
 /**
  * 次のturnから使う作業フォルダ（M44）。None＝会話の現在の作業フォルダ。
  */
-nextCwd: string | null, draft: Draft, visibility: ListVisibility, deletePending: DeletePending | null, marks: ChatMarks, save: SaveState, };
+nextCwd: string | null, draft: Draft, visibility: ListVisibility, deletePending: DeletePending | null, marks: ChatMarks, 
+/**
+ * 「確認済み」にした失敗（agent＋turn）。UIが現在の失敗との一致で確認済みを判定する（M42）。
+ */
+acknowledgedFailures: Array<TurnKey>, save: SaveState, };

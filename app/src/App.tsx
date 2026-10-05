@@ -390,11 +390,21 @@ export default function App() {
     toggleDone: scope.kind === "allChats" && scope.showFinished,
   };
 
+  // 確認済みの失敗。実接続ではホストの記録（chatLocals）と現在の失敗turnの一致で判定し、左一覧と揃える。モックは画面内の集合。
+  const confirmedKeys: Set<string> = live
+    ? new Set(snap.agents.filter((a) => {
+      if (a.status.state !== "failed") return false;
+      const turn = a.status.turn ?? a.agent.latestTurn ?? "";
+      const acked = snap.chatLocals.find((l) => l.chat.id === a.agent.chat.id)?.acknowledgedFailures ?? [];
+      return acked.some((t) => t.agent.id === a.agent.key.id && t.turnId === turn);
+    }).map((a) => keyStr(a.agent.key)))
+    : confirmed;
+
   const dockProps = {
-    snap, scope, selId, confirmed, onScope, onAct: act,
+    snap, scope, selId, confirmed: confirmedKeys, onScope, onAct: act,
     onOpen: (id: string) => { selectChat(id); },
     onConfirmFail: (k: string) => {
-      setConfirmed((s) => new Set(s).add(k));
+      if (!live) setConfirmed((s) => new Set(s).add(k));
       const v = snap.agents.find((a) => keyStr(a.agent.key) === k);
       if (v) onAcknowledge(v.agent.chat, v.agent.key);
     },

@@ -22,7 +22,7 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge }: {
     // 印はホストが状態から導く（通知設定に関係なく付く）。ホストの値がなければ（モック）画面側の状態から出す。
     const marks = snap.chatLocals.find((l) => l.chat.id === c.key.id)?.marks;
     const hasReq = marks?.awaitingAnswer || chatRequests(snap, c).length > 0;
-    const unconfirmedFail = marks ? marks.unacknowledgedFailure : chatAgents(snap, c).some((a) => a.status.state === "failed" && a.agent.parent.kind !== "root");
+    const unconfirmedFail = marks ? marks.unacknowledgedFailure : chatAgents(snap, c).some((a) => a.status.state === "failed");
     return (
       <button key={k} className={`row-chat ${k === sel ? "sel" : ""}`} onClick={() => onSelect(c.key.id)} aria-current={k === sel}>
         <span className="nm" style={chatTitle(c).confirmed ? undefined : TENTATIVE_STYLE} title={chatTitle(c).confirmed ? undefined : TENTATIVE_HINT}>{chatName(c)}</span>

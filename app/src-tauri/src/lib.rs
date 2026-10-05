@@ -54,15 +54,18 @@ pub fn run() {
                 host.attach_notifier(Arc::new(move |n| {
                     let weak = weak.clone();
                     let handle = handle.clone();
-                    win::toast::show(&n, move |chat| {
-                        if let Some(w) = handle.get_webview_window("main") {
-                            let _ = w.show();
-                            let _ = w.unminimize();
-                            let _ = w.set_focus();
-                        }
-                        if let Some(host) = weak.upgrade() {
-                            host.navigate_to_chat(chat);
-                        }
+                    // 表示が遅くてもイベント処理を止めないよう、別スレッドで出す。
+                    tauri::async_runtime::spawn_blocking(move || {
+                        win::toast::show(&n, move |chat| {
+                            if let Some(w) = handle.get_webview_window("main") {
+                                let _ = w.show();
+                                let _ = w.unminimize();
+                                let _ = w.set_focus();
+                            }
+                            if let Some(host) = weak.upgrade() {
+                                host.navigate_to_chat(chat);
+                            }
+                        });
                     });
                 }));
             }
