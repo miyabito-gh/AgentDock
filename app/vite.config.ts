@@ -5,7 +5,7 @@ export default defineConfig({
   plugins: [react()],
   build: {
     target: 'ES2020',
-    outDir: '../src-tauri/dist',
+    outDir: 'dist',
     emptyOutDir: true
   },
   server: {

@@ -24,9 +24,11 @@ function Shell({ title, children, foot, wide, onClose }: { title: string; childr
 
 const TABS: Array<[string, string]> = [["general", "全般"], ["notify", "通知"], ["input", "入力"], ["model", "モデル"], ["codex", "Codex"], ["mcp", "MCP・Plugins"], ["skills", "Skills"], ["storage", "保存と容量"]];
 
-function SettingsBody({ tab, enterMode, setEnterMode, top, source, models }: {
+export interface CodexExe { path: string; setPath: (p: string) => void; placeholder: string; connect: (p: string) => void; live: boolean }
+
+function SettingsBody({ tab, enterMode, setEnterMode, top, source, models, exe }: {
   tab: string; enterMode: "ctrl" | "enter"; setEnterMode: (m: "ctrl" | "enter") => void; top: { main: boolean; mini: boolean; setMain: (b: boolean) => void; setMini: (b: boolean) => void };
-  source: SourceInfo | undefined; models: ModelInfo[];
+  source: SourceInfo | undefined; models: ModelInfo[]; exe: CodexExe;
 }) {
   switch (tab) {
     case "general": return (
@@ -56,7 +58,7 @@ function SettingsBody({ tab, enterMode, setEnterMode, top, source, models }: {
       const v = source?.version;
       return (
         <>
-          <div className="field"><span>codex.exe の場所</span><div style={{ display: "flex", gap: 6 }}><input type="text" className="mono" style={{ flex: 1 }} defaultValue="" aria-label="codex.exe のパス" /><button className="btn-line">参照…</button></div><span className="note">空欄なら PATH の codex を使います。</span></div>
+          <div className="field"><span>codex.exe の場所</span><div style={{ display: "flex", gap: 6 }}><input type="text" className="mono" style={{ flex: 1 }} value={exe.path} placeholder={exe.placeholder} onChange={(e) => exe.setPath(e.target.value)} aria-label="codex.exe のパス" /><button className="btn-line" disabled={!exe.live} onClick={() => exe.connect(exe.path)}>この場所で接続</button></div><span className="note">空欄なら既定の場所を使います。接続済みの間は変更できません。~/.codex の設定と認証は共有し、このアプリからは変更しません。</span></div>
           <div className="field"><span>検出結果</span><span>{v?.kind === "match" ? `codex-cli ${v.version}（対象版）` : v?.kind === "mismatch" ? `${v.actual}（対象版 ${v.expected} と不一致）` : v?.kind === "unknown" ? `確認できません（${v.message}）` : "未確認"}</span></div>
           <div className="field"><span>接続</span><span>App Server（stdio）</span></div>
         </>);
@@ -67,26 +69,34 @@ function SettingsBody({ tab, enterMode, setEnterMode, top, source, models }: {
   }
 }
 
-export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnterMode, top, setTab, onAct }: {
+export interface NewChatInput { cwd: string | null; model: string; firstMessage: string | null }
+
+export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnterMode, top, setTab, onAct, exe, onCreateChat }: {
   d: DialogState; onClose: () => void; chats: Chat[]; source: SourceInfo | undefined; models: ModelInfo[];
+  exe: CodexExe; onCreateChat: (i: NewChatInput) => void;
   enterMode: "ctrl" | "enter"; setEnterMode: (m: "ctrl" | "enter") => void;
   top: { main: boolean; mini: boolean; setMain: (b: boolean) => void; setMini: (b: boolean) => void };
   setTab: (t: string) => void; onAct: (a: string) => void;
 }) {
   const [kind, setKind] = useState("general");
+  const [cwd, setCwd] = useState("");
+  const [model, setModel] = useState(models.find((m) => m.isDefault)?.id ?? models[0]?.id ?? "");
+  const [first, setFirst] = useState("");
   void chats;
   switch (d.type) {
     case "settings": return (
       <Shell title="設定" wide onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>
         <div className="tabs" role="tablist">{TABS.map(([k, t]) => <button key={k} role="tab" aria-selected={d.tab === k} onClick={() => setTab(k)}>{t}</button>)}</div>
-        <div className="content"><SettingsBody tab={d.tab} enterMode={enterMode} setEnterMode={setEnterMode} top={top} source={source} models={models} /></div>
+        <div className="content"><SettingsBody tab={d.tab} enterMode={enterMode} setEnterMode={setEnterMode} top={top} source={source} models={models} exe={exe} /></div>
       </Shell>);
     case "newChat": return (
-      <Shell title="新しいチャット" onClose={onClose} foot={<><button className="btn-line" onClick={onClose}>キャンセル</button><button className="btn-main" onClick={() => onAct("createChat")}>作成</button></>}>
+      <Shell title="新しいチャット" onClose={onClose} foot={<><button className="btn-line" onClick={onClose}>キャンセル</button><button className="btn-main" disabled={kind === "dev" && !cwd.trim()} onClick={() => onCreateChat({ cwd: kind === "dev" ? cwd.trim() : null, model, firstMessage: first.trim() || null })}>作成</button></>}>
         <div className="content">
           <div className="field"><span>AI</span><div><label><input type="radio" defaultChecked />Codex</label><div className="small muted">他の AI は今後追加できるようにする予定です。</div></div></div>
-          <div className="field"><span>作業フォルダ</span><div><label><input type="radio" name="k" checked={kind === "general"} onChange={() => setKind("general")} />指定しない（一般チャット）</label><br /><label><input type="radio" name="k" checked={kind === "dev"} onChange={() => setKind("dev")} />フォルダを指定する</label>　<button className="btn-line"><Icon name="folder" />選択…</button></div></div>
-          <div className="field"><span>モデル</span><div style={{ display: "flex", gap: 6 }}><select>{models.map((m) => <option key={m.id}>{m.displayName}</option>)}</select></div><span className="note">新しいチャットの既定値です。</span></div>
+          <div className="field"><span>作業フォルダ</span><div><label><input type="radio" name="k" checked={kind === "general"} onChange={() => setKind("general")} />指定しない（一般チャット）</label><br /><label><input type="radio" name="k" checked={kind === "dev"} onChange={() => setKind("dev")} />フォルダを指定する</label>
+            {kind === "dev" ? <input type="text" className="mono" style={{ width: "100%", marginTop: 4 }} value={cwd} onChange={(e) => setCwd(e.target.value)} placeholder="作業フォルダのフルパス" aria-label="作業フォルダのパス" /> : null}</div></div>
+          <div className="field"><span>モデル</span><div style={{ display: "flex", gap: 6 }}><select value={model} onChange={(e) => setModel(e.target.value)}>{models.map((m) => <option key={m.id} value={m.id}>{m.displayName}</option>)}</select></div><span className="note">このチャットの最初の選択です。Codex から取得した一覧です。</span></div>
+          <div className="field"><span>最初の依頼</span><textarea value={first} onChange={(e) => setFirst(e.target.value)} rows={3} style={{ width: "100%" }} placeholder="空欄なら、チャットだけ作成します" aria-label="最初の依頼" /></div>
         </div>
       </Shell>);
     case "quit": return (

@@ -1,1 +1,1 @@
-{}
+{"default":{"identifier":"default","description":"メインウィンドウの基本権限（イベント購読など）","local":true,"windows":["main"],"permissions":["core:default"]}}

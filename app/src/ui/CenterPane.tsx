@@ -23,8 +23,16 @@ export interface CenterProps {
   setDraft: (v: string) => void;
   onAct: (a: string) => void;
   onRespond: (r: PendingRequest, a: RequestAnswer) => void;
-  onSend: (text: string, steer: boolean) => void;
+  /** 依頼を受け付けたら true（下書きを消す）。拒否・前提不足なら false（下書きを残す）。 */
+  onSend: (text: string, steer: boolean) => boolean | Promise<boolean>;
+  /** モデル・推論の強さの選択（次のターンから適用。受理済みは別に表示）。 */
+  onModel: (model: string, effort: string) => void;
+  /** 直近の送信の受理状態の案内（受理なし・受理不明・照合の結果）。 */
+  notice: SendNotice | null;
+  onRetrySend: () => void;
 }
+
+export interface SendNotice { cls: "warn" | "err"; title: string; body: string; canRetry: boolean }
 
 function Header({ snap, chat, onAct, running }: { snap: HostSnapshot; chat: Chat; onAct: (a: string) => void; running: boolean }) {
   const root = rootView(snap, chat);
@@ -72,7 +80,7 @@ function StopBanner({ snap, chat, rec, onAct }: { snap: HostSnapshot; chat: Chat
       <div style={{ marginTop: 4 }}>時間の経過だけで停止や失敗とは判断しません。停止が確認できるまで、削除と新しい送信は保留します。</div>
       <div className="acts">
         <button className="btn-line" onClick={() => onAct("stub")}>待つ</button>
-        <button className="btn-line" onClick={() => onAct("stub")}>中断を再試行</button>
+        <button className="btn-line" onClick={() => onAct("interrupt")}>中断を再試行</button>
         <button className="btn-danger" onClick={() => onAct("force")}>強制終了…</button>
       </div>
     </div>
@@ -85,6 +93,13 @@ function Banners({ p }: { p: CenterProps }) {
   const stops = chatStops(snap, chat).filter(stopOpen);
   return (
     <>
+      {p.notice ? (
+        <div className={`cbanner ${p.notice.cls}`} role="alert">
+          <h4>{p.notice.title}</h4>
+          {p.notice.body}
+          {p.notice.canRetry ? <div className="acts"><button className="btn-line" onClick={p.onRetrySend}>もう一度送る</button></div> : null}
+        </div>
+      ) : null}
       {chat.origin === "external" ? (
         <div className="cbanner warn">
           <h4>{p.externalLabel ?? "外部"} で作成された会話です（閲覧のみ）</h4>
@@ -215,13 +230,23 @@ function Queue({ items, onAct }: { items: QueueItem[]; onAct: (a: string) => voi
 
 function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock: string | null }) {
   const { settings, models, attachments } = p;
-  const [model, setModel] = useState(settings?.selected?.model ?? models[0]?.id ?? "");
-  const [effort, setEffort] = useState(settings?.selected?.effort ?? "");
+  const dflt = models.find((m) => m.isDefault) ?? models[0];
+  const [model, setModel] = useState(settings?.selected?.model ?? dflt?.id ?? "");
+  const [effort, setEffort] = useState(settings?.selected?.effort ?? dflt?.defaultEffort ?? "");
   const [steer, setSteer] = useState(false);
   const accepted = settings?.accepted.kind === "value" ? settings.accepted.value : null;
   const changed = !!accepted && (accepted.model !== model || (accepted.effort ?? "") !== effort);
   const efforts = models.find((m) => m.id === model)?.efforts ?? [];
-  const send = () => { if (p.draft.trim() && !lock) { p.onSend(p.draft, running && steer); p.setDraft(""); } };
+  const send = async () => {
+    if (!p.draft.trim() || lock) return;
+    const ok = await p.onSend(p.draft, running && steer);
+    if (ok) p.setDraft("");
+  };
+  const pickModel = (id: string) => {
+    const e = models.find((m) => m.id === id)?.defaultEffort ?? "";
+    setModel(id); setEffort(e); p.onModel(id, e);
+  };
+  const pickEffort = (e: string) => { setEffort(e); p.onModel(model, e); };
   return (
     <div className="composer">
       <div className={`shell ${lock ? "locked" : ""}`}>
@@ -245,12 +270,12 @@ function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock
           placeholder={running ? (steer ? "現在の作業への追加指示" : "完了後に送る次の依頼") : "メッセージを入力"}
           onKeyDown={(e) => {
             if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
-            if ((p.enterMode === "ctrl" && e.ctrlKey) || (p.enterMode === "enter" && !e.shiftKey)) { e.preventDefault(); send(); }
+            if ((p.enterMode === "ctrl" && e.ctrlKey) || (p.enterMode === "enter" && !e.shiftKey)) { e.preventDefault(); void send(); }
           }} />
         <div className="ctrl">
           <button aria-label="ファイル・画像・参考情報を追加" disabled={!!lock} onClick={() => p.onAct("attach")}><Icon name="clip" /></button>
-          <select aria-label="モデル" value={model} onChange={(e) => setModel(e.target.value)}>{models.map((m) => <option key={m.id} value={m.id}>{m.displayName}</option>)}</select>
-          <select aria-label="推論の強さ" value={effort} onChange={(e) => setEffort(e.target.value)}>{efforts.map((x) => <option key={x.id} value={x.id}>{x.id}</option>)}</select>
+          <select aria-label="モデル" value={model} onChange={(e) => pickModel(e.target.value)}>{models.map((m) => <option key={m.id} value={m.id}>{m.displayName}</option>)}</select>
+          <select aria-label="推論の強さ" value={effort} onChange={(e) => pickEffort(e.target.value)}>{efforts.map((x) => <option key={x.id} value={x.id}>{x.id}</option>)}</select>
           {running ? (
             <span className="seg" role="group" aria-label="実行中の送信方法">
               <button aria-pressed={steer} onClick={() => setSteer(true)}>追加指示</button>
@@ -258,7 +283,7 @@ function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock
             </span>
           ) : null}
           <span className="grow" />
-          <button className="btn-main send" aria-label={running ? (steer ? "追加指示を送る" : "完了後に送る依頼として登録") : "送信"} disabled={!!lock} onClick={send}><Icon name="send" /></button>
+          <button className="btn-main send" aria-label={running ? (steer ? "追加指示を送る" : "完了後に送る依頼として登録") : "送信"} disabled={!!lock} onClick={() => void send()}><Icon name="send" /></button>
         </div>
       </div>
       <div className="hint">
@@ -285,7 +310,7 @@ export function CenterPane(p: CenterProps) {
       <Banners p={p} />
       <Messages turns={p.turns} reqs={reqs} running={running} onRespond={p.onRespond} onAct={p.onAct} />
       <Queue items={snap.queue.filter((q) => keyStr(q.chat) === keyStr(chat.key))} onAct={p.onAct} />
-      <Composer key={chat.key.id} p={p} running={running} lock={lock} />
+      <Composer key={`${chat.key.id}:${p.models.length}`} p={p} running={running} lock={lock} />
     </>
   );
 }
