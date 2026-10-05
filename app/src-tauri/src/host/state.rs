@@ -108,6 +108,28 @@ impl HostData {
         self.agents.iter_mut().find(|v| &v.agent.key == k)
     }
 
+    /// 所属チャットが分からないまま作られた仮のエージェント（状態通知だけが先に届いた子など）。
+    /// 自身のIDを仮の所属にし、親は不明。ドック（チャット単位の表示）には出ないので、走査で正しい所属へ直す。
+    pub fn is_synthetic(v: &AgentView) -> bool {
+        matches!(v.agent.parent, ParentLink::Unknown) && v.agent.chat.id == v.agent.key.id
+    }
+
+    /// 走査で見つかったエージェントを状態へ反映する必要があるか（未登録、または仮の登録のまま）。
+    pub fn needs_adoption(&self, k: &AgentKey) -> bool {
+        self.view(k).is_none_or(Self::is_synthetic)
+    }
+
+    /// 状態・鮮度は変えず、所属チャット・親などエージェントの属性だけを正しいものに置き換える。
+    pub fn adopt_agent(&mut self, agent: Agent) -> Vec<HostEvent> {
+        match self.view_mut(&agent.key) {
+            Some(v) => {
+                v.agent = agent;
+                vec![HostEvent::AgentUpdated { view: v.clone() }]
+            }
+            None => Vec::new(),
+        }
+    }
+
     pub fn root_view(&self, chat: &ChatKey) -> Option<&AgentView> {
         self.view(&agent_key_of(chat))
     }
@@ -160,6 +182,9 @@ impl HostData {
         match self.chats.iter_mut().find(|c| c.key == chat.key) {
             Some(old) => {
                 chat.draft = old.draft.clone();
+                if chat.preview.value().is_none() {
+                    chat.preview = old.preview.clone();
+                }
                 chat.last_used_at = old.last_used_at;
                 *old = chat.clone();
             }
@@ -663,7 +688,7 @@ mod tests {
         // 再開（set_live）しても origin は external のまま（バナーを「再開済み」にするため）。
         let mut d = HostData::default();
         let chat = Chat {
-            key: ck("root"), kind: ChatKind::Development, cwd: Known::NotFetched, name: Known::NotFetched, pinned: false,
+            key: ck("root"), kind: ChatKind::Development, cwd: Known::NotFetched, name: Known::NotFetched, preview: Known::NotFetched, pinned: false,
             archived: Known::NotFetched, origin: ChatOrigin::External, draft: None, created_at: Known::NotFetched, last_used_at: None,
         };
         d.upsert_chat(chat);
@@ -701,6 +726,7 @@ mod tests {
             kind: ChatKind::General,
             cwd: Known::NotFetched,
             name: Known::NotFetched,
+            preview: Known::NotFetched,
             pinned: false,
             archived: Known::NotFetched,
             origin,
@@ -745,6 +771,41 @@ mod tests {
         };
         let (_, follow) = d.apply_event(&env(1, 1, BackendEvent::Activity { activity }), &caps());
         assert_eq!(follow, vec![Followup::ScanDescendants(ak("root"))]);
+    }
+
+    /// ancestorThreadIdで返る子ThreadのJSON（実際の形に近い固定例）。
+    fn child_thread_json() -> serde_json::Value {
+        serde_json::json!({
+            "id": "child1", "status": {"type": "idle"}, "turns": [], "preview": "", "cwd": "C:\\work",
+            "source": {"subAgent": {"thread_spawn": {"parent_thread_id": "root", "depth": 1, "agent_path": "/root/luna", "agent_nickname": "Luna", "agent_role": "explorer"}}},
+            "agentNickname": "Luna", "agentRole": "explorer", "createdAt": 1, "updatedAt": 2
+        })
+    }
+
+    #[test]
+    fn found_child_replaces_a_synthetic_view_and_becomes_visible_in_the_chat() {
+        use crate::codex::convert::thread_to_agent;
+        use crate::codex::wire::WireThread;
+        let mut d = HostData::default();
+        live_root(&mut d, AgentState::Running);
+        // 子の状態通知が thread/started より先に届くと、所属不明の仮エージェントができる。
+        d.apply_event(&env(1, 1, BackendEvent::AgentStatus { agent: ak("child1"), status: status(AgentState::Running, Some("t1"), StateScope::Turn) }), &caps());
+        let synthetic = d.view(&ak("child1")).unwrap();
+        assert!(HostData::is_synthetic(synthetic));
+        assert!(d.agents.iter().filter(|v| v.agent.chat == ck("root")).all(|v| v.agent.key != ak("child1")), "not shown under the chat yet");
+        assert!(d.needs_adoption(&ak("child1")), "scan must not skip a synthetic view");
+        // 走査の結果（親の明示つき）で直す。
+        let t = WireThread::from_value(&child_thread_json()).unwrap();
+        let found = thread_to_agent(&t, ck("root"));
+        assert!(matches!(found.parent, ParentLink::Explicit { .. }));
+        let live_status_before = d.view(&ak("child1")).unwrap().status.clone();
+        d.adopt_agent(found);
+        let v = d.view(&ak("child1")).unwrap();
+        assert_eq!(v.agent.chat, ck("root"));
+        assert!(matches!(&v.agent.parent, ParentLink::Explicit { parent } if parent == &ak("root")));
+        assert_eq!(v.status, live_status_before, "adoption keeps the observed state");
+        assert!(!d.needs_adoption(&ak("child1")));
+        assert!(d.agents.iter().any(|v| v.agent.chat == ck("root") && v.agent.key == ak("child1")));
     }
 
     #[test]

@@ -1,6 +1,6 @@
 import type { AgentView, Chat, HostSnapshot, MonitorScope } from "../ipc/types";
 import { Flag, Icon } from "./Icon";
-import { chatAgents, chatName, isDoneLike } from "./derive";
+import { chatAgents, chatName, isDoneLike, previewTitle } from "./derive";
 import { FRESH, SOURCE_LABEL, STATE, hms, keyStr, showKnown } from "./format";
 import { TitleBar } from "./Chrome";
 
@@ -15,8 +15,8 @@ function waitText(a: AgentView): string | null {
   }
 }
 
-function Berth({ a, depth, orphan, mini, confirmed, onConfirmFail }: {
-  a: AgentView; depth: number; orphan: boolean; mini: boolean; confirmed: boolean; onConfirmFail: (key: string) => void;
+function Berth({ a, depth, orphan, mini, confirmed, onConfirmFail, rootName }: {
+  rootName?: string; a: AgentView; depth: number; orphan: boolean; mini: boolean; confirmed: boolean; onConfirmFail: (key: string) => void;
 }) {
   const m = STATE[a.status.state];
   const rel = orphan ? "親不明" : ["メイン", "子", "孫", "ひ孫"][depth] ?? `${depth}階層下`;
@@ -26,7 +26,7 @@ function Berth({ a, depth, orphan, mini, confirmed, onConfirmFail }: {
   return (
     <div className={`berth ${m.c} ${notLive ? "stale" : ""}`}>
       <div className="l1">
-        <span className="nm">{showKnown(a.agent.displayName)}</span><span className="rel">{rel}</span>
+        <span className="nm">{a.agent.parent.kind === "root" ? (rootName ?? showKnown(a.agent.displayName)) : showKnown(a.agent.displayName)}</span><span className="rel">{rel}</span>
         <span className={`st ${m.c}`}><Flag c={m.c} />{m.t}</span>
       </div>
       {mini ? null : <div className="l2">{a.agent.parent.kind === "root" ? "役割: メイン（会話の本体）" : <>役割: {showKnown(a.agent.role)}　担当: {showKnown(a.agent.assignment)}</>}</div>}
@@ -69,7 +69,7 @@ function RootBlock({ snap, c, views, showHead, selected, mini, confirmed, onOpen
     const ch = kids(k);
     return (
       <li key={k}>
-        <Berth a={v} depth={depthOf(v)} orphan={false} mini={mini} confirmed={confirmed.has(k)} onConfirmFail={onConfirmFail} />
+        <Berth a={v} depth={depthOf(v)} orphan={false} mini={mini} confirmed={confirmed.has(k)} onConfirmFail={onConfirmFail} rootName={v.agent.parent.kind === "root" ? (v.agent.displayName.kind === "value" ? v.agent.displayName.value : previewTitle(c) ?? "メイン") : undefined} />
         {ch.length ? <ul className="tree">{ch.map(node)}</ul> : null}
       </li>
     );

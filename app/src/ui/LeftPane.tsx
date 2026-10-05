@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { Chat, HostSnapshot } from "../ipc/types";
 import { Icon } from "./Icon";
-import { chatAgents, chatName, chatRequests, chatStatusText } from "./derive";
+import { TENTATIVE_HINT, TENTATIVE_STYLE, chatAgents, chatName, chatRequests, chatStatusText, chatTitle } from "./derive";
 import { keyStr, knownValue } from "./format";
 
 export function LeftPane({ snap, sel, onSelect, onAct }: {
@@ -23,7 +23,7 @@ export function LeftPane({ snap, sel, onSelect, onAct }: {
     const unconfirmedFail = chatAgents(snap, c).some((a) => a.status.state === "failed" && a.agent.parent.kind !== "root");
     return (
       <button key={k} className={`row-chat ${k === sel ? "sel" : ""}`} onClick={() => onSelect(c.key.id)} aria-current={k === sel}>
-        <span className="nm">{chatName(c)}</span>
+        <span className="nm" style={chatTitle(c).confirmed ? undefined : TENTATIVE_STYLE} title={chatTitle(c).confirmed ? undefined : TENTATIVE_HINT}>{chatName(c)}</span>
         <span className="marks">
           {hasReq ? <span className="mark wait" title="承認・質問待ち">待</span> : null}
           {unconfirmedFail ? <span className="mark fail" title="子の失敗あり">失</span> : null}

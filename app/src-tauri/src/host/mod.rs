@@ -256,18 +256,28 @@ impl Host {
     async fn scan_once(self: &Arc<Self>, root: AgentKey, memo: &mut ScanMemo) -> Result<(), BackendError> {
         let chat = ChatKey { backend: root.backend, id: root.id.clone() };
         let (mut found_n, mut complete, mut orphans, mut added) = (0usize, false, 0usize, 0usize);
+        let (mut explicit, mut applied, mut dockable) = (0usize, 0usize, 0usize);
         match self.backend.scan_descendants(root.clone()).await {
             Ok(scan) => {
                 found_n = scan.found.len();
                 complete = scan.complete;
                 orphans = scan.found.iter().filter(|a| matches!(a.parent, ParentLink::Unknown)).count();
-                let fresh: Vec<Agent> = self.read(|d| scan.found.iter().filter(|a| d.view(&a.key).is_none()).cloned().collect());
-                for a in take_window(&fresh, &mut memo.off_fresh, SCAN_READ_LIMIT) {
-                    if let Ok(h) = self.backend.read(a.key.clone(), ReadOptions { include_turns: false }).await {
-                        self.mutate(|d| ((), d.upsert_history_agent(a, h.status)));
-                        added += 1;
+                explicit = scan.found.iter().filter(|a| matches!(a.parent, ParentLink::Explicit { .. })).count();
+                // 未登録、または所属不明の仮登録のままのものを、見つかった正しい所属・親で反映する。
+                let todo: Vec<Agent> = self.read(|d| scan.found.iter().filter(|a| d.needs_adoption(&a.key)).cloned().collect());
+                for a in take_window(&todo, &mut memo.off_fresh, SCAN_READ_LIMIT) {
+                    match self.backend.read(a.key.clone(), ReadOptions { include_turns: false }).await {
+                        Ok(h) => {
+                            self.mutate(|d| ((), d.upsert_history_agent(a, h.status)));
+                        }
+                        // 状態を読めなくても、所属・親は正しく直す（状態は据え置き）。登録が無ければ何もしない。
+                        Err(_) => {
+                            self.mutate(|d| ((), d.adopt_agent(a)));
+                        }
                     }
+                    applied += 1;
                 }
+                dockable = self.read(|d| scan.found.iter().filter(|a| d.view(&a.key).is_some_and(|v| v.agent.chat == chat)).count());
             }
             Err(BackendError::NotConnected) => return Err(BackendError::NotConnected),
             Err(e) => crate::diag::log("scan", &format!("scan_descendants failed root={} kind={}", root.id.0, crate::diag::error_kind(&e))),
@@ -278,7 +288,7 @@ impl Host {
         match self.backend.list_loaded().await {
             Ok(loaded) => {
                 loaded_n = loaded.len();
-                let candidates = self.read(|d| pick_unread(&loaded, &|k| d.view(k).is_some(), memo));
+                let candidates = self.read(|d| pick_unread(&loaded, &|k| !d.needs_adoption(k), memo));
                 for k in take_window(&candidates, &mut memo.off_loaded, SCAN_READ_LIMIT) {
                     let Ok(h) = self.backend.read(k.clone(), ReadOptions { include_turns: false }).await else { continue };
                     match &h.agent.parent {
@@ -334,7 +344,7 @@ impl Host {
         crate::diag::log(
             "scan",
             &format!(
-                "root={} found={found_n} complete={complete} orphans={orphans} loaded={loaded_n} added={added} irrelevant={} waiting={}",
+                "root={} found={found_n} explicitParent={explicit} applied={applied} dockable={dockable} complete={complete} orphans={orphans} loaded={loaded_n} added={added} irrelevant={} waiting={}",
                 root.id.0,
                 memo.irrelevant.len(),
                 memo.waiting.len()

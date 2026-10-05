@@ -18,3 +18,4 @@ T4検証（2026-10-05）で見つかった、段階①では対応しない項�
 - 【段階②のついで】`app/src/mock/`を動的`import()`にして、製品ビルド（実接続）に仮データ約16kBを含めない
 - 【段階②のついで・任意】`ipc.rs`⇔`types.ts`の手書き二重管理を、ts-rs等の自動生成にするか検討
 - host/state.rs:345-370 未知エージェントのAgentStatusが先着するとLiveの仮viewができ、理論上は外部会話の送信ロックが解けうる（実害は想定しにくい、低）
+- 実測（診断ログ）: thread/start・thread/resume 応答の thread.source は sourceKind=vscode（App Serverの既定。clientInfo.nameは反映されない）。AgentDock自身が開始・再開した会話の判定は originではなく host の hosted 集合で行う

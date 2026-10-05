@@ -4,7 +4,7 @@ import type {
   ActivityKind, SaveState, StopRecord, TurnRecord,
 } from "../ipc/types";
 import { Icon } from "./Icon";
-import { chatAgents, chatName, chatRequests, chatStatusText, chatStops, isRunning, rootView, stopOpen } from "./derive";
+import { TENTATIVE_HINT, TENTATIVE_STYLE, chatAgents, chatName, chatRequests, chatTitle, chatStatusText, chatStops, isRunning, rootView, stopOpen } from "./derive";
 import { FRESH, STOP_LABEL, hms, holdText, keyStr, knownValue, showKnown } from "./format";
 
 const SCOPE_TEXT = { once: "1回だけ", session: "このセッション中", persistent: "以後ずっと（永続）", unknown: "効力範囲は不明" } as const;
@@ -42,7 +42,7 @@ function Header({ snap, chat, onAct, running }: { snap: HostSnapshot; chat: Chat
     <div className="chead">
       <button className="only-narrow" aria-label="チャット一覧を開く" onClick={() => onAct("toggleLeft")}><Icon name="list" /></button>
       <div className="grow">
-        <div className="ttl">{chatName(chat)}</div>
+        <div className="ttl" style={chatTitle(chat).confirmed ? undefined : TENTATIVE_STYLE} title={chatTitle(chat).confirmed ? undefined : TENTATIVE_HINT}>{chatName(chat)}</div>
         <div className="meta">
           <span className="tag ai" title="この会話のAI">Codex</span>
           {cwd ? <span className="mono" title="作業フォルダ">{cwd}</span> : <span>一般チャット（作業フォルダなし）</span>}

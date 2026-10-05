@@ -235,6 +235,7 @@ pub fn thread_to_chat(t: &WireThread, app_data_dir: Option<&str>, archived: Know
         kind: chat_kind(t.cwd.as_deref(), app_data_dir),
         cwd: known_str(&t.cwd),
         name: known_str(&t.name),
+        preview: known_str(&t.preview),
         pinned: false,
         archived,
         origin: chat_origin(t),

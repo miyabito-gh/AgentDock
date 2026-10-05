@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Icon } from "./Icon";
 import type { SourceInfo } from "../ipc/types";
 
@@ -30,11 +31,18 @@ const MENUS: Record<string, MenuItem[]> = {
 export function MenuBar({ open, setOpen, checked, onAct }: {
   open: string | null; setOpen: (m: string | null) => void; checked: Record<string, boolean>; onAct: (a: string) => void;
 }) {
+  // Escで閉じる。外側クリックはウィンドウ側（App）で閉じる。
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(null); };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [open, setOpen]);
   return (
     <nav className="menubar" aria-label="メニュー">
       {Object.keys(MENUS).map((m) => (
         <div className="menu" key={m}>
-          <button aria-haspopup="true" aria-expanded={open === m} onMouseEnter={() => { if (open && open !== m) setOpen(m); }} onClick={(e) => { e.stopPropagation(); setOpen(open === m ? null : m); }}>{m}</button>
+          <button aria-haspopup="true" aria-expanded={open === m} onClick={(e) => { e.stopPropagation(); setOpen(open === m ? null : m); }}>{m}</button>
           {open === m ? (
             <div className="dropdown" role="menu">
               {MENUS[m].map((it, i) => it === "-" ? <hr key={i} /> : (

@@ -115,6 +115,8 @@ export interface Chat {
   kind: ChatKind;
   cwd: Known<string>;
   name: Known<string>;
+  /** 最初の依頼の先頭（名前が無いときの仮表示用。確認済みの名前ではない） */
+  preview: Known<string>;
   pinned: boolean;
   archived: Known<boolean>;
   origin: ChatOrigin;

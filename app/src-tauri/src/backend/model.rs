@@ -366,6 +366,8 @@ pub struct Chat {
     pub kind: ChatKind,
     pub cwd: Known<String>,
     pub name: Known<String>,
+    /// 最初の依頼の先頭（バックエンドが示す一覧用の要約）。名前が無いときの仮表示に使う。確認済みの名前ではない。
+    pub preview: Known<String>,
     /// ピンはアプリ側で保持する（バックエンドに対応項目なし）。
     pub pinned: bool,
     pub archived: Known<bool>,

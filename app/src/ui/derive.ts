@@ -2,7 +2,23 @@
 import type { AgentView, Chat, HostSnapshot, PendingRequest, StopRecord } from "../ipc/types";
 import { STATE, keyStr, knownValue } from "./format";
 
-export const chatName = (c: Chat) => knownValue(c.name) ?? "（名前未確認）";
+/** 最初の依頼の先頭30字（仮表示用）。 */
+export const previewTitle = (c: Chat): string | null => {
+  const p = (knownValue(c.preview) ?? "").replace(/\s+/g, " ").trim();
+  if (!p) return null;
+  const chars = Array.from(p);
+  return chars.length > 30 ? `${chars.slice(0, 30).join("")}…` : p;
+};
+/** 表示名。確認済みの名前が無ければ最初の依頼の先頭を仮表示する（confirmed=false で薄く表示）。 */
+export const chatTitle = (c: Chat): { text: string; confirmed: boolean } => {
+  const n = knownValue(c.name);
+  if (n) return { text: n, confirmed: true };
+  const p = previewTitle(c);
+  return { text: p ?? "（名前未確認）", confirmed: false };
+};
+export const chatName = (c: Chat) => chatTitle(c).text;
+export const TENTATIVE_STYLE = { opacity: 0.65, fontStyle: "italic" } as const;
+export const TENTATIVE_HINT = "確認済みの名前ではありません（最初の依頼から仮表示）";
 export const chatAgents = (s: HostSnapshot, c: Chat): AgentView[] => s.agents.filter((a) => keyStr(a.agent.chat) === keyStr(c.key));
 export const rootView = (s: HostSnapshot, c: Chat): AgentView | undefined => chatAgents(s, c).find((a) => a.agent.parent.kind === "root");
 export const chatRequests = (s: HostSnapshot, c: Chat): PendingRequest[] =>
