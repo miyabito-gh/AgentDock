@@ -551,6 +551,9 @@ pub struct ChatUsage {
 pub struct UsageReport {
     pub total: UsageBreakdown,
     pub chats: Vec<ChatUsage>,
+    /// 段階①で `%APPDATA%` 側に作った一般チャットの作業領域（旧領域）。移動していないので別に数える（合計には含めない）。
+    #[cfg_attr(test, ts(type = "number"))]
+    pub legacy_area: u64,
     /// 専用領域のあるドライブの空き。
     #[cfg_attr(test, ts(as = "Known<u32>"))]
     pub free_space: Known<u64>,
@@ -602,12 +605,6 @@ pub mod local_command_names {
     pub const SAVE_FILE_AS: &str = "save_file_as";
     pub const ACKNOWLEDGE_FAILURE: &str = "acknowledge_failure";
     pub const SET_SELECTED_CHAT: &str = "set_selected_chat";
-    pub const PREVIEW_DELETE: &str = "preview_delete";
-    pub const DELETE_CHAT: &str = "delete_chat";
-    pub const ARCHIVE_CHAT: &str = "archive_chat";
-    pub const UNARCHIVE_CHAT: &str = "unarchive_chat";
-    pub const EXPORT_MARKDOWN: &str = "export_markdown";
-    pub const GET_USAGE: &str = "get_usage";
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

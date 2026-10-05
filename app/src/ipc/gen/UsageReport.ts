@@ -6,6 +6,10 @@ import type { UsageBreakdown } from "./UsageBreakdown";
 
 export type UsageReport = { total: UsageBreakdown, chats: Array<ChatUsage>, 
 /**
+ * 段階①で `%APPDATA%` 側に作った一般チャットの作業領域（旧領域）。移動していないので別に数える（合計には含めない）。
+ */
+legacyArea: number, 
+/**
  * 専用領域のあるドライブの空き。
  */
 freeSpace: Known<number>, measuredAt: UnixMillis, 

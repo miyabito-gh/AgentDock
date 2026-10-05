@@ -95,7 +95,14 @@ export function applyHostEvent(b: Bundle, e: HostEvent): Bundle {
     }
     case "chatRemoved": {
       const { [e.chat.id]: _gone, ...turns } = b.turns;
-      return { ...set({ chats: s.chats.filter((c) => c.key.id !== e.chat.id), agents: s.agents.filter((a) => a.agent.chat.id !== e.chat.id), requests: s.requests.filter((r) => r.chat.id !== e.chat.id) }), turns };
+      // 削除が完了したチャットのアプリ側の状態（補足情報・キュー・停止記録）も画面から外す。
+      return {
+        ...set({
+          chats: s.chats.filter((c) => c.key.id !== e.chat.id), agents: s.agents.filter((a) => a.agent.chat.id !== e.chat.id), requests: s.requests.filter((r) => r.chat.id !== e.chat.id),
+          chatLocals: s.chatLocals.filter((l) => l.chat.id !== e.chat.id), queues: s.queues.filter((q) => q.chat.id !== e.chat.id), stops: s.stops.filter((r) => r.chat.id !== e.chat.id),
+        }),
+        turns,
+      };
     }
     case "agentUpdated":
       return set({ agents: upsert(s.agents, e.view, (a) => a.agent.key.id === e.view.agent.key.id) });

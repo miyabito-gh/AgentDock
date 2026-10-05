@@ -19,8 +19,7 @@ pub struct ChatWork {
 
 /// Codexへ `archive` を送ってよいか（M43。作業完了・停止確認・キュー消化の後）。
 pub fn archive_ready(work: &ChatWork) -> bool {
-    let _ = work;
-    todo!("P7")
+    !work.has_unfinished && work.stop_unconfirmed.is_none() && !work.ownership_unknown && !work.queue_pending && !work.unresolved_send
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -33,16 +32,73 @@ pub enum DeleteDecision {
     Pend(DeletePendingReason),
 }
 
-/// 削除の可否。`pending` が既にあり理由が `ReadyForUserRetry` 以外なら Pend のまま。
+/// 削除の可否。停止を確認できないもの（停止未確認・所有不明・受理不明の送信）は保留する。
+/// 保留の理由が `StopUnconfirmed` / `OwnershipUnknown` のままなら、停止の再確認（`refresh_delete_pending`）が済むまで Pend のまま。
+/// `ReadyForUserRetry`・`PartialFailure` は、作業が残っていなければ Proceed（ユーザーの再操作で実行する）。
 pub fn delete_decision(work: &ChatWork, pending: Option<&DeletePending>) -> DeleteDecision {
-    let _ = (work, pending);
-    todo!("P7")
+    if work.ownership_unknown || work.unresolved_send {
+        return DeleteDecision::Pend(DeletePendingReason::OwnershipUnknown);
+    }
+    if work.stop_unconfirmed.is_some() {
+        return DeleteDecision::Pend(DeletePendingReason::StopUnconfirmed);
+    }
+    if work.has_unfinished || work.queue_pending {
+        return DeleteDecision::StopFirst;
+    }
+    match pending.map(|p| &p.reason) {
+        Some(r @ (DeletePendingReason::StopUnconfirmed | DeletePendingReason::OwnershipUnknown)) => DeleteDecision::Pend(r.clone()),
+        _ => DeleteDecision::Proceed,
+    }
+}
+
+/// 作業状況から導く、停止確認の側の保留理由。確認できていれば None。
+fn unconfirmed_reason(work: &ChatWork) -> Option<DeletePendingReason> {
+    if work.ownership_unknown || work.unresolved_send {
+        Some(DeletePendingReason::OwnershipUnknown)
+    } else if work.stop_unconfirmed.is_some() || work.has_unfinished {
+        Some(DeletePendingReason::StopUnconfirmed)
+    } else {
+        None
+    }
 }
 
 /// 停止照合の更新後、削除保留の理由を更新する。停止を確認できても自動削除せず `ReadyForUserRetry` にするだけ。
+/// `PartialFailure` は停止とは別の失敗なので触らない。変更があれば true。
 pub fn refresh_delete_pending(pending: &mut DeletePending, work: &ChatWork) -> bool {
-    let _ = (pending, work);
-    todo!("P7")
+    if matches!(pending.reason, DeletePendingReason::PartialFailure { .. }) {
+        return false;
+    }
+    let reason = unconfirmed_reason(work).unwrap_or(DeletePendingReason::ReadyForUserRetry);
+    let record = work.stop_unconfirmed.clone().or_else(|| pending.stop_record.clone());
+    if pending.reason == reason && pending.stop_record == record {
+        return false;
+    }
+    pending.reason = reason;
+    pending.stop_record = record;
+    true
+}
+
+/// 削除の途中結果から結果を決める。失敗が1つでもあれば完了と偽らず `Partial`（保留を残す）。
+pub fn delete_result(done: Vec<String>, failed: Vec<String>) -> DeleteOutcome {
+    if failed.is_empty() {
+        DeleteOutcome::Deleted
+    } else {
+        DeleteOutcome::Partial { done, failed }
+    }
+}
+
+/// 保存に失敗している単位があれば、削除・アーカイブを完了と表示しない。対象チャットの単位だけを見る。
+pub fn save_blocks_chat(statuses: &[SaveStatus], chat: &ChatKey) -> Option<SaveScope> {
+    statuses
+        .iter()
+        .find(|s| {
+            matches!(s.state, SaveState::SaveFailed { .. })
+                && match &s.scope {
+                    SaveScope::ChatLocal { chat: c } | SaveScope::Queue { chat: c } | SaveScope::Activity { chat: c } => c == chat,
+                    _ => false,
+                }
+        })
+        .map(|s| s.scope.clone())
 }
 
 /// 完全終了の確認対象（作業中・停止未確認・受理不明・キュー送信待ちのチャット）。
@@ -148,6 +204,121 @@ mod tests {
         LocalId(s.into())
     }
     const T0: i64 = 100_000;
+
+    fn pending(reason: DeletePendingReason) -> DeletePending {
+        DeletePending { requested_at: UnixMillis(1), reason, stop_record: None }
+    }
+
+    #[test]
+    fn archive_waits_for_every_kind_of_unfinished_work() {
+        assert!(archive_ready(&work("a")));
+        let mut w = work("a");
+        w.has_unfinished = true;
+        assert!(!archive_ready(&w));
+        let mut w = work("a");
+        w.stop_unconfirmed = Some(lid("s"));
+        assert!(!archive_ready(&w));
+        let mut w = work("a");
+        w.ownership_unknown = true;
+        assert!(!archive_ready(&w));
+        let mut w = work("a");
+        w.queue_pending = true;
+        assert!(!archive_ready(&w));
+        let mut w = work("a");
+        w.unresolved_send = true;
+        assert!(!archive_ready(&w));
+    }
+
+    #[test]
+    fn delete_proceeds_only_when_idle_and_stop_is_confirmed() {
+        assert_eq!(delete_decision(&work("a"), None), DeleteDecision::Proceed);
+        let mut running = work("a");
+        running.has_unfinished = true;
+        assert_eq!(delete_decision(&running, None), DeleteDecision::StopFirst);
+        let mut queued = work("a");
+        queued.queue_pending = true;
+        assert_eq!(delete_decision(&queued, None), DeleteDecision::StopFirst);
+    }
+
+    #[test]
+    fn unconfirmed_stop_ownership_unknown_and_unknown_acceptance_pend() {
+        let mut w = work("a");
+        w.stop_unconfirmed = Some(lid("s"));
+        w.has_unfinished = true;
+        assert_eq!(delete_decision(&w, None), DeleteDecision::Pend(DeletePendingReason::StopUnconfirmed));
+        let mut w = work("a");
+        w.ownership_unknown = true;
+        assert_eq!(delete_decision(&w, None), DeleteDecision::Pend(DeletePendingReason::OwnershipUnknown));
+        // 受理不明の送信は、実行が始まっているかどうかを確認できない。
+        let mut w = work("a");
+        w.unresolved_send = true;
+        assert_eq!(delete_decision(&w, None), DeleteDecision::Pend(DeletePendingReason::OwnershipUnknown));
+    }
+
+    #[test]
+    fn stale_pending_stays_pending_until_refreshed_then_waits_for_the_user() {
+        let idle = work("a");
+        let stale = pending(DeletePendingReason::StopUnconfirmed);
+        assert_eq!(delete_decision(&idle, Some(&stale)), DeleteDecision::Pend(DeletePendingReason::StopUnconfirmed));
+        let mut p = stale;
+        assert!(refresh_delete_pending(&mut p, &idle));
+        assert_eq!(p.reason, DeletePendingReason::ReadyForUserRetry);
+        // 確認できても自動では削除しない。ユーザーが再度選んだときだけ Proceed になる。
+        assert_eq!(delete_decision(&idle, Some(&p)), DeleteDecision::Proceed);
+    }
+
+    #[test]
+    fn partial_failure_can_be_retried_and_is_not_changed_by_stop_refresh() {
+        let mut p = pending(DeletePendingReason::PartialFailure { done: vec!["a".into()], failed: vec!["b".into()] });
+        let mut busy = work("a");
+        busy.stop_unconfirmed = Some(lid("s"));
+        assert!(!refresh_delete_pending(&mut p, &busy));
+        assert!(matches!(p.reason, DeletePendingReason::PartialFailure { .. }));
+        assert_eq!(delete_decision(&work("a"), Some(&p)), DeleteDecision::Proceed);
+        // 作業が残っていれば、部分失敗の保留があっても停止確認が先。
+        assert_eq!(delete_decision(&busy, Some(&p)), DeleteDecision::Pend(DeletePendingReason::StopUnconfirmed));
+    }
+
+    #[test]
+    fn refresh_follows_the_work_in_both_directions() {
+        let mut p = pending(DeletePendingReason::StopUnconfirmed);
+        let mut owner = work("a");
+        owner.ownership_unknown = true;
+        assert!(refresh_delete_pending(&mut p, &owner));
+        assert_eq!(p.reason, DeletePendingReason::OwnershipUnknown);
+        assert!(!refresh_delete_pending(&mut p, &owner), "no change is reported as false");
+        let mut stopping = work("a");
+        stopping.stop_unconfirmed = Some(lid("s9"));
+        assert!(refresh_delete_pending(&mut p, &stopping));
+        assert_eq!((p.reason.clone(), p.stop_record.clone()), (DeletePendingReason::StopUnconfirmed, Some(lid("s9"))));
+        // 停止を確認できても Ready で止まる（自動削除しない）。再び作業が現れたら保留へ戻る。
+        assert!(refresh_delete_pending(&mut p, &work("a")));
+        assert_eq!(p.reason, DeletePendingReason::ReadyForUserRetry);
+        assert!(refresh_delete_pending(&mut p, &stopping));
+        assert_eq!(p.reason, DeletePendingReason::StopUnconfirmed);
+    }
+
+    #[test]
+    fn partial_failure_is_never_reported_as_deleted() {
+        assert_eq!(delete_result(vec!["x".into()], vec![]), DeleteOutcome::Deleted);
+        assert_eq!(delete_result(vec!["x".into()], vec!["y".into()]), DeleteOutcome::Partial { done: vec!["x".into()], failed: vec!["y".into()] });
+    }
+
+    #[test]
+    fn failed_save_of_this_chat_blocks_but_other_chats_do_not() {
+        let failed = |scope: SaveScope| SaveStatus {
+            scope,
+            state: SaveState::SaveFailed { message: "m".into(), saved_part: None, unsaved_part: None },
+            last_attempt_at: None,
+            retries: 3,
+        };
+        let st = vec![failed(SaveScope::ChatLocal { chat: ck("other") }), failed(SaveScope::AppSettings)];
+        assert_eq!(save_blocks_chat(&st, &ck("a")), None);
+        let st = vec![failed(SaveScope::Queue { chat: ck("a") })];
+        assert_eq!(save_blocks_chat(&st, &ck("a")), Some(SaveScope::Queue { chat: ck("a") }));
+        let unsaved = vec![SaveStatus { scope: SaveScope::ChatLocal { chat: ck("a") }, state: SaveState::Unsaved, last_attempt_at: None, retries: 0 }];
+        assert_eq!(save_blocks_chat(&unsaved, &ck("a")), None);
+    }
 
     #[test]
     fn busy_picks_every_kind_of_unfinished_work_and_keeps_order() {

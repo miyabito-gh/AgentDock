@@ -178,6 +178,14 @@ pub fn run() {
             commands::open_monitor_window,
             commands::set_monitor_window_scope,
             commands::show_main_window,
+            commands::preview_delete,
+            commands::delete_chat,
+            commands::archive_chat,
+            commands::unarchive_chat,
+            commands::export_markdown,
+            commands::get_usage,
+            commands::pick_codex_executable,
+            commands::pick_save_file,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

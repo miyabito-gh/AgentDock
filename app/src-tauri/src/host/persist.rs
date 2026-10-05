@@ -39,6 +39,23 @@ impl Persist {
         self.store.is_some()
     }
 
+    /// 保存層（削除・使用量・エクスポートの読み書き用。P7）。
+    pub(super) fn store(&self) -> Option<Arc<Store>> {
+        self.store.clone()
+    }
+
+    /// 書込みの直列化ロック（チャット領域の削除中に、同じ領域への書込みを入れないため。取得順は「このロック → データのロック」）。
+    pub(super) fn io_guard(&self) -> std::sync::MutexGuard<'_, ()> {
+        self.io_lock.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// 削除したチャットの保存単位の世代を進める（実行中・待機中の保存が、結果を状態へ書かないようにする）。
+    pub(super) fn forget_chat(&self, chat: &ChatKey) {
+        for scope in [SaveScope::ChatLocal { chat: chat.clone() }, SaveScope::Queue { chat: chat.clone() }, SaveScope::Activity { chat: chat.clone() }] {
+            self.bump(&scope);
+        }
+    }
+
     fn bump(&self, scope: &SaveScope) -> u64 {
         let mut g = self.generation.lock().unwrap();
         let n = g.entry(scope.clone()).or_insert(0);
@@ -51,7 +68,7 @@ impl Persist {
     }
 
     /// チャット領域のID（保存先が使えるときは保存層の割当て。使えないときはメモリ上だけの仮ID）。
-    fn dir_id_for(&self, chat: &ChatKey) -> LocalId {
+    pub(super) fn dir_id_for(&self, chat: &ChatKey) -> LocalId {
         match &self.store {
             Some(s) => s.ensure_dir_id(chat),
             None => LocalId(format!("dir-mem-{}", self.counter.fetch_add(1, Ordering::SeqCst))),

@@ -104,9 +104,41 @@ fn free_space_of(_path: &Path) -> io::Result<u64> {
 }
 
 /// ディレクトリ配下の合計サイズ。読めなかったパスを別に返す（0で代用しない）。
+/// パスが無ければ 0（読めなかったのではない）。シンボリックリンク・ジャンクションは辿らない（領域の外を数えない）。
+/// ファイルならそのサイズ。
 pub fn dir_size(path: &Path) -> (u64, Vec<String>) {
-    let _ = path;
-    todo!("P7")
+    let mut total = 0u64;
+    let mut unreadable = Vec::new();
+    let meta = match std::fs::symlink_metadata(path) {
+        Ok(m) => m,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return (0, unreadable),
+        Err(_) => {
+            unreadable.push(path.to_string_lossy().into_owned());
+            return (0, unreadable);
+        }
+    };
+    if meta.file_type().is_symlink() {
+        return (0, unreadable);
+    }
+    if meta.is_file() {
+        return (meta.len(), unreadable);
+    }
+    match std::fs::read_dir(path) {
+        Ok(rd) => {
+            for e in rd {
+                match e {
+                    Ok(e) => {
+                        let (n, mut u) = dir_size(&e.path());
+                        total = total.saturating_add(n);
+                        unreadable.append(&mut u);
+                    }
+                    Err(_) => unreadable.push(path.to_string_lossy().into_owned()),
+                }
+            }
+        }
+        Err(_) => unreadable.push(path.to_string_lossy().into_owned()),
+    }
+    (total, unreadable)
 }
 
 #[cfg(test)]
@@ -172,6 +204,19 @@ mod tests {
         append_line(&file, "{\"a\":1}").unwrap();
         append_line(&file, "{\"a\":2}").unwrap();
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "{\"a\":1}\n{\"a\":2}\n");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn dir_size_sums_nested_files_and_treats_a_missing_path_as_zero() {
+        let dir = temp_dir("size");
+        std::fs::create_dir_all(dir.join("a").join("b")).unwrap();
+        std::fs::write(dir.join("x.bin"), [0u8; 10]).unwrap();
+        std::fs::write(dir.join("a").join("y.bin"), [0u8; 5]).unwrap();
+        std::fs::write(dir.join("a").join("b").join("z.bin"), [0u8; 1]).unwrap();
+        assert_eq!(dir_size(&dir), (16, vec![]));
+        assert_eq!(dir_size(&dir.join("x.bin")), (10, vec![]));
+        assert_eq!(dir_size(&dir.join("none")), (0, vec![]));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

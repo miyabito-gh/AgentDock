@@ -59,6 +59,14 @@ pub mod command_names {
     pub const OPEN_MONITOR_WINDOW: &str = "open_monitor_window";
     pub const SET_MONITOR_WINDOW_SCOPE: &str = "set_monitor_window_scope";
     pub const SHOW_MAIN_WINDOW: &str = "show_main_window";
+    pub const PREVIEW_DELETE: &str = "preview_delete";
+    pub const DELETE_CHAT: &str = "delete_chat";
+    pub const ARCHIVE_CHAT: &str = "archive_chat";
+    pub const UNARCHIVE_CHAT: &str = "unarchive_chat";
+    pub const EXPORT_MARKDOWN: &str = "export_markdown";
+    pub const GET_USAGE: &str = "get_usage";
+    pub const PICK_CODEX_EXECUTABLE: &str = "pick_codex_executable";
+    pub const PICK_SAVE_FILE: &str = "pick_save_file";
 }
 
 // ───────────────────────────── エラー ─────────────────────────────
@@ -118,6 +126,19 @@ pub enum BlockedReason {
     QueueRetargetUnconfirmed { waiting: u32 },
     /// 送信待ち以外の項目は編集・取消できない（送信中・受理不明・送信済み）。
     QueueEntryNotEditable,
+    /// 削除保留中のため、このチャットへの新しい送信は止めている（M46）。
+    DeletePending,
+    /// 保存先に同名のファイルがある。UIの上書き確認（`overwriteConfirmed`）が要る。
+    TargetExists { path: String },
+}
+
+/// 保存先の選択ダイアログ（ファイルの書込みはしない）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct PickSaveFileArgs {
+    pub default_name: String,
 }
 
 // ───────────────────────────── コマンド引数・戻り値 ─────────────────────────────

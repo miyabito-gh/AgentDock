@@ -326,16 +326,207 @@ impl Store {
     }
 
     /// 使用量の集計（重い。設定画面を開いたときなどに背景で実行）。
+    /// `chat` 指定ならそのチャットの領域だけ（設定ファイル等は含めない）。`legacy_area` は呼出し側（ホスト）が埋める。
     pub fn usage(&self, chat: Option<&ChatKey>) -> UsageReport {
-        let _ = chat;
-        todo!("P7")
+        let mut total = UsageBreakdown::default();
+        let mut chats: Vec<ChatUsage> = Vec::new();
+        let mut unreadable: Vec<String> = Vec::new();
+        let chats_root = self.root.join(layout::CHATS_DIR);
+        let mut dirs: Vec<PathBuf> = match std::fs::read_dir(&chats_root) {
+            Ok(rd) => rd.filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.is_dir()).collect(),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+            Err(_) => {
+                unreadable.push(shown(&chats_root));
+                Vec::new()
+            }
+        };
+        dirs.sort();
+        for dir in dirs {
+            // チャットの特定は chat.json から。読めない・thread開始前のものは合計にだけ入れる。
+            let local = std::fs::read(dir.join(layout::CHAT_FILE)).ok().and_then(|b| parse_versioned::<ChatLocalFile>(&b).ok());
+            let key = local.as_ref().and_then(|l| l.chat.clone());
+            if let Some(want) = chat {
+                if key.as_ref() != Some(want) {
+                    continue;
+                }
+            }
+            let (breakdown, mut bad) = chat_area_usage(&dir, local.as_ref());
+            unreadable.append(&mut bad);
+            add_breakdown(&mut total, &breakdown);
+            if let Some(chat) = key {
+                chats.push(ChatUsage { chat, breakdown });
+            }
+        }
+        if chat.is_none() {
+            // 設定・窓・診断ログ（チャット領域の外のアプリ専用領域）。
+            let mut meta = 0u64;
+            let Ok(rd) = std::fs::read_dir(&self.root) else {
+                unreadable.push(shown(&self.root));
+                return self.finish_usage(total, chats, unreadable);
+            };
+            for e in rd.filter_map(|e| e.ok()) {
+                if e.file_name() == layout::CHATS_DIR {
+                    continue;
+                }
+                let (n, mut bad) = atomic::dir_size(&e.path());
+                meta = meta.saturating_add(n);
+                unreadable.append(&mut bad);
+            }
+            total.metadata = total.metadata.saturating_add(meta);
+        }
+        self.finish_usage(total, chats, unreadable)
+    }
+
+    fn finish_usage(&self, total: UsageBreakdown, chats: Vec<ChatUsage>, unreadable: Vec<String>) -> UsageReport {
+        let free_space = match atomic::free_space(&self.root) {
+            Ok(n) => Known::direct(n),
+            Err(_) => Known::NotFetched,
+        };
+        UsageReport { total, chats, legacy_area: 0, free_space, measured_at: UnixMillis(now_ms()), unreadable }
+    }
+
+    /// チャット領域の合計サイズ（削除確認の表示用）。領域がなければ 0、読めなかったパスがあれば None（0で代用しない）。
+    pub fn chat_area_bytes(&self, chat: &ChatKey) -> Option<u64> {
+        let Some(dir_id) = self.index.lock().unwrap().get(chat).cloned() else { return Some(0) };
+        let (n, bad) = atomic::dir_size(&layout::chat_dir(&self.root, &dir_id));
+        bad.is_empty().then_some(n)
     }
 
     /// チャット領域の削除（M46・§3.6）。呼ぶ前にホストが停止確認・ユーザー確認・Codex側削除の成否を確かめる。
-    /// 領域外（元ファイル・作業フォルダ・他チャット）には触れない。部分失敗はそのまま返す。
+    /// 領域外（元ファイル・作業フォルダ・他チャット）には触れない。部分失敗はそのまま返す（`(削除できたもの, できなかったもの)`）。
+    /// 領域内のシンボリックリンク・ジャンクションは、リンク自体だけを消し、辿らない。
     pub fn remove_chat_dir(&self, chat: &ChatKey) -> Result<(), (Vec<String>, Vec<String>)> {
-        let _ = chat;
-        todo!("P7")
+        let Some(dir_id) = self.index.lock().unwrap().get(chat).cloned() else { return Ok(()) };
+        let chats_root = self.root.join(layout::CHATS_DIR);
+        let dir = layout::chat_dir(&self.root, &dir_id);
+        // 領域そのもの（`chats` 直下の1フォルダ）でなければ触らない。
+        if dir.parent() != Some(chats_root.as_path()) {
+            return Err((Vec::new(), vec![format!("チャット領域の場所が不正なため削除しません: {}", shown(&dir))]));
+        }
+        let (mut done, mut failed) = (Vec::new(), Vec::new());
+        let children = match std::fs::read_dir(&dir) {
+            Ok(rd) => rd.filter_map(|e| e.ok()).map(|e| e.path()).collect::<Vec<_>>(),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                self.index.lock().unwrap().remove(chat);
+                return Ok(());
+            }
+            Err(e) => return Err((done, vec![format!("{}: {e}", shown(&dir))])),
+        };
+        for child in children {
+            let name = child.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            match remove_tree(&child) {
+                Ok(()) => done.push(name),
+                Err(e) => failed.push(format!("{}: {e}", shown(&child))),
+            }
+        }
+        if failed.is_empty() {
+            match std::fs::remove_dir(&dir) {
+                Ok(()) => done.push(shown(&dir)),
+                Err(e) => failed.push(format!("{}: {e}", shown(&dir))),
+            }
+        }
+        if !failed.is_empty() {
+            return Err((done, failed));
+        }
+        self.index.lock().unwrap().remove(chat);
+        Ok(())
+    }
+}
+
+/// 段階①の一般チャット作業領域（旧領域。`<Roaming>\...\chats\chat-*`）の合計。移動も削除もしない。読めなかったパスは別に返す。
+pub fn legacy_area_usage(legacy_chats_dir: &Path) -> (u64, Vec<String>) {
+    let mut total = 0u64;
+    let mut unreadable = Vec::new();
+    match std::fs::read_dir(legacy_chats_dir) {
+        Ok(rd) => {
+            for e in rd.filter_map(|e| e.ok()) {
+                if !e.file_name().to_string_lossy().starts_with("chat-") {
+                    continue;
+                }
+                let (n, mut bad) = atomic::dir_size(&e.path());
+                total = total.saturating_add(n);
+                unreadable.append(&mut bad);
+            }
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(_) => unreadable.push(shown(legacy_chats_dir)),
+    }
+    (total, unreadable)
+}
+
+fn add_breakdown(total: &mut UsageBreakdown, b: &UsageBreakdown) {
+    total.attachments = total.attachments.saturating_add(b.attachments);
+    total.artifacts = total.artifacts.saturating_add(b.artifacts);
+    total.workspace = total.workspace.saturating_add(b.workspace);
+    total.activity = total.activity.saturating_add(b.activity);
+    total.metadata = total.metadata.saturating_add(b.metadata);
+}
+
+/// チャット領域1件の内訳。添付・作業領域・監視活動はそれぞれの場所、残り（chat.json・queue.json・その他）はメタデータ。
+/// 台帳にある成果物のうち作業領域内の実在ファイルは、作業領域から差し引いて成果物に数える（二重に数えない）。
+fn chat_area_usage(dir: &Path, local: Option<&ChatLocalFile>) -> (UsageBreakdown, Vec<String>) {
+    let (all, mut bad) = atomic::dir_size(dir);
+    let (attachments, mut b1) = atomic::dir_size(&dir.join(layout::ATTACHMENTS_DIR));
+    let workspace_dir = layout::workspace_dir(dir);
+    let (workspace_all, mut b2) = atomic::dir_size(&workspace_dir);
+    let (activity, mut b3) = atomic::dir_size(&dir.join(layout::ACTIVITY_FILE));
+    bad.append(&mut b1);
+    bad.append(&mut b2);
+    bad.append(&mut b3);
+    bad.sort();
+    bad.dedup();
+    let mut artifacts = 0u64;
+    if let Some(l) = local {
+        let mut seen: HashSet<String> = HashSet::new();
+        for a in l.artifacts.iter().filter(|a| a.in_chat_area) {
+            let p = Path::new(&a.path);
+            if !layout::is_inside(&workspace_dir, p) || !seen.insert(a.path.to_lowercase()) {
+                continue;
+            }
+            if let Ok(m) = std::fs::symlink_metadata(p) {
+                if m.is_file() {
+                    artifacts = artifacts.saturating_add(m.len());
+                }
+            }
+        }
+    }
+    let artifacts = artifacts.min(workspace_all);
+    let workspace = workspace_all - artifacts;
+    let metadata = all.saturating_sub(attachments).saturating_sub(workspace_all).saturating_sub(activity);
+    (UsageBreakdown { attachments, artifacts, workspace, activity, metadata }, bad)
+}
+
+/// ファイル・フォルダを消す。リンク（シンボリックリンク・ジャンクション）は辿らずリンクだけ消す。読み取り専用は解除して1回だけやり直す。
+fn remove_tree(path: &Path) -> std::io::Result<()> {
+    let meta = std::fs::symlink_metadata(path)?;
+    let ft = meta.file_type();
+    if ft.is_dir() && !ft.is_symlink() {
+        for e in std::fs::read_dir(path)? {
+            remove_tree(&e?.path())?;
+        }
+        return remove_with_retry(path, |p| std::fs::remove_dir(p));
+    }
+    if ft.is_symlink() && meta.is_dir() {
+        // ディレクトリへのリンク（ジャンクション等）。中身を辿らず、リンクだけ消す。
+        return remove_with_retry(path, |p| std::fs::remove_dir(p));
+    }
+    remove_with_retry(path, |p| std::fs::remove_file(p))
+}
+
+fn remove_with_retry(path: &Path, f: impl Fn(&Path) -> std::io::Result<()>) -> std::io::Result<()> {
+    match f(path) {
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+            if let Ok(m) = std::fs::symlink_metadata(path) {
+                let mut perm = m.permissions();
+                if perm.readonly() {
+                    #[allow(clippy::permissions_set_readonly_false)]
+                    perm.set_readonly(false);
+                    let _ = std::fs::set_permissions(path, perm);
+                }
+            }
+            f(path)
+        }
+        other => other,
     }
 }
 
@@ -528,6 +719,143 @@ mod tests {
         std::fs::OpenOptions::new().append(true).open(&path).unwrap().write_all(b"{\"kind\":\"freshn").unwrap();
         let got = store.read_activity(&k).unwrap();
         assert_eq!(got.len(), 1);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// チャット領域を2つと、領域の外のファイルを用意する。
+    fn two_areas(name: &str) -> (PathBuf, Store, PathBuf, PathBuf) {
+        let root = temp_root(name);
+        let store = Store::open(root.clone()).unwrap();
+        let mut dirs = Vec::new();
+        for (id, chat) in [("dir-a", "ta"), ("dir-b", "tb")] {
+            let f = ChatLocalFile::new(LocalId(id.into()), Some(key(chat)));
+            store.save_chat_local(&f).unwrap();
+            let dir = layout::chat_dir(&root, &f.dir_id);
+            std::fs::create_dir_all(dir.join(layout::ATTACHMENTS_DIR).join("att-1")).unwrap();
+            std::fs::write(dir.join(layout::ATTACHMENTS_DIR).join("att-1").join("copy.txt"), b"12345").unwrap();
+            std::fs::create_dir_all(layout::workspace_dir(&dir)).unwrap();
+            std::fs::write(layout::workspace_dir(&dir).join("out.txt"), b"abc").unwrap();
+            dirs.push(dir);
+        }
+        (root, store, dirs[0].clone(), dirs[1].clone())
+    }
+
+    #[test]
+    fn remove_chat_dir_removes_only_that_area_and_nothing_outside() {
+        let (root, store, a, b) = two_areas("remove");
+        // 領域の外: 元ファイル相当・設定・他チャット。
+        let outside = root.join("original-elsewhere");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("src.txt"), b"keep").unwrap();
+        std::fs::write(root.join("settings.json"), b"{}").unwrap();
+        store.remove_chat_dir(&key("ta")).unwrap();
+        assert!(!a.exists(), "the chat area is gone");
+        assert!(b.join(layout::CHAT_FILE).exists() && b.join(layout::ATTACHMENTS_DIR).join("att-1").join("copy.txt").exists(), "other chats are untouched");
+        assert_eq!(std::fs::read(outside.join("src.txt")).unwrap(), b"keep");
+        assert!(root.join("settings.json").exists());
+        // 結び付けも外れる。もう一度呼んでも他に触れず成功する。
+        store.remove_chat_dir(&key("ta")).unwrap();
+        assert!(b.exists());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn remove_chat_dir_for_an_unknown_chat_touches_nothing() {
+        let (root, store, a, b) = two_areas("remove-unknown");
+        store.remove_chat_dir(&key("never-seen")).unwrap();
+        assert!(a.exists() && b.exists());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_saved_dir_id_that_tries_to_leave_the_area_is_confined_to_chats() {
+        let root = temp_root("escape");
+        let store = Store::open(root.clone()).unwrap();
+        let victim = root.join("victim");
+        std::fs::create_dir_all(&victim).unwrap();
+        std::fs::write(victim.join("keep.txt"), b"k").unwrap();
+        store.register_dir(&key("evil"), &LocalId(r"..\victim".into()));
+        // dirId は安全化され `chats\.._victim` になる。`victim` には届かない。
+        let _ = store.remove_chat_dir(&key("evil"));
+        assert!(victim.join("keep.txt").exists());
+        assert!(root.join(layout::CHATS_DIR).exists());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn read_only_files_are_removed_and_a_failure_is_reported_not_hidden() {
+        let (root, store, a, _b) = two_areas("readonly");
+        let ro = layout::workspace_dir(&a).join("out.txt");
+        let mut perm = std::fs::metadata(&ro).unwrap().permissions();
+        perm.set_readonly(true);
+        std::fs::set_permissions(&ro, perm).unwrap();
+        store.remove_chat_dir(&key("ta")).unwrap();
+        assert!(!a.exists());
+        // 開いたままのファイルは削除できない。完了と偽らず、残ったものを返し、結び付けを残す。
+        let f = ChatLocalFile::new(LocalId("dir-c".into()), Some(key("tc")));
+        store.save_chat_local(&f).unwrap();
+        let c = layout::chat_dir(&root, &f.dir_id);
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            let held = std::fs::OpenOptions::new().write(true).create(true).share_mode(0).open(c.join("held.bin")).unwrap();
+            let r = store.remove_chat_dir(&key("tc"));
+            let (done, failed) = r.expect_err("a file held open cannot be deleted");
+            assert!(failed.iter().any(|f| f.contains("held.bin")), "{failed:?}");
+            assert!(done.iter().any(|d| d == "chat.json"), "{done:?}");
+            assert!(c.join("held.bin").exists());
+            drop(held);
+            store.remove_chat_dir(&key("tc")).unwrap();
+            assert!(!c.exists(), "retry after release completes the deletion");
+        }
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn usage_counts_each_part_once_and_chat_scope_excludes_other_chats_and_settings() {
+        let (root, store, a, _b) = two_areas("usage");
+        std::fs::write(root.join("settings.json"), vec![0u8; 7]).unwrap();
+        std::fs::write(a.join(layout::ACTIVITY_FILE), vec![0u8; 11]).unwrap();
+        // 成果物の台帳（作業領域内の out.txt=3バイトは、作業領域ではなく成果物として数える）。
+        let mut f = ChatLocalFile::new(LocalId("dir-a".into()), Some(key("ta")));
+        f.artifacts.push(ArtifactEntry {
+            id: LocalId("art-1".into()),
+            chat: key("ta"),
+            agent: AgentKey { backend: BackendKind::Codex, id: ExternalId("ta".into()) },
+            item: None,
+            path: layout::workspace_dir(&a).join("out.txt").to_string_lossy().into_owned(),
+            observed_at: UnixMillis(1),
+            exists: Known::direct(true),
+            checked_at: None,
+            in_chat_area: true,
+        });
+        store.save_chat_local(&f).unwrap();
+        let all = store.usage(None);
+        assert!(all.unreadable.is_empty(), "{:?}", all.unreadable);
+        let ua = all.chats.iter().find(|c| c.chat == key("ta")).unwrap().breakdown;
+        assert_eq!((ua.attachments, ua.artifacts, ua.workspace, ua.activity), (5, 3, 0, 11));
+        let ub = all.chats.iter().find(|c| c.chat == key("tb")).unwrap().breakdown;
+        assert_eq!((ub.attachments, ub.artifacts, ub.workspace, ub.activity), (5, 0, 3, 0));
+        let sum = |b: &UsageBreakdown| b.attachments + b.artifacts + b.workspace + b.activity + b.metadata;
+        // 合計 = 各チャットの合計 + チャット領域の外（settings.json の7バイト）。
+        assert_eq!(sum(&all.total), sum(&ua) + sum(&ub) + 7);
+        let one = store.usage(Some(&key("ta")));
+        assert_eq!(one.chats.len(), 1);
+        assert_eq!(one.total, one.chats[0].breakdown, "the chat scope does not include settings or other chats");
+        assert_eq!(one.legacy_area, 0);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn legacy_area_counts_only_chat_dirs() {
+        let root = temp_root("legacy");
+        let legacy = root.join("chats");
+        std::fs::create_dir_all(legacy.join("chat-1")).unwrap();
+        std::fs::write(legacy.join("chat-1").join("a.txt"), b"1234").unwrap();
+        std::fs::create_dir_all(legacy.join("other")).unwrap();
+        std::fs::write(legacy.join("other").join("b.txt"), b"99999999").unwrap();
+        assert_eq!(legacy_area_usage(&legacy), (4, vec![]));
+        assert_eq!(legacy_area_usage(&root.join("missing")), (0, vec![]));
         let _ = std::fs::remove_dir_all(&root);
     }
 

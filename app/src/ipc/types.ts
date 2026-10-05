@@ -93,6 +93,7 @@ export type { OpenChatArgs } from "./gen/OpenChatArgs";
 export type { OpenFileArgs } from "./gen/OpenFileArgs";
 export type { Ownership } from "./gen/Ownership";
 export type { Page } from "./gen/Page";
+export type { PickSaveFileArgs } from "./gen/PickSaveFileArgs";
 export type { ParentLink } from "./gen/ParentLink";
 export type { PendingRequest } from "./gen/PendingRequest";
 export type { PermissionPreset } from "./gen/PermissionPreset";
@@ -231,6 +232,7 @@ import type { SettingsImpact } from "./gen/SettingsImpact";
 import type { ShowMainWindowArgs } from "./gen/ShowMainWindowArgs";
 import type { StopRecord } from "./gen/StopRecord";
 import type { UsageReport } from "./gen/UsageReport";
+import type { PickSaveFileArgs } from "./gen/PickSaveFileArgs";
 
 export const HOST_EVENT_CHANNEL = "agentdock://host-event";
 
@@ -276,6 +278,14 @@ export interface CommandMap {
   open_monitor_window: { args: Record<string, never>; result: null };
   set_monitor_window_scope: { args: SetMonitorWindowScopeArgs; result: null };
   show_main_window: { args: ShowMainWindowArgs; result: null };
+  preview_delete: { args: ChatArgs; result: DeletePreview };
+  delete_chat: { args: ChatArgs; result: DeleteOutcome };
+  archive_chat: { args: ChatArgs; result: ChatLocalView };
+  unarchive_chat: { args: ChatArgs; result: ChatLocalView };
+  export_markdown: { args: ExportMarkdownArgs; result: null };
+  get_usage: { args: GetUsageArgs; result: UsageReport };
+  pick_codex_executable: { args: Record<string, never>; result: string | null };
+  pick_save_file: { args: PickSaveFileArgs; result: string | null };
 }
 export type CommandName = keyof CommandMap;
 
@@ -285,10 +295,4 @@ export interface LocalCommandMap {
   remove_attachment: { args: AttachmentArgs; result: null };
   open_file: { args: OpenFileArgs; result: null };
   save_file_as: { args: SaveFileAsArgs; result: null };
-  preview_delete: { args: ChatArgs; result: DeletePreview };
-  delete_chat: { args: ChatArgs; result: DeleteOutcome };
-  archive_chat: { args: ChatArgs; result: ChatLocalView };
-  unarchive_chat: { args: ChatArgs; result: ChatLocalView };
-  export_markdown: { args: ExportMarkdownArgs; result: null };
-  get_usage: { args: GetUsageArgs; result: UsageReport };
 }

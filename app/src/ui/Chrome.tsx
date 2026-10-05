@@ -21,7 +21,7 @@ export function TitleBar({ title, tag, mini, top, onAct }: { title: string; tag?
 
 type MenuItem = [label: string, action: string, kbd?: string] | "-";
 const MENUS: Record<string, MenuItem[]> = {
-  "チャット": [["新しいチャット", "newChat", "Ctrl+N"], ["名前を変更", "stub"], ["ピン留めを切替", "stub"], ["アーカイブ", "stub"], ["Markdown にエクスポート…", "stub"], "-", ["削除…", "stub"], "-", ["AgentDock を終了…", "quit"]],
+  "チャット": [["新しいチャット", "newChat", "Ctrl+N"], ["名前を変更", "stub"], ["ピン留めを切替", "stub"], ["アーカイブ", "archiveChat"], ["アーカイブを解除", "unarchiveChat"], ["Markdown にエクスポート…", "exportMd"], "-", ["削除…", "deleteChat"], "-", ["AgentDock を終了…", "quit"]],
   "作業": [["差分を確認", "stub"], ["変更を戻す…", "stub"], ["コードレビュー…", "stub"], ["計画／実行の切替", "unv:Plan（collaborationMode）は experimental"], ["会話を分岐", "stub"], ["文脈を圧縮", "stub"], ["Goal を設定…", "stub"], ["worktree で開始…", "unv:worktree の公開経路は未確認"], ["クラウドに委任…", "unv:クラウド委任の公開経路は未確認"], "-", ["中断", "interrupt", "Esc"]],
   "表示": [["チャット一覧", "toggleLeft"], ["エージェントのドック", "toggleRight"], ["コンパクト監視窓", "toggleMini"], "-", ["通常画面を最前面に", "toggleMainTop"], ["監視窓を最前面に", "toggleMiniTop"], "-", ["終了済みも表示（全チャット）", "toggleDone"]],
   "設定": [["設定…", "settings:general"], ["MCP・Plugins…", "settings:mcp"], ["Skills・AGENTS.md…", "settings:skills"]],

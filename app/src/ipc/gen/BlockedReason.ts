@@ -2,4 +2,4 @@
 import type { LocalId } from "./LocalId";
 import type { SaveScope } from "./SaveScope";
 
-export type BlockedReason = { "kind": "stopUnconfirmed", record: LocalId, } | { "kind": "acceptanceUnknown", attempt: LocalId, } | { "kind": "runningElsewhere" } | { "kind": "capabilityUnsupported", capability: string, } | { "kind": "requestAlreadyResolved" } | { "kind": "insufficientSpace", required: number, available: number, } | { "kind": "saveFailed", scope: SaveScope, } | { "kind": "chatBusy" } | { "kind": "queueRetargetUnconfirmed", waiting: number, } | { "kind": "queueEntryNotEditable" };
+export type BlockedReason = { "kind": "stopUnconfirmed", record: LocalId, } | { "kind": "acceptanceUnknown", attempt: LocalId, } | { "kind": "runningElsewhere" } | { "kind": "capabilityUnsupported", capability: string, } | { "kind": "requestAlreadyResolved" } | { "kind": "insufficientSpace", required: number, available: number, } | { "kind": "saveFailed", scope: SaveScope, } | { "kind": "chatBusy" } | { "kind": "queueRetargetUnconfirmed", waiting: number, } | { "kind": "queueEntryNotEditable" } | { "kind": "deletePending" } | { "kind": "targetExists", path: string, };

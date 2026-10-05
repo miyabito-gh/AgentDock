@@ -4,6 +4,7 @@
 //! - [`power`]: sleep/wake の検出（`PowerRegisterSuspendResumeNotification`、コールバック型。窓ハンドル不要）。
 //! - [`window`]: 通常画面・監視窓の表示、位置・サイズの復元と記録。
 
+pub mod dialog;
 pub mod job;
 pub mod power;
 pub mod toast;

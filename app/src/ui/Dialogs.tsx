@@ -3,12 +3,15 @@ import type { Chat, ChatKey, ForceKillPreview, ModelInfo, NotificationSettings, 
 import { chatName } from "./derive";
 import { SCOPE_TEXT } from "./Chrome";
 import { Icon } from "./Icon";
+import { DeleteBody, ExportBody, StorageBody, type DeleteProps, type ExportProps, type UsageProps } from "./ManageDialogs";
 
 export type DialogState =
   | { type: "settings"; tab: string }
   | { type: "newChat" }
   | { type: "quit" }
   | { type: "force" }
+  | { type: "delete"; chatId: string }
+  | { type: "export"; chatId: string }
   | { type: "unv"; why: string }
   | { type: "attach" }
   | { type: "resumeExternal"; chatId: string };
@@ -27,7 +30,10 @@ function Shell({ title, children, foot, wide, onClose }: { title: string; childr
 
 const TABS: Array<[string, string]> = [["general", "全般"], ["notify", "通知"], ["input", "入力"], ["model", "モデル"], ["codex", "Codex"], ["mcp", "MCP・Plugins"], ["skills", "Skills"], ["storage", "保存と容量"]];
 
-export interface CodexExe { path: string; setPath: (p: string) => void; placeholder: string; connect: (p: string) => void; openDiag: () => void; live: boolean }
+export interface CodexExe { path: string; setPath: (p: string) => void; placeholder: string; connect: (p: string) => void; openDiag: () => void; browse: () => void; live: boolean }
+
+/** 削除・エクスポート・使用量（P7）。 */
+export interface ManageProps { del: DeleteProps; exp: ExportProps; usage: UsageProps; selectedId: string | null }
 
 export interface NotifyProps { value: NotificationSettings; set: (n: NotificationSettings) => void }
 
@@ -42,7 +48,8 @@ export interface QuitProps {
 /** 強制終了の確認（`preview_force_kill` の結果）。preview が null の間は取得中（error があれば取得失敗）。 */
 export interface ForceProps { preview: ForceKillPreview | null; error: string | null; running: boolean; run: () => void }
 
-function SettingsBody({ tab, enterMode, setEnterMode, top, source, models, exe, notify, autostart }: {
+function SettingsBody({ tab, enterMode, setEnterMode, top, source, models, exe, notify, autostart, manage, chats }: {
+  manage: ManageProps; chats: Chat[];
   autostart: AutostartProps;
   notify: NotifyProps;
   tab: string; enterMode: "ctrl" | "enter"; setEnterMode: (m: "ctrl" | "enter") => void; top: { main: boolean; mini: boolean; setMain: (b: boolean) => void; setMini: (b: boolean) => void };
@@ -82,7 +89,7 @@ function SettingsBody({ tab, enterMode, setEnterMode, top, source, models, exe, 
       const v = source?.version;
       return (
         <>
-          <div className="field"><span>codex.exe の場所</span><div style={{ display: "flex", gap: 6 }}><input type="text" className="mono" style={{ flex: 1 }} value={exe.path} placeholder={exe.placeholder} onChange={(e) => exe.setPath(e.target.value)} aria-label="codex.exe のパス" /><button className="btn-line" disabled={!exe.live} onClick={() => exe.connect(exe.path)}>この場所で接続</button></div><span className="note">空欄なら既定の場所を使います。接続済みの間は変更できません。~/.codex の設定と認証は共有し、このアプリからは変更しません。</span></div>
+          <div className="field"><span>codex.exe の場所</span><div style={{ display: "flex", gap: 6 }}><input type="text" className="mono" style={{ flex: 1 }} value={exe.path} placeholder={exe.placeholder} onChange={(e) => exe.setPath(e.target.value)} aria-label="codex.exe のパス" /><button className="btn-line" disabled={!exe.live} onClick={exe.browse}>参照…</button><button className="btn-line" disabled={!exe.live} onClick={() => exe.connect(exe.path)}>この場所で接続</button></div><span className="note">空欄なら既定の場所を使います。接続済みの間は変更できません。~/.codex の設定と認証は共有し、このアプリからは変更しません。</span></div>
           <div className="field"><span>検出結果</span><span>{v?.kind === "match" ? `codex-cli ${v.version}（対象版）` : v?.kind === "mismatch" ? `${v.actual}（対象版 ${v.expected} と不一致）` : v?.kind === "unknown" ? `確認できません（${v.message}）` : "未確認"}</span></div>
           <div className="field"><span>接続</span><span>App Server（stdio）</span></div>
           <div className="field"><span>診断ログ</span><div><button className="btn-line" onClick={exe.openDiag}>診断ログの場所を開く</button></div><span className="note">%APPDATA%\com.agentdock.app\diag\diag.log。未対応の通知・項目の形（キー構造のみ。本文・認証情報は記録しません）と、子孫の走査結果などを記録します。</span></div>
@@ -90,7 +97,7 @@ function SettingsBody({ tab, enterMode, setEnterMode, top, source, models, exe, 
     }
     case "mcp": return <p className="small muted">導入・有効・信頼・認証・接続・会話への反映を分けて表示します（T5以降で取得）。</p>;
     case "skills": return <p className="small muted">AGENTS.md と Skills の確認（T5以降で取得）。</p>;
-    default: return <div className="field"><span>保存期限</span><span>ありません。容量が足りなくても自動で削除しません。足りないときは、その操作を止めてお知らせします。</span></div>;
+    default: return <StorageBody u={manage.usage} chats={chats} selected={manage.selectedId} />;
   }
 }
 
@@ -200,8 +207,8 @@ function ForceDialog({ f, chats, onClose }: { f: ForceProps; chats: Chat[]; onCl
 
 export interface NewChatInput { cwd: string | null; model: string; firstMessage: string | null }
 
-export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnterMode, top, setTab, onAct, exe, onCreateChat, notify, autostart, quit, force }: {
-  autostart: AutostartProps; quit: QuitProps; force: ForceProps;
+export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnterMode, top, setTab, onAct, exe, onCreateChat, notify, autostart, quit, force, manage }: {
+  autostart: AutostartProps; quit: QuitProps; force: ForceProps; manage: ManageProps;
   notify: NotifyProps;
   d: DialogState; onClose: () => void; chats: Chat[]; source: SourceInfo | undefined; models: ModelInfo[];
   exe: CodexExe; onCreateChat: (i: NewChatInput) => void;
@@ -218,7 +225,7 @@ export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnter
     case "settings": return (
       <Shell title="設定" wide onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>
         <div className="tabs" role="tablist">{TABS.map(([k, t]) => <button key={k} role="tab" aria-selected={d.tab === k} onClick={() => setTab(k)}>{t}</button>)}</div>
-        <div className="content"><SettingsBody tab={d.tab} enterMode={enterMode} setEnterMode={setEnterMode} top={top} source={source} models={models} exe={exe} notify={notify} autostart={autostart} /></div>
+        <div className="content"><SettingsBody tab={d.tab} enterMode={enterMode} setEnterMode={setEnterMode} top={top} source={source} models={models} exe={exe} notify={notify} autostart={autostart} manage={manage} chats={chats} /></div>
       </Shell>);
     case "newChat": return (
       <Shell title="新しいチャット" onClose={onClose} foot={<><button className="btn-line" onClick={onClose}>キャンセル</button><button className="btn-main" disabled={kind === "dev" && !cwd.trim()} onClick={() => onCreateChat({ cwd: kind === "dev" ? cwd.trim() : null, model, firstMessage: first.trim() || null })}>作成</button></>}>
@@ -232,6 +239,26 @@ export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnter
       </Shell>);
     case "quit": return <QuitDialog q={quit} chats={chats} onClose={onClose} onAct={onAct} />;
     case "force": return <ForceDialog f={force} chats={chats} onClose={onClose} />;
+    case "delete": {
+      const m = manage.del;
+      const c = chats.find((x) => x.key.id === d.chatId);
+      const finished = m.outcome !== null;
+      const pv = m.preview;
+      const label = m.running ? "削除しています…" : pv?.requiresStop ? "中断して削除" : "削除";
+      return (
+        <Shell title="チャットを削除" onClose={onClose}
+          foot={<><button className="btn-line" onClick={onClose}>{finished ? "閉じる" : "キャンセル"}</button>{finished && m.outcome?.kind !== "partial" ? null : <button className="btn-danger" disabled={!pv || m.running} onClick={m.run}>{label}</button>}</>}>
+          <DeleteBody chat={c} d={m} />
+        </Shell>);
+    }
+    case "export": {
+      const m = manage.exp;
+      return (
+        <Shell title="Markdown にエクスポート" onClose={onClose}
+          foot={<><button className="btn-line" onClick={onClose}>キャンセル</button><button className="btn-main" disabled={m.running} onClick={m.run}>{m.running ? "書き出しています…" : "保存先を選ぶ…"}</button></>}>
+          <ExportBody e={m} />
+        </Shell>);
+    }
     case "unv": return (
       <Shell title="この操作はまだ使えません" onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>
         <div className="content"><p>{d.why}。</p><p className="small muted">Codex 側の経路と動作を確認できるまで、成功したように見せることはしません。</p></div>

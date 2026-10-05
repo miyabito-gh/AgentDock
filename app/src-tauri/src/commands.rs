@@ -9,7 +9,7 @@ use tauri_plugin_autostart::ManagerExt;
 use crate::backend::backend::{ManageOutcome, Page, ResumeOutcome, RespondOutcome, UserConfirmed, ChatSummary, AgentHistory};
 use crate::backend::ipc::*;
 use crate::backend::local::{
-    AcknowledgeFailureArgs, AppSettings, ChatArgs, ChatLocalView, ChatQueue, EditQueueEntryArgs, EnqueueArgs, ForceKillArgs, ForceKillPreview, QueueEntry, QueueEntryArgs, QuitDecisionArgs, QuitPhase,
+    AcknowledgeFailureArgs, AppSettings, ChatArgs, ChatLocalView, ChatQueue, DeleteOutcome, DeletePreview, ExportMarkdownArgs, GetUsageArgs, UsageReport, EditQueueEntryArgs, EnqueueArgs, ForceKillArgs, ForceKillPreview, QueueEntry, QueueEntryArgs, QuitDecisionArgs, QuitPhase,
     ReconcileSendArgs, RetrySaveArgs, SaveStatus, SetAlwaysOnTopArgs, SetAppSettingsArgs, SetChatCwdArgs, SetChatPermissionArgs, SetDraftArgs, SetMonitorWindowScopeArgs, SetSelectedChatArgs,
     SettingsImpact, ShowMainWindowArgs,
 };
@@ -78,7 +78,7 @@ pub async fn resume_chat(host: Hs<'_>, args: ResumeChatArgs) -> R<ResumeOutcome>
 #[tauri::command]
 pub async fn manage_chat(host: Hs<'_>, args: ManageChatArgs) -> R<ManageOutcome> {
     let confirmed = UserConfirmed::from_user_command();
-    host.manage_chat(args, &confirmed).await
+    host.inner().clone().manage_chat(args, confirmed).await
 }
 
 #[tauri::command]
@@ -259,4 +259,71 @@ pub async fn open_diag_dir() -> R<String> {
             .map_err(|e| IpcError { code: IpcErrorCode::Io, message: format!("エクスプローラーを起動できません: {e}"), blocked: None })?;
     }
     Ok(path.to_string_lossy().into_owned())
+}
+
+// ───────────────────────────── 削除・アーカイブ・エクスポート・使用量（P7） ─────────────────────────────
+
+/// 削除確認に出す内容（実行しない）。
+#[tauri::command]
+pub async fn preview_delete(host: Hs<'_>, args: ChatArgs) -> R<DeletePreview> {
+    host.inner().clone().preview_delete(args).await
+}
+
+/// 削除（確認画面を経たユーザー操作だけ）。停止を確認できなければ保留、部分失敗は完了と偽らない。
+#[tauri::command]
+pub async fn delete_chat(host: Hs<'_>, args: ChatArgs) -> R<DeleteOutcome> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().delete_chat(args, &confirmed).await
+}
+
+/// アーカイブ（アプリの一覧からは即座に隠す。Codexへの反映は作業終了・停止確認の後）。
+#[tauri::command]
+pub async fn archive_chat(host: Hs<'_>, args: ChatArgs) -> R<ChatLocalView> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().archive_chat(args, confirmed).await
+}
+
+#[tauri::command]
+pub async fn unarchive_chat(host: Hs<'_>, args: ChatArgs) -> R<ChatLocalView> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().unarchive_chat(args, &confirmed).await
+}
+
+/// Markdownエクスポート。保存先は `pick_save_file` で選んだパス（上書きはOSの確認ダイアログで済み）。
+#[tauri::command]
+pub async fn export_markdown(host: Hs<'_>, args: ExportMarkdownArgs) -> R<()> {
+    host.inner().clone().export_markdown(args).await
+}
+
+#[tauri::command]
+pub async fn get_usage(host: Hs<'_>, args: GetUsageArgs) -> R<UsageReport> {
+    host.inner().clone().get_usage(args).await
+}
+
+fn owner_hwnd(app: &tauri::AppHandle) -> isize {
+    app.get_webview_window(crate::win::window::label_of(crate::backend::local::WindowKind::Main)).and_then(|w| w.hwnd().ok()).map(|h| h.0 as isize).unwrap_or(0)
+}
+
+/// codex.exe の「参照…」。選ぶだけで、設定は変えない。キャンセルなら None。
+#[tauri::command]
+pub async fn pick_codex_executable(app: tauri::AppHandle) -> R<Option<String>> {
+    let owner = owner_hwnd(&app);
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::win::dialog::pick_path(owner, "codex.exe を選択", &[("実行ファイル (*.exe)", "*.exe"), ("すべてのファイル (*.*)", "*.*")], None, None)
+    })
+    .await
+    .map_err(|e| io_err(format!("ダイアログが異常終了しました: {e}")))?
+    .map_err(io_err)
+}
+
+/// 保存先の選択（同名ファイルがあればOSが上書きを確認する）。キャンセルなら None。
+#[tauri::command]
+pub async fn pick_save_file(app: tauri::AppHandle, args: PickSaveFileArgs) -> R<Option<String>> {
+    let owner = owner_hwnd(&app);
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::win::dialog::pick_path(owner, "保存先を選択", &[("Markdown (*.md)", "*.md"), ("すべてのファイル (*.*)", "*.*")], Some(&args.default_name), Some("md"))
+    })
+    .await
+    .map_err(|e| io_err(format!("ダイアログが異常終了しました: {e}")))?
+    .map_err(io_err)
 }

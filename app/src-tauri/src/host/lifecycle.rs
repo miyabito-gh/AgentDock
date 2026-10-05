@@ -62,7 +62,7 @@ impl Default for Lifecycle {
 }
 
 /// チャット単位の作業状況（終了確認の材料）。
-fn work_of(d: &HostData, chat: &ChatKey) -> ChatWork {
+pub(super) fn work_of(d: &HostData, chat: &ChatKey) -> ChatWork {
     let has_unfinished = d
         .agents
         .iter()

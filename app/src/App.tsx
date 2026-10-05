@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Chat, ForceKillPreview, HostEvent, HostEventEnvelope, HostSnapshot, ModelInfo, MonitorScope, PendingRequest, PermissionPreset, QuitDecision, QuitPhase, RequestAnswer, SendAttempt, SettingsImpact, SourceInfo } from "./ipc/types";
+import type { Chat, DeleteOutcome, DeletePreview, ForceKillPreview, HostEvent, HostEventEnvelope, HostSnapshot, ModelInfo, MonitorScope, PendingRequest, PermissionPreset, QuitDecision, QuitPhase, RequestAnswer, SendAttempt, SettingsImpact, SourceInfo, UsageReport } from "./ipc/types";
 import * as host from "./ipc/client";
 import { applyHostEvent, emptyBundle, replaceSnapshot, seqAction, UNKNOWN_CAPS } from "./ipc/live";
 import type { Bundle } from "./mock/data";
@@ -14,7 +14,7 @@ import { LeftPane } from "./ui/LeftPane";
 import { CenterPane, EmptyCenter, type CwdResult, type SendNotice } from "./ui/CenterPane";
 import { DockPane, MiniWindow } from "./ui/Dock";
 import { Dialogs, type DialogState, type NewChatInput } from "./ui/Dialogs";
-import { isRunning, stopOpen } from "./ui/derive";
+import { chatName, isRunning, stopOpen } from "./ui/derive";
 import { keyStr } from "./ui/format";
 
 type Mode = "live" | "mock";
@@ -72,6 +72,10 @@ export default function App() {
   const [mockMiniTop, setMockMiniTop] = useState(false);
   const [quit, setQuit] = useState<QuitPhase>({ kind: "idle" });
   const [force, setForce] = useState<{ preview: ForceKillPreview | null; error: string | null; running: boolean }>({ preview: null, error: null, running: false });
+  // 削除確認・エクスポート・使用量（P7）。実行結果はホストの応答を確認できたときだけ表示する。
+  const [del, setDel] = useState<{ preview: DeletePreview | null; error: string | null; running: boolean; outcome: DeleteOutcome | null }>({ preview: null, error: null, running: false, outcome: null });
+  const [exp, setExp] = useState<{ include: boolean; running: boolean; error: string | null }>({ include: false, running: false, error: null });
+  const [usage, setUsage] = useState<{ report: UsageReport | null; error: string | null; loading: boolean }>({ report: null, error: null, loading: false });
   const [menu, setMenu] = useState<string | null>(null);
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -487,6 +491,94 @@ export default function App() {
     setDialog(null);
   };
 
+  // ── 削除・アーカイブ・エクスポート・使用量（P7） ──
+
+  /** 削除確認を開く（対象と削除しないものを先に示す。実行はしない）。 */
+  const openDelete = () => {
+    if (!chat) return;
+    if (!live) { say("この操作はモックでは動きません。"); return; }
+    setDel({ preview: null, error: null, running: false, outcome: null });
+    setDialog({ type: "delete", chatId: chat.key.id });
+    host.previewDelete(chat.key)
+      .then((p) => setDel((s) => ({ ...s, preview: p })))
+      .catch((e) => setDel((s) => ({ ...s, error: host.asIpcError(e).message })));
+  };
+
+  /** 削除の実行（確認画面の「削除」だけが呼ぶ）。完了と言うのは deleted を確認できたときだけ。保留・部分失敗は画面に残して理由を示す。 */
+  const runDelete = async () => {
+    if (dialog?.type !== "delete") return;
+    const c = snap.chats.find((x) => x.key.id === dialog.chatId);
+    if (!c) return;
+    const external = del.preview?.deletesBackendHistory === false;
+    setDel((s) => ({ ...s, running: true, error: null, outcome: null }));
+    try {
+      const out = await host.deleteChat(c.key);
+      if (out.kind === "deleted") {
+        setDialog(null);
+        say(external ? "一覧から外しました。元の履歴は削除していません。" : "削除しました。");
+        if (selRef.current === c.key.id) setSelId(null);
+        return;
+      }
+      setDel((s) => ({ ...s, running: false, outcome: out }));
+    } catch (e) { setDel((s) => ({ ...s, running: false, error: host.asIpcError(e).message })); }
+  };
+
+  const openExport = () => {
+    if (!chat) return;
+    if (!live) { say("この操作はモックでは動きません。"); return; }
+    setExp({ include: false, running: false, error: null });
+    setDialog({ type: "export", chatId: chat.key.id });
+  };
+
+  /** 保存先を選んで書き出す。書き込みの成功を確認できたときだけ完了と言う。 */
+  const runExport = async () => {
+    if (dialog?.type !== "export") return;
+    const c = snap.chats.find((x) => x.key.id === dialog.chatId);
+    if (!c) return;
+    setExp((s) => ({ ...s, running: true, error: null }));
+    try {
+      const base = chatName(c).replace(/[\\/:*?"<>|]/g, "_").trim() || "chat";
+      const dest = await host.pickSaveFile(`${base}.md`);
+      if (!dest) { setExp((s) => ({ ...s, running: false })); return; }
+      // 同名ファイルの上書きは、保存ダイアログ（OS）で確認済み。
+      await host.exportMarkdown(c.key, exp.include, dest, true);
+      setDialog(null);
+      say(`書き出しました: ${dest}`);
+    } catch (e) { setExp((s) => ({ ...s, running: false, error: host.asIpcError(e).message })); }
+  };
+
+  const archiveOp = (on: boolean) => {
+    if (!chat) return;
+    if (!live) { say("この操作はモックでは動きません。"); return; }
+    if (on) {
+      const working = isRunning(snap, chat);
+      host.archiveChat(chat.key)
+        .then(() => say(working ? "アーカイブしました。作業は続きます。Codex への反映は、作業が終わり停止を確認してから行います。" : "アーカイブしました。"))
+        .catch((e) => sayErr("アーカイブできませんでした", e));
+    } else {
+      host.unarchiveChat(chat.key).then(() => say("アーカイブを解除しました。")).catch((e) => sayErr("アーカイブを解除できませんでした", e));
+    }
+  };
+
+  const loadUsage = useCallback(() => {
+    if (!live) return;
+    setUsage((u) => ({ ...u, loading: true, error: null }));
+    host.getUsage(null)
+      .then((r) => setUsage({ report: r, error: null, loading: false }))
+      .catch((e) => setUsage((u) => ({ ...u, loading: false, error: host.asIpcError(e).message })));
+  }, [live]);
+  const storageOpen = dialog?.type === "settings" && dialog.tab === "storage";
+  useEffect(() => { if (storageOpen) loadUsage(); }, [storageOpen, loadUsage]);
+
+  /** codex.exe の「参照…」。選んだパスを入力欄と設定へ入れる（接続は「この場所で接続」で別に行う）。 */
+  const browseExe = () => {
+    host.pickCodexExecutable().then((p) => {
+      if (!p) return;
+      setExePath(p); writeExe(p);
+      host.setAppSettings({ ...snap.settings, codexExecutable: p }).catch((e) => sayErr("codex.exe の場所を保存できませんでした", e));
+    }).catch((e) => sayErr("ファイルを選択できませんでした", e));
+  };
+
   const act = (a: string) => {
     if (a.startsWith("unv:")) { setDialog({ type: "unv", why: a.slice(4) }); return; }
     if (a.startsWith("settings:")) { setDialog({ type: "settings", tab: a.split(":")[1] }); return; }
@@ -503,6 +595,10 @@ export default function App() {
         break;
       case "force": openForce(); break;
       case "attach": setDialog({ type: "attach" }); break;
+      case "archiveChat": archiveOp(true); break;
+      case "unarchiveChat": archiveOp(false); break;
+      case "exportMd": openExport(); break;
+      case "deleteChat": openDelete(); break;
       case "interrupt": void interrupt(); break;
       case "modeMenu": setMockOpen((o) => !o); break;
       case "resumeExternal": if (chat) setDialog({ type: "resumeExternal", chatId: chat.key.id }); break;
@@ -603,7 +699,13 @@ export default function App() {
           }}
           quit={{ phase: quit, stops: snap.stops, failedSaves, live, decide, onForce: openForce, onRetrySave: () => void retrySave() }}
           force={{ ...force, run: () => void runForce() }}
-          exe={{ path: exePath, setPath: setExePath, placeholder: DEFAULT_EXE, connect: retryLaunch, openDiag: () => { host.openDiagDir().then((p) => say(`診断ログの場所: ${p}`)).catch((e) => sayErr("診断ログの場所を開けませんでした", e)); }, live: live && snap.sources.every((s) => s.connection.kind !== "connected") }}
+          manage={{
+            selectedId: selId,
+            del: { ...del, local: snap.chatLocals.find((l) => l.chat.id === (dialog.type === "delete" ? dialog.chatId : "")), run: () => void runDelete() },
+            exp: { ...exp, setInclude: (b) => setExp((s) => ({ ...s, include: b })), run: () => void runExport() },
+            usage: { ...usage, reload: loadUsage },
+          }}
+          exe={{ path: exePath, setPath: setExePath, placeholder: DEFAULT_EXE, connect: retryLaunch, browse: browseExe, openDiag: () => { host.openDiagDir().then((p) => say(`診断ログの場所: ${p}`)).catch((e) => sayErr("診断ログの場所を開けませんでした", e)); }, live: live && snap.sources.every((s) => s.connection.kind !== "connected") }}
           onCreateChat={(i) => void createChat(i)}
           setTab={(t) => setDialog({ type: "settings", tab: t })} onAct={act} />
       ) : null}

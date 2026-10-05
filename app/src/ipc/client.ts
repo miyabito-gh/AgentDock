@@ -10,6 +10,7 @@ import {
   type RequestAnswer, type RequestKey, type RespondOutcome, type SendAttempt, type SendIntent, type SourceInfo,
   type StartChatResult, type ResumeOutcome, type SaveScope, type SaveStatus, type ChatQueue, type QueueEntry, type SettingsImpact,
   type ForceKillPreview, type MonitorWindowScope, type QuitDecision, type QuitPhase, type StopRecord, type WindowKind,
+  type ChatLocalView, type DeleteOutcome, type DeletePreview, type UsageReport,
 } from "./types";
 
 /** 型付きinvoke。引数は `args` 1個で渡す（types.ts CommandMap の規約）。 */
@@ -95,6 +96,22 @@ export const subscribeSelectedChat = (handler: (id: string | null) => void): Pro
 /** 監視窓の起動時に、現在の選択を通常画面へ尋ねる。 */
 export const requestSelectedChat = (): Promise<void> => emit(SELECTED_CHAT_REQUEST);
 export const onSelectedChatRequest = (handler: () => void): Promise<UnlistenFn> => listen(SELECTED_CHAT_REQUEST, () => handler());
+
+// ── 削除・アーカイブ・エクスポート・使用量（P7） ──
+/** 削除確認に出す内容（実行しない）。 */
+export const previewDelete = (chat: ChatKey): Promise<DeletePreview> => invokeCmd("preview_delete", { chat });
+/** 削除（確認画面の後だけ）。停止を確認できなければ pending、部分失敗は partial（完了とは言わない）。 */
+export const deleteChat = (chat: ChatKey): Promise<DeleteOutcome> => invokeCmd("delete_chat", { chat });
+/** アーカイブ。アプリの一覧からは即座に隠れる。Codexへの反映は作業終了・停止確認の後。 */
+export const archiveChat = (chat: ChatKey): Promise<ChatLocalView> => invokeCmd("archive_chat", { chat });
+export const unarchiveChat = (chat: ChatKey): Promise<ChatLocalView> => invokeCmd("unarchive_chat", { chat });
+export const exportMarkdown = (chat: ChatKey, includeMonitorActivity: boolean, dest: string, overwriteConfirmed: boolean): Promise<null> =>
+  invokeCmd("export_markdown", { chat, includeMonitorActivity, dest, overwriteConfirmed });
+export const getUsage = (chat: ChatKey | null): Promise<UsageReport> => invokeCmd("get_usage", { chat });
+/** codex.exe の「参照…」。選ぶだけで設定は変えない。キャンセルなら null。 */
+export const pickCodexExecutable = (): Promise<string | null> => invokeCmd("pick_codex_executable", {});
+/** 保存先の選択（同名があればOSが上書きを確認する）。キャンセルなら null。 */
+export const pickSaveFile = (defaultName: string): Promise<string | null> => invokeCmd("pick_save_file", { defaultName });
 
 /** 診断ログのフォルダをエクスプローラーで開く（ユーザー操作）。戻り値はログファイルの場所。 */
 export const openDiagDir = (): Promise<string> => invoke("open_diag_dir");

@@ -8,6 +8,7 @@
 //! - 監視のためにresume・承認・停止をしない。resumeはユーザーの送信・再開操作の中でだけ行う。
 
 pub mod lifecycle;
+pub mod manage;
 pub mod notifier;
 pub mod persist;
 pub mod queue_driver;
@@ -22,6 +23,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::backend::backend::*;
 use crate::backend::ipc::*;
+use crate::backend::local::{ChatArgs, DeleteOutcome};
 use crate::backend::model::*;
 use crate::codex::{CodexBackend, TARGET_VERSION};
 use persist::Persist;
@@ -154,6 +156,8 @@ pub struct Host {
     scanning: Mutex<HashSet<AgentKey>>,
     /// 完了後キューの実行状態（`queue_driver.rs`）。
     queue_rt: queue_driver::QueueRuntime,
+    /// アーカイブ・削除の作業状態（`manage.rs`）。
+    manage_rt: manage::ManageRuntime,
 }
 
 impl Host {
@@ -173,6 +177,7 @@ impl Host {
             counter: AtomicU64::new(1),
             scanning: Mutex::new(HashSet::new()),
             queue_rt: queue_driver::QueueRuntime::default(),
+            manage_rt: manage::ManageRuntime::default(),
         }
     }
 
@@ -220,6 +225,7 @@ impl Host {
     /// バックエンドのイベントを常にdrainする専用task。ここでは要求をawaitしない。
     pub fn start_event_pump(self: &Arc<Self>) {
         self.start_queue_driver();
+        self.start_manage_watch();
         let Some(mut rx) = self.backend.take_events() else { return };
         let host = self.clone();
         tokio::spawn(async move {
@@ -582,6 +588,7 @@ impl Host {
 
     /// 送信を止める条件（停止未確認・受理不明・外部実行の可能性）。
     fn check_sendable(&self, chat: &ChatKey) -> Result<(), IpcError> {
+        self.check_not_delete_pending(chat)?;
         if let Some(rec) = self.read(|d| d.open_stop(chat).map(|r| r.id.clone())) {
             return Err(blocked(BlockedReason::StopUnconfirmed { record: rec }, "停止を確認できるまで、このチャットへの新しい送信は止めています"));
         }
@@ -815,12 +822,21 @@ impl Host {
 
     // ── 管理・設定 ──
 
-    pub async fn manage_chat(&self, args: ManageChatArgs, confirmed: &UserConfirmed) -> Result<ManageOutcome, IpcError> {
-        if args.op == ManageOp::Delete {
-            if let Some(rec) = self.read(|d| d.open_stop(&args.chat).map(|r| r.id.clone())) {
-                return Err(blocked(BlockedReason::StopUnconfirmed { record: rec }, "停止を確認できるまで削除しません"));
+    pub async fn manage_chat(self: &Arc<Self>, args: ManageChatArgs, confirmed: UserConfirmed) -> Result<ManageOutcome, IpcError> {
+        // アーカイブ・解除・削除は `manage.rs` の経路（作業終了後の反映・停止確認・部分失敗の扱い）に任せる。
+        match &args.op {
+            ManageOp::Archive => return self.archive_chat(ChatArgs { chat: args.chat }, confirmed).await.map(|_| ManageOutcome::Done),
+            ManageOp::Unarchive => return self.unarchive_chat(ChatArgs { chat: args.chat }, &confirmed).await.map(|_| ManageOutcome::Done),
+            ManageOp::Delete => {
+                return match self.delete_chat(ChatArgs { chat: args.chat }, &confirmed).await? {
+                    DeleteOutcome::Deleted => Ok(ManageOutcome::Done),
+                    DeleteOutcome::Partial { done, failed } => Ok(ManageOutcome::Partial { done, failed }),
+                    DeleteOutcome::Pending { .. } => Err(blocked(BlockedReason::DeletePending, "停止を確認できないため、削除を保留しました")),
+                };
             }
+            ManageOp::Rename { .. } => {}
         }
+        let confirmed = &confirmed;
         let out = self.backend.manage_chat(args.chat.clone(), args.op.clone(), confirmed).await?;
         if out == ManageOutcome::Done {
             self.mutate(|d| match &args.op {
