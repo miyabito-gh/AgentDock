@@ -8,7 +8,7 @@ use tauri::State;
 use crate::backend::backend::{ManageOutcome, Page, ResumeOutcome, RespondOutcome, UserConfirmed, ChatSummary, AgentHistory};
 use crate::backend::ipc::*;
 use crate::backend::local::{
-    AcknowledgeFailureArgs, AppSettings, ChatArgs, ChatLocalView, ChatQueue, EditQueueEntryArgs, EnqueueArgs, QueueEntry, QueueEntryArgs, ReconcileSendArgs, RetrySaveArgs,
+    AcknowledgeFailureArgs, AddAttachmentFileArgs, AppSettings, AttachmentArgs, AttachmentEntry, OpenFileArgs, SaveFileAsArgs, ChatArgs, ChatLocalView, ChatQueue, EditQueueEntryArgs, EnqueueArgs, QueueEntry, QueueEntryArgs, ReconcileSendArgs, RetrySaveArgs,
     SaveStatus, SetAppSettingsArgs, SetChatCwdArgs, SetChatPermissionArgs, SetDraftArgs, SetSelectedChatArgs, SettingsImpact,
 };
 use crate::backend::model::*;
@@ -174,6 +174,55 @@ pub async fn acknowledge_failure(host: Hs<'_>, args: AcknowledgeFailureArgs) -> 
 pub async fn set_selected_chat(host: Hs<'_>, args: SetSelectedChatArgs) -> R<()> {
     host.set_selected_chat(args.chat);
     Ok(())
+}
+
+/// ファイル選択・ドロップで得たパスを添付する（チャット領域へコピーする。元ファイルは変更しない）。
+#[tauri::command]
+pub async fn add_attachment_file(host: Hs<'_>, args: AddAttachmentFileArgs) -> R<AttachmentEntry> {
+    host.inner().clone().add_attachment_file(args).await
+}
+
+/// クリップボード画像。本文は生バイト（PNG）、チャットと名前はヘッダー（`x-chat-backend`・`x-chat-id`・`x-file-name`）で受ける。
+#[tauri::command]
+pub async fn add_attachment_image_bytes(host: Hs<'_>, request: tauri::ipc::Request<'_>) -> R<AttachmentEntry> {
+    let bad = |m: &str| IpcError { code: IpcErrorCode::InvalidArgs, message: m.to_string(), blocked: None };
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else { return Err(bad("画像のデータを受け取れませんでした")) };
+    let header = |name: &str| request.headers().get(name).and_then(|v| v.to_str().ok()).map(str::to_string);
+    let backend: BackendKind = header("x-chat-backend")
+        .and_then(|b| serde_json::from_value(serde_json::Value::String(b)).ok())
+        .ok_or_else(|| bad("チャットの種別を指定してください"))?;
+    let id = header("x-chat-id").filter(|i| !i.is_empty()).ok_or_else(|| bad("チャットを指定してください"))?;
+    let name = header("x-file-name").filter(|n| !n.is_empty()).unwrap_or_else(|| "clipboard.png".to_string());
+    host.inner().clone().add_attachment_image_bytes(ChatKey { backend, id: ExternalId(id) }, name, bytes.clone()).await
+}
+
+/// 送信前の添付を取り外す（使っていないコピーだけ消す）。
+#[tauri::command]
+pub async fn remove_attachment(host: Hs<'_>, args: AttachmentArgs) -> R<()> {
+    host.inner().clone().remove_attachment(args).await
+}
+
+/// 関連アプリで開く（ユーザー操作のときだけ。生成完了では呼ばない）。実在を確認し、なければ欠損にして止める。
+#[tauri::command]
+pub async fn open_file(app: tauri::AppHandle, host: Hs<'_>, args: OpenFileArgs) -> R<()> {
+    use tauri_plugin_opener::OpenerExt;
+    let path = host.inner().clone().resolve_file(&args.target).await?;
+    app.opener()
+        .open_path(path.to_string_lossy(), None::<&str>)
+        .map_err(|e| IpcError { code: IpcErrorCode::Io, message: format!("開けませんでした: {e}"), blocked: None })
+}
+
+/// 名前を付けて保存。同名があれば `TargetExists` で止まる（UIで確認したら `overwriteConfirmed` で再実行）。
+#[tauri::command]
+pub async fn save_file_as(host: Hs<'_>, args: SaveFileAsArgs) -> R<()> {
+    host.inner().clone().save_file_as(args).await
+}
+
+/// 画像のアプリ内プレビュー用バイト列（画像だけ。大きいものは返さない）。
+#[tauri::command]
+pub async fn read_file_preview(host: Hs<'_>, args: OpenFileArgs) -> R<tauri::ipc::Response> {
+    let bytes = host.inner().clone().read_image_preview(&args.target).await?;
+    Ok(tauri::ipc::Response::new(bytes))
 }
 
 /// 診断ログのフォルダをエクスプローラーで開く（ユーザー操作）。戻り値はログファイルの場所。

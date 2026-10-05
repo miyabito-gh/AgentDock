@@ -18,6 +18,10 @@ use store::Store;
 
 pub fn run() {
     let app = tauri::Builder::default()
+        // 添付：ファイル選択・保存先の指定（dialog）、関連アプリで開く（opener、Rust側から明示操作でだけ）、選択範囲の貼り付け（clipboard）。
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .on_window_event(|window, event| {
             // 通常画面のフォーカス（通知の抑制判定用）。監視窓は含めない。
             if let tauri::WindowEvent::Focused(focused) = event {
@@ -105,6 +109,12 @@ pub fn run() {
             commands::set_chat_cwd,
             commands::acknowledge_failure,
             commands::set_selected_chat,
+            commands::add_attachment_file,
+            commands::add_attachment_image_bytes,
+            commands::remove_attachment,
+            commands::open_file,
+            commands::save_file_as,
+            commands::read_file_preview,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

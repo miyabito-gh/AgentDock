@@ -67,7 +67,7 @@ pub fn codex_capabilities(experimental: bool) -> Capabilities {
         archive: Support::Supported,
         delete: Support::Supported,
         external_history: Support::Supported,
-        attachment_kinds: vec![AttachmentKind::Image, AttachmentKind::Audio],
+        attachment_kinds: vec![AttachmentKind::Image, AttachmentKind::Audio, AttachmentKind::File],
         // thread/backgroundTerminals/* はexperimental。
         managed_exec_control: exp,
     }
@@ -96,16 +96,24 @@ fn unknown_capabilities() -> Capabilities {
 
 // ───────────────────────────── 要求パラメータの組立て（純粋） ─────────────────────────────
 
-/// 添付 → `UserInput`。未対応の種別は送らず `Unsupported`（部分的に送らない）。
+/// 添付 → `UserInput`。画像は `localImage`、その他のファイルはコピー先のパスを本文の後ろの `text` 入力に列挙する
+/// （`mention` は使わない。モデルがファイルの中身を読めるかは未確認、V09）。
 pub fn build_turn_input(text: &str, attachments: &[Attachment]) -> BackendResult<Vec<Value>> {
     let mut input = vec![json!({"type": "text", "text": text, "text_elements": []})];
+    let mut files: Vec<String> = Vec::new();
     for a in attachments {
         let path = a.copy_path.clone().unwrap_or_else(|| a.original_path.clone());
         match a.kind {
             AttachmentKind::Image => input.push(json!({"type": "localImage", "path": path})),
             AttachmentKind::Audio => input.push(json!({"type": "localAudio", "path": path})),
-            AttachmentKind::File => return Err(BackendError::Unsupported { capability: "file attachment".into() }),
+            AttachmentKind::File => {
+                let name = std::path::Path::new(&path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.clone());
+                files.push(format!("- {name} — {path}"));
+            }
         }
+    }
+    if !files.is_empty() {
+        input.push(json!({"type": "text", "text": format!("添付ファイル:\n{}", files.join("\n")), "text_elements": []}));
     }
     Ok(input)
 }
@@ -828,11 +836,16 @@ mod tests {
     }
 
     #[test]
-    fn attachments_map_and_unsupported_kinds_block_the_whole_send() {
+    fn attachments_map_images_to_local_image_and_files_to_text() {
         let i = build_turn_input("x", &[att(AttachmentKind::Image), att(AttachmentKind::Audio)]).unwrap();
         assert_eq!(i[1], json!({"type": "localImage", "path": "C:/copy.png"}));
         assert_eq!(i[2]["type"], "localAudio");
-        assert!(matches!(build_turn_input("x", &[att(AttachmentKind::Image), att(AttachmentKind::File)]), Err(BackendError::Unsupported { .. })));
+        let f = build_turn_input("x", &[att(AttachmentKind::Image), att(AttachmentKind::File), att(AttachmentKind::File)]).unwrap();
+        assert_eq!(f.len(), 3, "files are listed in one text input after the images");
+        assert_eq!(f[2], json!({"type": "text", "text": "添付ファイル:\n- copy.png — C:/copy.png\n- copy.png — C:/copy.png", "text_elements": []}));
+        assert!(f.iter().all(|v| v["type"] != "mention"));
+        // 添付がなければ本文だけ。
+        assert_eq!(build_turn_input("x", &[]).unwrap().len(), 1);
     }
 
     #[test]

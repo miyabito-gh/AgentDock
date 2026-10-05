@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Chat, HostEvent, HostEventEnvelope, HostSnapshot, ModelInfo, MonitorScope, PendingRequest, PermissionPreset, RequestAnswer, SendAttempt, SettingsImpact, SourceInfo } from "./ipc/types";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
+import { readText } from "@tauri-apps/plugin-clipboard-manager";
+import type { AttachmentEntry, Chat, ChatKey, HostEvent, HostEventEnvelope, HostSnapshot, ModelInfo, MonitorScope, PendingRequest, PermissionPreset, RequestAnswer, SendAttempt, SettingsImpact, SourceInfo } from "./ipc/types";
 import * as host from "./ipc/client";
 import { applyHostEvent, emptyBundle, replaceSnapshot, seqAction, UNKNOWN_CAPS } from "./ipc/live";
 import type { Bundle } from "./mock/data";
@@ -11,7 +14,8 @@ const loadMock = async () => {
 };
 import { GlobalBanner, MenuBar, SaveBanner, TitleBar } from "./ui/Chrome";
 import { LeftPane } from "./ui/LeftPane";
-import { CenterPane, EmptyCenter, type CwdResult, type SendNotice } from "./ui/CenterPane";
+import { CenterPane, EmptyCenter, type CwdResult, type FileActions, type SendNotice } from "./ui/CenterPane";
+import { fenceCode, insertBlock } from "./ui/attach";
 import { DockPane, MiniWindow } from "./ui/Dock";
 import { Dialogs, type DialogState, type NewChatInput } from "./ui/Dialogs";
 import { isRunning } from "./ui/derive";
@@ -81,9 +85,12 @@ export default function App() {
   const [attempts, setAttempts] = useState<Record<string, SendAttempt>>({});
   const [warnHidden, setWarnHidden] = useState(false);
   const [steerOf, setSteerOf] = useState<Record<string, { attemptId: string; text: string }>>({});
+  const [dragging, setDragging] = useState(false);
   const toastTimer = useRef<number | undefined>(undefined);
   const selRef = useRef<string | null>(null);
   selRef.current = selId;
+  const composerRef = useRef<HTMLTextAreaElement>(null);
+  const dropRef = useRef<(paths: string[]) => void>(() => undefined);
   const live = mode === "live";
 
   const narrow = () => window.matchMedia("(max-width:900px)").matches;
@@ -222,6 +229,11 @@ export default function App() {
   const forChat = (s: (typeof failedSaves)[number]) => !!chat && "chat" in s.scope && s.scope.chat.id === chat.key.id;
   const chatSave = failedSaves.find(forChat)?.state ?? bundle.save;
   const localDraft = chat ? snap.chatLocals.find((l) => l.chat.id === chat.key.id)?.draft.text : undefined;
+  const curDraft = chat ? (drafts[chat.key.id] ?? localDraft ?? chat.draft ?? "") : "";
+  // 送信前の添付。実接続ではホストの下書き（draft.attachments）の順。モックは仮データの添付をすべて出す。
+  const draftAttachments: AttachmentEntry[] = !chat ? [] : live
+    ? (snap.chatLocals.find((l) => l.chat.id === chat.key.id)?.draft.attachments ?? []).flatMap((id) => snap.attachments.find((a) => a.id === id) ?? [])
+    : snap.attachments.filter((a) => a.chat.id === chat.key.id);
   const v = src?.version;
   // 現在の接続先を示す。実接続では接続中のCodexの版を出す（版が取れなければ、そう表示する）。
   const modeTag = !live ? "モック（仮データ）"
@@ -299,16 +311,16 @@ export default function App() {
     } catch (e) { sayErr("回答を送れませんでした", e); }
   };
 
-  const onSend = async (text: string, steer: boolean): Promise<boolean> => {
+  const onSend = async (text: string, steer: boolean, attachments: string[]): Promise<boolean> => {
     if (!chat) return false;
     if (!live) { void loadMock().then((m) => m.client.sendMessage(chat.key, text, steer ? "steer" : "newTurn")); say("送信を依頼しました（モック）。"); return true; }
     const running = isRunning(snap, chat);
     if (running && !steer) {
       // 完了後に送る依頼として登録する（送信はホストが条件を判断して1件ずつ行う）。
-      try { await host.enqueue(chat.key, text); say("完了後に送る依頼として登録しました。"); return true; } catch (e) { sayErr("依頼を登録できませんでした", e); return false; }
+      try { await host.enqueue(chat.key, text, attachments); say("完了後に送る依頼として登録しました。"); return true; } catch (e) { sayErr("依頼を登録できませんでした", e); return false; }
     }
     try {
-      const a = await host.sendMessage(chat.key, text, running ? "steer" : "newTurn");
+      const a = await host.sendMessage(chat.key, text, running ? "steer" : "newTurn", attachments);
       noteAttempt(chat.key.id, a);
       if (running) {
         setSteerOf((m) => ({ ...m, [chat.key.id]: { attemptId: a.attemptId, text } }));
@@ -321,7 +333,9 @@ export default function App() {
   const qact = {
     edit: async (id: string, text: string): Promise<boolean> => {
       if (!chat || !live) return false;
-      try { await host.editQueueEntry(chat.key, id, text); return true; } catch (e) { sayErr("依頼を編集できませんでした", e); return false; }
+      // 添付は今のまま（編集で外れないよう、登録済みの添付を渡す）。
+      const kept = snap.queues.find((q) => q.chat.id === chat.key.id)?.entries.find((x) => x.id === id)?.attachments ?? [];
+      try { await host.editQueueEntry(chat.key, id, text, kept); return true; } catch (e) { sayErr("依頼を編集できませんでした", e); return false; }
     },
     cancel: (id: string) => { if (chat && live) host.cancelQueueEntry(chat.key, id).catch((e) => sayErr("依頼を取り消せませんでした", e)); },
     resume: () => {
@@ -410,6 +424,87 @@ export default function App() {
     void boot(p || null);
   };
 
+  // ── 添付・成果物（§3.8）。コピー・実在確認・上書き判定はホスト。ここは操作の入口と結果の案内だけ。 ──
+  const addFiles = async (c: ChatKey, paths: string[]) => {
+    for (const path of paths) {
+      try {
+        const e = await host.addAttachmentFile(c, path);
+        if (e.state.kind === "copyFailed") say(`コピーできませんでした（${e.displayName}）: ${e.state.message}`);
+      } catch (er) { sayErr("添付できませんでした", er); }
+    }
+  };
+  dropRef.current = (paths) => {
+    if (!chat) { say("チャットを選んでからドロップしてください。"); return; }
+    void addFiles(chat.key, paths);
+  };
+  // ファイルのドロップ（Tauriのドラッグ＆ドロップ。パスを受け取り、ホストがチャット領域へコピーする）。
+  useEffect(() => {
+    if (!live) return;
+    let alive = true;
+    let un: (() => void) | null = null;
+    getCurrentWebview().onDragDropEvent((ev) => {
+      const p = ev.payload;
+      if (p.type === "enter" || p.type === "over") setDragging(true);
+      else if (p.type === "leave") setDragging(false);
+      else { setDragging(false); dropRef.current(p.paths); }
+    }).then((u) => { if (alive) un = u; else u(); }).catch(() => { /* ドロップが使えなくても、選択・貼り付けで添付できる */ });
+    return () => { alive = false; un?.(); };
+  }, [live]);
+
+  const pickFiles = async () => {
+    setDialog(null);
+    if (!live || !chat) { say("この操作はモックでは動きません。"); return; }
+    try {
+      const r = await openDialog({ multiple: true, directory: false, title: "添付するファイルを選ぶ" });
+      if (r) await addFiles(chat.key, Array.isArray(r) ? r : [r]);
+    } catch (e) { sayErr("ファイルを選べませんでした", e); }
+  };
+
+  /** クリップボードの文章を、コード枠付きで入力欄のカーソル位置へ入れる（ホストは関与しない）。 */
+  const pasteSelection = async () => {
+    setDialog(null);
+    if (!chat) return;
+    let text: string | null = null;
+    try { text = await readText(); } catch { text = null; }
+    if (!text) { say("クリップボードに文章がありません。"); return; }
+    const pos = composerRef.current?.selectionStart ?? curDraft.length;
+    const r = insertBlock(curDraft, pos, fenceCode(text));
+    onDraft(chat, r.text);
+    window.requestAnimationFrame(() => { const el = composerRef.current; if (el) { el.focus(); el.setSelectionRange(r.cursor, r.cursor); } });
+  };
+
+  const files: FileActions = {
+    open: (t) => {
+      if (!live) { say("この操作はモックでは動きません。"); return; }
+      host.openFile(t).catch((e) => sayErr("開けませんでした", e));
+    },
+    save: (t, name) => {
+      if (!live) { say("この操作はモックでは動きません。"); return; }
+      void (async () => {
+        const dest = await saveDialog({ title: "名前を付けて保存", defaultPath: name }).catch(() => null);
+        if (!dest) return;
+        try { await host.saveFileAs(t, dest, false); say("保存しました。"); return; } catch (e) {
+          const er = host.asIpcError(e);
+          if (er.blocked?.kind !== "targetExists") { sayErr("保存できませんでした", e); return; }
+        }
+        // 同名のファイルがある。確認のうえでだけ上書きする。
+        if (!window.confirm(`同じ名前のファイルがあります。上書きしますか？\n${dest}`)) { say("保存をやめました（既存のファイルは変更していません）。"); return; }
+        try { await host.saveFileAs(t, dest, true); say("保存しました。"); } catch (e) { sayErr("保存できませんでした", e); }
+      })();
+    },
+    preview: (t) => (live ? host.readFilePreview(t) : Promise.reject(new Error("モックではプレビューしません"))),
+    remove: (id) => {
+      if (!chat || !live) return;
+      host.removeAttachment(chat.key, id).catch((e) => sayErr("取り外せませんでした", e));
+    },
+    pasteImage: (name, bytes) => {
+      if (!chat || !live) { say("この操作はモックでは動きません。"); return; }
+      host.addAttachmentImageBytes(chat.key, name, bytes)
+        .then((e) => { if (e.state.kind === "copyFailed") say(`コピーできませんでした（${e.displayName}）: ${e.state.message}`); })
+        .catch((e) => sayErr("画像を添付できませんでした", e));
+    },
+  };
+
   const act = (a: string) => {
     if (a.startsWith("unv:")) { setDialog({ type: "unv", why: a.slice(4) }); return; }
     if (a.startsWith("settings:")) { setDialog({ type: "settings", tab: a.split(":")[1] }); return; }
@@ -420,6 +515,8 @@ export default function App() {
       case "quit": setDialog({ type: "quit" }); break;
       case "force": setDialog({ type: "force" }); break;
       case "attach": setDialog({ type: "attach" }); break;
+      case "attachPick": void pickFiles(); break;
+      case "attachPasteSelection": void pasteSelection(); break;
       case "interrupt": void interrupt(); break;
       case "modeMenu": setMockOpen((o) => !o); break;
       case "resumeExternal": if (chat) setDialog({ type: "resumeExternal", chatId: chat.key.id }); break;
@@ -480,13 +577,13 @@ export default function App() {
             {chat ? (
               <CenterPane
                 snap={snap} chat={chat} turns={bundle.turns[chat.key.id] ?? []}
-                attachments={bundle.attachments.filter((f) => keyStr(f.ownerChat) === keyStr(chat.key))}
+                attachments={draftAttachments} files={files} inputRef={composerRef}
                 settings={bundle.modelSettings[chat.key.id]} models={models} save={chatSave}
                 externalLabel={bundle.externalLabel[chat.key.id]} enterMode={enterMode}
-                draft={drafts[chat.key.id] ?? localDraft ?? chat.draft ?? ""} setDraft={(v) => onDraft(chat, v)}
+                draft={curDraft} setDraft={(v) => onDraft(chat, v)}
                 onAct={act} onRespond={(r, a) => void onRespond(r, a)}
                 onSend={onSend} onModel={onModel}
-                notice={live ? noticeOf(attempts[chat.key.id], steerOf[chat.key.id] ? { attemptId: steerOf[chat.key.id].attemptId, queueInstead: () => { void onSend(steerOf[chat.key.id].text, false); } } : null) : null} onRetrySend={() => void onRetrySend()}
+                notice={live ? noticeOf(attempts[chat.key.id], steerOf[chat.key.id] ? { attemptId: steerOf[chat.key.id].attemptId, queueInstead: () => { void onSend(steerOf[chat.key.id].text, false, []); } } : null) : null} onRetrySend={() => void onRetrySend()}
                 queue={snap.queues.find((q) => q.chat.id === chat.key.id)} local={snap.chatLocals.find((l) => l.chat.id === chat.key.id)}
                 qact={qact} onPermission={onPermission} onCwd={onCwd}
               />
@@ -505,6 +602,7 @@ export default function App() {
           onCreateChat={(i) => void createChat(i)}
           setTab={(t) => setDialog({ type: "settings", tab: t })} onAct={act} />
       ) : null}
+      {dragging ? <div className="dropzone" role="status">ここにドロップすると、このチャット用にコピーして添付します（元のファイルは変更しません。フォルダは添付できません）</div> : null}
       {toast ? <div className="toast" role="status">{toast}</div> : null}
       <div className="mockctl">
         {mockOpen ? (

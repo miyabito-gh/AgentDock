@@ -1,1 +1,1 @@
-{"default":{"identifier":"default","description":"メインウィンドウの基本権限（イベント購読など）","local":true,"windows":["main"],"permissions":["core:default"]}}
+{"attachments":{"identifier":"attachments","description":"添付・成果物の操作（ファイル選択・保存先の指定・選択範囲の貼り付け）","local":true,"windows":["main"],"permissions":["dialog:allow-open","dialog:allow-save","clipboard-manager:allow-read-text"]},"default":{"identifier":"default","description":"メインウィンドウの基本権限（イベント購読など）","local":true,"windows":["main"],"permissions":["core:default"]}}

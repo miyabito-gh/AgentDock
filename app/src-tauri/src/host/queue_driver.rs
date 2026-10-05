@@ -141,6 +141,7 @@ fn gate_input(
 /// 送信時点で有効なチャットの設定。
 struct Plan {
     text: String,
+    attachments: Vec<LocalId>,
     model: Option<ModelChoice>,
     permission: Option<PermissionPreset>,
     cwd: Option<String>,
@@ -345,11 +346,11 @@ impl Host {
             };
             let applied = AppliedSettings { model: model.clone(), permission: permission.unwrap_or(PermissionPreset::WorkspaceWriteOnRequest), cwd: cwd_known, decided_at: now };
             let Some(f) = d.queues.get_mut(chat) else { return (None, vec![]) };
-            let Some(text) = f.queue.entries.iter().find(|e| &e.id == entry).map(|e| e.text.clone()) else { return (None, vec![]) };
+            let Some((text, attachments)) = f.queue.entries.iter().find(|e| &e.id == entry).map(|e| (e.text.clone(), e.attachments.clone())) else { return (None, vec![]) };
             if !q::begin_send(&mut f.queue, entry, attempt, applied) {
                 return (None, vec![]);
             }
-            (Some(Plan { text, model, permission, cwd: cwd_override }), vec![queue_event(f)])
+            (Some(Plan { text, attachments, model, permission, cwd: cwd_override }), vec![queue_event(f)])
         })
     }
 
@@ -357,11 +358,27 @@ impl Host {
     async fn send_queue_entry(self: &Arc<Self>, chat: &ChatKey, entry: LocalId) {
         let attempt = SendAttempt { attempt_id: self.local_id("att"), client_message_id: self.local_id("cm").0, at: now_ms(), state: SendState::Sending };
         let Some(plan) = self.begin_entry_send(chat, &entry, attempt.clone()) else { return };
+        let attachments = match self.prepare_attachments(chat, &plan.attachments).await {
+            Ok(a) => a,
+            Err(e) => {
+                // 使えない添付（欠損・失敗など）がある。送っていないので送信待ちに戻し、キューを止める（再開はユーザー操作）。
+                let now = now_ms();
+                self.mutate(|d| {
+                    let Some(f) = d.queues.get_mut(chat) else { return ((), vec![]) };
+                    q::abort_send(&mut f.queue, &entry);
+                    q::stop(&mut f.queue, QueueStopCause::SendRejected { entry: entry.clone() }, now);
+                    ((), vec![queue_event(f)])
+                });
+                self.schedule_save(SaveScope::Queue { chat: chat.clone() }, Duration::ZERO);
+                self.warn(format!("送信待ちの依頼の添付を使えないため、依頼を送っていません。キューを止めました: {}", e.message));
+                return;
+            }
+        };
         let request = SendRequest {
             chat: chat.clone(),
             mode: SendMode::NewTurn,
             text: plan.text,
-            attachments: Vec::new(),
+            attachments,
             model: plan.model,
             permission: plan.permission,
             cwd: plan.cwd,
@@ -642,20 +659,22 @@ impl Host {
         if args.text.trim().is_empty() {
             return Err(err(IpcErrorCode::InvalidArgs, "依頼が空です"));
         }
-        if !args.attachments.is_empty() {
-            return Err(err(IpcErrorCode::Unsupported, "添付の送信は段階②で対応します"));
-        }
         if self.read(|d| d.chat(&args.chat).is_none()) {
             return Err(err(IpcErrorCode::NotFound, "チャットが見つかりません"));
         }
         self.precheck_space()?;
+        // 登録の時点で使えない添付（コピー中・失敗・欠損）は受け付けない（送信時にも確認する）。
+        self.verify_attachments(&args.chat, &args.attachments)?;
         let id = self.local_id("q");
         let now = now_ms();
+        let used = args.attachments.clone();
+        let chat = args.chat.clone();
         let entry = self.mutate(|d| {
             let f = d.queues.entry(args.chat.clone()).or_insert_with(|| new_file(&args.chat));
             let e = q::enqueue(&mut f.queue, id, args.text, args.attachments, now);
             (e, vec![queue_event(f)])
         });
+        self.attachments_used(&chat, &used, &entry.id);
         self.schedule_save(SaveScope::Queue { chat: args.chat }, Duration::ZERO);
         self.kick_queue();
         Ok(entry)
@@ -665,10 +684,9 @@ impl Host {
         if args.text.trim().is_empty() {
             return Err(err(IpcErrorCode::InvalidArgs, "依頼が空です"));
         }
-        if !args.attachments.is_empty() {
-            return Err(err(IpcErrorCode::Unsupported, "添付の送信は段階②で対応します"));
-        }
         self.precheck_space()?;
+        self.verify_attachments(&args.chat, &args.attachments)?;
+        let used = args.attachments.clone();
         let r = self.mutate(|d| {
             let Some(f) = d.queues.get_mut(&args.chat) else { return (Err(q::EditError::NotFound), vec![]) };
             match q::edit(&mut f.queue, &args.entry, args.text, args.attachments) {
@@ -677,6 +695,7 @@ impl Host {
             }
         });
         let entry = r.map_err(Self::editable)?.ok_or_else(|| err(IpcErrorCode::NotFound, "依頼が見つかりません"))?;
+        self.attachments_used(&args.chat, &used, &entry.id);
         self.schedule_save(SaveScope::Queue { chat: args.chat }, Duration::ZERO);
         Ok(entry)
     }

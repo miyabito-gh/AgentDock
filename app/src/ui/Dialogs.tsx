@@ -130,9 +130,9 @@ export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnter
     case "attach": return (
       <Shell title="追加" onClose={onClose}>
         <div className="content" style={{ display: "grid", gap: 6 }}>
-          <button className="btn-line" onClick={() => onAct("stub")}><Icon name="clip" />ファイルを選ぶ（このチャット用にコピーします）</button>
-          <button className="btn-line" onClick={() => onAct("stub")}><Icon name="chat" />過去の会話を参考に指定</button>
-          <p className="small muted">フォルダは作業フォルダの指定として扱い、中身をコピーしません。</p>
+          <button className="btn-line" onClick={() => onAct("attachPick")}><Icon name="clip" />ファイルを選ぶ（このチャット用にコピーします）</button>
+          <button className="btn-line" onClick={() => onAct("attachPasteSelection")}><Icon name="copy" />選択範囲を貼り付け（クリップボードの文章をコード枠で入力欄へ）</button>
+          <p className="small muted">ドラッグ＆ドロップや、画像の貼り付け（Ctrl＋V）でも添付できます。元のファイルは変更しません。フォルダは作業フォルダの指定として扱い、中身をコピーしません。</p>
         </div>
       </Shell>);
   }

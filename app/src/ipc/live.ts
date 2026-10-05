@@ -15,11 +15,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
 
 const emptySnapshot = (): HostSnapshot => ({
   seq: 0, sources: [], chats: [], agents: [], requests: [], stops: [], queues: [], monitorScope: { kind: "selectedChat", chat: null },
-  chatLocals: [], saveStatus: [], settings: DEFAULT_SETTINGS, modelSettings: [], startupWarnings: [],
+  chatLocals: [], saveStatus: [], settings: DEFAULT_SETTINGS, modelSettings: [], startupWarnings: [], attachments: [], artifacts: [],
 });
 
 export const emptyBundle = (): Bundle => ({
-  snapshot: emptySnapshot(), turns: {}, attachments: [], modelSettings: {}, save: null, externalLabel: {},
+  snapshot: emptySnapshot(), turns: {}, modelSettings: {}, save: null, externalLabel: {},
 });
 
 /** 接続前の能力（すべて不明。非対応とは断定しない）。 */
@@ -132,6 +132,10 @@ export function applyHostEvent(b: Bundle, e: HostEvent): Bundle {
       return set({ chatLocals: upsert(s.chatLocals, e.local, (l) => l.chat.id === e.local.chat.id) });
     case "saveStatusUpdated":
       return set({ saveStatus: upsert(s.saveStatus, e.status, (x) => sameScope(x.scope, e.status.scope)) });
+    case "attachmentUpdated":
+      return set({ attachments: upsert(s.attachments, e.entry, (a) => a.id === e.entry.id) });
+    case "artifactUpdated":
+      return set({ artifacts: upsert(s.artifacts, e.entry, (a) => a.id === e.entry.id) });
     case "settingsUpdated":
       return set({ settings: e.settings });
     case "sendUpdated":

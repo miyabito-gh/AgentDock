@@ -1,11 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import type {
-  AgentKey, Attachment, Chat, ChatLocalView, ChatModelSettings, ChatQueue, DecisionOption, HostSnapshot, ModelInfo, PendingRequest,
+  AgentKey, ArtifactEntry, AttachmentEntry, Chat, ChatLocalView, ChatModelSettings, ChatQueue, DecisionOption, FileRef, HostSnapshot, ModelInfo, PendingRequest,
   PermissionPreset, QueueEntry, RequestAnswer, ActivityKind, SaveState, StopRecord, TurnRecord,
 } from "../ipc/types";
 import { Icon } from "./Icon";
 import { TENTATIVE_HINT, TENTATIVE_STYLE, chatAgents, chatName, chatRequests, chatTitle, chatStatusText, chatStops, isRunning, rootView, stopOpen } from "./derive";
 import { FRESH, STOP_LABEL, hms, holdText, keyStr, knownValue, showKnown, stopCauseText } from "./format";
+import { baseName, clipboardImageName, mimeOf } from "./attach";
 
 const SCOPE_TEXT = { once: "1回だけ", session: "このセッション中", persistent: "以後ずっと（永続）", unknown: "効力範囲は不明" } as const;
 
@@ -13,7 +14,12 @@ export interface CenterProps {
   snap: HostSnapshot;
   chat: Chat;
   turns: TurnRecord[];
-  attachments: Attachment[];
+  /** 送信前の添付（下書きに付いているもの）。 */
+  attachments: AttachmentEntry[];
+  /** 添付・成果物の操作（ホストが判断・保存する。UIは意図を伝えるだけ）。 */
+  files: FileActions;
+  /** 入力欄（選択範囲の貼り付けでカーソル位置を使う）。 */
+  inputRef: RefObject<HTMLTextAreaElement>;
   settings: ChatModelSettings | undefined;
   models: ModelInfo[];
   save: SaveState | null;
@@ -24,7 +30,7 @@ export interface CenterProps {
   onAct: (a: string) => void;
   onRespond: (r: PendingRequest, a: RequestAnswer) => void;
   /** 依頼を受け付けたら true（下書きを消す）。拒否・前提不足なら false（下書きを残す）。 */
-  onSend: (text: string, steer: boolean) => boolean | Promise<boolean>;
+  onSend: (text: string, steer: boolean, attachments: string[]) => boolean | Promise<boolean>;
   /** モデル・推論の強さの選択（次のターンから適用。受理済みは別に表示）。 */
   onModel: (model: string, effort: string) => void;
   /** 直近の送信の受理状態の案内（受理なし・受理不明・照合の結果）。 */
@@ -37,6 +43,19 @@ export interface CenterProps {
   qact: QueueActions;
   onPermission: (p: PermissionPreset) => void;
   onCwd: (cwd: string, confirmed: boolean) => Promise<CwdResult>;
+}
+
+export interface FileActions {
+  /** 関連アプリで開く（ユーザー操作のときだけ）。 */
+  open: (t: FileRef) => void;
+  /** 保存先を選んで保存する（同名は上書き確認）。 */
+  save: (t: FileRef, name: string) => void;
+  /** 画像のアプリ内プレビュー用のバイト列。 */
+  preview: (t: FileRef) => Promise<ArrayBuffer>;
+  /** 送信前の添付を取り外す。 */
+  remove: (id: string) => void;
+  /** クリップボード画像の貼り付け。 */
+  pasteImage: (name: string, bytes: ArrayBuffer) => void;
 }
 
 export interface SendNotice { cls: "warn" | "err"; title: string; body: string; canRetry: boolean; alt?: { label: string; run: () => void } }
@@ -175,6 +194,92 @@ function Banners({ p }: { p: CenterProps }) {
   );
 }
 
+/** 画像のアプリ内プレビュー（読み込めなければ印だけ。モデルが読めるかとは別）。クリックで拡大。 */
+function Thumb({ target, name, load }: { target: FileRef; name: string; load: FileActions["preview"] }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [big, setBig] = useState(false);
+  const loadRef = useRef(load);
+  loadRef.current = load;
+  const id = target.kind + ":" + target.id;
+  useEffect(() => {
+    let alive = true;
+    let made: string | null = null;
+    loadRef.current(target).then((buf) => {
+      if (!alive) return;
+      made = URL.createObjectURL(new Blob([buf], { type: mimeOf(name) }));
+      setUrl(made);
+    }).catch(() => { /* 読めないときはプレビューなし（開く・保存は使える） */ });
+    return () => { alive = false; if (made) URL.revokeObjectURL(made); };
+  }, [id, name]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!url) return <span className="thumb" title="画像（プレビューを読み込めていません）" />;
+  return (
+    <>
+      <button className="thumbbtn" aria-label={`${name}のプレビューを拡大`} onClick={() => setBig(true)}><img className="thumbimg" src={url} alt="" /></button>
+      {big ? (
+        <div className="lightbox" role="dialog" aria-modal="true" aria-label={`${name}のプレビュー`} onClick={() => setBig(false)}>
+          <img src={url} alt={name} />
+          <div className="small">{name}　（画面で表示できることと、モデルが内容を読めることは別です。クリックで閉じる）</div>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+/** 添付の状態の表示。コピーできていないもの・実体がないものは、使えると言わない。 */
+function attachmentStatus(a: AttachmentEntry): { text: string; bad: boolean } {
+  const s = a.state;
+  switch (s.kind) {
+    case "copying": return { text: "コピー中…", bad: false };
+    case "ready": return { text: `コピー済み　${hms(a.attachedAt)}`, bad: false };
+    case "copyFailed": return { text: `コピーできません（${s.message}）`, bad: true };
+    case "missing": return { text: "コピーが見つかりません（欠損）", bad: true };
+  }
+}
+
+const isImageName = (n: string): boolean => mimeOf(n).startsWith("image/");
+
+/** 会話内のファイル項目（送信した添付と、実在を確認した成果物）。開く・保存はユーザーの操作だけ。 */
+function FilesBlock({ sent, artifacts, files }: { sent: AttachmentEntry[]; artifacts: ArtifactEntry[]; files: FileActions }) {
+  if (!sent.length && !artifacts.length) return null;
+  return (
+    <div className="msg ai files">
+      <details open>
+        <summary><Icon name="clip" /><b>ファイル（添付 {sent.length}件・成果物 {artifacts.length}件）</b></summary>
+        <div className="small muted" style={{ margin: "2px 0 4px" }}>ファイルを表示できることと、モデルが内容を読めることは別です。外部アプリでは、「開く」を押したときだけ開きます。</div>
+        {sent.map((a) => {
+          const st = attachmentStatus(a);
+          const target: FileRef = { kind: "attachment", chat: a.chat, id: a.id };
+          return (
+            <div className="frow" key={a.id}>
+              {a.kind === "image" && a.state.kind === "ready" ? <Thumb target={target} name={a.displayName} load={files.preview} /> : <Icon name="clip" />}
+              <div className="grow"><b>{a.displayName}</b>　<span className="st">添付・{st.text}</span></div>
+              <button className="small" disabled={st.bad || a.state.kind !== "ready"} onClick={() => files.open(target)}>開く</button>
+              <button className="small" disabled={st.bad || a.state.kind !== "ready"} onClick={() => files.save(target, a.displayName)}>名前を付けて保存…</button>
+            </div>
+          );
+        })}
+        {artifacts.map((a) => {
+          const target: FileRef = { kind: "artifact", chat: a.chat, id: a.id };
+          const name = baseName(a.path);
+          const gone = a.exists.kind === "value" && !a.exists.value;
+          const unsure = a.exists.kind !== "value";
+          return (
+            <div className="frow" key={a.id}>
+              {isImageName(name) && !gone && !unsure ? <Thumb target={target} name={name} load={files.preview} /> : <Icon name="diff" />}
+              <div className="grow">
+                <b>{name}</b>　<span className={`st ${gone ? "bad" : ""}`}>成果物・{gone ? "見つかりません（欠損）。移動または削除された可能性があります" : unsure ? "実在を確認できていません" : `実在を確認済み${a.checkedAt !== null ? `（${hms(a.checkedAt)}）` : ""}`}</span>
+                <div className="mono small muted">{a.path}{a.inChatArea ? "" : "　（作業フォルダ側のファイル。チャットを削除しても消しません）"}</div>
+              </div>
+              <button className="small" disabled={gone} onClick={() => files.open(target)}>開く</button>
+              <button className="small" disabled={gone} onClick={() => files.save(target, name)}>名前を付けて保存…</button>
+            </div>
+          );
+        })}
+      </details>
+    </div>
+  );
+}
+
 const KIND_LABEL: Record<string, string> = {
   command: "コマンド", fileChange: "ファイル変更", toolCall: "ツール", webSearch: "Web検索", subAgent: "サブエージェント",
   reasoning: "推論", plan: "計画", agentMessage: "応答", userMessage: "依頼",
@@ -184,8 +289,8 @@ const kindLabel = (k: ActivityKind): string => (k.kind === "other" ? k.raw : KIN
 const entryText = (t: TurnRecord["entries"][number]): string => (t.text.kind === "value" ? t.text.value : "（内容の記載なし）");
 const NEAR_BOTTOM_PX = 120;
 
-function Messages({ turns, reqs, running, onRespond, onAct }: {
-  turns: TurnRecord[]; reqs: PendingRequest[]; running: boolean; onRespond: CenterProps["onRespond"]; onAct: (a: string) => void;
+function Messages({ turns, reqs, running, onRespond, onAct, extra }: {
+  turns: TurnRecord[]; reqs: PendingRequest[]; running: boolean; onRespond: CenterProps["onRespond"]; onAct: (a: string) => void; extra?: ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
@@ -232,6 +337,7 @@ function Messages({ turns, reqs, running, onRespond, onAct }: {
           </div>
         );
       })}
+      {extra}
       {reqs.map((r) => <RequestCard key={keyStr({ backend: r.key.backend, id: r.key.requestId })} r={r} onRespond={onRespond} />)}
       {running && reqs.length === 0 ? <div className="msg ai"><div className="who">Codex</div><div className="activity">作業中です。右のドックで各エージェントの状況を確認できます。</div></div> : null}
     </div>
@@ -289,6 +395,7 @@ function EntryRow({ n, e, qact }: { n: number; e: QueueEntry; qact: QueueActions
       <span className="qnum">{n}</span>
       <div>
         {editing ? <textarea aria-label="依頼を編集" value={text} onChange={(ev) => setText(ev.target.value)} style={{ width: "100%" }} /> : <div>{e.text}</div>}
+        {e.attachments.length ? <div className="small muted">添付 {e.attachments.length}件（このチャット用のコピーを送ります）</div> : null}
         {why ? <div className={`why ${s.kind === "waiting" ? "" : "err"}`}>{why}</div> : null}
       </div>
       <div style={{ display: "flex", gap: 2 }}>
@@ -362,9 +469,11 @@ function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock
   const accepted = settings?.accepted.kind === "value" ? settings.accepted.value : null;
   const changed = !!accepted && (accepted.model !== model || (accepted.effort ?? "") !== effort);
   const efforts = models.find((m) => m.id === model)?.efforts ?? [];
+  // コピー中・失敗・欠損の添付があるうちは送らない（ホストも同じ規則で止める。不完全なコピーは送れない）。
+  const attachBlock = attachments.some((a) => a.state.kind !== "ready") ? "コピー中・コピー失敗・欠損の添付があります。取り外すか、もう一度添付してから送信してください。" : null;
   const send = async () => {
-    if (!p.draft.trim() || lock) return;
-    const ok = await p.onSend(p.draft, running && steer);
+    if (!p.draft.trim() || lock || attachBlock) return;
+    const ok = await p.onSend(p.draft, running && steer, attachments.map((a) => a.id));
     if (ok) p.setDraft("");
   };
   const pickModel = (id: string) => {
@@ -378,21 +487,31 @@ function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock
         {attachments.length ? (
           <div className="chips">
             {attachments.map((f) => {
-              const name = f.originalPath.split("\\").pop();
-              const bad = f.exists.kind === "value" && !f.exists.value;
+              const st = attachmentStatus(f);
+              const target: FileRef = { kind: "attachment", chat: f.chat, id: f.id };
               return (
-                <span key={f.id} className={`chip ${bad ? "bad" : ""}`}>
-                  {f.kind === "image" ? <span className="thumb" title="画像プレビュー（例）" /> : <Icon name="clip" />}
-                  <span>{name}</span><span className="st">{bad ? "元ファイルが見つかりません" : "コピー済み"}　{hms(f.attachedAt)}</span>
-                  <button aria-label={`${name}を取り外す`} onClick={() => p.onAct("stub")}><Icon name="x" /></button>
+                <span key={f.id} className={`chip ${st.bad ? "bad" : ""}`}>
+                  {f.kind === "image" && f.state.kind === "ready" ? <Thumb target={target} name={f.displayName} load={p.files.preview} /> : <Icon name="clip" />}
+                  <span>{f.displayName}</span><span className="st">{st.text}</span>
+                  {f.state.kind === "ready" ? <button className="small" aria-label={`${f.displayName}を関連アプリで開く`} onClick={() => p.files.open(target)}>開く</button> : null}
+                  <button aria-label={`${f.displayName}を取り外す`} disabled={f.state.kind === "copying"} onClick={() => p.files.remove(f.id)}><Icon name="x" /></button>
                 </span>
               );
             })}
+            <div className="small muted" style={{ width: "100%" }}>送信前に確認・取り外せます。このチャット用にコピーした分を送ります（元のファイルは変更しません）。画像は表示できますが、モデルが内容を読めるかは未確認です。</div>
           </div>
         ) : null}
         {lock ? <div className="lockmsg">{lock}</div> : null}
-        <textarea aria-label="メッセージ" disabled={!!lock} value={p.draft} onChange={(e) => p.setDraft(e.target.value)}
+        {attachBlock ? <div className="lockmsg">{attachBlock}</div> : null}
+        <textarea aria-label="メッセージ" disabled={!!lock} value={p.draft} onChange={(e) => p.setDraft(e.target.value)} ref={p.inputRef}
           placeholder={running ? (steer ? "現在の作業への追加指示" : "完了後に送る次の依頼") : "メッセージを入力"}
+          onPaste={(e) => {
+            // クリップボードの画像は添付にする（生バイトでホストへ）。文章だけの貼り付けは通常どおり。
+            const img = Array.from(e.clipboardData.files).find((f) => f.type.startsWith("image/"));
+            if (!img) return;
+            e.preventDefault();
+            void img.arrayBuffer().then((buf) => p.files.pasteImage(clipboardImageName(new Date()), buf));
+          }}
           onKeyDown={(e) => {
             if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
             if ((p.enterMode === "ctrl" && e.ctrlKey) || (p.enterMode === "enter" && !e.shiftKey)) { e.preventDefault(); void send(); }
@@ -412,7 +531,7 @@ function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock
           </select>
           <span className="grow" />
           {running ? <button className="btn-line" aria-label="中断" title="実行中の作業に中断を要求します（停止の確認は別に行います）" onClick={() => p.onAct("interrupt")}><Icon name="stop" />中断</button> : null}
-          <button className="btn-main send" aria-label={running ? (steer ? "追加指示を送る" : "完了後に送る依頼として登録") : "送信"} disabled={!!lock} onClick={() => void send()}><Icon name="send" /></button>
+          <button className="btn-main send" aria-label={running ? (steer ? "追加指示を送る" : "完了後に送る依頼として登録") : "送信"} disabled={!!lock || !!attachBlock} onClick={() => void send()}><Icon name="send" /></button>
         </div>
       </div>
       <div className="hint">
@@ -444,7 +563,8 @@ export function CenterPane(p: CenterProps) {
       <Header snap={snap} chat={chat} onAct={p.onAct} running={running} local={p.local} onCwdToggle={() => setCwdOpen((o) => !o)} cwdLock={cwdLock} />
       {cwdOpen && !cwdLock ? <CwdPanel current={p.local?.nextCwd ?? knownValue(chat.cwd) ?? ""} onCwd={p.onCwd} onClose={() => setCwdOpen(false)} /> : null}
       <Banners p={p} />
-      <Messages key={chat.key.id} turns={p.turns} reqs={reqs} running={running} onRespond={p.onRespond} onAct={p.onAct} />
+      <Messages key={chat.key.id} turns={p.turns} reqs={reqs} running={running} onRespond={p.onRespond} onAct={p.onAct}
+        extra={<FilesBlock sent={snap.attachments.filter((a) => keyStr(a.chat) === keyStr(chat.key) && a.usedBy.length > 0)} artifacts={snap.artifacts.filter((a) => keyStr(a.chat) === keyStr(chat.key))} files={p.files} />} />
       <Queue q={snap.queues.find((q) => keyStr(q.chat) === keyStr(chat.key))} nameOf={nameOf} qact={p.qact} />
       <Composer key={`${chat.key.id}:${p.models.length}`} p={p} running={running} lock={lock} />
     </>

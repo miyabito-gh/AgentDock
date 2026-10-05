@@ -14,7 +14,7 @@ use super::backend::{
     ChatSummary, InterruptAck, ManageOp, ManageOutcome, Page, PermissionPreset, RespondOutcome, ResumeOutcome,
     AgentHistory,
 };
-use super::local::{AppSettings, ChatLocalView, ChatQueue, SaveScope, SaveStatus};
+use super::local::{AppSettings, ArtifactEntry, AttachmentEntry, ChatLocalView, ChatQueue, SaveScope, SaveStatus};
 use super::model::*;
 
 /// ホスト→UIのイベント名（Tauri `emit` のチャネル）。
@@ -51,6 +51,12 @@ pub mod command_names {
     pub const SET_CHAT_CWD: &str = "set_chat_cwd";
     pub const ACKNOWLEDGE_FAILURE: &str = "acknowledge_failure";
     pub const SET_SELECTED_CHAT: &str = "set_selected_chat";
+    pub const ADD_ATTACHMENT_FILE: &str = "add_attachment_file";
+    /// 本文は生バイト（`tauri::ipc::Request` の Raw body）。チャットIDと名前はヘッダーで渡す。
+    pub const ADD_ATTACHMENT_IMAGE_BYTES: &str = "add_attachment_image_bytes";
+    pub const REMOVE_ATTACHMENT: &str = "remove_attachment";
+    pub const OPEN_FILE: &str = "open_file";
+    pub const SAVE_FILE_AS: &str = "save_file_as";
 }
 
 // ───────────────────────────── エラー ─────────────────────────────
@@ -110,6 +116,14 @@ pub enum BlockedReason {
     QueueRetargetUnconfirmed { waiting: u32 },
     /// 送信待ち以外の項目は編集・取消できない（送信中・受理不明・送信済み）。
     QueueEntryNotEditable,
+    /// フォルダは作業フォルダの指定であり、添付としてコピーしない。
+    FolderIsWorkspace { path: String },
+    /// 保存先に同名のファイルがある。UIで上書きを確認したら `overwriteConfirmed` で再実行する。
+    TargetExists { path: String },
+    /// 送信に使えない添付（コピー中・失敗・欠損）がある。
+    AttachmentNotReady { attachment: LocalId },
+    /// 選択中のモデルが画像入力に対応していない（表示できることと、モデルが読めることは別）。
+    ModelLacksInput { input: AttachmentKind },
 }
 
 // ───────────────────────────── コマンド引数・戻り値 ─────────────────────────────
@@ -140,6 +154,10 @@ pub struct HostSnapshot {
     pub model_settings: Vec<ChatModelEntry>,
     /// 起動時に読めなかった保存ファイルなどの警告（イベントは購読前に出るので、スナップショットで渡す）。
     pub startup_warnings: Vec<String>,
+    /// 添付の台帳（再起動・renderer再読込み後の復元用）。実体の有無は `state` で示す。
+    pub attachments: Vec<AttachmentEntry>,
+    /// 実在を確認した成果物。
+    pub artifacts: Vec<ArtifactEntry>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -375,6 +393,10 @@ pub enum HostEvent {
     ChatLocalUpdated { local: ChatLocalView },
     SaveStatusUpdated { status: SaveStatus },
     SettingsUpdated { settings: AppSettings },
+    /// 添付の追加・コピーの進行・失敗・欠損の更新（1件分で置き換える）。
+    AttachmentUpdated { entry: AttachmentEntry },
+    /// 成果物の追加・実在確認の更新（1件分で置き換える）。
+    ArtifactUpdated { entry: ArtifactEntry },
     /// 通知を開いた操作（トレイ・通知クリック）。該当チャットを表示するだけで、回答・再実行はしない。
     NavigateToChat { chat: ChatKey },
     /// 未知イベント・版違い・取得不能項目の警告（M12）。

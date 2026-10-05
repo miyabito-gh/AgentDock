@@ -43,8 +43,11 @@ pub fn workspace_dir(chat_dir: &Path) -> PathBuf {
 
 /// 添付コピーの最終パスと、コピー途中のパス。
 pub fn attachment_paths(chat_dir: &Path, attachment: &LocalId, display_name: &str) -> (PathBuf, PathBuf) {
-    let _ = (chat_dir, attachment, display_name);
-    todo!("P4")
+    let dir = chat_dir.join(ATTACHMENTS_DIR).join(sanitize_file_name(&attachment.0));
+    let name = sanitize_file_name(display_name);
+    let final_path = dir.join(&name);
+    let partial = dir.join(format!("{name}{PARTIAL_SUFFIX}"));
+    (final_path, partial)
 }
 
 const RESERVED_NAMES: [&str; 22] = [
@@ -82,8 +85,8 @@ pub fn sanitize_file_name(name: &str) -> String {
 
 /// クリップボード画像の表示名（`clipboard-YYYYMMDD-HHMMSS.png`、ローカル時刻）。
 pub fn clipboard_image_name(at_local: (i32, u32, u32, u32, u32, u32)) -> String {
-    let _ = at_local;
-    todo!("P4")
+    let (y, mo, d, h, mi, sec) = at_local;
+    format!("clipboard-{y:04}{mo:02}{d:02}-{h:02}{mi:02}{sec:02}.png")
 }
 
 /// 退避名（読めないファイルを残すときの名前。`name.corrupt-<ms>`）。
@@ -143,6 +146,23 @@ pub fn chat_label(chat: &ChatKey) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn attachment_paths_are_per_attachment_and_safe() {
+        let base = Path::new(r"C:\data\chats\d1");
+        let (fin, part) = attachment_paths(base, &LocalId("att-1".into()), "a/b.txt");
+        assert_eq!(fin, base.join("attachments").join("att-1").join("a_b.txt"));
+        assert_eq!(part, base.join("attachments").join("att-1").join("a_b.txt.partial"));
+        let (other, _) = attachment_paths(base, &LocalId("att-2".into()), "a/b.txt");
+        assert_ne!(fin, other, "re-attaching the same file gets a separate copy");
+        let (esc, _) = attachment_paths(base, &LocalId("..\\x".into()), "f");
+        assert!(is_inside(base, &esc));
+    }
+
+    #[test]
+    fn clipboard_name_is_zero_padded() {
+        assert_eq!(clipboard_image_name((2026, 1, 2, 3, 4, 5)), "clipboard-20260102-030405.png");
+    }
 
     #[test]
     fn sanitize_replaces_forbidden_and_trims() {

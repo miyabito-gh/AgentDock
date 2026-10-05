@@ -178,7 +178,12 @@ fn convert_known(method: &str, p: &Value, ctx: &EventCtx, live: &dyn Fn(Option<U
             let time = ms.and_then(Value::as_i64).map(UnixMillis);
             match item_to_activity(item, &agent_key(tid), Some(turn), phase, live(time)) {
                 Some(activity) => {
-                    let mut out = vec![BackendEvent::Activity { activity }];
+                    let mut out = vec![BackendEvent::Activity { activity: activity.clone() }];
+                    if method == "item/completed" {
+                        for path in file_change_paths(item) {
+                            out.push(BackendEvent::ArtifactObserved { agent: activity.key.agent.clone(), item: activity.key.clone(), path });
+                        }
+                    }
                     if let Some((agent, assignment)) = super::convert::spawn_assignment(item) {
                         out.push(BackendEvent::AgentAssignment { agent, assignment });
                     }

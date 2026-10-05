@@ -360,6 +360,27 @@ pub fn item_kind_and_text(item: &Value) -> (ActivityKind, Option<String>) {
     }
 }
 
+/// 完了した `fileChange` item が作った・変更したファイルのパス（成果物の候補。削除と、完了していない変更は含めない）。
+/// 移動は移動先を返す。実在の確認はホストが行う。
+pub fn file_change_paths(item: &Value) -> Vec<String> {
+    if str_of(item, "type") != Some("fileChange") || str_of(item, "status") != Some("completed") {
+        return Vec::new();
+    }
+    let Some(changes) = item.get("changes").and_then(Value::as_array) else { return Vec::new() };
+    changes
+        .iter()
+        .filter_map(|c| {
+            let kind = c.get("kind");
+            match kind.and_then(|k| k.get("type")).and_then(Value::as_str) {
+                Some("delete") => None,
+                Some("update") => kind.and_then(|k| k.get("move_path")).and_then(Value::as_str).or_else(|| str_of(c, "path")).map(str::to_string),
+                _ => str_of(c, "path").map(str::to_string),
+            }
+        })
+        .filter(|p| !p.is_empty())
+        .collect()
+}
+
 /// 親の `collabAgentToolCall`（spawnAgent）から、生成された子の担当（依頼文の先頭）を取り出す。
 /// 受信側が1件に確定できるときだけ（複数なら、どの子の依頼か決められないので割り当てない）。
 pub fn spawn_assignment(item: &Value) -> Option<(AgentKey, String)> {
@@ -635,6 +656,19 @@ mod tests {
         assert_eq!(chat_origin(&t), ChatOrigin::External);
         let t = thread(json!({"id": "r", "source": "appServer"}));
         assert_eq!(parent_link(&t), ParentLink::Root);
+    }
+
+    #[test]
+    fn file_change_paths_only_from_completed_non_delete_changes() {
+        let item = json!({"type": "fileChange", "status": "completed", "changes": [
+            {"path": "a.rs", "kind": {"type": "add"}},
+            {"path": "b.rs", "kind": {"type": "delete"}},
+            {"path": "c.rs", "kind": {"type": "update", "move_path": "d.rs"}},
+            {"path": "e.rs", "kind": {"type": "update", "move_path": null}},
+        ]});
+        assert_eq!(file_change_paths(&item), vec!["a.rs", "d.rs", "e.rs"]);
+        assert!(file_change_paths(&json!({"type": "fileChange", "status": "failed", "changes": [{"path": "a"}]})).is_empty());
+        assert!(file_change_paths(&json!({"type": "commandExecution", "status": "completed"})).is_empty());
     }
 
     #[test]

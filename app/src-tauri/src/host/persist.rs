@@ -39,6 +39,10 @@ impl Persist {
         self.store.is_some()
     }
 
+    pub(super) fn store(&self) -> Option<&Arc<Store>> {
+        self.store.as_ref()
+    }
+
     fn bump(&self, scope: &SaveScope) -> u64 {
         let mut g = self.generation.lock().unwrap();
         let n = g.entry(scope.clone()).or_insert(0);
@@ -51,7 +55,7 @@ impl Persist {
     }
 
     /// チャット領域のID（保存先が使えるときは保存層の割当て。使えないときはメモリ上だけの仮ID）。
-    fn dir_id_for(&self, chat: &ChatKey) -> LocalId {
+    pub(super) fn dir_id_for(&self, chat: &ChatKey) -> LocalId {
         match &self.store {
             Some(s) => s.ensure_dir_id(chat),
             None => LocalId(format!("dir-mem-{}", self.counter.fetch_add(1, Ordering::SeqCst))),
@@ -299,7 +303,7 @@ impl Host {
     }
 
     /// 書込み（直列化）。最新の内容を読んでから書く。
-    fn write_scope(&self, scope: &SaveScope) -> Result<UnixMillis, StoreError> {
+    pub(super) fn write_scope(&self, scope: &SaveScope) -> Result<UnixMillis, StoreError> {
         let store = self.persist.store.as_ref().ok_or_else(|| StoreError::Io(std::io::Error::other("保存先が使えません")))?;
         let _g = self.persist.io_lock.lock().unwrap_or_else(|e| e.into_inner());
         let missing = || StoreError::Io(std::io::Error::other("保存する内容がありません"));
