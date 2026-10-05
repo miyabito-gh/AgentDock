@@ -56,6 +56,16 @@ impl QueueRuntime {
     pub fn note_scan(&self, root: &AgentKey, complete: bool) {
         self.scans.lock().unwrap().insert(root.clone(), complete);
     }
+
+    /// 新しいturnの受理・走査の開始で、前の走査結果を未完了へ戻す（そのturnで生まれた子孫を見落とさないため）。
+    pub fn reset_scan(&self, root: &AgentKey) {
+        self.scans.lock().unwrap().insert(root.clone(), false);
+    }
+}
+
+/// 自動送信の判断に使う「子孫の走査が完了している」か。走査の実行中は、結果が途中なので未完了として扱う。
+fn scan_ready(flag: Option<bool>, scan_running: bool) -> bool {
+    flag == Some(true) && !scan_running
 }
 
 /// 照合1回の結果。
@@ -187,7 +197,8 @@ impl Host {
         }
         self.refresh_terminal_facts(chat).await;
         let terminals = self.queue_rt.terminals.lock().unwrap().clone();
-        let scan_complete = self.queue_rt.scans.lock().unwrap().get(&root).copied().unwrap_or(false);
+        let scan_running = self.scanning.lock().unwrap().contains(&root);
+        let scan_complete = scan_ready(self.queue_rt.scans.lock().unwrap().get(&root).copied(), scan_running);
         let unresolved = self.unknown_attempt(chat);
         let decision = self.read(|d| d.queues.get(chat).map(|f| q::evaluate(&f.queue, &gate_input(d, chat, &terminals, scan_complete, unresolved))));
         match decision {
@@ -402,6 +413,10 @@ impl Host {
         self.schedule_save(SaveScope::Queue { chat: chat.clone() }, Duration::ZERO);
         self.emit_send(chat, &done);
         if accepted {
+            // 新しいturnで子孫が生まれ得る。前の走査結果は使わず、再走査（読み取りのみ）の完了まで保留する。
+            let root = agent_key_of(chat);
+            self.queue_rt.reset_scan(&root);
+            self.start_scan(root);
             if let Some(cwd) = sent_cwd {
                 self.apply_cwd_after_accept(chat, cwd);
             }
@@ -758,5 +773,30 @@ impl Host {
             local: d.local_view(chat).expect("update_local created the record"),
             affected_entries: d.queues.get(chat).map(|f| q::affected_by_settings_change(&f.queue)).unwrap_or_default(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn root() -> AgentKey {
+        AgentKey { backend: BackendKind::Codex, id: ExternalId("r".into()) }
+    }
+
+    #[test]
+    fn scan_is_not_ready_while_running_or_after_a_new_turn_resets_it() {
+        assert!(!scan_ready(None, false), "never scanned");
+        assert!(scan_ready(Some(true), false));
+        assert!(!scan_ready(Some(true), true), "a running scan is partial");
+        assert!(!scan_ready(Some(false), false));
+        // 新しいturnの受理（reset_scan）で、前の完了結果は使えなくなり、再走査の完了で戻る。
+        let rt = QueueRuntime::default();
+        rt.note_scan(&root(), true);
+        assert!(scan_ready(rt.scans.lock().unwrap().get(&root()).copied(), false));
+        rt.reset_scan(&root());
+        assert!(!scan_ready(rt.scans.lock().unwrap().get(&root()).copied(), false));
+        rt.note_scan(&root(), true);
+        assert!(scan_ready(rt.scans.lock().unwrap().get(&root()).copied(), false));
     }
 }

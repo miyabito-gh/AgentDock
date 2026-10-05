@@ -250,6 +250,7 @@ impl Host {
         if !self.scanning.lock().unwrap().insert(root.clone()) {
             return;
         }
+        self.queue_rt.reset_scan(&root);
         let host = self.clone();
         tokio::spawn(async move {
             let chat = ChatKey { backend: root.backend, id: root.id.clone() };

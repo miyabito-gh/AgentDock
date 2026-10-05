@@ -598,6 +598,30 @@ mod tests {
     }
 
     #[test]
+    fn missing_or_inconsistent_parent_facts_hold_as_state_unknown() {
+        let q = queue_with(&["a"], 1500);
+        // 親の状態を取得できていない。
+        let mut i = input();
+        i.root = None;
+        assert!(matches!(evaluate(&q, &i), GateDecision::Hold(QueueHold::StateUnknown { ref targets, .. }) if targets.is_empty()));
+        // 親が Closed。
+        i.root = Some(fact("root", AgentState::Closed, Freshness::Live));
+        assert!(matches!(evaluate(&q, &i), GateDecision::Hold(QueueHold::StateUnknown { .. })));
+        // 終端を観測したのに対応するturnがない値は信用しない（親・子孫とも）。
+        let mut bad = fact("root", AgentState::Done, Freshness::Live);
+        bad.latest_end = Some((TurnEnd::Completed, UnixMillis(2000)));
+        i.root = Some(bad.clone());
+        assert!(matches!(evaluate(&q, &i), GateDecision::Hold(QueueHold::StateUnknown { .. })));
+        let mut i = input();
+        bad.agent = ak("c1");
+        i.descendants = vec![bad];
+        match evaluate(&q, &i) {
+            GateDecision::Hold(QueueHold::StateUnknown { targets, .. }) => assert_eq!(targets[0].agent, ak("c1")),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
     fn explicit_resume_moves_baseline_so_the_old_failure_no_longer_stops() {
         let mut q = queue_with(&["a", "b"], 1500);
         let mut i = input();
