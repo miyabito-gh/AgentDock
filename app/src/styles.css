@@ -266,3 +266,13 @@ textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;paddin
 
 .msgs .bubble,.msgs .activity,.msgs .req,.msgs li{overflow-wrap:anywhere}
 .msgs pre,.msgs code{overflow-x:auto;max-width:100%;overflow-wrap:normal}
+
+/* コンパクト監視窓（別窓）。右パネルと同じ DockPane を、窓いっぱいに表示する */
+.monitor-win{position:fixed;inset:0;display:flex;flex-direction:column;background:var(--surface);overflow:hidden}
+.monitor-head{display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--line2)}
+.monitor-head .grow{flex:1}
+.monitor-win .dock-scroll{padding:4px 8px 10px}
+.monitor-win .berth{padding:3px 6px}
+.quit-list{margin:6px 0;padding-left:18px}
+.quit-list li{margin:2px 0}
+.quit-list .sub{display:block;font-size:12px;color:var(--ink3)}

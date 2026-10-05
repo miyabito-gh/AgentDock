@@ -142,6 +142,7 @@ export type { SetMonitorScopeArgs } from "./gen/SetMonitorScopeArgs";
 export type { SetMonitorWindowScopeArgs } from "./gen/SetMonitorWindowScopeArgs";
 export type { SetPinnedArgs } from "./gen/SetPinnedArgs";
 export type { SetSelectedChatArgs } from "./gen/SetSelectedChatArgs";
+export type { ShowMainWindowArgs } from "./gen/ShowMainWindowArgs";
 export type { SettingsImpact } from "./gen/SettingsImpact";
 export type { SourceId } from "./gen/SourceId";
 export type { SourceInfo } from "./gen/SourceInfo";
@@ -230,6 +231,7 @@ import type { SetDraftArgs } from "./gen/SetDraftArgs";
 import type { SetMonitorWindowScopeArgs } from "./gen/SetMonitorWindowScopeArgs";
 import type { SetSelectedChatArgs } from "./gen/SetSelectedChatArgs";
 import type { SettingsImpact } from "./gen/SettingsImpact";
+import type { ShowMainWindowArgs } from "./gen/ShowMainWindowArgs";
 import type { StopRecord } from "./gen/StopRecord";
 import type { UsageReport } from "./gen/UsageReport";
 
@@ -262,6 +264,14 @@ export interface CommandMap {
   set_draft: { args: SetDraftArgs; result: null };
   acknowledge_failure: { args: AcknowledgeFailureArgs; result: null };
   set_selected_chat: { args: SetSelectedChatArgs; result: null };
+  request_quit: { args: Record<string, never>; result: QuitPhase };
+  quit_decision: { args: QuitDecisionArgs; result: QuitPhase };
+  preview_force_kill: { args: ForceKillArgs; result: ForceKillPreview };
+  force_kill: { args: ForceKillArgs; result: StopRecord[] };
+  set_always_on_top: { args: SetAlwaysOnTopArgs; result: null };
+  open_monitor_window: { args: Record<string, never>; result: null };
+  set_monitor_window_scope: { args: SetMonitorWindowScopeArgs; result: null };
+  show_main_window: { args: ShowMainWindowArgs; result: null };
 }
 export type CommandName = keyof CommandMap;
 
@@ -284,11 +294,4 @@ export interface LocalCommandMap {
   unarchive_chat: { args: ChatArgs; result: ChatLocalView };
   export_markdown: { args: ExportMarkdownArgs; result: null };
   get_usage: { args: GetUsageArgs; result: UsageReport };
-  request_quit: { args: Record<string, never>; result: QuitPhase };
-  quit_decision: { args: QuitDecisionArgs; result: QuitPhase };
-  preview_force_kill: { args: ForceKillArgs; result: ForceKillPreview };
-  force_kill: { args: ForceKillArgs; result: StopRecord[] };
-  set_always_on_top: { args: SetAlwaysOnTopArgs; result: null };
-  open_monitor_window: { args: Record<string, never>; result: null };
-  set_monitor_window_scope: { args: SetMonitorWindowScopeArgs; result: null };
 }

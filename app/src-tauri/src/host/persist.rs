@@ -173,6 +173,7 @@ impl Host {
         let exe = restored.settings.as_ref().and_then(|s| s.settings.codex_executable.clone()).filter(|e| !e.trim().is_empty());
         let mut host = Host::new(app_data_dir);
         host.persist = Persist::new(Some(store));
+        host.restore_windows(restored.windows.clone());
         host.data.get_mut().unwrap().restore(restored, now_ms());
         if let Some(e) = exe {
             *host.executable.get_mut().unwrap() = e.trim().to_string();
@@ -303,8 +304,9 @@ impl Host {
                 let file = self.read(|d| d.queues.get(chat).cloned()).ok_or_else(missing)?;
                 store.save_queue(&file)
             }
-            // 窓の位置（P6）と監視活動（追記）はそれぞれの担当タスクが書く。
-            SaveScope::WindowBounds | SaveScope::Activity { .. } => Err(StoreError::Io(std::io::Error::other("この単位の保存は別の経路で行います"))),
+            SaveScope::WindowBounds => store.save_windows(&self.windows_file()),
+            // 監視活動（追記）は別の担当タスクが書く。
+            SaveScope::Activity { .. } => Err(StoreError::Io(std::io::Error::other("この単位の保存は別の経路で行います"))),
         }
     }
 

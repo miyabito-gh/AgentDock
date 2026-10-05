@@ -10,23 +10,79 @@ pub mod win;
 
 use std::sync::Arc;
 
+use tauri::image::Image;
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{Emitter, Manager, RunEvent};
 
 use backend::ipc::HOST_EVENT_CHANNEL;
 use host::Host;
 use store::Store;
 
+/// トレイのアイコンとメニュー。左クリックで通常画面を表示。完全終了は「AgentDockを終了」だけ（窓を閉じても終了しない）。
+fn setup_tray(app: &tauri::App, host: Arc<Host>) -> tauri::Result<()> {
+    let open = MenuItem::with_id(app, "open", "AgentDockを開く", true, None::<&str>)?;
+    let monitor = MenuItem::with_id(app, "monitor", "監視窓を開く", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "AgentDockを終了", true, None::<&str>)?;
+    let sep = PredefinedMenuItem::separator(app)?;
+    let menu = Menu::with_items(app, &[&open, &monitor, &sep, &quit])?;
+    let icon = Image::from_bytes(include_bytes!("../icons/32x32.png"))?;
+    TrayIconBuilder::with_id("main")
+        .icon(icon)
+        .tooltip("AgentDock")
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .on_menu_event(move |app, event| match event.id().as_ref() {
+            "open" => win::window::show_main(app),
+            "monitor" => {
+                if let Err(e) = win::window::open_monitor(app, &host) {
+                    diag::log("tray", &format!("open monitor failed: {e}"));
+                }
+            }
+            "quit" => {
+                // 作業中なら確認を出すので、通常画面を表示する。作業がなければそのまま保存して終了する。
+                // メニューのイベントはtokioランタイム外のスレッドで届くので、Tauriのランタイムで実行する。
+                let (host, app) = (host.clone(), app.clone());
+                tauri::async_runtime::spawn(async move {
+                    if matches!(host.request_quit(), backend::local::QuitPhase::Confirming { .. }) {
+                        win::window::show_main(&app);
+                    }
+                });
+            }
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
+                win::window::show_main(tray.app_handle());
+            }
+        })
+        .build(app)?;
+    Ok(())
+}
+
 pub fn run() {
     let app = tauri::Builder::default()
-        .on_window_event(|window, event| {
+        // 2つ目の起動は、既存の通常画面を表示して終わる（重複して Codex を起動しない）。
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| win::window::show_main(app)))
+        .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec!["--autostart"])))
+        .on_window_event(|window, event| match event {
             // 通常画面のフォーカス（通知の抑制判定用）。監視窓は含めない。
-            if let tauri::WindowEvent::Focused(focused) = event {
-                if window.label() == "main" {
+            tauri::WindowEvent::Focused(focused) => {
+                if window.label() == win::window::MAIN_LABEL {
                     if let Some(host) = window.app_handle().try_state::<Arc<Host>>() {
                         host.set_main_focused(*focused);
                     }
                 }
             }
+            // 通常画面を閉じる＝トレイへ格納（確認なし。作業・収集・保存は続く）。監視窓は閉じるとその窓だけ破棄される。
+            tauri::WindowEvent::CloseRequested { api, .. } => {
+                if window.label() == win::window::MAIN_LABEL {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+            tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => win::window::note_bounds(window),
+            _ => {}
         })
         .setup(|app| {
             // 専用領域は %LOCALAPPDATA%\com.agentdock.app（診断ログも diag\ へ）。段階①でRoamingに作った領域は移動しない。
@@ -57,11 +113,7 @@ pub fn run() {
                     // 表示が遅くてもイベント処理を止めないよう、別スレッドで出す。
                     tauri::async_runtime::spawn_blocking(move || {
                         win::toast::show(&n, move |chat| {
-                            if let Some(w) = handle.get_webview_window("main") {
-                                let _ = w.show();
-                                let _ = w.unminimize();
-                                let _ = w.set_focus();
-                            }
+                            win::window::show_main(&handle);
                             if let Some(host) = weak.upgrade() {
                                 host.navigate_to_chat(chat);
                             }
@@ -69,9 +121,22 @@ pub fn run() {
                     });
                 }));
             }
+            // 完全終了（停止と保存を確認した後だけ呼ばれる）。
+            {
+                let handle = app.handle().clone();
+                host.attach_exit(Arc::new(move || handle.exit(0)));
+            }
             // setupはtokioランタイム外のスレッドで走るため、Tauriのランタイムに入ってからtokio::spawnする。
-            tauri::async_runtime::block_on(async { host.start_event_pump() });
-            app.manage(host);
+            tauri::async_runtime::block_on(async {
+                host.start_event_pump();
+                // sleep/wake の検出（復帰では通知・再送・resumeをしない。鮮度を要照合にして読み直すだけ）。
+                host.start_power_watch();
+            });
+            app.manage(host.clone());
+            // 通常画面の位置を復元して表示する。自動起動（--autostart）なら通常画面は開かず、トレイ格納で起動する。
+            let start_hidden = std::env::args().any(|a| a == "--autostart");
+            win::window::restore_main(app.handle(), &host, start_hidden);
+            setup_tray(app, host).map_err(|e| format!("tray: {e}"))?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -98,6 +163,14 @@ pub fn run() {
             commands::set_draft,
             commands::acknowledge_failure,
             commands::set_selected_chat,
+            commands::request_quit,
+            commands::quit_decision,
+            commands::preview_force_kill,
+            commands::force_kill,
+            commands::set_always_on_top,
+            commands::open_monitor_window,
+            commands::set_monitor_window_scope,
+            commands::show_main_window,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

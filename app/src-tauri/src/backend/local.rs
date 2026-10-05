@@ -588,7 +588,7 @@ pub enum DeleteOutcome {
 
 // ───────────────────────────── IPC（P2〜P7で追加するコマンド） ─────────────────────────────
 
-/// 追加コマンド名。統合時に `ipc::command_names` へ移す（P2分の get_app_settings・set_app_settings・get_chat_locals・retry_save・set_draft は移動済み）。
+/// 追加コマンド名。統合時に `ipc::command_names` へ移す（P2分の get_app_settings・set_app_settings・get_chat_locals・retry_save・set_draft、P6分の request_quit〜show_main_window は移動済み）。
 pub mod local_command_names {
     pub const ADD_ATTACHMENT_FILE: &str = "add_attachment_file";
     /// 本文は生バイト（`tauri::ipc::Request` の Raw body）。チャットIDと名前はヘッダーで渡す。
@@ -611,13 +611,6 @@ pub mod local_command_names {
     pub const UNARCHIVE_CHAT: &str = "unarchive_chat";
     pub const EXPORT_MARKDOWN: &str = "export_markdown";
     pub const GET_USAGE: &str = "get_usage";
-    pub const REQUEST_QUIT: &str = "request_quit";
-    pub const QUIT_DECISION: &str = "quit_decision";
-    pub const PREVIEW_FORCE_KILL: &str = "preview_force_kill";
-    pub const FORCE_KILL: &str = "force_kill";
-    pub const SET_ALWAYS_ON_TOP: &str = "set_always_on_top";
-    pub const OPEN_MONITOR_WINDOW: &str = "open_monitor_window";
-    pub const SET_MONITOR_WINDOW_SCOPE: &str = "set_monitor_window_scope";
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -848,6 +841,15 @@ pub struct SetMonitorWindowScopeArgs {
     pub scope: MonitorWindowScope,
 }
 
+/// 通常画面を前面に出す（監視窓の「通常画面で開く」。承認・質問への回答は通常画面で行う）。`chat` があればそのチャットを開く（表示だけ）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct ShowMainWindowArgs {
+    pub chat: Option<ChatKey>,
+}
+
 /// `IpcError.blocked` に追加する理由。統合時に `ipc::BlockedReason` へ移す（P2分の InsufficientSpace・SaveFailed は移動済み）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
@@ -874,10 +876,7 @@ pub enum LocalHostEvent {
     ChatQueueUpdated { queue: ChatQueue },
     AttachmentUpdated { entry: AttachmentEntry },
     ArtifactUpdated { entry: ArtifactEntry },
-    QuitUpdated { phase: QuitPhase },
     /// トレイ・通知のクリックで、通常画面にこのチャットを表示する（回答・再実行はしない）。
     NavigateToChat { chat: ChatKey },
-    /// sleepからの復帰を検出した。鮮度は要照合になり、送信は保留される。
-    SystemResumed { at: UnixMillis },
     UsageUpdated { report: UsageReport },
 }

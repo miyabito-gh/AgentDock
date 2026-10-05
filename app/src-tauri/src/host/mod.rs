@@ -7,6 +7,7 @@
 //! - 切断・受理不明で自動再送しない。照合（読み取りのみ）は自動で行ってよい。
 //! - 監視のためにresume・承認・停止をしない。resumeはユーザーの送信・再開操作の中でだけ行う。
 
+pub mod lifecycle;
 pub mod notifier;
 pub mod persist;
 pub mod state;
@@ -141,6 +142,8 @@ pub struct Host {
     persist: Persist,
     /// OS通知の配信（`notifier.rs`）。
     notifier: notifier::Notifier,
+    /// 完全終了・強制終了・wake・窓の位置（`lifecycle.rs`）。
+    lifecycle: lifecycle::Lifecycle,
     /// 受理不明の送信（照合以外で解消しない）。
     unconfirmed: Mutex<HashMap<LocalId, UnconfirmedSend>>,
     /// 受理不明のまま未解決の送信（照合で取り出している間も含む）。送信・再送を止める根拠。
@@ -162,6 +165,7 @@ impl Host {
             app_data_dir,
             persist: Persist::new(None),
             notifier: notifier::Notifier::default(),
+            lifecycle: lifecycle::Lifecycle::default(),
             unconfirmed: Mutex::new(HashMap::new()),
             unresolved: Mutex::new(UnresolvedSends::default()),
             rejected: Mutex::new(HashMap::new()),

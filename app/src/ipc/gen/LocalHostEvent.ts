@@ -3,11 +3,9 @@ import type { ArtifactEntry } from "./ArtifactEntry";
 import type { AttachmentEntry } from "./AttachmentEntry";
 import type { ChatKey } from "./ChatKey";
 import type { ChatQueue } from "./ChatQueue";
-import type { QuitPhase } from "./QuitPhase";
-import type { UnixMillis } from "./UnixMillis";
 import type { UsageReport } from "./UsageReport";
 
 /**
  * 追加のホスト→UIイベント。統合時に `ipc::HostEvent` の variant へ移す（seqは共通。P2分の chatLocalUpdated・saveStatusUpdated・settingsUpdated は移動済み）。
  */
-export type LocalHostEvent = { "kind": "chatQueueUpdated", queue: ChatQueue, } | { "kind": "attachmentUpdated", entry: AttachmentEntry, } | { "kind": "artifactUpdated", entry: ArtifactEntry, } | { "kind": "quitUpdated", phase: QuitPhase, } | { "kind": "navigateToChat", chat: ChatKey, } | { "kind": "systemResumed", at: UnixMillis, } | { "kind": "usageUpdated", report: UsageReport, };
+export type LocalHostEvent = { "kind": "chatQueueUpdated", queue: ChatQueue, } | { "kind": "attachmentUpdated", entry: AttachmentEntry, } | { "kind": "artifactUpdated", entry: ArtifactEntry, } | { "kind": "navigateToChat", chat: ChatKey, } | { "kind": "usageUpdated", report: UsageReport, };

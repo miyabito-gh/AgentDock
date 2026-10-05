@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Chat, HostEvent, HostEventEnvelope, HostSnapshot, ModelInfo, MonitorScope, PendingRequest, RequestAnswer, SendAttempt, SourceInfo } from "./ipc/types";
+import type { Chat, ForceKillPreview, HostEvent, HostEventEnvelope, HostSnapshot, ModelInfo, MonitorScope, PendingRequest, QuitDecision, QuitPhase, RequestAnswer, SendAttempt, SourceInfo } from "./ipc/types";
 import * as host from "./ipc/client";
 import { applyHostEvent, emptyBundle, replaceSnapshot, seqAction, UNKNOWN_CAPS } from "./ipc/live";
 import type { Bundle } from "./mock/data";
@@ -14,7 +14,7 @@ import { LeftPane } from "./ui/LeftPane";
 import { CenterPane, EmptyCenter, type SendNotice } from "./ui/CenterPane";
 import { DockPane, MiniWindow } from "./ui/Dock";
 import { Dialogs, type DialogState, type NewChatInput } from "./ui/Dialogs";
-import { isRunning } from "./ui/derive";
+import { isRunning, stopOpen } from "./ui/derive";
 import { keyStr } from "./ui/format";
 
 type Mode = "live" | "mock";
@@ -63,8 +63,11 @@ export default function App() {
   const [lNarrow, setLNarrow] = useState(false);
   const [rNarrow, setRNarrow] = useState(false);
   const [mini, setMini] = useState(false);
-  const [mainTop, setMainTop] = useState(false);
-  const [miniTop, setMiniTop] = useState(false);
+  // 最前面。実接続ではホストの設定（再起動後も保持）、モックでは画面内だけ。
+  const [mockMainTop, setMockMainTop] = useState(false);
+  const [mockMiniTop, setMockMiniTop] = useState(false);
+  const [quit, setQuit] = useState<QuitPhase>({ kind: "idle" });
+  const [force, setForce] = useState<{ preview: ForceKillPreview | null; error: string | null; running: boolean }>({ preview: null, error: null, running: false });
   const [menu, setMenu] = useState<string | null>(null);
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -78,6 +81,7 @@ export default function App() {
   const [warnHidden, setWarnHidden] = useState(false);
   const toastTimer = useRef<number | undefined>(undefined);
   const selRef = useRef<string | null>(null);
+  const quitKindRef = useRef<QuitPhase["kind"]>("idle");
   selRef.current = selId;
   const live = mode === "live";
 
@@ -152,6 +156,21 @@ export default function App() {
       if (e.kind === "turnUpdated" && e.end !== null && e.turn.agent.id === selRef.current) void loadChat(e.turn.agent.id);
       else if (e.kind === "sendUpdated") noteAttempt(e.chat.id, e.attempt);
       else if (e.kind === "navigateToChat") { setSelId(e.chat.id); void loadChat(e.chat.id); } // 通知を開いた操作。表示だけで、回答・再実行はしない
+      else if (e.kind === "quitUpdated") {
+        // 終了手順の進行（確認・停止照合・保存）。段階が変わったときだけ確認画面を開く（「待つ」で閉じた後に開き直さない）。
+        const prev = quitKindRef.current;
+        quitKindRef.current = e.phase.kind;
+        setQuit(e.phase);
+        if (e.phase.kind === "idle") {
+          setDialog((d) => (d?.type === "quit" ? null : d));
+          if (prev !== "idle") say("終了を取り消しました。すでに送った中断要求は取り消せません。作業と監視は続いています。");
+        } else if (prev !== e.phase.kind) setDialog((d) => (d?.type === "force" ? d : { type: "quit" }));
+      }
+      else if (e.kind === "systemResumed") {
+        // sleepからの復帰。状態はホストが再照合する。表示中の履歴を取り直すだけで、再送・再開はしない。
+        say("スリープから復帰しました。状態を再照合しています。");
+        if (selRef.current) void loadChat(selRef.current);
+      }
       else if (e.kind === "warning") say(`警告: ${e.message}`);
     };
     const handle = (env: HostEventEnvelope) => {
@@ -194,6 +213,13 @@ export default function App() {
   }, [live, boot, loadChat, noteAttempt, say, sayErr]);
 
   const snap: HostSnapshot = bundle.snapshot;
+  const mainTop = live ? snap.settings.mainWindow.alwaysOnTop : mockMainTop;
+  const miniTop = live ? snap.settings.monitorWindow.alwaysOnTop : mockMiniTop;
+  /** 最前面の切替（窓ごと）。フォーカスは移さない。設定はホストが保存する。 */
+  const setTop = (kind: "main" | "monitor", on: boolean) => {
+    if (!live) { if (kind === "main") setMockMainTop(on); else setMockMiniTop(on); return; }
+    host.setAlwaysOnTop(kind, on).catch((e) => sayErr("最前面を切り替えられませんでした", e));
+  };
   const src: SourceInfo | undefined = snap.sources[0] ?? (live && connectError ? failedSource(connectError) : undefined);
   const chat = snap.chats.find((c) => c.key.id === selId) ?? null;
   // 選択中のチャットをホストへ伝える（通知の抑制判定だけに使う）。
@@ -201,6 +227,17 @@ export default function App() {
   useEffect(() => {
     if (live) void host.setSelectedChat(selectedKey).catch(() => { /* 抑制判定が古いままになるだけ（通知は出る側に倒れる） */ });
   }, [live, selectedKey?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 監視窓（別窓）へ選択中のチャットを伝える（画面の表示状態だけ）。監視窓の起動時の問い合わせにも答える。
+  useEffect(() => {
+    if (live) void host.publishSelectedChat(selectedKey?.id ?? null).catch(() => undefined);
+  }, [live, selectedKey?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!live) return;
+    let un: (() => void) | null = null;
+    let alive = true;
+    void host.onSelectedChatRequest(() => { void host.publishSelectedChat(selRef.current).catch(() => undefined); }).then((u) => { if (alive) un = u; else u(); });
+    return () => { alive = false; un?.(); };
+  }, [live]);
   /** 通知設定の変更（ホストが保存する。モックでは画面内だけ）。 */
   const onNotifySettings = (n: HostSnapshot["settings"]["notifications"]) => {
     const next = { ...snap.settings, notifications: n };
@@ -358,15 +395,61 @@ export default function App() {
     void boot(p || null);
   };
 
+  /** 完全終了の選択（ホストが中断要求・停止照合・保存を進める）。「待つ」は画面を閉じるだけで、手順は続く。 */
+  const decide = (d: QuitDecision) => {
+    if (d === "wait") { setDialog((x) => (x?.type === "quit" ? null : x)); return; }
+    host.quitDecision(d).then(setQuit).catch((e) => sayErr("終了の操作を実行できませんでした", e));
+  };
+
+  /** 強制終了の確認を開く（影響を受ける全チャットを先に示す。実行はしない）。 */
+  const openForce = () => {
+    if (!live) { setDialog({ type: "force" }); return; }
+    const source = snap.sources[0]?.source;
+    setForce({ preview: null, error: source ? null : "強制終了できる接続がありません。", running: false });
+    setDialog({ type: "force" });
+    if (!source) return;
+    host.previewForceKill(source)
+      .then((p) => setForce({ preview: p, error: null, running: false }))
+      .catch((e) => setForce({ preview: null, error: host.asIpcError(e).message, running: false }));
+  };
+
+  /** 強制終了の実行（確認画面の「強制終了する」だけが呼ぶ）。プロセスの消滅を確認できなければ停止未確認のまま案内する。 */
+  const runForce = async () => {
+    const source = snap.sources[0]?.source;
+    if (!source) return;
+    setForce((f) => ({ ...f, running: true }));
+    try {
+      const recs = await host.forceKill(source);
+      say(recs.some(stopOpen)
+        ? "強制終了を要求しました。プロセスの消滅をまだ確認できていません。停止未確認のまま扱います。"
+        : "強制終了しました。プロセスの消滅を確認しました。");
+      setForce({ preview: null, error: null, running: false });
+      setDialog(quit.kind !== "idle" ? { type: "quit" } : null);
+    } catch (e) { setForce((f) => ({ ...f, running: false, error: host.asIpcError(e).message })); }
+  };
+
+  /** ダイアログを閉じる。終了の確認中は、段階に応じて「取り消す」か「待つ」にする（手順は画面を閉じても進み続ける）。 */
+  const closeDialog = () => {
+    if (live && dialog?.type === "quit") { decide(quit.kind === "confirming" || quit.kind === "saveFailed" ? "cancel" : "wait"); return; }
+    if (live && dialog?.type === "force") { setDialog(quit.kind !== "idle" ? { type: "quit" } : null); return; }
+    setDialog(null);
+  };
+
   const act = (a: string) => {
     if (a.startsWith("unv:")) { setDialog({ type: "unv", why: a.slice(4) }); return; }
     if (a.startsWith("settings:")) { setDialog({ type: "settings", tab: a.split(":")[1] }); return; }
     switch (a) {
       case "noop": break;
-      case "closeToTray": say("トレイへの格納は後続の段階で対応します。"); break;
+      case "closeToTray":
+        // 通常画面の閉じる＝トレイへ格納（確認なし。作業・収集・保存は続く）。終了は「AgentDock を終了」。
+        if (live) host.closeThisWindow().catch((e) => sayErr("窓を閉じられませんでした", e)); else say("モックではトレイへ格納しません。");
+        break;
       case "newChat": setDialog({ type: "newChat" }); break;
-      case "quit": setDialog({ type: "quit" }); break;
-      case "force": setDialog({ type: "force" }); break;
+      case "quit":
+        if (!live) { setDialog({ type: "quit" }); break; }
+        host.requestQuit().then((p) => { setQuit(p); setDialog({ type: "quit" }); }).catch((e) => sayErr("終了を要求できませんでした", e));
+        break;
+      case "force": openForce(); break;
       case "attach": setDialog({ type: "attach" }); break;
       case "interrupt": void interrupt(); break;
       case "modeMenu": setMockOpen((o) => !o); break;
@@ -376,18 +459,22 @@ export default function App() {
       case "retrySave": void retrySave(); break;
       case "toggleLeft": if (narrow()) setLNarrow((v) => !v); else setLeftOpen((v) => !v); break;
       case "toggleRight": if (narrow()) setRNarrow((v) => !v); else setRightOpen((v) => !v); break;
-      case "toggleMini": setMini((v) => !v); break;
+      case "toggleMini":
+        // 実接続では別窓の監視窓を開く（なければ作る）。モックでは画面内の仮の窓。
+        if (live) host.openMonitorWindow().catch((e) => sayErr("監視窓を開けませんでした", e)); else setMini((v) => !v);
+        break;
       case "closeMini": setMini(false); break;
-      case "miniTop": setMiniTop((v) => !v); break;
+      case "miniTop": case "toggleMiniTop": setTop("monitor", !miniTop); break;
+      case "toggleMainTop": setTop("main", !mainTop); break;
       case "toggleDone": onScope({ kind: "allChats", showFinished: !(scope.kind === "allChats" && scope.showFinished) }); break;
-      case "quitStop": case "doForce": setDialog(null); say("この操作は後続の段階で対応します。"); break;
+      case "quitStop": case "doForce": setDialog(null); say("この操作はモックでは動きません。"); break;
       default: say("この操作は後続の段階で対応します。");
     }
   };
 
   const checked = {
     toggleLeft: narrow() ? lNarrow : leftOpen, toggleRight: narrow() ? rNarrow : rightOpen, toggleMini: mini,
-    toggleDone: scope.kind === "allChats" && scope.showFinished,
+    toggleDone: scope.kind === "allChats" && scope.showFinished, toggleMainTop: mainTop, toggleMiniTop: miniTop,
   };
 
   // 確認済みの失敗。実接続ではホストの記録（chatLocals）と現在の失敗turnの一致で判定し、左一覧と揃える。モックは画面内の集合。
@@ -419,6 +506,12 @@ export default function App() {
         <TitleBar title="AgentDock" tag={modeTag} top={mainTop} onAct={act} />
         <MenuBar open={menu} setOpen={setMenu} checked={checked} onAct={act} />
         <GlobalBanner source={src} onAct={act} />
+        {live && quit.kind !== "idle" && dialog?.type !== "quit" && dialog?.type !== "force" ? (
+          <div className="gbanner warn" role="status">
+            <span className="grow">終了の手順を続けています（停止と保存を確認中。確認できるまで終了しません）。</span>
+            <button className="btn-line" onClick={() => setDialog({ type: "quit" })}>状況を見る</button>
+          </div>
+        ) : null}
         <SaveBanner failed={failedSaves.filter((s) => !forChat(s))} warnings={warnHidden ? [] : snap.startupWarnings} onDismissWarnings={() => setWarnHidden(true)} onAct={act} />
         <div className={`body ${leftOpen ? "" : "l-off"} ${rightOpen ? "" : "r-off"} ${lNarrow ? "n-l" : ""} ${rNarrow ? "n-r" : ""}`}>
           <aside className="left" aria-label="チャット一覧">
@@ -441,12 +534,21 @@ export default function App() {
           <aside className="right" aria-label="エージェントのドック"><DockPane {...dockProps} /></aside>
         </div>
       </div>
-      {mini ? <MiniWindow {...dockProps} top={miniTop} /> : null}
+      {mini && !live ? <MiniWindow {...dockProps} top={miniTop} /> : null}
       {dialog ? (
-        <Dialogs d={dialog} onClose={() => setDialog(null)} chats={snap.chats} source={src} models={models}
+        <Dialogs d={dialog} onClose={closeDialog} chats={snap.chats} source={src} models={models}
           enterMode={enterMode} setEnterMode={setEnterMode}
           notify={{ value: snap.settings.notifications, set: onNotifySettings }}
-          top={{ main: mainTop, mini: miniTop, setMain: setMainTop, setMini: setMiniTop }}
+          top={{ main: mainTop, mini: miniTop, setMain: (b) => setTop("main", b), setMini: (b) => setTop("monitor", b) }}
+          autostart={{
+            value: snap.settings.autostart,
+            set: (on) => {
+              if (!live) { updateSnap((s) => ({ ...s, settings: { ...s.settings, autostart: on } })); return; }
+              host.setAppSettings({ ...snap.settings, autostart: on }).catch((e) => sayErr("自動起動の設定を変更できませんでした", e));
+            },
+          }}
+          quit={{ phase: quit, stops: snap.stops, failedSaves, live, decide, onForce: openForce, onRetrySave: () => void retrySave() }}
+          force={{ ...force, run: () => void runForce() }}
           exe={{ path: exePath, setPath: setExePath, placeholder: DEFAULT_EXE, connect: retryLaunch, openDiag: () => { host.openDiagDir().then((p) => say(`診断ログの場所: ${p}`)).catch((e) => sayErr("診断ログの場所を開けませんでした", e)); }, live: live && snap.sources.every((s) => s.connection.kind !== "connected") }}
           onCreateChat={(i) => void createChat(i)}
           setTab={(t) => setDialog({ type: "settings", tab: t })} onAct={act} />

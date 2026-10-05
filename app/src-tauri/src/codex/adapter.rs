@@ -11,6 +11,7 @@ use super::convert::*;
 use super::events::{build_reply, notification_to_events, server_request_to_event, EventCtx, Reply, StoredRequest};
 use super::outbox::Outbox;
 use super::process::{check_version, CodexProcess};
+use crate::win::job::ProcessJob;
 use super::rpc::{RpcClient, RpcEvent};
 use super::tree::assemble;
 use super::wire::{WireThread, WireTurn};
@@ -160,6 +161,8 @@ struct Conn {
     source: SourceId,
     process: Arc<Mutex<CodexProcess>>,
     experimental: bool,
+    /// 強制終了用のJob（P6）。
+    job: Option<Arc<ProcessJob>>,
 }
 
 struct Shared {
@@ -334,6 +337,12 @@ impl Default for CodexBackend {
 }
 
 impl CodexBackend {
+    /// 現在の接続のJob（強制終了用）。接続がない・Jobを割り当てられなかったときは None。
+    pub fn current_job(&self) -> Option<(SourceId, Arc<ProcessJob>)> {
+        let conn = self.shared.conn.lock().unwrap();
+        conn.as_ref().and_then(|c| c.job.clone().map(|j| (c.source.clone(), j)))
+    }
+
     pub fn new() -> Self {
         Self::with_queue_capacity(EVENT_QUEUE_CAPACITY)
     }
@@ -512,11 +521,13 @@ impl AiBackend for CodexBackend {
             Some(p) => Known::direct(p),
             None => Known::Missing,
         };
+        let process_job = process.job.clone();
         *self.shared.conn.lock().unwrap() = Some(Conn {
             client: process.client.clone(),
             source: source.clone(),
             process: Arc::new(Mutex::new(process)),
             experimental: config.enable_experimental,
+            job: process_job,
         });
         self.shared.emit(&source, BackendEvent::Connection { state: ConnectionState::Connected });
         tokio::spawn(pump(self.shared.clone(), source.clone(), rx));
