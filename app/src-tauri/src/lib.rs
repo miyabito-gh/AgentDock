@@ -1,8 +1,12 @@
+pub mod attach;
 pub mod backend;
 pub mod codex;
 pub mod commands;
 pub mod diag;
 pub mod host;
+pub mod rules;
+pub mod store;
+pub mod win;
 
 use std::sync::Arc;
 

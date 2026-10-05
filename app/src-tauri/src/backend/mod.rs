@@ -8,4 +8,6 @@
 
 pub mod backend;
 pub mod ipc;
+/// 段階②のアプリ側データとIPC追加分（`app/DESIGN_P2.md`）。
+pub mod local;
 pub mod model;
