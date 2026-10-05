@@ -2,7 +2,7 @@
 import type {
   Agent, AgentKey, AgentState, AgentStatus, AgentView, Attachment, Capabilities, Chat, ChatKey,
   ChatModelSettings, Evidence, EvidenceSource, Freshness, HostSnapshot, Known, ModelInfo,
-  PendingRequest, QueueItem, SaveState, SourceInfo, StopRecord, TurnRecord, WaitInfo,
+  ChatQueue, PendingRequest, QueueEntry, QueueEntryState, SaveState, SourceInfo, StopRecord, TurnRecord, WaitInfo,
 } from "../ipc/types";
 import { DEFAULT_SETTINGS } from "../ipc/live";
 
@@ -10,6 +10,8 @@ const NOW = Date.now();
 const ago = (s: number) => NOW - s * 1000;
 
 const ck = (id: string): ChatKey => ({ backend: "codex", id });
+const qentry = (id: string, text: string, state: QueueEntryState, order: number): QueueEntry =>
+  ({ id, chat: ck("a"), text, attachments: [], order, registeredAt: ago(300), state, attempts: [], applied: null });
 const ak = (id: string): AgentKey => ({ backend: "codex", id });
 const val = <T,>(value: T): Known<T> => ({ kind: "value", value, basis: "direct" });
 const nf = <T,>(): Known<T> => ({ kind: "notFetched" });
@@ -109,10 +111,10 @@ function base(): Bundle {
   const b0 = agent("b0", "b", null, "メイン", "main", "文章整理");
   const e0 = agent("e0", "e", null, "メイン", "main", "外部で作成");
 
-  const queue: QueueItem[] = [{
-    id: "q1", chat: ck("a"), text: "修正後に、変更点を箇条書きでまとめて", attachments: [], order: 1,
-    state: { kind: "waiting" }, attempts: [], settings: null,
-  }];
+  const queue: ChatQueue = {
+    chat: ck("a"), run: { kind: "active" }, hold: null, baselineAt: ago(300), awaiting: null, nextOrder: 1,
+    entries: [qentry("q1", "修正後に、変更点を箇条書きでまとめて", { kind: "waiting" }, 0)],
+  };
 
   return {
     snapshot: {
@@ -135,7 +137,7 @@ function base(): Bundle {
         view(b0, status("done", "completed", 2000, { scope: "turn" }), "要件_整理版.md を作成"),
         view(e0, status("unknown", "notLoaded", 5400, { evidence: ev("historyRead", 5400) }), null, "historyOnly"),
       ],
-      requests: [], stops: [], queue, monitorScope: { kind: "selectedChat", chat: ck("a") },
+      requests: [], stops: [], queues: [queue], monitorScope: { kind: "selectedChat", chat: ck("a") },
       chatLocals: [], saveStatus: [], settings: DEFAULT_SETTINGS, modelSettings: [], startupWarnings: [],
     },
     turns: {
@@ -204,7 +206,7 @@ export function makeBundle(name: string): Bundle {
   }
   if (name === "stale") {
     s.agents.forEach((v) => { if (v.status.state === "running") v.freshness = "historyOnly"; });
-    s.queue[0].state = { kind: "held", reason: { kind: "notLive", freshness: "historyOnly" } };
+    s.queues[0].hold = { kind: "notLive", targets: [{ agent: ak("a0"), state: "running", freshness: "historyOnly" }] };
   }
   if (name === "stop") {
     patch(b, "a0", (v) => { v.status = status("interrupted", "interrupted", 8, { scope: "turn" }); v.currentActivity = null; });
@@ -219,21 +221,23 @@ export function makeBundle(name: string): Bundle {
         { target: { kind: "osProcess", pid: 7788, createdAt: { kind: "notFetched" }, executable: { kind: "notFetched" } }, ownership: "unknown", evidence: rec(null, false, false), summary: "ownershipUnknown" },
       ],
     }];
-    s.queue[0].state = { kind: "held", reason: { kind: "stopUnconfirmed" } };
+    s.queues[0].hold = { kind: "stopUnconfirmed", record: "s1" };
   }
   if (name === "queue") {
-    const mk = (id: string, text: string, state: QueueItem["state"], order: number): QueueItem =>
-      ({ id, chat: ck("a"), text, attachments: [], order, state, attempts: [], settings: null });
-    s.queue = [
-      mk("q1", "修正後に、変更点を箇条書きでまとめて", { kind: "held", reason: { kind: "descendantsNotFinished" } }, 1),
-      mk("q2", "テストが通ったらコミットメッセージ案も", { kind: "waiting" }, 2),
-      mk("q3", "README の該当箇所も直して", { kind: "acceptanceUnknown" }, 3),
-    ];
-    s.queue[2].attempts = [{ attemptId: "at1", clientMessageId: "cm1", at: ago(40), state: { kind: "acceptanceUnknown", since: ago(40) } }];
+    s.queues = [{
+      chat: ck("a"), run: { kind: "active" }, baselineAt: ago(300), awaiting: null, nextOrder: 3,
+      hold: { kind: "descendantsActive", targets: [{ agent: ak("a2"), state: "running", freshness: "live" }] },
+      entries: [
+        qentry("q1", "修正後に、変更点を箇条書きでまとめて", { kind: "waiting" }, 0),
+        qentry("q2", "テストが通ったらコミットメッセージ案も", { kind: "waiting" }, 1),
+        { ...qentry("q3", "README の該当箇所も直して", { kind: "acceptanceUnknown", attempt: "at1" }, 2),
+          attempts: [{ attemptId: "at1", clientMessageId: "cm1", at: ago(40), state: { kind: "acceptanceUnknown", since: ago(40) } }] },
+      ],
+    }];
   }
   if (name === "childFail") {
     patch(b, "a3", (v) => { v.status = status("failed", "failed", 20, { scope: "turn" }); v.currentActivity = null; });
-    s.queue[0].state = { kind: "held", reason: { kind: "other", message: "子孫の失敗でキューを止めています" } };
+    s.queues[0].run = { kind: "stopped", cause: { kind: "descendantFailed", agent: ak("a3") }, at: ago(20) };
   }
   if (name === "launch") {
     s.sources = [source({ kind: "launchFailed", reason: "notFound", message: "指定のパスに codex.exe がありません: C:\\Tools\\codex\\codex.exe" }, { kind: "mismatch", expected: "0.160.0", actual: "0.161.0" })];
@@ -246,7 +250,7 @@ export function makeBundle(name: string): Bundle {
     b.save = { kind: "saveFailed", message: "ディスクへの書込みに失敗しました", savedPart: "会話本文 12件、添付 2件", unsavedPart: "監視活動ログ 2件" };
   }
   if (name === "empty") {
-    s.chats = []; s.agents = []; s.queue = []; s.monitorScope = { kind: "selectedChat", chat: null };
+    s.chats = []; s.agents = []; s.queues = []; s.monitorScope = { kind: "selectedChat", chat: null };
     b.turns = {}; b.attachments = []; b.modelSettings = {};
   }
   return b;

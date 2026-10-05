@@ -29,7 +29,6 @@ pub struct HostData {
     pub agents: Vec<AgentView>,
     pub requests: Vec<PendingRequest>,
     pub stops: Vec<StopRecord>,
-    pub queue: Vec<QueueItem>,
     pub monitor_scope: MonitorScope,
     pub pinned: HashSet<ChatKey>,
     /// このホスト（現在の接続）が開始・再開した会話。originに関わらず送信可能として扱う。
@@ -50,7 +49,7 @@ pub struct HostData {
     /// 開始を観測した最新turn（古いturnの後着を捨てる基準）。
     latest_turn_start: HashMap<AgentKey, ExternalId>,
     /// 終端を観測したturn（中断記録の作成が終端通知より遅れた場合の補完）。
-    last_end: HashMap<AgentKey, (ExternalId, TurnEnd, UnixMillis)>,
+    pub(super) last_end: HashMap<AgentKey, (ExternalId, TurnEnd, UnixMillis)>,
 }
 
 impl Default for HostData {
@@ -62,7 +61,6 @@ impl Default for HostData {
             agents: Vec::new(),
             requests: Vec::new(),
             stops: Vec::new(),
-            queue: Vec::new(),
             monitor_scope: MonitorScope::SelectedChat { chat: None },
             pinned: HashSet::new(),
             hosted: HashSet::new(),
@@ -107,7 +105,7 @@ impl HostData {
             agents: self.agents.clone(),
             requests: self.requests.clone(),
             stops: self.stops.clone(),
-            queue: self.queue.clone(),
+            queues: self.queues.values().map(|f| f.queue.clone()).collect(),
             monitor_scope: self.monitor_scope.clone(),
             chat_locals: self.local_views(),
             save_status: self.save_status.values().cloned().collect(),

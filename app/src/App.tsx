@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Chat, HostEvent, HostEventEnvelope, HostSnapshot, ModelInfo, MonitorScope, PendingRequest, RequestAnswer, SendAttempt, SourceInfo } from "./ipc/types";
+import type { Chat, HostEvent, HostEventEnvelope, HostSnapshot, ModelInfo, MonitorScope, PendingRequest, PermissionPreset, RequestAnswer, SendAttempt, SettingsImpact, SourceInfo } from "./ipc/types";
 import * as host from "./ipc/client";
 import { applyHostEvent, emptyBundle, replaceSnapshot, seqAction, UNKNOWN_CAPS } from "./ipc/live";
 import type { Bundle } from "./mock/data";
@@ -11,7 +11,7 @@ const loadMock = async () => {
 };
 import { GlobalBanner, MenuBar, SaveBanner, TitleBar } from "./ui/Chrome";
 import { LeftPane } from "./ui/LeftPane";
-import { CenterPane, EmptyCenter, type SendNotice } from "./ui/CenterPane";
+import { CenterPane, EmptyCenter, type CwdResult, type SendNotice } from "./ui/CenterPane";
 import { DockPane, MiniWindow } from "./ui/Dock";
 import { Dialogs, type DialogState, type NewChatInput } from "./ui/Dialogs";
 import { isRunning } from "./ui/derive";
@@ -36,10 +36,14 @@ const failedSource = (message: string): SourceInfo => ({
 });
 
 /** 送信の受理状態の案内。受理不明は失敗とも成功とも言わない。 */
-function noticeOf(a: SendAttempt | undefined): SendNotice | null {
+function noticeOf(a: SendAttempt | undefined, steer: { attemptId: string; queueInstead: () => void } | null = null): SendNotice | null {
   if (!a) return null;
   switch (a.state.kind) {
     case "rejected":
+      if (steer && steer.attemptId === a.attemptId) {
+        return { cls: "err", title: "追加指示は受け付けられませんでした", body: `対象のturnがすでに終わっている可能性があります（${a.state.message}）。自動では切り替えません。`, canRetry: false,
+          alt: { label: "完了後に送信へ切り替える", run: steer.queueInstead } };
+      }
       return { cls: "err", title: "送信は受け付けられませんでした", body: `Codex が受け付けなかったことを確認しています（${a.state.message}）。もう一度送ることができます。`, canRetry: true };
     case "acceptanceUnknown":
       return { cls: "warn", title: "送信が受理されたか確認できません", body: "応答がなく、Codex が受け付けたか分かりません。履歴と自動で照合しています。確認できるまで、再送と新しい送信は止めます。", canRetry: false };
@@ -76,6 +80,7 @@ export default function App() {
   const [exePath, setExePath] = useState<string>(readExe);
   const [attempts, setAttempts] = useState<Record<string, SendAttempt>>({});
   const [warnHidden, setWarnHidden] = useState(false);
+  const [steerOf, setSteerOf] = useState<Record<string, { attemptId: string; text: string }>>({});
   const toastTimer = useRef<number | undefined>(undefined);
   const selRef = useRef<string | null>(null);
   selRef.current = selId;
@@ -281,12 +286,59 @@ export default function App() {
     if (!chat) return false;
     if (!live) { void loadMock().then((m) => m.client.sendMessage(chat.key, text, steer ? "steer" : "newTurn")); say("送信を依頼しました（モック）。"); return true; }
     const running = isRunning(snap, chat);
-    if (running && !steer) { say("実行中は「追加指示」で送れます。完了後に送る依頼の登録は段階②で対応します。"); return false; }
+    if (running && !steer) {
+      // 完了後に送る依頼として登録する（送信はホストが条件を判断して1件ずつ行う）。
+      try { await host.enqueue(chat.key, text); say("完了後に送る依頼として登録しました。"); return true; } catch (e) { sayErr("依頼を登録できませんでした", e); return false; }
+    }
     try {
       const a = await host.sendMessage(chat.key, text, running ? "steer" : "newTurn");
       noteAttempt(chat.key.id, a);
+      if (running) {
+        setSteerOf((m) => ({ ...m, [chat.key.id]: { attemptId: a.attemptId, text } }));
+        if (a.state.kind === "accepted") say("追加指示を Codex が受理しました。現在のturnへの反映は会話の表示で確認してください（受理と反映は別です）。");
+      }
       return true;
     } catch (e) { sayErr("送信できませんでした", e); return false; }
+  };
+
+  const qact = {
+    edit: async (id: string, text: string): Promise<boolean> => {
+      if (!chat || !live) return false;
+      try { await host.editQueueEntry(chat.key, id, text); return true; } catch (e) { sayErr("依頼を編集できませんでした", e); return false; }
+    },
+    cancel: (id: string) => { if (chat && live) host.cancelQueueEntry(chat.key, id).catch((e) => sayErr("依頼を取り消せませんでした", e)); },
+    resume: () => {
+      if (!chat || !live) return;
+      host.resumeQueue(chat.key).then(() => say("キューを再開しました。条件がそろえば、登録順に1件ずつ送ります。")).catch((e) => sayErr("キューを再開できませんでした", e));
+    },
+    reconcile: (attempt: string) => {
+      if (!chat || !live) return;
+      host.reconcileSend(chat.key, attempt).then((a) => say(a.state.kind === "acceptanceUnknown" ? "まだ受理を確認できません。照合を続けます（再送はしません）。" : "履歴との照合で確定しました。")).catch((e) => sayErr("照合できませんでした", e));
+    },
+    retry: (attempt: string) => {
+      if (!chat || !live) return;
+      host.retrySend(chat.key, attempt).then((a) => noteAttempt(chat.key.id, a)).catch((e) => sayErr("再送できませんでした", e));
+    },
+  };
+
+  const impactText = (what: string, r: SettingsImpact) =>
+    r.affectedEntries.length ? `${what}を変更しました。送信待ちの依頼 ${r.affectedEntries.length}件にも、送信時にこの設定が適用されます。` : `${what}を変更しました。次の送信から適用されます。`;
+
+  const onPermission = (p: PermissionPreset) => {
+    if (!chat || !live) return;
+    host.setChatPermission(chat.key, p).then((r) => say(impactText("権限", r))).catch((e) => sayErr("権限を変更できませんでした", e));
+  };
+
+  const onCwd = async (cwd: string, confirmed: boolean): Promise<CwdResult> => {
+    if (!chat || !live) return { kind: "error", message: "モックでは動きません" };
+    try {
+      say(impactText("作業フォルダ", await host.setChatCwd(chat.key, cwd, confirmed)));
+      return { kind: "ok" };
+    } catch (e) {
+      const er = host.asIpcError(e);
+      if (er.blocked?.kind === "queueRetargetUnconfirmed") return { kind: "needsConfirm", waiting: er.blocked.waiting };
+      return { kind: "error", message: er.message };
+    }
   };
 
   const onRetrySend = async () => {
@@ -403,7 +455,9 @@ export default function App() {
                 draft={drafts[chat.key.id] ?? localDraft ?? chat.draft ?? ""} setDraft={(v) => onDraft(chat, v)}
                 onAct={act} onRespond={(r, a) => void onRespond(r, a)}
                 onSend={onSend} onModel={onModel}
-                notice={live ? noticeOf(attempts[chat.key.id]) : null} onRetrySend={() => void onRetrySend()}
+                notice={live ? noticeOf(attempts[chat.key.id], steerOf[chat.key.id] ? { attemptId: steerOf[chat.key.id].attemptId, queueInstead: () => { void onSend(steerOf[chat.key.id].text, false); } } : null) : null} onRetrySend={() => void onRetrySend()}
+                queue={snap.queues.find((q) => q.chat.id === chat.key.id)} local={snap.chatLocals.find((l) => l.chat.id === chat.key.id)}
+                qact={qact} onPermission={onPermission} onCwd={onCwd}
               />
             ) : <EmptyCenter onAct={act} />}
           </main>

@@ -14,7 +14,7 @@ use super::backend::{
     ChatSummary, InterruptAck, ManageOp, ManageOutcome, Page, PermissionPreset, RespondOutcome, ResumeOutcome,
     AgentHistory,
 };
-use super::local::{AppSettings, ChatLocalView, SaveScope, SaveStatus};
+use super::local::{AppSettings, ChatLocalView, ChatQueue, SaveScope, SaveStatus};
 use super::model::*;
 
 /// ホスト→UIのイベント名（Tauri `emit` のチャネル）。
@@ -42,6 +42,13 @@ pub mod command_names {
     pub const GET_CHAT_LOCALS: &str = "get_chat_locals";
     pub const RETRY_SAVE: &str = "retry_save";
     pub const SET_DRAFT: &str = "set_draft";
+    pub const ENQUEUE: &str = "enqueue";
+    pub const EDIT_QUEUE_ENTRY: &str = "edit_queue_entry";
+    pub const CANCEL_QUEUE_ENTRY: &str = "cancel_queue_entry";
+    pub const RESUME_QUEUE: &str = "resume_queue";
+    pub const RECONCILE_SEND: &str = "reconcile_send";
+    pub const SET_CHAT_PERMISSION: &str = "set_chat_permission";
+    pub const SET_CHAT_CWD: &str = "set_chat_cwd";
 }
 
 // ───────────────────────────── エラー ─────────────────────────────
@@ -95,6 +102,12 @@ pub enum BlockedReason {
     },
     /// 保存できていない単位があるため、完了を示す操作を止めた。
     SaveFailed { scope: SaveScope },
+    /// 作業中・停止未確認のため、作業フォルダは変更できない（完了・停止後に変更する、M44）。
+    ChatBusy,
+    /// 送信待ちがあり、新しいフォルダが対象になることの確認が要る（M44）。
+    QueueRetargetUnconfirmed { waiting: u32 },
+    /// 送信待ち以外の項目は編集・取消できない（送信中・受理不明・送信済み）。
+    QueueEntryNotEditable,
 }
 
 // ───────────────────────────── コマンド引数・戻り値 ─────────────────────────────
@@ -113,7 +126,8 @@ pub struct HostSnapshot {
     pub agents: Vec<AgentView>,
     pub requests: Vec<PendingRequest>,
     pub stops: Vec<StopRecord>,
-    pub queue: Vec<QueueItem>,
+    /// チャット別のキュー（送信待ちの依頼・進行・保留理由）。
+    pub queues: Vec<ChatQueue>,
     pub monitor_scope: MonitorScope,
     /// アプリ側の補足情報（ピン・下書き・モデル/権限・一覧の見え方）。再起動後も復元される。
     pub chat_locals: Vec<ChatLocalView>,
@@ -351,7 +365,8 @@ pub enum HostEvent {
     /// 承認・質問の到着・状態変化。到着は即時（2秒集約の対象外）。
     RequestUpdated { request: PendingRequest },
     SendUpdated { chat: ChatKey, attempt: SendAttempt },
-    QueueUpdated { item: QueueItem },
+    /// チャット1件分のキュー全体（項目・進行・保留理由）で置き換える。
+    ChatQueueUpdated { queue: ChatQueue },
     StopUpdated { record: StopRecord },
     ModelSettingsUpdated { chat: ChatKey, settings: ChatModelSettings },
     /// チャット別の補足情報（ピン・下書き・モデル/権限・保存状態）の更新。

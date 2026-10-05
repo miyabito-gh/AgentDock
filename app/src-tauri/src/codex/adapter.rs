@@ -122,6 +122,14 @@ pub fn build_send_call(req: &SendRequest) -> BackendResult<(&'static str, Value)
                     p["effort"] = json!(e);
                 }
             }
+            // 送信時点のチャット設定（モデルと同じく、このturnと以後のturnに及ぶ）。指定がなければ上書きしない。
+            if let Some(perm) = req.permission {
+                p["approvalPolicy"] = json!(permission_params(perm).0);
+                p["sandboxPolicy"] = sandbox_policy_json(perm);
+            }
+            if let Some(cwd) = &req.cwd {
+                p["cwd"] = json!(cwd);
+            }
             Ok(("turn/start", p))
         }
         SendMode::Steer { turn } => {
@@ -763,6 +771,8 @@ mod tests {
             text: "hi".into(),
             attachments: vec![],
             model: Some(ModelChoice { model: "m".into(), effort: Some("low".into()) }),
+            permission: None,
+            cwd: None,
             client_message_id: "cm1".into(),
         }
     }
@@ -787,6 +797,25 @@ mod tests {
         assert_eq!(p["clientUserMessageId"], "cm1");
         assert_eq!((p["model"].as_str(), p["effort"].as_str()), (Some("m"), Some("low")));
         assert_eq!(p["input"][0], json!({"type": "text", "text": "hi", "text_elements": []}));
+    }
+
+    #[test]
+    fn new_turn_carries_permission_and_cwd_only_when_set_and_steer_never_does() {
+        let (_, p) = build_send_call(&req(SendMode::NewTurn)).unwrap();
+        assert!(p.get("sandboxPolicy").is_none() && p.get("approvalPolicy").is_none() && p.get("cwd").is_none());
+        let mut r = req(SendMode::NewTurn);
+        r.permission = Some(PermissionPreset::ReadOnly);
+        r.cwd = Some("C:/w".into());
+        let (_, p) = build_send_call(&r).unwrap();
+        assert_eq!(p["approvalPolicy"], "on-request");
+        assert_eq!(p["sandboxPolicy"], json!({"type": "readOnly", "networkAccess": false}));
+        assert_eq!(p["cwd"], "C:/w");
+        let mut s = req(SendMode::Steer { turn: turn_key("th", "t9") });
+        s.permission = Some(PermissionPreset::FullAccess);
+        s.cwd = Some("C:/w".into());
+        let (m, p) = build_send_call(&s).unwrap();
+        assert_eq!(m, "turn/steer");
+        assert!(p.get("sandboxPolicy").is_none() && p.get("cwd").is_none());
     }
 
     #[test]

@@ -7,7 +7,10 @@ use tauri::State;
 
 use crate::backend::backend::{ManageOutcome, Page, ResumeOutcome, RespondOutcome, UserConfirmed, ChatSummary, AgentHistory};
 use crate::backend::ipc::*;
-use crate::backend::local::{AppSettings, ChatLocalView, RetrySaveArgs, SaveStatus, SetAppSettingsArgs, SetDraftArgs};
+use crate::backend::local::{
+    AppSettings, ChatArgs, ChatLocalView, ChatQueue, EditQueueEntryArgs, EnqueueArgs, QueueEntry, QueueEntryArgs, ReconcileSendArgs, RetrySaveArgs,
+    SaveStatus, SetAppSettingsArgs, SetChatCwdArgs, SetChatPermissionArgs, SetDraftArgs, SettingsImpact,
+};
 use crate::backend::model::*;
 use crate::host::Host;
 
@@ -120,6 +123,44 @@ pub async fn retry_save(host: Hs<'_>, args: RetrySaveArgs) -> R<SaveStatus> {
 #[tauri::command]
 pub async fn set_draft(host: Hs<'_>, args: SetDraftArgs) -> R<()> {
     host.set_draft(args)
+}
+
+#[tauri::command]
+pub async fn enqueue(host: Hs<'_>, args: EnqueueArgs) -> R<QueueEntry> {
+    host.inner().clone().enqueue(args)
+}
+
+#[tauri::command]
+pub async fn edit_queue_entry(host: Hs<'_>, args: EditQueueEntryArgs) -> R<QueueEntry> {
+    host.inner().clone().edit_queue_entry(args)
+}
+
+#[tauri::command]
+pub async fn cancel_queue_entry(host: Hs<'_>, args: QueueEntryArgs) -> R<()> {
+    host.inner().clone().cancel_queue_entry(args)
+}
+
+/// 「キューを再開」。ユーザー操作なのでここで証票を作る（親がliveでなければ再開も行う）。
+#[tauri::command]
+pub async fn resume_queue(host: Hs<'_>, args: ChatArgs) -> R<ChatQueue> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().resume_queue(args, &confirmed).await
+}
+
+/// 「履歴と照合」。読み取りのみで、再送しない。
+#[tauri::command]
+pub async fn reconcile_send(host: Hs<'_>, args: ReconcileSendArgs) -> R<SendAttempt> {
+    host.inner().clone().reconcile_send(args).await
+}
+
+#[tauri::command]
+pub async fn set_chat_permission(host: Hs<'_>, args: SetChatPermissionArgs) -> R<SettingsImpact> {
+    host.inner().clone().set_chat_permission(args)
+}
+
+#[tauri::command]
+pub async fn set_chat_cwd(host: Hs<'_>, args: SetChatCwdArgs) -> R<SettingsImpact> {
+    host.inner().clone().set_chat_cwd(args)
 }
 
 /// 診断ログのフォルダをエクスプローラーで開く（ユーザー操作）。戻り値はログファイルの場所。

@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import type {
-  Attachment, Chat, ChatModelSettings, DecisionOption, HostSnapshot, ModelInfo, PendingRequest, QueueItem, RequestAnswer,
-  ActivityKind, SaveState, StopRecord, TurnRecord,
+  AgentKey, Attachment, Chat, ChatLocalView, ChatModelSettings, ChatQueue, DecisionOption, HostSnapshot, ModelInfo, PendingRequest,
+  PermissionPreset, QueueEntry, RequestAnswer, ActivityKind, SaveState, StopRecord, TurnRecord,
 } from "../ipc/types";
 import { Icon } from "./Icon";
 import { TENTATIVE_HINT, TENTATIVE_STYLE, chatAgents, chatName, chatRequests, chatTitle, chatStatusText, chatStops, isRunning, rootView, stopOpen } from "./derive";
-import { FRESH, STOP_LABEL, hms, holdText, keyStr, knownValue, showKnown } from "./format";
+import { FRESH, STOP_LABEL, hms, holdText, keyStr, knownValue, showKnown, stopCauseText } from "./format";
 
 const SCOPE_TEXT = { once: "1回だけ", session: "このセッション中", persistent: "以後ずっと（永続）", unknown: "効力範囲は不明" } as const;
 
@@ -30,11 +30,47 @@ export interface CenterProps {
   /** 直近の送信の受理状態の案内（受理なし・受理不明・照合の結果）。 */
   notice: SendNotice | null;
   onRetrySend: () => void;
+  /** 完了後に送る依頼（キュー）。undefined＝まだ登録がない。 */
+  queue: ChatQueue | undefined;
+  /** チャット別の補足情報（権限・次のturnの作業フォルダ）。 */
+  local: ChatLocalView | undefined;
+  qact: QueueActions;
+  onPermission: (p: PermissionPreset) => void;
+  onCwd: (cwd: string, confirmed: boolean) => Promise<CwdResult>;
 }
 
-export interface SendNotice { cls: "warn" | "err"; title: string; body: string; canRetry: boolean }
+export interface SendNotice { cls: "warn" | "err"; title: string; body: string; canRetry: boolean; alt?: { label: string; run: () => void } }
 
-function Header({ snap, chat, onAct, running }: { snap: HostSnapshot; chat: Chat; onAct: (a: string) => void; running: boolean }) {
+/** キュー項目への操作（ホストが判断・保存する。UIは意図を伝えるだけ）。 */
+export interface QueueActions {
+  edit: (id: string, text: string) => Promise<boolean>;
+  cancel: (id: string) => void;
+  /** 「キューを再開」。「確認済み」とは別の操作。 */
+  resume: () => void;
+  /** 「履歴と照合」。読み取りのみで再送しない。 */
+  reconcile: (attempt: string) => void;
+  /** 受理なしが確定した依頼を、ユーザーの確認のうえで再送する。 */
+  retry: (attempt: string) => void;
+}
+
+export type CwdResult = { kind: "ok" } | { kind: "needsConfirm"; waiting: number } | { kind: "error"; message: string };
+
+const PERMISSION_LABEL: Record<PermissionPreset, string> = {
+  workspaceWriteOnRequest: "作業領域内の書込み＋必要時に確認（初期値）",
+  readOnly: "読み取りのみ",
+  fullAccess: "フルアクセス（確認なしで実行）",
+};
+
+/** 作業フォルダを変えられない理由（変えられるときは null）。ホストも同じ規則で拒否する。 */
+const cwdLockReason = (chat: Chat, running: boolean, stopped: boolean): string | null =>
+  chat.kind === "general" ? "一般チャットの作業フォルダは変更できません"
+    : running ? "作業中は変更できません。完了・停止後に変更してください"
+    : stopped ? "停止を確認できるまで変更できません" : null;
+
+function Header({ snap, chat, onAct, running, local, onCwdToggle, cwdLock }: {
+  snap: HostSnapshot; chat: Chat; onAct: (a: string) => void; running: boolean; local: ChatLocalView | undefined;
+  onCwdToggle: () => void; cwdLock: string | null;
+}) {
   const root = rootView(snap, chat);
   const fresh = FRESH[root?.freshness ?? "needsReconcile"];
   const cwd = knownValue(chat.cwd);
@@ -46,6 +82,8 @@ function Header({ snap, chat, onAct, running }: { snap: HostSnapshot; chat: Chat
         <div className="meta">
           <span className="tag ai" title="この会話のAI">Codex</span>
           {cwd ? <span className="mono" title="作業フォルダ">{cwd}</span> : <span>一般チャット（作業フォルダなし）</span>}
+          {local?.nextCwd ? <span className="mono" title="次の送信から使う作業フォルダ（まだ適用していません）">次のturnから: {local.nextCwd}</span> : null}
+          {chat.kind === "development" ? <button className="small" disabled={!!cwdLock} title={cwdLock ?? "次の送信から使う作業フォルダを変更します"} onClick={onCwdToggle}>フォルダ変更</button> : null}
           {/* 鮮度と状態は別表示。片方から他方を導かない */}
           <span className={`fresh ${fresh.c}`} title="収集の鮮度。エージェントの状態とは別">{fresh.t}</span>
           <span>{chatStatusText(snap, chat)}</span>
@@ -97,7 +135,12 @@ function Banners({ p }: { p: CenterProps }) {
         <div className={`cbanner ${p.notice.cls}`} role="alert">
           <h4>{p.notice.title}</h4>
           {p.notice.body}
-          {p.notice.canRetry ? <div className="acts"><button className="btn-line" onClick={p.onRetrySend}>もう一度送る</button></div> : null}
+          {p.notice.canRetry || p.notice.alt ? (
+            <div className="acts">
+              {p.notice.canRetry ? <button className="btn-line" onClick={p.onRetrySend}>もう一度送る</button> : null}
+              {p.notice.alt ? <button className="btn-line" onClick={p.notice.alt.run}>{p.notice.alt.label}</button> : null}
+            </div>
+          ) : null}
         </div>
       ) : null}
       {chat.origin === "external" && root?.freshness === "live" ? (
@@ -232,31 +275,80 @@ function RequestCard({ r, onRespond }: { r: PendingRequest; onRespond: CenterPro
   );
 }
 
-function Queue({ items, onAct }: { items: QueueItem[]; onAct: (a: string) => void }) {
+function EntryRow({ n, e, qact }: { n: number; e: QueueEntry; qact: QueueActions }) {
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(e.text);
+  const s = e.state;
+  const why = s.kind === "acceptanceUnknown" ? "受理不明: 送信したか確認できません。履歴と照合して確定するまで、再送しません"
+    : s.kind === "sending" ? "送信中"
+    : s.kind === "notAccepted" ? `受理されていません（${s.message}）。自動では再送しません`
+    : null;
+  const save = async () => { if (await qact.edit(e.id, text)) setEditing(false); };
+  return (
+    <div className="qitem">
+      <span className="qnum">{n}</span>
+      <div>
+        {editing ? <textarea aria-label="依頼を編集" value={text} onChange={(ev) => setText(ev.target.value)} style={{ width: "100%" }} /> : <div>{e.text}</div>}
+        {why ? <div className={`why ${s.kind === "waiting" ? "" : "err"}`}>{why}</div> : null}
+      </div>
+      <div style={{ display: "flex", gap: 2 }}>
+        {s.kind === "waiting" && !editing ? <button className="small" onClick={() => setEditing(true)}>編集</button> : null}
+        {editing ? <><button className="small" onClick={() => void save()}>保存</button><button className="small" onClick={() => { setEditing(false); setText(e.text); }}>やめる</button></> : null}
+        {/* 受理不明の間は再送ボタンを出さない。照合だけ */}
+        {s.kind === "acceptanceUnknown" ? <button className="small" onClick={() => qact.reconcile(s.attempt)}>履歴と照合</button> : null}
+        {s.kind === "notAccepted" ? <button className="small" title="受理されていないことを確認済みの依頼だけ、新しい送信として送り直します" onClick={() => qact.retry(s.attempt)}>もう一度送る</button> : null}
+        {s.kind === "waiting" || s.kind === "notAccepted" ? <button className="small" onClick={() => qact.cancel(e.id)}>取消</button> : null}
+      </div>
+    </div>
+  );
+}
+
+function Queue({ q, nameOf, qact }: { q: ChatQueue | undefined; nameOf: (a: AgentKey) => string; qact: QueueActions }) {
+  if (!q) return null;
+  const items = q.entries.filter((e) => e.state.kind !== "sent" && e.state.kind !== "cancelled");
   if (!items.length) return null;
-  const held = items.some((q) => q.state.kind !== "waiting");
+  const unknown = items.some((e) => e.state.kind === "acceptanceUnknown");
+  const stopped = q.run.kind !== "active";
   return (
     <div className="queue">
+      {stopped ? (
+        <div className="cbanner warn" role="alert" style={{ margin: "0 0 6px" }}>
+          <h4>{q.run.kind === "pausedAfterRestart" ? "再起動後のため、自動送信を止めています" : "自動送信を止めています"}</h4>
+          {q.run.kind === "stopped" ? stopCauseText(q.run.cause, nameOf) : "アプリを再起動したため、送信待ちの依頼は自動では送りません。内容を確認して再開してください。"}
+          <div style={{ marginTop: 4 }}>失敗した依頼そのものは再実行しません。「確認済み」にしてもキューは再開しません。</div>
+          <div className="acts">
+            <button className="btn-main" disabled={unknown} title={unknown ? "受理不明の依頼を照合で確定するまで再開できません" : undefined} onClick={qact.resume}>キューを再開</button>
+          </div>
+        </div>
+      ) : null}
       <details open>
-        <summary><Icon name="list" /><b>完了後に送る依頼 {items.length}件</b><span className="muted">{held ? "自動送信を止めています" : "親と子孫の作業が終わると、登録順に1件ずつ送ります"}</span></summary>
-        {items.map((q, i) => {
-          const s = q.state;
-          const why = s.kind === "held" ? `保留: ${holdText(s.reason)}`
-            : s.kind === "acceptanceUnknown" ? "受理不明: 送信中に接続が切れ、受理されたか不明です。履歴と照合するまで再送しません"
-            : s.kind === "sending" ? "送信中" : s.kind === "cancelled" ? "取り消し済み" : s.kind === "sent" ? "送信済み" : null;
-          return (
-            <div className="qitem" key={q.id}>
-              <span className="qnum">{i + 1}</span>
-              <div><div>{q.text}</div>{why ? <div className={`why ${s.kind === "acceptanceUnknown" ? "err" : ""}`}>{why}</div> : null}</div>
-              <div style={{ display: "flex", gap: 2 }}>
-                {/* acceptanceUnknown の間は再送ボタンを出さない。照合だけ */}
-                {s.kind === "acceptanceUnknown" ? <button className="small" onClick={() => onAct("stub")}>履歴と照合</button> : <button className="small" onClick={() => onAct("stub")}>編集</button>}
-                <button className="small" onClick={() => onAct("stub")}>取消</button>
-              </div>
-            </div>
-          );
-        })}
+        <summary><Icon name="list" /><b>完了後に送る依頼 {items.length}件</b>
+          <span className="muted">{stopped ? "停止中" : q.hold ? holdText(q.hold, nameOf) : "親と子孫の作業が終わると、登録順に1件ずつ送ります"}</span></summary>
+        <div className="muted small" style={{ padding: "2px 10px" }}>送信待ちの依頼は、送信する時点のモデル・権限・作業フォルダで送ります。</div>
+        {items.map((e, i) => <EntryRow key={e.id + e.state.kind} n={i + 1} e={e} qact={qact} />)}
       </details>
+    </div>
+  );
+}
+
+function CwdPanel({ current, onCwd, onClose }: { current: string; onCwd: CenterProps["onCwd"]; onClose: () => void }) {
+  const [path, setPath] = useState(current);
+  const [need, setNeed] = useState<number | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  const apply = async (confirmed: boolean) => {
+    const r = await onCwd(path.trim(), confirmed);
+    if (r.kind === "ok") onClose(); else if (r.kind === "needsConfirm") setNeed(r.waiting); else setMsg(r.message);
+  };
+  return (
+    <div className="cbanner info">
+      <h4>次の送信から使う作業フォルダを変更</h4>
+      <input aria-label="作業フォルダ" className="mono" style={{ width: "100%" }} value={path} onChange={(e) => { setPath(e.target.value); setNeed(null); }} />
+      {need !== null ? <div style={{ marginTop: 4 }}><b>送信待ちの依頼 {need}件も、新しいフォルダが対象になります。</b></div> : null}
+      {msg ? <div className="why err" style={{ marginTop: 4 }}>{msg}</div> : null}
+      <div className="acts">
+        <button className="btn-main" disabled={!path.trim()} onClick={() => void apply(need !== null)}>{need !== null ? "確認して変更" : "変更"}</button>
+        <button className="btn-line" onClick={onClose}>やめる</button>
+      </div>
     </div>
   );
 }
@@ -311,10 +403,13 @@ function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock
           <select aria-label="推論の強さ" value={effort} onChange={(e) => pickEffort(e.target.value)}>{efforts.map((x) => <option key={x.id} value={x.id}>{x.id}</option>)}</select>
           {running ? (
             <span className="seg" role="group" aria-label="実行中の送信方法">
-              <button aria-pressed={steer} onClick={() => setSteer(true)}>追加指示</button>
-              <button aria-pressed={!steer} onClick={() => setSteer(false)}>完了後に送信</button>
+              <button aria-pressed={steer} title="実行中のturnへ対象を照合して送ります。モデル・権限・フォルダの変更には使えません" onClick={() => setSteer(true)}>追加指示（現在のturnへ）</button>
+              <button aria-pressed={!steer} title="親と子孫の作業が終わってから、次の依頼として送ります" onClick={() => setSteer(false)}>完了後に送信（次の依頼）</button>
             </span>
           ) : null}
+          <select aria-label="権限" title="次の送信から適用。送信待ちの依頼にも送信時に適用されます" value={p.local?.permission ?? "workspaceWriteOnRequest"} onChange={(e) => p.onPermission(e.target.value as PermissionPreset)}>
+            {(Object.keys(PERMISSION_LABEL) as PermissionPreset[]).map((k) => <option key={k} value={k}>{PERMISSION_LABEL[k]}</option>)}
+          </select>
           <span className="grow" />
           {running ? <button className="btn-line" aria-label="中断" title="実行中の作業に中断を要求します（停止の確認は別に行います）" onClick={() => p.onAct("interrupt")}><Icon name="stop" />中断</button> : null}
           <button className="btn-main send" aria-label={running ? (steer ? "追加指示を送る" : "完了後に送る依頼として登録") : "送信"} disabled={!!lock} onClick={() => void send()}><Icon name="send" /></button>
@@ -336,14 +431,21 @@ export function CenterPane(p: CenterProps) {
   const running = isRunning(snap, chat);
   const reqs = chatRequests(snap, chat);
   const hasOpenStop = chatStops(snap, chat).some(stopOpen);
+  const [cwdOpen, setCwdOpen] = useState(false);
+  const cwdLock = cwdLockReason(chat, running, hasOpenStop);
+  const nameOf = (a: AgentKey): string => {
+    const v = chatAgents(snap, chat).find((x) => keyStr(x.agent.key) === keyStr(a));
+    return v ? showKnown(v.agent.displayName) : a.id;
+  };
   const lock = hasOpenStop ? "停止を確認できるまで、このチャットへの新しい送信は止めています。"
     : chat.origin === "external" && rootView(snap, chat)?.freshness !== "live" ? "外部で実行中かどうか確認できないため、再開するまでこの会話には送信できません。上のボタンから、外部側の終了を確認して再開してください。" : null;
   return (
     <>
-      <Header snap={snap} chat={chat} onAct={p.onAct} running={running} />
+      <Header snap={snap} chat={chat} onAct={p.onAct} running={running} local={p.local} onCwdToggle={() => setCwdOpen((o) => !o)} cwdLock={cwdLock} />
+      {cwdOpen && !cwdLock ? <CwdPanel current={p.local?.nextCwd ?? knownValue(chat.cwd) ?? ""} onCwd={p.onCwd} onClose={() => setCwdOpen(false)} /> : null}
       <Banners p={p} />
       <Messages key={chat.key.id} turns={p.turns} reqs={reqs} running={running} onRespond={p.onRespond} onAct={p.onAct} />
-      <Queue items={snap.queue.filter((q) => keyStr(q.chat) === keyStr(chat.key))} onAct={p.onAct} />
+      <Queue q={snap.queues.find((q) => keyStr(q.chat) === keyStr(chat.key))} nameOf={nameOf} qact={p.qact} />
       <Composer key={`${chat.key.id}:${p.models.length}`} p={p} running={running} lock={lock} />
     </>
   );

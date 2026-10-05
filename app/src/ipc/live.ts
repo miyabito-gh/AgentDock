@@ -14,7 +14,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
 };
 
 const emptySnapshot = (): HostSnapshot => ({
-  seq: 0, sources: [], chats: [], agents: [], requests: [], stops: [], queue: [], monitorScope: { kind: "selectedChat", chat: null },
+  seq: 0, sources: [], chats: [], agents: [], requests: [], stops: [], queues: [], monitorScope: { kind: "selectedChat", chat: null },
   chatLocals: [], saveStatus: [], settings: DEFAULT_SETTINGS, modelSettings: [], startupWarnings: [],
 });
 
@@ -122,8 +122,8 @@ export function applyHostEvent(b: Bundle, e: HostEvent): Bundle {
       }));
     case "requestUpdated":
       return set({ requests: upsert(s.requests, e.request, (r) => r.key.requestId === e.request.key.requestId && r.key.source === e.request.key.source) });
-    case "queueUpdated":
-      return set({ queue: upsert(s.queue, e.item, (q) => q.id === e.item.id) });
+    case "chatQueueUpdated":
+      return set({ queues: upsert(s.queues, e.queue, (q) => q.chat.id === e.queue.chat.id) });
     case "stopUpdated":
       return set({ stops: upsert(s.stops, e.record, (r) => r.id === e.record.id) });
     case "modelSettingsUpdated":

@@ -3,6 +3,7 @@ import type { ChatKey } from "./ChatKey";
 import type { QueueEntry } from "./QueueEntry";
 import type { QueueHold } from "./QueueHold";
 import type { QueueRun } from "./QueueRun";
+import type { TurnKey } from "./TurnKey";
 import type { UnixMillis } from "./UnixMillis";
 
 /**
@@ -16,4 +17,9 @@ hold: QueueHold | null,
 /**
  * 失敗・中断を監視する基準時刻（待っている親turnの開始観測時刻）。これより前の終端では止めない。
  */
-baselineAt: UnixMillis | null, entries: Array<QueueEntry>, nextOrder: number, };
+baselineAt: UnixMillis | null, 
+/**
+ * 自動送信して終端をまだ確認していないturn。確認できるまで次の依頼を送らない。
+ * 失敗・中断で終わればキューを止める。明示的な「キューを再開」で外す。
+ */
+awaiting: TurnKey | null, entries: Array<QueueEntry>, nextOrder: number, };

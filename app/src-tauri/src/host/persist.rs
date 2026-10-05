@@ -173,6 +173,8 @@ impl Host {
         let mut host = Host::new(app_data_dir);
         host.persist = Persist::new(Some(store));
         host.data.get_mut().unwrap().restore(restored, now_ms());
+        // 受理不明の送信は、接続後に照合を続ける（再送しない）。
+        host.restore_unresolved();
         if let Some(e) = exe {
             *host.executable.get_mut().unwrap() = e.trim().to_string();
         }
@@ -282,6 +284,17 @@ impl Host {
             }
             host.run_save(scope, gen, true).await;
         });
+    }
+
+    /// 書き終えるまで待つ保存（送信前に Sending を保存してから送る、など。再試行の待ちはしない）。
+    /// 保存先が使えない（テスト等）ときは何もせず None を返す。
+    pub(super) async fn save_now(self: &Arc<Self>, scope: SaveScope) -> Option<SaveStatus> {
+        if !self.persist.enabled() {
+            return None;
+        }
+        self.set_status(&scope, SaveState::Unsaved, None, 0);
+        let gen = self.persist.bump(&scope);
+        Some(self.clone().run_save(scope, gen, false).await)
     }
 
     /// 書込み（直列化）。最新の内容を読んでから書く。

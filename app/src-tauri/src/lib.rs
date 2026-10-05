@@ -64,6 +64,13 @@ pub fn run() {
             commands::get_chat_locals,
             commands::retry_save,
             commands::set_draft,
+            commands::enqueue,
+            commands::edit_queue_entry,
+            commands::cancel_queue_entry,
+            commands::resume_queue,
+            commands::reconcile_send,
+            commands::set_chat_permission,
+            commands::set_chat_cwd,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

@@ -359,6 +359,10 @@ pub struct ChatQueue {
     pub hold: Option<QueueHold>,
     /// 失敗・中断を監視する基準時刻（待っている親turnの開始観測時刻）。これより前の終端では止めない。
     pub baseline_at: Option<UnixMillis>,
+    /// 自動送信して終端をまだ確認していないturn。確認できるまで次の依頼を送らない。
+    /// 失敗・中断で終わればキューを止める。明示的な「キューを再開」で外す。
+    #[serde(default)]
+    pub awaiting: Option<TurnKey>,
     pub entries: Vec<QueueEntry>,
     #[cfg_attr(test, ts(type = "number"))]
     pub next_order: u64,
@@ -586,7 +590,7 @@ pub enum DeleteOutcome {
 
 // ───────────────────────────── IPC（P2〜P7で追加するコマンド） ─────────────────────────────
 
-/// 追加コマンド名。統合時に `ipc::command_names` へ移す（P2分の get_app_settings・set_app_settings・get_chat_locals・retry_save・set_draft は移動済み）。
+/// 追加コマンド名。統合時に `ipc::command_names` へ移す（P2分・P3分は移動済み）。
 pub mod local_command_names {
     pub const ADD_ATTACHMENT_FILE: &str = "add_attachment_file";
     /// 本文は生バイト（`tauri::ipc::Request` の Raw body）。チャットIDと名前はヘッダーで渡す。
@@ -594,13 +598,6 @@ pub mod local_command_names {
     pub const REMOVE_ATTACHMENT: &str = "remove_attachment";
     pub const OPEN_FILE: &str = "open_file";
     pub const SAVE_FILE_AS: &str = "save_file_as";
-    pub const ENQUEUE: &str = "enqueue";
-    pub const EDIT_QUEUE_ENTRY: &str = "edit_queue_entry";
-    pub const CANCEL_QUEUE_ENTRY: &str = "cancel_queue_entry";
-    pub const RESUME_QUEUE: &str = "resume_queue";
-    pub const RECONCILE_SEND: &str = "reconcile_send";
-    pub const SET_CHAT_PERMISSION: &str = "set_chat_permission";
-    pub const SET_CHAT_CWD: &str = "set_chat_cwd";
     pub const ACKNOWLEDGE_FAILURE: &str = "acknowledge_failure";
     pub const SET_SELECTED_CHAT: &str = "set_selected_chat";
     pub const PREVIEW_DELETE: &str = "preview_delete";
@@ -846,7 +843,7 @@ pub struct SetMonitorWindowScopeArgs {
     pub scope: MonitorWindowScope,
 }
 
-/// `IpcError.blocked` に追加する理由。統合時に `ipc::BlockedReason` へ移す（P2分の InsufficientSpace・SaveFailed は移動済み）。
+/// `IpcError.blocked` に追加する理由。統合時に `ipc::BlockedReason` へ移す（P2分・P3分は移動済み）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
@@ -855,21 +852,16 @@ pub enum LocalBlockedReason {
     FolderIsWorkspace { path: String },
     TargetExists { path: String },
     DeletePending,
-    ChatBusy,
-    QueueRetargetUnconfirmed { waiting: u32 },
-    QueueEntryNotEditable,
     AttachmentNotReady { attachment: LocalId },
     ModelLacksInput { input: AttachmentKind },
 }
 
-/// 追加のホスト→UIイベント。統合時に `ipc::HostEvent` の variant へ移す（seqは共通。P2分の chatLocalUpdated・saveStatusUpdated・settingsUpdated は移動済み）。
+/// 追加のホスト→UIイベント。統合時に `ipc::HostEvent` の variant へ移す（seqは共通。P2分・P3分は移動済み）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum LocalHostEvent {
-    /// キュー全体を送る（`queueUpdated` の項目単位を置き換える）。
-    ChatQueueUpdated { queue: ChatQueue },
     AttachmentUpdated { entry: AttachmentEntry },
     ArtifactUpdated { entry: ArtifactEntry },
     QuitUpdated { phase: QuitPhase },
