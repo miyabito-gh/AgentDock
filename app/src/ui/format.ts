@@ -74,6 +74,7 @@ export function stopCauseText(c: QueueStopCause, nameOf: (a: AgentKey) => string
     case "descendantInterrupted": return `${nameOf(c.agent)} の作業が中断されたため、後続の送信を止めています`;
     case "sendRejected": return "依頼の送信が受け付けられなかったため、後続の送信を止めています";
     case "notAcceptedAfterReconcile": return "履歴に受理の痕跡がない依頼があるため、後続の送信を止めています";
+    case "attachmentUnavailable": return `添付「${c.name}」を使えないため、依頼を送らずに後続の送信を止めています（送信は試みていません）`;
   }
 }
 

@@ -7,6 +7,7 @@
 //! - 切断・受理不明で自動再送しない。照合（読み取りのみ）は自動で行ってよい。
 //! - 監視のためにresume・承認・停止をしない。resumeはユーザーの送信・再開操作の中でだけ行う。
 
+pub mod attachments;
 pub mod lifecycle;
 pub mod manage;
 pub mod notifier;
@@ -226,6 +227,7 @@ impl Host {
     pub fn start_event_pump(self: &Arc<Self>) {
         self.start_queue_driver();
         self.start_manage_watch();
+        self.spawn_recheck_files(None);
         let Some(mut rx) = self.backend.take_events() else { return };
         let host = self.clone();
         tokio::spawn(async move {
@@ -241,7 +243,7 @@ impl Host {
             let (events, follow) = d.apply_event(env, &caps);
             (follow, events)
         });
-        if !matches!(env.event, BackendEvent::Activity { .. } | BackendEvent::ActivityDelta { .. }) {
+        if !matches!(env.event, BackendEvent::Activity { .. } | BackendEvent::ActivityDelta { .. } | BackendEvent::ArtifactObserved { .. }) {
             self.kick_queue();
         }
         for f in follow {
@@ -250,6 +252,7 @@ impl Host {
                     let host = self.clone();
                     host.start_scan(root);
                 }
+                Followup::ObserveArtifact { agent, item, path } => self.observe_artifact(agent, item, path),
             }
         }
     }
@@ -447,6 +450,8 @@ impl Host {
         let host = self.clone();
         let root = agent_key_of(&args.chat);
         host.start_scan(root);
+        // 添付・成果物の実体を確認する（なければ欠損として表示する）。
+        self.spawn_recheck_files(Some(args.chat.clone()));
         Ok(history)
     }
 
@@ -612,10 +617,9 @@ impl Host {
         if args.text.trim().is_empty() {
             return Err(err(IpcErrorCode::InvalidArgs, "メッセージが空です"));
         }
-        if !args.attachments.is_empty() {
-            return Err(err(IpcErrorCode::Unsupported, "添付の送信は段階②で対応します"));
-        }
         self.check_sendable(&args.chat)?;
+        // 使えない添付（コピー中・失敗・欠損）やモデルが受けない入力があれば、再開（resume）より前に止める。
+        let attachments = self.prepare_attachments(&args.chat, &args.attachments).await?;
         self.ensure_live(&args.chat, confirmed).await?;
         let root = agent_key_of(&args.chat);
         let (running, active, model) = self.read(|d| {
@@ -636,17 +640,21 @@ impl Host {
         };
         // 権限・作業フォルダは新しいturnにだけ付ける。追加指示（turn/steer）では設定を変えない。
         let (permission, cwd) = if matches!(mode, SendMode::NewTurn) { self.send_overrides(&args.chat) } else { (None, None) };
+        let chat = args.chat.clone();
         let request = SendRequest {
             chat: args.chat,
             mode,
             text: args.text,
-            attachments: Vec::new(),
+            attachments,
             model,
             permission,
             cwd,
             client_message_id: self.local_id("cm").0,
         };
-        Ok(self.dispatch_send(request).await)
+        let attempt = self.dispatch_send(request).await;
+        // 送信に使った添付は下書きから外し、試行を記録する（拒否されても、再送（retry_send）は同じ添付で行う）。
+        self.attachments_used(&chat, &args.attachments, &attempt.attempt_id);
+        Ok(attempt)
     }
 
     pub async fn retry_send(self: &Arc<Self>, args: RetrySendArgs, confirmed: UserConfirmed) -> Result<SendAttempt, IpcError> {

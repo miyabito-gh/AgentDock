@@ -67,6 +67,8 @@ pub enum BackendEvent {
     Activity { activity: Activity },
     /// 逐次本文（agentMessage等のdelta）。順序は `seq` に従う。
     ActivityDelta { item: ItemKey, delta: String },
+    /// 会話で作られた（変更された）ファイルの候補。ファイル変更itemの確定時に出す。実在の確認はホストが行う（§3.8）。
+    ArtifactObserved { agent: AgentKey, item: ItemKey, path: String },
     /// 承認・質問の到着。自動回答しない。
     RequestOpened { request: PendingRequest },
     /// 要求がバックエンド側で解決済み（他経路の回答・取消・turn終了）。

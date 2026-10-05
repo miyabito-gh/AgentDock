@@ -3,4 +3,4 @@ import type { AgentKey } from "./AgentKey";
 import type { LocalId } from "./LocalId";
 import type { TurnKey } from "./TurnKey";
 
-export type QueueStopCause = { "kind": "parentFailed", turn: TurnKey, } | { "kind": "parentInterrupted", turn: TurnKey, } | { "kind": "descendantFailed", agent: AgentKey, } | { "kind": "descendantInterrupted", agent: AgentKey, } | { "kind": "sendRejected", entry: LocalId, } | { "kind": "notAcceptedAfterReconcile", entry: LocalId, };
+export type QueueStopCause = { "kind": "parentFailed", turn: TurnKey, } | { "kind": "parentInterrupted", turn: TurnKey, } | { "kind": "descendantFailed", agent: AgentKey, } | { "kind": "descendantInterrupted", agent: AgentKey, } | { "kind": "sendRejected", entry: LocalId, } | { "kind": "notAcceptedAfterReconcile", entry: LocalId, } | { "kind": "attachmentUnavailable", entry: LocalId, name: string, };

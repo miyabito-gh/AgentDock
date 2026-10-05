@@ -9,6 +9,7 @@ use tauri_plugin_autostart::ManagerExt;
 use crate::backend::backend::{ManageOutcome, Page, ResumeOutcome, RespondOutcome, UserConfirmed, ChatSummary, AgentHistory};
 use crate::backend::ipc::*;
 use crate::backend::local::{
+    AddAttachmentFileArgs, AttachmentArgs, AttachmentEntry, OpenFileArgs, SaveFileAsArgs,
     AcknowledgeFailureArgs, AppSettings, ChatArgs, ChatLocalView, ChatQueue, DeleteOutcome, DeletePreview, ExportMarkdownArgs, GetUsageArgs, UsageReport, EditQueueEntryArgs, EnqueueArgs, ForceKillArgs, ForceKillPreview, QueueEntry, QueueEntryArgs, QuitDecisionArgs, QuitPhase,
     ReconcileSendArgs, RetrySaveArgs, SaveStatus, SetAlwaysOnTopArgs, SetAppSettingsArgs, SetChatCwdArgs, SetChatPermissionArgs, SetDraftArgs, SetMonitorWindowScopeArgs, SetSelectedChatArgs,
     SettingsImpact, ShowMainWindowArgs,
@@ -189,6 +190,55 @@ pub async fn set_selected_chat(host: Hs<'_>, args: SetSelectedChatArgs) -> R<()>
     Ok(())
 }
 
+/// ファイル選択・ドロップで得たパスを添付する（チャット領域へコピーする。元ファイルは変更しない）。
+#[tauri::command]
+pub async fn add_attachment_file(host: Hs<'_>, args: AddAttachmentFileArgs) -> R<AttachmentEntry> {
+    host.inner().clone().add_attachment_file(args).await
+}
+
+/// クリップボード画像。本文は生バイト（PNG）、チャットと名前はヘッダー（`x-chat-backend`・`x-chat-id`・`x-file-name`）で受ける。
+#[tauri::command]
+pub async fn add_attachment_image_bytes(host: Hs<'_>, request: tauri::ipc::Request<'_>) -> R<AttachmentEntry> {
+    let bad = |m: &str| IpcError { code: IpcErrorCode::InvalidArgs, message: m.to_string(), blocked: None };
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else { return Err(bad("画像のデータを受け取れませんでした")) };
+    let header = |name: &str| request.headers().get(name).and_then(|v| v.to_str().ok()).map(str::to_string);
+    let backend: BackendKind = header("x-chat-backend")
+        .and_then(|b| serde_json::from_value(serde_json::Value::String(b)).ok())
+        .ok_or_else(|| bad("チャットの種別を指定してください"))?;
+    let id = header("x-chat-id").filter(|i| !i.is_empty()).ok_or_else(|| bad("チャットを指定してください"))?;
+    let name = header("x-file-name").filter(|n| !n.is_empty()).unwrap_or_else(|| "clipboard.png".to_string());
+    host.inner().clone().add_attachment_image_bytes(ChatKey { backend, id: ExternalId(id) }, name, bytes.clone()).await
+}
+
+/// 送信前の添付を取り外す（使っていないコピーだけ消す）。
+#[tauri::command]
+pub async fn remove_attachment(host: Hs<'_>, args: AttachmentArgs) -> R<()> {
+    host.inner().clone().remove_attachment(args).await
+}
+
+/// 関連アプリで開く（ユーザー操作のときだけ。生成完了では呼ばない）。実在を確認し、なければ欠損にして止める。
+#[tauri::command]
+pub async fn open_file(app: tauri::AppHandle, host: Hs<'_>, args: OpenFileArgs) -> R<()> {
+    use tauri_plugin_opener::OpenerExt;
+    let path = host.inner().clone().resolve_file(&args.target).await?;
+    app.opener()
+        .open_path(path.to_string_lossy(), None::<&str>)
+        .map_err(|e| IpcError { code: IpcErrorCode::Io, message: format!("開けませんでした: {e}"), blocked: None })
+}
+
+/// 名前を付けて保存。同名があれば `TargetExists` で止まる（UIで確認したら `overwriteConfirmed` で再実行）。
+#[tauri::command]
+pub async fn save_file_as(host: Hs<'_>, args: SaveFileAsArgs) -> R<()> {
+    host.inner().clone().save_file_as(args).await
+}
+
+/// 画像のアプリ内プレビュー用バイト列（画像だけ。大きいものは返さない）。
+#[tauri::command]
+pub async fn read_file_preview(host: Hs<'_>, args: OpenFileArgs) -> R<tauri::ipc::Response> {
+    let bytes = host.inner().clone().read_image_preview(&args.target).await?;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
 // ───────────────────────────── 窓・常駐・終了（P6） ─────────────────────────────
 
 fn io_err(message: String) -> IpcError {
@@ -300,30 +350,33 @@ pub async fn get_usage(host: Hs<'_>, args: GetUsageArgs) -> R<UsageReport> {
     host.inner().clone().get_usage(args).await
 }
 
-fn owner_hwnd(app: &tauri::AppHandle) -> isize {
-    app.get_webview_window(crate::win::window::label_of(crate::backend::local::WindowKind::Main)).and_then(|w| w.hwnd().ok()).map(|h| h.0 as isize).unwrap_or(0)
+fn picked_path(p: Option<tauri_plugin_dialog::FilePath>) -> R<Option<String>> {
+    match p {
+        None => Ok(None),
+        Some(fp) => fp.into_path().map(|p| Some(p.to_string_lossy().into_owned())).map_err(|e| io_err(format!("選択したパスを取得できませんでした: {e}"))),
+    }
 }
 
 /// codex.exe の「参照…」。選ぶだけで、設定は変えない。キャンセルなら None。
 #[tauri::command]
 pub async fn pick_codex_executable(app: tauri::AppHandle) -> R<Option<String>> {
-    let owner = owner_hwnd(&app);
-    tauri::async_runtime::spawn_blocking(move || {
-        crate::win::dialog::pick_path(owner, "codex.exe を選択", &[("実行ファイル (*.exe)", "*.exe"), ("すべてのファイル (*.*)", "*.*")], None, None)
+    use tauri_plugin_dialog::DialogExt;
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        app.dialog().file().set_title("codex.exe を選択").add_filter("実行ファイル", &["exe"]).blocking_pick_file()
     })
     .await
-    .map_err(|e| io_err(format!("ダイアログが異常終了しました: {e}")))?
-    .map_err(io_err)
+    .map_err(|e| io_err(format!("ダイアログが異常終了しました: {e}")))?;
+    picked_path(picked)
 }
 
 /// 保存先の選択（同名ファイルがあればOSが上書きを確認する）。キャンセルなら None。
 #[tauri::command]
 pub async fn pick_save_file(app: tauri::AppHandle, args: PickSaveFileArgs) -> R<Option<String>> {
-    let owner = owner_hwnd(&app);
-    tauri::async_runtime::spawn_blocking(move || {
-        crate::win::dialog::pick_path(owner, "保存先を選択", &[("Markdown (*.md)", "*.md"), ("すべてのファイル (*.*)", "*.*")], Some(&args.default_name), Some("md"))
+    use tauri_plugin_dialog::DialogExt;
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        app.dialog().file().set_title("保存先を選択").set_file_name(args.default_name).add_filter("Markdown", &["md"]).blocking_save_file()
     })
     .await
-    .map_err(|e| io_err(format!("ダイアログが異常終了しました: {e}")))?
-    .map_err(io_err)
+    .map_err(|e| io_err(format!("ダイアログが異常終了しました: {e}")))?;
+    picked_path(picked)
 }

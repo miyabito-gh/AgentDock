@@ -151,6 +151,14 @@ label{display:inline-flex;align-items:center;gap:6px}
 .chip.bad .st{color:var(--fail)}
 .chip button{height:20px;padding:0 4px}
 .thumb{width:22px;height:22px;border-radius:3px;background:linear-gradient(135deg,#9FC2D8,#476E86);flex:none}
+.thumbbtn{padding:0;height:22px;width:22px;border:0;background:none;flex:none}
+.thumbimg{width:22px;height:22px;border-radius:3px;object-fit:cover;display:block}
+.lightbox{position:fixed;inset:0;z-index:60;background:rgba(20,28,32,.82);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:#fff;cursor:zoom-out}
+.lightbox img{max-width:90vw;max-height:80vh;border-radius:4px;background:#fff}
+.files .frow{display:flex;align-items:center;gap:8px;padding:3px 0;border-top:1px solid var(--line)}
+.files .frow .st{color:var(--ink3);font-size:11.5px}
+.files .frow .st.bad{color:var(--fail)}
+.dropzone{position:fixed;inset:12px;z-index:55;border:2px dashed var(--accent,#2F6F8F);border-radius:8px;background:rgba(220,236,244,.78);display:flex;align-items:center;justify-content:center;text-align:center;padding:24px;font-size:14px;pointer-events:none}
 textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;padding:4px;outline:none;background:transparent;line-height:1.6}
 .ctrl{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
 .ctrl .grow{flex:1}

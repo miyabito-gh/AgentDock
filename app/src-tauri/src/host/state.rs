@@ -21,6 +21,8 @@ use crate::store::records::{ChatLocalFile, QueueFile};
 pub enum Followup {
     /// ルートの新しいturn開始を契機に、子孫を再走査する（読み取りのみ）。
     ScanDescendants(AgentKey),
+    /// 会話で作られたファイルの候補。実在を確認できたものだけ成果物にする（ファイルを読むので別taskで行う）。
+    ObserveArtifact { agent: AgentKey, item: ItemKey, path: String },
 }
 
 pub struct HostData {
@@ -122,6 +124,8 @@ impl HostData {
             settings: self.settings.clone(),
             model_settings: self.model_settings.iter().map(|(chat, settings)| ChatModelEntry { chat: chat.clone(), settings: settings.clone() }).collect(),
             startup_warnings: self.startup_warnings.clone(),
+            attachments: self.locals.values().flat_map(|f| f.attachments.iter().cloned()).collect(),
+            artifacts: self.locals.values().flat_map(|f| f.artifacts.iter().cloned()).collect(),
         }
     }
 
@@ -599,6 +603,9 @@ impl HostData {
             }
             BackendEvent::ActivityDelta { item, delta } => {
                 out.push(HostEvent::ActivityDelta { item: item.clone(), delta: delta.clone() });
+            }
+            BackendEvent::ArtifactObserved { agent, item, path } => {
+                follow.push(Followup::ObserveArtifact { agent: agent.clone(), item: item.clone(), path: path.clone() });
             }
             BackendEvent::RequestOpened { request } => {
                 match self.requests.iter_mut().find(|r| r.key == request.key) {

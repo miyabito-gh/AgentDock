@@ -1,6 +1,6 @@
 // 仮データ。ipc/types.ts の型に適合させる。T5で実IPCに差し替えるまでの表示確認用。
 import type {
-  Agent, AgentKey, AgentState, AgentStatus, AgentView, Attachment, Capabilities, Chat, ChatKey,
+  Agent, AgentKey, AgentState, AgentStatus, AgentView, AttachmentEntry, ArtifactEntry, Capabilities, Chat, ChatKey,
   ChatModelSettings, Evidence, EvidenceSource, Freshness, HostSnapshot, Known, ModelInfo,
   ChatQueue, PendingRequest, QueueEntry, QueueEntryState, SaveState, SourceInfo, StopRecord, TurnRecord, WaitInfo,
 } from "../ipc/types";
@@ -19,6 +19,12 @@ const ev = (source: EvidenceSource, sAgo: number, rawLabel: string | null = null
   ({ source, rawLabel, sourceTime: ago(sAgo), observedAt: ago(sAgo) });
 
 export const SOURCE = "src-1";
+
+const MOCK_ATTACHMENTS: AttachmentEntry[] = [
+  { id: "f1", chat: ck("a"), kind: "image", displayName: "エラー画面.png", source: { kind: "file", originalPath: "C:\\tmp\\エラー画面.png" }, copyPath: "x", size: val(48_000), attachedAt: ago(600), state: { kind: "ready" }, usedBy: [] },
+  { id: "f2", chat: ck("a"), kind: "file", displayName: "server.log", source: { kind: "file", originalPath: "C:\\logs\\server.log" }, copyPath: "x", size: val(120_000), attachedAt: ago(540), state: { kind: "ready" }, usedBy: [] },
+];
+const MOCK_ARTIFACTS: ArtifactEntry[] = [];
 
 const caps: Capabilities = {
   descendantMonitoring: "supported", descendantSearch: "experimental", historyReadWithoutResume: "supported",
@@ -71,7 +77,6 @@ export interface Bundle {
   snapshot: HostSnapshot;
   /** key: ChatKey.id */
   turns: Record<string, TurnRecord[]>;
-  attachments: Attachment[];
   modelSettings: Record<string, ChatModelSettings>;
   save: SaveState | null;
   /** 一覧外で作られた会話のラベル（origin=external時の表示用） */
@@ -139,6 +144,7 @@ function base(): Bundle {
       ],
       requests: [], stops: [], queues: [queue], monitorScope: { kind: "selectedChat", chat: ck("a") },
       chatLocals: [], saveStatus: [], settings: DEFAULT_SETTINGS, modelSettings: [], startupWarnings: [],
+      attachments: MOCK_ATTACHMENTS, artifacts: MOCK_ARTIFACTS,
     },
     turns: {
       a: turns("a", [
@@ -153,10 +159,6 @@ function base(): Bundle {
       d: turns("d", [["u", "今週の作業から週報の下書きを作って。"]]),
       e: turns("e", [["u", "release ビルドの設定を見直して。"], ["a", "（CLIで作成された保存履歴）profile.release の設定を提案しました。"]]),
     },
-    attachments: [
-      { id: "f1", kind: "image", originalPath: "C:\\tmp\\エラー画面.png", copyPath: "x", attachedAt: ago(600), exists: val(true), ownerChat: ck("a") },
-      { id: "f2", kind: "file", originalPath: "C:\\logs\\server.log", copyPath: "x", attachedAt: ago(540), exists: val(true), ownerChat: ck("a") },
-    ],
     modelSettings: { a: settings("gpt-6.1-sol", "中"), c: settings("gpt-6.1-sol", "低") },
     save: null,
     externalLabel: { e: "CLI" },
@@ -251,7 +253,7 @@ export function makeBundle(name: string): Bundle {
   }
   if (name === "empty") {
     s.chats = []; s.agents = []; s.queues = []; s.monitorScope = { kind: "selectedChat", chat: null };
-    b.turns = {}; b.attachments = []; b.modelSettings = {};
+    b.turns = {}; s.attachments = []; s.artifacts = []; b.modelSettings = {};
   }
   return b;
 }

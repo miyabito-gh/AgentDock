@@ -39,9 +39,8 @@ impl Persist {
         self.store.is_some()
     }
 
-    /// 保存層（削除・使用量・エクスポートの読み書き用。P7）。
-    pub(super) fn store(&self) -> Option<Arc<Store>> {
-        self.store.clone()
+    pub(super) fn store(&self) -> Option<&Arc<Store>> {
+        self.store.as_ref()
     }
 
     /// 書込みの直列化ロック（チャット領域の削除中に、同じ領域への書込みを入れないため。取得順は「このロック → データのロック」）。
@@ -317,7 +316,7 @@ impl Host {
     }
 
     /// 書込み（直列化）。最新の内容を読んでから書く。
-    fn write_scope(&self, scope: &SaveScope) -> Result<UnixMillis, StoreError> {
+    pub(super) fn write_scope(&self, scope: &SaveScope) -> Result<UnixMillis, StoreError> {
         let store = self.persist.store.as_ref().ok_or_else(|| StoreError::Io(std::io::Error::other("保存先が使えません")))?;
         let _g = self.persist.io_lock.lock().unwrap_or_else(|e| e.into_inner());
         let missing = || StoreError::Io(std::io::Error::other("保存する内容がありません"));

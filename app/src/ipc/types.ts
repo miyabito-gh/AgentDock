@@ -286,13 +286,16 @@ export interface CommandMap {
   get_usage: { args: GetUsageArgs; result: UsageReport };
   pick_codex_executable: { args: Record<string, never>; result: string | null };
   pick_save_file: { args: PickSaveFileArgs; result: string | null };
-}
-export type CommandName = keyof CommandMap;
-
-/** 追加コマンド。`add_attachment_image_bytes` は invoke(name, Uint8Array, { headers }) の生バイトで呼ぶため含めない。 */
-export interface LocalCommandMap {
   add_attachment_file: { args: AddAttachmentFileArgs; result: AttachmentEntry };
   remove_attachment: { args: AttachmentArgs; result: null };
   open_file: { args: OpenFileArgs; result: null };
   save_file_as: { args: SaveFileAsArgs; result: null };
+}
+export type CommandName = keyof CommandMap;
+
+/**
+ * 追加コマンド（実装するタスクで CommandMap へ移す）。
+ * 添付の `add_attachment_image_bytes`（生バイトで送る）と `read_file_preview`（生バイトで返る）は、invoke を直接呼ぶため CommandMap に含めない（client.ts）。
+ */
+export interface LocalCommandMap {
 }

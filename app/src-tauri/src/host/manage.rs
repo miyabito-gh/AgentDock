@@ -251,7 +251,7 @@ impl Host {
                 l.and_then(|l| l.delete_pending.clone()),
             )
         });
-        let chat_area_bytes = match self.persist.store() {
+        let chat_area_bytes = match self.persist.store().cloned() {
             Some(store) => {
                 let c = chat.clone();
                 match tokio::task::spawn_blocking(move || store.chat_area_bytes(&c)).await {
@@ -427,7 +427,7 @@ impl Host {
     /// チャット専用領域を消し、アプリ側の状態を片付ける（`spawn_blocking` から）。書込みと並ばないよう保存のロックを持つ。
     /// 領域の削除に失敗したら、状態は残す（保留を残して再実行できる）。
     fn remove_area(self: &Arc<Self>, chat: &ChatKey, external: bool) -> Result<(), (Vec<String>, Vec<String>)> {
-        let store = self.persist.store();
+        let store = self.persist.store().cloned();
         let _g = self.persist.io_guard();
         if let Some(store) = &store {
             store.remove_chat_dir(chat)?;
@@ -491,7 +491,7 @@ impl Host {
             )
         });
         let activity = if args.include_monitor_activity {
-            Some(match self.persist.store() {
+            Some(match self.persist.store().cloned() {
                 Some(store) => {
                     let c = chat.clone();
                     tokio::task::spawn_blocking(move || store.read_activity(&c))
@@ -511,11 +511,11 @@ impl Host {
             attachments: &attachments,
             artifacts: &artifacts,
             monitor_activity: activity.as_deref(),
-            exported_at_local: crate::win::dialog::local_time_text(),
+            exported_at_local: crate::win::clock::local_time_text(),
         });
         let bytes = md.into_bytes();
         let needed = bytes.len() as u64;
-        let store = self.persist.store();
+        let store = self.persist.store().cloned();
         tokio::task::spawn_blocking(move || -> Result<(), IpcError> {
             if let Some(store) = store {
                 if let Err(StoreError::InsufficientSpace { required, available }) = store.check_space(needed) {
@@ -532,7 +532,7 @@ impl Host {
 
     /// 使用量の集計（背景で実行）。`chat` 指定ならそのチャットだけ。旧領域は全体のときだけ別に数える。
     pub async fn get_usage(self: &Arc<Self>, args: GetUsageArgs) -> Result<UsageReport, IpcError> {
-        let Some(store) = self.persist.store() else {
+        let Some(store) = self.persist.store().cloned() else {
             return Err(err(IpcErrorCode::Io, "保存先を使えていないため、使用量を集計できません"));
         };
         let chat = args.chat;

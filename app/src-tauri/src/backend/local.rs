@@ -280,6 +280,8 @@ pub enum QueueStopCause {
     SendRejected { entry: LocalId },
     /// 受理不明を照合した結果、受理の痕跡がなかった。
     NotAcceptedAfterReconcile { entry: LocalId },
+    /// 先頭項目の添付（コピー中・失敗・欠損など）を送信時に使えず、送らずに止めた。送信は試みていない。
+    AttachmentUnavailable { entry: LocalId, name: String },
 }
 
 /// 保留の対象（表示用）。
@@ -597,12 +599,6 @@ pub enum DeleteOutcome {
 
 /// 追加コマンド名。統合時に `ipc::command_names` へ移す（P2分・P3分・P6分は移動済み）。
 pub mod local_command_names {
-    pub const ADD_ATTACHMENT_FILE: &str = "add_attachment_file";
-    /// 本文は生バイト（`tauri::ipc::Request` の Raw body）。チャットIDと名前はヘッダーで渡す。
-    pub const ADD_ATTACHMENT_IMAGE_BYTES: &str = "add_attachment_image_bytes";
-    pub const REMOVE_ATTACHMENT: &str = "remove_attachment";
-    pub const OPEN_FILE: &str = "open_file";
-    pub const SAVE_FILE_AS: &str = "save_file_as";
     pub const ACKNOWLEDGE_FAILURE: &str = "acknowledge_failure";
     pub const SET_SELECTED_CHAT: &str = "set_selected_chat";
 }
@@ -850,11 +846,7 @@ pub struct ShowMainWindowArgs {
 #[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum LocalBlockedReason {
-    FolderIsWorkspace { path: String },
-    TargetExists { path: String },
     DeletePending,
-    AttachmentNotReady { attachment: LocalId },
-    ModelLacksInput { input: AttachmentKind },
 }
 
 /// 追加のホスト→UIイベント。統合時に `ipc::HostEvent` の variant へ移す（seqは共通。P2分・P3分は移動済み）。
@@ -863,8 +855,6 @@ pub enum LocalBlockedReason {
 #[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum LocalHostEvent {
-    AttachmentUpdated { entry: AttachmentEntry },
-    ArtifactUpdated { entry: ArtifactEntry },
     /// トレイ・通知のクリックで、通常画面にこのチャットを表示する（回答・再実行はしない）。
     NavigateToChat { chat: ChatKey },
     UsageUpdated { report: UsageReport },
