@@ -286,6 +286,10 @@ pub struct SendRequest {
     pub text: String,
     pub attachments: Vec<Attachment>,
     pub model: Option<ModelChoice>,
+    /// 送信時点で有効なチャットの権限。None＝バックエンド側の現在の設定のまま（上書きしない）。追加指示（Steer）では使わない。
+    pub permission: Option<PermissionPreset>,
+    /// 送信時点で有効な作業フォルダ。None＝上書きしない。追加指示（Steer）では使わない。
+    pub cwd: Option<String>,
     /// 照合用ID。ホストが試行ごとに新規発行する。
     pub client_message_id: String,
 }
@@ -316,6 +320,27 @@ impl UnconfirmedSend {
     }
     pub fn client_message_id(&self) -> &str {
         &self.request.client_message_id
+    }
+    /// 送った本文（再起動後も照合を続けるための保存用。再送には使えない）。
+    pub fn text(&self) -> &str {
+        &self.request.text
+    }
+    /// 再起動後に、保存してあった受理不明の記録から照合用の値を作り直す。照合（`reconcile_send`）以外に使えない。
+    /// 照合はチャットと `client_message_id` だけで行うので、本文以外の送信内容（添付・設定）は復元しない。
+    pub fn restore(chat: ChatKey, client_message_id: String, text: String, since: UnixMillis) -> Self {
+        UnconfirmedSend {
+            request: SendRequest {
+                chat,
+                mode: SendMode::NewTurn,
+                text,
+                attachments: Vec::new(),
+                model: None,
+                permission: None,
+                cwd: None,
+                client_message_id,
+            },
+            since,
+        }
     }
     /// アダプターが照合で受理なしを確定したときにだけ使う。
     pub fn into_not_accepted(self) -> NotAccepted {

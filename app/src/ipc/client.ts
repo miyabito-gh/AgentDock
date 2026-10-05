@@ -8,7 +8,7 @@ import {
   type HostEventEnvelope, type HostSnapshot, type InterruptChatResult, type IpcError, type IpcErrorCode, type LocalId,
   type ModelChoice, type ModelInfo, type MonitorScope, type Page, type ChatSummary, type PermissionPreset,
   type RequestAnswer, type RequestKey, type RespondOutcome, type SendAttempt, type SendIntent, type SourceInfo,
-  type StartChatResult, type ResumeOutcome, type SaveScope, type SaveStatus,
+  type StartChatResult, type ResumeOutcome, type SaveScope, type SaveStatus, type ChatQueue, type QueueEntry, type SettingsImpact,
   type ForceKillPreview, type MonitorWindowScope, type QuitDecision, type QuitPhase, type StopRecord, type WindowKind,
 } from "./types";
 
@@ -51,6 +51,19 @@ export const setMonitorScope = (scope: MonitorScope): Promise<null> => invokeCmd
 export const setDraft = (chat: ChatKey, text: string): Promise<null> => invokeCmd("set_draft", { chat, text });
 /** 保存の再試行（ユーザー操作）。失敗してもエラーにはならず、失敗の内容を含む状態が返る。 */
 export const retrySave = (scope: SaveScope): Promise<SaveStatus> => invokeCmd("retry_save", { scope });
+/** 完了後に送る依頼の登録（設定は送信時点のものを使う）。 */
+export const enqueue = (chat: ChatKey, text: string): Promise<QueueEntry> => invokeCmd("enqueue", { chat, text, attachments: [] });
+export const editQueueEntry = (chat: ChatKey, entry: LocalId, text: string): Promise<QueueEntry> =>
+  invokeCmd("edit_queue_entry", { chat, entry, text, attachments: [] });
+export const cancelQueueEntry = (chat: ChatKey, entry: LocalId): Promise<null> => invokeCmd("cancel_queue_entry", { chat, entry });
+/** 「キューを再開」（ユーザー操作）。「確認済み」とは別。失敗した依頼そのものは再実行しない。 */
+export const resumeQueue = (chat: ChatKey): Promise<ChatQueue> => invokeCmd("resume_queue", { chat });
+/** 「履歴と照合」。読み取りのみで再送しない。 */
+export const reconcileSend = (chat: ChatKey, attempt: LocalId): Promise<SendAttempt> => invokeCmd("reconcile_send", { chat, attempt });
+export const setChatPermission = (chat: ChatKey, permission: PermissionPreset): Promise<SettingsImpact> =>
+  invokeCmd("set_chat_permission", { chat, permission });
+export const setChatCwd = (chat: ChatKey, cwd: string, queueRetargetConfirmed: boolean): Promise<SettingsImpact> =>
+  invokeCmd("set_chat_cwd", { chat, cwd, queueRetargetConfirmed });
 /** アプリ設定の保存（通知設定など。ホストが保存し、`settingsUpdated` で返る）。 */
 export const setAppSettings = (settings: AppSettings): Promise<AppSettings> => invokeCmd("set_app_settings", { settings });
 /** 「確認済み」にする。印を外すだけで、再実行・成功化はしない。agent省略＝チャット内の未確認の失敗すべて。 */

@@ -3,6 +3,6 @@ import type { AttachmentKind } from "./AttachmentKind";
 import type { LocalId } from "./LocalId";
 
 /**
- * `IpcError.blocked` に追加する理由。統合時に `ipc::BlockedReason` へ移す（P2分の InsufficientSpace・SaveFailed は移動済み）。
+ * `IpcError.blocked` に追加する理由。統合時に `ipc::BlockedReason` へ移す（P2分・P3分は移動済み）。
  */
-export type LocalBlockedReason = { "kind": "folderIsWorkspace", path: string, } | { "kind": "targetExists", path: string, } | { "kind": "deletePending" } | { "kind": "chatBusy" } | { "kind": "queueRetargetUnconfirmed", waiting: number, } | { "kind": "queueEntryNotEditable" } | { "kind": "attachmentNotReady", attachment: LocalId, } | { "kind": "modelLacksInput", input: AttachmentKind, };
+export type LocalBlockedReason = { "kind": "folderIsWorkspace", path: string, } | { "kind": "targetExists", path: string, } | { "kind": "deletePending" } | { "kind": "attachmentNotReady", attachment: LocalId, } | { "kind": "modelLacksInput", input: AttachmentKind, };

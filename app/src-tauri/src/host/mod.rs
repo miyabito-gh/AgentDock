@@ -10,6 +10,7 @@
 pub mod lifecycle;
 pub mod notifier;
 pub mod persist;
+pub mod queue_driver;
 pub mod state;
 pub mod stop;
 
@@ -31,8 +32,6 @@ pub type Emitter = Arc<dyn Fn(HostEventEnvelope) + Send + Sync>;
 /// 既定のcodex.exe（Codexデスクトップ版の配置）。`~/.codex` は共有し、このアプリからは変更しない。
 pub const DEFAULT_CODEX_EXE: &str = r"C:\Users\wmasa\AppData\Local\Programs\OpenAI\Codex\bin\codex.exe";
 
-const RECONCILE_INTERVAL: Duration = Duration::from_secs(5);
-const RECONCILE_ATTEMPTS: usize = 12;
 const LIST_DEFAULT_LIMIT: u32 = 50;
 const SCAN_READ_LIMIT: usize = 50;
 const SCAN_INTERVAL: Duration = Duration::from_secs(3);
@@ -153,6 +152,8 @@ pub struct Host {
     counter: AtomicU64,
     /// 走査ループが動いているルート（重複起動しない）。
     scanning: Mutex<HashSet<AgentKey>>,
+    /// 完了後キューの実行状態（`queue_driver.rs`）。
+    queue_rt: queue_driver::QueueRuntime,
 }
 
 impl Host {
@@ -171,6 +172,7 @@ impl Host {
             rejected: Mutex::new(HashMap::new()),
             counter: AtomicU64::new(1),
             scanning: Mutex::new(HashSet::new()),
+            queue_rt: queue_driver::QueueRuntime::default(),
         }
     }
 
@@ -217,6 +219,7 @@ impl Host {
 
     /// バックエンドのイベントを常にdrainする専用task。ここでは要求をawaitしない。
     pub fn start_event_pump(self: &Arc<Self>) {
+        self.start_queue_driver();
         let Some(mut rx) = self.backend.take_events() else { return };
         let host = self.clone();
         tokio::spawn(async move {
@@ -232,6 +235,9 @@ impl Host {
             let (events, follow) = d.apply_event(env, &caps);
             (follow, events)
         });
+        if !matches!(env.event, BackendEvent::Activity { .. } | BackendEvent::ActivityDelta { .. }) {
+            self.kick_queue();
+        }
         for f in follow {
             match f {
                 Followup::ScanDescendants(root) => {
@@ -248,6 +254,7 @@ impl Host {
         if !self.scanning.lock().unwrap().insert(root.clone()) {
             return;
         }
+        self.queue_rt.reset_scan(&root);
         let host = self.clone();
         tokio::spawn(async move {
             let chat = ChatKey { backend: root.backend, id: root.id.clone() };
@@ -279,6 +286,7 @@ impl Host {
             Ok(scan) => {
                 found_n = scan.found.len();
                 complete = scan.complete;
+                self.queue_rt.note_scan(&root, scan.complete);
                 orphans = scan.found.iter().filter(|a| matches!(a.parent, ParentLink::Unknown)).count();
                 explicit = scan.found.iter().filter(|a| matches!(a.parent, ParentLink::Explicit { .. })).count();
                 // 未登録、または所属不明の仮登録のままのものを、見つかった正しい所属・親で反映する。
@@ -520,6 +528,9 @@ impl Host {
                 text,
                 attachments: Vec::new(),
                 model: args.model.clone(),
+                // スレッド開始時に権限・作業フォルダを渡し済み。
+                permission: None,
+                cwd: None,
                 client_message_id: self.local_id("cm").0,
             };
             first_send = Some(self.dispatch_send(request).await);
@@ -616,12 +627,16 @@ impl Host {
             }
             (SendIntent::NewTurn, None) => SendMode::NewTurn,
         };
+        // 権限・作業フォルダは新しいturnにだけ付ける。追加指示（turn/steer）では設定を変えない。
+        let (permission, cwd) = if matches!(mode, SendMode::NewTurn) { self.send_overrides(&args.chat) } else { (None, None) };
         let request = SendRequest {
             chat: args.chat,
             mode,
             text: args.text,
             attachments: Vec::new(),
             model,
+            permission,
+            cwd,
             client_message_id: self.local_id("cm").0,
         };
         Ok(self.dispatch_send(request).await)
@@ -641,6 +656,10 @@ impl Host {
             return Err(err(IpcErrorCode::NotFound, "再送できる送信がありません"));
         };
         let request = SendRequest::retry(not_accepted, confirmed, self.local_id("cm").0);
+        // キューの依頼だった場合は、項目の状態（送信中→受理など）も更新する。
+        if let Some((chat, entry)) = self.queue_entry_for_attempt(&args.attempt) {
+            return self.retry_entry_send(&chat, entry, request).await;
+        }
         Ok(self.dispatch_send(request).await)
     }
 
@@ -650,6 +669,7 @@ impl Host {
         let chat = request.chat.clone();
         let mut attempt = SendAttempt { attempt_id: attempt_id.clone(), client_message_id: request.client_message_id.clone(), at: now_ms(), state: SendState::Sending };
         self.emit_send(&chat, &attempt);
+        let sent_cwd = if matches!(request.mode, SendMode::NewTurn) { request.cwd.clone() } else { None };
         let state = match self.backend.send(request).await {
             SendOutcome::Accepted { turn, .. } => SendState::Accepted { turn },
             SendOutcome::Rejected { error, request } => {
@@ -658,17 +678,21 @@ impl Host {
             }
             SendOutcome::AcceptanceUnknown(u) => {
                 let since = u.since;
-                self.unresolved.lock().unwrap().add(attempt_id.clone(), chat.clone());
-                self.unconfirmed.lock().unwrap().insert(attempt_id.clone(), u);
-                let host = self.clone();
-                let (c, id, cm) = (chat.clone(), attempt_id.clone(), attempt.client_message_id.clone());
-                tokio::spawn(async move { host.reconcile_loop(c, id, cm, since).await });
+                // 登録・保存・照合の開始（切断・再起動をまたいで続ける）は queue_driver.rs。
+                self.register_unknown(&chat, &attempt_id, None, None, u);
                 SendState::AcceptanceUnknown { since }
             }
         };
         attempt.state = state;
         self.emit_send(&chat, &attempt);
         if matches!(attempt.state, SendState::Accepted { .. }) {
+            // 新しいturnで子孫が生まれ得る。キュー後続の判定に前の走査結果（完了）を残さず、読み取りだけの再走査を始める。
+            let root = agent_key_of(&chat);
+            self.queue_rt.reset_scan(&root);
+            self.start_scan(root);
+            if let Some(cwd) = sent_cwd {
+                self.apply_cwd_after_accept(&chat, cwd);
+            }
             // ユーザーの利用として最近利用時刻を更新する（背景活動では更新しない、§3.6）。
             self.mutate(|d| {
                 if let Some(c) = d.chats.iter_mut().find(|c| c.key == chat) {
@@ -686,32 +710,6 @@ impl Host {
     fn emit_send(&self, chat: &ChatKey, attempt: &SendAttempt) {
         let (chat, attempt) = (chat.clone(), attempt.clone());
         self.mutate(|_| ((), vec![HostEvent::SendUpdated { chat, attempt }]));
-    }
-
-    /// 受理不明の照合（履歴のclient_message_idを読むだけ。再送しない）。一定回数で諦め、不明のまま残す。
-    async fn reconcile_loop(self: Arc<Self>, chat: ChatKey, attempt_id: LocalId, client_message_id: String, since: UnixMillis) {
-        for _ in 0..RECONCILE_ATTEMPTS {
-            tokio::time::sleep(RECONCILE_INTERVAL).await;
-            let Some(pending) = self.unconfirmed.lock().unwrap().remove(&attempt_id) else { return };
-            let state = match self.backend.reconcile_send(pending).await {
-                ReconcileOutcome::Accepted { turn } => {
-                    self.unresolved.lock().unwrap().resolve(&attempt_id);
-                    SendState::Accepted { turn }
-                }
-                ReconcileOutcome::NotFound(na) => {
-                    self.unresolved.lock().unwrap().resolve(&attempt_id);
-                    self.rejected.lock().unwrap().insert(attempt_id.clone(), na);
-                    SendState::NotFoundAfterReconcile
-                }
-                ReconcileOutcome::StillUnknown(u) => {
-                    self.unconfirmed.lock().unwrap().insert(attempt_id.clone(), u);
-                    continue;
-                }
-            };
-            let attempt = SendAttempt { attempt_id, client_message_id, at: since, state };
-            self.emit_send(&chat, &attempt);
-            return;
-        }
     }
 
     // ── 承認・質問 ──

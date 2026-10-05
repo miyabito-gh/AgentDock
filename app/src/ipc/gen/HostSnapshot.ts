@@ -4,9 +4,9 @@ import type { AppSettings } from "./AppSettings";
 import type { Chat } from "./Chat";
 import type { ChatLocalView } from "./ChatLocalView";
 import type { ChatModelEntry } from "./ChatModelEntry";
+import type { ChatQueue } from "./ChatQueue";
 import type { MonitorScope } from "./MonitorScope";
 import type { PendingRequest } from "./PendingRequest";
-import type { QueueItem } from "./QueueItem";
 import type { SaveStatus } from "./SaveStatus";
 import type { SourceInfo } from "./SourceInfo";
 import type { StopRecord } from "./StopRecord";
@@ -18,7 +18,11 @@ export type HostSnapshot = {
 /**
  * この時点までに発行したイベントの最大seq。以後は seq+1 から適用する。
  */
-seq: number, sources: Array<SourceInfo>, chats: Array<Chat>, agents: Array<AgentView>, requests: Array<PendingRequest>, stops: Array<StopRecord>, queue: Array<QueueItem>, monitorScope: MonitorScope, 
+seq: number, sources: Array<SourceInfo>, chats: Array<Chat>, agents: Array<AgentView>, requests: Array<PendingRequest>, stops: Array<StopRecord>, 
+/**
+ * チャット別のキュー（送信待ちの依頼・進行・保留理由）。
+ */
+queues: Array<ChatQueue>, monitorScope: MonitorScope, 
 /**
  * アプリ側の補足情報（ピン・下書き・モデル/権限・一覧の見え方）。再起動後も復元される。
  */

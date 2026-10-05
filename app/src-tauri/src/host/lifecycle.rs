@@ -73,7 +73,9 @@ fn work_of(d: &HostData, chat: &ChatKey) -> ChatWork {
         stop_unconfirmed: d.open_stop(chat).map(|r| r.id.clone()),
         ownership_unknown: d.stops.iter().any(|r| &r.chat == chat && r.targets.iter().any(|t| t.ownership == Ownership::Unknown)),
         queue_pending: d.queues.get(chat).is_some_and(|q| {
-            q.queue.entries.iter().any(|e| matches!(e.state, QueueEntryState::Waiting | QueueEntryState::Sending { .. } | QueueEntryState::AcceptanceUnknown { .. }))
+            // 自動送信して終端を確認していないturn（awaiting）も未完了として数える。
+            q.queue.awaiting.is_some()
+                || q.queue.entries.iter().any(|e| matches!(e.state, QueueEntryState::Waiting | QueueEntryState::Sending { .. } | QueueEntryState::AcceptanceUnknown { .. }))
         }),
         unresolved_send: false,
     }
@@ -506,7 +508,8 @@ impl Host {
         });
     }
 
-    /// sleepから復帰した。live の鮮度を要照合にし（状態は変えない）、状態を読み直して、読めたものだけ live に戻す。
+    /// sleepから復帰した。live の鮮度を要照合にし（状態は変えない）、状態を読み直す。読み取りは live 購読の回復ではないので、結果は履歴のみ（historyOnly）に留める。
+    /// live に戻るのはユーザーの送信・再開操作（resume）だけ。通知・再送・resumeはしない。読めなかったものは要照合のまま残す。
     /// 通知・再送・resumeはしない。読めなかったものは要照合のまま残す。
     pub async fn on_resume(self: &Arc<Self>) {
         let at = now_ms();
@@ -531,12 +534,11 @@ impl Host {
         let mut roots: Vec<AgentKey> = Vec::new();
         for key in marked {
             let Ok(h) = self.backend.read(key.clone(), ReadOptions { include_turns: false }).await else { continue };
-            let live = h.status.state != AgentState::Unknown;
             let root = self.mutate(|d| {
                 let Some(existing) = d.view(&key).map(|v| v.agent.clone()) else { return (None, Vec::new()) };
                 // 照合の結果は通知しない（sleep中の完了を後から通知にしない）。
                 let notified = d.notify_inbox.len();
-                let events = if live { d.set_live(existing.clone(), h.status) } else { d.upsert_history_agent(existing.clone(), h.status) };
+                let events = d.upsert_history_agent(existing.clone(), h.status);
                 d.notify_inbox.truncate(notified);
                 (Some(agent_key_of(&existing.chat)), events)
             });

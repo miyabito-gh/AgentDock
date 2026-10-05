@@ -729,49 +729,6 @@ pub struct SendAttempt {
     pub state: SendState,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
-#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
-pub enum QueueHoldReason {
-    NotLive { freshness: Freshness },
-    DescendantsNotFinished,
-    StopUnconfirmed,
-    AcceptanceUnknown,
-    UserPaused,
-    Other { message: String },
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
-#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
-pub enum QueueItemState {
-    Waiting,
-    Held { reason: QueueHoldReason },
-    Sending,
-    AcceptanceUnknown,
-    Sent { turn: TurnKey },
-    Cancelled,
-}
-
-/// キュー項目（§5）。§3.7の動作はT1範囲外。データ形だけ定める。
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
-#[serde(rename_all = "camelCase")]
-pub struct QueueItem {
-    pub id: LocalId,
-    pub chat: ChatKey,
-    pub text: String,
-    pub attachments: Vec<LocalId>,
-    #[cfg_attr(test, ts(type = "number"))]
-    pub order: u64,
-    pub state: QueueItemState,
-    pub attempts: Vec<SendAttempt>,
-    pub settings: Option<ChatModelSettings>,
-}
-
 // ───────────────────────────── 添付（§5） ─────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

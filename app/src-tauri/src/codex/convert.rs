@@ -531,6 +531,18 @@ pub fn permission_params(p: PermissionPreset) -> (&'static str, &'static str) {
     }
 }
 
+/// 権限プリセット → `turn/start` の `sandboxPolicy`（turn単位の上書き。以後のturnにも及ぶ）。
+/// workspaceWrite の書込み範囲は作業フォルダ（追加の書込みルートは足さない）。ネットワークは許可しない。
+pub fn sandbox_policy_json(p: PermissionPreset) -> serde_json::Value {
+    match p {
+        PermissionPreset::WorkspaceWriteOnRequest => serde_json::json!({
+            "type": "workspaceWrite", "writableRoots": [], "networkAccess": false, "excludeTmpdirEnvVar": false, "excludeSlashTmp": false
+        }),
+        PermissionPreset::ReadOnly => serde_json::json!({"type": "readOnly", "networkAccess": false}),
+        PermissionPreset::FullAccess => serde_json::json!({"type": "dangerFullAccess"}),
+    }
+}
+
 // ───────────────────────────── テスト ─────────────────────────────
 
 #[cfg(test)]

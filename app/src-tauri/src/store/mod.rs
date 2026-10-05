@@ -482,7 +482,7 @@ mod tests {
         };
         let q = QueueFile {
             schema_version: SCHEMA_VERSION,
-            queue: ChatQueue { chat: key("t2"), run: QueueRun::Active, hold: None, baseline_at: None, entries: vec![entry], next_order: 1 },
+            queue: ChatQueue { chat: key("t2"), run: QueueRun::Active, hold: None, baseline_at: None, awaiting: None, entries: vec![entry], next_order: 1 },
             unresolved_sends: vec![],
         };
         store.save_queue(&q).unwrap();

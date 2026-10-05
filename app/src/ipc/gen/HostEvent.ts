@@ -6,9 +6,9 @@ import type { Chat } from "./Chat";
 import type { ChatKey } from "./ChatKey";
 import type { ChatLocalView } from "./ChatLocalView";
 import type { ChatModelSettings } from "./ChatModelSettings";
+import type { ChatQueue } from "./ChatQueue";
 import type { ItemKey } from "./ItemKey";
 import type { PendingRequest } from "./PendingRequest";
-import type { QueueItem } from "./QueueItem";
 import type { QuitPhase } from "./QuitPhase";
 import type { SaveStatus } from "./SaveStatus";
 import type { SendAttempt } from "./SendAttempt";
@@ -22,4 +22,4 @@ import type { UnixMillis } from "./UnixMillis";
 /**
  * UIへの差分イベント。状態と鮮度は `AgentView` に並置して送り、UIは片方からもう片方を導かない。
  */
-export type HostEvent = { "kind": "sourceUpdated", source: SourceInfo, } | { "kind": "chatUpdated", chat: Chat, } | { "kind": "chatRemoved", chat: ChatKey, } | { "kind": "agentUpdated", view: AgentView, } | { "kind": "turnUpdated", turn: TurnKey, end: TurnEnd | null, } | { "kind": "activityUpdated", activity: Activity, } | { "kind": "activityDelta", item: ItemKey, delta: string, } | { "kind": "requestUpdated", request: PendingRequest, } | { "kind": "sendUpdated", chat: ChatKey, attempt: SendAttempt, } | { "kind": "queueUpdated", item: QueueItem, } | { "kind": "stopUpdated", record: StopRecord, } | { "kind": "modelSettingsUpdated", chat: ChatKey, settings: ChatModelSettings, } | { "kind": "chatLocalUpdated", local: ChatLocalView, } | { "kind": "saveStatusUpdated", status: SaveStatus, } | { "kind": "settingsUpdated", settings: AppSettings, } | { "kind": "navigateToChat", chat: ChatKey, } | { "kind": "quitUpdated", phase: QuitPhase, } | { "kind": "systemResumed", at: UnixMillis, } | { "kind": "warning", source: SourceId | null, message: string, rawLabel: string | null, };
+export type HostEvent = { "kind": "sourceUpdated", source: SourceInfo, } | { "kind": "chatUpdated", chat: Chat, } | { "kind": "chatRemoved", chat: ChatKey, } | { "kind": "agentUpdated", view: AgentView, } | { "kind": "turnUpdated", turn: TurnKey, end: TurnEnd | null, } | { "kind": "activityUpdated", activity: Activity, } | { "kind": "activityDelta", item: ItemKey, delta: string, } | { "kind": "requestUpdated", request: PendingRequest, } | { "kind": "sendUpdated", chat: ChatKey, attempt: SendAttempt, } | { "kind": "chatQueueUpdated", queue: ChatQueue, } | { "kind": "stopUpdated", record: StopRecord, } | { "kind": "modelSettingsUpdated", chat: ChatKey, settings: ChatModelSettings, } | { "kind": "chatLocalUpdated", local: ChatLocalView, } | { "kind": "saveStatusUpdated", status: SaveStatus, } | { "kind": "settingsUpdated", settings: AppSettings, } | { "kind": "navigateToChat", chat: ChatKey, } | { "kind": "quitUpdated", phase: QuitPhase, } | { "kind": "systemResumed", at: UnixMillis, } | { "kind": "warning", source: SourceId | null, message: string, rawLabel: string | null, };

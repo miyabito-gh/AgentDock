@@ -1,6 +1,6 @@
 // 表示用の変換。型は ipc/types.ts のものだけを使う。
 import type {
-  AgentKey, AgentState, ChatKey, Freshness, Known, StopSummary, EvidenceSource, QueueHoldReason,
+  AgentKey, AgentState, ChatKey, Freshness, HoldTarget, Known, StopSummary, EvidenceSource, QueueHold, QueueStopCause,
 } from "../ipc/types";
 
 export const keyStr = (k: ChatKey | AgentKey): string => `${k.backend}:${k.id}`;
@@ -44,14 +44,36 @@ export const STOP_LABEL: Record<StopSummary, string> = {
   ownershipUnknown: "所有を確認できないため停止対象に含めていません",
 };
 
-export function holdText(r: QueueHoldReason): string {
-  switch (r.kind) {
-    case "notLive": return `live監視が未復旧のため保留（${FRESH[r.freshness].t}）`;
-    case "descendantsNotFinished": return "子孫が作業中のため保留";
-    case "stopUnconfirmed": return "停止未確認のため保留";
-    case "acceptanceUnknown": return "受理不明の依頼があるため保留";
-    case "userPaused": return "一時停止中";
-    case "other": return r.message;
+/** 保留の対象の一覧（名前・状態・鮮度）。状態と鮮度は別軸のまま並べる。 */
+const targetList = (ts: HoldTarget[], nameOf: (a: AgentKey) => string): string =>
+  ts.map((t) => `${nameOf(t.agent)}（${STATE[t.state].t}／${FRESH[t.freshness].t}）`).join("、");
+
+/** 自動送信を待っている理由。対象があるものは対象も示す（§3.7）。 */
+export function holdText(h: QueueHold, nameOf: (a: AgentKey) => string): string {
+  switch (h.kind) {
+    case "parentWorking": return "親が作業中のため、完了を待っています";
+    case "descendantsActive": return `子・孫が作業中・待機中のため保留: ${targetList(h.targets, nameOf)}`;
+    case "stateUnknown": {
+      const parts = [h.targets.length ? targetList(h.targets, nameOf) : "", h.descendantScanIncomplete ? "子孫の探索が完了していません" : ""].filter(Boolean);
+      return `状態を確認できないため保留${parts.length ? `: ${parts.join("／")}` : ""}`;
+    }
+    case "notLive": return `受信（ライブ監視）が戻っていないため保留: ${targetList(h.targets, nameOf)}`;
+    case "stopUnconfirmed": return "停止を確認できていないため保留";
+    case "acceptanceUnknown": return "受理不明の依頼があるため保留（履歴との照合を待っています）";
+    case "deletePending": return "削除保留中のため、送信を止めています";
+    case "disconnected": return "接続が切れているため保留（再接続後に判断します）";
+  }
+}
+
+/** キューを止めた原因。 */
+export function stopCauseText(c: QueueStopCause, nameOf: (a: AgentKey) => string): string {
+  switch (c.kind) {
+    case "parentFailed": return "親の作業が失敗したため、後続の送信を止めています";
+    case "parentInterrupted": return "親の作業が中断されたため、後続の送信を止めています";
+    case "descendantFailed": return `${nameOf(c.agent)} の作業が失敗したため、後続の送信を止めています`;
+    case "descendantInterrupted": return `${nameOf(c.agent)} の作業が中断されたため、後続の送信を止めています`;
+    case "sendRejected": return "依頼の送信が受け付けられなかったため、後続の送信を止めています";
+    case "notAcceptedAfterReconcile": return "履歴に受理の痕跡がない依頼があるため、後続の送信を止めています";
   }
 }
 

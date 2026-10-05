@@ -204,7 +204,7 @@ mod tests {
 
         let q = QueueFile {
             schema_version: SCHEMA_VERSION,
-            queue: ChatQueue { chat: key(), run: QueueRun::PausedAfterRestart, hold: None, baseline_at: None, entries: vec![], next_order: 3 },
+            queue: ChatQueue { chat: key(), run: QueueRun::PausedAfterRestart, hold: None, baseline_at: None, awaiting: None, entries: vec![], next_order: 3 },
             unresolved_sends: vec![UnresolvedSendRecord {
                 attempt: LocalId("att".into()),
                 chat: key(),
