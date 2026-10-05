@@ -45,7 +45,7 @@ function agent(id: string, chatId: string, parent: string | null | "?", name: st
   return {
     key: ak(id), chat: ck(chatId),
     parent: parent === null ? { kind: "root" } : parent === "?" ? { kind: "unknown" } : { kind: "explicit", parent: ak(parent) },
-    forkedFrom: val(null), displayName: name ? val(name) : nf(), role: role ? val(role) : nf(), assignment: task ? val(task) : nf(),
+    forkedFrom: val(null), displayName: name ? val(name) : nf(), role: role ? val(role) : nf(), assignment: task ? val(task) : nf(), agentPath: nf(),
     latestTurn: "t1",
   };
 }

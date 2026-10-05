@@ -137,6 +137,8 @@ export interface Agent {
   displayName: Known<string>;
   role: Known<string>;
   assignment: Known<string>;
+  /** Codexが返したエージェントの経路（例 /root/luna）。役割とは別 */
+  agentPath: Known<string>;
   latestTurn: ExternalId | null;
 }
 export interface AgentView {

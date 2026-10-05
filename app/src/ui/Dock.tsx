@@ -1,5 +1,6 @@
 import type { AgentView, Chat, HostSnapshot, MonitorScope } from "../ipc/types";
 import { Flag, Icon } from "./Icon";
+import type { Known } from "../ipc/types";
 import { chatAgents, chatName, isDoneLike, previewTitle } from "./derive";
 import { FRESH, SOURCE_LABEL, STATE, hms, keyStr, showKnown } from "./format";
 import { TitleBar } from "./Chrome";
@@ -15,13 +16,19 @@ function waitText(a: AgentView): string | null {
   }
 }
 
+/** 活動の表示。値が本当に無ければ「活動なし」、取得していなければ「未確認」（欠損の語は出さない）。 */
+function activityText(k: Known<string>): string {
+  if (k.kind === "value") return k.value;
+  return k.kind === "notFetched" ? "未確認" : k.kind === "unsupported" ? "このAIでは非対応" : "活動なし";
+}
+
 function Berth({ a, depth, orphan, mini, confirmed, onConfirmFail, rootName }: {
   rootName?: string; a: AgentView; depth: number; orphan: boolean; mini: boolean; confirmed: boolean; onConfirmFail: (key: string) => void;
 }) {
   const m = STATE[a.status.state];
   const rel = orphan ? "親不明" : ["メイン", "子", "孫", "ひ孫"][depth] ?? `${depth}階層下`;
   const notLive = a.freshness !== "live";
-  const act = waitText(a) ?? (a.currentActivity ? showKnown(a.currentActivity.summary) : a.status.state === "unknown" ? `原状態: ${a.status.raw.label}（根拠なし）` : "活動なし");
+  const act = waitText(a) ?? (a.currentActivity ? activityText(a.currentActivity.summary) : a.status.state === "unknown" ? `原状態: ${a.status.raw.label}（根拠なし）` : "活動なし");
   const failUnconfirmed = a.status.state === "failed" && !confirmed;
   return (
     <div className={`berth ${m.c} ${notLive ? "stale" : ""}`}>
@@ -29,7 +36,7 @@ function Berth({ a, depth, orphan, mini, confirmed, onConfirmFail, rootName }: {
         <span className="nm">{a.agent.parent.kind === "root" ? (rootName ?? showKnown(a.agent.displayName)) : showKnown(a.agent.displayName)}</span><span className="rel">{rel}</span>
         <span className={`st ${m.c}`}><Flag c={m.c} />{m.t}</span>
       </div>
-      {mini ? null : <div className="l2">{a.agent.parent.kind === "root" ? "役割: メイン（会話の本体）" : <>役割: {a.agent.role.kind === "missing" ? "未提供（Codexが返していません）" : showKnown(a.agent.role)}　担当: {showKnown(a.agent.assignment)}</>}</div>}
+      {mini ? null : <div className="l2">{a.agent.parent.kind === "root" ? "役割: メイン（会話の本体）" : <>役割: {a.agent.role.kind === "missing" ? "未提供（Codexが返していません）" : showKnown(a.agent.role)}{a.agent.agentPath.kind === "value" ? <>　経路: <span className="mono" title="Codexが返したエージェントの経路">{a.agent.agentPath.value}</span></> : null}　担当: {showKnown(a.agent.assignment)}</>}</div>}
       <div className="l3" title={act}>{act}</div>
       {mini ? null : (
         <div className="l4">

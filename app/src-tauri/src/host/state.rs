@@ -140,7 +140,9 @@ impl HostData {
 
     /// 担当が未取得なら、確定済みの担当を入れる。
     fn with_assignment(&self, mut a: Agent) -> Agent {
-        if a.assignment.value().is_none() {
+        // 親のspawn依頼で確定した担当（直接）は、子の最初の依頼からの導出値より優先する。
+        let derived_or_none = !matches!(a.assignment, Known::Value { basis: Basis::Direct, .. });
+        if derived_or_none {
             if let Some(t) = self.assignments.get(&a.key) {
                 a.assignment = Known::direct(t.clone());
             }
@@ -408,6 +410,7 @@ impl HostData {
                                     display_name: Known::NotFetched,
                                     role: Known::NotFetched,
                                     assignment: Known::NotFetched,
+                                    agent_path: Known::NotFetched,
                                     latest_turn: status.turn.clone(),
                                 },
                                 status: status.clone(),
@@ -553,6 +556,7 @@ mod tests {
             display_name: Known::NotFetched,
             role: Known::NotFetched,
             assignment: Known::NotFetched,
+            agent_path: Known::NotFetched,
             latest_turn: None,
         }
     }

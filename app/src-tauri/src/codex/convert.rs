@@ -184,7 +184,12 @@ pub fn thread_to_agent(t: &WireThread, chat: ChatKey) -> Agent {
         // ニックネーム・役割はThread直下、無ければ source.subAgent.thread_spawn の値を使う（どちらにも無ければ欠損）。
         display_name: if is_root { known_str(&t.name) } else { known_str(&t.agent_nickname.clone().or_else(|| t.spawn_field("agent_nickname"))) },
         role: known_str(&t.agent_role.clone().or_else(|| t.spawn_field("agent_role"))),
-        assignment: Known::NotFetched,
+        // 担当: 子の最初の依頼（親が渡した指示）の先頭。子自身のスレッドの値なので別の子に混ざらない（導出値）。
+        assignment: match (is_root, t.preview.as_deref().map(str::trim).filter(|p| !p.is_empty())) {
+            (false, Some(p)) => Known::Value { value: truncate(p, 80), basis: Basis::Derived },
+            _ => Known::NotFetched,
+        },
+        agent_path: if is_root { Known::NotFetched } else { known_str(&t.spawn_field("agent_path")) },
         latest_turn: t.latest_turn().map(|x| ext(x.id())),
     }
 }
@@ -361,9 +366,16 @@ pub fn spawn_assignment(item: &Value) -> Option<(AgentKey, String)> {
     if str_of(item, "type") != Some("collabAgentToolCall") || str_of(item, "tool") != Some("spawnAgent") {
         return None;
     }
-    let ids = item.get("receiverThreadIds")?.as_array()?;
-    let [only] = ids.as_slice() else { return None };
-    let child = only.as_str().filter(|s| !s.is_empty())?;
+    // 受信側は receiverThreadIds、空なら agentsStates のキー（どちらも1件に確定できるときだけ）。
+    let mut ids: Vec<String> = item.get("receiverThreadIds").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_string).collect();
+    if ids.is_empty() {
+        ids = item.get("agentsStates").and_then(Value::as_object).map(|o| o.keys().cloned().collect()).unwrap_or_default();
+    }
+    let [child] = ids.as_slice() else { return None };
+    let child = child.as_str();
+    if child.is_empty() {
+        return None;
+    }
     let prompt = str_of(item, "prompt").map(str::trim).filter(|p| !p.is_empty())?;
     Some((agent_key(child), truncate(prompt, 80)))
 }
@@ -648,11 +660,30 @@ mod tests {
     }
 
     #[test]
+    fn child_assignment_and_path_come_from_its_own_thread() {
+        let t = thread(json!({
+            "id": "c1", "preview": "再送経路を洗い出して。ログも見て", "status": {"type": "idle"},
+            "source": {"subAgent": {"thread_spawn": {"parent_thread_id": "p", "depth": 1, "agent_path": "/root/luna", "agent_nickname": "Plato", "agent_role": null}}}
+        }));
+        let a = thread_to_agent(&t, chat_key("p"));
+        assert_eq!(a.agent_path, Known::direct("/root/luna".to_string()));
+        assert_eq!(a.role, Known::Missing);
+        assert_eq!(a.assignment, Known::Value { value: "再送経路を洗い出して。ログも見て".to_string(), basis: Basis::Derived });
+        // ルートや、依頼文が無い子には作らない。
+        let root = thread(json!({"id": "r", "preview": "何かして", "status": {"type": "idle"}}));
+        assert_eq!(thread_to_agent(&root, chat_key("r")).assignment, Known::NotFetched);
+        let empty = thread(json!({"id": "c2", "preview": "  ", "status": {"type": "idle"}, "source": {"subAgent": {"thread_spawn": {"parent_thread_id": "p"}}}}));
+        assert_eq!(thread_to_agent(&empty, chat_key("p")).assignment, Known::NotFetched);
+    }
+
+    #[test]
     fn spawn_assignment_only_when_the_receiver_is_unambiguous() {
         let item = |ids: Value, tool: &str| json!({"type": "collabAgentToolCall", "tool": tool, "status": "completed", "receiverThreadIds": ids, "prompt": "  再送経路を洗い出して  "});
         assert_eq!(spawn_assignment(&item(json!(["c1"]), "spawnAgent")), Some((agent_key("c1"), "再送経路を洗い出して".to_string())));
         assert_eq!(spawn_assignment(&item(json!(["c1", "c2"]), "spawnAgent")), None, "ambiguous: do not guess");
         assert_eq!(spawn_assignment(&item(json!([]), "spawnAgent")), None);
+        let by_state = json!({"type": "collabAgentToolCall", "tool": "spawnAgent", "receiverThreadIds": [], "prompt": "調べて", "agentsStates": {"c9": {"status": "running", "message": null}}});
+        assert_eq!(spawn_assignment(&by_state), Some((agent_key("c9"), "調べて".to_string())));
         assert_eq!(spawn_assignment(&item(json!(["c1"]), "sendInput")), None);
         let long = json!({"type": "collabAgentToolCall", "tool": "spawnAgent", "receiverThreadIds": ["c1"], "prompt": "あ".repeat(120)});
         assert_eq!(spawn_assignment(&long).unwrap().1.chars().count(), 81);

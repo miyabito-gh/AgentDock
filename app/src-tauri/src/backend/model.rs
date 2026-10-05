@@ -404,6 +404,8 @@ pub struct Agent {
     pub role: Known<String>,
     /// 具体的な担当（M05）。
     pub assignment: Known<String>,
+    /// Codexが返したエージェントの経路（例 `/root/luna`）。役割とは別。
+    pub agent_path: Known<String>,
     pub latest_turn: Option<ExternalId>,
 }
 

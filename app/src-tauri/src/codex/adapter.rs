@@ -36,6 +36,7 @@ const SUBAGENT_KINDS: [&str; 5] = ["subAgent", "subAgentReview", "subAgentCompac
 
 static SOURCE_COUNTER: AtomicU64 = AtomicU64::new(1);
 static CHILD_SOURCE_LOGGED: AtomicBool = AtomicBool::new(false);
+static ITEM_SHAPES_LOGGED: StdMutex<Vec<String>> = StdMutex::new(Vec::new());
 
 fn now_ms() -> UnixMillis {
     UnixMillis(SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0))
@@ -227,6 +228,39 @@ fn log_unsupported(method: &str, params: &Value, e: &BackendEvent) {
     }
 }
 
+/// サブエージェント関連itemの形を種別ごとに1回だけ診断ログへ（キー構造・件数のみ。ID・本文は書かない）。
+fn log_item_shape_once(params: &Value) {
+    let Some(item) = params.get("item") else { return };
+    let ty = item.get("type").and_then(Value::as_str).unwrap_or("");
+    let (key, text) = match ty {
+        "collabAgentToolCall" => {
+            let tool = item.get("tool").and_then(Value::as_str).unwrap_or("?");
+            let receivers = item.get("receiverThreadIds").and_then(Value::as_array).map(Vec::len);
+            let states = item.get("agentsStates").and_then(Value::as_object).map(|o| o.len());
+            (
+                format!("{ty}/{tool}"),
+                format!(
+                    "tool={tool} receivers={receivers:?} agentsStatesKeys={states:?} promptPresent={} status={}",
+                    item.get("prompt").is_some_and(|p| p.as_str().is_some_and(|s| !s.is_empty())),
+                    item.get("status").and_then(Value::as_str).unwrap_or("?")
+                ),
+            )
+        }
+        "subAgentActivity" => (ty.to_string(), crate::diag::shape(item)),
+        "dynamicToolCall" => {
+            let tool = item.get("tool").and_then(Value::as_str).unwrap_or("?");
+            (format!("{ty}/{tool}"), format!("tool={tool} args={}", crate::diag::shape(item.get("arguments").unwrap_or(&Value::Null))))
+        }
+        _ => return,
+    };
+    let mut seen = ITEM_SHAPES_LOGGED.lock().unwrap();
+    if seen.contains(&key) {
+        return;
+    }
+    seen.push(key.clone());
+    crate::diag::log("item-shape", &format!("{key} {text}"));
+}
+
 fn log_source(label: &str, resp: &Value) {
     let kind = crate::diag::source_kind(resp.get("thread").and_then(|t| t.get("source")));
     crate::diag::log("thread-source", &format!("{label} sourceKind={kind}"));
@@ -241,6 +275,9 @@ async fn pump(shared: Arc<Shared>, source: SourceId, mut rx: mpsc::Receiver<RpcE
                 let ctx = EventCtx { source: &source, now: now_ms(), chat_of: &chat_of };
                 for e in notification_to_events(&method, &params, &ctx) {
                     log_unsupported(&method, &params, &e);
+                    if matches!(e, BackendEvent::Activity { .. }) {
+                        log_item_shape_once(&params);
+                    }
                     match &e {
                         BackendEvent::AgentDiscovered { agent } => shared.remember(agent),
                         BackendEvent::RequestResolved { request, .. } => {

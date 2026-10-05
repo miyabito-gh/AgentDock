@@ -174,6 +174,7 @@ mod tests {
             display_name: Known::NotFetched,
             role: Known::NotFetched,
             assignment: Known::NotFetched,
+            agent_path: Known::NotFetched,
             latest_turn: None,
         }
     }
