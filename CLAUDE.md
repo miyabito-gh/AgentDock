@@ -83,6 +83,7 @@ AgentDockプロジェクトのClaude Code向け作業指示。毎ターン読み
 |---|---|---|---|
 |P0|ついで整理: host/mod.rsの`tauri::async_runtime::spawn`→`tokio::spawn`（Tauriなしでテスト可能に）、`app/src/mock/`を動的`import()`化、build.rsの`tauri_build`スキップ調査|implementer|—|
 |P1|段階②設計（`app/DESIGN_P2.md`）: 保存層、キュー状態機械、添付・成果物、通知集約、窓・トレイ・終了・強制終了、wake、IPC追加、ts-rs採否|designer|—|
+|P1b|ts-rs導入（DESIGN_P2 §7.1）: ipc.rs等から`src/ipc/gen/`を生成し、types.tsは再exportに|implementer|P1|
 |P2|保存層: %LOCALAPPDATA%の専用領域・チャット別領域、保存状態と再試行、使用量・空き確認、ピン・モデル設定・下書き・送信前添付・削除保留・設定の永続化と復元|implementer|P1|
 |P3|キュー（§3.7）: 追加指示／完了後送信、送信条件・停止・再開、編集・取消、受理不明の照合（再接続後も）、停止中バナー、設定変更の影響表示、作業フォルダ変更（M44）|implementer|P2|
 |P4|添付・成果物（§3.8）: コピー保持、D&D・選択・画像貼付け、プレビュー、localImage／mention、成果物の開く・保存、欠損表示、選択範囲の貼付け|implementer|P2|
@@ -92,7 +93,10 @@ AgentDockプロジェクトのClaude Code向け作業指示。毎ターン読み
 |R2|P3・P6の差分レビュー（送信条件・停止・終了・保存）|designer|P3・P6|
 |S2|NSISインストーラーのビルドと実機確認手順書|司令塔|全部|
 
+順序: P0 → P1b → P2 → P3∥P5 → P4∥P6 → P7 → R2 → S2（設計・引継ぎ表は `app/DESIGN_P2.md` §8）。
+
 段階②で合意した判断（2026-10-06）:
+- キュー自動送信の鮮度: 親はlive必須、子孫はliveか履歴で終端確認済みなら可（正本1.1 §4.2）。
 - 強制終了は、AgentDockが起動したApp ServerをJob Objectで包み子孫プロセスごと終了する。管理外の実行は対象外。終了後も確認できるまでは停止未確認。
 - 作業中アーカイブは、アプリの一覧から即座に隠し作業・通知・キューを継続、Codexの`thread/archive`は完了・停止確認後に送る。
 - 添付メニューの追加項目は「選択範囲を貼り付け」だけ段階②。過去会話の参考指定・Skill指定は段階③（§3.14 #8・#11）。

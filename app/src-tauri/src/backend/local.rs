@@ -16,6 +16,8 @@ use super::model::*;
 
 /// 保存の単位。1単位＝1ファイル（原子的書込みの単位）。
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum SaveScope {
     /// アプリ設定（通知・窓・自動起動・codex.exeパス等）。
@@ -31,6 +33,8 @@ pub enum SaveScope {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct SaveStatus {
     pub scope: SaveScope,
@@ -45,6 +49,8 @@ pub struct SaveStatus {
 
 /// 入力途中の文章と送信前の添付（M40）。復元だけで送信しない。
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct Draft {
     pub text: String,
@@ -55,6 +61,8 @@ pub struct Draft {
 
 /// アプリの一覧での見え方（§3.6、M43）。Codex側のarchive状態とは別に持つ。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum ListVisibility {
     Visible,
@@ -66,6 +74,8 @@ pub enum ListVisibility {
 
 /// Codex側への `archive` 反映の進み具合。作業完了・停止確認の後に送る（合意 2026-10-06）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum ArchiveSync {
     /// 作業中・停止未確認・キュー残りのため待っている。
@@ -81,6 +91,8 @@ pub enum ArchiveSync {
 /// 削除保留（M46）。停止未確認・所有不明・部分失敗の間は会話・添付・成果物を保持し、送信を止める。
 /// 停止確認後も自動では削除しない。ユーザーが再度「削除」を選んだときだけ削除する。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct DeletePending {
     pub requested_at: UnixMillis,
@@ -90,6 +102,8 @@ pub struct DeletePending {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum DeletePendingReason {
     StopUnconfirmed,
@@ -102,6 +116,8 @@ pub enum DeletePendingReason {
 
 /// 左の一覧の印（§3.11）。通知設定に関係なく付ける。永続化しない（状態から導出）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct ChatMarks {
     pub awaiting_answer: bool,
@@ -111,6 +127,8 @@ pub struct ChatMarks {
 
 /// チャット別の補足情報（UIへ出す形）。`Chat` と並べて表示する。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct ChatLocalView {
     pub chat: ChatKey,
@@ -133,6 +151,8 @@ pub struct ChatLocalView {
 // ───────────────────────────── 添付・成果物（§3.8） ─────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum AttachmentSource {
     /// ファイル選択・ドラッグ＆ドロップ。元パスは参照のみ（変更・削除しない、M32）。
@@ -142,9 +162,11 @@ pub enum AttachmentSource {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum CopyFailure {
-    InsufficientSpace { required: u64, available: u64 },
+    InsufficientSpace { #[cfg_attr(test, ts(type = "number"))] required: u64, #[cfg_attr(test, ts(type = "number"))] available: u64 },
     SourceUnreadable,
     WriteFailed,
     /// コピー中にアプリが終了した（起動時に検出）。
@@ -154,6 +176,8 @@ pub enum CopyFailure {
 
 /// 添付の状態。`Ready` だけが送信に使える（不完全なコピーを利用可能にしない）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum AttachmentState {
     Copying,
@@ -164,6 +188,8 @@ pub enum AttachmentState {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct AttachmentEntry {
     pub id: LocalId,
@@ -173,6 +199,7 @@ pub struct AttachmentEntry {
     pub source: AttachmentSource,
     /// チャット領域内のコピーの絶対パス。`Ready` 以外では使わない。
     pub copy_path: Option<String>,
+    #[cfg_attr(test, ts(as = "Known<u32>"))]
     pub size: Known<u64>,
     /// 同じファイルの再添付を区別する（別コピー・別添付）。
     pub attached_at: UnixMillis,
@@ -183,6 +210,8 @@ pub struct AttachmentEntry {
 
 /// 成果物（会話で作られたファイル）。実在を確認したものだけ会話内のファイル項目として示す（§3.8）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct ArtifactEntry {
     pub id: LocalId,
@@ -200,6 +229,8 @@ pub struct ArtifactEntry {
 
 /// 開く・名前を付けて保存の対象。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum FileRef {
     Attachment { chat: ChatKey, id: LocalId },
@@ -210,6 +241,8 @@ pub enum FileRef {
 
 /// 送信時点で適用した設定（§3.7「送信時点で有効なチャットの設定」）。登録時には決めない。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct AppliedSettings {
     pub model: Option<ModelChoice>,
@@ -220,6 +253,8 @@ pub struct AppliedSettings {
 
 /// キュー全体の進行。項目の状態とは別に持つ。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum QueueRun {
     /// 条件がそろえば先頭を1件送る。
@@ -231,6 +266,8 @@ pub enum QueueRun {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum QueueStopCause {
     ParentFailed { turn: TurnKey },
@@ -245,6 +282,8 @@ pub enum QueueStopCause {
 
 /// 保留の対象（表示用）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct HoldTarget {
     pub agent: AgentKey,
@@ -254,6 +293,8 @@ pub struct HoldTarget {
 
 /// 自動送信を待っている理由。対象と理由を表示する（§3.7）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum QueueHold {
     /// 親が作業中（通常の待ち）。
@@ -272,6 +313,8 @@ pub enum QueueHold {
 
 /// キュー項目の状態。保留（Hold）は項目ではなくキュー全体に付く。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum QueueEntryState {
     /// 送信待ち。編集・取消できる。
@@ -286,6 +329,8 @@ pub enum QueueEntryState {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct QueueEntry {
     pub id: LocalId,
@@ -293,6 +338,7 @@ pub struct QueueEntry {
     pub text: String,
     pub attachments: Vec<LocalId>,
     /// 登録順（チャット内で単調増加）。
+    #[cfg_attr(test, ts(type = "number"))]
     pub order: u64,
     pub registered_at: UnixMillis,
     pub state: QueueEntryState,
@@ -303,6 +349,8 @@ pub struct QueueEntry {
 
 /// チャット1件分のキュー（UIへ出す形・保存する形の共通部分）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct ChatQueue {
     pub chat: ChatKey,
@@ -312,6 +360,7 @@ pub struct ChatQueue {
     /// 失敗・中断を監視する基準時刻（待っている親turnの開始観測時刻）。これより前の終端では止めない。
     pub baseline_at: Option<UnixMillis>,
     pub entries: Vec<QueueEntry>,
+    #[cfg_attr(test, ts(type = "number"))]
     pub next_order: u64,
 }
 
@@ -319,6 +368,8 @@ pub struct ChatQueue {
 
 /// 通知設定（M38）。初期値はすべてオン、チャット名を表示。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct NotificationSettings {
     pub enabled: bool,
@@ -336,6 +387,8 @@ impl Default for NotificationSettings {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub enum WindowKind {
     Main,
@@ -345,6 +398,8 @@ pub enum WindowKind {
 
 /// コンパクト監視窓の表示範囲（初期値は選択中チャット）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub enum MonitorWindowScope {
     #[default]
@@ -354,6 +409,8 @@ pub enum MonitorWindowScope {
 
 /// 物理ピクセルの窓位置・サイズ。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct WindowBounds {
     pub x: i32,
@@ -364,6 +421,8 @@ pub struct WindowBounds {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct WindowPrefs {
     /// 最前面（窓ごとに独立、初期値オフ、M37）。
@@ -372,6 +431,8 @@ pub struct WindowPrefs {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub enum SendKey {
     CtrlEnter,
@@ -380,6 +441,8 @@ pub enum SendKey {
 
 /// アプリ設定。`%LOCALAPPDATA%` 配下の専用領域に保存する。`~/.codex` には書かない。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
     /// codex.exe のパス。None＝PATH（§11の推奨）。
@@ -399,6 +462,8 @@ pub struct AppSettings {
 
 /// 完全終了の進行。閉じる操作（トレイ格納）では使わない（M26）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum QuitPhase {
     Idle,
@@ -416,6 +481,8 @@ pub enum QuitPhase {
 
 /// 強制終了の確認内容。App Server（Job Object）単位で終了するため、同じ監視元の全チャットが影響を受ける。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct ForceKillPreview {
     pub source: SourceId,
@@ -428,18 +495,27 @@ pub struct ForceKillPreview {
 // ───────────────────────────── 使用量（§3.12、D02） ─────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct UsageBreakdown {
+    #[cfg_attr(test, ts(type = "number"))]
     pub attachments: u64,
+    #[cfg_attr(test, ts(type = "number"))]
     pub artifacts: u64,
     /// 一般チャットの作業領域。
+    #[cfg_attr(test, ts(type = "number"))]
     pub workspace: u64,
+    #[cfg_attr(test, ts(type = "number"))]
     pub activity: u64,
     /// 設定・台帳などのJSON。
+    #[cfg_attr(test, ts(type = "number"))]
     pub metadata: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct ChatUsage {
     pub chat: ChatKey,
@@ -447,11 +523,14 @@ pub struct ChatUsage {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct UsageReport {
     pub total: UsageBreakdown,
     pub chats: Vec<ChatUsage>,
     /// 専用領域のあるドライブの空き。
+    #[cfg_attr(test, ts(as = "Known<u32>"))]
     pub free_space: Known<u64>,
     pub measured_at: UnixMillis,
     /// 読めなかったパス（合計に含まれていない。0で代用しない）。
@@ -462,6 +541,8 @@ pub struct UsageReport {
 
 /// 削除確認に表示する内容（§3.6、§27）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct DeletePreview {
     pub chat: ChatKey,
@@ -470,12 +551,15 @@ pub struct DeletePreview {
     pub descendants: Known<u32>,
     pub attachments: u32,
     pub artifacts_in_chat_area: u32,
+    #[cfg_attr(test, ts(as = "Known<u32>"))]
     pub chat_area_bytes: Known<u64>,
     /// 作業中なら、中断して停止を確認してから削除する（停止未確認なら保留）。
     pub requires_stop: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum DeleteOutcome {
     Deleted,
@@ -524,24 +608,32 @@ pub mod local_command_names {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct ChatArgs {
     pub chat: ChatKey,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct SetAppSettingsArgs {
     pub settings: AppSettings,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct RetrySaveArgs {
     pub scope: SaveScope,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct SetDraftArgs {
     pub chat: ChatKey,
@@ -549,6 +641,8 @@ pub struct SetDraftArgs {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct AddAttachmentFileArgs {
     pub chat: ChatKey,
@@ -557,6 +651,8 @@ pub struct AddAttachmentFileArgs {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct AttachmentArgs {
     pub chat: ChatKey,
@@ -564,12 +660,16 @@ pub struct AttachmentArgs {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct OpenFileArgs {
     pub target: FileRef,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct SaveFileAsArgs {
     pub target: FileRef,
@@ -580,6 +680,8 @@ pub struct SaveFileAsArgs {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct EnqueueArgs {
     pub chat: ChatKey,
@@ -588,6 +690,8 @@ pub struct EnqueueArgs {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct EditQueueEntryArgs {
     pub chat: ChatKey,
@@ -597,6 +701,8 @@ pub struct EditQueueEntryArgs {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct QueueEntryArgs {
     pub chat: ChatKey,
@@ -604,6 +710,8 @@ pub struct QueueEntryArgs {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct ReconcileSendArgs {
     pub chat: ChatKey,
@@ -611,6 +719,8 @@ pub struct ReconcileSendArgs {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct SetChatPermissionArgs {
     pub chat: ChatKey,
@@ -619,6 +729,8 @@ pub struct SetChatPermissionArgs {
 
 /// 設定変更が送信待ちの依頼に及ぶ範囲（§3.7「設定変更時に待機依頼への影響を表示」）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct SettingsImpact {
     pub local: ChatLocalView,
@@ -626,6 +738,8 @@ pub struct SettingsImpact {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct SetChatCwdArgs {
     pub chat: ChatKey,
@@ -635,6 +749,8 @@ pub struct SetChatCwdArgs {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct AcknowledgeFailureArgs {
     pub chat: ChatKey,
@@ -643,12 +759,16 @@ pub struct AcknowledgeFailureArgs {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct SetSelectedChatArgs {
     pub chat: Option<ChatKey>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct ExportMarkdownArgs {
     pub chat: ChatKey,
@@ -659,6 +779,8 @@ pub struct ExportMarkdownArgs {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct GetUsageArgs {
     /// None＝全体と全チャット。
@@ -666,6 +788,8 @@ pub struct GetUsageArgs {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub enum QuitDecision {
     /// 終了を取り消す。
@@ -679,18 +803,24 @@ pub enum QuitDecision {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct QuitDecisionArgs {
     pub decision: QuitDecision,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct ForceKillArgs {
     pub source: SourceId,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct SetAlwaysOnTopArgs {
     pub window: WindowKind,
@@ -698,6 +828,8 @@ pub struct SetAlwaysOnTopArgs {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct SetMonitorWindowScopeArgs {
     pub scope: MonitorWindowScope,
@@ -705,9 +837,11 @@ pub struct SetMonitorWindowScopeArgs {
 
 /// `IpcError.blocked` に追加する理由。統合時に `ipc::BlockedReason` へ移す。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum LocalBlockedReason {
-    InsufficientSpace { required: u64, available: u64 },
+    InsufficientSpace { #[cfg_attr(test, ts(type = "number"))] required: u64, #[cfg_attr(test, ts(type = "number"))] available: u64 },
     FolderIsWorkspace { path: String },
     TargetExists { path: String },
     DeletePending,
@@ -721,6 +855,8 @@ pub enum LocalBlockedReason {
 
 /// 追加のホスト→UIイベント。統合時に `ipc::HostEvent` の variant へ移す（seqは共通）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum LocalHostEvent {
     ChatLocalUpdated { local: ChatLocalView },

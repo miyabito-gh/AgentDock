@@ -129,6 +129,8 @@ pub struct ConnectConfig {
 
 /// 権限の初期値（§3.3）。無断でフルアクセスへ変更しない。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub enum PermissionPreset {
     /// 作業領域内の操作を許可＋必要時に確認（初期値）。
@@ -171,6 +173,8 @@ pub struct ListChatsQuery {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct Page<T> {
     pub items: Vec<T>,
@@ -178,6 +182,8 @@ pub struct Page<T> {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct ChatSummary {
     pub chat: Chat,
@@ -194,6 +200,8 @@ pub struct ReadOptions {
 
 /// 保存履歴の読み取り結果。readはlive購読を戻さないので、鮮度は呼び出し側で `HistoryOnly` とする。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct AgentHistory {
     pub agent: Agent,
@@ -203,6 +211,8 @@ pub struct AgentHistory {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum ResumeOutcome {
     /// 同じ会話として再開し、live購読が戻った。
@@ -223,6 +233,8 @@ pub struct DescendantScan {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum ManageOp {
     Rename { name: String },
@@ -233,6 +245,8 @@ pub enum ManageOp {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum ManageOutcome {
     Done,
@@ -345,6 +359,8 @@ pub enum ReconcileOutcome {
 // ───────────────────────────── 承認・質問・中断 ─────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum RespondOutcome {
     Delivered,
@@ -356,6 +372,8 @@ pub enum RespondOutcome {
 
 /// 中断要求の受付結果。停止の確認ではない（§3.4）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum InterruptAck {
     /// 要求を受け付けた。終端は `TurnEnded` で照合する。

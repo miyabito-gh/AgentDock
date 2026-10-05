@@ -1,427 +1,238 @@
-// AgentDock IPC契約（手書き）。正本は app/src-tauri/src/backend/{model,backend,ipc}.rs。
-// 規則: 構造体はcamelCase、データを持つenumは `kind` タグ、値なしenumは文字列リテラル。
-// Rust側を変えたら必ずここも同時に変える。Codex固有の型はここに出さない。
+// AgentDock IPC契約。型は Rust（src-tauri/src/backend/{model,backend,ipc,local}.rs）から ts-rs で生成した
+// gen/*.ts の再エクスポート。手書きは定数と CommandMap だけ。生成物は直接編集しない。
+// 再生成: cd app/src-tauri && cargo test export_bindings
 
-// ───────────── 基本型 ─────────────
+export type { AcknowledgeFailureArgs } from "./gen/AcknowledgeFailureArgs";
+export type { Activity } from "./gen/Activity";
+export type { ActivityKind } from "./gen/ActivityKind";
+export type { ActivityPhase } from "./gen/ActivityPhase";
+export type { AddAttachmentFileArgs } from "./gen/AddAttachmentFileArgs";
+export type { Agent } from "./gen/Agent";
+export type { AgentHistory } from "./gen/AgentHistory";
+export type { AgentKey } from "./gen/AgentKey";
+export type { AgentState } from "./gen/AgentState";
+export type { AgentStatus } from "./gen/AgentStatus";
+export type { AgentView } from "./gen/AgentView";
+export type { AppSettings } from "./gen/AppSettings";
+export type { AppliedSettings } from "./gen/AppliedSettings";
+export type { ApplyTiming } from "./gen/ApplyTiming";
+export type { ArchiveSync } from "./gen/ArchiveSync";
+export type { ArtifactEntry } from "./gen/ArtifactEntry";
+export type { Attachment } from "./gen/Attachment";
+export type { AttachmentArgs } from "./gen/AttachmentArgs";
+export type { AttachmentEntry } from "./gen/AttachmentEntry";
+export type { AttachmentKind } from "./gen/AttachmentKind";
+export type { AttachmentSource } from "./gen/AttachmentSource";
+export type { AttachmentState } from "./gen/AttachmentState";
+export type { BackendKind } from "./gen/BackendKind";
+export type { Basis } from "./gen/Basis";
+export type { BlockedReason } from "./gen/BlockedReason";
+export type { Capabilities } from "./gen/Capabilities";
+export type { Chat } from "./gen/Chat";
+export type { ChatArgs } from "./gen/ChatArgs";
+export type { ChatKey } from "./gen/ChatKey";
+export type { ChatKind } from "./gen/ChatKind";
+export type { ChatLocalView } from "./gen/ChatLocalView";
+export type { ChatMarks } from "./gen/ChatMarks";
+export type { ChatModelSettings } from "./gen/ChatModelSettings";
+export type { ChatOrigin } from "./gen/ChatOrigin";
+export type { ChatQueue } from "./gen/ChatQueue";
+export type { ChatSummary } from "./gen/ChatSummary";
+export type { ChatUsage } from "./gen/ChatUsage";
+export type { ConnectBackendArgs } from "./gen/ConnectBackendArgs";
+export type { ConnectionState } from "./gen/ConnectionState";
+export type { CopyFailure } from "./gen/CopyFailure";
+export type { DecisionEffect } from "./gen/DecisionEffect";
+export type { DecisionOption } from "./gen/DecisionOption";
+export type { DecisionScope } from "./gen/DecisionScope";
+export type { DeleteOutcome } from "./gen/DeleteOutcome";
+export type { DeletePending } from "./gen/DeletePending";
+export type { DeletePendingReason } from "./gen/DeletePendingReason";
+export type { DeletePreview } from "./gen/DeletePreview";
+export type { Draft } from "./gen/Draft";
+export type { EditQueueEntryArgs } from "./gen/EditQueueEntryArgs";
+export type { EffortOption } from "./gen/EffortOption";
+export type { EnqueueArgs } from "./gen/EnqueueArgs";
+export type { Evidence } from "./gen/Evidence";
+export type { EvidenceSource } from "./gen/EvidenceSource";
+export type { ExportMarkdownArgs } from "./gen/ExportMarkdownArgs";
+export type { ExternalId } from "./gen/ExternalId";
+export type { FileRef } from "./gen/FileRef";
+export type { ForceKillArgs } from "./gen/ForceKillArgs";
+export type { ForceKillPreview } from "./gen/ForceKillPreview";
+export type { Freshness } from "./gen/Freshness";
+export type { GetUsageArgs } from "./gen/GetUsageArgs";
+export type { HoldTarget } from "./gen/HoldTarget";
+export type { HostEvent } from "./gen/HostEvent";
+export type { HostEventEnvelope } from "./gen/HostEventEnvelope";
+export type { HostSnapshot } from "./gen/HostSnapshot";
+export type { InterruptAck } from "./gen/InterruptAck";
+export type { InterruptChatArgs } from "./gen/InterruptChatArgs";
+export type { InterruptChatResult } from "./gen/InterruptChatResult";
+export type { IpcError } from "./gen/IpcError";
+export type { IpcErrorCode } from "./gen/IpcErrorCode";
+export type { ItemKey } from "./gen/ItemKey";
+export type { Known } from "./gen/Known";
+export type { LaunchFailure } from "./gen/LaunchFailure";
+export type { ListChatsArgs } from "./gen/ListChatsArgs";
+export type { ListModelsArgs } from "./gen/ListModelsArgs";
+export type { ListVisibility } from "./gen/ListVisibility";
+export type { LocalBlockedReason } from "./gen/LocalBlockedReason";
+export type { LocalHostEvent } from "./gen/LocalHostEvent";
+export type { LocalId } from "./gen/LocalId";
+export type { ManageChatArgs } from "./gen/ManageChatArgs";
+export type { ManageOp } from "./gen/ManageOp";
+export type { ManageOutcome } from "./gen/ManageOutcome";
+export type { ModelChoice } from "./gen/ModelChoice";
+export type { ModelInfo } from "./gen/ModelInfo";
+export type { MonitorScope } from "./gen/MonitorScope";
+export type { MonitorWindowScope } from "./gen/MonitorWindowScope";
+export type { NotificationSettings } from "./gen/NotificationSettings";
+export type { OpenChatArgs } from "./gen/OpenChatArgs";
+export type { OpenFileArgs } from "./gen/OpenFileArgs";
+export type { Ownership } from "./gen/Ownership";
+export type { Page } from "./gen/Page";
+export type { ParentLink } from "./gen/ParentLink";
+export type { PendingRequest } from "./gen/PendingRequest";
+export type { PermissionPreset } from "./gen/PermissionPreset";
+export type { Question } from "./gen/Question";
+export type { QuestionAnswer } from "./gen/QuestionAnswer";
+export type { QueueEntry } from "./gen/QueueEntry";
+export type { QueueEntryArgs } from "./gen/QueueEntryArgs";
+export type { QueueEntryState } from "./gen/QueueEntryState";
+export type { QueueHold } from "./gen/QueueHold";
+export type { QueueHoldReason } from "./gen/QueueHoldReason";
+export type { QueueItem } from "./gen/QueueItem";
+export type { QueueItemState } from "./gen/QueueItemState";
+export type { QueueRun } from "./gen/QueueRun";
+export type { QueueStopCause } from "./gen/QueueStopCause";
+export type { QuitDecision } from "./gen/QuitDecision";
+export type { QuitDecisionArgs } from "./gen/QuitDecisionArgs";
+export type { QuitPhase } from "./gen/QuitPhase";
+export type { RawState } from "./gen/RawState";
+export type { ReconcileSendArgs } from "./gen/ReconcileSendArgs";
+export type { RequestAnswer } from "./gen/RequestAnswer";
+export type { RequestDetail } from "./gen/RequestDetail";
+export type { RequestKey } from "./gen/RequestKey";
+export type { RequestKind } from "./gen/RequestKind";
+export type { RequestState } from "./gen/RequestState";
+export type { RespondOutcome } from "./gen/RespondOutcome";
+export type { RespondRequestArgs } from "./gen/RespondRequestArgs";
+export type { ResumeChatArgs } from "./gen/ResumeChatArgs";
+export type { ResumeOutcome } from "./gen/ResumeOutcome";
+export type { RetrySaveArgs } from "./gen/RetrySaveArgs";
+export type { RetrySendArgs } from "./gen/RetrySendArgs";
+export type { SaveFileAsArgs } from "./gen/SaveFileAsArgs";
+export type { SaveScope } from "./gen/SaveScope";
+export type { SaveState } from "./gen/SaveState";
+export type { SaveStatus } from "./gen/SaveStatus";
+export type { SendAttempt } from "./gen/SendAttempt";
+export type { SendIntent } from "./gen/SendIntent";
+export type { SendKey } from "./gen/SendKey";
+export type { SendMessageArgs } from "./gen/SendMessageArgs";
+export type { SendState } from "./gen/SendState";
+export type { SetAlwaysOnTopArgs } from "./gen/SetAlwaysOnTopArgs";
+export type { SetAppSettingsArgs } from "./gen/SetAppSettingsArgs";
+export type { SetChatCwdArgs } from "./gen/SetChatCwdArgs";
+export type { SetChatModelArgs } from "./gen/SetChatModelArgs";
+export type { SetChatPermissionArgs } from "./gen/SetChatPermissionArgs";
+export type { SetDraftArgs } from "./gen/SetDraftArgs";
+export type { SetMonitorScopeArgs } from "./gen/SetMonitorScopeArgs";
+export type { SetMonitorWindowScopeArgs } from "./gen/SetMonitorWindowScopeArgs";
+export type { SetPinnedArgs } from "./gen/SetPinnedArgs";
+export type { SetSelectedChatArgs } from "./gen/SetSelectedChatArgs";
+export type { SettingsImpact } from "./gen/SettingsImpact";
+export type { SourceId } from "./gen/SourceId";
+export type { SourceInfo } from "./gen/SourceInfo";
+export type { StartChatArgs } from "./gen/StartChatArgs";
+export type { StartChatResult } from "./gen/StartChatResult";
+export type { StateScope } from "./gen/StateScope";
+export type { StopEvidence } from "./gen/StopEvidence";
+export type { StopRecord } from "./gen/StopRecord";
+export type { StopSummary } from "./gen/StopSummary";
+export type { StopTarget } from "./gen/StopTarget";
+export type { StopTargetRef } from "./gen/StopTargetRef";
+export type { Support } from "./gen/Support";
+export type { TranscriptEntry } from "./gen/TranscriptEntry";
+export type { TurnEnd } from "./gen/TurnEnd";
+export type { TurnEndConfirmation } from "./gen/TurnEndConfirmation";
+export type { TurnKey } from "./gen/TurnKey";
+export type { TurnRecord } from "./gen/TurnRecord";
+export type { UnixMillis } from "./gen/UnixMillis";
+export type { UsageBreakdown } from "./gen/UsageBreakdown";
+export type { UsageReport } from "./gen/UsageReport";
+export type { VersionCheck } from "./gen/VersionCheck";
+export type { WaitInfo } from "./gen/WaitInfo";
+export type { WaitReason } from "./gen/WaitReason";
+export type { WindowBounds } from "./gen/WindowBounds";
+export type { WindowKind } from "./gen/WindowKind";
+export type { WindowPrefs } from "./gen/WindowPrefs";
 
-/** Unix時刻（ミリ秒） */
-export type UnixMillis = number;
-export type BackendKind = "codex";
-/** バックエンド内部ID（不透明） */
-export type ExternalId = string;
-export type SourceId = string;
-export type LocalId = string;
-
-export interface ChatKey { backend: BackendKind; id: ExternalId }
-export interface AgentKey { backend: BackendKind; id: ExternalId }
-export interface TurnKey { agent: AgentKey; turnId: ExternalId }
-export interface ItemKey { agent: AgentKey; turnId: ExternalId | null; itemId: ExternalId }
-export interface RequestKey { backend: BackendKind; source: SourceId; requestId: ExternalId }
-
-// ───────────── 不明値・根拠 ─────────────
-
-export type Basis = "direct" | "derived" | "inferred";
-/** 未取得・非対応・欠損を区別する値。notFetchedは「未確認」と表示する。 */
-export type Known<T> =
-  | { kind: "value"; value: T; basis: Basis }
-  | { kind: "notFetched" }
-  | { kind: "unsupported" }
-  | { kind: "missing" };
-
-export type EvidenceSource = "liveEvent" | "historyRead" | "statusQuery" | "response" | "hostReconcile";
-export interface Evidence {
-  source: EvidenceSource;
-  rawLabel: string | null;
-  sourceTime: UnixMillis | null;
-  observedAt: UnixMillis;
-}
-
-// ───────────── 状態（§4.1）・鮮度（§4.2） ─────────────
-
-export type AgentState =
-  | "initializing" | "running" | "waiting" | "idle" | "done"
-  | "failed" | "interrupted" | "closed" | "unknown";
-export type StateScope = "agent" | "turn" | "tool";
-export type WaitReason =
-  | { kind: "approval"; request: RequestKey | null }
-  | { kind: "userInput"; request: RequestKey | null }
-  | { kind: "child"; child: AgentKey | null }
-  | { kind: "other"; raw: string };
-export interface WaitInfo { reason: WaitReason; started: Evidence }
-export interface RawState { label: string }
-export interface AgentStatus {
-  state: AgentState;
-  raw: RawState;
-  scope: StateScope;
-  turn: ExternalId | null;
-  wait: WaitInfo | null;
-  evidence: Evidence;
-}
-export type TurnEnd = "completed" | "failed" | "interrupted";
-
-/** 鮮度。エージェント状態とは別軸。live以外はキュー自動送信を保留。 */
-export type Freshness = "live" | "historyOnly" | "needsReconcile" | "disconnected" | "unsupported";
-
-export type LaunchFailure = "notFound" | "invalidPath" | "versionCheckFailed" | "spawnFailed" | "handshakeFailed";
-export type ConnectionState =
-  | { kind: "notStarted" }
-  | { kind: "starting" }
-  | { kind: "connected" }
-  | { kind: "launchFailed"; reason: LaunchFailure; message: string }
-  | { kind: "disconnected"; message: string | null };
-export type VersionCheck =
-  | { kind: "match"; version: string }
-  | { kind: "mismatch"; expected: string; actual: string }
-  | { kind: "unknown"; message: string };
-
-// ───────────── 能力 ─────────────
-
-export type Support = "supported" | "experimental" | "unsupported" | "unknown";
-export interface Capabilities {
-  descendantMonitoring: Support;
-  descendantSearch: Support;
-  historyReadWithoutResume: Support;
-  resume: Support;
-  listLoaded: Support;
-  approvalKinds: RequestKind[];
-  steer: Support;
-  interrupt: Support;
-  modelSelection: Support;
-  effortSelection: Support;
-  rename: Support;
-  archive: Support;
-  delete: Support;
-  externalHistory: Support;
-  attachmentKinds: AttachmentKind[];
-  managedExecControl: Support;
-}
-
-// ───────────── 論理データ（§5） ─────────────
-
-export interface SourceInfo {
-  source: SourceId;
-  backend: BackendKind;
-  pid: Known<number>;
-  startedAt: UnixMillis;
-  version: VersionCheck;
-  capabilities: Capabilities;
-  connection: ConnectionState;
-}
-
-export type ChatKind = "general" | "development";
-export type ChatOrigin = "appManaged" | "external" | "unknown";
-export interface Chat {
-  key: ChatKey;
-  kind: ChatKind;
-  cwd: Known<string>;
-  name: Known<string>;
-  /** 最初の依頼の先頭（名前が無いときの仮表示用。確認済みの名前ではない） */
-  preview: Known<string>;
-  pinned: boolean;
-  archived: Known<boolean>;
-  origin: ChatOrigin;
-  draft: string | null;
-  createdAt: Known<UnixMillis>;
-  lastUsedAt: UnixMillis | null;
-}
-
-export type ParentLink =
-  | { kind: "root" }
-  | { kind: "explicit"; parent: AgentKey }
-  | { kind: "unknown" };
-export interface Agent {
-  key: AgentKey;
-  chat: ChatKey;
-  parent: ParentLink;
-  forkedFrom: Known<AgentKey | null>;
-  displayName: Known<string>;
-  role: Known<string>;
-  assignment: Known<string>;
-  /** Codexが返したエージェントの経路（例 /root/luna）。役割とは別 */
-  agentPath: Known<string>;
-  latestTurn: ExternalId | null;
-}
-export interface AgentView {
-  agent: Agent;
-  status: AgentStatus;
-  freshness: Freshness;
-  currentActivity: Activity | null;
-}
-
-export type ActivityKind =
-  | { kind: "userMessage" } | { kind: "agentMessage" } | { kind: "reasoning" } | { kind: "plan" }
-  | { kind: "command" } | { kind: "fileChange" } | { kind: "toolCall" } | { kind: "webSearch" }
-  | { kind: "subAgent" } | { kind: "other"; raw: string };
-export type ActivityPhase = "started" | "inProgress" | "completed" | "unconfirmed";
-export interface Activity {
-  key: ItemKey;
-  kind: ActivityKind;
-  phase: ActivityPhase;
-  summary: Known<string>;
-  evidence: Evidence;
-}
-export interface TranscriptEntry {
-  key: ItemKey;
-  kind: ActivityKind;
-  text: Known<string>;
-  phase: ActivityPhase;
-}
-export interface TurnRecord {
-  key: TurnKey;
-  /** null = 終端未確認 */
-  end: TurnEnd | null;
-  startedAt: Known<UnixMillis>;
-  completedAt: Known<UnixMillis>;
-  entries: TranscriptEntry[];
-  complete: boolean;
-}
-
-// ───────────── 要求（§3.3） ─────────────
-
-export type RequestKind =
-  | { kind: "commandApproval" } | { kind: "fileChangeApproval" } | { kind: "permissionsApproval" }
-  | { kind: "userInput" } | { kind: "toolElicitation" } | { kind: "other"; raw: string };
-export type DecisionScope = "once" | "session" | "persistent" | "unknown";
-export type DecisionEffect = "allow" | "deny" | "cancel" | "other";
-export interface DecisionOption {
-  id: string;
-  label: string;
-  effect: DecisionEffect;
-  scope: DecisionScope;
-  description: string | null;
-}
-export interface Question {
-  id: string;
-  header: string | null;
-  text: string;
-  options: DecisionOption[];
-  allowsFreeText: boolean;
-  secret: boolean;
-}
-export interface RequestDetail {
-  summary: string;
-  reason: Known<string>;
-  command: Known<string>;
-  cwd: Known<string>;
-  files: Known<string[]>;
-  extraPermissions: Known<string>;
-  url: Known<string>;
-  questions: Question[];
-}
-export type RequestState =
-  | { kind: "pending" }
-  | { kind: "answered"; optionId: string | null; at: UnixMillis }
-  | { kind: "answerUnconfirmed"; at: UnixMillis }
-  | { kind: "resolvedElsewhere"; at: UnixMillis }
-  | { kind: "cancelled"; at: UnixMillis }
-  | { kind: "expired"; at: UnixMillis };
-export interface PendingRequest {
-  key: RequestKey;
-  chat: ChatKey;
-  agent: AgentKey;
-  turn: ExternalId | null;
-  item: ExternalId | null;
-  kind: RequestKind;
-  detail: RequestDetail;
-  options: DecisionOption[];
-  state: RequestState;
-  receivedAt: UnixMillis;
-}
-export interface QuestionAnswer { questionId: string; optionId: string | null; text: string | null }
-export type RequestAnswer =
-  | { kind: "decision"; optionId: string }
-  | { kind: "answers"; answers: QuestionAnswer[] };
-
-// ───────────── 送信・キュー ─────────────
-
-/** acceptanceUnknownの間は再送ボタンを出さない。 */
-export type SendState =
-  | { kind: "sending" }
-  | { kind: "accepted"; turn: TurnKey }
-  | { kind: "rejected"; message: string }
-  | { kind: "acceptanceUnknown"; since: UnixMillis }
-  | { kind: "notFoundAfterReconcile" };
-export interface SendAttempt {
-  attemptId: LocalId;
-  clientMessageId: string;
-  at: UnixMillis;
-  state: SendState;
-}
-export type QueueHoldReason =
-  | { kind: "notLive"; freshness: Freshness }
-  | { kind: "descendantsNotFinished" }
-  | { kind: "stopUnconfirmed" }
-  | { kind: "acceptanceUnknown" }
-  | { kind: "userPaused" }
-  | { kind: "other"; message: string };
-export type QueueItemState =
-  | { kind: "waiting" }
-  | { kind: "held"; reason: QueueHoldReason }
-  | { kind: "sending" }
-  | { kind: "acceptanceUnknown" }
-  | { kind: "sent"; turn: TurnKey }
-  | { kind: "cancelled" };
-export interface QueueItem {
-  id: LocalId;
-  chat: ChatKey;
-  text: string;
-  attachments: LocalId[];
-  order: number;
-  state: QueueItemState;
-  attempts: SendAttempt[];
-  settings: ChatModelSettings | null;
-}
-
-// ───────────── 添付 ─────────────
-
-export type AttachmentKind = "image" | "file" | "audio";
-export interface Attachment {
-  id: LocalId;
-  kind: AttachmentKind;
-  originalPath: string;
-  copyPath: string | null;
-  attachedAt: UnixMillis;
-  exists: Known<boolean>;
-  ownerChat: ChatKey;
-}
-
-// ───────────── モデル（§3.9） ─────────────
-
-export interface EffortOption { id: string; description: string | null }
-export interface ModelInfo {
-  id: string;
-  displayName: string;
-  description: string | null;
-  efforts: EffortOption[];
-  defaultEffort: string | null;
-  isDefault: boolean;
-  hidden: boolean;
-  inputKinds: AttachmentKind[];
-}
-export interface ModelChoice { model: string; effort: string | null }
-export type ApplyTiming = "now" | "nextTurn" | "afterResume" | "unknown";
-export interface ChatModelSettings {
-  selected: ModelChoice | null;
-  accepted: Known<ModelChoice>;
-  effective: Known<ModelChoice>;
-  applies: ApplyTiming;
-}
-
-// ───────────── 停止・保存（§4.3） ─────────────
-
-export interface TurnEndConfirmation { end: TurnEnd; at: UnixMillis }
-export interface StopEvidence {
-  interruptRequestedAt: UnixMillis | null;
-  turnEndConfirmed: TurnEndConfirmation | null;
-  managedExecEndedAt: UnixMillis | null;
-  osGoneConfirmedAt: UnixMillis | null;
-}
-export type StopTargetRef =
-  | { kind: "turn"; turn: TurnKey }
-  | { kind: "managedExec"; agent: AgentKey; execId: ExternalId }
-  | { kind: "osProcess"; pid: number; createdAt: Known<UnixMillis>; executable: Known<string> };
-export type Ownership = "confirmed" | "unknown";
-export type StopSummary =
-  | "notRequested" | "interruptRequested" | "turnEndConfirmed" | "managedExecEndConfirmed"
-  | "osGoneConfirmed" | "unconfirmed" | "ownershipUnknown";
-export interface StopTarget {
-  target: StopTargetRef;
-  ownership: Ownership;
-  evidence: StopEvidence;
-  summary: StopSummary;
-}
-export interface StopRecord {
-  id: LocalId;
-  chat: ChatKey;
-  startedAt: UnixMillis;
-  targets: StopTarget[];
-}
-export type SaveState =
-  | { kind: "saved"; at: UnixMillis }
-  | { kind: "unsaved" }
-  | { kind: "saveFailed"; message: string; savedPart: string | null; unsavedPart: string | null };
-
-// ───────────── backend.rs 由来の戻り値型 ─────────────
-
-export type PermissionPreset = "workspaceWriteOnRequest" | "readOnly" | "fullAccess";
-export interface Page<T> { items: T[]; nextCursor: string | null }
-export interface ChatSummary { chat: Chat; root: Agent; status: AgentStatus; preview: Known<string> }
-export interface AgentHistory { agent: Agent; chat: Chat | null; status: AgentStatus; turns: TurnRecord[] }
-export type ResumeOutcome =
-  | { kind: "resumed"; history: AgentHistory }
-  | { kind: "runningElsewhere" }
-  | { kind: "unavailable"; reason: string };
-export type ManageOp =
-  | { kind: "rename"; name: string }
-  | { kind: "archive" } | { kind: "unarchive" } | { kind: "delete" };
-export type ManageOutcome =
-  | { kind: "done" }
-  | { kind: "partial"; done: string[]; failed: string[] };
-export type RespondOutcome =
-  | { kind: "delivered" }
-  | { kind: "alreadyResolved" }
-  | { kind: "unknown"; message: string };
-/** 中断要求の受付結果。停止確認ではない。 */
-export type InterruptAck =
-  | { kind: "requested" }
-  | { kind: "notRunning" }
-  | { kind: "unknown"; message: string };
-
-// ───────────── IPC（ipc.rs） ─────────────
+import type { AgentHistory } from "./gen/AgentHistory";
+import type { Chat } from "./gen/Chat";
+import type { ChatModelSettings } from "./gen/ChatModelSettings";
+import type { ChatSummary } from "./gen/ChatSummary";
+import type { HostSnapshot } from "./gen/HostSnapshot";
+import type { InterruptChatResult } from "./gen/InterruptChatResult";
+import type { ManageOutcome } from "./gen/ManageOutcome";
+import type { ModelInfo } from "./gen/ModelInfo";
+import type { Page } from "./gen/Page";
+import type { ResumeOutcome } from "./gen/ResumeOutcome";
+import type { RespondOutcome } from "./gen/RespondOutcome";
+import type { SendAttempt } from "./gen/SendAttempt";
+import type { SourceInfo } from "./gen/SourceInfo";
+import type { StartChatResult } from "./gen/StartChatResult";
+import type { ConnectBackendArgs } from "./gen/ConnectBackendArgs";
+import type { ListChatsArgs } from "./gen/ListChatsArgs";
+import type { OpenChatArgs } from "./gen/OpenChatArgs";
+import type { StartChatArgs } from "./gen/StartChatArgs";
+import type { SendMessageArgs } from "./gen/SendMessageArgs";
+import type { RetrySendArgs } from "./gen/RetrySendArgs";
+import type { RespondRequestArgs } from "./gen/RespondRequestArgs";
+import type { InterruptChatArgs } from "./gen/InterruptChatArgs";
+import type { ResumeChatArgs } from "./gen/ResumeChatArgs";
+import type { ManageChatArgs } from "./gen/ManageChatArgs";
+import type { SetPinnedArgs } from "./gen/SetPinnedArgs";
+import type { ListModelsArgs } from "./gen/ListModelsArgs";
+import type { SetChatModelArgs } from "./gen/SetChatModelArgs";
+import type { SetMonitorScopeArgs } from "./gen/SetMonitorScopeArgs";
+import type { AcknowledgeFailureArgs } from "./gen/AcknowledgeFailureArgs";
+import type { AddAttachmentFileArgs } from "./gen/AddAttachmentFileArgs";
+import type { AppSettings } from "./gen/AppSettings";
+import type { AttachmentArgs } from "./gen/AttachmentArgs";
+import type { AttachmentEntry } from "./gen/AttachmentEntry";
+import type { ChatArgs } from "./gen/ChatArgs";
+import type { ChatLocalView } from "./gen/ChatLocalView";
+import type { ChatQueue } from "./gen/ChatQueue";
+import type { DeleteOutcome } from "./gen/DeleteOutcome";
+import type { DeletePreview } from "./gen/DeletePreview";
+import type { EditQueueEntryArgs } from "./gen/EditQueueEntryArgs";
+import type { EnqueueArgs } from "./gen/EnqueueArgs";
+import type { ExportMarkdownArgs } from "./gen/ExportMarkdownArgs";
+import type { ForceKillArgs } from "./gen/ForceKillArgs";
+import type { ForceKillPreview } from "./gen/ForceKillPreview";
+import type { GetUsageArgs } from "./gen/GetUsageArgs";
+import type { OpenFileArgs } from "./gen/OpenFileArgs";
+import type { QueueEntry } from "./gen/QueueEntry";
+import type { QueueEntryArgs } from "./gen/QueueEntryArgs";
+import type { QuitDecisionArgs } from "./gen/QuitDecisionArgs";
+import type { QuitPhase } from "./gen/QuitPhase";
+import type { ReconcileSendArgs } from "./gen/ReconcileSendArgs";
+import type { RetrySaveArgs } from "./gen/RetrySaveArgs";
+import type { SaveFileAsArgs } from "./gen/SaveFileAsArgs";
+import type { SaveStatus } from "./gen/SaveStatus";
+import type { SetAlwaysOnTopArgs } from "./gen/SetAlwaysOnTopArgs";
+import type { SetAppSettingsArgs } from "./gen/SetAppSettingsArgs";
+import type { SetChatCwdArgs } from "./gen/SetChatCwdArgs";
+import type { SetChatPermissionArgs } from "./gen/SetChatPermissionArgs";
+import type { SetDraftArgs } from "./gen/SetDraftArgs";
+import type { SetMonitorWindowScopeArgs } from "./gen/SetMonitorWindowScopeArgs";
+import type { SetSelectedChatArgs } from "./gen/SetSelectedChatArgs";
+import type { SettingsImpact } from "./gen/SettingsImpact";
+import type { StopRecord } from "./gen/StopRecord";
+import type { UsageReport } from "./gen/UsageReport";
 
 export const HOST_EVENT_CHANNEL = "agentdock://host-event";
-
-export type IpcErrorCode =
-  | "notConnected" | "unsupported" | "rejected" | "outcomeUnknown" | "protocol" | "io"
-  | "invalidArgs" | "notFound" | "blocked";
-export type BlockedReason =
-  | { kind: "stopUnconfirmed"; record: LocalId }
-  | { kind: "acceptanceUnknown"; attempt: LocalId }
-  | { kind: "runningElsewhere" }
-  | { kind: "capabilityUnsupported"; capability: string }
-  | { kind: "requestAlreadyResolved" };
-/** コマンド失敗時にinvokeがrejectする値。outcomeUnknownは失敗確定ではない。 */
-export interface IpcError { code: IpcErrorCode; message: string; blocked: BlockedReason | null }
-
-export type MonitorScope =
-  | { kind: "selectedChat"; chat: ChatKey | null }
-  | { kind: "allChats"; showFinished: boolean };
-
-export interface HostSnapshot {
-  seq: number;
-  sources: SourceInfo[];
-  chats: Chat[];
-  agents: AgentView[];
-  requests: PendingRequest[];
-  stops: StopRecord[];
-  queue: QueueItem[];
-  monitorScope: MonitorScope;
-}
-
-export type SendIntent = "newTurn" | "steer";
-
-export interface ConnectBackendArgs { backend: BackendKind; executable: string | null }
-export interface ListChatsArgs { cursor: string | null; limit: number | null; search: string | null; includeArchived: boolean }
-export interface OpenChatArgs { chat: ChatKey }
-export interface StartChatArgs {
-  backend: BackendKind;
-  cwd: string | null;
-  model: ModelChoice | null;
-  permission: PermissionPreset | null;
-  firstMessage: string | null;
-}
-export interface StartChatResult { chat: Chat; firstSend: SendAttempt | null }
-export interface SendMessageArgs { chat: ChatKey; text: string; attachments: LocalId[]; intent: SendIntent }
-export interface RetrySendArgs { chat: ChatKey; attempt: LocalId }
-export interface RespondRequestArgs { request: RequestKey; answer: RequestAnswer }
-export interface InterruptChatArgs { chat: ChatKey }
-export interface InterruptChatResult { ack: InterruptAck; record: StopRecord }
-export interface ResumeChatArgs { chat: ChatKey }
-export interface ManageChatArgs { chat: ChatKey; op: ManageOp }
-export interface SetPinnedArgs { chat: ChatKey; pinned: boolean }
-export interface ListModelsArgs { backend: BackendKind; includeHidden: boolean }
-export interface SetChatModelArgs { chat: ChatKey; choice: ModelChoice }
-export interface SetMonitorScopeArgs { scope: MonitorScope }
 
 /**
  * コマンド名 → 引数・戻り値。Tauriのinvokeはトップレベル引数名で渡すため、
@@ -446,22 +257,37 @@ export interface CommandMap {
 }
 export type CommandName = keyof CommandMap;
 
-// ───────────── ホスト→UIイベント ─────────────
-
-export type HostEvent =
-  | { kind: "sourceUpdated"; source: SourceInfo }
-  | { kind: "chatUpdated"; chat: Chat }
-  | { kind: "chatRemoved"; chat: ChatKey }
-  | { kind: "agentUpdated"; view: AgentView }
-  | { kind: "turnUpdated"; turn: TurnKey; end: TurnEnd | null }
-  | { kind: "activityUpdated"; activity: Activity }
-  | { kind: "activityDelta"; item: ItemKey; delta: string }
-  | { kind: "requestUpdated"; request: PendingRequest }
-  | { kind: "sendUpdated"; chat: ChatKey; attempt: SendAttempt }
-  | { kind: "queueUpdated"; item: QueueItem }
-  | { kind: "stopUpdated"; record: StopRecord }
-  | { kind: "modelSettingsUpdated"; chat: ChatKey; settings: ChatModelSettings }
-  | { kind: "warning"; source: SourceId | null; message: string; rawLabel: string | null };
-
-/** seqに欠番があればget_snapshotで取り直す。 */
-export interface HostEventEnvelope { seq: number; at: UnixMillis; event: HostEvent }
+/** 追加コマンド。`add_attachment_image_bytes` は invoke(name, Uint8Array, { headers }) の生バイトで呼ぶため含めない。 */
+export interface LocalCommandMap {
+  get_app_settings: { args: Record<string, never>; result: AppSettings };
+  set_app_settings: { args: SetAppSettingsArgs; result: AppSettings };
+  get_chat_locals: { args: Record<string, never>; result: ChatLocalView[] };
+  retry_save: { args: RetrySaveArgs; result: SaveStatus };
+  set_draft: { args: SetDraftArgs; result: null };
+  add_attachment_file: { args: AddAttachmentFileArgs; result: AttachmentEntry };
+  remove_attachment: { args: AttachmentArgs; result: null };
+  open_file: { args: OpenFileArgs; result: null };
+  save_file_as: { args: SaveFileAsArgs; result: null };
+  enqueue: { args: EnqueueArgs; result: QueueEntry };
+  edit_queue_entry: { args: EditQueueEntryArgs; result: QueueEntry };
+  cancel_queue_entry: { args: QueueEntryArgs; result: null };
+  resume_queue: { args: ChatArgs; result: ChatQueue };
+  reconcile_send: { args: ReconcileSendArgs; result: SendAttempt };
+  set_chat_permission: { args: SetChatPermissionArgs; result: SettingsImpact };
+  set_chat_cwd: { args: SetChatCwdArgs; result: SettingsImpact };
+  acknowledge_failure: { args: AcknowledgeFailureArgs; result: null };
+  set_selected_chat: { args: SetSelectedChatArgs; result: null };
+  preview_delete: { args: ChatArgs; result: DeletePreview };
+  delete_chat: { args: ChatArgs; result: DeleteOutcome };
+  archive_chat: { args: ChatArgs; result: ChatLocalView };
+  unarchive_chat: { args: ChatArgs; result: ChatLocalView };
+  export_markdown: { args: ExportMarkdownArgs; result: null };
+  get_usage: { args: GetUsageArgs; result: UsageReport };
+  request_quit: { args: Record<string, never>; result: QuitPhase };
+  quit_decision: { args: QuitDecisionArgs; result: QuitPhase };
+  preview_force_kill: { args: ForceKillArgs; result: ForceKillPreview };
+  force_kill: { args: ForceKillArgs; result: StopRecord[] };
+  set_always_on_top: { args: SetAlwaysOnTopArgs; result: null };
+  open_monitor_window: { args: Record<string, never>; result: null };
+  set_monitor_window_scope: { args: SetMonitorWindowScopeArgs; result: null };
+}

@@ -159,6 +159,7 @@
   3. `cargo test export_bindings` で `src/ipc/gen/*.ts` を生成し、`types.ts` は生成物の re-export ＋手書きの `CommandMap`・定数だけにする。`local.ts` は削除。
   4. 受入: 生成後に `tsc --noEmit` が通り、既存UIの変更が import 先の修正だけで済むこと。`rename_all_fields`・内部タグ・`Known<T>` の出力が現行 `types.ts` と同じ形であることを差分で確認。違う型があれば、その型だけ手書きに残し理由をコメントする。
   5. 生成物はコミットする。型を変えたら `cargo test export_bindings` を流す（検証担当の確認コマンドに加える）。
+  6. 再生成: `cd app/src-tauri && cargo test export_bindings`（出力は `app/src/ipc/gen/`）。型を足したら `types.ts` の再エクスポート行も足す。手書きに残した型はなし。
 
 ## 8. 実装タスク（引継ぎ）
 

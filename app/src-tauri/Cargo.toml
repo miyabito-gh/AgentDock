@@ -13,6 +13,9 @@ crate-type = ["rlib"]
 [build-dependencies]
 tauri-build = { version = "2.0.0", features = [] }
 
+[dev-dependencies]
+ts-rs = { version = "12", features = ["serde-compat"] }
+
 [dependencies]
 tauri = { version = "2.0.0", features = [] }
 serde = { version = "1.0", features = ["derive"] }

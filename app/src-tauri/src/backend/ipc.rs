@@ -41,6 +41,8 @@ pub mod command_names {
 // ───────────────────────────── エラー ─────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub enum IpcErrorCode {
     NotConnected,
@@ -58,6 +60,8 @@ pub enum IpcErrorCode {
 
 /// コマンドの失敗。Tauriコマンドは `Result<T, IpcError>` を返し、TSでは reject される。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct IpcError {
     pub code: IpcErrorCode,
@@ -67,6 +71,8 @@ pub struct IpcError {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum BlockedReason {
     StopUnconfirmed { record: LocalId },
@@ -80,9 +86,12 @@ pub enum BlockedReason {
 
 /// 監視・表示の全体像（renderer再読込み時の取り直し用）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct HostSnapshot {
     /// この時点までに発行したイベントの最大seq。以後は seq+1 から適用する。
+    #[cfg_attr(test, ts(type = "number"))]
     pub seq: u64,
     pub sources: Vec<SourceInfo>,
     pub chats: Vec<Chat>,
@@ -94,6 +103,8 @@ pub struct HostSnapshot {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct ConnectBackendArgs {
     pub backend: BackendKind,
@@ -102,6 +113,8 @@ pub struct ConnectBackendArgs {
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct ListChatsArgs {
     pub cursor: Option<String>,
@@ -114,6 +127,8 @@ pub type ListChatsResult = Page<ChatSummary>;
 
 /// 会話を開く（保存履歴の読み取り。resumeしない）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct OpenChatArgs {
     pub chat: ChatKey,
@@ -122,6 +137,8 @@ pub struct OpenChatArgs {
 pub type OpenChatResult = AgentHistory;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct StartChatArgs {
     pub backend: BackendKind,
@@ -135,6 +152,8 @@ pub struct StartChatArgs {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct StartChatResult {
     pub chat: Chat,
@@ -142,6 +161,8 @@ pub struct StartChatResult {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub enum SendIntent {
     /// 新しいturnとして送る（実行中ならエラー。キュー登録は§3.7の別コマンドで扱う）。
@@ -151,6 +172,8 @@ pub enum SendIntent {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct SendMessageArgs {
     pub chat: ChatKey,
@@ -164,6 +187,8 @@ pub type SendMessageResult = SendAttempt;
 
 /// 受理なしが確定した試行（`rejected` / `notFoundAfterReconcile`）だけ再送できる。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct RetrySendArgs {
     pub chat: ChatKey,
@@ -171,6 +196,8 @@ pub struct RetrySendArgs {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct RespondRequestArgs {
     pub request: RequestKey,
@@ -181,12 +208,16 @@ pub type RespondRequestResult = RespondOutcome;
 
 /// チャットの中断（親＋子孫の停止手順はホストが組み立てる）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct InterruptChatArgs {
     pub chat: ChatKey,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct InterruptChatResult {
     /// 親への中断要求の受付結果（停止確認ではない）。
@@ -196,6 +227,8 @@ pub struct InterruptChatResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct ResumeChatArgs {
     pub chat: ChatKey,
@@ -204,6 +237,8 @@ pub struct ResumeChatArgs {
 pub type ResumeChatResult = ResumeOutcome;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct ManageChatArgs {
     pub chat: ChatKey,
@@ -213,6 +248,8 @@ pub struct ManageChatArgs {
 pub type ManageChatResult = ManageOutcome;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct SetPinnedArgs {
     pub chat: ChatKey,
@@ -220,6 +257,8 @@ pub struct SetPinnedArgs {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct ListModelsArgs {
     pub backend: BackendKind,
@@ -230,6 +269,8 @@ pub type ListModelsResult = Vec<ModelInfo>;
 
 /// チャット単位のモデル選択（既定値の変更は既存チャットに波及させない）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct SetChatModelArgs {
     pub chat: ChatKey,
@@ -240,6 +281,8 @@ pub type SetChatModelResult = ChatModelSettings;
 
 /// 右パネル・コンパクト監視窓の表示範囲（§3.5）。表示範囲の変更だけで送信先・中断・承認を変えない。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum MonitorScope {
     /// 選択中チャット（初期値）。完了済みも表示。
@@ -249,6 +292,8 @@ pub enum MonitorScope {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct SetMonitorScopeArgs {
     pub scope: MonitorScope,
@@ -258,6 +303,8 @@ pub struct SetMonitorScopeArgs {
 
 /// UIへの差分イベント。状態と鮮度は `AgentView` に並置して送り、UIは片方からもう片方を導かない。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum HostEvent {
     SourceUpdated { source: SourceInfo },
@@ -279,9 +326,12 @@ pub enum HostEvent {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct HostEventEnvelope {
     /// ホスト全体で単調増加。UIは欠番を検出したら `get_snapshot` を呼ぶ。
+    #[cfg_attr(test, ts(type = "number"))]
     pub seq: u64,
     pub at: UnixMillis,
     pub event: HostEvent,

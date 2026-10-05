@@ -16,11 +16,15 @@ use serde::{Deserialize, Serialize};
 
 /// Unix時刻（ミリ秒）。タイムゾーン変換は表示側で行う。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/", type = "number"))]
 #[serde(transparent)]
 pub struct UnixMillis(pub i64);
 
 /// AIバックエンドの種別。初期版はCodexのみ（§2.3）。追加時にvariantを足す。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
 pub enum BackendKind {
@@ -30,22 +34,30 @@ pub enum BackendKind {
 /// バックエンド内部のID（Codexならthread ID・turn ID等）。中身はアダプターだけが解釈する不透明値。
 /// 数値IDを持つバックエンドは、アダプターが可逆な文字列表現に符号化する。
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(transparent)]
 pub struct ExternalId(pub String);
 
 /// 監視元（起動単位）のID。App Serverプロセスを起動するたびに新規発行する（§5「監視元」）。
 /// JSON-RPCのサーバー要求IDは接続単位でしか一意でないため、要求の識別に必ず含める。
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(transparent)]
 pub struct SourceId(pub String);
 
 /// AgentDock自身が発行するID（キュー項目・添付・停止記録・送信試行など）。
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(transparent)]
 pub struct LocalId(pub String);
 
 /// チャット（ユーザーが選ぶ会話のルート）。Codexではルートthread。
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct ChatKey {
     pub backend: BackendKind,
@@ -54,6 +66,8 @@ pub struct ChatKey {
 
 /// エージェント（ルート自身も含む）。Codexではthread。ルートのAgentKeyとChatKeyは同じidを持ち得るが型で区別する。
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct AgentKey {
     pub backend: BackendKind,
@@ -62,6 +76,8 @@ pub struct AgentKey {
 
 /// turn。所属エージェントとの組で識別する。
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct TurnKey {
     pub agent: AgentKey,
@@ -70,6 +86,8 @@ pub struct TurnKey {
 
 /// 活動item。
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct ItemKey {
     pub agent: AgentKey,
@@ -80,6 +98,8 @@ pub struct ItemKey {
 
 /// バックエンドからの要求（承認・質問）。要求IDは接続単位でのみ一意なので監視元を含める。
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct RequestKey {
     pub backend: BackendKind,
@@ -91,6 +111,8 @@ pub struct RequestKey {
 
 /// 値の根拠区分（§5「直接取得／機械的導出／内容からの推定」）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub enum Basis {
     /// バックエンドが明示した値をそのまま使った。
@@ -104,6 +126,8 @@ pub enum Basis {
 /// 取得できるか分からない値。`Option` の代わりに使い、欠け方の理由を保持する（§5「不明値」）。
 /// UI表示では NotFetched を「未確認」として扱う。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Known<T> {
     Value { value: T, basis: Basis },
@@ -129,6 +153,8 @@ impl<T> Known<T> {
 
 /// 状態や活動の根拠（どのイベント／取得結果から得たか）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct Evidence {
     /// 根拠の種類（バックエンド非依存の短いラベル。例: "statusNotification", "historyRead", "turnEnded"）。
@@ -142,6 +168,8 @@ pub struct Evidence {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub enum EvidenceSource {
     /// live購読中の通知。
@@ -160,6 +188,8 @@ pub enum EvidenceSource {
 
 /// 正規化したエージェント状態（§4.1）。鮮度とは別軸（[`Freshness`]）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub enum AgentState {
     Initializing,
@@ -178,6 +208,8 @@ pub enum AgentState {
 
 /// 状態の変換元scope（§4.1「原状態と変換元のscope」）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub enum StateScope {
     Agent,
@@ -187,6 +219,8 @@ pub enum StateScope {
 
 /// 待機理由（§4.1 waiting）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum WaitReason {
     Approval { request: Option<RequestKey> },
@@ -197,6 +231,8 @@ pub enum WaitReason {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct WaitInfo {
     pub reason: WaitReason,
@@ -205,6 +241,8 @@ pub struct WaitInfo {
 
 /// バックエンドの原状態（診断・根拠表示用）。UIの判定ロジックはこれを解釈しない。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct RawState {
     /// 原文の状態ラベル（例: "active[waitingOnApproval]", "notLoaded", "completed"）。
@@ -213,6 +251,8 @@ pub struct RawState {
 
 /// エージェント状態の1観測（§5「状態」）。鮮度は含めない（[`AgentView`] で並置する）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct AgentStatus {
     pub state: AgentState,
@@ -226,6 +266,8 @@ pub struct AgentStatus {
 
 /// turnの終端（§3.4 終端照合）。終端の明示がない限り作らない。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub enum TurnEnd {
     Completed,
@@ -237,6 +279,8 @@ pub enum TurnEnd {
 
 /// 鮮度・収集状態。エージェント状態とは別軸。Live以外の間はキュー自動送信を保留する。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub enum Freshness {
     Live,
@@ -257,6 +301,8 @@ impl Freshness {
 
 /// ホストとバックエンドプロセスの接続状態（監視元単位）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum ConnectionState {
     NotStarted,
@@ -269,6 +315,8 @@ pub enum ConnectionState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub enum LaunchFailure {
     NotFound,
@@ -280,6 +328,8 @@ pub enum LaunchFailure {
 
 /// 版確認の結果（§3.1）。対象版以外は警告だが接続は止めない設計。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum VersionCheck {
     Match { version: String },
@@ -291,6 +341,8 @@ pub enum VersionCheck {
 
 /// 能力の対応区分。Unknownは非対応と断定しない（正本§0.2「未確認」）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub enum Support {
     Supported,
@@ -302,6 +354,8 @@ pub enum Support {
 
 /// バックエンドの能力一覧。UIはUnsupportedの操作を隠すか「このAIでは非対応」と表示する。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct Capabilities {
     pub descendant_monitoring: Support,
@@ -330,6 +384,8 @@ pub struct Capabilities {
 
 /// 監視元（§5）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct SourceInfo {
     pub source: SourceId,
@@ -342,6 +398,8 @@ pub struct SourceInfo {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub enum ChatKind {
     /// 作業フォルダ未選択（アプリ管理のチャット用作業領域を内部cwdにする、M21）。
@@ -350,6 +408,8 @@ pub enum ChatKind {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub enum ChatOrigin {
     AppManaged,
@@ -360,6 +420,8 @@ pub enum ChatOrigin {
 
 /// チャット（§5）。本文の正本はバックエンドの保存履歴。ここはメタデータと補足情報。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct Chat {
     pub key: ChatKey,
@@ -380,6 +442,8 @@ pub struct Chat {
 
 /// 直接親の関係（M03）。深さから推定しない。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum ParentLink {
     /// ルート（チャット本体）。
@@ -392,6 +456,8 @@ pub enum ParentLink {
 
 /// エージェント（§5）。ルート自身もエージェントとして持つ。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct Agent {
     pub key: AgentKey,
@@ -411,6 +477,8 @@ pub struct Agent {
 
 /// UIに渡すエージェントの表示単位。状態と鮮度を並置する（変換しない）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct AgentView {
     pub agent: Agent,
@@ -420,6 +488,8 @@ pub struct AgentView {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum ActivityKind {
     UserMessage,
@@ -437,6 +507,8 @@ pub enum ActivityKind {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub enum ActivityPhase {
     Started,
@@ -448,6 +520,8 @@ pub enum ActivityPhase {
 
 /// 活動（§5）。本文全文ではなく短い表示本文。全文は履歴取得で別に扱う。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct Activity {
     pub key: ItemKey,
@@ -459,6 +533,8 @@ pub struct Activity {
 
 /// 会話本文の1要素（履歴表示用）。Markdown等は文字列データとしてのみ扱う（§2.1）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct TranscriptEntry {
     pub key: ItemKey,
@@ -469,6 +545,8 @@ pub struct TranscriptEntry {
 
 /// 1turn分の履歴。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct TurnRecord {
     pub key: TurnKey,
@@ -484,6 +562,8 @@ pub struct TurnRecord {
 // ───────────────────────────── 要求（承認・質問、§3.3） ─────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum RequestKind {
     CommandApproval,
@@ -498,6 +578,8 @@ pub enum RequestKind {
 
 /// 選択肢の効力範囲（M30）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub enum DecisionScope {
     Once,
@@ -508,6 +590,8 @@ pub enum DecisionScope {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub enum DecisionEffect {
     Allow,
@@ -519,6 +603,8 @@ pub enum DecisionEffect {
 
 /// バックエンドが提供する選択肢（固定一覧を決め打ちしない）。`id` はアダプターだけが解釈する。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct DecisionOption {
     pub id: String,
@@ -530,6 +616,8 @@ pub struct DecisionOption {
 
 /// 質問1件（UserInput／Elicitation）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct Question {
     pub id: String,
@@ -544,6 +632,8 @@ pub struct Question {
 
 /// 要求の表示内容（取得できる範囲、§3.3）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct RequestDetail {
     pub summary: String,
@@ -559,6 +649,8 @@ pub struct RequestDetail {
 
 /// 要求の状態（§5）。AnswerUnconfirmedは「送ったが受理が確認できない」。再送しない。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum RequestState {
     Pending,
@@ -571,6 +663,8 @@ pub enum RequestState {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct PendingRequest {
     pub key: RequestKey,
@@ -587,6 +681,8 @@ pub struct PendingRequest {
 
 /// 要求への回答（ユーザー操作からのみ作る。自動回答しない）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum RequestAnswer {
     Decision { option_id: String },
@@ -594,6 +690,8 @@ pub enum RequestAnswer {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct QuestionAnswer {
     pub question_id: String,
@@ -605,6 +703,8 @@ pub struct QuestionAnswer {
 
 /// 送信の結果状態。AcceptanceUnknownは「受理不明」で、照合以外の手段で解消しない（無条件再送しない）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum SendState {
     Sending,
@@ -618,6 +718,8 @@ pub enum SendState {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct SendAttempt {
     pub attempt_id: LocalId,
@@ -628,6 +730,8 @@ pub struct SendAttempt {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum QueueHoldReason {
     NotLive { freshness: Freshness },
@@ -639,6 +743,8 @@ pub enum QueueHoldReason {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum QueueItemState {
     Waiting,
@@ -651,12 +757,15 @@ pub enum QueueItemState {
 
 /// キュー項目（§5）。§3.7の動作はT1範囲外。データ形だけ定める。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct QueueItem {
     pub id: LocalId,
     pub chat: ChatKey,
     pub text: String,
     pub attachments: Vec<LocalId>,
+    #[cfg_attr(test, ts(type = "number"))]
     pub order: u64,
     pub state: QueueItemState,
     pub attempts: Vec<SendAttempt>,
@@ -666,6 +775,8 @@ pub struct QueueItem {
 // ───────────────────────────── 添付（§5） ─────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub enum AttachmentKind {
     Image,
@@ -674,6 +785,8 @@ pub enum AttachmentKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct Attachment {
     pub id: LocalId,
@@ -689,6 +802,8 @@ pub struct Attachment {
 // ───────────────────────────── モデル・effort（§3.9） ─────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct EffortOption {
     pub id: String,
@@ -697,6 +812,8 @@ pub struct EffortOption {
 
 /// バックエンドから取得したモデル（固定一覧を持たない）。一覧にあることは利用資格の証明ではない。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct ModelInfo {
     pub id: String,
@@ -710,6 +827,8 @@ pub struct ModelInfo {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct ModelChoice {
     pub model: String,
@@ -717,6 +836,8 @@ pub struct ModelChoice {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub enum ApplyTiming {
     Now,
@@ -728,6 +849,8 @@ pub enum ApplyTiming {
 /// チャット単位のモデル設定。選択値・受理値・実効値を区別する（§3.9）。
 /// サブエージェントの実効値とは扱わない。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct ChatModelSettings {
     pub selected: Option<ModelChoice>,
@@ -742,6 +865,8 @@ pub struct ChatModelSettings {
 
 /// 停止の各証拠（§4.3）。別々に記録し、1つの証拠から他を推定しない。
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct StopEvidence {
     pub interrupt_requested_at: Option<UnixMillis>,
@@ -751,6 +876,8 @@ pub struct StopEvidence {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct TurnEndConfirmation {
     pub end: TurnEnd,
@@ -758,6 +885,8 @@ pub struct TurnEndConfirmation {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum StopTargetRef {
     Turn { turn: TurnKey },
@@ -768,6 +897,8 @@ pub enum StopTargetRef {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub enum Ownership {
     Confirmed,
@@ -777,6 +908,8 @@ pub enum Ownership {
 
 /// 停止の要約状態（表示用）。StopEvidenceから機械的に導出する。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub enum StopSummary {
     NotRequested,
@@ -790,6 +923,8 @@ pub enum StopSummary {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct StopTarget {
     pub target: StopTargetRef,
@@ -800,6 +935,8 @@ pub struct StopTarget {
 
 /// 停止記録（§5）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct StopRecord {
     pub id: LocalId,
@@ -820,6 +957,8 @@ impl StopRecord {
 
 /// 保存の状態（§4.3）。保存失敗は保存済みと未保存を分けて示す。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum SaveState {
     Saved { at: UnixMillis },
