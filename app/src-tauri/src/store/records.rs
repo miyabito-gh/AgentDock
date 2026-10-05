@@ -96,3 +96,143 @@ pub enum ActivityLine {
     /// 鮮度の変化（切断・wake・live復旧）。
     Freshness { at: UnixMillis, agent: Option<AgentKey>, freshness: Freshness },
 }
+
+// ───────────────────────────── 読み書きの補助 ─────────────────────────────
+
+/// 保存ファイルを読んだときの失敗。どちらも元のファイルを上書きしない（呼出し側で退避・保護する）。
+#[derive(Debug, PartialEq)]
+pub enum ParseError {
+    /// JSONとして、または形として読めない。
+    Corrupt(String),
+    /// このアプリより新しい版で書かれている。
+    Newer(u32),
+}
+
+/// `schemaVersion` を先に確認してから読む。版が無い・数でないものは壊れているとみなす。
+pub fn parse_versioned<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T, ParseError> {
+    let value: serde_json::Value = serde_json::from_slice(bytes).map_err(|e| ParseError::Corrupt(e.to_string()))?;
+    let version = value.get("schemaVersion").and_then(|v| v.as_u64()).ok_or_else(|| ParseError::Corrupt("schemaVersion is missing".into()))?;
+    if version > SCHEMA_VERSION as u64 {
+        return Err(ParseError::Newer(version.min(u32::MAX as u64) as u32));
+    }
+    serde_json::from_value(value).map_err(|e| ParseError::Corrupt(e.to_string()))
+}
+
+pub fn to_bytes<T: Serialize>(value: &T) -> Result<Vec<u8>, serde_json::Error> {
+    serde_json::to_vec_pretty(value)
+}
+
+impl ChatLocalFile {
+    /// 何も保存していないチャットの初期値（ピンなし・下書きなし・既定の見え方）。
+    pub fn new(dir_id: LocalId, chat: Option<ChatKey>) -> Self {
+        ChatLocalFile {
+            schema_version: SCHEMA_VERSION,
+            dir_id,
+            chat,
+            pinned: false,
+            last_used_at: None,
+            model: None,
+            permission: None,
+            next_cwd: None,
+            draft: Draft::default(),
+            visibility: ListVisibility::Visible,
+            delete_pending: None,
+            attachments: Vec::new(),
+            artifacts: Vec::new(),
+            acknowledged_failures: Vec::new(),
+            cached_meta: None,
+        }
+    }
+}
+
+impl AppSettingsFile {
+    pub fn new(settings: AppSettings) -> Self {
+        AppSettingsFile { schema_version: SCHEMA_VERSION, settings }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn key() -> ChatKey {
+        ChatKey { backend: BackendKind::Codex, id: ExternalId("thread-1".into()) }
+    }
+
+    fn sample_local() -> ChatLocalFile {
+        let mut f = ChatLocalFile::new(LocalId("dir-1".into()), Some(key()));
+        f.pinned = true;
+        f.last_used_at = Some(UnixMillis(1_700_000_000_000));
+        f.model = Some(ModelChoice { model: "m".into(), effort: Some("high".into()) });
+        f.permission = Some(PermissionPreset::ReadOnly);
+        f.next_cwd = Some(r"C:\work".into());
+        f.draft = Draft { text: "下書き\n2行目".into(), attachments: vec![LocalId("att-1".into())], updated_at: Some(UnixMillis(5)) };
+        f.visibility = ListVisibility::Archived { at: UnixMillis(9), sync: ArchiveSync::WaitingForWorkEnd };
+        f.attachments.push(AttachmentEntry {
+            id: LocalId("att-1".into()),
+            chat: key(),
+            kind: AttachmentKind::File,
+            display_name: "a.txt".into(),
+            source: AttachmentSource::File { original_path: r"C:\src\a.txt".into() },
+            copy_path: None,
+            size: Known::NotFetched,
+            attached_at: UnixMillis(3),
+            state: AttachmentState::CopyFailed { reason: CopyFailure::Interrupted, message: "m".into() },
+            used_by: vec![],
+        });
+        f
+    }
+
+    #[test]
+    fn chat_local_round_trips() {
+        let f = sample_local();
+        let bytes = to_bytes(&f).unwrap();
+        let back: ChatLocalFile = parse_versioned(&bytes).unwrap();
+        assert_eq!(back, f);
+        // 保存形式は camelCase で、schemaVersion を持つ。
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["schemaVersion"], 1);
+        assert_eq!(v["dirId"], "dir-1");
+        assert_eq!(v["pinned"], true);
+    }
+
+    #[test]
+    fn settings_and_queue_round_trip() {
+        let s = AppSettingsFile::new(AppSettings::default());
+        let back: AppSettingsFile = parse_versioned(&to_bytes(&s).unwrap()).unwrap();
+        assert_eq!(back, s);
+
+        let q = QueueFile {
+            schema_version: SCHEMA_VERSION,
+            queue: ChatQueue { chat: key(), run: QueueRun::PausedAfterRestart, hold: None, baseline_at: None, entries: vec![], next_order: 3 },
+            unresolved_sends: vec![UnresolvedSendRecord {
+                attempt: LocalId("att".into()),
+                chat: key(),
+                client_message_id: "cm-1".into(),
+                since: UnixMillis(1),
+                entry: None,
+                text: "t".into(),
+                attachments: vec![],
+                applied: None,
+            }],
+        };
+        let back: QueueFile = parse_versioned(&to_bytes(&q).unwrap()).unwrap();
+        assert_eq!(back, q);
+    }
+
+    #[test]
+    fn newer_schema_version_is_rejected_not_read() {
+        let mut v: serde_json::Value = serde_json::from_slice(&to_bytes(&sample_local()).unwrap()).unwrap();
+        v["schemaVersion"] = serde_json::json!(SCHEMA_VERSION + 1);
+        let r: Result<ChatLocalFile, _> = parse_versioned(&serde_json::to_vec(&v).unwrap());
+        assert_eq!(r.unwrap_err(), ParseError::Newer(SCHEMA_VERSION + 1));
+    }
+
+    #[test]
+    fn broken_or_unversioned_files_are_corrupt() {
+        assert!(matches!(parse_versioned::<ChatLocalFile>(b"{not json"), Err(ParseError::Corrupt(_))));
+        assert!(matches!(parse_versioned::<ChatLocalFile>(b"{\"pinned\":true}"), Err(ParseError::Corrupt(_))));
+        assert!(matches!(parse_versioned::<ChatLocalFile>(b"{\"schemaVersion\":1}"), Err(ParseError::Corrupt(_))));
+        assert!(matches!(parse_versioned::<ChatLocalFile>(b""), Err(ParseError::Corrupt(_))));
+    }
+}

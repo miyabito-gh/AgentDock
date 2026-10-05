@@ -14,6 +14,7 @@ use super::backend::{
     ChatSummary, InterruptAck, ManageOp, ManageOutcome, Page, PermissionPreset, RespondOutcome, ResumeOutcome,
     AgentHistory,
 };
+use super::local::{AppSettings, ChatLocalView, SaveScope, SaveStatus};
 use super::model::*;
 
 /// ホスト→UIのイベント名（Tauri `emit` のチャネル）。
@@ -36,6 +37,11 @@ pub mod command_names {
     pub const LIST_MODELS: &str = "list_models";
     pub const SET_CHAT_MODEL: &str = "set_chat_model";
     pub const SET_MONITOR_SCOPE: &str = "set_monitor_scope";
+    pub const GET_APP_SETTINGS: &str = "get_app_settings";
+    pub const SET_APP_SETTINGS: &str = "set_app_settings";
+    pub const GET_CHAT_LOCALS: &str = "get_chat_locals";
+    pub const RETRY_SAVE: &str = "retry_save";
+    pub const SET_DRAFT: &str = "set_draft";
 }
 
 // ───────────────────────────── エラー ─────────────────────────────
@@ -80,6 +86,15 @@ pub enum BlockedReason {
     RunningElsewhere,
     CapabilityUnsupported { capability: String },
     RequestAlreadyResolved,
+    /// 保存に必要な空きが足りない。操作を止めて案内する（自動削除しない、D02）。
+    InsufficientSpace {
+        #[cfg_attr(test, ts(type = "number"))]
+        required: u64,
+        #[cfg_attr(test, ts(type = "number"))]
+        available: u64,
+    },
+    /// 保存できていない単位があるため、完了を示す操作を止めた。
+    SaveFailed { scope: SaveScope },
 }
 
 // ───────────────────────────── コマンド引数・戻り値 ─────────────────────────────
@@ -100,6 +115,24 @@ pub struct HostSnapshot {
     pub stops: Vec<StopRecord>,
     pub queue: Vec<QueueItem>,
     pub monitor_scope: MonitorScope,
+    /// アプリ側の補足情報（ピン・下書き・モデル/権限・一覧の見え方）。再起動後も復元される。
+    pub chat_locals: Vec<ChatLocalView>,
+    /// 保存の状態（単位ごと）。失敗・未保存を保存済みと表示しないための根拠。
+    pub save_status: Vec<SaveStatus>,
+    pub settings: AppSettings,
+    /// チャット別のモデル設定（再起動・renderer再読込み後の復元用）。
+    pub model_settings: Vec<ChatModelEntry>,
+    /// 起動時に読めなかった保存ファイルなどの警告（イベントは購読前に出るので、スナップショットで渡す）。
+    pub startup_warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct ChatModelEntry {
+    pub chat: ChatKey,
+    pub settings: ChatModelSettings,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -321,6 +354,10 @@ pub enum HostEvent {
     QueueUpdated { item: QueueItem },
     StopUpdated { record: StopRecord },
     ModelSettingsUpdated { chat: ChatKey, settings: ChatModelSettings },
+    /// チャット別の補足情報（ピン・下書き・モデル/権限・保存状態）の更新。
+    ChatLocalUpdated { local: ChatLocalView },
+    SaveStatusUpdated { status: SaveStatus },
+    SettingsUpdated { settings: AppSettings },
     /// 未知イベント・版違い・取得不能項目の警告（M12）。
     Warning { source: Option<SourceId>, message: String, raw_label: Option<String> },
 }

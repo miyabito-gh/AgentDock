@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { Icon } from "./Icon";
-import type { SourceInfo } from "../ipc/types";
+import type { SaveScope, SaveStatus, SourceInfo } from "../ipc/types";
 
 export function TitleBar({ title, tag, mini, top, onAct }: { title: string; tag?: string; mini?: boolean; top?: boolean; onAct: (a: string) => void }) {
   return (
@@ -76,5 +76,35 @@ export function GlobalBanner({ source, onAct }: { source: SourceInfo | undefined
       <button className="btn-line" onClick={() => onAct("settings:codex")}>Codex の設定を開く</button>
       {c.kind === "launchFailed" || c.kind === "disconnected" ? <button className="btn-line" onClick={() => onAct("retryLaunch")}>再試行</button> : null}
     </div>
+  );
+}
+
+const SCOPE_TEXT: Record<SaveScope["kind"], string> = {
+  appSettings: "アプリ設定", windowBounds: "窓の位置・サイズ", chatLocal: "チャットのピン・下書き・モデル選択", queue: "送信待ち", activity: "監視活動の履歴",
+};
+
+/** 保存できていない内容と、起動時に読めなかった保存ファイルの警告（目立ちすぎない帯）。保存失敗を保存済みと表示しない。 */
+export function SaveBanner({ failed, warnings, onDismissWarnings, onAct }: {
+  failed: SaveStatus[]; warnings: string[]; onDismissWarnings: () => void; onAct: (a: string) => void;
+}) {
+  const first = failed[0]?.state;
+  return (
+    <>
+      {failed.length > 0 && first?.kind === "saveFailed" ? (
+        <div className="gbanner err" role="alert">
+          <Icon name="alert" />
+          <span className="grow">
+            保存できていない内容があります（{[...new Set(failed.map((f) => SCOPE_TEXT[f.scope.kind]))].join("、")}）。{first.message}
+          </span>
+          <button className="btn-line" onClick={() => onAct("retrySave")}>再試行</button>
+        </div>
+      ) : null}
+      {warnings.length > 0 ? (
+        <div className="gbanner warn" role="status">
+          <Icon name="alert" /><span className="grow">保存データの警告: {warnings.join(" / ")}</span>
+          <button className="btn-line" onClick={onDismissWarnings}>閉じる</button>
+        </div>
+      ) : null}
+    </>
   );
 }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { HostEvent, HostEventEnvelope, HostSnapshot, ModelInfo, MonitorScope, PendingRequest, RequestAnswer, SendAttempt, SourceInfo } from "./ipc/types";
+import type { Chat, HostEvent, HostEventEnvelope, HostSnapshot, ModelInfo, MonitorScope, PendingRequest, RequestAnswer, SendAttempt, SourceInfo } from "./ipc/types";
 import * as host from "./ipc/client";
 import { applyHostEvent, emptyBundle, replaceSnapshot, seqAction, UNKNOWN_CAPS } from "./ipc/live";
 import type { Bundle } from "./mock/data";
@@ -9,7 +9,7 @@ const loadMock = async () => {
   const [client, data] = await Promise.all([import("./mock/client"), import("./mock/data")]);
   return { client, scenarios: data.SCENARIOS };
 };
-import { GlobalBanner, MenuBar, TitleBar } from "./ui/Chrome";
+import { GlobalBanner, MenuBar, SaveBanner, TitleBar } from "./ui/Chrome";
 import { LeftPane } from "./ui/LeftPane";
 import { CenterPane, EmptyCenter, type SendNotice } from "./ui/CenterPane";
 import { DockPane, MiniWindow } from "./ui/Dock";
@@ -75,6 +75,7 @@ export default function App() {
   const [connectError, setConnectError] = useState<string | null>(null);
   const [exePath, setExePath] = useState<string>(readExe);
   const [attempts, setAttempts] = useState<Record<string, SendAttempt>>({});
+  const [warnHidden, setWarnHidden] = useState(false);
   const toastTimer = useRef<number | undefined>(undefined);
   const selRef = useRef<string | null>(null);
   selRef.current = selId;
@@ -194,6 +195,11 @@ export default function App() {
   const snap: HostSnapshot = bundle.snapshot;
   const src: SourceInfo | undefined = snap.sources[0] ?? (live && connectError ? failedSource(connectError) : undefined);
   const chat = snap.chats.find((c) => c.key.id === selId) ?? null;
+  // 保存に失敗している単位。選択中チャットのものはチャット内の帯、それ以外は画面上部の帯に出す。
+  const failedSaves = snap.saveStatus.filter((s) => s.state.kind === "saveFailed");
+  const forChat = (s: (typeof failedSaves)[number]) => !!chat && "chat" in s.scope && s.scope.chat.id === chat.key.id;
+  const chatSave = failedSaves.find(forChat)?.state ?? bundle.save;
+  const localDraft = chat ? snap.chatLocals.find((l) => l.chat.id === chat.key.id)?.draft.text : undefined;
   const v = src?.version;
   // 現在の接続先を示す。実接続では接続中のCodexの版を出す（版が取れなければ、そう表示する）。
   const modeTag = !live ? "モック（仮データ）"
@@ -227,6 +233,28 @@ export default function App() {
       setBundle(b); setSelId(b.snapshot.chats[0]?.key.id ?? null); setScope(b.snapshot.monitorScope); setConfirmed(new Set());
     }
     setMode(m);
+  };
+
+  /** 入力途中の文章を画面に保持し、ホストへ渡す（保存は500msまとめ、ホスト側）。復元しても送信しない。 */
+  const onDraft = (c: Chat, v: string) => {
+    setDrafts((d) => ({ ...d, [c.key.id]: v }));
+    // 保存の成否は保存状態（saveStatusUpdated）で表示する。ここでのIPC失敗は通信断で、入力欄の内容は画面に残る。
+    if (live) host.setDraft(c.key, v).catch(() => undefined);
+  };
+
+  /** 保存に失敗している単位をすべて書き直す（ユーザー操作）。成功を確認できた分だけ「保存しました」と言う。 */
+  const retrySave = async () => {
+    if (!live) { say("この操作はモックでは動きません。"); return; }
+    const failed = snap.saveStatus.filter((s) => s.state.kind === "saveFailed");
+    let still = 0;
+    let last = "";
+    for (const f of failed) {
+      try {
+        const st = await host.retrySave(f.scope);
+        if (st.state.kind === "saveFailed") { still++; last = st.state.message; }
+      } catch (e) { still++; last = host.asIpcError(e).message; }
+    }
+    say(still === 0 ? "保存しました。" : `まだ保存できません: ${last}`);
   };
 
   const updateSnap = (f: (s: HostSnapshot) => HostSnapshot) => setBundle((b) => ({ ...b, snapshot: f(b.snapshot) }));
@@ -328,6 +356,7 @@ export default function App() {
       case "resumeExternal": if (chat) setDialog({ type: "resumeExternal", chatId: chat.key.id }); break;
       case "doResumeExternal": if (dialog?.type === "resumeExternal") void resumeExternal(dialog.chatId); break;
       case "retryLaunch": if (live) retryLaunch(exePath); break;
+      case "retrySave": void retrySave(); break;
       case "toggleLeft": if (narrow()) setLNarrow((v) => !v); else setLeftOpen((v) => !v); break;
       case "toggleRight": if (narrow()) setRNarrow((v) => !v); else setRightOpen((v) => !v); break;
       case "toggleMini": setMini((v) => !v); break;
@@ -359,6 +388,7 @@ export default function App() {
         <TitleBar title="AgentDock" tag={modeTag} top={mainTop} onAct={act} />
         <MenuBar open={menu} setOpen={setMenu} checked={checked} onAct={act} />
         <GlobalBanner source={src} onAct={act} />
+        <SaveBanner failed={failedSaves.filter((s) => !forChat(s))} warnings={warnHidden ? [] : snap.startupWarnings} onDismissWarnings={() => setWarnHidden(true)} onAct={act} />
         <div className={`body ${leftOpen ? "" : "l-off"} ${rightOpen ? "" : "r-off"} ${lNarrow ? "n-l" : ""} ${rNarrow ? "n-r" : ""}`}>
           <aside className="left" aria-label="チャット一覧">
             <LeftPane snap={snap} sel={chat ? keyStr(chat.key) : null} onSelect={(id) => { selectChat(id); setLNarrow(false); }} onAct={act} />
@@ -368,9 +398,9 @@ export default function App() {
               <CenterPane
                 snap={snap} chat={chat} turns={bundle.turns[chat.key.id] ?? []}
                 attachments={bundle.attachments.filter((f) => keyStr(f.ownerChat) === keyStr(chat.key))}
-                settings={bundle.modelSettings[chat.key.id]} models={models} save={bundle.save}
+                settings={bundle.modelSettings[chat.key.id]} models={models} save={chatSave}
                 externalLabel={bundle.externalLabel[chat.key.id]} enterMode={enterMode}
-                draft={drafts[chat.key.id] ?? chat.draft ?? ""} setDraft={(v) => setDrafts((d) => ({ ...d, [chat.key.id]: v }))}
+                draft={drafts[chat.key.id] ?? localDraft ?? chat.draft ?? ""} setDraft={(v) => onDraft(chat, v)}
                 onAct={act} onRespond={(r, a) => void onRespond(r, a)}
                 onSend={onSend} onModel={onModel}
                 notice={live ? noticeOf(attempts[chat.key.id]) : null} onRetrySend={() => void onRetrySend()}

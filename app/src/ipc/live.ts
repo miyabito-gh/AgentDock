@@ -2,11 +2,20 @@
 // 規則: 通信断・取得不能をdone/failedに変換しない。逐次本文（activityDelta）は描画専用。
 import type { Bundle } from "../mock/data";
 import type {
-  ActivityKind, Capabilities, HostEvent, HostSnapshot, ItemKey, Known, TranscriptEntry, TurnKey, TurnRecord,
+  ActivityKind, AppSettings, Capabilities, HostEvent, HostSnapshot, ItemKey, Known, SaveScope, TranscriptEntry, TurnKey, TurnRecord,
 } from "./types";
+
+/** ホスト（`AppSettings::default`）と同じ初期値。接続前の表示用で、保存済みの値ではない。 */
+export const DEFAULT_SETTINGS: AppSettings = {
+  codexExecutable: null, autostart: false,
+  notifications: { enabled: true, approvalAndQuestion: true, completed: true, failed: true, sound: true, showChatName: true },
+  mainWindow: { alwaysOnTop: false, bounds: null }, monitorWindow: { alwaysOnTop: false, bounds: null },
+  monitorScope: "selectedChat", defaultModel: null, sendKey: "ctrlEnter",
+};
 
 const emptySnapshot = (): HostSnapshot => ({
   seq: 0, sources: [], chats: [], agents: [], requests: [], stops: [], queue: [], monitorScope: { kind: "selectedChat", chat: null },
+  chatLocals: [], saveStatus: [], settings: DEFAULT_SETTINGS, modelSettings: [], startupWarnings: [],
 });
 
 export const emptyBundle = (): Bundle => ({
@@ -28,15 +37,23 @@ const upsert =<T,>(list: T[], item: T, same: (a: T) => boolean): T[] => {
   return next;
 };
 
-/** スナップショットで置き換える（取り直し時）。会話本文・モデル設定は保持する。 */
+/** スナップショットで置き換える（取り直し時）。会話本文は保持し、モデル設定はホストが持つ値（再起動後の復元分を含む）で更新する。 */
 export function replaceSnapshot(b: Bundle, snapshot: HostSnapshot): Bundle {
-  return { ...b, snapshot, externalLabel: externalLabels(snapshot) };
+  const modelSettings = { ...b.modelSettings };
+  for (const e of snapshot.modelSettings) modelSettings[e.chat.id] = e.settings;
+  return { ...b, snapshot, modelSettings, externalLabel: externalLabels(snapshot) };
 }
 
 function externalLabels(s: HostSnapshot): Record<string, string> {
   const out: Record<string, string> = {};
   for (const c of s.chats) if (c.origin === "external") out[c.key.id] = "外部";
   return out;
+}
+
+/** 保存の単位が同じか（kind＋対象チャット）。 */
+export function sameScope(a: SaveScope, b: SaveScope): boolean {
+  if (a.kind !== b.kind) return false;
+  return "chat" in a && "chat" in b ? a.chat.id === b.chat.id : true;
 }
 
 const PENDING_TURN = "pending";
@@ -111,6 +128,12 @@ export function applyHostEvent(b: Bundle, e: HostEvent): Bundle {
       return set({ stops: upsert(s.stops, e.record, (r) => r.id === e.record.id) });
     case "modelSettingsUpdated":
       return { ...b, modelSettings: { ...b.modelSettings, [e.chat.id]: e.settings } };
+    case "chatLocalUpdated":
+      return set({ chatLocals: upsert(s.chatLocals, e.local, (l) => l.chat.id === e.local.chat.id) });
+    case "saveStatusUpdated":
+      return set({ saveStatus: upsert(s.saveStatus, e.status, (x) => sameScope(x.scope, e.status.scope)) });
+    case "settingsUpdated":
+      return set({ settings: e.settings });
     case "sendUpdated":
     case "warning":
       return b; // 画面側で通知として扱う

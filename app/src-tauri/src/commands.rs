@@ -7,6 +7,7 @@ use tauri::State;
 
 use crate::backend::backend::{ManageOutcome, Page, ResumeOutcome, RespondOutcome, UserConfirmed, ChatSummary, AgentHistory};
 use crate::backend::ipc::*;
+use crate::backend::local::{AppSettings, ChatLocalView, RetrySaveArgs, SaveStatus, SetAppSettingsArgs, SetDraftArgs};
 use crate::backend::model::*;
 use crate::host::Host;
 
@@ -94,6 +95,31 @@ pub async fn set_chat_model(host: Hs<'_>, args: SetChatModelArgs) -> R<ChatModel
 pub async fn set_monitor_scope(host: Hs<'_>, args: SetMonitorScopeArgs) -> R<()> {
     host.set_monitor_scope(args);
     Ok(())
+}
+
+#[tauri::command]
+pub async fn get_app_settings(host: Hs<'_>) -> R<AppSettings> {
+    Ok(host.get_app_settings())
+}
+
+#[tauri::command]
+pub async fn set_app_settings(host: Hs<'_>, args: SetAppSettingsArgs) -> R<AppSettings> {
+    host.set_app_settings(args)
+}
+
+#[tauri::command]
+pub async fn get_chat_locals(host: Hs<'_>) -> R<Vec<ChatLocalView>> {
+    Ok(host.get_chat_locals())
+}
+
+#[tauri::command]
+pub async fn retry_save(host: Hs<'_>, args: RetrySaveArgs) -> R<SaveStatus> {
+    host.retry_save(args).await
+}
+
+#[tauri::command]
+pub async fn set_draft(host: Hs<'_>, args: SetDraftArgs) -> R<()> {
+    host.set_draft(args)
 }
 
 /// 診断ログのフォルダをエクスプローラーで開く（ユーザー操作）。戻り値はログファイルの場所。

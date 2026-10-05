@@ -34,6 +34,7 @@ export type { ChatKey } from "./gen/ChatKey";
 export type { ChatKind } from "./gen/ChatKind";
 export type { ChatLocalView } from "./gen/ChatLocalView";
 export type { ChatMarks } from "./gen/ChatMarks";
+export type { ChatModelEntry } from "./gen/ChatModelEntry";
 export type { ChatModelSettings } from "./gen/ChatModelSettings";
 export type { ChatOrigin } from "./gen/ChatOrigin";
 export type { ChatQueue } from "./gen/ChatQueue";
@@ -254,16 +255,16 @@ export interface CommandMap {
   list_models: { args: ListModelsArgs; result: ModelInfo[] };
   set_chat_model: { args: SetChatModelArgs; result: ChatModelSettings };
   set_monitor_scope: { args: SetMonitorScopeArgs; result: null };
-}
-export type CommandName = keyof CommandMap;
-
-/** 追加コマンド。`add_attachment_image_bytes` は invoke(name, Uint8Array, { headers }) の生バイトで呼ぶため含めない。 */
-export interface LocalCommandMap {
   get_app_settings: { args: Record<string, never>; result: AppSettings };
   set_app_settings: { args: SetAppSettingsArgs; result: AppSettings };
   get_chat_locals: { args: Record<string, never>; result: ChatLocalView[] };
   retry_save: { args: RetrySaveArgs; result: SaveStatus };
   set_draft: { args: SetDraftArgs; result: null };
+}
+export type CommandName = keyof CommandMap;
+
+/** 追加コマンド。`add_attachment_image_bytes` は invoke(name, Uint8Array, { headers }) の生バイトで呼ぶため含めない。 */
+export interface LocalCommandMap {
   add_attachment_file: { args: AddAttachmentFileArgs; result: AttachmentEntry };
   remove_attachment: { args: AttachmentArgs; result: null };
   open_file: { args: OpenFileArgs; result: null };

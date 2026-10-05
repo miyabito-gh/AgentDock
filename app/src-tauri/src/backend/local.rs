@@ -458,6 +458,22 @@ pub struct AppSettings {
     pub send_key: SendKey,
 }
 
+impl Default for AppSettings {
+    /// 初期値（通知はすべてオン・自動起動オフ・最前面オフ・Ctrl+Enterで送信）。
+    fn default() -> Self {
+        AppSettings {
+            codex_executable: None,
+            autostart: false,
+            notifications: NotificationSettings::default(),
+            main_window: WindowPrefs::default(),
+            monitor_window: WindowPrefs::default(),
+            monitor_scope: MonitorWindowScope::default(),
+            default_model: None,
+            send_key: SendKey::CtrlEnter,
+        }
+    }
+}
+
 // ───────────────────────────── 終了・強制終了（§3.4・§3.11） ─────────────────────────────
 
 /// 完全終了の進行。閉じる操作（トレイ格納）では使わない（M26）。
@@ -570,13 +586,8 @@ pub enum DeleteOutcome {
 
 // ───────────────────────────── IPC（P2〜P7で追加するコマンド） ─────────────────────────────
 
-/// 追加コマンド名。統合時に `ipc::command_names` へ移す。
+/// 追加コマンド名。統合時に `ipc::command_names` へ移す（P2分の get_app_settings・set_app_settings・get_chat_locals・retry_save・set_draft は移動済み）。
 pub mod local_command_names {
-    pub const GET_APP_SETTINGS: &str = "get_app_settings";
-    pub const SET_APP_SETTINGS: &str = "set_app_settings";
-    pub const GET_CHAT_LOCALS: &str = "get_chat_locals";
-    pub const RETRY_SAVE: &str = "retry_save";
-    pub const SET_DRAFT: &str = "set_draft";
     pub const ADD_ATTACHMENT_FILE: &str = "add_attachment_file";
     /// 本文は生バイト（`tauri::ipc::Request` の Raw body）。チャットIDと名前はヘッダーで渡す。
     pub const ADD_ATTACHMENT_IMAGE_BYTES: &str = "add_attachment_image_bytes";
@@ -835,37 +846,32 @@ pub struct SetMonitorWindowScopeArgs {
     pub scope: MonitorWindowScope,
 }
 
-/// `IpcError.blocked` に追加する理由。統合時に `ipc::BlockedReason` へ移す。
+/// `IpcError.blocked` に追加する理由。統合時に `ipc::BlockedReason` へ移す（P2分の InsufficientSpace・SaveFailed は移動済み）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum LocalBlockedReason {
-    InsufficientSpace { #[cfg_attr(test, ts(type = "number"))] required: u64, #[cfg_attr(test, ts(type = "number"))] available: u64 },
     FolderIsWorkspace { path: String },
     TargetExists { path: String },
     DeletePending,
     ChatBusy,
     QueueRetargetUnconfirmed { waiting: u32 },
     QueueEntryNotEditable,
-    SaveFailed { scope: SaveScope },
     AttachmentNotReady { attachment: LocalId },
     ModelLacksInput { input: AttachmentKind },
 }
 
-/// 追加のホスト→UIイベント。統合時に `ipc::HostEvent` の variant へ移す（seqは共通）。
+/// 追加のホスト→UIイベント。統合時に `ipc::HostEvent` の variant へ移す（seqは共通。P2分の chatLocalUpdated・saveStatusUpdated・settingsUpdated は移動済み）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum LocalHostEvent {
-    ChatLocalUpdated { local: ChatLocalView },
     /// キュー全体を送る（`queueUpdated` の項目単位を置き換える）。
     ChatQueueUpdated { queue: ChatQueue },
     AttachmentUpdated { entry: AttachmentEntry },
     ArtifactUpdated { entry: ArtifactEntry },
-    SaveStatusUpdated { status: SaveStatus },
-    SettingsUpdated { settings: AppSettings },
     QuitUpdated { phase: QuitPhase },
     /// トレイ・通知のクリックで、通常画面にこのチャットを表示する（回答・再実行はしない）。
     NavigateToChat { chat: ChatKey },

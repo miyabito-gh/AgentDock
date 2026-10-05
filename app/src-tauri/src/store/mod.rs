@@ -7,13 +7,19 @@
 //! - 書込み前に空き容量を確認し、足りなければその操作を止めて案内する（D02）。
 //! - 保存状態は [`SaveStatus`] で単位ごとに持ち、失敗は再試行できる。保存成功を確認できないまま正常終了と表示しない（D06）。
 //!
-//! 実装はP2。ここは骨組み（シグネチャと契約）だけ。
+//! 同期I/O。`Store` 自体は書込みを直列化しない（ホスト側 `host::persist` が1本のロックで直列化する）。
 
 pub mod atomic;
 pub mod layout;
 pub mod records;
 
-use std::path::PathBuf;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use serde::Serialize;
 
 use crate::backend::local::*;
 use crate::backend::model::*;
@@ -60,81 +66,263 @@ pub struct RestoredChat {
     pub queue: Option<QueueFile>,
 }
 
+/// 上書きしてはいけないファイル（読めなかった／新しい版）。
+#[derive(Debug, Clone, Copy)]
+enum Protection {
+    Newer(u32),
+    /// 退避に失敗して、読めないファイルがその場に残っている。
+    Corrupt,
+}
+
+/// 書込み量に余白を足して、空きと比べる（純粋関数）。
+pub fn space_check(needed: u64, available: u64) -> Result<(), StoreError> {
+    let required = needed.saturating_add(FREE_SPACE_MARGIN_BYTES);
+    if available < required {
+        Err(StoreError::InsufficientSpace { required, available })
+    } else {
+        Ok(())
+    }
+}
+
+fn now_ms() -> i64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
+}
+
+fn shown(p: &Path) -> String {
+    p.to_string_lossy().into_owned()
+}
+
 /// 保存層の窓口。同期I/O。ホストは `spawn_blocking` 経由で呼び、ロックを持ったまま呼ばない。
 pub struct Store {
     root: PathBuf,
+    /// ChatKey→dirId（起動時の走査と新規作成で埋める。索引ファイルは持たない）。
+    index: Mutex<HashMap<ChatKey, LocalId>>,
+    protected: Mutex<HashMap<PathBuf, Protection>>,
+    counter: AtomicU64,
 }
 
 impl Store {
     /// `root` は `app.path().app_local_data_dir()`（`%LOCALAPPDATA%\com.agentdock.app`）。
     pub fn open(root: PathBuf) -> Result<Self, StoreError> {
-        let _ = &root;
-        todo!("P2")
+        std::fs::create_dir_all(root.join(layout::CHATS_DIR))?;
+        Ok(Store { root, index: Mutex::new(HashMap::new()), protected: Mutex::new(HashMap::new()), counter: AtomicU64::new(1) })
     }
 
-    pub fn root(&self) -> &std::path::Path {
+    pub fn root(&self) -> &Path {
         &self.root
+    }
+
+    fn new_dir_id(&self) -> LocalId {
+        LocalId(format!("dir-{}-{}", now_ms(), self.counter.fetch_add(1, Ordering::SeqCst)))
+    }
+
+    /// 読む。無ければ None。壊れていれば `*.corrupt-<ms>` へ退避して Corrupt を返す（削除・上書きしない）。
+    /// 新しい版は NewerSchema を返し、以後このパスへの書込みを拒否する。
+    fn read_file<T: serde::de::DeserializeOwned>(&self, path: &Path) -> Result<Option<T>, StoreError> {
+        let bytes = match std::fs::read(path) {
+            Ok(b) => b,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(StoreError::Io(e)),
+        };
+        match parse_versioned(&bytes) {
+            Ok(v) => Ok(Some(v)),
+            Err(ParseError::Newer(found)) => {
+                self.protected.lock().unwrap().insert(path.to_path_buf(), Protection::Newer(found));
+                Err(StoreError::NewerSchema { path: shown(path), found })
+            }
+            Err(ParseError::Corrupt(_)) => {
+                let aside = layout::corrupt_aside_name(path, now_ms());
+                let moved_to = std::fs::rename(path, &aside).ok().map(|_| shown(&aside));
+                if moved_to.is_none() {
+                    self.protected.lock().unwrap().insert(path.to_path_buf(), Protection::Corrupt);
+                }
+                Err(StoreError::Corrupt { path: shown(path), moved_to })
+            }
+        }
+    }
+
+    fn write_json<T: Serialize>(&self, path: &Path, value: &T) -> Result<UnixMillis, StoreError> {
+        if let Some(p) = self.protected.lock().unwrap().get(path).copied() {
+            return Err(match p {
+                Protection::Newer(found) => StoreError::NewerSchema { path: shown(path), found },
+                Protection::Corrupt => StoreError::Corrupt { path: shown(path), moved_to: None },
+            });
+        }
+        let bytes = to_bytes(value).map_err(|e| StoreError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, e)))?;
+        self.check_space(bytes.len() as u64)?;
+        atomic::write_atomic(path, &bytes)?;
+        Ok(UnixMillis(now_ms()))
     }
 
     /// 全ファイルを読み込む。`Copying` のまま残った添付は `CopyFailed{Interrupted}` にし、部分ファイル（`.partial`）を消す。
     /// 送信中（Sending）のまま残ったキュー項目は `AcceptanceUnknown` に変える（無条件再送しない）。
+    /// 読めなかったファイルは退避して `problems` に入れる（その単位だけ既定値で始まる）。
     pub fn load_all(&self) -> Restored {
-        todo!("P2")
+        let mut r = Restored::default();
+        match self.read_file::<AppSettingsFile>(&self.root.join(layout::SETTINGS_FILE)) {
+            Ok(v) => r.settings = v,
+            Err(e) => r.problems.push(e),
+        }
+        match self.read_file::<WindowsFile>(&self.root.join(layout::WINDOWS_FILE)) {
+            Ok(v) => r.windows = v,
+            Err(e) => r.problems.push(e),
+        }
+        let Ok(rd) = std::fs::read_dir(self.root.join(layout::CHATS_DIR)) else { return r };
+        let mut dirs: Vec<PathBuf> = rd.filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.is_dir()).collect();
+        dirs.sort();
+        let mut seen: HashSet<ChatKey> = HashSet::new();
+        for dir in dirs {
+            let mut local = match self.read_file::<ChatLocalFile>(&dir.join(layout::CHAT_FILE)) {
+                Ok(Some(l)) => l,
+                // chat.json の無い領域（段階①の作業領域・作成途中）は対象外。
+                Ok(None) => continue,
+                Err(e) => {
+                    r.problems.push(e);
+                    continue;
+                }
+            };
+            let mut changed = false;
+            // ディレクトリ名を正とする（保存内容と食い違ってもパスが領域の外へ向かないように）。
+            let dir_name = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            if local.dir_id.0 != dir_name {
+                local.dir_id = LocalId(dir_name);
+                changed = true;
+            }
+            if let Some(key) = &local.chat {
+                if !seen.insert(key.clone()) {
+                    r.problems.push(StoreError::Io(std::io::Error::other(format!("同じチャットの記録が複数あります（先に読んだ方を使います）: {}", shown(&dir)))));
+                    continue;
+                }
+                self.index.lock().unwrap().insert(key.clone(), local.dir_id.clone());
+            }
+            for att in &mut local.attachments {
+                if att.state == AttachmentState::Copying {
+                    att.state = AttachmentState::CopyFailed {
+                        reason: CopyFailure::Interrupted,
+                        message: "コピー中にアプリが終了したため、このコピーは使えません。もう一度添付してください。".into(),
+                    };
+                    att.copy_path = None;
+                    remove_partials(&dir.join(layout::ATTACHMENTS_DIR).join(layout::sanitize_file_name(&att.id.0)));
+                    changed = true;
+                }
+            }
+            if changed {
+                if let Err(e) = self.save_chat_local(&local) {
+                    r.problems.push(e);
+                }
+            }
+            let queue = match self.read_file::<QueueFile>(&dir.join(layout::QUEUE_FILE)) {
+                Ok(Some(mut q)) => {
+                    let before = q.clone();
+                    crate::rules::queue::restore_after_restart(&mut q.queue);
+                    if q != before {
+                        // 変換した状態を保存し直す（もう一度落ちても、Sending を未確認のまま再送へ戻さない）。
+                        if let Err(e) = self.save_queue(&q) {
+                            r.problems.push(e);
+                        }
+                    }
+                    Some(q)
+                }
+                Ok(None) => None,
+                Err(e) => {
+                    r.problems.push(e);
+                    None
+                }
+            };
+            r.chats.push(RestoredChat { dir, local, queue });
+        }
+        r
     }
 
     pub fn save_settings(&self, file: &AppSettingsFile) -> Result<UnixMillis, StoreError> {
-        let _ = file;
-        todo!("P2")
+        self.write_json(&self.root.join(layout::SETTINGS_FILE), file)
     }
 
     pub fn save_windows(&self, file: &WindowsFile) -> Result<UnixMillis, StoreError> {
-        let _ = file;
-        todo!("P2")
+        self.write_json(&self.root.join(layout::WINDOWS_FILE), file)
     }
 
     /// チャット領域を新規作成する（一般チャットはthread開始前に作業領域が要るので、ChatKeyより先に作る）。
+    /// 戻り値のパスはチャット領域。作業フォルダは `layout::workspace_dir` で、ここで作成済み。
     pub fn create_chat_dir(&self) -> Result<(LocalId, PathBuf), StoreError> {
-        todo!("P2")
+        let id = self.new_dir_id();
+        let dir = layout::chat_dir(&self.root, &id);
+        std::fs::create_dir_all(layout::workspace_dir(&dir))?;
+        Ok((id, dir))
     }
 
     /// thread開始に失敗したとき、作成した領域が空なら消す（中身があれば残す）。
     pub fn discard_chat_dir_if_empty(&self, dir_id: &LocalId) -> Result<bool, StoreError> {
-        let _ = dir_id;
-        todo!("P2")
+        let dir = layout::chat_dir(&self.root, dir_id);
+        if !dir.exists() {
+            return Ok(false);
+        }
+        if !has_files(&dir)? {
+            std::fs::remove_dir_all(&dir)?;
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
+    /// ChatKeyに結び付けるチャット領域のID（既にあればそれ、なければ新しいIDを割り当てる。ディスクには触れない）。
+    pub fn ensure_dir_id(&self, chat: &ChatKey) -> LocalId {
+        let mut index = self.index.lock().unwrap();
+        index.entry(chat.clone()).or_insert_with(|| self.new_dir_id()).clone()
+    }
+
+    /// `create_chat_dir` で作った領域を、thread開始後に ChatKey へ結び付ける。
+    pub fn register_dir(&self, chat: &ChatKey, dir_id: &LocalId) {
+        self.index.lock().unwrap().insert(chat.clone(), dir_id.clone());
     }
 
     /// チャット領域を探す。なければ作成する（外部作成の会話に補足情報を付けるとき）。
     pub fn ensure_chat_dir(&self, chat: &ChatKey) -> Result<PathBuf, StoreError> {
-        let _ = chat;
-        todo!("P2")
+        let dir = layout::chat_dir(&self.root, &self.ensure_dir_id(chat));
+        std::fs::create_dir_all(&dir)?;
+        Ok(dir)
     }
 
     pub fn save_chat_local(&self, file: &ChatLocalFile) -> Result<UnixMillis, StoreError> {
-        let _ = file;
-        todo!("P2")
+        let path = layout::chat_dir(&self.root, &file.dir_id).join(layout::CHAT_FILE);
+        let at = self.write_json(&path, file)?;
+        if let Some(chat) = &file.chat {
+            self.register_dir(chat, &file.dir_id);
+        }
+        Ok(at)
     }
 
     pub fn save_queue(&self, file: &QueueFile) -> Result<UnixMillis, StoreError> {
-        let _ = file;
-        todo!("P2")
+        let dir = layout::chat_dir(&self.root, &self.ensure_dir_id(&file.queue.chat));
+        self.write_json(&dir.join(layout::QUEUE_FILE), file)
     }
 
     /// 監視活動を1行追記する（flushまで行う）。途中で切れた最終行は読込み時に無視する。
     pub fn append_activity(&self, chat: &ChatKey, line: &ActivityLine) -> Result<(), StoreError> {
-        let _ = (chat, line);
-        todo!("P2")
+        let text = serde_json::to_string(line).map_err(|e| StoreError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, e)))?;
+        self.check_space(text.len() as u64 + 1)?;
+        let dir = layout::chat_dir(&self.root, &self.ensure_dir_id(chat));
+        atomic::append_line(&dir.join(layout::ACTIVITY_FILE), &text)?;
+        Ok(())
     }
 
-    /// 監視活動を読む（エクスポート・再起動後の表示）。
+    /// 監視活動を読む（エクスポート・再起動後の表示）。読めない行（途中で切れた最終行など）は飛ばす。
     pub fn read_activity(&self, chat: &ChatKey) -> Result<Vec<ActivityLine>, StoreError> {
-        let _ = chat;
-        todo!("P2")
+        let dir = layout::chat_dir(&self.root, &self.ensure_dir_id(chat));
+        let text = match std::fs::read_to_string(dir.join(layout::ACTIVITY_FILE)) {
+            Ok(t) => t,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => return Err(StoreError::Io(e)),
+        };
+        Ok(text.lines().filter_map(|l| serde_json::from_str::<ActivityLine>(l).ok()).collect())
     }
 
     /// 書込み前の空き確認。`needed` に [`FREE_SPACE_MARGIN_BYTES`] を足して比べる。
+    /// 空きを取得できないときは止めない（書込み自体が失敗すればその結果を報告する）。
     pub fn check_space(&self, needed: u64) -> Result<(), StoreError> {
-        let _ = needed;
-        todo!("P2")
+        match atomic::free_space(&self.root) {
+            Ok(available) => space_check(needed, available),
+            Err(_) => Ok(()),
+        }
     }
 
     /// 使用量の集計（重い。設定画面を開いたときなどに背景で実行）。
@@ -149,4 +337,198 @@ impl Store {
         let _ = chat;
         todo!("P7")
     }
+}
+
+/// 中にファイルが1つでもあるか（空のディレクトリだけなら false）。
+fn has_files(dir: &Path) -> std::io::Result<bool> {
+    for e in std::fs::read_dir(dir)? {
+        let e = e?;
+        if e.file_type()?.is_dir() {
+            if has_files(&e.path())? {
+                return Ok(true);
+            }
+        } else {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn remove_partials(dir: &Path) {
+    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    for e in rd.filter_map(|e| e.ok()) {
+        if e.file_name().to_string_lossy().ends_with(layout::PARTIAL_SUFFIX) {
+            let _ = std::fs::remove_file(e.path());
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::backend::backend::PermissionPreset;
+    use std::io::Write;
+
+    fn temp_root(name: &str) -> PathBuf {
+        static N: AtomicU64 = AtomicU64::new(0);
+        let d = std::env::temp_dir().join(format!("agentdock-store-{name}-{}-{}", std::process::id(), N.fetch_add(1, Ordering::SeqCst)));
+        let _ = std::fs::remove_dir_all(&d);
+        d
+    }
+
+    fn key(id: &str) -> ChatKey {
+        ChatKey { backend: BackendKind::Codex, id: ExternalId(id.into()) }
+    }
+
+    #[test]
+    fn space_check_requires_the_margin() {
+        assert!(space_check(10, FREE_SPACE_MARGIN_BYTES + 10).is_ok());
+        match space_check(10, FREE_SPACE_MARGIN_BYTES + 9) {
+            Err(StoreError::InsufficientSpace { required, available }) => {
+                assert_eq!(required, FREE_SPACE_MARGIN_BYTES + 10);
+                assert_eq!(available, FREE_SPACE_MARGIN_BYTES + 9);
+            }
+            other => panic!("expected InsufficientSpace, got {other:?}"),
+        }
+        assert!(matches!(space_check(u64::MAX, u64::MAX - 1), Err(StoreError::InsufficientSpace { .. })));
+    }
+
+    #[test]
+    fn saved_chat_and_settings_come_back_after_reopen() {
+        let root = temp_root("restore");
+        let store = Store::open(root.clone()).unwrap();
+        let (dir_id, _) = (LocalId("dir-test-1".into()), ());
+        let mut f = ChatLocalFile::new(dir_id.clone(), Some(key("t1")));
+        f.pinned = true;
+        f.model = Some(ModelChoice { model: "m".into(), effort: None });
+        f.permission = Some(PermissionPreset::ReadOnly);
+        f.draft.text = "途中の文章".into();
+        store.save_chat_local(&f).unwrap();
+        let mut s = AppSettings::default();
+        s.autostart = true;
+        store.save_settings(&AppSettingsFile::new(s.clone())).unwrap();
+
+        let store2 = Store::open(root.clone()).unwrap();
+        let r = store2.load_all();
+        assert!(r.problems.is_empty(), "{:?}", r.problems);
+        assert_eq!(r.settings.unwrap().settings, s);
+        assert_eq!(r.chats.len(), 1);
+        assert_eq!(r.chats[0].local, f);
+        // 復元後、同じチャットは同じ領域に結び付く。
+        assert_eq!(store2.ensure_dir_id(&key("t1")), dir_id);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn corrupt_file_is_moved_aside_and_not_overwritten() {
+        let root = temp_root("corrupt");
+        let store = Store::open(root.clone()).unwrap();
+        let file = root.join(layout::SETTINGS_FILE);
+        std::fs::write(&file, b"{broken").unwrap();
+        let r = store.load_all();
+        assert!(matches!(r.problems.as_slice(), [StoreError::Corrupt { moved_to: Some(_), .. }]));
+        assert!(!file.exists(), "the unreadable file is moved away");
+        let aside: Vec<_> = std::fs::read_dir(&root).unwrap().filter_map(|e| e.ok()).filter(|e| e.file_name().to_string_lossy().starts_with("settings.json.corrupt-")).collect();
+        assert_eq!(aside.len(), 1);
+        assert_eq!(std::fs::read(aside[0].path()).unwrap(), b"{broken", "contents are kept");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn newer_schema_file_is_left_untouched_and_writes_are_refused() {
+        let root = temp_root("newer");
+        let store = Store::open(root.clone()).unwrap();
+        let file = root.join(layout::SETTINGS_FILE);
+        let newer = format!("{{\"schemaVersion\":{},\"settings\":{{}}}}", SCHEMA_VERSION + 1);
+        std::fs::write(&file, &newer).unwrap();
+        let r = store.load_all();
+        assert!(matches!(r.problems.as_slice(), [StoreError::NewerSchema { .. }]));
+        assert!(matches!(store.save_settings(&AppSettingsFile::new(AppSettings::default())), Err(StoreError::NewerSchema { .. })));
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), newer);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn interrupted_copy_and_sending_entry_are_not_trusted_after_restart() {
+        let root = temp_root("interrupted");
+        let store = Store::open(root.clone()).unwrap();
+        let mut f = ChatLocalFile::new(LocalId("dir-x".into()), Some(key("t2")));
+        f.attachments.push(AttachmentEntry {
+            id: LocalId("att-1".into()),
+            chat: key("t2"),
+            kind: AttachmentKind::File,
+            display_name: "a.txt".into(),
+            source: AttachmentSource::ClipboardImage,
+            copy_path: Some("x".into()),
+            size: Known::NotFetched,
+            attached_at: UnixMillis(1),
+            state: AttachmentState::Copying,
+            used_by: vec![],
+        });
+        store.save_chat_local(&f).unwrap();
+        let att_dir = layout::chat_dir(&root, &f.dir_id).join(layout::ATTACHMENTS_DIR).join("att-1");
+        std::fs::create_dir_all(&att_dir).unwrap();
+        std::fs::write(att_dir.join("a.txt.partial"), b"half").unwrap();
+        let entry = QueueEntry {
+            id: LocalId("q1".into()),
+            chat: key("t2"),
+            text: "go".into(),
+            attachments: vec![],
+            order: 0,
+            registered_at: UnixMillis(1),
+            state: QueueEntryState::Sending { attempt: LocalId("a1".into()) },
+            attempts: vec![],
+            applied: None,
+        };
+        let q = QueueFile {
+            schema_version: SCHEMA_VERSION,
+            queue: ChatQueue { chat: key("t2"), run: QueueRun::Active, hold: None, baseline_at: None, entries: vec![entry], next_order: 1 },
+            unresolved_sends: vec![],
+        };
+        store.save_queue(&q).unwrap();
+
+        let r = Store::open(root.clone()).unwrap().load_all();
+        assert!(r.problems.is_empty(), "{:?}", r.problems);
+        let c = &r.chats[0];
+        assert!(matches!(c.local.attachments[0].state, AttachmentState::CopyFailed { reason: CopyFailure::Interrupted, .. }));
+        assert_eq!(c.local.attachments[0].copy_path, None);
+        assert!(!att_dir.join("a.txt.partial").exists());
+        let queue = &c.queue.as_ref().unwrap().queue;
+        assert_eq!(queue.run, QueueRun::PausedAfterRestart);
+        assert_eq!(queue.entries[0].state, QueueEntryState::AcceptanceUnknown { attempt: LocalId("a1".into()) });
+        // 変換結果は保存し直されている（再度の起動でも Sending に戻らない）。
+        let again = Store::open(root.clone()).unwrap().load_all();
+        assert_eq!(again.chats[0].queue.as_ref().unwrap().queue.entries[0].state, QueueEntryState::AcceptanceUnknown { attempt: LocalId("a1".into()) });
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn new_chat_area_is_under_chats_and_empty_ones_are_discarded() {
+        let root = temp_root("area");
+        let store = Store::open(root.clone()).unwrap();
+        let (id, dir) = store.create_chat_dir().unwrap();
+        assert!(layout::is_inside(&root.join(layout::CHATS_DIR), &layout::workspace_dir(&dir)));
+        assert!(layout::workspace_dir(&dir).is_dir());
+        assert!(store.discard_chat_dir_if_empty(&id).unwrap());
+        assert!(!dir.exists());
+        let (id2, dir2) = store.create_chat_dir().unwrap();
+        std::fs::write(layout::workspace_dir(&dir2).join("keep.txt"), b"x").unwrap();
+        assert!(!store.discard_chat_dir_if_empty(&id2).unwrap(), "non-empty areas are kept");
+        assert!(dir2.exists());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn activity_lines_append_and_a_cut_last_line_is_ignored() {
+        let root = temp_root("activity");
+        let store = Store::open(root.clone()).unwrap();
+        let k = key("t3");
+        store.append_activity(&k, &ActivityLine::Freshness { at: UnixMillis(2), agent: None, freshness: Freshness::Live }).unwrap();
+        let path = layout::chat_dir(&root, &store.ensure_dir_id(&k)).join(layout::ACTIVITY_FILE);
+        std::fs::OpenOptions::new().append(true).open(&path).unwrap().write_all(b"{\"kind\":\"freshn").unwrap();
+        let got = store.read_activity(&k).unwrap();
+        assert_eq!(got.len(), 1);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
 }

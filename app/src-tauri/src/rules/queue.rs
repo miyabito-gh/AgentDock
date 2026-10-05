@@ -137,8 +137,22 @@ pub fn resume(queue: &mut ChatQueue, now: UnixMillis) -> Result<(), ResumeError>
 
 /// 起動時の復元。`Sending` は `AcceptanceUnknown` に、`Active` は `PausedAfterRestart` にする（再起動後に自動送信しない）。
 pub fn restore_after_restart(queue: &mut ChatQueue) {
-    let _ = queue;
-    todo!("P3")
+    for entry in &mut queue.entries {
+        if let QueueEntryState::Sending { attempt } = &entry.state {
+            entry.state = QueueEntryState::AcceptanceUnknown { attempt: attempt.clone() };
+        }
+        // 送信中のまま終わった試行も受理不明にする（受理されたかは照合まで分からない。再送しない）。
+        for a in &mut entry.attempts {
+            if a.state == SendState::Sending {
+                a.state = SendState::AcceptanceUnknown { since: a.at };
+            }
+        }
+    }
+    if queue.run == QueueRun::Active {
+        queue.run = QueueRun::PausedAfterRestart;
+    }
+    // 保留理由は保存しない表示用の値。評価のたびにホストが作り直す。
+    queue.hold = None;
 }
 
 /// モデル・権限の変更が及ぶ送信待ちの項目（UIの影響表示用）。

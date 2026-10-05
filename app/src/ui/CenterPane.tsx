@@ -125,7 +125,7 @@ function Banners({ p }: { p: CenterProps }) {
         <div className="cbanner err" role="alert">
           <h4>一部を保存できませんでした</h4>
           保存済み: {p.save.savedPart ?? "なし"}。未保存: {p.save.unsavedPart ?? "不明"}（{p.save.message}）。保存できていない内容を保存済みとは表示しません。
-          <div className="acts"><button className="btn-line" onClick={() => onAct("stub")}>保存を再試行</button><button className="btn-line" onClick={() => onAct("settings:storage")}>容量を確認</button></div>
+          <div className="acts"><button className="btn-line" onClick={() => onAct("retrySave")}>保存を再試行</button><button className="btn-line" onClick={() => onAct("settings:storage")}>容量を確認</button></div>
         </div>
       ) : null}
     </>

@@ -11,7 +11,9 @@ use std::collections::{HashMap, HashSet};
 use super::stop;
 use crate::backend::backend::*;
 use crate::backend::ipc::*;
+use crate::backend::local::{AppSettings, SaveScope, SaveStatus};
 use crate::backend::model::*;
+use crate::store::records::{ChatLocalFile, QueueFile};
 
 /// イベント適用後にホストが非同期で行う追加作業（reducer内では待たない）。
 #[derive(Debug, Clone, PartialEq)]
@@ -33,6 +35,14 @@ pub struct HostData {
     /// このホスト（現在の接続）が開始・再開した会話。originに関わらず送信可能として扱う。
     pub hosted: HashSet<ChatKey>,
     pub model_settings: HashMap<ChatKey, ChatModelSettings>,
+    /// アプリ側の補足情報（保存ファイルと同じ形。ピン・下書き・モデル/権限など）。保存は `host::persist` が行う。
+    pub locals: HashMap<ChatKey, ChatLocalFile>,
+    /// 復元したキュー記録（P3が使う。起動時に Active→PausedAfterRestart、Sending→AcceptanceUnknown に変換済み）。
+    pub queues: HashMap<ChatKey, QueueFile>,
+    pub save_status: HashMap<SaveScope, SaveStatus>,
+    pub settings: AppSettings,
+    /// 起動時に読めなかった保存ファイルなどの警告。
+    pub startup_warnings: Vec<String>,
     /// 親のspawn依頼から確定できた子の担当（エージェントの再登録で失わないよう保持）。
     assignments: HashMap<AgentKey, String>,
     /// 実行中と分かっているturn（中断・追加指示の対象）。
@@ -57,6 +67,11 @@ impl Default for HostData {
             pinned: HashSet::new(),
             hosted: HashSet::new(),
             model_settings: HashMap::new(),
+            locals: HashMap::new(),
+            queues: HashMap::new(),
+            save_status: HashMap::new(),
+            settings: AppSettings::default(),
+            startup_warnings: Vec::new(),
             assignments: HashMap::new(),
             running_turn: HashMap::new(),
             latest_turn_start: HashMap::new(),
@@ -94,6 +109,11 @@ impl HostData {
             stops: self.stops.clone(),
             queue: self.queue.clone(),
             monitor_scope: self.monitor_scope.clone(),
+            chat_locals: self.local_views(),
+            save_status: self.save_status.values().cloned().collect(),
+            settings: self.settings.clone(),
+            model_settings: self.model_settings.iter().map(|(chat, settings)| ChatModelEntry { chat: chat.clone(), settings: settings.clone() }).collect(),
+            startup_warnings: self.startup_warnings.clone(),
         }
     }
 
@@ -204,7 +224,13 @@ impl HostData {
                 chat.last_used_at = old.last_used_at;
                 *old = chat.clone();
             }
-            None => self.chats.push(chat.clone()),
+            None => {
+                // 再起動後の最初の表示では、保存してある最近利用時刻を使う（背景活動では更新しない）。
+                if chat.last_used_at.is_none() {
+                    chat.last_used_at = self.locals.get(&chat.key).and_then(|l| l.last_used_at);
+                }
+                self.chats.push(chat.clone());
+            }
         }
         vec![HostEvent::ChatUpdated { chat }]
     }

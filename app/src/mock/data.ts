@@ -4,6 +4,7 @@ import type {
   ChatModelSettings, Evidence, EvidenceSource, Freshness, HostSnapshot, Known, ModelInfo,
   PendingRequest, QueueItem, SaveState, SourceInfo, StopRecord, TurnRecord, WaitInfo,
 } from "../ipc/types";
+import { DEFAULT_SETTINGS } from "../ipc/live";
 
 const NOW = Date.now();
 const ago = (s: number) => NOW - s * 1000;
@@ -135,6 +136,7 @@ function base(): Bundle {
         view(e0, status("unknown", "notLoaded", 5400, { evidence: ev("historyRead", 5400) }), null, "historyOnly"),
       ],
       requests: [], stops: [], queue, monitorScope: { kind: "selectedChat", chat: ck("a") },
+      chatLocals: [], saveStatus: [], settings: DEFAULT_SETTINGS, modelSettings: [], startupWarnings: [],
     },
     turns: {
       a: turns("a", [

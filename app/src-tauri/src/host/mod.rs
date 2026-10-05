@@ -7,6 +7,7 @@
 //! - 切断・受理不明で自動再送しない。照合（読み取りのみ）は自動で行ってよい。
 //! - 監視のためにresume・承認・停止をしない。resumeはユーザーの送信・再開操作の中でだけ行う。
 
+pub mod persist;
 pub mod state;
 pub mod stop;
 
@@ -20,6 +21,7 @@ use crate::backend::backend::*;
 use crate::backend::ipc::*;
 use crate::backend::model::*;
 use crate::codex::{CodexBackend, TARGET_VERSION};
+use persist::Persist;
 use state::{agent_key_of, Followup, HostData};
 
 pub type Emitter = Arc<dyn Fn(HostEventEnvelope) + Send + Sync>;
@@ -134,6 +136,8 @@ pub struct Host {
     emitter: OnceLock<Emitter>,
     executable: Mutex<String>,
     app_data_dir: PathBuf,
+    /// 保存の呼出し（`persist.rs`）。
+    persist: Persist,
     /// 受理不明の送信（照合以外で解消しない）。
     unconfirmed: Mutex<HashMap<LocalId, UnconfirmedSend>>,
     /// 受理不明のまま未解決の送信（照合で取り出している間も含む）。送信・再送を止める根拠。
@@ -153,6 +157,7 @@ impl Host {
             emitter: OnceLock::new(),
             executable: Mutex::new(DEFAULT_CODEX_EXE.to_string()),
             app_data_dir,
+            persist: Persist::new(None),
             unconfirmed: Mutex::new(HashMap::new()),
             unresolved: Mutex::new(UnresolvedSends::default()),
             rejected: Mutex::new(HashMap::new()),
@@ -374,7 +379,8 @@ impl Host {
         Ok(info)
     }
 
-    pub async fn shutdown(&self) {
+    pub async fn shutdown(self: &Arc<Self>) {
+        self.flush_pending().await;
         let _ = self.backend.disconnect().await;
     }
 
@@ -420,6 +426,7 @@ impl Host {
     // ── 会話の開始・再開 ──
 
     pub async fn start_chat(self: &Arc<Self>, args: StartChatArgs, confirmed: &UserConfirmed) -> Result<StartChatResult, IpcError> {
+        let mut area: Option<LocalId> = None;
         let (kind, cwd) = match args.cwd.as_deref().map(str::trim).filter(|c| !c.is_empty()) {
             Some(c) => {
                 if !std::path::Path::new(c).is_dir() {
@@ -428,10 +435,10 @@ impl Host {
                 (ChatKind::Development, c.to_string())
             }
             None => {
-                // 一般チャット: アプリ管理の作業領域を割り当てる（M21）。
-                let dir = self.app_data_dir.join("chats").join(format!("chat-{}", now_ms().0));
-                std::fs::create_dir_all(&dir).map_err(|e| err(IpcErrorCode::Io, format!("作業領域を作成できません: {e}")))?;
-                (ChatKind::General, dir.to_string_lossy().into_owned())
+                // 一般チャット: アプリ管理の作業領域（専用領域のチャット別フォルダ内）を割り当てる（M21）。
+                let (dir, id) = self.new_general_workspace()?;
+                area = id;
+                (ChatKind::General, dir)
             }
         };
         let params = StartChatParams {
@@ -440,8 +447,22 @@ impl Host {
             model: args.model.clone(),
             permission: args.permission.unwrap_or(PermissionPreset::WorkspaceWriteOnRequest),
         };
-        let started = self.backend.start_chat(params).await?;
+        let started = match self.backend.start_chat(params).await {
+            Ok(s) => s,
+            Err(e) => {
+                self.discard_general_workspace(&area);
+                return Err(e.into());
+            }
+        };
         let key = started.chat.key.clone();
+        self.adopt_general_workspace(&key, &area);
+        if area.is_some() || args.model.is_some() || args.permission.is_some() {
+            // 作業領域とチャットの結び付き、チャット別のモデル・権限を保存する。
+            self.update_local(&key, false, Duration::ZERO, |f| {
+                f.model = args.model.clone();
+                f.permission = args.permission;
+            });
+        }
         let now = now_ms();
         let settings = ChatModelSettings {
             selected: args.model.clone(),
@@ -644,6 +665,7 @@ impl Host {
                 }
                 ((), vec![])
             });
+            self.update_local(&chat, true, Duration::ZERO, |f| f.last_used_at = Some(now_ms()));
         }
         attempt
     }
@@ -809,9 +831,10 @@ impl Host {
         Ok(out)
     }
 
-    /// ピンはアプリ側の保持（現状はメモリのみ。永続化は後続）。
-    pub fn set_pinned(&self, args: SetPinnedArgs) -> Result<Chat, IpcError> {
-        self.mutate(|d| {
+    /// ピンはアプリ側の保持（`chat.json` へ保存し、再起動後も戻す）。
+    pub fn set_pinned(self: &Arc<Self>, args: SetPinnedArgs) -> Result<Chat, IpcError> {
+        self.precheck_space()?;
+        let res = self.mutate(|d| {
             if args.pinned {
                 d.pinned.insert(args.chat.clone());
             } else {
@@ -825,7 +848,11 @@ impl Host {
                 }
                 None => (Err(err(IpcErrorCode::NotFound, "チャットが見つかりません")), vec![]),
             }
-        })
+        });
+        if res.is_ok() {
+            self.update_local(&args.chat, true, Duration::ZERO, |f| f.pinned = args.pinned);
+        }
+        res
     }
 
     pub async fn list_models(&self, args: ListModelsArgs) -> Result<Vec<ModelInfo>, IpcError> {
@@ -833,11 +860,12 @@ impl Host {
     }
 
     /// チャット単位の選択を保持する。送信時に適用し、受理応答までは `accepted` を更新しない（適用済みと表示しない）。
-    pub fn set_chat_model(&self, args: SetChatModelArgs) -> Result<ChatModelSettings, IpcError> {
+    pub fn set_chat_model(self: &Arc<Self>, args: SetChatModelArgs) -> Result<ChatModelSettings, IpcError> {
         if self.read(|d| d.chat(&args.chat).is_none()) {
             return Err(err(IpcErrorCode::NotFound, "チャットが見つかりません"));
         }
-        Ok(self.mutate(|d| {
+        self.precheck_space()?;
+        let settings = self.mutate(|d| {
             let s = d.model_settings.entry(args.chat.clone()).or_insert(ChatModelSettings {
                 selected: None,
                 accepted: Known::NotFetched,
@@ -848,7 +876,10 @@ impl Host {
             s.applies = ApplyTiming::NextTurn;
             let s = s.clone();
             (s.clone(), vec![HostEvent::ModelSettingsUpdated { chat: args.chat.clone(), settings: s }])
-        }))
+        });
+        // 選択値だけを保存する（受理値・実効値は保存しない）。
+        self.update_local(&args.chat, true, Duration::ZERO, |f| f.model = Some(args.choice.clone()));
+        Ok(settings)
     }
 
     pub fn set_monitor_scope(&self, args: SetMonitorScopeArgs) {

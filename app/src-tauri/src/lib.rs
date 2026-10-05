@@ -14,14 +14,25 @@ use tauri::{Emitter, Manager, RunEvent};
 
 use backend::ipc::HOST_EVENT_CHANNEL;
 use host::Host;
+use store::Store;
 
 pub fn run() {
     let app = tauri::Builder::default()
         .setup(|app| {
-            let dir = app.path().app_data_dir().map_err(|e| format!("app data dir: {e}"))?;
+            // 専用領域は %LOCALAPPDATA%\com.agentdock.app（診断ログも diag\ へ）。段階①でRoamingに作った領域は移動しない。
+            let dir = app.path().app_local_data_dir().map_err(|e| format!("app local data dir: {e}"))?;
             std::fs::create_dir_all(&dir).map_err(|e| format!("create app data dir: {e}"))?;
             diag::init(&dir);
-            let host = Arc::new(Host::new(dir));
+            // 保存層を開いて復元する（ピン・モデル設定・下書き・設定。復元だけで送信・再開はしない）。
+            let host = Arc::new(match Store::open(dir.clone()) {
+                Ok(store) => Host::with_store(dir, Arc::new(store)),
+                Err(e) => {
+                    diag::log("store", &format!("open failed: {e}"));
+                    let host = Host::new(dir);
+                    host.add_startup_warning(format!("保存領域を開けませんでした（{e}）。この起動中の変更は保存されません。"));
+                    host
+                }
+            });
             let handle = app.handle().clone();
             host.set_emitter(Arc::new(move |env| {
                 let _ = handle.emit(HOST_EVENT_CHANNEL, env);
@@ -48,6 +59,11 @@ pub fn run() {
             commands::set_chat_model,
             commands::set_monitor_scope,
             commands::open_diag_dir,
+            commands::get_app_settings,
+            commands::set_app_settings,
+            commands::get_chat_locals,
+            commands::retry_save,
+            commands::set_draft,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
