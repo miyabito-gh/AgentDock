@@ -19,3 +19,5 @@ T4検証（2026-10-05）で見つかった、段階①では対応しない項�
 - 【段階②のついで・任意】`ipc.rs`⇔`types.ts`の手書き二重管理を、ts-rs等の自動生成にするか検討
 - host/state.rs:345-370 未知エージェントのAgentStatusが先着するとLiveの仮viewができ、理論上は外部会話の送信ロックが解けうる（実害は想定しにくい、低）
 - 実測（診断ログ）: thread/start・thread/resume 応答の thread.source は sourceKind=vscode（App Serverの既定。clientInfo.nameは反映されない）。AgentDock自身が開始・再開した会話の判定は originではなく host の hosted 集合で行う
+- 子カードの「担当」は実機で「未確認」のまま（2026-10-06）。子スレッドのpreviewにも親のspawn指示が入っていない可能性。診断ログ`item-shape`でspawn itemの形を確認して再検討。表示上は「未確認」で正しい（推測で埋めない）
+- 子の開始直後は`notLoaded`→状態不明（根拠なし）と表示され、走査で状態が取れた時点で実行中/完了に変わる（設計どおり）
