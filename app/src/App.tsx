@@ -268,6 +268,18 @@ export default function App() {
     } catch (e) { sayErr("中断を要求できませんでした", e); }
   };
 
+  /** 確認ダイアログのあとで、ユーザー操作として再開する（確認前・監視目的では呼ばない）。 */
+  const resumeExternal = async (id: string) => {
+    setDialog(null);
+    if (!live) { say("この操作はモックでは動きません。"); return; }
+    try {
+      const out = await host.resumeChat({ backend: "codex", id });
+      if (out.kind === "resumed") { say("会話を再開しました。続きを送れます。"); void loadChat(id); }
+      else if (out.kind === "runningElsewhere") say("外部で実行中のため再開できません。終了してからもう一度お試しください。");
+      else say(`再開できませんでした: ${out.reason}`);
+    } catch (e) { sayErr("再開できませんでした", e); }
+  };
+
   const createChat = async (i: NewChatInput) => {
     if (!live) { setDialog(null); say("この操作はモックでは動きません。"); return; }
     const m = models.find((x) => x.id === i.model);
@@ -296,6 +308,8 @@ export default function App() {
       case "force": setDialog({ type: "force" }); break;
       case "attach": setDialog({ type: "attach" }); break;
       case "interrupt": void interrupt(); break;
+      case "resumeExternal": if (chat) setDialog({ type: "resumeExternal", chatId: chat.key.id }); break;
+      case "doResumeExternal": if (dialog?.type === "resumeExternal") void resumeExternal(dialog.chatId); break;
       case "retryLaunch": if (live) retryLaunch(exePath); break;
       case "toggleLeft": if (narrow()) setLNarrow((v) => !v); else setLeftOpen((v) => !v); break;
       case "toggleRight": if (narrow()) setRNarrow((v) => !v); else setRightOpen((v) => !v); break;

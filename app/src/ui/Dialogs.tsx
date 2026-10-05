@@ -8,7 +8,8 @@ export type DialogState =
   | { type: "quit" }
   | { type: "force" }
   | { type: "unv"; why: string }
-  | { type: "attach" };
+  | { type: "attach" }
+  | { type: "resumeExternal"; chatId: string };
 
 function Shell({ title, children, foot, wide, onClose }: { title: string; children: ReactNode; foot?: ReactNode; wide?: boolean; onClose: () => void }) {
   return (
@@ -110,6 +111,10 @@ export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnter
     case "unv": return (
       <Shell title="この操作はまだ使えません" onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>
         <div className="content"><p>{d.why}。</p><p className="small muted">Codex 側の経路と動作を確認できるまで、成功したように見せることはしません。</p></div>
+      </Shell>);
+    case "resumeExternal": return (
+      <Shell title="外部の会話を再開" onClose={onClose} foot={<><button className="btn-line" onClick={onClose}>やめる</button><button className="btn-main" onClick={() => onAct("doResumeExternal")}>実行中ではないことを確認した。再開する</button></>}>
+        <div className="content"><p>外部（VS Code／CLI）側で実行中でないことを確認しましたか？</p><p>実行中の場合は再開しないでください。同じ会話を二つの場所で同時に動かすと、履歴や作業内容が食い違うおそれがあります。</p></div>
       </Shell>);
     case "attach": return (
       <Shell title="追加" onClose={onClose}>

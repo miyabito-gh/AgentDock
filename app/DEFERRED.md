@@ -17,3 +17,4 @@ T4検証（2026-10-05）で見つかった、段階①では対応しない項�
 - 【段階②のついで】`host/mod.rs`の`tauri::async_runtime::spawn`を`tokio::spawn`等に置換し、ホストをTauriなしでテスト可能にする
 - 【段階②のついで】`app/src/mock/`を動的`import()`にして、製品ビルド（実接続）に仮データ約16kBを含めない
 - 【段階②のついで・任意】`ipc.rs`⇔`types.ts`の手書き二重管理を、ts-rs等の自動生成にするか検討
+- host/state.rs:345-370 未知エージェントのAgentStatusが先着するとLiveの仮viewができ、理論上は外部会話の送信ロックが解けうる（実害は想定しにくい、低）

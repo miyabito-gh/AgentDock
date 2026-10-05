@@ -62,6 +62,12 @@ impl Default for HostData {
     }
 }
 
+/// 外部作成の会話で、ユーザーが再開して live 購読が成立するまで送信を止めるか。
+/// 外部実行中かどうかは断定しない（再開はユーザーの確認後だけ）。
+pub fn external_send_locked(origin: ChatOrigin, root_freshness: Option<Freshness>) -> bool {
+    origin == ChatOrigin::External && root_freshness != Some(Freshness::Live)
+}
+
 fn is_active(s: AgentState) -> bool {
     matches!(s, AgentState::Running | AgentState::Waiting | AgentState::Initializing)
 }
@@ -128,7 +134,8 @@ impl HostData {
             // 新しい接続。以前の購読は失われているので、ホスト管理の扱いも引き継がない。
             self.hosted.clear();
         }
-        self.sources.retain(|s| s.source == info.source);
+        // 同じIDの仮の項目（接続通知が結果より先に届いた場合）も置き換える。残すと先頭の仮項目が表示される。
+        self.sources.clear();
         self.sources.push(info.clone());
         vec![HostEvent::SourceUpdated { source: info }]
     }
@@ -638,6 +645,46 @@ mod tests {
         let (out, _) = d.apply_event(&env(1, 2, BackendEvent::RequestResolved { request: key, evidence: ev }), &caps());
         assert!(out.is_empty());
         assert!(matches!(d.requests[0].state, RequestState::Answered { .. }));
+    }
+
+    #[test]
+    fn external_chat_is_locked_until_resumed_and_live() {
+        assert!(external_send_locked(ChatOrigin::External, Some(Freshness::HistoryOnly)));
+        assert!(external_send_locked(ChatOrigin::External, None));
+        assert!(external_send_locked(ChatOrigin::External, Some(Freshness::Disconnected)));
+        assert!(!external_send_locked(ChatOrigin::External, Some(Freshness::Live)), "resumed external chat can send");
+        assert!(!external_send_locked(ChatOrigin::AppManaged, Some(Freshness::HistoryOnly)));
+        // 再開（set_live）しても origin は external のまま（バナーを「再開済み」にするため）。
+        let mut d = HostData::default();
+        let chat = Chat {
+            key: ck("root"), kind: ChatKind::Development, cwd: Known::NotFetched, name: Known::NotFetched, pinned: false,
+            archived: Known::NotFetched, origin: ChatOrigin::External, draft: None, created_at: Known::NotFetched, last_used_at: None,
+        };
+        d.upsert_chat(chat);
+        d.upsert_history_agent(agent("root", true), status(AgentState::Unknown, None, StateScope::Agent));
+        assert!(external_send_locked(d.chat(&ck("root")).unwrap().origin, d.root_view(&ck("root")).map(|v| v.freshness)));
+        d.set_live(agent("root", true), status(AgentState::Idle, None, StateScope::Agent));
+        let c = d.chat(&ck("root")).unwrap();
+        assert_eq!(c.origin, ChatOrigin::External);
+        assert!(!external_send_locked(c.origin, d.root_view(&ck("root")).map(|v| v.freshness)));
+    }
+
+    #[test]
+    fn connection_event_placeholder_is_replaced_by_the_real_source_info() {
+        let mut d = HostData::default();
+        d.apply_event(&env(1, 1, BackendEvent::Connection { state: ConnectionState::Starting }), &caps());
+        assert!(matches!(d.sources[0].version, VersionCheck::Unknown { .. }));
+        d.set_source(SourceInfo {
+            source: SourceId("s1".into()),
+            backend: BackendKind::Codex,
+            pid: Known::NotFetched,
+            started_at: UnixMillis(0),
+            version: VersionCheck::Match { version: "0.160.0".into() },
+            capabilities: caps(),
+            connection: ConnectionState::Connected,
+        });
+        assert_eq!(d.sources.len(), 1);
+        assert!(matches!(d.sources[0].version, VersionCheck::Match { .. }));
     }
 
     #[test]

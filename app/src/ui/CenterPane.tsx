@@ -100,11 +100,17 @@ function Banners({ p }: { p: CenterProps }) {
           {p.notice.canRetry ? <div className="acts"><button className="btn-line" onClick={p.onRetrySend}>もう一度送る</button></div> : null}
         </div>
       ) : null}
-      {chat.origin === "external" ? (
+      {chat.origin === "external" && root?.freshness === "live" ? (
+        <div className="cbanner info">
+          <h4>{p.externalLabel ?? "外部"} で作成された会話を、このアプリで再開済みです</h4>
+          ユーザーの確認のうえで再開しました。続きを送れます。元の作業フォルダやファイルは参照のみで、削除の対象にしません。
+        </div>
+      ) : chat.origin === "external" ? (
         <div className="cbanner warn">
           <h4>{p.externalLabel ?? "外部"} で作成された会話です（閲覧のみ）</h4>
-          外部でまだ実行中かどうか確認できていません。外部での実行が終わったことを確認してから、このアプリで続きを送れます。元の作業フォルダやファイルは参照のみで、削除の対象にしません。
-          <div className="acts"><button className="btn-line" onClick={() => onAct("stub")}>実行状態を確認</button><button className="btn-line" onClick={() => onAct("stub")}>終了を確認したので再開する</button></div>
+          外部でまだ実行中かどうか、このアプリでは確認できません。外部での実行が終わったことを確認してから再開すると、このアプリで続きを送れます。元の作業フォルダやファイルは参照のみで、削除の対象にしません。
+          {root && (root.status.state === "running" || root.status.state === "waiting") ? <div style={{ marginTop: 4 }}><b>最新のturnが実行中として記録されています。外部で実行中の可能性があります。</b></div> : null}
+          <div className="acts"><button className="btn-main" onClick={() => onAct("resumeExternal")}>外部での実行は終わっています。この会話を再開する</button></div>
         </div>
       ) : null}
       {root && root.freshness === "historyOnly" && chat.origin !== "external" ? (
@@ -303,7 +309,7 @@ export function CenterPane(p: CenterProps) {
   const reqs = chatRequests(snap, chat);
   const hasOpenStop = chatStops(snap, chat).some(stopOpen);
   const lock = hasOpenStop ? "停止を確認できるまで、このチャットへの新しい送信は止めています。"
-    : chat.origin === "external" ? "外部で実行中かどうか確認できるまで、この会話には送信できません。" : null;
+    : chat.origin === "external" && rootView(snap, chat)?.freshness !== "live" ? "外部で実行中かどうか確認できないため、再開するまでこの会話には送信できません。上のボタンから、外部側の終了を確認して再開してください。" : null;
   return (
     <>
       <Header snap={snap} chat={chat} onAct={p.onAct} running={running} />

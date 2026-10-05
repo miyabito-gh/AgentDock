@@ -371,7 +371,8 @@ impl Host {
 
     fn apply_resumed(&self, history: AgentHistory) {
         self.mutate(|d| {
-            let mut ev = d.mark_hosted(&history.agent.chat);
+            // 再開した外部会話の origin は変えない（UIは鮮度で送信可否を判断し、バナーを「再開済み」にする）。
+            let mut ev = Vec::new();
             if let Some(c) = &history.chat {
                 ev.extend(d.upsert_chat(c.clone()));
             }
@@ -402,7 +403,7 @@ impl Host {
             return Err(blocked(BlockedReason::AcceptanceUnknown { attempt }, "前の送信の受理を確認できるまで、再送・新しい送信は止めています"));
         }
         let ext_not_live = self.read(|d| {
-            d.chat(chat).is_some_and(|c| c.origin == ChatOrigin::External) && d.root_view(chat).map(|v| v.freshness) != Some(Freshness::Live)
+            d.chat(chat).is_some_and(|c| state::external_send_locked(c.origin, d.root_view(chat).map(|v| v.freshness)))
         });
         if ext_not_live {
             return Err(blocked(BlockedReason::RunningElsewhere, "外部で作成された会話です。外部の実行が終わったことを確認して再開してください"));
