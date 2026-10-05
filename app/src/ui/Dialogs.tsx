@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import type { Chat, ModelInfo, SourceInfo } from "../ipc/types";
+import type { Chat, ModelInfo, NotificationSettings, SourceInfo } from "../ipc/types";
 import { Icon } from "./Icon";
 
 export type DialogState =
@@ -27,7 +27,10 @@ const TABS: Array<[string, string]> = [["general", "全般"], ["notify", "通知
 
 export interface CodexExe { path: string; setPath: (p: string) => void; placeholder: string; connect: (p: string) => void; openDiag: () => void; live: boolean }
 
-function SettingsBody({ tab, enterMode, setEnterMode, top, source, models, exe }: {
+export interface NotifyProps { value: NotificationSettings; set: (n: NotificationSettings) => void }
+
+function SettingsBody({ tab, enterMode, setEnterMode, top, source, models, exe, notify }: {
+  notify: NotifyProps;
   tab: string; enterMode: "ctrl" | "enter"; setEnterMode: (m: "ctrl" | "enter") => void; top: { main: boolean; mini: boolean; setMain: (b: boolean) => void; setMini: (b: boolean) => void };
   source: SourceInfo | undefined; models: ModelInfo[]; exe: CodexExe;
 }) {
@@ -40,9 +43,15 @@ function SettingsBody({ tab, enterMode, setEnterMode, top, source, models, exe }
       </>);
     case "notify": return (
       <>
-        <div className="field"><span>通知</span><label><input type="checkbox" defaultChecked />通知を使う</label></div>
-        <div className="field"><span>種類</span><div><label><input type="checkbox" defaultChecked />承認・質問待ち</label>　<label><input type="checkbox" defaultChecked />完了</label>　<label><input type="checkbox" defaultChecked />失敗</label></div><span className="note">子・孫の完了と失敗は、チャットごとに2秒間まとめて通知します。承認と質問は待たずに通知します。</span></div>
-        <div className="field"><span>音</span><label><input type="checkbox" defaultChecked />Windows の標準の音を鳴らす</label></div>
+        <div className="field"><span>通知</span><label><input type="checkbox" checked={notify.value.enabled} onChange={(e) => notify.set({ ...notify.value, enabled: e.target.checked })} />通知を使う</label></div>
+        <div className="field"><span>種類</span><div>
+          <label><input type="checkbox" checked={notify.value.approvalAndQuestion} onChange={(e) => notify.set({ ...notify.value, approvalAndQuestion: e.target.checked })} />承認・質問待ち</label>
+          <label><input type="checkbox" checked={notify.value.completed} onChange={(e) => notify.set({ ...notify.value, completed: e.target.checked })} />完了</label>
+          <label><input type="checkbox" checked={notify.value.failed} onChange={(e) => notify.set({ ...notify.value, failed: e.target.checked })} />失敗</label></div>
+          <span className="note">子・孫の完了と失敗は、チャットごとに2秒間まとめて通知します。承認と質問は待たずに通知します。中断は「失敗」の設定に従います。</span></div>
+        <div className="field"><span>音</span><label><input type="checkbox" checked={notify.value.sound} onChange={(e) => notify.set({ ...notify.value, sound: e.target.checked })} />Windows の標準の音を鳴らす</label></div>
+        <div className="field"><span>チャット名</span><label><input type="checkbox" checked={!notify.value.showChatName} onChange={(e) => notify.set({ ...notify.value, showChatName: !e.target.checked })} />通知にチャット名を出さず、状態だけ表示する</label></div>
+        <div className="field"><span>抑制</span><span className="small">通常画面を操作している間だけ、選択中のチャットの通知を止めます。別のチャット、画面が背後にあるとき、監視窓だけのときは通知します。通知を開くと該当のチャットを表示するだけで、回答や再実行はしません。</span></div>
       </>);
     case "input": return (
       <>
@@ -73,7 +82,8 @@ function SettingsBody({ tab, enterMode, setEnterMode, top, source, models, exe }
 
 export interface NewChatInput { cwd: string | null; model: string; firstMessage: string | null }
 
-export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnterMode, top, setTab, onAct, exe, onCreateChat }: {
+export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnterMode, top, setTab, onAct, exe, onCreateChat, notify }: {
+  notify: NotifyProps;
   d: DialogState; onClose: () => void; chats: Chat[]; source: SourceInfo | undefined; models: ModelInfo[];
   exe: CodexExe; onCreateChat: (i: NewChatInput) => void;
   enterMode: "ctrl" | "enter"; setEnterMode: (m: "ctrl" | "enter") => void;
@@ -89,7 +99,7 @@ export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnter
     case "settings": return (
       <Shell title="設定" wide onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>
         <div className="tabs" role="tablist">{TABS.map(([k, t]) => <button key={k} role="tab" aria-selected={d.tab === k} onClick={() => setTab(k)}>{t}</button>)}</div>
-        <div className="content"><SettingsBody tab={d.tab} enterMode={enterMode} setEnterMode={setEnterMode} top={top} source={source} models={models} exe={exe} /></div>
+        <div className="content"><SettingsBody tab={d.tab} enterMode={enterMode} setEnterMode={setEnterMode} top={top} source={source} models={models} exe={exe} notify={notify} /></div>
       </Shell>);
     case "newChat": return (
       <Shell title="新しいチャット" onClose={onClose} foot={<><button className="btn-line" onClick={onClose}>キャンセル</button><button className="btn-main" disabled={kind === "dev" && !cwd.trim()} onClick={() => onCreateChat({ cwd: kind === "dev" ? cwd.trim() : null, model, firstMessage: first.trim() || null })}>作成</button></>}>

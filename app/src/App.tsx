@@ -156,6 +156,7 @@ export default function App() {
     const effects = (e: HostEvent) => {
       if (e.kind === "turnUpdated" && e.end !== null && e.turn.agent.id === selRef.current) void loadChat(e.turn.agent.id);
       else if (e.kind === "sendUpdated") noteAttempt(e.chat.id, e.attempt);
+      else if (e.kind === "navigateToChat") { setSelId(e.chat.id); void loadChat(e.chat.id); } // 通知を開いた操作。表示だけで、回答・再実行はしない
       else if (e.kind === "warning") say(`警告: ${e.message}`);
     };
     const handle = (env: HostEventEnvelope) => {
@@ -200,6 +201,22 @@ export default function App() {
   const snap: HostSnapshot = bundle.snapshot;
   const src: SourceInfo | undefined = snap.sources[0] ?? (live && connectError ? failedSource(connectError) : undefined);
   const chat = snap.chats.find((c) => c.key.id === selId) ?? null;
+  // 選択中のチャットをホストへ伝える（通知の抑制判定だけに使う）。
+  const selectedKey = chat?.key ?? null;
+  useEffect(() => {
+    if (live) void host.setSelectedChat(selectedKey).catch(() => { /* 抑制判定が古いままになるだけ（通知は出る側に倒れる） */ });
+  }, [live, selectedKey?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  /** 通知設定の変更（ホストが保存する。モックでは画面内だけ）。 */
+  const onNotifySettings = (n: HostSnapshot["settings"]["notifications"]) => {
+    const next = { ...snap.settings, notifications: n };
+    if (!live) { setBundle((b) => ({ ...b, snapshot: { ...b.snapshot, settings: next } })); return; }
+    host.setAppSettings(next).catch((e) => sayErr("通知設定を保存できませんでした", e));
+  };
+  /** 失敗を「確認済み」にする（印を外すだけ。再実行・成功化はしない）。 */
+  const onAcknowledge = (c: Chat["key"], agent: Parameters<typeof host.acknowledgeFailure>[1]) => {
+    if (!live) return;
+    host.acknowledgeFailure(c, agent).catch((e) => sayErr("確認済みにできませんでした", e));
+  };
   // 保存に失敗している単位。選択中チャットのものはチャット内の帯、それ以外は画面上部の帯に出す。
   const failedSaves = snap.saveStatus.filter((s) => s.state.kind === "saveFailed");
   const forChat = (s: (typeof failedSaves)[number]) => !!chat && "chat" in s.scope && s.scope.chat.id === chat.key.id;
@@ -425,10 +442,24 @@ export default function App() {
     toggleDone: scope.kind === "allChats" && scope.showFinished,
   };
 
+  // 確認済みの失敗。実接続ではホストの記録（chatLocals）と現在の失敗turnの一致で判定し、左一覧と揃える。モックは画面内の集合。
+  const confirmedKeys: Set<string> = live
+    ? new Set(snap.agents.filter((a) => {
+      if (a.status.state !== "failed") return false;
+      const turn = a.status.turn ?? a.agent.latestTurn ?? "";
+      const acked = snap.chatLocals.find((l) => l.chat.id === a.agent.chat.id)?.acknowledgedFailures ?? [];
+      return acked.some((t) => t.agent.id === a.agent.key.id && t.turnId === turn);
+    }).map((a) => keyStr(a.agent.key)))
+    : confirmed;
+
   const dockProps = {
-    snap, scope, selId, confirmed, onScope, onAct: act,
+    snap, scope, selId, confirmed: confirmedKeys, onScope, onAct: act,
     onOpen: (id: string) => { selectChat(id); },
-    onConfirmFail: (k: string) => setConfirmed((s) => new Set(s).add(k)),
+    onConfirmFail: (k: string) => {
+      if (!live) setConfirmed((s) => new Set(s).add(k));
+      const v = snap.agents.find((a) => keyStr(a.agent.key) === k);
+      if (v) onAcknowledge(v.agent.chat, v.agent.key);
+    },
   };
 
   return (
@@ -443,7 +474,7 @@ export default function App() {
         <SaveBanner failed={failedSaves.filter((s) => !forChat(s))} warnings={warnHidden ? [] : snap.startupWarnings} onDismissWarnings={() => setWarnHidden(true)} onAct={act} />
         <div className={`body ${leftOpen ? "" : "l-off"} ${rightOpen ? "" : "r-off"} ${lNarrow ? "n-l" : ""} ${rNarrow ? "n-r" : ""}`}>
           <aside className="left" aria-label="チャット一覧">
-            <LeftPane snap={snap} sel={chat ? keyStr(chat.key) : null} onSelect={(id) => { selectChat(id); setLNarrow(false); }} onAct={act} />
+            <LeftPane snap={snap} sel={chat ? keyStr(chat.key) : null} onSelect={(id) => { selectChat(id); setLNarrow(false); }} onAct={act} onAcknowledge={(c) => onAcknowledge(c.key, null)} />
           </aside>
           <main className="center">
             {chat ? (
@@ -468,6 +499,7 @@ export default function App() {
       {dialog ? (
         <Dialogs d={dialog} onClose={() => setDialog(null)} chats={snap.chats} source={src} models={models}
           enterMode={enterMode} setEnterMode={setEnterMode}
+          notify={{ value: snap.settings.notifications, set: onNotifySettings }}
           top={{ main: mainTop, mini: miniTop, setMain: setMainTop, setMini: setMiniTop }}
           exe={{ path: exePath, setPath: setExePath, placeholder: DEFAULT_EXE, connect: retryLaunch, openDiag: () => { host.openDiagDir().then((p) => say(`診断ログの場所: ${p}`)).catch((e) => sayErr("診断ログの場所を開けませんでした", e)); }, live: live && snap.sources.every((s) => s.connection.kind !== "connected") }}
           onCreateChat={(i) => void createChat(i)}

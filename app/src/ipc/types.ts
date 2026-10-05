@@ -264,6 +264,8 @@ export interface CommandMap {
   reconcile_send: { args: ReconcileSendArgs; result: SendAttempt };
   set_chat_permission: { args: SetChatPermissionArgs; result: SettingsImpact };
   set_chat_cwd: { args: SetChatCwdArgs; result: SettingsImpact };
+  acknowledge_failure: { args: AcknowledgeFailureArgs; result: null };
+  set_selected_chat: { args: SetSelectedChatArgs; result: null };
 }
 export type CommandName = keyof CommandMap;
 
@@ -273,8 +275,6 @@ export interface LocalCommandMap {
   remove_attachment: { args: AttachmentArgs; result: null };
   open_file: { args: OpenFileArgs; result: null };
   save_file_as: { args: SaveFileAsArgs; result: null };
-  acknowledge_failure: { args: AcknowledgeFailureArgs; result: null };
-  set_selected_chat: { args: SetSelectedChatArgs; result: null };
   preview_delete: { args: ChatArgs; result: DeletePreview };
   delete_chat: { args: ChatArgs; result: DeleteOutcome };
   archive_chat: { args: ChatArgs; result: ChatLocalView };

@@ -122,7 +122,8 @@ impl HostData {
             draft: f.draft.clone(),
             visibility: f.visibility.clone(),
             delete_pending: f.delete_pending.clone(),
-            marks: ChatMarks::default(),
+            marks: self.marks_of(chat),
+            acknowledged_failures: f.acknowledged_failures.clone(),
             save,
         })
     }

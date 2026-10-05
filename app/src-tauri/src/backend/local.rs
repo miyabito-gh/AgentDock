@@ -145,6 +145,8 @@ pub struct ChatLocalView {
     pub visibility: ListVisibility,
     pub delete_pending: Option<DeletePending>,
     pub marks: ChatMarks,
+    /// 「確認済み」にした失敗（agent＋turn）。UIが現在の失敗との一致で確認済みを判定する（M42）。
+    pub acknowledged_failures: Vec<TurnKey>,
     pub save: SaveState,
 }
 
