@@ -38,7 +38,7 @@ label{display:inline-flex;align-items:center;gap:6px}
 .app-mark{width:16px;height:16px;border-radius:3px;background:var(--harbor);position:relative;flex:none}
 .app-mark:after{content:"";position:absolute;left:3px;right:3px;bottom:3px;height:3px;background:#fff;border-radius:1px}
 .titlebar .title{font-weight:700}
-.mock-tag{font-size:11px;color:var(--ink3);border:1px dashed var(--line);border-radius:var(--r-s);padding:0 6px}
+.mock-tag{font-size:11px;color:var(--ink2);border:1px solid var(--line);border-radius:var(--r-s);padding:0 8px;height:22px;background:var(--paper)}
 .titlebar .grow{flex:1}
 .winbtn{width:46px;height:34px;border-radius:0;justify-content:center;padding:0}
 .winbtn:hover{background:var(--rail)}
@@ -226,9 +226,8 @@ textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;paddin
 .mini .berth{padding:3px 6px}
 
 /* mock control */
-.mockctl{position:fixed;left:24px;bottom:24px;z-index:50}
-.mockctl > button{background:var(--ink);color:#fff;border-radius:var(--r-m)}
-.mockctl .panel{position:absolute;left:0;bottom:34px;width:280px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);padding:6px;box-shadow:0 10px 30px rgba(20,32,38,.2)}
+.mockctl{position:fixed;left:110px;top:30px;z-index:50}
+.mockctl .panel{position:absolute;left:0;top:0;width:280px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);padding:6px;box-shadow:0 10px 30px rgba(20,32,38,.2)}
 .mockctl .panel p{margin:4px 6px 6px;font-size:11.5px;color:var(--ink3)}
 .mockctl .panel button{width:100%;justify-content:flex-start;height:28px}
 .mockctl .panel button[aria-current=true]{background:var(--harbor-weak);font-weight:700}
@@ -256,8 +255,11 @@ textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;paddin
   .diff{grid-template-columns:1fr}
   .targets li{grid-template-columns:1fr}
   .mini{right:8px;left:8px;width:auto;bottom:70px}
-  .mockctl{left:auto;bottom:auto;right:130px;top:4px}
-  .mockctl > button{height:26px;font-size:12px}
-  .mockctl .panel{left:auto;right:-120px;bottom:auto;top:32px;max-height:70vh;overflow:auto}
+  .mockctl{left:8px;top:32px}
+  .mockctl .panel{max-height:70vh;overflow:auto}
 }
 @media (min-width:901px){ .only-narrow{display:none!important} }
+
+.msgs-wrap{position:relative;flex:1;min-height:0;display:flex;flex-direction:column}
+.msgs-wrap .msgs{min-height:0}
+.jump{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);background:var(--ink);color:#fff;border-radius:999px;padding:0 14px;height:28px;box-shadow:0 4px 14px rgba(20,32,38,.25);z-index:5}

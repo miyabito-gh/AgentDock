@@ -1,6 +1,7 @@
 pub mod backend;
 pub mod codex;
 pub mod commands;
+pub mod diag;
 pub mod host;
 
 use std::sync::Arc;
@@ -15,6 +16,7 @@ pub fn run() {
         .setup(|app| {
             let dir = app.path().app_data_dir().map_err(|e| format!("app data dir: {e}"))?;
             std::fs::create_dir_all(&dir).map_err(|e| format!("create app data dir: {e}"))?;
+            diag::init(&dir);
             let host = Arc::new(Host::new(dir));
             let handle = app.handle().clone();
             host.set_emitter(Arc::new(move |env| {
@@ -40,6 +42,7 @@ pub fn run() {
             commands::list_models,
             commands::set_chat_model,
             commands::set_monitor_scope,
+            commands::open_diag_dir,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

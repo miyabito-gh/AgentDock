@@ -188,6 +188,13 @@ export default function App() {
   const snap: HostSnapshot = bundle.snapshot;
   const src: SourceInfo | undefined = snap.sources[0] ?? (live && connectError ? failedSource(connectError) : undefined);
   const chat = snap.chats.find((c) => c.key.id === selId) ?? null;
+  const v = src?.version;
+  // 現在の接続先を示す。実接続では接続中のCodexの版を出す（版が取れなければ、そう表示する）。
+  const modeTag = !live ? "モック（仮データ）"
+    : !src ? "Codex 未接続"
+    : v?.kind === "match" ? `Codex ${v.version}`
+    : v?.kind === "mismatch" ? `Codex ${v.actual}（対象版外）`
+    : "Codex 版を確認できません";
 
   const selectChat = (id: string | null) => {
     setSelId(id);
@@ -308,6 +315,7 @@ export default function App() {
       case "force": setDialog({ type: "force" }); break;
       case "attach": setDialog({ type: "attach" }); break;
       case "interrupt": void interrupt(); break;
+      case "modeMenu": setMockOpen((o) => !o); break;
       case "resumeExternal": if (chat) setDialog({ type: "resumeExternal", chatId: chat.key.id }); break;
       case "doResumeExternal": if (dialog?.type === "resumeExternal") void resumeExternal(dialog.chatId); break;
       case "retryLaunch": if (live) retryLaunch(exePath); break;
@@ -338,8 +346,8 @@ export default function App() {
       <svg width="0" height="0" style={{ position: "absolute" }} aria-hidden="true">
         <defs><pattern id="hatch" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="2" height="4" fill="#8A979C" /></pattern></defs>
       </svg>
-      <div className="window" role="application" aria-label="AgentDock" onClick={() => { if (menu) setMenu(null); }}>
-        <TitleBar title="AgentDock" top={mainTop} onAct={act} />
+      <div className="window" role="application" aria-label="AgentDock" onClick={() => { if (menu) setMenu(null); if (mockOpen) setMockOpen(false); }}>
+        <TitleBar title="AgentDock" tag={modeTag} top={mainTop} onAct={act} />
         <MenuBar open={menu} setOpen={setMenu} checked={checked} onAct={act} />
         <GlobalBanner source={src} onAct={act} />
         <div className={`body ${leftOpen ? "" : "l-off"} ${rightOpen ? "" : "r-off"} ${lNarrow ? "n-l" : ""} ${rNarrow ? "n-r" : ""}`}>
@@ -368,13 +376,12 @@ export default function App() {
         <Dialogs d={dialog} onClose={() => setDialog(null)} chats={snap.chats} source={src} models={models}
           enterMode={enterMode} setEnterMode={setEnterMode}
           top={{ main: mainTop, mini: miniTop, setMain: setMainTop, setMini: setMiniTop }}
-          exe={{ path: exePath, setPath: setExePath, placeholder: DEFAULT_EXE, connect: retryLaunch, live: live && snap.sources.every((s) => s.connection.kind !== "connected") }}
+          exe={{ path: exePath, setPath: setExePath, placeholder: DEFAULT_EXE, connect: retryLaunch, openDiag: () => { host.openDiagDir().then((p) => say(`診断ログの場所: ${p}`)).catch((e) => sayErr("診断ログの場所を開けませんでした", e)); }, live: live && snap.sources.every((s) => s.connection.kind !== "connected") }}
           onCreateChat={(i) => void createChat(i)}
           setTab={(t) => setDialog({ type: "settings", tab: t })} onAct={act} />
       ) : null}
       {toast ? <div className="toast" role="status">{toast}</div> : null}
       <div className="mockctl">
-        <button aria-expanded={mockOpen} onClick={() => setMockOpen((v) => !v)}>{live ? "実接続" : "モック"}</button>
         {mockOpen ? (
           <div className="panel" role="menu">
             <p>接続先を切り替えます。モックは製品の画面ではなく、仮データの表示確認用です。</p>

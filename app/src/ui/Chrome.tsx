@@ -1,12 +1,12 @@
 import { Icon } from "./Icon";
 import type { SourceInfo } from "../ipc/types";
 
-export function TitleBar({ title, mini, top, onAct }: { title: string; mini?: boolean; top?: boolean; onAct: (a: string) => void }) {
+export function TitleBar({ title, tag, mini, top, onAct }: { title: string; tag?: string; mini?: boolean; top?: boolean; onAct: (a: string) => void }) {
   return (
     <div className="titlebar">
       <span className="app-mark" aria-hidden="true" />
       <span className="title">{title}</span>
-      {mini ? null : <span className="mock-tag">モック</span>}
+      {mini || !tag ? null : <button className="mock-tag" title="接続先（実接続／モック）を切り替える" aria-haspopup="true" onClick={(e) => { e.stopPropagation(); onAct("modeMenu"); }}>{tag}</button>}
       <span className="grow" />
       {mini ? (
         <label className="small"><input type="checkbox" checked={!!top} onChange={() => onAct("miniTop")} />最前面</label>
@@ -34,11 +34,11 @@ export function MenuBar({ open, setOpen, checked, onAct }: {
     <nav className="menubar" aria-label="メニュー">
       {Object.keys(MENUS).map((m) => (
         <div className="menu" key={m}>
-          <button aria-haspopup="true" aria-expanded={open === m} onClick={() => setOpen(open === m ? null : m)}>{m}</button>
+          <button aria-haspopup="true" aria-expanded={open === m} onMouseEnter={() => { if (open && open !== m) setOpen(m); }} onClick={(e) => { e.stopPropagation(); setOpen(open === m ? null : m); }}>{m}</button>
           {open === m ? (
             <div className="dropdown" role="menu">
               {MENUS[m].map((it, i) => it === "-" ? <hr key={i} /> : (
-                <button key={i} role="menuitem" onClick={() => { setOpen(null); onAct(it[1]); }}>
+                <button key={i} role="menuitem" onClick={(e) => { e.stopPropagation(); setOpen(null); onAct(it[1]); }}>
                   <span>{checked[it[1]] ? "✓ " : ""}{it[0]}</span>
                   {it[1].startsWith("unv:") ? <span className="tag unv">未確認</span> : it[2] ? <span className="kbd">{it[2]}</span> : null}
                 </button>

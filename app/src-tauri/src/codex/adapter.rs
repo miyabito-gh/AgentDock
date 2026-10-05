@@ -212,6 +212,25 @@ fn retain_other_sources<V>(pending: &mut HashMap<RequestKey, V>, source: &Source
     pending.retain(|k, _| &k.source != source);
 }
 
+/// 未対応・変換できなかった通知／itemを、メソッド名とキー構造だけ診断ログへ残す（本文・値は残さない）。
+fn log_unsupported(method: &str, params: &Value, e: &BackendEvent) {
+    match e {
+        BackendEvent::Unrecognized { raw_label, .. } => {
+            crate::diag::log("unrecognized-notification", &format!("{raw_label} {}", crate::diag::shape(params)));
+        }
+        BackendEvent::Activity { activity } if matches!(activity.kind, ActivityKind::Other { .. }) => {
+            let item = params.get("item").map(crate::diag::shape).unwrap_or_default();
+            crate::diag::log("unsupported-item", &format!("{method} {item}"));
+        }
+        _ => {}
+    }
+}
+
+fn log_source(label: &str, resp: &Value) {
+    let kind = crate::diag::source_kind(resp.get("thread").and_then(|t| t.get("source")));
+    crate::diag::log("thread-source", &format!("{label} sourceKind={kind}"));
+}
+
 /// 受信側の中継。通知・サーバー要求を共通イベントへ変換して `emit` する。
 async fn pump(shared: Arc<Shared>, source: SourceId, mut rx: mpsc::Receiver<RpcEvent>) {
     while let Some(ev) = rx.recv().await {
@@ -220,6 +239,7 @@ async fn pump(shared: Arc<Shared>, source: SourceId, mut rx: mpsc::Receiver<RpcE
                 let chat_of = |a: &AgentKey| shared.chat_of(a);
                 let ctx = EventCtx { source: &source, now: now_ms(), chat_of: &chat_of };
                 for e in notification_to_events(&method, &params, &ctx) {
+                    log_unsupported(&method, &params, &e);
                     match &e {
                         BackendEvent::AgentDiscovered { agent } => shared.remember(agent),
                         BackendEvent::RequestResolved { request, .. } => {
@@ -234,6 +254,11 @@ async fn pump(shared: Arc<Shared>, source: SourceId, mut rx: mpsc::Receiver<RpcE
                 let chat_of = |a: &AgentKey| shared.chat_of(a);
                 let ctx = EventCtx { source: &source, now: now_ms(), chat_of: &chat_of };
                 let conv = server_request_to_event(&key, &method, &params, &ctx);
+                if let BackendEvent::RequestOpened { request } = &conv.event {
+                    if matches!(request.kind, RequestKind::Other { .. }) {
+                        crate::diag::log("unsupported-server-request", &format!("{method} {}", crate::diag::shape(&params)));
+                    }
+                }
                 if let Some(stored) = conv.stored {
                     shared.pending.lock().unwrap().insert(key, stored);
                 }
@@ -434,6 +459,15 @@ impl AiBackend for CodexBackend {
             Ok(x) => x,
             Err(e) => return Ok(failed(e.kind, e.message, version)),
         };
+        crate::diag::log(
+            "initialize",
+            &format!(
+                "shape={} userAgent={} versionCheck={}",
+                crate::diag::shape(&process.init_response),
+                crate::diag::user_agent_version(process.init_response.get("userAgent").and_then(Value::as_str)),
+                crate::diag::version_check_kind(&version)
+            ),
+        );
         let caps = codex_capabilities(config.enable_experimental);
         *self.shared.caps.lock().unwrap() = caps.clone();
         let pid = match process.pid {
@@ -473,6 +507,7 @@ impl AiBackend for CodexBackend {
             p["model"] = json!(m.model);
         }
         let r = self.call("thread/start", p, WRITE_TIMEOUT).await?;
+        log_source("thread/start", &r);
         let t = thread_of(&r)?;
         let chat = thread_to_chat(&t, self.app_dir().as_deref(), Known::Value { value: false, basis: Basis::Derived });
         let root = thread_to_agent(&t, chat_key(&t.id));
@@ -522,6 +557,7 @@ impl AiBackend for CodexBackend {
     async fn resume(&self, chat: ChatKey, _confirmed: &UserConfirmed) -> BackendResult<ResumeOutcome> {
         match self.call("thread/resume", json!({"threadId": chat.id.0}), WRITE_TIMEOUT).await {
             Ok(r) => {
+                log_source("thread/resume", &r);
                 let t = thread_of(&r)?;
                 Ok(ResumeOutcome::Resumed { history: self.history_from_thread(&t, true, EvidenceSource::Response, "thread/resume") })
             }

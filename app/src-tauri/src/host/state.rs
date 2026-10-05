@@ -397,6 +397,12 @@ impl HostData {
             }
             BackendEvent::Activity { activity } => {
                 out.push(HostEvent::ActivityUpdated { activity: activity.clone() });
+                // サブエージェント関連のitem（spawn・待機・送信など）が来たら、子孫の監視を始める（既に動いていれば何もしない）。
+                if matches!(activity.kind, ActivityKind::SubAgent) {
+                    if let Some(v) = self.view(&activity.key.agent) {
+                        follow.push(Followup::ScanDescendants(agent_key_of(&v.agent.chat)));
+                    }
+                }
                 if let Some(v) = self.view_mut(&activity.key.agent) {
                     match activity.phase {
                         ActivityPhase::Completed => {
@@ -724,6 +730,21 @@ mod tests {
         d.set_source(src("b"));
         d.upsert_chat(mk(ChatOrigin::External));
         assert_eq!(d.chat(&ck("root")).unwrap().origin, ChatOrigin::External);
+    }
+
+    #[test]
+    fn subagent_items_trigger_descendant_scan_of_the_chat_root() {
+        let mut d = HostData::default();
+        live_root(&mut d, AgentState::Running);
+        let activity = Activity {
+            key: ItemKey { agent: ak("root"), turn_id: Some(ExternalId("t1".into())), item_id: ExternalId("i1".into()) },
+            kind: ActivityKind::SubAgent,
+            phase: ActivityPhase::Started,
+            summary: Known::Missing,
+            evidence: evidence(EvidenceSource::LiveEvent, "x", UnixMillis(0)),
+        };
+        let (_, follow) = d.apply_event(&env(1, 1, BackendEvent::Activity { activity }), &caps());
+        assert_eq!(follow, vec![Followup::ScanDescendants(ak("root"))]);
     }
 
     #[test]

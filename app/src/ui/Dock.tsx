@@ -29,7 +29,7 @@ function Berth({ a, depth, orphan, mini, confirmed, onConfirmFail }: {
         <span className="nm">{showKnown(a.agent.displayName)}</span><span className="rel">{rel}</span>
         <span className={`st ${m.c}`}><Flag c={m.c} />{m.t}</span>
       </div>
-      {mini ? null : <div className="l2">役割: {showKnown(a.agent.role)}　担当: {showKnown(a.agent.assignment)}</div>}
+      {mini ? null : <div className="l2">{a.agent.parent.kind === "root" ? "役割: メイン（会話の本体）" : <>役割: {showKnown(a.agent.role)}　担当: {showKnown(a.agent.assignment)}</>}</div>}
       <div className="l3" title={act}>{act}</div>
       {mini ? null : (
         <div className="l4">

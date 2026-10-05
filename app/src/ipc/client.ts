@@ -45,3 +45,5 @@ export const setPinned = (chat: ChatKey, pinned: boolean): Promise<Chat> => invo
 export const listModels = (): Promise<ModelInfo[]> => invokeCmd("list_models", { backend: "codex", includeHidden: false });
 export const setChatModel = (chat: ChatKey, choice: ModelChoice): Promise<ChatModelSettings> => invokeCmd("set_chat_model", { chat, choice });
 export const setMonitorScope = (scope: MonitorScope): Promise<null> => invokeCmd("set_monitor_scope", { scope });
+/** 診断ログのフォルダをエクスプローラーで開く（ユーザー操作）。戻り値はログファイルの場所。 */
+export const openDiagDir = (): Promise<string> => invoke("open_diag_dir");

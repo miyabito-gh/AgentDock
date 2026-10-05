@@ -267,6 +267,20 @@ fn str_of<'a>(item: &'a Value, key: &str) -> Option<&'a str> {
     item.get(key).and_then(Value::as_str)
 }
 
+fn status_label_of(item: &Value) -> Option<String> {
+    str_of(item, "status").map(str::to_string)
+}
+
+/// 「（a／b）」形式の補足。値が無い項目は出さない（0や空で代用しない）。
+fn details(parts: [Option<String>; 2]) -> String {
+    let v: Vec<String> = parts.into_iter().flatten().collect();
+    if v.is_empty() {
+        String::new()
+    } else {
+        format!("（{}）", v.join("／"))
+    }
+}
+
 /// itemの種類と、全文（取得できる範囲）。未知の種類は `Other{raw}`。
 pub fn item_kind_and_text(item: &Value) -> (ActivityKind, Option<String>) {
     let ty = str_of(item, "type").unwrap_or("");
@@ -281,30 +295,59 @@ pub fn item_kind_and_text(item: &Value) -> (ActivityKind, Option<String>) {
             (ActivityKind::Reasoning, text)
         }
         "plan" => (ActivityKind::Plan, str_of(item, "text").map(str::to_string)),
-        "commandExecution" => (ActivityKind::Command, str_of(item, "command").map(str::to_string)),
+        "commandExecution" => {
+            let exit = item.get("exitCode").and_then(Value::as_i64).map(|c| format!("終了コード {c}"));
+            let text = str_of(item, "command").map(|c| format!("{c}{}", details([status_label_of(item), exit])));
+            (ActivityKind::Command, text)
+        }
         "fileChange" => {
             let paths = item
                 .get("changes")
                 .and_then(Value::as_array)
                 .map(|a| a.iter().filter_map(|c| str_of(c, "path")).collect::<Vec<_>>().join(", "))
-                .filter(|s| !s.is_empty());
-            (ActivityKind::FileChange, paths)
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "（対象パスの記載なし）".to_string());
+            (ActivityKind::FileChange, Some(format!("{paths}{}", details([status_label_of(item), None]))))
         }
         "mcpToolCall" => {
-            let text = match (str_of(item, "server"), str_of(item, "tool")) {
+            let name = match (str_of(item, "server"), str_of(item, "tool")) {
                 (Some(s), Some(t)) => Some(format!("{s}/{t}")),
                 (None, Some(t)) => Some(t.to_string()),
                 _ => None,
             };
-            (ActivityKind::ToolCall, text)
+            let err = item.get("error").filter(|e| !e.is_null()).map(|_| "エラーあり".to_string());
+            (ActivityKind::ToolCall, name.map(|n| format!("{n}{}", details([status_label_of(item), err]))))
         }
-        "dynamicToolCall" | "functionCallOutput" => {
-            let key = if ty == "dynamicToolCall" { "tool" } else { "name" };
-            (ActivityKind::ToolCall, str_of(item, key).map(str::to_string))
+        "dynamicToolCall" => {
+            let name = str_of(item, "tool").map(|t| match str_of(item, "namespace") {
+                Some(ns) => format!("{ns}/{t}"),
+                None => t.to_string(),
+            });
+            (ActivityKind::ToolCall, name.map(|n| format!("{n}{}", details([status_label_of(item), None]))))
         }
-        "webSearch" => (ActivityKind::WebSearch, str_of(item, "query").map(str::to_string)),
-        "collabAgentToolCall" => (ActivityKind::SubAgent, str_of(item, "tool").map(str::to_string)),
-        "subAgentActivity" => (ActivityKind::SubAgent, str_of(item, "kind").map(str::to_string)),
+        "functionCallOutput" => (ActivityKind::ToolCall, str_of(item, "name").map(|n| format!("{n}（出力）"))),
+        "webSearch" => (ActivityKind::WebSearch, str_of(item, "query").filter(|q| !q.is_empty()).map(str::to_string)),
+        "collabAgentToolCall" => {
+            let n = item.get("receiverThreadIds").and_then(Value::as_array).map(Vec::len);
+            let target = n.map(|n| format!("対象 {n} 件"));
+            let tool = str_of(item, "tool");
+            let prompt = str_of(item, "prompt").filter(|p| !p.is_empty()).map(|p| format!(" — {}", truncate(p, 80)));
+            (ActivityKind::SubAgent, tool.map(|t| format!("{t}{}{}", details([status_label_of(item), target]), prompt.unwrap_or_default())))
+        }
+        "subAgentActivity" => {
+            let text = match (str_of(item, "kind"), str_of(item, "agentPath")) {
+                (Some(k), Some(p)) => Some(format!("{k}: {p}")),
+                (Some(k), None) => Some(k.to_string()),
+                _ => None,
+            };
+            (ActivityKind::SubAgent, text)
+        }
+        "imageView" => (ActivityKind::Other { raw: "imageView".into() }, str_of(item, "path").map(str::to_string)),
+        "sleep" => (ActivityKind::Other { raw: "sleep".into() }, item.get("durationMs").and_then(Value::as_i64).map(|ms| format!("待機 {ms}ms"))),
+        "imageGeneration" => (ActivityKind::Other { raw: "imageGeneration".into() }, str_of(item, "status").map(|s| format!("画像生成（{s}）"))),
+        "enteredReviewMode" | "exitedReviewMode" => (ActivityKind::Other { raw: ty.to_string() }, str_of(item, "review").map(str::to_string)),
+        "contextCompaction" => (ActivityKind::Other { raw: "contextCompaction".into() }, Some("文脈を圧縮".to_string())),
+        "hookPrompt" => (ActivityKind::Other { raw: "hookPrompt".into() }, None),
         "" => (ActivityKind::Other { raw: "(missing type)".into() }, None),
         other => (ActivityKind::Other { raw: other.to_string() }, None),
     }
@@ -553,6 +596,22 @@ mod tests {
         assert_eq!(chat_origin(&t), ChatOrigin::External);
         let t = thread(json!({"id": "r", "source": "appServer"}));
         assert_eq!(parent_link(&t), ParentLink::Root);
+    }
+
+    #[test]
+    fn work_log_items_show_available_attributes_not_missing() {
+        let t = |v: Value| item_kind_and_text(&v).1;
+        assert_eq!(t(json!({"type": "commandExecution", "command": "cargo test", "status": "completed", "exitCode": 0})).as_deref(), Some("cargo test（completed／終了コード 0）"));
+        assert_eq!(t(json!({"type": "commandExecution", "command": "ls", "status": "inProgress", "exitCode": null})).as_deref(), Some("ls（inProgress）"));
+        assert_eq!(t(json!({"type": "fileChange", "status": "completed", "changes": [{"path": "a.rs"}, {"path": "b.rs"}]})).as_deref(), Some("a.rs, b.rs（completed）"));
+        assert_eq!(t(json!({"type": "mcpToolCall", "server": "s", "tool": "t", "status": "failed", "error": {"message": "x"}})).as_deref(), Some("s/t（failed／エラーあり）"));
+        let c = t(json!({"type": "collabAgentToolCall", "tool": "spawnAgent", "status": "completed", "receiverThreadIds": ["a"], "prompt": "調べて"}));
+        assert_eq!(c.as_deref(), Some("spawnAgent（completed／対象 1 件） — 調べて"));
+        assert_eq!(t(json!({"type": "subAgentActivity", "kind": "started", "agentPath": "root/a"})).as_deref(), Some("started: root/a"));
+        // 本当に値が無いものだけ None。
+        assert_eq!(t(json!({"type": "commandExecution"})), None);
+        assert_eq!(t(json!({"type": "reasoning", "summary": [], "content": []})), None);
+        assert!(matches!(item_kind_and_text(&json!({"type": "sleep", "durationMs": 5})).0, ActivityKind::Other { .. }));
     }
 
     #[test]

@@ -95,3 +95,16 @@ pub async fn set_monitor_scope(host: Hs<'_>, args: SetMonitorScopeArgs) -> R<()>
     host.set_monitor_scope(args);
     Ok(())
 }
+
+/// 診断ログのフォルダをエクスプローラーで開く（ユーザー操作）。戻り値はログファイルの場所。
+#[tauri::command]
+pub async fn open_diag_dir() -> R<String> {
+    let path = crate::diag::log_path().ok_or_else(|| IpcError { code: IpcErrorCode::NotFound, message: "診断ログを作成できていません".into(), blocked: None })?;
+    if let Some(dir) = path.parent() {
+        std::process::Command::new("explorer")
+            .arg(dir)
+            .spawn()
+            .map_err(|e| IpcError { code: IpcErrorCode::Io, message: format!("エクスプローラーを起動できません: {e}"), blocked: None })?;
+    }
+    Ok(path.to_string_lossy().into_owned())
+}

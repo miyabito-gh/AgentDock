@@ -10,7 +10,7 @@
 pub mod state;
 pub mod stop;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -31,6 +31,8 @@ const RECONCILE_INTERVAL: Duration = Duration::from_secs(5);
 const RECONCILE_ATTEMPTS: usize = 12;
 const LIST_DEFAULT_LIMIT: u32 = 50;
 const SCAN_READ_LIMIT: usize = 50;
+const SCAN_INTERVAL: Duration = Duration::from_secs(3);
+const SCAN_MAX_ROUNDS: usize = 600;
 const NAME_MAX_CHARS: usize = 40;
 
 pub fn now_ms() -> UnixMillis {
@@ -61,6 +63,35 @@ impl From<BackendError> for IpcError {
             BackendError::Io { .. } => err(IpcErrorCode::Io, message),
         }
     }
+}
+
+/// 走査ループ内で覚えておく状態（ループが終われば捨てる）。
+#[derive(Default)]
+pub struct ScanMemo {
+    /// 一度読んで、親が明示されていない（このチャットの子孫でない）と分かったスレッド。
+    irrelevant: HashSet<AgentKey>,
+    /// 親は明示されているが、その親がまだ見つかっていない子（読み取り済みの内容）。
+    waiting: HashMap<AgentKey, (Agent, AgentStatus)>,
+    off_fresh: usize,
+    off_loaded: usize,
+    off_stale: usize,
+}
+
+/// ラウンドロビン。`offset` から最大 `limit` 件を（末尾で折り返して）取り、offset を進める。全件を順に回る。
+pub fn take_window<T: Clone>(items: &[T], offset: &mut usize, limit: usize) -> Vec<T> {
+    if items.is_empty() || limit == 0 {
+        return Vec::new();
+    }
+    let n = items.len().min(limit);
+    let start = *offset % items.len();
+    let out: Vec<T> = (0..n).map(|i| items[(start + i) % items.len()].clone()).collect();
+    *offset = (start + n) % items.len();
+    out
+}
+
+/// ロード済み一覧のうち、まだ読んでいない候補（既知でなく、無関係と判明済みでも待機中でもないもの）。
+pub fn pick_unread(loaded: &[AgentKey], is_known: &dyn Fn(&AgentKey) -> bool, memo: &ScanMemo) -> Vec<AgentKey> {
+    loaded.iter().filter(|k| !is_known(k) && !memo.irrelevant.contains(*k) && !memo.waiting.contains_key(*k)).cloned().collect()
 }
 
 /// 最初の依頼文からチャット名を機械的に切り出す（先頭行・上限文字数）。
@@ -110,6 +141,8 @@ pub struct Host {
     /// 受理なしが確定した送信（ユーザー確認つきの再送だけ可能）。
     rejected: Mutex<HashMap<LocalId, NotAccepted>>,
     counter: AtomicU64,
+    /// 走査ループが動いているルート（重複起動しない）。
+    scanning: Mutex<HashSet<AgentKey>>,
 }
 
 impl Host {
@@ -124,6 +157,7 @@ impl Host {
             unresolved: Mutex::new(UnresolvedSends::default()),
             rejected: Mutex::new(HashMap::new()),
             counter: AtomicU64::new(1),
+            scanning: Mutex::new(HashSet::new()),
         }
     }
 
@@ -184,32 +218,129 @@ impl Host {
             match f {
                 Followup::ScanDescendants(root) => {
                     let host = self.clone();
-                    tauri::async_runtime::spawn(async move { host.scan_descendants(root).await });
+                    host.start_scan(root);
                 }
             }
         }
     }
 
-    /// 子孫の再走査（読み取りのみ。resume・送信・承認をしない）。新しく見つかったものを履歴由来として加える。
-    async fn scan_descendants(self: Arc<Self>, root: AgentKey) {
+    /// 子孫の監視を始める（同じルートに1つだけ。読み取りのみで resume・送信・承認をしない）。
+    /// 実行中は一定間隔で走査と状態の再読込みを続け、止まったら終わる。
+    fn start_scan(self: &Arc<Self>, root: AgentKey) {
+        if !self.scanning.lock().unwrap().insert(root.clone()) {
+            return;
+        }
+        let host = self.clone();
+        tauri::async_runtime::spawn(async move {
+            let chat = ChatKey { backend: root.backend, id: root.id.clone() };
+            let mut quiet = 0;
+            let mut memo = ScanMemo::default();
+            for _ in 0..SCAN_MAX_ROUNDS {
+                if host.scan_once(root.clone(), &mut memo).await.is_err() {
+                    break;
+                }
+                let running = host.read(|d| d.agents.iter().any(|v| v.agent.chat == chat && d.running_turn.contains_key(&v.agent.key)));
+                quiet = if running { 0 } else { quiet + 1 };
+                if quiet >= 2 {
+                    break;
+                }
+                tokio::time::sleep(SCAN_INTERVAL).await;
+            }
+            host.scanning.lock().unwrap().remove(&root);
+        });
+    }
+
+    /// 1回分の走査。①祖先／sourceKindsでの検索 ②ロード済み一覧からの発見（親の明示が手掛かり）③既知の子の状態の再読込み。
+    /// 読取りは1周期あたり各段階 `SCAN_READ_LIMIT` 件まで。件数が多いときは周回ごとにずらして全件を順に回す。
+    /// 診断ログには引数・件数・完全性・親不明件数だけを残す。接続がなければ Err（ループ終了）。
+    async fn scan_once(self: &Arc<Self>, root: AgentKey, memo: &mut ScanMemo) -> Result<(), BackendError> {
+        let chat = ChatKey { backend: root.backend, id: root.id.clone() };
+        let (mut found_n, mut complete, mut orphans, mut added) = (0usize, false, 0usize, 0usize);
         match self.backend.scan_descendants(root.clone()).await {
             Ok(scan) => {
+                found_n = scan.found.len();
+                complete = scan.complete;
+                orphans = scan.found.iter().filter(|a| matches!(a.parent, ParentLink::Unknown)).count();
                 let fresh: Vec<Agent> = self.read(|d| scan.found.iter().filter(|a| d.view(&a.key).is_none()).cloned().collect());
-                for a in fresh.into_iter().take(SCAN_READ_LIMIT) {
-                    match self.backend.read(a.key.clone(), ReadOptions { include_turns: false }).await {
-                        Ok(h) => {
-                            self.mutate(|d| ((), d.upsert_history_agent(a, h.status)));
-                        }
-                        Err(e) => self.warn(format!("子孫 {} の状態を読み取れませんでした: {e}", a.key.id.0)),
+                for a in take_window(&fresh, &mut memo.off_fresh, SCAN_READ_LIMIT) {
+                    if let Ok(h) = self.backend.read(a.key.clone(), ReadOptions { include_turns: false }).await {
+                        self.mutate(|d| ((), d.upsert_history_agent(a, h.status)));
+                        added += 1;
                     }
                 }
-                if !scan.complete {
-                    self.warn("子孫の走査が途中までです（取りこぼしの可能性があります）");
+            }
+            Err(BackendError::NotConnected) => return Err(BackendError::NotConnected),
+            Err(e) => crate::diag::log("scan", &format!("scan_descendants failed root={} kind={}", root.id.0, crate::diag::error_kind(&e))),
+        }
+        // ロード済み一覧: 親が既知のエージェントの子として明示されているものを加える。
+        // 親が明示されていない（無関係な）スレッドは一度読んだら覚えて再読込みしない。親が未発見の子は待機に置き、親が現れたら加える。
+        let mut loaded_n = 0usize;
+        match self.backend.list_loaded().await {
+            Ok(loaded) => {
+                loaded_n = loaded.len();
+                let candidates = self.read(|d| pick_unread(&loaded, &|k| d.view(k).is_some(), memo));
+                for k in take_window(&candidates, &mut memo.off_loaded, SCAN_READ_LIMIT) {
+                    let Ok(h) = self.backend.read(k.clone(), ReadOptions { include_turns: false }).await else { continue };
+                    match &h.agent.parent {
+                        ParentLink::Explicit { .. } => {
+                            memo.waiting.insert(k, (h.agent, h.status));
+                        }
+                        _ => {
+                            memo.irrelevant.insert(k);
+                        }
+                    }
+                }
+                loop {
+                    let ready: Vec<AgentKey> = self.read(|d| {
+                        memo.waiting
+                            .iter()
+                            .filter(|(_, (a, _))| matches!(&a.parent, ParentLink::Explicit { parent } if d.view(parent).is_some()))
+                            .map(|(k, _)| k.clone())
+                            .collect()
+                    });
+                    if ready.is_empty() {
+                        break;
+                    }
+                    for k in ready {
+                        let Some((mut agent, status)) = memo.waiting.remove(&k) else { continue };
+                        if let ParentLink::Explicit { parent } = &agent.parent {
+                            if let Some(pchat) = self.read(|d| d.view(parent).map(|v| v.agent.chat.clone())) {
+                                agent.chat = pchat;
+                            }
+                        }
+                        self.mutate(|d| ((), d.upsert_history_agent(agent, status)));
+                        added += 1;
+                    }
                 }
             }
-            Err(BackendError::NotConnected) => {}
-            Err(e) => self.warn(format!("子孫の走査に失敗しました: {e}")),
+            Err(BackendError::NotConnected) => return Err(BackendError::NotConnected),
+            Err(e) => crate::diag::log("scan", &format!("list_loaded failed kind={}", crate::diag::error_kind(&e))),
         }
+        // 既知の子（live購読でないもの）の状態を読み直す。購読が無くても実行中・完了が追随する。
+        let stale: Vec<(AgentKey, ChatKey)> = self.read(|d| {
+            d.agents
+                .iter()
+                .filter(|v| v.agent.chat == chat && !matches!(v.agent.parent, ParentLink::Root) && v.freshness != Freshness::Live)
+                .map(|v| (v.agent.key.clone(), v.agent.chat.clone()))
+                .collect()
+        });
+        for (k, c) in take_window(&stale, &mut memo.off_stale, SCAN_READ_LIMIT) {
+            if let Ok(h) = self.backend.read(k, ReadOptions { include_turns: false }).await {
+                let mut agent = h.agent;
+                agent.chat = c;
+                self.mutate(|d| ((), d.upsert_history_agent(agent, h.status)));
+            }
+        }
+        crate::diag::log(
+            "scan",
+            &format!(
+                "root={} found={found_n} complete={complete} orphans={orphans} loaded={loaded_n} added={added} irrelevant={} waiting={}",
+                root.id.0,
+                memo.irrelevant.len(),
+                memo.waiting.len()
+            ),
+        );
+        Ok(())
     }
 
     // ── 接続 ──
@@ -272,7 +403,7 @@ impl Host {
         });
         let host = self.clone();
         let root = agent_key_of(&args.chat);
-        tauri::async_runtime::spawn(async move { host.scan_descendants(root).await });
+        host.start_scan(root);
         Ok(history)
     }
 
@@ -387,7 +518,7 @@ impl Host {
             self.apply_resumed(history.clone());
             let host = self.clone();
             let root = agent_key_of(&args.chat);
-            tauri::async_runtime::spawn(async move { host.scan_descendants(root).await });
+            host.start_scan(root);
         }
         Ok(out)
     }
@@ -721,6 +852,33 @@ impl Host {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn round_robin_window_covers_everything_and_respects_the_limit() {
+        let items: Vec<u32> = (0..7).collect();
+        let mut off = 0;
+        let mut seen = Vec::new();
+        for _ in 0..3 {
+            let w = take_window(&items, &mut off, 3);
+            assert!(w.len() <= 3);
+            seen.extend(w);
+        }
+        // 3周（9件分）で0..6が全部1回以上出て、順番に折り返す。
+        assert_eq!(seen, vec![0, 1, 2, 3, 4, 5, 6, 0, 1]);
+        let mut off = 5;
+        assert_eq!(take_window(&items, &mut off, 100), vec![5, 6, 0, 1, 2, 3, 4], "small sets are read once per cycle");
+        assert_eq!(take_window::<u32>(&[], &mut off, 3), Vec::<u32>::new());
+    }
+
+    #[test]
+    fn irrelevant_and_waiting_threads_are_not_read_again() {
+        let k = |s: &str| AgentKey { backend: BackendKind::Codex, id: ExternalId(s.into()) };
+        let mut memo = ScanMemo::default();
+        memo.irrelevant.insert(k("other-root"));
+        let loaded = vec![k("known"), k("other-root"), k("new")];
+        let got = pick_unread(&loaded, &|a| a == &k("known"), &memo);
+        assert_eq!(got, vec![k("new")]);
+    }
 
     #[test]
     fn chat_name_is_first_nonempty_line_truncated() {

@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type {
   Attachment, Chat, ChatModelSettings, DecisionOption, HostSnapshot, ModelInfo, PendingRequest, QueueItem, RequestAnswer,
-  SaveState, StopRecord, TurnRecord,
+  ActivityKind, SaveState, StopRecord, TurnRecord,
 } from "../ipc/types";
 import { Icon } from "./Icon";
 import { chatAgents, chatName, chatRequests, chatStatusText, chatStops, isRunning, rootView, stopOpen } from "./derive";
@@ -132,17 +132,42 @@ function Banners({ p }: { p: CenterProps }) {
   );
 }
 
+const KIND_LABEL: Record<string, string> = {
+  command: "コマンド", fileChange: "ファイル変更", toolCall: "ツール", webSearch: "Web検索", subAgent: "サブエージェント",
+  reasoning: "推論", plan: "計画", agentMessage: "応答", userMessage: "依頼",
+};
+const kindLabel = (k: ActivityKind): string => (k.kind === "other" ? k.raw : KIND_LABEL[k.kind] ?? k.kind);
+/** 作業の記録1件の表示。値が本当に無いときだけ「記載なし」とする（取得できた属性はホストが文にして渡す）。 */
+const entryText = (t: TurnRecord["entries"][number]): string => (t.text.kind === "value" ? t.text.value : "（内容の記載なし）");
+const NEAR_BOTTOM_PX = 120;
+
 function Messages({ turns, reqs, running, onRespond, onAct }: {
   turns: TurnRecord[]; reqs: PendingRequest[]; running: boolean; onRespond: CenterProps["onRespond"]; onAct: (a: string) => void;
 }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const stick = useRef(true);
+  const [away, setAway] = useState(false);
+  const toBottom = () => { const el = ref.current; if (el) el.scrollTop = el.scrollHeight; stick.current = true; setAway(false); };
+  const onScroll = () => {
+    const el = ref.current;
+    if (!el) return;
+    const near = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX;
+    stick.current = near;
+    if (near) setAway(false);
+  };
+  // 更新（新しい本文・逐次表示）のたびに、最下部付近にいるときだけ追従する。過去を読んでいるときは動かさず「最新へ」を出す。
+  useEffect(() => {
+    if (stick.current) toBottom(); else setAway(true);
+  }, [turns, reqs.length, running]);
   return (
-    <div className="msgs" id="msgs" aria-live="polite">
+    <div className="msgs-wrap">
+    <div className="msgs" id="msgs" aria-live="polite" ref={ref} onScroll={onScroll}>
       {turns.map((t) => {
         const others = t.entries.filter((e) => e.kind.kind !== "userMessage" && e.kind.kind !== "agentMessage");
         return (
           <div key={keyStr(t.key.agent) + t.key.turnId}>
             {t.entries.filter((e) => e.kind.kind === "userMessage" || e.kind.kind === "agentMessage").map((e) => {
-              const text = showKnown(e.text);
+              const text = e.text.kind === "value" ? e.text.value : "…";
               if (e.kind.kind === "userMessage") {
                 return <div className="msg user" key={e.key.itemId}><div className="who" style={{ justifyContent: "flex-end" }}>あなた</div><div className="bubble">{text}</div></div>;
               }
@@ -157,7 +182,7 @@ function Messages({ turns, reqs, running, onRespond, onAct }: {
             {others.length ? (
               <div className="msg ai">
                 <details className="activity"><summary>作業の記録（{others.length}件）</summary>
-                  <ul style={{ margin: "4px 0", paddingLeft: 18 }}>{others.map((e) => <li key={e.key.itemId}>{showKnown(e.text)}</li>)}</ul>
+                  <ul style={{ margin: "4px 0", paddingLeft: 18 }}>{others.map((e) => <li key={e.key.itemId}><b>{kindLabel(e.kind)}</b>　{entryText(e)}</li>)}</ul>
                 </details>
               </div>
             ) : null}
@@ -166,6 +191,8 @@ function Messages({ turns, reqs, running, onRespond, onAct }: {
       })}
       {reqs.map((r) => <RequestCard key={keyStr({ backend: r.key.backend, id: r.key.requestId })} r={r} onRespond={onRespond} />)}
       {running && reqs.length === 0 ? <div className="msg ai"><div className="who">Codex</div><div className="activity">作業中です。右のドックで各エージェントの状況を確認できます。</div></div> : null}
+    </div>
+    {away ? <button className="jump" onClick={toBottom}>最新へ</button> : null}
     </div>
   );
 }
@@ -289,6 +316,7 @@ function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock
             </span>
           ) : null}
           <span className="grow" />
+          {running ? <button className="btn-line" aria-label="中断" title="実行中の作業に中断を要求します（停止の確認は別に行います）" onClick={() => p.onAct("interrupt")}><Icon name="stop" />中断</button> : null}
           <button className="btn-main send" aria-label={running ? (steer ? "追加指示を送る" : "完了後に送る依頼として登録") : "送信"} disabled={!!lock} onClick={() => void send()}><Icon name="send" /></button>
         </div>
       </div>
@@ -314,7 +342,7 @@ export function CenterPane(p: CenterProps) {
     <>
       <Header snap={snap} chat={chat} onAct={p.onAct} running={running} />
       <Banners p={p} />
-      <Messages turns={p.turns} reqs={reqs} running={running} onRespond={p.onRespond} onAct={p.onAct} />
+      <Messages key={chat.key.id} turns={p.turns} reqs={reqs} running={running} onRespond={p.onRespond} onAct={p.onAct} />
       <Queue items={snap.queue.filter((q) => keyStr(q.chat) === keyStr(chat.key))} onAct={p.onAct} />
       <Composer key={`${chat.key.id}:${p.models.length}`} p={p} running={running} lock={lock} />
     </>
