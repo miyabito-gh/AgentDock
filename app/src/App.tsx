@@ -1,9 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { HostEvent, HostEventEnvelope, HostSnapshot, ModelInfo, MonitorScope, PendingRequest, RequestAnswer, SendAttempt, SourceInfo } from "./ipc/types";
 import * as host from "./ipc/client";
-import * as mock from "./mock/client";
 import { applyHostEvent, emptyBundle, replaceSnapshot, seqAction, UNKNOWN_CAPS } from "./ipc/live";
-import { SCENARIOS, type Bundle } from "./mock/data";
+import type { Bundle } from "./mock/data";
+
+// 仮データはmockモードに入るときだけ読み込む（live製品バンドルに含めない）。
+const loadMock = async () => {
+  const [client, data] = await Promise.all([import("./mock/client"), import("./mock/data")]);
+  return { client, scenarios: data.SCENARIOS };
+};
 import { GlobalBanner, MenuBar, TitleBar } from "./ui/Chrome";
 import { LeftPane } from "./ui/LeftPane";
 import { CenterPane, EmptyCenter, type SendNotice } from "./ui/CenterPane";
@@ -48,6 +53,7 @@ function noticeOf(a: SendAttempt | undefined): SendNotice | null {
 export default function App() {
   const [mode, setMode] = useState<Mode>("live");
   const [scenario, setScenario] = useState("normal");
+  const [scenarios, setScenarios] = useState<Array<[string, string]>>([]);
   const [bundle, setBundle] = useState<Bundle>(() => emptyBundle());
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [selId, setSelId] = useState<string | null>(null);
@@ -202,7 +208,8 @@ export default function App() {
   };
 
   const changeScenario = async (name: string) => {
-    const b = await mock.getBundle(name);
+    const { client } = await loadMock();
+    const b = await client.getBundle(name);
     setScenario(name); setBundle(b);
     setSelId(b.snapshot.chats[0]?.key.id ?? null);
     setScope(b.snapshot.monitorScope); setConfirmed(new Set()); setMockOpen(false);
@@ -213,8 +220,10 @@ export default function App() {
     if (m === mode) return;
     setDialog(null);
     if (m === "mock") {
-      const b = await mock.getBundle(scenario);
-      setModels(await mock.listModels());
+      const { client, scenarios: list } = await loadMock();
+      setScenarios(list);
+      const b = await client.getBundle(scenario);
+      setModels(await client.listModels());
       setBundle(b); setSelId(b.snapshot.chats[0]?.key.id ?? null); setScope(b.snapshot.monitorScope); setConfirmed(new Set());
     }
     setMode(m);
@@ -222,11 +231,11 @@ export default function App() {
 
   const updateSnap = (f: (s: HostSnapshot) => HostSnapshot) => setBundle((b) => ({ ...b, snapshot: f(b.snapshot) }));
 
-  const onScope = (s: MonitorScope) => { setScope(s); void (live ? host.setMonitorScope(s) : mock.setMonitorScope(s)); };
+  const onScope = (s: MonitorScope) => { setScope(s); void (live ? host.setMonitorScope(s) : loadMock().then((m) => m.client.setMonitorScope(s))); };
 
   const onRespond = async (r: PendingRequest, a: RequestAnswer) => {
     if (!live) {
-      void mock.respondRequest(r.key, a);
+      void loadMock().then((m) => m.client.respondRequest(r.key, a));
       updateSnap((s) => ({ ...s, requests: s.requests.map((x) => x.key.requestId === r.key.requestId ? { ...x, state: { kind: "answered", optionId: a.kind === "decision" ? a.optionId : null, at: Date.now() } } : x) }));
       say("回答を送りました（モック）。");
       return;
@@ -242,7 +251,7 @@ export default function App() {
 
   const onSend = async (text: string, steer: boolean): Promise<boolean> => {
     if (!chat) return false;
-    if (!live) { void mock.sendMessage(chat.key, text, steer ? "steer" : "newTurn"); say("送信を依頼しました（モック）。"); return true; }
+    if (!live) { void loadMock().then((m) => m.client.sendMessage(chat.key, text, steer ? "steer" : "newTurn")); say("送信を依頼しました（モック）。"); return true; }
     const running = isRunning(snap, chat);
     if (running && !steer) { say("実行中は「追加指示」で送れます。完了後に送る依頼の登録は段階②で対応します。"); return false; }
     try {
@@ -387,7 +396,7 @@ export default function App() {
             <p>接続先を切り替えます。モックは製品の画面ではなく、仮データの表示確認用です。</p>
             <button role="menuitemradio" aria-current={live} onClick={() => void changeMode("live")}>実接続（Codex App Server）</button>
             <button role="menuitemradio" aria-current={!live} onClick={() => void changeMode("mock")}>モック（仮データ）</button>
-            {!live ? SCENARIOS.map(([k, t]) => <button key={k} role="menuitemradio" aria-current={scenario === k} onClick={() => void changeScenario(k)}>{t}</button>) : null}
+            {!live ? scenarios.map(([k, t]) => <button key={k} role="menuitemradio" aria-current={scenario === k} onClick={() => void changeScenario(k)}>{t}</button>) : null}
           </div>
         ) : null}
       </div>

@@ -22,7 +22,8 @@ pub fn run() {
             host.set_emitter(Arc::new(move |env| {
                 let _ = handle.emit(HOST_EVENT_CHANNEL, env);
             }));
-            host.start_event_pump();
+            // setupはtokioランタイム外のスレッドで走るため、Tauriのランタイムに入ってからtokio::spawnする。
+            tauri::async_runtime::block_on(async { host.start_event_pump() });
             app.manage(host);
             Ok(())
         })

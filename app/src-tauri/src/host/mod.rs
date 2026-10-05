@@ -201,7 +201,7 @@ impl Host {
     pub fn start_event_pump(self: &Arc<Self>) {
         let Some(mut rx) = self.backend.take_events() else { return };
         let host = self.clone();
-        tauri::async_runtime::spawn(async move {
+        tokio::spawn(async move {
             while let Some(env) = rx.recv().await {
                 host.handle_backend_event(&env);
             }
@@ -231,7 +231,7 @@ impl Host {
             return;
         }
         let host = self.clone();
-        tauri::async_runtime::spawn(async move {
+        tokio::spawn(async move {
             let chat = ChatKey { backend: root.backend, id: root.id.clone() };
             let mut quiet = 0;
             let mut memo = ScanMemo::default();
@@ -628,7 +628,7 @@ impl Host {
                 self.unconfirmed.lock().unwrap().insert(attempt_id.clone(), u);
                 let host = self.clone();
                 let (c, id, cm) = (chat.clone(), attempt_id.clone(), attempt.client_message_id.clone());
-                tauri::async_runtime::spawn(async move { host.reconcile_loop(c, id, cm, since).await });
+                tokio::spawn(async move { host.reconcile_loop(c, id, cm, since).await });
                 SendState::AcceptanceUnknown { since }
             }
         };
@@ -771,7 +771,7 @@ impl Host {
         });
         if requested_any {
             let host = self.clone();
-            tauri::async_runtime::spawn(async move {
+            tokio::spawn(async move {
                 tokio::time::sleep(Duration::from_millis(stop::STOP_CONFIRM_DEADLINE_MS as u64 + 100)).await;
                 host.mutate(|d| ((), d.refresh_stops(now_ms())));
             });
@@ -862,6 +862,15 @@ impl Host {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn host_builds_without_tauri_and_returns_an_empty_snapshot() {
+        let host = Arc::new(Host::new(std::env::temp_dir()));
+        host.start_event_pump();
+        let snap = host.snapshot();
+        assert!(snap.chats.is_empty());
+        assert!(snap.agents.is_empty());
+    }
 
     #[test]
     fn round_robin_window_covers_everything_and_respects_the_limit() {
