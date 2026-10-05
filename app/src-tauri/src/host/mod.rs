@@ -682,6 +682,10 @@ impl Host {
         attempt.state = state;
         self.emit_send(&chat, &attempt);
         if matches!(attempt.state, SendState::Accepted { .. }) {
+            // 新しいturnで子孫が生まれ得る。キュー後続の判定に前の走査結果（完了）を残さず、読み取りだけの再走査を始める。
+            let root = agent_key_of(&chat);
+            self.queue_rt.reset_scan(&root);
+            self.start_scan(root);
             if let Some(cwd) = sent_cwd {
                 self.apply_cwd_after_accept(&chat, cwd);
             }

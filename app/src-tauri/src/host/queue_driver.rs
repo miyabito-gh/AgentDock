@@ -49,6 +49,8 @@ pub struct QueueRuntime {
     reconciling: Mutex<HashSet<LocalId>>,
     /// 子孫の走査が完了したか（ルート別。未走査はキーなし＝未完了）。
     scans: Mutex<HashMap<AgentKey, bool>>,
+    /// 走査を最後に（再）開始した時刻。失敗が続くとき、作り直しの間隔を空ける。
+    scan_started: Mutex<HashMap<AgentKey, UnixMillis>>,
     awaiting_checked: Mutex<HashMap<ChatKey, UnixMillis>>,
 }
 
@@ -60,7 +62,17 @@ impl QueueRuntime {
     /// 新しいturnの受理・走査の開始で、前の走査結果を未完了へ戻す（そのturnで生まれた子孫を見落とさないため）。
     pub fn reset_scan(&self, root: &AgentKey) {
         self.scans.lock().unwrap().insert(root.clone(), false);
+        self.scan_started.lock().unwrap().insert(root.clone(), now_ms());
     }
+}
+
+/// 同じチャットの走査を、失敗が続くときに作り直す最短間隔。
+const SCAN_RESTART_INTERVAL_MS: i64 = 10_000;
+
+/// 走査を（再）起動すべきか。完了しておらず、実行中でなく、接続がlive（切断中は起動しない）で、
+/// 前回の開始から間隔が空いているとき。reset後に走査が `note_scan` 前に失敗しても、ここで作り直される。
+fn should_start_scan(ready: bool, scan_running: bool, connected: bool, last_start: Option<UnixMillis>, now: UnixMillis) -> bool {
+    !ready && !scan_running && connected && last_start.is_none_or(|t| now.0 - t.0 >= SCAN_RESTART_INTERVAL_MS)
 }
 
 /// 自動送信の判断に使う「子孫の走査が完了している」か。走査の実行中は、結果が途中なので未完了として扱う。
@@ -191,8 +203,11 @@ impl Host {
             return;
         }
         let root = agent_key_of(chat);
-        if !self.queue_rt.scans.lock().unwrap().contains_key(&root) {
-            // 子孫の走査が一度もない。読み取りだけの走査を始める（走査完了まで状態不明として保留）。
+        let scan_running = self.scanning.lock().unwrap().contains(&root);
+        let flag = self.queue_rt.scans.lock().unwrap().get(&root).copied();
+        let last_start = self.queue_rt.scan_started.lock().unwrap().get(&root).copied();
+        if should_start_scan(scan_ready(flag, scan_running), scan_running, self.is_connected(), last_start, now_ms()) {
+            // 走査が完了していない（未実施、または失敗して終わった）。読み取りだけの走査を始める（完了まで状態不明として保留）。
             self.start_scan(root.clone());
         }
         self.refresh_terminal_facts(chat).await;
@@ -798,5 +813,24 @@ mod tests {
         assert!(!scan_ready(rt.scans.lock().unwrap().get(&root()).copied(), false));
         rt.note_scan(&root(), true);
         assert!(scan_ready(rt.scans.lock().unwrap().get(&root()).copied(), false));
+    }
+
+    #[test]
+    fn failed_scan_after_reset_is_restarted_but_not_while_disconnected_or_too_soon() {
+        let rt = QueueRuntime::default();
+        rt.note_scan(&root(), true);
+        rt.reset_scan(&root());
+        let started = rt.scan_started.lock().unwrap().get(&root()).copied().unwrap();
+        let flag = rt.scans.lock().unwrap().get(&root()).copied();
+        // 走査が note_scan 前に失敗して終わった（実行中でもなく、未完了のまま）。
+        let ready = scan_ready(flag, false);
+        assert!(!ready);
+        let later = UnixMillis(started.0 + SCAN_RESTART_INTERVAL_MS);
+        assert!(should_start_scan(ready, false, true, Some(started), later), "restart on a later tick");
+        assert!(!should_start_scan(ready, false, true, Some(started), UnixMillis(started.0 + 1)), "back off right after a start");
+        assert!(!should_start_scan(ready, false, false, Some(started), later), "no restart while disconnected");
+        assert!(!should_start_scan(ready, true, true, Some(started), later), "no restart while a scan runs");
+        assert!(!should_start_scan(true, false, true, Some(started), later), "no restart once complete");
+        assert!(should_start_scan(false, false, true, None, later), "never scanned");
     }
 }
