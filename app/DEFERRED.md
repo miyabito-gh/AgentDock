@@ -7,3 +7,6 @@ T4検証（2026-10-05）で見つかった、段階①では対応しない項�
 - 添付メニューの追加項目（過去の会話を参考／選択範囲を貼り付け／Skill指定）: 段階②（§3.8）
 - Goal・削除保留・認証切れ／利用上限・外部会話の閲覧専用細部: types.tsに型を追加してから
 - `App.tsx` の `onRespond` がホスト通知を待たず `answered` にする仮実装: **T5で必ずホスト通知起点に直す**
+- threadIdを持たないサーバー要求（認証更新・attestation等）は回答手段がなくUnrecognized止まり（T3検証の観察）。実機で出るか確認
+- rpc.rs `abort()`のtry_lockは複数の書込み待ちが詰まるとDisconnected送出が最大write_timeout遅れる（低）
+- connect/disconnect直列化の実プロセス検証テストは未整備
