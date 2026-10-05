@@ -29,13 +29,17 @@ function Berth({ a, depth, orphan, mini, confirmed, onConfirmFail, rootName }: {
         <span className="nm">{a.agent.parent.kind === "root" ? (rootName ?? showKnown(a.agent.displayName)) : showKnown(a.agent.displayName)}</span><span className="rel">{rel}</span>
         <span className={`st ${m.c}`}><Flag c={m.c} />{m.t}</span>
       </div>
-      {mini ? null : <div className="l2">{a.agent.parent.kind === "root" ? "役割: メイン（会話の本体）" : <>役割: {showKnown(a.agent.role)}　担当: {showKnown(a.agent.assignment)}</>}</div>}
+      {mini ? null : <div className="l2">{a.agent.parent.kind === "root" ? "役割: メイン（会話の本体）" : <>役割: {a.agent.role.kind === "missing" ? "未提供（Codexが返していません）" : showKnown(a.agent.role)}　担当: {showKnown(a.agent.assignment)}</>}</div>}
       <div className="l3" title={act}>{act}</div>
       {mini ? null : (
         <div className="l4">
           <span>{hms(a.status.evidence.observedAt)}</span>
           <span>{SOURCE_LABEL[a.status.evidence.source]}</span>
-          {notLive ? <span style={{ color: "var(--stale)" }}>{FRESH[a.freshness].t}</span> : null}
+          {notLive ? (
+            a.agent.parent.kind !== "root" && a.freshness === "historyOnly"
+              ? <span style={{ color: "var(--stale)" }} title="子エージェントはライブ通知ではなく、走査（約3秒間隔の読み取り）で状態を更新しています">状態は走査で更新（約3秒間隔）</span>
+              : <span style={{ color: "var(--stale)" }}>{FRESH[a.freshness].t}</span>
+          ) : null}
         </div>
       )}
       {failUnconfirmed && !mini ? (

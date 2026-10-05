@@ -61,6 +61,8 @@ pub enum BackendEvent {
     TurnStarted { turn: TurnKey, evidence: Evidence },
     /// turn終端の明示。中断照合（§3.4）の証拠になる。
     TurnEnded { turn: TurnKey, end: TurnEnd, error: Option<String>, evidence: Evidence },
+    /// 子エージェントの担当（親のspawn依頼文の先頭）。対応が確定できたものだけ（推測で割り当てない）。
+    AgentAssignment { agent: AgentKey, assignment: String },
     /// 活動itemの開始・更新・完了。
     Activity { activity: Activity },
     /// 逐次本文（agentMessage等のdelta）。順序は `seq` に従う。

@@ -181,6 +181,11 @@ impl WireThread {
         self.source.as_ref().and_then(|s| s.get("subAgent")).is_some()
     }
 
+    /// `source.subAgent.thread_spawn` の文字列項目（`agent_nickname`・`agent_role` など）。無い・nullなら None。
+    pub fn spawn_field(&self, key: &str) -> Option<String> {
+        self.source.as_ref()?.get("subAgent")?.get("thread_spawn")?.get(key)?.as_str().filter(|s| !s.is_empty()).map(str::to_string)
+    }
+
     /// `source.subAgent.thread_spawn.parent_thread_id`（明示されている場合のみ）。
     pub fn source_parent_thread_id(&self) -> Option<String> {
         self.source

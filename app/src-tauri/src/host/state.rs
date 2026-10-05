@@ -33,6 +33,8 @@ pub struct HostData {
     /// このホスト（現在の接続）が開始・再開した会話。originに関わらず送信可能として扱う。
     pub hosted: HashSet<ChatKey>,
     pub model_settings: HashMap<ChatKey, ChatModelSettings>,
+    /// 親のspawn依頼から確定できた子の担当（エージェントの再登録で失わないよう保持）。
+    assignments: HashMap<AgentKey, String>,
     /// 実行中と分かっているturn（中断・追加指示の対象）。
     pub running_turn: HashMap<AgentKey, ExternalId>,
     /// 開始を観測した最新turn（古いturnの後着を捨てる基準）。
@@ -55,6 +57,7 @@ impl Default for HostData {
             pinned: HashSet::new(),
             hosted: HashSet::new(),
             model_settings: HashMap::new(),
+            assignments: HashMap::new(),
             running_turn: HashMap::new(),
             latest_turn_start: HashMap::new(),
             last_end: HashMap::new(),
@@ -121,6 +124,7 @@ impl HostData {
 
     /// 状態・鮮度は変えず、所属チャット・親などエージェントの属性だけを正しいものに置き換える。
     pub fn adopt_agent(&mut self, agent: Agent) -> Vec<HostEvent> {
+        let agent = self.with_assignment(agent);
         match self.view_mut(&agent.key) {
             Some(v) => {
                 v.agent = agent;
@@ -132,6 +136,16 @@ impl HostData {
 
     pub fn root_view(&self, chat: &ChatKey) -> Option<&AgentView> {
         self.view(&agent_key_of(chat))
+    }
+
+    /// 担当が未取得なら、確定済みの担当を入れる。
+    fn with_assignment(&self, mut a: Agent) -> Agent {
+        if a.assignment.value().is_none() {
+            if let Some(t) = self.assignments.get(&a.key) {
+                a.assignment = Known::direct(t.clone());
+            }
+        }
+        a
     }
 
     pub fn is_root(&self, k: &AgentKey) -> bool {
@@ -195,6 +209,7 @@ impl HostData {
 
     /// 履歴・一覧から得た状態を反映する。live購読中のエージェントの状態は、古い可能性がある読み取りで上書きしない。
     pub fn upsert_history_agent(&mut self, agent: Agent, status: AgentStatus) -> Vec<HostEvent> {
+        let agent = self.with_assignment(agent);
         let key = agent.key.clone();
         if let Some(v) = self.view_mut(&key) {
             v.agent = agent;
@@ -211,6 +226,7 @@ impl HostData {
 
     /// 再開・新規作成でlive購読が戻ったエージェントを反映する。
     pub fn set_live(&mut self, agent: Agent, status: AgentStatus) -> Vec<HostEvent> {
+        let agent = self.with_assignment(agent);
         let key = agent.key.clone();
         if let Some(t) = &status.turn {
             if is_active(status.state) {
@@ -327,7 +343,15 @@ impl HostData {
                     }
                 }
             }
+            BackendEvent::AgentAssignment { agent, assignment } => {
+                self.assignments.insert(agent.clone(), assignment.clone());
+                if let Some(v) = self.view_mut(agent) {
+                    v.agent.assignment = Known::direct(assignment.clone());
+                    out.push(HostEvent::AgentUpdated { view: v.clone() });
+                }
+            }
             BackendEvent::AgentDiscovered { agent } => {
+                let agent = &self.with_assignment(agent.clone());
                 if self.view(&agent.key).is_none() {
                     let view = AgentView {
                         agent: agent.clone(),
@@ -806,6 +830,25 @@ mod tests {
         assert_eq!(v.status, live_status_before, "adoption keeps the observed state");
         assert!(!d.needs_adoption(&ak("child1")));
         assert!(d.agents.iter().any(|v| v.agent.chat == ck("root") && v.agent.key == ak("child1")));
+    }
+
+    #[test]
+    fn spawn_assignment_survives_discovery_order_and_reregistration() {
+        let mut d = HostData::default();
+        live_root(&mut d, AgentState::Running);
+        // 担当の通知が子の登録より先に届いても、後の登録・走査での置き換えで失わない。
+        d.apply_event(&env(1, 1, BackendEvent::AgentAssignment { agent: ak("c1"), assignment: "再送経路".into() }), &caps());
+        d.apply_event(&env(2, 2, BackendEvent::AgentDiscovered { agent: agent("c1", false) }), &caps());
+        assert_eq!(d.view(&ak("c1")).unwrap().agent.assignment, Known::direct("再送経路".to_string()));
+        d.upsert_history_agent(agent("c1", false), status(AgentState::Idle, None, StateScope::Agent));
+        assert_eq!(d.view(&ak("c1")).unwrap().agent.assignment, Known::direct("再送経路".to_string()));
+        // 別の子には割り当てない。
+        d.apply_event(&env(3, 3, BackendEvent::AgentDiscovered { agent: agent("c2", false) }), &caps());
+        assert_eq!(d.view(&ak("c2")).unwrap().agent.assignment, Known::NotFetched);
+        // 既に登録済みの子へ後から届いた場合は即反映。
+        let (ev, _) = d.apply_event(&env(4, 4, BackendEvent::AgentAssignment { agent: ak("c2"), assignment: "テスト".into() }), &caps());
+        assert!(matches!(ev[0], HostEvent::AgentUpdated { .. }));
+        assert_eq!(d.view(&ak("c2")).unwrap().agent.assignment, Known::direct("テスト".to_string()));
     }
 
     #[test]

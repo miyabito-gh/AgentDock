@@ -35,6 +35,7 @@ const MAX_PAGES: usize = 100;
 const SUBAGENT_KINDS: [&str; 5] = ["subAgent", "subAgentReview", "subAgentCompact", "subAgentThreadSpawn", "subAgentOther"];
 
 static SOURCE_COUNTER: AtomicU64 = AtomicU64::new(1);
+static CHILD_SOURCE_LOGGED: AtomicBool = AtomicBool::new(false);
 
 fn now_ms() -> UnixMillis {
     UnixMillis(SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0))
@@ -602,6 +603,10 @@ impl AiBackend for CodexBackend {
             truncated = trunc;
             for v in &data {
                 let t = parse_thread(v)?;
+                if !CHILD_SOURCE_LOGGED.swap(true, Ordering::Relaxed) {
+                    // 子のsourceのキー構造を1回だけ記録（値は書かない）。
+                    crate::diag::log("child-source", &crate::diag::shape(v.get("source").unwrap_or(&Value::Null)));
+                }
                 if t.id != root.id.0 {
                     all.push(thread_to_agent(&t, chat.clone()));
                 }

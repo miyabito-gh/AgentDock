@@ -181,8 +181,9 @@ pub fn thread_to_agent(t: &WireThread, chat: ChatKey) -> Agent {
         chat,
         parent: parent_link(t),
         forked_from: Known::Value { value: t.forked_from_id.as_deref().map(agent_key), basis: Basis::Direct },
-        display_name: if is_root { known_str(&t.name) } else { known_str(&t.agent_nickname) },
-        role: known_str(&t.agent_role),
+        // ニックネーム・役割はThread直下、無ければ source.subAgent.thread_spawn の値を使う（どちらにも無ければ欠損）。
+        display_name: if is_root { known_str(&t.name) } else { known_str(&t.agent_nickname.clone().or_else(|| t.spawn_field("agent_nickname"))) },
+        role: known_str(&t.agent_role.clone().or_else(|| t.spawn_field("agent_role"))),
         assignment: Known::NotFetched,
         latest_turn: t.latest_turn().map(|x| ext(x.id())),
     }
@@ -352,6 +353,19 @@ pub fn item_kind_and_text(item: &Value) -> (ActivityKind, Option<String>) {
         "" => (ActivityKind::Other { raw: "(missing type)".into() }, None),
         other => (ActivityKind::Other { raw: other.to_string() }, None),
     }
+}
+
+/// 親の `collabAgentToolCall`（spawnAgent）から、生成された子の担当（依頼文の先頭）を取り出す。
+/// 受信側が1件に確定できるときだけ（複数なら、どの子の依頼か決められないので割り当てない）。
+pub fn spawn_assignment(item: &Value) -> Option<(AgentKey, String)> {
+    if str_of(item, "type") != Some("collabAgentToolCall") || str_of(item, "tool") != Some("spawnAgent") {
+        return None;
+    }
+    let ids = item.get("receiverThreadIds")?.as_array()?;
+    let [only] = ids.as_slice() else { return None };
+    let child = only.as_str().filter(|s| !s.is_empty())?;
+    let prompt = str_of(item, "prompt").map(str::trim).filter(|p| !p.is_empty())?;
+    Some((agent_key(child), truncate(prompt, 80)))
 }
 
 /// itemの `status` から進行段階を決める。status無しは `default`。
@@ -613,6 +627,35 @@ mod tests {
         assert_eq!(t(json!({"type": "commandExecution"})), None);
         assert_eq!(t(json!({"type": "reasoning", "summary": [], "content": []})), None);
         assert!(matches!(item_kind_and_text(&json!({"type": "sleep", "durationMs": 5})).0, ActivityKind::Other { .. }));
+    }
+
+    #[test]
+    fn child_role_and_nickname_fall_back_to_thread_spawn_source() {
+        let t = thread(json!({
+            "id": "c1", "status": {"type": "idle"},
+            "source": {"subAgent": {"thread_spawn": {"parent_thread_id": "p", "depth": 1, "agent_path": "/root/plato", "agent_nickname": "Plato", "agent_role": "explorer"}}}
+        }));
+        let a = thread_to_agent(&t, chat_key("p"));
+        assert_eq!(a.display_name, Known::direct("Plato".to_string()));
+        assert_eq!(a.role, Known::direct("explorer".to_string()));
+        // Thread直下の値があればそちらを使う。
+        let t = thread(json!({"id": "c2", "agentNickname": "Top", "agentRole": "worker", "source": {"subAgent": {"thread_spawn": {"parent_thread_id": "p", "agent_role": "other"}}}}));
+        let a = thread_to_agent(&t, chat_key("p"));
+        assert_eq!((a.display_name, a.role), (Known::direct("Top".to_string()), Known::direct("worker".to_string())));
+        // どこにも無ければ欠損（nullは値なし）。
+        let t = thread(json!({"id": "c3", "source": {"subAgent": {"thread_spawn": {"parent_thread_id": "p", "agent_role": null}}}}));
+        assert_eq!(thread_to_agent(&t, chat_key("p")).role, Known::Missing);
+    }
+
+    #[test]
+    fn spawn_assignment_only_when_the_receiver_is_unambiguous() {
+        let item = |ids: Value, tool: &str| json!({"type": "collabAgentToolCall", "tool": tool, "status": "completed", "receiverThreadIds": ids, "prompt": "  再送経路を洗い出して  "});
+        assert_eq!(spawn_assignment(&item(json!(["c1"]), "spawnAgent")), Some((agent_key("c1"), "再送経路を洗い出して".to_string())));
+        assert_eq!(spawn_assignment(&item(json!(["c1", "c2"]), "spawnAgent")), None, "ambiguous: do not guess");
+        assert_eq!(spawn_assignment(&item(json!([]), "spawnAgent")), None);
+        assert_eq!(spawn_assignment(&item(json!(["c1"]), "sendInput")), None);
+        let long = json!({"type": "collabAgentToolCall", "tool": "spawnAgent", "receiverThreadIds": ["c1"], "prompt": "あ".repeat(120)});
+        assert_eq!(spawn_assignment(&long).unwrap().1.chars().count(), 81);
     }
 
     #[test]

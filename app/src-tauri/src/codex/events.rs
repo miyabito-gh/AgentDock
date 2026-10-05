@@ -177,7 +177,13 @@ fn convert_known(method: &str, p: &Value, ctx: &EventCtx, live: &dyn Fn(Option<U
             let phase = if method == "item/completed" { ActivityPhase::Completed } else { item_phase(item, default_phase) };
             let time = ms.and_then(Value::as_i64).map(UnixMillis);
             match item_to_activity(item, &agent_key(tid), Some(turn), phase, live(time)) {
-                Some(activity) => vec![BackendEvent::Activity { activity }],
+                Some(activity) => {
+                    let mut out = vec![BackendEvent::Activity { activity }];
+                    if let Some((agent, assignment)) = super::convert::spawn_assignment(item) {
+                        out.push(BackendEvent::AgentAssignment { agent, assignment });
+                    }
+                    out
+                }
                 None => vec![unrecognized(method, "item without id")],
             }
         }
