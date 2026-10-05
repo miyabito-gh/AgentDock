@@ -280,6 +280,8 @@ pub enum QueueStopCause {
     SendRejected { entry: LocalId },
     /// 受理不明を照合した結果、受理の痕跡がなかった。
     NotAcceptedAfterReconcile { entry: LocalId },
+    /// 先頭項目の添付（コピー中・失敗・欠損など）を送信時に使えず、送らずに止めた。送信は試みていない。
+    AttachmentUnavailable { entry: LocalId, name: String },
 }
 
 /// 保留の対象（表示用）。
@@ -592,7 +594,7 @@ pub enum DeleteOutcome {
 
 // ───────────────────────────── IPC（P2〜P7で追加するコマンド） ─────────────────────────────
 
-/// 追加コマンド名。統合時に `ipc::command_names` へ移す（P2分・P3分は移動済み）。
+/// 追加コマンド名。統合時に `ipc::command_names` へ移す（P2分・P3分・P6分は移動済み）。
 pub mod local_command_names {
     pub const ACKNOWLEDGE_FAILURE: &str = "acknowledge_failure";
     pub const SET_SELECTED_CHAT: &str = "set_selected_chat";
@@ -602,13 +604,6 @@ pub mod local_command_names {
     pub const UNARCHIVE_CHAT: &str = "unarchive_chat";
     pub const EXPORT_MARKDOWN: &str = "export_markdown";
     pub const GET_USAGE: &str = "get_usage";
-    pub const REQUEST_QUIT: &str = "request_quit";
-    pub const QUIT_DECISION: &str = "quit_decision";
-    pub const PREVIEW_FORCE_KILL: &str = "preview_force_kill";
-    pub const FORCE_KILL: &str = "force_kill";
-    pub const SET_ALWAYS_ON_TOP: &str = "set_always_on_top";
-    pub const OPEN_MONITOR_WINDOW: &str = "open_monitor_window";
-    pub const SET_MONITOR_WINDOW_SCOPE: &str = "set_monitor_window_scope";
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -839,6 +834,15 @@ pub struct SetMonitorWindowScopeArgs {
     pub scope: MonitorWindowScope,
 }
 
+/// 通常画面を前面に出す（監視窓の「通常画面で開く」。承認・質問への回答は通常画面で行う）。`chat` があればそのチャットを開く（表示だけ）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct ShowMainWindowArgs {
+    pub chat: Option<ChatKey>,
+}
+
 /// `IpcError.blocked` に追加する理由。統合時に `ipc::BlockedReason` へ移す（P2分・P3分は移動済み）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
@@ -854,10 +858,7 @@ pub enum LocalBlockedReason {
 #[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum LocalHostEvent {
-    QuitUpdated { phase: QuitPhase },
     /// トレイ・通知のクリックで、通常画面にこのチャットを表示する（回答・再実行はしない）。
     NavigateToChat { chat: ChatKey },
-    /// sleepからの復帰を検出した。鮮度は要照合になり、送信は保留される。
-    SystemResumed { at: UnixMillis },
     UsageUpdated { report: UsageReport },
 }

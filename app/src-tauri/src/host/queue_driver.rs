@@ -363,10 +363,11 @@ impl Host {
             Err(e) => {
                 // 使えない添付（欠損・失敗など）がある。送っていないので送信待ちに戻し、キューを止める（再開はユーザー操作）。
                 let now = now_ms();
+                let name = self.attachment_name_for(chat, &e, &plan.attachments);
                 self.mutate(|d| {
                     let Some(f) = d.queues.get_mut(chat) else { return ((), vec![]) };
                     q::abort_send(&mut f.queue, &entry);
-                    q::stop(&mut f.queue, QueueStopCause::SendRejected { entry: entry.clone() }, now);
+                    q::stop(&mut f.queue, QueueStopCause::AttachmentUnavailable { entry: entry.clone(), name: name.clone() }, now);
                     ((), vec![queue_event(f)])
                 });
                 self.schedule_save(SaveScope::Queue { chat: chat.clone() }, Duration::ZERO);

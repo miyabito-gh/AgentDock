@@ -139,6 +139,8 @@ export function applyHostEvent(b: Bundle, e: HostEvent): Bundle {
     case "settingsUpdated":
       return set({ settings: e.settings });
     case "sendUpdated":
+    case "quitUpdated": // 終了手順の進行は画面側（App）が保持する（表示用の一時状態）
+    case "systemResumed": // 画面側で履歴を取り直す（状態は変えない。復帰の通知・再送はしない）
     case "navigateToChat": // 画面側で該当チャットを開く（状態は変えない）
     case "warning":
       return b; // 画面側で通知として扱う

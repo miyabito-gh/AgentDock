@@ -1,5 +1,7 @@
 import { useState, type ReactNode } from "react";
-import type { Chat, ModelInfo, NotificationSettings, SourceInfo } from "../ipc/types";
+import type { Chat, ChatKey, ForceKillPreview, ModelInfo, NotificationSettings, QuitDecision, QuitPhase, SaveStatus, SourceInfo, StopRecord, StopSummary } from "../ipc/types";
+import { chatName } from "./derive";
+import { SCOPE_TEXT } from "./Chrome";
 import { Icon } from "./Icon";
 
 export type DialogState =
@@ -29,7 +31,19 @@ export interface CodexExe { path: string; setPath: (p: string) => void; placehol
 
 export interface NotifyProps { value: NotificationSettings; set: (n: NotificationSettings) => void }
 
-function SettingsBody({ tab, enterMode, setEnterMode, top, source, models, exe, notify }: {
+export interface AutostartProps { value: boolean; set: (on: boolean) => void }
+
+/** 完全終了の進行（ホストの `quitUpdated`）と、画面から出す選択。 */
+export interface QuitProps {
+  phase: QuitPhase; stops: StopRecord[]; failedSaves: SaveStatus[]; live: boolean;
+  decide: (d: QuitDecision) => void; onForce: () => void; onRetrySave: () => void;
+}
+
+/** 強制終了の確認（`preview_force_kill` の結果）。preview が null の間は取得中（error があれば取得失敗）。 */
+export interface ForceProps { preview: ForceKillPreview | null; error: string | null; running: boolean; run: () => void }
+
+function SettingsBody({ tab, enterMode, setEnterMode, top, source, models, exe, notify, autostart }: {
+  autostart: AutostartProps;
   notify: NotifyProps;
   tab: string; enterMode: "ctrl" | "enter"; setEnterMode: (m: "ctrl" | "enter") => void; top: { main: boolean; mini: boolean; setMain: (b: boolean) => void; setMini: (b: boolean) => void };
   source: SourceInfo | undefined; models: ModelInfo[]; exe: CodexExe;
@@ -37,7 +51,7 @@ function SettingsBody({ tab, enterMode, setEnterMode, top, source, models, exe, 
   switch (tab) {
     case "general": return (
       <>
-        <div className="field"><span>ログイン時に起動</span><label><input type="checkbox" />Windows にサインインしたら起動する</label><span className="note">オンにすると、通常画面は開かずトレイに入った状態で起動します。起動しただけで過去の依頼を再実行しません。</span></div>
+        <div className="field"><span>ログイン時に起動</span><label><input type="checkbox" checked={autostart.value} onChange={(e) => autostart.set(e.target.checked)} />Windows にサインインしたら起動する</label><span className="note">オンにすると、通常画面は開かずトレイに入った状態で起動します。起動しただけで過去の依頼を再実行しません。</span></div>
         <div className="field"><span>最前面</span><div><label><input type="checkbox" checked={top.main} onChange={(e) => top.setMain(e.target.checked)} />通常画面</label>　<label><input type="checkbox" checked={top.mini} onChange={(e) => top.setMini(e.target.checked)} />監視窓</label></div><span className="note">最前面にしても入力フォーカスは奪いません。</span></div>
         <div className="field"><span>閉じるボタン</span><span>トレイに格納して作業を続ける（終了はメニューの「AgentDock を終了」）</span></div>
       </>);
@@ -80,9 +94,114 @@ function SettingsBody({ tab, enterMode, setEnterMode, top, source, models, exe, 
   }
 }
 
+const STOP_TEXT: Record<StopSummary, string> = {
+  notRequested: "中断要求を送れていません（停止を確認できません）",
+  interruptRequested: "中断要求済み・turn終端を未確認",
+  turnEndConfirmed: "停止を確認しました（turn終端）",
+  managedExecEndConfirmed: "停止を確認しました（管理実行の終了）",
+  osGoneConfirmed: "停止を確認しました（OSプロセスの消滅）",
+  unconfirmed: "停止未確認（中断要求から10秒以上）",
+  ownershipUnknown: "所有を確認できないため、強制終了の対象にしません",
+};
+const CONFIRMED_STOP: StopSummary[] = ["turnEndConfirmed", "managedExecEndConfirmed", "osGoneConfirmed"];
+
+const nameOf = (chats: Chat[], k: ChatKey): string => {
+  const c = chats.find((x) => x.key.id === k.id);
+  return c ? chatName(c) : "（名前を確認できないチャット）";
+};
+
+function targetText(t: StopRecord["targets"][number]): string {
+  const r = t.target;
+  return r.kind === "turn" ? `エージェント ${r.turn.agent.id}` : r.kind === "managedExec" ? `管理実行 ${r.execId}` : `OSプロセス ${r.pid}`;
+}
+
+/** 完全終了の確認・進行。閉じる操作（トレイ格納）ではここを出さない。停止は証拠で確認し、時間経過だけでは確認にしない。 */
+function QuitDialog({ q, chats, onClose, onAct }: { q: QuitProps; chats: Chat[]; onClose: () => void; onAct: (a: string) => void }) {
+  const p = q.phase;
+  const cancel = <button className="btn-line" onClick={() => q.decide("cancel")}>終了を取り消す</button>;
+  if (!q.live) return (
+    <Shell title="AgentDock を終了" onClose={onClose} foot={<><button className="btn-line" onClick={onClose}>終了を取り消す</button><button className="btn-danger" onClick={() => onAct("quitStop")}>作業を中断して終了</button></>}>
+      <div className="content"><p>作業中のチャットがある場合、各対象の停止と保存を確認してから終了します。この操作はモックでは動きません。</p></div>
+    </Shell>);
+  switch (p.kind) {
+    case "idle": return (
+      <Shell title="AgentDock を終了" onClose={onClose}><div className="content"><p>作業の状況を確認しています…</p></div></Shell>);
+    case "confirming": return (
+      <Shell title="AgentDock を終了" onClose={onClose} foot={<>{cancel}<button className="btn-danger" onClick={() => q.decide("stopAndQuit")}>作業を中断して終了</button></>}>
+        <div className="content">
+          <p>作業中のチャットがあります。</p>
+          <ul className="quit-list">{p.busy.map((k) => <li key={k.id}>{nameOf(chats, k)}</li>)}</ul>
+          <p className="small muted">「作業を中断して終了」では、各チャットへ中断要求を送り、停止と保存を確認してから終了します。停止を確認できない対象があれば、その内容を表示して終了を止めます。</p>
+        </div>
+      </Shell>);
+    case "stopping": return (
+      <Shell title="停止と保存を確認しています" onClose={onClose} foot={cancel}>
+        <div className="content">
+          <p>中断を要求しました。停止と保存を確認してから終了します。</p>
+          <p className="small muted">約10秒で停止を確認できない対象があれば、ここに表示します。取り消しても、すでに送った中断要求は取り消せません。</p>
+        </div>
+      </Shell>);
+    case "stopUnconfirmed": {
+      const recs = q.stops.filter((r) => p.records.includes(r.id));
+      return (
+        <Shell title="停止を確認できていない対象があります" wide onClose={onClose}
+          foot={<><button className="btn-line" onClick={() => q.decide("wait")}>待つ</button><button className="btn-line" onClick={() => q.decide("retryInterrupt")}>中断を再試行</button>{cancel}<button className="btn-danger" onClick={q.onForce}>強制終了…</button></>}>
+          <div className="content">
+            <p>中断要求から10秒たっても、停止を確認できていない対象があります。時間の経過だけで停止や失敗とは判断していません。</p>
+            <ul className="quit-list">
+              {recs.map((r) => (
+                <li key={r.id}><b>{nameOf(chats, r.chat)}</b>
+                  {r.targets.filter((t) => !CONFIRMED_STOP.includes(t.summary) || t.ownership === "unknown").map((t, i) => (
+                    <span className="sub" key={i}>{targetText(t)}: {STOP_TEXT[t.summary]}</span>
+                  ))}
+                </li>
+              ))}
+            </ul>
+            <p className="small muted">「待つ」では終了せずに確認を続けます。確認できた時点で保存して終了します。強制終了は、同じ Codex 上の全チャットが止まります（確認画面で対象を示します）。</p>
+          </div>
+        </Shell>);
+    }
+    case "flushing": return (
+      <Shell title="保存を確認しています" onClose={onClose}><div className="content"><p>保存を確認してから終了します。</p></div></Shell>);
+    case "saveFailed": return (
+      <Shell title="保存できていない内容があります" wide onClose={onClose} foot={<><button className="btn-line" onClick={q.onRetrySave}>保存を再試行</button>{cancel}</>}>
+        <div className="content">
+          <p>保存に成功したことを確認できないため、終了していません。</p>
+          <ul className="quit-list">
+            {q.failedSaves.map((s, i) => (
+              <li key={i}>{SCOPE_TEXT[s.scope.kind]}{s.state.kind === "saveFailed" ? <span className="sub">{s.state.message}</span> : null}</li>
+            ))}
+          </ul>
+        </div>
+      </Shell>);
+  }
+}
+
+/** 強制終了の確認。App Server（Job Object）単位なので、同じ監視元の全チャットを示す。実行は明示確認の後だけ。 */
+function ForceDialog({ f, chats, onClose }: { f: ForceProps; chats: Chat[]; onClose: () => void }) {
+  const pv = f.preview;
+  return (
+    <Shell title="強制終了" onClose={onClose}
+      foot={<><button className="btn-line" onClick={onClose}>やめる</button><button className="btn-danger" disabled={!pv || f.running} onClick={f.run}>{f.running ? "要求しています…" : "強制終了する"}</button></>}>
+      <div className="content">
+        {f.error ? <p style={{ color: "var(--fail)" }}>{f.error}</p> : !pv ? <p>影響を受ける対象を確認しています…</p> : (
+          <>
+            <p>この Codex（App Server）を、子のプロセスごと終了します。同じ Codex 上の次のチャットがすべて止まります。</p>
+            {pv.affected.length
+              ? <ul className="check-list">{pv.affected.map((k) => <li key={k.id}>{nameOf(chats, k)}</li>)}</ul>
+              : <p className="small muted">作業中・停止未確認のチャットは確認できません（Codex 自体は終了します）。</p>}
+            <p className="small muted">稼働中のプロセス数: {pv.activeProcesses.kind === "value" ? pv.activeProcesses.value : "未取得"}</p>
+          </>
+        )}
+        <p>保存されていない内容が失われたり、処理の一部が残ったりする可能性があります。このアプリが起動していない実行は対象にしません。強制終了の後も、停止を確認できるまでは「停止未確認」として扱います。</p>
+      </div>
+    </Shell>);
+}
+
 export interface NewChatInput { cwd: string | null; model: string; firstMessage: string | null }
 
-export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnterMode, top, setTab, onAct, exe, onCreateChat, notify }: {
+export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnterMode, top, setTab, onAct, exe, onCreateChat, notify, autostart, quit, force }: {
+  autostart: AutostartProps; quit: QuitProps; force: ForceProps;
   notify: NotifyProps;
   d: DialogState; onClose: () => void; chats: Chat[]; source: SourceInfo | undefined; models: ModelInfo[];
   exe: CodexExe; onCreateChat: (i: NewChatInput) => void;
@@ -99,7 +218,7 @@ export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnter
     case "settings": return (
       <Shell title="設定" wide onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>
         <div className="tabs" role="tablist">{TABS.map(([k, t]) => <button key={k} role="tab" aria-selected={d.tab === k} onClick={() => setTab(k)}>{t}</button>)}</div>
-        <div className="content"><SettingsBody tab={d.tab} enterMode={enterMode} setEnterMode={setEnterMode} top={top} source={source} models={models} exe={exe} notify={notify} /></div>
+        <div className="content"><SettingsBody tab={d.tab} enterMode={enterMode} setEnterMode={setEnterMode} top={top} source={source} models={models} exe={exe} notify={notify} autostart={autostart} /></div>
       </Shell>);
     case "newChat": return (
       <Shell title="新しいチャット" onClose={onClose} foot={<><button className="btn-line" onClick={onClose}>キャンセル</button><button className="btn-main" disabled={kind === "dev" && !cwd.trim()} onClick={() => onCreateChat({ cwd: kind === "dev" ? cwd.trim() : null, model, firstMessage: first.trim() || null })}>作成</button></>}>
@@ -111,14 +230,8 @@ export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnter
           <div className="field"><span>最初の依頼</span><textarea value={first} onChange={(e) => setFirst(e.target.value)} rows={3} style={{ width: "100%" }} placeholder="空欄なら、チャットだけ作成します" aria-label="最初の依頼" /></div>
         </div>
       </Shell>);
-    case "quit": return (
-      <Shell title="AgentDock を終了" onClose={onClose} foot={<><button className="btn-line" onClick={onClose}>終了を取り消す</button><button className="btn-danger" onClick={() => onAct("quitStop")}>作業を中断して終了</button></>}>
-        <div className="content"><p>作業中のチャットがある場合、各対象の停止と保存を確認してから終了します。停止を確認できない対象があれば、その内容を表示して終了を止めます。</p></div>
-      </Shell>);
-    case "force": return (
-      <Shell title="強制終了" onClose={onClose} foot={<><button className="btn-line" onClick={onClose}>やめる</button><button className="btn-danger" onClick={() => onAct("doForce")}>強制終了する</button></>}>
-        <div className="content"><p>停止を確認できていない対象を強制終了します。保存されていない内容が失われたり、処理の一部が残ったりする可能性があります。このアプリが起動していない実行は対象にしません。強制終了の後も、停止を確認できるまでは「停止未確認」として扱います。</p></div>
-      </Shell>);
+    case "quit": return <QuitDialog q={quit} chats={chats} onClose={onClose} onAct={onAct} />;
+    case "force": return <ForceDialog f={force} chats={chats} onClose={onClose} />;
     case "unv": return (
       <Shell title="この操作はまだ使えません" onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>
         <div className="content"><p>{d.why}。</p><p className="small muted">Codex 側の経路と動作を確認できるまで、成功したように見せることはしません。</p></div>

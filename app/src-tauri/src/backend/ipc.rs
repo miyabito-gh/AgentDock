@@ -14,7 +14,7 @@ use super::backend::{
     ChatSummary, InterruptAck, ManageOp, ManageOutcome, Page, PermissionPreset, RespondOutcome, ResumeOutcome,
     AgentHistory,
 };
-use super::local::{AppSettings, ArtifactEntry, AttachmentEntry, ChatLocalView, ChatQueue, SaveScope, SaveStatus};
+use super::local::{AppSettings, ArtifactEntry, AttachmentEntry, ChatLocalView, ChatQueue, QuitPhase, SaveScope, SaveStatus};
 use super::model::*;
 
 /// ホスト→UIのイベント名（Tauri `emit` のチャネル）。
@@ -57,6 +57,14 @@ pub mod command_names {
     pub const REMOVE_ATTACHMENT: &str = "remove_attachment";
     pub const OPEN_FILE: &str = "open_file";
     pub const SAVE_FILE_AS: &str = "save_file_as";
+    pub const REQUEST_QUIT: &str = "request_quit";
+    pub const QUIT_DECISION: &str = "quit_decision";
+    pub const PREVIEW_FORCE_KILL: &str = "preview_force_kill";
+    pub const FORCE_KILL: &str = "force_kill";
+    pub const SET_ALWAYS_ON_TOP: &str = "set_always_on_top";
+    pub const OPEN_MONITOR_WINDOW: &str = "open_monitor_window";
+    pub const SET_MONITOR_WINDOW_SCOPE: &str = "set_monitor_window_scope";
+    pub const SHOW_MAIN_WINDOW: &str = "show_main_window";
 }
 
 // ───────────────────────────── エラー ─────────────────────────────
@@ -399,6 +407,10 @@ pub enum HostEvent {
     ArtifactUpdated { entry: ArtifactEntry },
     /// 通知を開いた操作（トレイ・通知クリック）。該当チャットを表示するだけで、回答・再実行はしない。
     NavigateToChat { chat: ChatKey },
+    /// 完全終了の進行（確認・停止照合・保存・保存失敗）。閉じる操作（トレイ格納）では出ない。
+    QuitUpdated { phase: QuitPhase },
+    /// sleepからの復帰を検出した。鮮度は要照合になり、送信は保留される。UIは表示中の履歴を取り直す。
+    SystemResumed { at: UnixMillis },
     /// 未知イベント・版違い・取得不能項目の警告（M12）。
     Warning { source: Option<SourceId>, message: String, raw_label: Option<String> },
 }

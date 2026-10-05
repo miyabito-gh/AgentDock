@@ -422,6 +422,16 @@ impl Host {
         Ok(entries)
     }
 
+    /// 使えなかった添付の名前（停止理由の表示用）。エラーが添付を特定していなければ、指定した添付の先頭を使う。
+    pub(super) fn attachment_name_for(&self, chat: &ChatKey, e: &IpcError, ids: &[LocalId]) -> String {
+        let id = match &e.blocked {
+            Some(BlockedReason::AttachmentNotReady { attachment }) => Some(attachment.clone()),
+            _ => ids.first().cloned(),
+        };
+        id.and_then(|id| self.read(|d| d.locals.get(chat).and_then(|f| f.attachments.iter().find(|a| a.id == id).map(|a| a.display_name.clone()))))
+            .unwrap_or_else(|| "（名前を取得できません）".to_string())
+    }
+
     /// 送信用の添付を用意する（確認→変換→モデルの入力対応の確認）。使えない添付があれば送らず止める。
     pub(super) async fn prepare_attachments(self: &Arc<Self>, chat: &ChatKey, ids: &[LocalId]) -> Result<Vec<Attachment>, IpcError> {
         if ids.is_empty() {

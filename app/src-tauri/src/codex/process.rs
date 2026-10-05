@@ -6,6 +6,7 @@
 use super::rpc::{RpcClient, RpcEvent};
 use crate::backend::backend::BackendError;
 use crate::backend::model::{LaunchFailure, SourceId, VersionCheck};
+use crate::win::job::ProcessJob;
 use serde_json::{json, Value};
 use std::collections::VecDeque;
 use std::process::Stdio;
@@ -92,6 +93,8 @@ fn spawn_error(e: std::io::Error) -> LaunchError {
 pub struct CodexProcess {
     pub client: RpcClient,
     pub pid: Option<u32>,
+    /// 強制終了用のJob Object（P6）。起動直後・initialize前に割り当てる。割り当てられなければ None（強制終了は使えない）。
+    pub job: Option<Arc<ProcessJob>>,
     /// `initialize` 応答（userAgent・codexHome・platform等）。
     pub init_response: Value,
     stderr: Arc<Mutex<VecDeque<String>>>,
@@ -112,6 +115,15 @@ impl CodexProcess {
         cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
         let mut child = cmd.spawn().map_err(spawn_error)?;
         let pid = child.id();
+        // initialize を送る前にJobへ入れる（強制終了で子孫プロセスごと終了するため）。失敗しても起動は続け、強制終了が使えないと分かるようにする。
+        let job = match pid.map(ProcessJob::assign) {
+            Some(Ok(j)) => Some(Arc::new(j)),
+            Some(Err(e)) => {
+                crate::diag::log("job", &format!("assign failed: {e}"));
+                None
+            }
+            None => None,
+        };
         let (stdin, stdout, stderr) = match (child.stdin.take(), child.stdout.take(), child.stderr.take()) {
             (Some(i), Some(o), Some(e)) => (i, o, e),
             _ => return Err(LaunchError::new(LaunchFailure::SpawnFailed, "stdio pipes unavailable")),
@@ -132,7 +144,7 @@ impl CodexProcess {
         });
 
         let (client, rx) = RpcClient::start(stdout, stdin, source, event_capacity);
-        let mut this = CodexProcess { client, pid, init_response: Value::Null, stderr: buf, child };
+        let mut this = CodexProcess { client, pid, job, init_response: Value::Null, stderr: buf, child };
         match this.handshake(enable_experimental).await {
             Ok(resp) => {
                 this.init_response = resp;

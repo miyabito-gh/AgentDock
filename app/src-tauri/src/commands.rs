@@ -3,13 +3,16 @@
 
 use std::sync::Arc;
 
-use tauri::State;
+use tauri::{Manager, State};
+use tauri_plugin_autostart::ManagerExt;
 
 use crate::backend::backend::{ManageOutcome, Page, ResumeOutcome, RespondOutcome, UserConfirmed, ChatSummary, AgentHistory};
 use crate::backend::ipc::*;
 use crate::backend::local::{
-    AcknowledgeFailureArgs, AddAttachmentFileArgs, AppSettings, AttachmentArgs, AttachmentEntry, OpenFileArgs, SaveFileAsArgs, ChatArgs, ChatLocalView, ChatQueue, EditQueueEntryArgs, EnqueueArgs, QueueEntry, QueueEntryArgs, ReconcileSendArgs, RetrySaveArgs,
-    SaveStatus, SetAppSettingsArgs, SetChatCwdArgs, SetChatPermissionArgs, SetDraftArgs, SetSelectedChatArgs, SettingsImpact,
+    AddAttachmentFileArgs, AttachmentArgs, AttachmentEntry, OpenFileArgs, SaveFileAsArgs,
+    AcknowledgeFailureArgs, AppSettings, ChatArgs, ChatLocalView, ChatQueue, EditQueueEntryArgs, EnqueueArgs, ForceKillArgs, ForceKillPreview, QueueEntry, QueueEntryArgs, QuitDecisionArgs, QuitPhase,
+    ReconcileSendArgs, RetrySaveArgs, SaveStatus, SetAlwaysOnTopArgs, SetAppSettingsArgs, SetChatCwdArgs, SetChatPermissionArgs, SetDraftArgs, SetMonitorWindowScopeArgs, SetSelectedChatArgs,
+    SettingsImpact, ShowMainWindowArgs,
 };
 use crate::backend::model::*;
 use crate::host::Host;
@@ -106,8 +109,19 @@ pub async fn get_app_settings(host: Hs<'_>) -> R<AppSettings> {
 }
 
 #[tauri::command]
-pub async fn set_app_settings(host: Hs<'_>, args: SetAppSettingsArgs) -> R<AppSettings> {
-    host.set_app_settings(args)
+pub async fn set_app_settings(app: tauri::AppHandle, host: Hs<'_>, args: SetAppSettingsArgs) -> R<AppSettings> {
+    // Windowsログイン時の自動起動（初期値オフ。オンなら通常画面を開かずトレイ格納で起動する）。変更できなければ設定も保存しない。
+    if args.settings.autostart != host.get_app_settings().autostart {
+        let launch = app.autolaunch();
+        let res = if args.settings.autostart { launch.enable() } else { launch.disable() };
+        // 無効化は「もともと登録がない」場合に失敗することがある。結果として登録がなければ成功とみなす。
+        if let Err(e) = res {
+            if args.settings.autostart || launch.is_enabled().unwrap_or(true) {
+                return Err(io_err(format!("自動起動の設定を変更できませんでした: {e}")));
+            }
+        }
+    }
+    host.inner().clone().set_app_settings(args)
 }
 
 #[tauri::command]
@@ -223,6 +237,65 @@ pub async fn save_file_as(host: Hs<'_>, args: SaveFileAsArgs) -> R<()> {
 pub async fn read_file_preview(host: Hs<'_>, args: OpenFileArgs) -> R<tauri::ipc::Response> {
     let bytes = host.inner().clone().read_image_preview(&args.target).await?;
     Ok(tauri::ipc::Response::new(bytes))
+}
+
+// ───────────────────────────── 窓・常駐・終了（P6） ─────────────────────────────
+
+fn io_err(message: String) -> IpcError {
+    IpcError { code: IpcErrorCode::Io, message, blocked: None }
+}
+
+/// 完全終了の要求。作業中なら確認が出る（`quitUpdated`）。閉じる操作（トレイ格納）は別で、確認しない。
+#[tauri::command]
+pub async fn request_quit(host: Hs<'_>) -> R<QuitPhase> {
+    Ok(host.inner().clone().request_quit())
+}
+
+#[tauri::command]
+pub async fn quit_decision(host: Hs<'_>, args: QuitDecisionArgs) -> R<QuitPhase> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().quit_decision(args, &confirmed).await
+}
+
+#[tauri::command]
+pub async fn preview_force_kill(host: Hs<'_>, args: ForceKillArgs) -> R<ForceKillPreview> {
+    host.preview_force_kill(args)
+}
+
+/// 強制終了。確認画面を経たユーザー操作だけが呼ぶ。
+#[tauri::command]
+pub async fn force_kill(host: Hs<'_>, args: ForceKillArgs) -> R<Vec<StopRecord>> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().force_kill(args, &confirmed).await
+}
+
+/// 最前面のオン・オフ（窓ごと）。フォーカスは移さない。設定は保存される。
+#[tauri::command]
+pub async fn set_always_on_top(app: tauri::AppHandle, host: Hs<'_>, args: SetAlwaysOnTopArgs) -> R<()> {
+    if let Some(w) = app.get_webview_window(crate::win::window::label_of(args.window)) {
+        w.set_always_on_top(args.on).map_err(|e| io_err(format!("最前面を切り替えられませんでした: {e}")))?;
+    }
+    host.inner().clone().set_always_on_top_pref(args.window, args.on)
+}
+
+#[tauri::command]
+pub async fn open_monitor_window(app: tauri::AppHandle, host: Hs<'_>) -> R<()> {
+    crate::win::window::open_monitor(&app, host.inner()).map_err(|e| io_err(format!("監視窓を開けませんでした: {e}")))
+}
+
+#[tauri::command]
+pub async fn set_monitor_window_scope(host: Hs<'_>, args: SetMonitorWindowScopeArgs) -> R<()> {
+    host.inner().clone().set_monitor_window_scope(args.scope)
+}
+
+/// 通常画面を前面に出す。`chat` があればそのチャットを開く（表示だけで、回答・再実行はしない）。
+#[tauri::command]
+pub async fn show_main_window(app: tauri::AppHandle, host: Hs<'_>, args: ShowMainWindowArgs) -> R<()> {
+    crate::win::window::show_main(&app);
+    if let Some(chat) = args.chat {
+        host.navigate_to_chat(chat);
+    }
+    Ok(())
 }
 
 /// 診断ログのフォルダをエクスプローラーで開く（ユーザー操作）。戻り値はログファイルの場所。

@@ -1,6 +1,7 @@
 // ホスト（Rust）とのIPC。実接続用。仮データ版は `../mock/client.ts`（モック切替用）。
 import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   HOST_EVENT_CHANNEL,
   type AgentHistory, type AgentKey, type AppSettings, type Chat, type ChatKey, type ChatModelSettings, type CommandMap, type CommandName,
@@ -9,6 +10,7 @@ import {
   type RequestAnswer, type RequestKey, type RespondOutcome, type SendAttempt, type SendIntent, type SourceInfo,
   type StartChatResult, type ResumeOutcome, type SaveScope, type SaveStatus, type ChatQueue, type QueueEntry, type SettingsImpact,
   type AttachmentEntry, type FileRef,
+  type ForceKillPreview, type MonitorWindowScope, type QuitDecision, type QuitPhase, type StopRecord, type WindowKind,
 } from "./types";
 
 /** 型付きinvoke。引数は `args` 1個で渡す（types.ts CommandMap の規約）。 */
@@ -69,6 +71,32 @@ export const setAppSettings = (settings: AppSettings): Promise<AppSettings> => i
 export const acknowledgeFailure = (chat: ChatKey, agent: AgentKey | null): Promise<null> => invokeCmd("acknowledge_failure", { chat, agent });
 /** 選択中のチャットをホストへ伝える（通知の抑制判定だけに使う）。 */
 export const setSelectedChat = (chat: ChatKey | null): Promise<null> => invokeCmd("set_selected_chat", { chat });
+// ── 窓・常駐・終了（P6） ──
+/** 完全終了を要求する。作業中なら確認の段階が返る。閉じる操作（トレイ格納）とは別。 */
+export const requestQuit = (): Promise<QuitPhase> => invokeCmd("request_quit", {});
+export const quitDecision = (decision: QuitDecision): Promise<QuitPhase> => invokeCmd("quit_decision", { decision });
+/** 強制終了の確認内容（影響を受ける全チャット）。実行はしない。 */
+export const previewForceKill = (source: string): Promise<ForceKillPreview> => invokeCmd("preview_force_kill", { source });
+/** 強制終了（確認画面の後だけ）。停止を確認できるまでは停止未確認のまま。 */
+export const forceKill = (source: string): Promise<StopRecord[]> => invokeCmd("force_kill", { source });
+export const setAlwaysOnTop = (window: WindowKind, on: boolean): Promise<null> => invokeCmd("set_always_on_top", { window, on });
+export const openMonitorWindow = (): Promise<null> => invokeCmd("open_monitor_window", {});
+export const setMonitorWindowScope = (scope: MonitorWindowScope): Promise<null> => invokeCmd("set_monitor_window_scope", { scope });
+/** 通常画面を前面に出す。chat があればそのチャットを開く（表示だけ）。 */
+export const showMainWindow = (chat: ChatKey | null): Promise<null> => invokeCmd("show_main_window", { chat });
+/** このウィンドウを閉じる。通常画面はトレイへ格納され、監視窓はその窓だけ閉じる（作業は続く）。 */
+export const closeThisWindow = (): Promise<void> => getCurrentWindow().close();
+
+// 通常画面で選択中のチャットを監視窓へ伝える（画面の表示状態だけ。ホストの状態・送信先は変えない）。
+const SELECTED_CHAT_EVENT = "agentdock://selected-chat";
+const SELECTED_CHAT_REQUEST = "agentdock://selected-chat-request";
+export const publishSelectedChat = (id: string | null): Promise<void> => emit(SELECTED_CHAT_EVENT, { id });
+export const subscribeSelectedChat = (handler: (id: string | null) => void): Promise<UnlistenFn> =>
+  listen<{ id: string | null }>(SELECTED_CHAT_EVENT, (ev) => handler(ev.payload.id));
+/** 監視窓の起動時に、現在の選択を通常画面へ尋ねる。 */
+export const requestSelectedChat = (): Promise<void> => emit(SELECTED_CHAT_REQUEST);
+export const onSelectedChatRequest = (handler: () => void): Promise<UnlistenFn> => listen(SELECTED_CHAT_REQUEST, () => handler());
+
 /** 診断ログのフォルダをエクスプローラーで開く（ユーザー操作）。戻り値はログファイルの場所。 */
 export const openDiagDir = (): Promise<string> => invoke("open_diag_dir");
 
