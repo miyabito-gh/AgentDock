@@ -1,0 +1,3 @@
+- threadIdを持たないサーバー要求（認証更新・attestation等）は回答手段がなくUnrecognized止まり（T3検証の観察）。実機で出るか確認
+- rpc.rs `abort()`のtry_lockは複数の書込み待ちが詰まるとDisconnected送出が最大write_timeout遅れる（低）
+- connect/disconnect直列化の実プロセス検証テストは未整備

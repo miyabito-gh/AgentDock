@@ -12,11 +12,11 @@ use crate::backend::backend::BackendError;
 use crate::backend::model::{BackendKind, ExternalId, RequestKey, SourceId};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
-use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::sync::{mpsc, oneshot, Mutex, Notify};
 
 type Pending = HashMap<i64, oneshot::Sender<Result<Value, BackendError>>>;
 
@@ -30,6 +30,9 @@ pub enum RpcEvent {
     UnmatchedResponse { seq: u64, id: Value },
     /// JSONとして/JSON-RPCとして解釈できない行。接続は止めない。
     Malformed { seq: u64, note: String },
+    /// 受信側が遅れて内部の待ち行列が上限を超え、通知を落とした（少なくとも1件）。欠落扱い（Gap）にすること。
+    /// 応答の照合・サーバー要求・切断は落とさない。
+    Overflow { seq: u64 },
     /// 接続終了。以後イベントは来ない。
     Disconnected { reason: String },
 }
@@ -39,7 +42,13 @@ struct Inner {
     next_id: AtomicI64,
     writer: Mutex<Option<Box<dyn AsyncWrite + Send + Unpin>>>,
     state: StdMutex<State>,
+    write_timeout: Duration,
+    /// 書込みtimeout等で接続を打ち切るとき、読取りtaskを起こして終わらせる。
+    abort: Notify,
 }
+
+const DEFAULT_BACKLOG_LIMIT: usize = 10_000;
+const DEFAULT_WRITE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// `closed` は `state` のロック内でのみ変更・判定する（登録と排出の競合を避ける）。
 #[derive(Default)]
@@ -62,14 +71,36 @@ impl RpcClient {
         R: AsyncRead + Send + Unpin + 'static,
         W: AsyncWrite + Send + Unpin + 'static,
     {
+        Self::start_with(reader, writer, source, event_capacity, DEFAULT_BACKLOG_LIMIT, DEFAULT_WRITE_TIMEOUT)
+    }
+
+    /// `backlog_limit`: 受信側が遅れたとき、読取りtaskと受け口の間に溜める通知の上限（超過分は落として `Overflow`）。
+    /// 応答の照合は受け口の混雑に影響されない。`write_timeout` 超過は結果不明として接続を閉じる。
+    pub fn start_with<R, W>(
+        reader: R,
+        writer: W,
+        source: SourceId,
+        event_capacity: usize,
+        backlog_limit: usize,
+        write_timeout: Duration,
+    ) -> (RpcClient, mpsc::Receiver<RpcEvent>)
+    where
+        R: AsyncRead + Send + Unpin + 'static,
+        W: AsyncWrite + Send + Unpin + 'static,
+    {
         let (tx, rx) = mpsc::channel(event_capacity.max(1));
+        let (utx, urx) = mpsc::unbounded_channel();
+        let backlog = Arc::new(AtomicUsize::new(0));
         let inner = Arc::new(Inner {
             source,
             next_id: AtomicI64::new(1),
             writer: Mutex::new(Some(Box::new(writer))),
             state: StdMutex::new(State::default()),
+            write_timeout,
+            abort: Notify::new(),
         });
-        tokio::spawn(read_loop(reader, inner.clone(), tx));
+        tokio::spawn(forward(urx, tx, backlog.clone()));
+        tokio::spawn(read_loop(reader, inner.clone(), utx, backlog, backlog_limit.max(1)));
         (RpcClient { inner }, rx)
     }
 
@@ -168,24 +199,62 @@ impl RpcClient {
         }
     }
 
+    /// 書込み（ロック待ちを含む）にtimeoutを付ける。超過は結果不明で、部分書込みの可能性があるため接続を閉じる。
     async fn write_line(&self, msg: &Value) -> Result<(), BackendError> {
         let mut line = serde_json::to_string(msg).map_err(|e| BackendError::Protocol { message: e.to_string() })?;
         line.push('\n');
-        let mut w = self.inner.writer.lock().await;
-        let writer = w.as_mut().ok_or(BackendError::NotConnected)?;
-        writer.write_all(line.as_bytes()).await.map_err(|e| BackendError::Io { message: e.to_string() })?;
-        writer.flush().await.map_err(|e| BackendError::Io { message: e.to_string() })
+        let write = async {
+            let mut w = self.inner.writer.lock().await;
+            let writer = w.as_mut().ok_or(BackendError::NotConnected)?;
+            writer.write_all(line.as_bytes()).await.map_err(|e| BackendError::Io { message: e.to_string() })?;
+            writer.flush().await.map_err(|e| BackendError::Io { message: e.to_string() })
+        };
+        match tokio::time::timeout(self.inner.write_timeout, write).await {
+            Ok(r) => r,
+            Err(_) => {
+                self.abort("write timed out");
+                Err(BackendError::OutcomeUnknown { message: format!("write timed out after {:?}; connection closed", self.inner.write_timeout) })
+            }
+        }
+    }
+
+    /// 接続を打ち切る: 保留中の要求を結果不明で完了、書込み側を破棄、読取りtaskを終了させる。
+    fn abort(&self, reason: &str) {
+        close_all(&self.inner, reason);
+        self.inner.abort.notify_one();
+        if let Ok(mut w) = self.inner.writer.try_lock() {
+            w.take();
+        }
     }
 }
 
-async fn read_loop<R: AsyncRead + Unpin>(reader: R, inner: Arc<Inner>, tx: mpsc::Sender<RpcEvent>) {
+/// 内部の待ち行列 → 受け口。受け口が詰まっても読取りtaskは止まらない。
+async fn forward(mut urx: mpsc::UnboundedReceiver<RpcEvent>, tx: mpsc::Sender<RpcEvent>, backlog: Arc<AtomicUsize>) {
+    while let Some(ev) = urx.recv().await {
+        backlog.fetch_sub(1, Ordering::SeqCst);
+        if tx.send(ev).await.is_err() {
+            break;
+        }
+    }
+}
+
+fn enqueue(utx: &mpsc::UnboundedSender<RpcEvent>, backlog: &AtomicUsize, ev: RpcEvent) -> bool {
+    backlog.fetch_add(1, Ordering::SeqCst);
+    utx.send(ev).is_ok()
+}
+
+async fn read_loop<R: AsyncRead + Unpin>(reader: R, inner: Arc<Inner>, utx: mpsc::UnboundedSender<RpcEvent>, backlog: Arc<AtomicUsize>, limit: usize) {
     let mut lines = BufReader::new(reader).lines();
     let mut seq: u64 = 0;
+    let mut overflow_open = false;
     let reason = loop {
-        let line = match lines.next_line().await {
-            Ok(Some(l)) => l,
-            Ok(None) => break "stdout closed (EOF)".to_string(),
-            Err(e) => break format!("read error: {e}"),
+        let line = tokio::select! {
+            r = lines.next_line() => match r {
+                Ok(Some(l)) => l,
+                Ok(None) => break "stdout closed (EOF)".to_string(),
+                Err(e) => break format!("read error: {e}"),
+            },
+            _ = inner.abort.notified() => break "connection aborted (write failure)".to_string(),
         };
         if line.trim().is_empty() {
             continue;
@@ -197,17 +266,32 @@ async fn read_loop<R: AsyncRead + Unpin>(reader: R, inner: Arc<Inner>, tx: mpsc:
             }
             Ok(v) => dispatch(&inner, v, &mut seq),
         };
-        if let Some(ev) = ev {
-            if tx.send(ev).await.is_err() {
-                break "event receiver dropped".to_string();
+        let Some(ev) = ev else { continue };
+        let queued = backlog.load(Ordering::SeqCst);
+        if queued < limit / 2 {
+            overflow_open = false;
+        }
+        // 落としてよいのは通知・不正行・遅延応答だけ。サーバー要求は回答待ちなので必ず渡す。
+        let droppable = matches!(ev, RpcEvent::Notification { .. } | RpcEvent::Malformed { .. } | RpcEvent::UnmatchedResponse { .. });
+        if droppable && queued >= limit {
+            if !overflow_open {
+                overflow_open = true;
+                seq += 1;
+                if !enqueue(&utx, &backlog, RpcEvent::Overflow { seq }) {
+                    break "event receiver dropped".to_string();
+                }
             }
+            continue;
+        }
+        if !enqueue(&utx, &backlog, ev) {
+            break "event receiver dropped".to_string();
         }
     };
     close_all(&inner, &reason);
     if let Some(mut w) = inner.writer.lock().await.take() {
         let _ = w.shutdown().await;
     }
-    let _ = tx.send(RpcEvent::Disconnected { reason }).await;
+    let _ = enqueue(&utx, &backlog, RpcEvent::Disconnected { reason });
 }
 
 /// 切断: 保留中の要求をすべて「結果不明」で完了させる（成功・Rejected扱いにしない）。
@@ -389,6 +473,47 @@ mod tests {
         assert!(tokio::time::timeout(Duration::from_millis(50), sr.read_line(&mut extra)).await.is_err());
         send_json(&mut sw, json!({"id": m["id"], "result": {}})).await;
         assert!(matches!(rx.recv().await.unwrap(), RpcEvent::UnmatchedResponse { .. }));
+    }
+
+    #[tokio::test]
+    async fn slow_event_consumer_does_not_stall_response_correlation() {
+        // 受け口(容量1)を誰も読まない状態で通知を溜めても、応答は照合される。
+        let (c_out, s_in) = duplex(65536);
+        let (mut s_out, c_in) = duplex(65536);
+        let (client, rx) = RpcClient::start_with(c_in, c_out, SourceId("s".into()), 1, 5, Duration::from_secs(5));
+        let mut sr = BufReader::new(s_in);
+        for i in 0..50 {
+            send_json(&mut s_out, json!({"method": "n", "params": {"i": i}})).await;
+        }
+        let c = client.clone();
+        let t = tokio::spawn(async move { c.request("q", json!({}), Some(Duration::from_secs(5))).await });
+        let m = read_json(&mut sr).await;
+        send_json(&mut s_out, json!({"id": m["id"], "result": {"ok": true}})).await;
+        assert_eq!(t.await.unwrap().unwrap(), json!({"ok": true}));
+        // 溢れた通知は黙って捨てず Overflow が届く。サーバー要求は落とさない。
+        send_json(&mut s_out, json!({"id": 9, "method": "item/tool/requestUserInput", "params": {}})).await;
+        let mut rx = rx;
+        let (mut overflow, mut got_request) = (false, false);
+        while !(overflow && got_request) {
+            match tokio::time::timeout(Duration::from_secs(5), rx.recv()).await.unwrap().unwrap() {
+                RpcEvent::Overflow { .. } => overflow = true,
+                RpcEvent::ServerRequest { .. } => got_request = true,
+                _ => {}
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn stuck_write_times_out_as_outcome_unknown_and_closes_connection() {
+        // 読み手のいない極小バッファへ大きな書込み → 詰まる。
+        let (c_out, _s_in) = duplex(8);
+        let (_s_out, c_in) = duplex(64);
+        let (client, mut rx) = RpcClient::start_with(c_in, c_out, SourceId("s".into()), 4, 100, Duration::from_millis(100));
+        let r = client.request("x", json!({"big": "y".repeat(256)}), None).await;
+        assert!(matches!(r, Err(BackendError::OutcomeUnknown { .. })), "{r:?}");
+        assert!(client.is_closed());
+        assert!(matches!(client.request("again", json!({}), None).await, Err(BackendError::NotConnected)));
+        assert!(matches!(tokio::time::timeout(Duration::from_secs(5), rx.recv()).await.unwrap().unwrap(), RpcEvent::Disconnected { .. }));
     }
 
     #[tokio::test]
