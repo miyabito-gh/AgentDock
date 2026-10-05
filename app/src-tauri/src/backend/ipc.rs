@@ -1,0 +1,288 @@
+//! UI⇔ホストのTauri IPC契約（コマンド引数・戻り値・イベント）。
+//!
+//! - TS側 `app/src/ipc/types.ts` と1対1。名前・タグ（`kind`）・camelCaseを揃える。
+//! - UIは [`super::model`] の正規化型だけを見る。Codex固有の型・メソッド名は流さない（原文ラベルは診断表示のみ）。
+//! - 取得・保存・キュー判断・通知集約はホストが持つ。UIはコマンドで意図を伝え、結果はイベントで受ける。
+//! - rendererの再読込み後は `get_snapshot` で全体を取り直し、以後 `HostEventEnvelope.seq` で差分を適用する。
+//!   seqが飛んだら再度 `get_snapshot` する。
+//! - 状態を変える操作（送信・承認回答・中断・再開・管理）はユーザー操作のコマンドからだけ実行する。
+//!   ホスト内部の自動処理からは呼ばない（`UserConfirmed` はこのコマンド層でだけ発行する）。
+
+use serde::{Deserialize, Serialize};
+
+use super::backend::{
+    ChatSummary, InterruptAck, ManageOp, ManageOutcome, Page, PermissionPreset, RespondOutcome, ResumeOutcome,
+    AgentHistory,
+};
+use super::model::*;
+
+/// ホスト→UIのイベント名（Tauri `emit` のチャネル）。
+pub const HOST_EVENT_CHANNEL: &str = "agentdock://host-event";
+
+/// コマンド名（`#[tauri::command]` の関数名）。TSの `CommandMap` のキーと一致させる。
+pub mod command_names {
+    pub const GET_SNAPSHOT: &str = "get_snapshot";
+    pub const CONNECT_BACKEND: &str = "connect_backend";
+    pub const LIST_CHATS: &str = "list_chats";
+    pub const OPEN_CHAT: &str = "open_chat";
+    pub const START_CHAT: &str = "start_chat";
+    pub const SEND_MESSAGE: &str = "send_message";
+    pub const RETRY_SEND: &str = "retry_send";
+    pub const RESPOND_REQUEST: &str = "respond_request";
+    pub const INTERRUPT_CHAT: &str = "interrupt_chat";
+    pub const RESUME_CHAT: &str = "resume_chat";
+    pub const MANAGE_CHAT: &str = "manage_chat";
+    pub const SET_PINNED: &str = "set_pinned";
+    pub const LIST_MODELS: &str = "list_models";
+    pub const SET_CHAT_MODEL: &str = "set_chat_model";
+    pub const SET_MONITOR_SCOPE: &str = "set_monitor_scope";
+}
+
+// ───────────────────────────── エラー ─────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum IpcErrorCode {
+    NotConnected,
+    Unsupported,
+    Rejected,
+    /// 結果不明（失敗確定ではない）。UIは「確認中」と表示する。
+    OutcomeUnknown,
+    Protocol,
+    Io,
+    InvalidArgs,
+    NotFound,
+    /// ホストの規則で拒否（停止未確認中の削除・送信、受理不明中の再送など）。
+    Blocked,
+}
+
+/// コマンドの失敗。Tauriコマンドは `Result<T, IpcError>` を返し、TSでは reject される。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IpcError {
+    pub code: IpcErrorCode,
+    pub message: String,
+    /// `Blocked` の理由など、UIで出し分ける補助情報。
+    pub blocked: Option<BlockedReason>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum BlockedReason {
+    StopUnconfirmed { record: LocalId },
+    AcceptanceUnknown { attempt: LocalId },
+    RunningElsewhere,
+    CapabilityUnsupported { capability: String },
+    RequestAlreadyResolved,
+}
+
+// ───────────────────────────── コマンド引数・戻り値 ─────────────────────────────
+
+/// 監視・表示の全体像（renderer再読込み時の取り直し用）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HostSnapshot {
+    /// この時点までに発行したイベントの最大seq。以後は seq+1 から適用する。
+    pub seq: u64,
+    pub sources: Vec<SourceInfo>,
+    pub chats: Vec<Chat>,
+    pub agents: Vec<AgentView>,
+    pub requests: Vec<PendingRequest>,
+    pub stops: Vec<StopRecord>,
+    pub queue: Vec<QueueItem>,
+    pub monitor_scope: MonitorScope,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectBackendArgs {
+    pub backend: BackendKind,
+    /// 実行ファイルの上書き（None＝設定値または既定）。
+    pub executable: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListChatsArgs {
+    pub cursor: Option<String>,
+    pub limit: Option<u32>,
+    pub search: Option<String>,
+    pub include_archived: bool,
+}
+
+pub type ListChatsResult = Page<ChatSummary>;
+
+/// 会話を開く（保存履歴の読み取り。resumeしない）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenChatArgs {
+    pub chat: ChatKey,
+}
+
+pub type OpenChatResult = AgentHistory;
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StartChatArgs {
+    pub backend: BackendKind,
+    /// None＝一般チャット（ホストがアプリ管理の作業領域を割り当てる、M21）。
+    pub cwd: Option<String>,
+    pub model: Option<ModelChoice>,
+    /// None＝初期値（WorkspaceWriteOnRequest）。
+    pub permission: Option<PermissionPreset>,
+    /// 最初の依頼文。あれば開始直後に送信する（チャット名の機械的切り出しにも使う）。
+    pub first_message: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StartChatResult {
+    pub chat: Chat,
+    pub first_send: Option<SendAttempt>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SendIntent {
+    /// 新しいturnとして送る（実行中ならエラー。キュー登録は§3.7の別コマンドで扱う）。
+    NewTurn,
+    /// 実行中turnへの追加指示。
+    Steer,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SendMessageArgs {
+    pub chat: ChatKey,
+    pub text: String,
+    pub attachments: Vec<LocalId>,
+    pub intent: SendIntent,
+}
+
+/// 送信試行。`state` が `acceptanceUnknown` の間、UIは再送ボタンを出さない。
+pub type SendMessageResult = SendAttempt;
+
+/// 受理なしが確定した試行（`rejected` / `notFoundAfterReconcile`）だけ再送できる。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RetrySendArgs {
+    pub chat: ChatKey,
+    pub attempt: LocalId,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RespondRequestArgs {
+    pub request: RequestKey,
+    pub answer: RequestAnswer,
+}
+
+pub type RespondRequestResult = RespondOutcome;
+
+/// チャットの中断（親＋子孫の停止手順はホストが組み立てる）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InterruptChatArgs {
+    pub chat: ChatKey,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InterruptChatResult {
+    /// 親への中断要求の受付結果（停止確認ではない）。
+    pub ack: InterruptAck,
+    /// 停止照合の記録。以後 `stopUpdated` イベントで更新される。
+    pub record: StopRecord,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResumeChatArgs {
+    pub chat: ChatKey,
+}
+
+pub type ResumeChatResult = ResumeOutcome;
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ManageChatArgs {
+    pub chat: ChatKey,
+    pub op: ManageOp,
+}
+
+pub type ManageChatResult = ManageOutcome;
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetPinnedArgs {
+    pub chat: ChatKey,
+    pub pinned: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListModelsArgs {
+    pub backend: BackendKind,
+    pub include_hidden: bool,
+}
+
+pub type ListModelsResult = Vec<ModelInfo>;
+
+/// チャット単位のモデル選択（既定値の変更は既存チャットに波及させない）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetChatModelArgs {
+    pub chat: ChatKey,
+    pub choice: ModelChoice,
+}
+
+pub type SetChatModelResult = ChatModelSettings;
+
+/// 右パネル・コンパクト監視窓の表示範囲（§3.5）。表示範囲の変更だけで送信先・中断・承認を変えない。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum MonitorScope {
+    /// 選択中チャット（初期値）。完了済みも表示。
+    SelectedChat { chat: Option<ChatKey> },
+    /// 全チャット。`show_finished` で完了・停止済み・確認済み失敗を追加。
+    AllChats { show_finished: bool },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetMonitorScopeArgs {
+    pub scope: MonitorScope,
+}
+
+// ───────────────────────────── ホスト→UIイベント ─────────────────────────────
+
+/// UIへの差分イベント。状態と鮮度は `AgentView` に並置して送り、UIは片方からもう片方を導かない。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum HostEvent {
+    SourceUpdated { source: SourceInfo },
+    ChatUpdated { chat: Chat },
+    ChatRemoved { chat: ChatKey },
+    AgentUpdated { view: AgentView },
+    TurnUpdated { turn: TurnKey, end: Option<TurnEnd> },
+    ActivityUpdated { activity: Activity },
+    /// 逐次本文。描画のみに使い、ホスト側の状態判定には使わない。
+    ActivityDelta { item: ItemKey, delta: String },
+    /// 承認・質問の到着・状態変化。到着は即時（2秒集約の対象外）。
+    RequestUpdated { request: PendingRequest },
+    SendUpdated { chat: ChatKey, attempt: SendAttempt },
+    QueueUpdated { item: QueueItem },
+    StopUpdated { record: StopRecord },
+    ModelSettingsUpdated { chat: ChatKey, settings: ChatModelSettings },
+    /// 未知イベント・版違い・取得不能項目の警告（M12）。
+    Warning { source: Option<SourceId>, message: String, raw_label: Option<String> },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HostEventEnvelope {
+    /// ホスト全体で単調増加。UIは欠番を検出したら `get_snapshot` を呼ぶ。
+    pub seq: u64,
+    pub at: UnixMillis,
+    pub event: HostEvent,
+}
