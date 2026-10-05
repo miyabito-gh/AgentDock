@@ -11,7 +11,12 @@
   "app": {
     "windows": [
       {
-        "title": "AgentDock"
+        "label": "main",
+        "title": "AgentDock",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 960,
+        "minHeight": 600
       }
     ],
     "security": {

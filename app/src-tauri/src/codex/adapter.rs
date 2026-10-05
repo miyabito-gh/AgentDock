@@ -13,7 +13,7 @@ use super::outbox::Outbox;
 use super::process::{check_version, CodexProcess};
 use super::rpc::{RpcClient, RpcEvent};
 use super::tree::assemble;
-use super::wire::WireThread;
+use super::wire::{WireThread, WireTurn};
 use crate::backend::backend::*;
 use crate::backend::model::*;
 use async_trait::async_trait;
@@ -338,6 +338,27 @@ impl CodexBackend {
         Ok((out, true))
     }
 
+    /// 履歴のturnを `thread/turns/list`（古い順・itemsView=full）でページ取得する。
+    /// `thread/read` の `includeTurns` は非推奨（全履歴の一括展開）なので使わない。
+    async fn fetch_turns(&self, thread_id: &str) -> BackendResult<Vec<WireTurn>> {
+        let base = json!({"threadId": thread_id, "sortDirection": "asc", "itemsView": "full"});
+        let (data, truncated) = self.collect_pages("thread/turns/list", base, "data").await?;
+        if truncated {
+            return Err(BackendError::Protocol { message: "thread/turns/list: too many pages".into() });
+        }
+        data.iter().map(|v| WireTurn::from_value(v).map_err(|m| BackendError::Protocol { message: m })).collect()
+    }
+
+    /// メタデータのみの `thread/read` ＋（必要なら）ページングでturn取得。
+    async fn read_thread(&self, thread_id: &str, include_turns: bool) -> BackendResult<WireThread> {
+        let r = self.call("thread/read", json!({"threadId": thread_id, "includeTurns": false}), READ_TIMEOUT).await?;
+        let mut t = thread_of(&r)?;
+        if include_turns {
+            t.turns = self.fetch_turns(thread_id).await?;
+        }
+        Ok(t)
+    }
+
     fn history_from_thread(&self, t: &WireThread, include_turns: bool, src: EvidenceSource, label: &str) -> AgentHistory {
         let agent_chat = self.shared.chat_of(&agent_key(&t.id));
         let is_root = matches!(parent_link(t), ParentLink::Root);
@@ -494,8 +515,7 @@ impl AiBackend for CodexBackend {
     }
 
     async fn read(&self, agent: AgentKey, options: ReadOptions) -> BackendResult<AgentHistory> {
-        let r = self.call("thread/read", json!({"threadId": agent.id.0, "includeTurns": options.include_turns}), READ_TIMEOUT).await?;
-        let t = thread_of(&r)?;
+        let t = self.read_thread(&agent.id.0, options.include_turns).await?;
         Ok(self.history_from_thread(&t, options.include_turns, EvidenceSource::HistoryRead, "thread/read"))
     }
 
@@ -599,11 +619,8 @@ impl AiBackend for CodexBackend {
 
     async fn reconcile_send(&self, pending: UnconfirmedSend) -> ReconcileOutcome {
         let thread_id = pending.chat().id.0.clone();
-        let r = match self.call("thread/read", json!({"threadId": thread_id, "includeTurns": true}), READ_TIMEOUT).await {
-            Ok(r) => r,
-            Err(_) => return ReconcileOutcome::StillUnknown(pending),
-        };
-        let Ok(t) = thread_of(&r) else { return ReconcileOutcome::StillUnknown(pending) };
+        // 履歴取得に失敗・部分取得なら判断しない（再送の根拠にしない）。
+        let Ok(t) = self.read_thread(&thread_id, true).await else { return ReconcileOutcome::StillUnknown(pending) };
         match find_client_message(&t, pending.client_message_id(), now_ms().0 - pending.since.0) {
             ClientMessageLookup::Found { turn_id } => ReconcileOutcome::Accepted { turn: turn_key(&thread_id, &turn_id) },
             ClientMessageLookup::NotFound => ReconcileOutcome::NotFound(pending.into_not_accepted()),

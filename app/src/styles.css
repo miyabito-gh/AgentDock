@@ -33,7 +33,7 @@ label{display:inline-flex;align-items:center;gap:6px}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 
 /* window frame */
-.window{position:fixed;inset:16px;display:flex;flex-direction:column;background:var(--paper);border:1px solid #9FB0AF;border-radius:var(--r-l);overflow:hidden}
+.window{position:fixed;inset:0;display:flex;flex-direction:column;background:var(--paper);border:0;border-radius:0;overflow:hidden}
 .titlebar{height:34px;display:flex;align-items:center;gap:10px;padding-left:12px;background:var(--surface);border-bottom:1px solid var(--line2);-webkit-user-select:none;user-select:none}
 .app-mark{width:16px;height:16px;border-radius:3px;background:var(--harbor);position:relative;flex:none}
 .app-mark:after{content:"";position:absolute;left:3px;right:3px;bottom:3px;height:3px;background:#fff;border-radius:1px}

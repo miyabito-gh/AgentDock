@@ -222,6 +222,8 @@ pub fn chat_origin(t: &WireThread) -> ChatOrigin {
             "cli" | "vscode" | "exec" => ChatOrigin::External,
             _ => ChatOrigin::Unknown,
         },
+        // 自分（clientInfo.name）が開始した会話は、App Serverが `{"custom": "<name>"}` で記録する。
+        Some(Value::Object(o)) if o.get("custom").and_then(Value::as_str) == Some(super::process::CLIENT_NAME) => ChatOrigin::AppManaged,
         Some(Value::Object(o)) if o.contains_key("custom") => ChatOrigin::External,
         _ => ChatOrigin::Unknown,
     }
@@ -545,6 +547,10 @@ mod tests {
         assert_eq!(parent_link(&t), ParentLink::Explicit { parent: agent_key("p2") });
         let t = thread(json!({"id": "c", "source": {"subAgent": "review"}}));
         assert_eq!(parent_link(&t), ParentLink::Unknown);
+        let t = thread(json!({"id": "me", "source": {"custom": "agentdock"}}));
+        assert_eq!(chat_origin(&t), ChatOrigin::AppManaged);
+        let t = thread(json!({"id": "o", "source": {"custom": "other-client"}}));
+        assert_eq!(chat_origin(&t), ChatOrigin::External);
         let t = thread(json!({"id": "r", "source": "appServer"}));
         assert_eq!(parent_link(&t), ParentLink::Root);
     }

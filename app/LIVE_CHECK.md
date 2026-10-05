@@ -26,9 +26,9 @@ node probes/app-server/live-smoke.mjs 'C:\Users\wmasa\AppData\Local\Programs\Ope
 |#|操作|期待|
 |---|---|---|
 |1|起動する|既定パスのcodex.exeへ自動接続。版（0.160.0）・会話一覧・モデル一覧が出る。未導入・版違いなら警告表示（接続エラー状態。done/failedにはならない）|
-|2|左下のモード|「実接続」が既定。「モック」に切り替えると仮データのシナリオが出る|
+|2|右上のモード切替ボタン|「実接続」が既定。「モック」に切り替えると仮データのシナリオが出る|
 |3|新規チャット（作業フォルダのフルパス・モデル・最初の依頼）|新しい会話ができ、返答が逐次表示される。初期状態はidle→実行中→完了|
-|4|`~/.codex/config.toml`・`auth.json`|操作の前後でhash・更新日時が変わらない（`Get-FileHash`で確認）|
+|4|`~/.codex/config.toml`・`auth.json`|操作の前後でhash・更新日時が変わらない。確認コマンド（前後で実行して比較）: `Get-FileHash $env:USERPROFILE\.codex\config.toml, $env:USERPROFILE\.codexuth.json`|
 |5|既存の保存済み会話を開く|履歴が出る。開くだけではresumeされない（実行中表示にならない）|
 |6|保存済み会話へ送信|ユーザー送信時のみresumeして送られる|
 |7|承認が出る依頼（ファイル書込みなど）|承認カードがホスト通知で即時表示され、許可・拒否で更新される|
@@ -37,11 +37,11 @@ node probes/app-server/live-smoke.mjs 'C:\Users\wmasa\AppData\Local\Programs\Ope
 |10|サブエージェントを使う依頼（例「3つの子エージェントに別々に調べさせて」）|ドックに子・孫が出る。完了・失敗通知が2秒窓で集約されるかは段階②。ここでは表示のみ|
 |11|送信直後にネットワーク切断／codexプロセスを終了（タスクマネージャ）|状態はdone/failedにならず、鮮度が切断になる。受理不明なら再送ボタンなし、「履歴と照合」のみ|
 |12|アプリを閉じる|codexプロセスが残らない（タスクマネージャで確認）。固まらない|
-|13|開発時にもう一度起動（StrictMode二重マウント）|接続が二重にならない|
+|13|開発時にもう一度起動（StrictMode二重マウント）|タスクマネージャーで codex.exe（app-server）のプロセスが1つだけであること|
 
 ## 3. 実機で特に見てほしい点（レビューより）
 
-- `thread/read`（includeTurns）で空のチャットがエラーにならないか。turnsの並び順、`startedAt`がnullになるか、`itemsView`が`full`か（`summary`だと受理不明の照合が永久に確定しない）。
+- 履歴取得は `thread/read`（includeTurns なし）＋`thread/turns/list`（itemsView=full・古い順）に変更済み。空のチャット（まだ発話がない会話）を開いてエラーにならないか。turnsの並び順、`startedAt`がnullになるか、`itemsView`が`full`か（`summary`だと受理不明の照合が永久に確定しない）。
 - 権限拒否`{"permissions":{},"scope":"turn"}`が受理されるか。
 - `thread/closed`が出る条件（購読中でも来るか）。`systemError`が出る契機。
 - `ancestorThreadId`（experimental）で孫まで返るか。

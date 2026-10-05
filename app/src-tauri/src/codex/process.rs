@@ -16,6 +16,8 @@ use tokio::process::{Child, Command};
 use tokio::sync::mpsc;
 
 /// 対象版（要件§1.2）。
+/// initialize の clientInfo.name。App Serverはこの名前を thread の `source`（`{"custom": name}`）に記録する。
+pub const CLIENT_NAME: &str = "agentdock";
 pub const TARGET_VERSION: &str = "0.160.0";
 const STDERR_KEEP_LINES: usize = 500;
 const VERSION_TIMEOUT: Duration = Duration::from_secs(10);
@@ -146,7 +148,7 @@ impl CodexProcess {
 
     async fn handshake(&self, enable_experimental: bool) -> Result<Value, BackendError> {
         let params = json!({
-            "clientInfo": { "name": "agentdock", "title": "AgentDock", "version": env!("CARGO_PKG_VERSION") },
+            "clientInfo": { "name": CLIENT_NAME, "title": "AgentDock", "version": env!("CARGO_PKG_VERSION") },
             "capabilities": { "experimentalApi": enable_experimental, "requestAttestation": false },
         });
         let resp = self.client.request("initialize", params, Some(INIT_TIMEOUT)).await?;

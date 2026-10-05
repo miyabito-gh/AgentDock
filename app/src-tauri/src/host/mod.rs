@@ -318,6 +318,7 @@ impl Host {
             evidence: Evidence { source: EvidenceSource::Response, raw_label: Some("thread/start".into()), source_time: None, observed_at: now },
         };
         let chat = self.mutate(|d| {
+            d.hosted.insert(key.clone());
             let mut ev = d.upsert_chat(started.chat.clone());
             ev.extend(d.set_live(started.root.clone(), status));
             d.model_settings.insert(key.clone(), settings.clone());
@@ -370,7 +371,7 @@ impl Host {
 
     fn apply_resumed(&self, history: AgentHistory) {
         self.mutate(|d| {
-            let mut ev = Vec::new();
+            let mut ev = d.mark_hosted(&history.agent.chat);
             if let Some(c) = &history.chat {
                 ev.extend(d.upsert_chat(c.clone()));
             }

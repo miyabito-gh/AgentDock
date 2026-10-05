@@ -30,6 +30,8 @@ pub struct HostData {
     pub queue: Vec<QueueItem>,
     pub monitor_scope: MonitorScope,
     pub pinned: HashSet<ChatKey>,
+    /// このホスト（現在の接続）が開始・再開した会話。originに関わらず送信可能として扱う。
+    pub hosted: HashSet<ChatKey>,
     pub model_settings: HashMap<ChatKey, ChatModelSettings>,
     /// 実行中と分かっているturn（中断・追加指示の対象）。
     pub running_turn: HashMap<AgentKey, ExternalId>,
@@ -51,6 +53,7 @@ impl Default for HostData {
             queue: Vec::new(),
             monitor_scope: MonitorScope::SelectedChat { chat: None },
             pinned: HashSet::new(),
+            hosted: HashSet::new(),
             model_settings: HashMap::new(),
             running_turn: HashMap::new(),
             latest_turn_start: HashMap::new(),
@@ -121,13 +124,32 @@ impl HostData {
                 info.connection = old.connection.clone();
             }
         }
+        if self.sources.iter().any(|s| s.source != info.source) {
+            // 新しい接続。以前の購読は失われているので、ホスト管理の扱いも引き継がない。
+            self.hosted.clear();
+        }
         self.sources.retain(|s| s.source == info.source);
         self.sources.push(info.clone());
         vec![HostEvent::SourceUpdated { source: info }]
     }
 
+    /// このホストが開始・再開した会話として記録する（origin表示を自管理に揃える）。
+    pub fn mark_hosted(&mut self, chat: &ChatKey) -> Vec<HostEvent> {
+        self.hosted.insert(chat.clone());
+        match self.chats.iter_mut().find(|c| &c.key == chat) {
+            Some(c) if c.origin != ChatOrigin::AppManaged => {
+                c.origin = ChatOrigin::AppManaged;
+                vec![HostEvent::ChatUpdated { chat: c.clone() }]
+            }
+            _ => Vec::new(),
+        }
+    }
+
     pub fn upsert_chat(&mut self, mut chat: Chat) -> Vec<HostEvent> {
         chat.pinned = self.pinned.contains(&chat.key);
+        if self.hosted.contains(&chat.key) {
+            chat.origin = ChatOrigin::AppManaged;
+        }
         match self.chats.iter_mut().find(|c| c.key == chat.key) {
             Some(old) => {
                 chat.draft = old.draft.clone();
@@ -616,6 +638,45 @@ mod tests {
         let (out, _) = d.apply_event(&env(1, 2, BackendEvent::RequestResolved { request: key, evidence: ev }), &caps());
         assert!(out.is_empty());
         assert!(matches!(d.requests[0].state, RequestState::Answered { .. }));
+    }
+
+    #[test]
+    fn hosted_chat_is_app_managed_even_if_the_backend_calls_it_external() {
+        let mut d = HostData::default();
+        let mk = |origin| Chat {
+            key: ck("root"),
+            kind: ChatKind::General,
+            cwd: Known::NotFetched,
+            name: Known::NotFetched,
+            pinned: false,
+            archived: Known::NotFetched,
+            origin,
+            draft: None,
+            created_at: Known::NotFetched,
+            last_used_at: None,
+        };
+        d.upsert_chat(mk(ChatOrigin::External));
+        assert_eq!(d.chat(&ck("root")).unwrap().origin, ChatOrigin::External);
+        let ev = d.mark_hosted(&ck("root"));
+        assert_eq!(d.chat(&ck("root")).unwrap().origin, ChatOrigin::AppManaged);
+        assert!(matches!(ev[0], HostEvent::ChatUpdated { .. }));
+        // 一覧の再取得でexternalと返ってもホスト管理を保つ。
+        d.upsert_chat(mk(ChatOrigin::External));
+        assert_eq!(d.chat(&ck("root")).unwrap().origin, ChatOrigin::AppManaged);
+        // 新しい接続では引き継がない。
+        let src = |id: &str| SourceInfo {
+            source: SourceId(id.into()),
+            backend: BackendKind::Codex,
+            pid: Known::NotFetched,
+            started_at: UnixMillis(0),
+            version: VersionCheck::Unknown { message: String::new() },
+            capabilities: caps(),
+            connection: ConnectionState::Connected,
+        };
+        d.set_source(src("a"));
+        d.set_source(src("b"));
+        d.upsert_chat(mk(ChatOrigin::External));
+        assert_eq!(d.chat(&ck("root")).unwrap().origin, ChatOrigin::External);
     }
 
     #[test]
