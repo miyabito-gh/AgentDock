@@ -18,6 +18,16 @@ use store::Store;
 
 pub fn run() {
     let app = tauri::Builder::default()
+        .on_window_event(|window, event| {
+            // 通常画面のフォーカス（通知の抑制判定用）。監視窓は含めない。
+            if let tauri::WindowEvent::Focused(focused) = event {
+                if window.label() == "main" {
+                    if let Some(host) = window.app_handle().try_state::<Arc<Host>>() {
+                        host.set_main_focused(*focused);
+                    }
+                }
+            }
+        })
         .setup(|app| {
             // 専用領域は %LOCALAPPDATA%\com.agentdock.app（診断ログも diag\ へ）。段階①でRoamingに作った領域は移動しない。
             let dir = app.path().app_local_data_dir().map_err(|e| format!("app local data dir: {e}"))?;
@@ -37,6 +47,25 @@ pub fn run() {
             host.set_emitter(Arc::new(move |env| {
                 let _ = handle.emit(HOST_EVENT_CHANNEL, env);
             }));
+            // OS通知。クリックは通常画面を表示して該当チャットを開くだけ（回答・再実行はしない）。
+            {
+                let weak = Arc::downgrade(&host);
+                let handle = app.handle().clone();
+                host.attach_notifier(Arc::new(move |n| {
+                    let weak = weak.clone();
+                    let handle = handle.clone();
+                    win::toast::show(&n, move |chat| {
+                        if let Some(w) = handle.get_webview_window("main") {
+                            let _ = w.show();
+                            let _ = w.unminimize();
+                            let _ = w.set_focus();
+                        }
+                        if let Some(host) = weak.upgrade() {
+                            host.navigate_to_chat(chat);
+                        }
+                    });
+                }));
+            }
             // setupはtokioランタイム外のスレッドで走るため、Tauriのランタイムに入ってからtokio::spawnする。
             tauri::async_runtime::block_on(async { host.start_event_pump() });
             app.manage(host);
@@ -64,6 +93,8 @@ pub fn run() {
             commands::get_chat_locals,
             commands::retry_save,
             commands::set_draft,
+            commands::acknowledge_failure,
+            commands::set_selected_chat,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

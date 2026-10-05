@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   HOST_EVENT_CHANNEL,
-  type AgentHistory, type Chat, type ChatKey, type ChatModelSettings, type CommandMap, type CommandName,
+  type AgentHistory, type AgentKey, type AppSettings, type Chat, type ChatKey, type ChatModelSettings, type CommandMap, type CommandName,
   type HostEventEnvelope, type HostSnapshot, type InterruptChatResult, type IpcError, type IpcErrorCode, type LocalId,
   type ModelChoice, type ModelInfo, type MonitorScope, type Page, type ChatSummary, type PermissionPreset,
   type RequestAnswer, type RequestKey, type RespondOutcome, type SendAttempt, type SendIntent, type SourceInfo,
@@ -49,5 +49,11 @@ export const setMonitorScope = (scope: MonitorScope): Promise<null> => invokeCmd
 export const setDraft = (chat: ChatKey, text: string): Promise<null> => invokeCmd("set_draft", { chat, text });
 /** 保存の再試行（ユーザー操作）。失敗してもエラーにはならず、失敗の内容を含む状態が返る。 */
 export const retrySave = (scope: SaveScope): Promise<SaveStatus> => invokeCmd("retry_save", { scope });
+/** アプリ設定の保存（通知設定など。ホストが保存し、`settingsUpdated` で返る）。 */
+export const setAppSettings = (settings: AppSettings): Promise<AppSettings> => invokeCmd("set_app_settings", { settings });
+/** 「確認済み」にする。印を外すだけで、再実行・成功化はしない。agent省略＝チャット内の未確認の失敗すべて。 */
+export const acknowledgeFailure = (chat: ChatKey, agent: AgentKey | null): Promise<null> => invokeCmd("acknowledge_failure", { chat, agent });
+/** 選択中のチャットをホストへ伝える（通知の抑制判定だけに使う）。 */
+export const setSelectedChat = (chat: ChatKey | null): Promise<null> => invokeCmd("set_selected_chat", { chat });
 /** 診断ログのフォルダをエクスプローラーで開く（ユーザー操作）。戻り値はログファイルの場所。 */
 export const openDiagDir = (): Promise<string> => invoke("open_diag_dir");

@@ -4,8 +4,8 @@ import { Icon } from "./Icon";
 import { TENTATIVE_HINT, TENTATIVE_STYLE, chatAgents, chatName, chatRequests, chatStatusText, chatTitle } from "./derive";
 import { keyStr, knownValue } from "./format";
 
-export function LeftPane({ snap, sel, onSelect, onAct }: {
-  snap: HostSnapshot; sel: string | null; onSelect: (id: string) => void; onAct: (a: string) => void;
+export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge }: {
+  snap: HostSnapshot; sel: string | null; onSelect: (id: string) => void; onAct: (a: string) => void; onAcknowledge: (c: Chat) => void;
 }) {
   const [query, setQuery] = useState("");
   const [inclArch, setInclArch] = useState(false);
@@ -19,14 +19,20 @@ export function LeftPane({ snap, sel, onSelect, onAct }: {
 
   const row = (c: Chat) => {
     const k = keyStr(c.key);
-    const hasReq = chatRequests(snap, c).length > 0;
-    const unconfirmedFail = chatAgents(snap, c).some((a) => a.status.state === "failed" && a.agent.parent.kind !== "root");
+    // 印はホストが状態から導く（通知設定に関係なく付く）。ホストの値がなければ（モック）画面側の状態から出す。
+    const marks = snap.chatLocals.find((l) => l.chat.id === c.key.id)?.marks;
+    const hasReq = marks?.awaitingAnswer || chatRequests(snap, c).length > 0;
+    const unconfirmedFail = marks ? marks.unacknowledgedFailure : chatAgents(snap, c).some((a) => a.status.state === "failed" && a.agent.parent.kind !== "root");
     return (
       <button key={k} className={`row-chat ${k === sel ? "sel" : ""}`} onClick={() => onSelect(c.key.id)} aria-current={k === sel}>
         <span className="nm" style={chatTitle(c).confirmed ? undefined : TENTATIVE_STYLE} title={chatTitle(c).confirmed ? undefined : TENTATIVE_HINT}>{chatName(c)}</span>
         <span className="marks">
           {hasReq ? <span className="mark wait" title="承認・質問待ち">待</span> : null}
-          {unconfirmedFail ? <span className="mark fail" title="子の失敗あり">失</span> : null}
+          {unconfirmedFail ? (
+            <span className="mark fail" role="button" tabIndex={0} title="未確認の失敗があります。クリックで「確認済み」にします（再実行ではありません）"
+              onClick={(e) => { e.stopPropagation(); onAcknowledge(c); }}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); onAcknowledge(c); } }}>失</span>
+          ) : null}
         </span>
         <span className="sub">
           {c.kind === "general" ? "一般" : <Icon name="folder" />}

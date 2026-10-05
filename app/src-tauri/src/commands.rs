@@ -7,7 +7,7 @@ use tauri::State;
 
 use crate::backend::backend::{ManageOutcome, Page, ResumeOutcome, RespondOutcome, UserConfirmed, ChatSummary, AgentHistory};
 use crate::backend::ipc::*;
-use crate::backend::local::{AppSettings, ChatLocalView, RetrySaveArgs, SaveStatus, SetAppSettingsArgs, SetDraftArgs};
+use crate::backend::local::{AcknowledgeFailureArgs, AppSettings, ChatLocalView, RetrySaveArgs, SaveStatus, SetAppSettingsArgs, SetDraftArgs, SetSelectedChatArgs};
 use crate::backend::model::*;
 use crate::host::Host;
 
@@ -120,6 +120,19 @@ pub async fn retry_save(host: Hs<'_>, args: RetrySaveArgs) -> R<SaveStatus> {
 #[tauri::command]
 pub async fn set_draft(host: Hs<'_>, args: SetDraftArgs) -> R<()> {
     host.set_draft(args)
+}
+
+/// 「確認済み」（印を外すだけ。再実行・成功化・キュー再開はしない）。
+#[tauri::command]
+pub async fn acknowledge_failure(host: Hs<'_>, args: AcknowledgeFailureArgs) -> R<()> {
+    host.inner().clone().acknowledge_failure(args)
+}
+
+/// 選択中のチャット（通知の抑制判定だけに使う）。
+#[tauri::command]
+pub async fn set_selected_chat(host: Hs<'_>, args: SetSelectedChatArgs) -> R<()> {
+    host.set_selected_chat(args.chat);
+    Ok(())
 }
 
 /// 診断ログのフォルダをエクスプローラーで開く（ユーザー操作）。戻り値はログファイルの場所。

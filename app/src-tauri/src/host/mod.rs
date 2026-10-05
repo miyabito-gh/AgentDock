@@ -7,6 +7,7 @@
 //! - 切断・受理不明で自動再送しない。照合（読み取りのみ）は自動で行ってよい。
 //! - 監視のためにresume・承認・停止をしない。resumeはユーザーの送信・再開操作の中でだけ行う。
 
+pub mod notifier;
 pub mod persist;
 pub mod state;
 pub mod stop;
@@ -138,6 +139,8 @@ pub struct Host {
     app_data_dir: PathBuf,
     /// 保存の呼出し（`persist.rs`）。
     persist: Persist,
+    /// OS通知の配信（`notifier.rs`）。
+    notifier: notifier::Notifier,
     /// 受理不明の送信（照合以外で解消しない）。
     unconfirmed: Mutex<HashMap<LocalId, UnconfirmedSend>>,
     /// 受理不明のまま未解決の送信（照合で取り出している間も含む）。送信・再送を止める根拠。
@@ -158,6 +161,7 @@ impl Host {
             executable: Mutex::new(DEFAULT_CODEX_EXE.to_string()),
             app_data_dir,
             persist: Persist::new(None),
+            notifier: notifier::Notifier::default(),
             unconfirmed: Mutex::new(HashMap::new()),
             unresolved: Mutex::new(UnresolvedSends::default()),
             rejected: Mutex::new(HashMap::new()),
@@ -183,6 +187,11 @@ impl Host {
             if let Some(emit) = self.emitter.get() {
                 emit(HostEventEnvelope { seq: d.seq, at: now_ms(), event });
             }
+        }
+        let inbox = std::mem::take(&mut d.notify_inbox);
+        drop(d);
+        if !inbox.is_empty() {
+            self.notify_submit(inbox);
         }
         r
     }
@@ -724,7 +733,8 @@ impl Host {
                     RespondOutcome::Unknown { .. } => RequestState::AnswerUnconfirmed { at },
                 };
                 let request = r.clone();
-                return ((), vec![HostEvent::RequestUpdated { request }]);
+                let marks = d.marks_event(&request.chat);
+                return ((), std::iter::once(HostEvent::RequestUpdated { request }).chain(marks).collect());
             }
             ((), vec![])
         });

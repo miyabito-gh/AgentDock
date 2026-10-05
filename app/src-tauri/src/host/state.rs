@@ -11,8 +11,9 @@ use std::collections::{HashMap, HashSet};
 use super::stop;
 use crate::backend::backend::*;
 use crate::backend::ipc::*;
-use crate::backend::local::{AppSettings, SaveScope, SaveStatus};
+use crate::backend::local::{AppSettings, ChatMarks, SaveScope, SaveStatus};
 use crate::backend::model::*;
+use crate::rules::notify::NotifyInput;
 use crate::store::records::{ChatLocalFile, QueueFile};
 
 /// イベント適用後にホストが非同期で行う追加作業（reducer内では待たない）。
@@ -51,6 +52,12 @@ pub struct HostData {
     latest_turn_start: HashMap<AgentKey, ExternalId>,
     /// 終端を観測したturn（中断記録の作成が終端通知より遅れた場合の補完）。
     last_end: HashMap<AgentKey, (ExternalId, TurnEnd, UnixMillis)>,
+    /// このセッションで非終端（initializing/running/waiting）を観測したエージェント。通知は「非終端→終端」だけを起点にする。
+    nonterminal_seen: HashSet<AgentKey>,
+    /// このセッションで観測した失敗の終端（一覧の印用。確認済みは `locals[..].acknowledged_failures`）。
+    failures: Vec<(ChatKey, TurnKey)>,
+    /// 通知の入力（ホストが `mutate` の直後に取り出して `Notifier` へ渡す）。
+    pub notify_inbox: Vec<NotifyInput>,
 }
 
 impl Default for HostData {
@@ -76,6 +83,9 @@ impl Default for HostData {
             running_turn: HashMap::new(),
             latest_turn_start: HashMap::new(),
             last_end: HashMap::new(),
+            nonterminal_seen: HashSet::new(),
+            failures: Vec::new(),
+            notify_inbox: Vec::new(),
         }
     }
 }
@@ -239,17 +249,26 @@ impl HostData {
     pub fn upsert_history_agent(&mut self, agent: Agent, status: AgentStatus) -> Vec<HostEvent> {
         let agent = self.with_assignment(agent);
         let key = agent.key.clone();
+        let mut applied = None;
         if let Some(v) = self.view_mut(&key) {
             v.agent = agent;
             if v.freshness != Freshness::Live {
+                applied = Some((status.state, status.turn.clone()));
                 v.status = status;
                 v.freshness = Freshness::HistoryOnly;
             }
-            return vec![HostEvent::AgentUpdated { view: v.clone() }];
+            let mut out = vec![HostEvent::AgentUpdated { view: v.clone() }];
+            if let Some((state, turn)) = applied {
+                out.extend(self.note_state(&key, state, turn));
+            }
+            return out;
         }
+        let (state, turn) = (status.state, status.turn.clone());
         let view = AgentView { agent, status, freshness: Freshness::HistoryOnly, current_activity: None };
         self.agents.push(view.clone());
-        vec![HostEvent::AgentUpdated { view }]
+        let mut out = vec![HostEvent::AgentUpdated { view }];
+        out.extend(self.note_state(&key, state, turn));
+        out
     }
 
     /// 再開・新規作成でlive購読が戻ったエージェントを反映する。
@@ -261,6 +280,7 @@ impl HostData {
                 self.running_turn.insert(key.clone(), t.clone());
             }
         }
+        let (state, turn) = (status.state, status.turn.clone());
         let view = match self.view_mut(&key) {
             Some(v) => {
                 v.agent = agent;
@@ -274,7 +294,9 @@ impl HostData {
                 view
             }
         };
-        vec![HostEvent::AgentUpdated { view }]
+        let mut out = vec![HostEvent::AgentUpdated { view }];
+        out.extend(self.note_state(&key, state, turn));
+        out
     }
 
     pub fn remove_chat(&mut self, chat: &ChatKey) -> Vec<HostEvent> {
@@ -331,6 +353,74 @@ impl HostData {
         out
     }
 
+    // ── 通知の入力・一覧の印（P5） ──
+
+    /// 一覧の印。状態から導く（通知設定に関係なく付ける）。
+    pub fn marks_of(&self, chat: &ChatKey) -> ChatMarks {
+        let acked = self.locals.get(chat).map(|l| l.acknowledged_failures.as_slice()).unwrap_or(&[]);
+        ChatMarks {
+            awaiting_answer: self.requests.iter().any(|r| &r.chat == chat && r.state == RequestState::Pending),
+            unacknowledged_failure: self.failures.iter().any(|(c, t)| c == chat && !acked.contains(t)),
+        }
+    }
+
+    /// 印が変わり得るチャットの更新イベント（補足情報がまだ無いチャットは、ホストが作ったあとに出る）。
+    pub fn marks_event(&self, chat: &ChatKey) -> Option<HostEvent> {
+        self.local_view(chat).map(|local| HostEvent::ChatLocalUpdated { local })
+    }
+
+    /// まだ確認していない失敗の終端（チャット内。`agent` 指定ならそのエージェントだけ）。
+    pub fn unacknowledged_failures(&self, chat: &ChatKey, agent: Option<&AgentKey>) -> Vec<TurnKey> {
+        let acked = self.locals.get(chat).map(|l| l.acknowledged_failures.as_slice()).unwrap_or(&[]);
+        self.failures
+            .iter()
+            .filter(|(c, t)| c == chat && agent.map_or(true, |a| a == &t.agent) && !acked.contains(t))
+            .map(|(_, t)| t.clone())
+            .collect()
+    }
+
+    /// 状態の観測を通知の入力にする。終端の判定は turn が分かるものだけ（推測で作らない）。
+    fn note_state(&mut self, agent: &AgentKey, state: AgentState, turn: Option<ExternalId>) -> Vec<HostEvent> {
+        match state {
+            AgentState::Initializing | AgentState::Running | AgentState::Waiting => {
+                self.nonterminal_seen.insert(agent.clone());
+                Vec::new()
+            }
+            AgentState::Done | AgentState::Failed | AgentState::Interrupted => {
+                let end = match state {
+                    AgentState::Done => TurnEnd::Completed,
+                    AgentState::Failed => TurnEnd::Failed,
+                    _ => TurnEnd::Interrupted,
+                };
+                match turn {
+                    Some(t) => {
+                        let was = self.nonterminal_seen.remove(agent);
+                        self.note_end(agent, t, end, was)
+                    }
+                    None => Vec::new(),
+                }
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    fn note_end(&mut self, agent: &AgentKey, turn: ExternalId, end: TurnEnd, was_nonterminal: bool) -> Vec<HostEvent> {
+        if !was_nonterminal {
+            return Vec::new();
+        }
+        let Some(chat) = self.view(agent).map(|v| v.agent.chat.clone()) else { return Vec::new() };
+        let is_root = self.is_root(agent);
+        self.notify_inbox.push(NotifyInput::Ended { chat: chat.clone(), agent: agent.clone(), is_root, turn: turn.clone(), end, was_nonterminal });
+        if end == TurnEnd::Failed {
+            let tk = TurnKey { agent: agent.clone(), turn_id: turn };
+            if !self.failures.iter().any(|(_, t)| t == &tk) {
+                self.failures.push((chat.clone(), tk));
+                return self.marks_event(&chat).into_iter().collect();
+            }
+        }
+        Vec::new()
+    }
+
     // ── バックエンドイベント ──
 
     pub fn apply_event(&mut self, env: &EventEnvelope, caps: &Capabilities) -> (Vec<HostEvent>, Vec<Followup>) {
@@ -363,11 +453,16 @@ impl HostData {
                 if matches!(state, ConnectionState::Disconnected { .. }) {
                     // 状態は変えず、鮮度だけを切断にする（doneにもfailedにもしない）。
                     out.extend(self.set_freshness_where(None, Freshness::Disconnected, |f| f != Freshness::Unsupported));
+                    let mut expired_chats = Vec::new();
                     for r in &mut self.requests {
                         if r.key.source == env.source && r.state == RequestState::Pending {
                             r.state = RequestState::Expired { at: now };
                             out.push(HostEvent::RequestUpdated { request: r.clone() });
+                            expired_chats.push(r.chat.clone());
                         }
+                    }
+                    for chat in expired_chats {
+                        out.extend(self.marks_event(&chat));
                     }
                 }
             }
@@ -447,9 +542,11 @@ impl HostData {
                             out.push(HostEvent::AgentUpdated { view });
                         }
                     }
+                    out.extend(self.note_state(agent, status.state, status.turn.clone()));
                 }
             }
             BackendEvent::TurnStarted { turn, .. } => {
+                self.nonterminal_seen.insert(turn.agent.clone());
                 self.latest_turn_start.insert(turn.agent.clone(), turn.turn_id.clone());
                 self.running_turn.insert(turn.agent.clone(), turn.turn_id.clone());
                 if let Some(v) = self.view_mut(&turn.agent) {
@@ -461,9 +558,12 @@ impl HostData {
                 out.push(HostEvent::TurnUpdated { turn: turn.clone(), end: None });
             }
             BackendEvent::TurnEnded { turn, end, evidence: ev, .. } => {
+                let mut was_nonterminal = self.nonterminal_seen.remove(&turn.agent);
                 if self.running_turn.get(&turn.agent) == Some(&turn.turn_id) {
                     self.running_turn.remove(&turn.agent);
+                    was_nonterminal = true;
                 }
+                out.extend(self.note_end(&turn.agent, turn.turn_id.clone(), *end, was_nonterminal));
                 let at = ev.source_time.unwrap_or(now);
                 self.last_end.insert(turn.agent.clone(), (turn.turn_id.clone(), *end, at));
                 out.push(HostEvent::TurnUpdated { turn: turn.clone(), end: Some(*end) });
@@ -502,13 +602,22 @@ impl HostData {
                     None => self.requests.push(request.clone()),
                 }
                 out.push(HostEvent::RequestUpdated { request: request.clone() });
+                if request.state == RequestState::Pending {
+                    self.notify_inbox.push(NotifyInput::AwaitingAnswer { chat: request.chat.clone(), request: request.key.clone(), kind: request.kind.clone() });
+                    out.extend(self.marks_event(&request.chat));
+                }
             }
             BackendEvent::RequestResolved { request, .. } => {
+                let mut resolved_chat = None;
                 if let Some(r) = self.requests.iter_mut().find(|r| &r.key == request) {
                     if matches!(r.state, RequestState::Pending | RequestState::AnswerUnconfirmed { .. }) {
                         r.state = RequestState::ResolvedElsewhere { at: now };
                         out.push(HostEvent::RequestUpdated { request: r.clone() });
+                        resolved_chat = Some(r.chat.clone());
                     }
+                }
+                if let Some(chat) = resolved_chat {
+                    out.extend(self.marks_event(&chat));
                 }
             }
             BackendEvent::ChatMetaChanged { chat, change } => match change {
@@ -601,6 +710,32 @@ mod tests {
     }
     fn live_root(d: &mut HostData, st: AgentState) {
         d.set_live(agent("root", true), status(st, None, StateScope::Agent));
+    }
+
+    #[test]
+    fn only_observed_nonterminal_to_terminal_feeds_notifications_and_failure_marks() {
+        let mut d = HostData::default();
+        // 初観測が終端（履歴の読込みなど）は通知にも印にもしない。
+        d.set_live(agent("root", true), status(AgentState::Failed, Some("t0"), StateScope::Turn));
+        assert!(d.notify_inbox.is_empty());
+        assert!(!d.marks_of(&ck("root")).unacknowledged_failure);
+        // 非終端を観測したあとの失敗は入力になり、印が付く。確認済みで外れる。
+        d.apply_event(&env(1, 1, BackendEvent::TurnStarted { turn: tk("root", "t1"), evidence: evidence(EvidenceSource::LiveEvent, "x", UnixMillis(1)) }), &caps());
+        d.apply_event(
+            &env(2, 2, BackendEvent::TurnEnded { turn: tk("root", "t1"), end: TurnEnd::Failed, error: None, evidence: evidence(EvidenceSource::LiveEvent, "x", UnixMillis(2)) }),
+            &caps(),
+        );
+        assert_eq!(d.notify_inbox.len(), 1);
+        assert!(d.marks_of(&ck("root")).unacknowledged_failure);
+        let t = d.unacknowledged_failures(&ck("root"), None);
+        assert_eq!(t, vec![tk("root", "t1")]);
+        let mut f = ChatLocalFile::new(LocalId("d".into()), Some(ck("root")));
+        f.acknowledged_failures = t;
+        d.locals.insert(ck("root"), f);
+        assert!(!d.marks_of(&ck("root")).unacknowledged_failure);
+        // 同じ終端を状態通知でも観測しても二重にならない（非終端を挟んでいない）。
+        d.apply_event(&env(3, 3, BackendEvent::AgentStatus { agent: ak("root"), status: status(AgentState::Failed, Some("t1"), StateScope::Turn) }), &caps());
+        assert_eq!(d.notify_inbox.len(), 1);
     }
 
     #[test]

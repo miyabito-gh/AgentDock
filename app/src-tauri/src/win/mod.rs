@@ -5,3 +5,4 @@
 
 pub mod job;
 pub mod power;
+pub mod toast;

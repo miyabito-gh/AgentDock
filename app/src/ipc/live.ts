@@ -135,6 +135,7 @@ export function applyHostEvent(b: Bundle, e: HostEvent): Bundle {
     case "settingsUpdated":
       return set({ settings: e.settings });
     case "sendUpdated":
+    case "navigateToChat": // 画面側で該当チャットを開く（状態は変えない）
     case "warning":
       return b; // 画面側で通知として扱う
   }

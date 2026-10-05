@@ -42,6 +42,8 @@ pub mod command_names {
     pub const GET_CHAT_LOCALS: &str = "get_chat_locals";
     pub const RETRY_SAVE: &str = "retry_save";
     pub const SET_DRAFT: &str = "set_draft";
+    pub const ACKNOWLEDGE_FAILURE: &str = "acknowledge_failure";
+    pub const SET_SELECTED_CHAT: &str = "set_selected_chat";
 }
 
 // ───────────────────────────── エラー ─────────────────────────────
@@ -358,6 +360,8 @@ pub enum HostEvent {
     ChatLocalUpdated { local: ChatLocalView },
     SaveStatusUpdated { status: SaveStatus },
     SettingsUpdated { settings: AppSettings },
+    /// 通知を開いた操作（トレイ・通知クリック）。該当チャットを表示するだけで、回答・再実行はしない。
+    NavigateToChat { chat: ChatKey },
     /// 未知イベント・版違い・取得不能項目の警告（M12）。
     Warning { source: Option<SourceId>, message: String, raw_label: Option<String> },
 }
