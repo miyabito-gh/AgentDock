@@ -28,7 +28,7 @@ node probes/app-server/live-smoke.mjs 'C:\Users\wmasa\AppData\Local\Programs\Ope
 |1|起動する|既定パスのcodex.exeへ自動接続。版（0.160.0）・会話一覧・モデル一覧が出る。未導入・版違いなら警告表示（接続エラー状態。done/failedにはならない）|
 |2|右上のモード切替ボタン|「実接続」が既定。「モック」に切り替えると仮データのシナリオが出る|
 |3|新規チャット（作業フォルダのフルパス・モデル・最初の依頼）|新しい会話ができ、返答が逐次表示される。初期状態はidle→実行中→完了|
-|4|`~/.codex/config.toml`・`auth.json`|操作の前後でhash・更新日時が変わらない。確認コマンド（前後で実行して比較）: `Get-FileHash $env:USERPROFILE\.codex\config.toml, $env:USERPROFILE\.codexauth.json`|
+|4|`~/.codex/config.toml`・`auth.json`|操作の前後でhash・更新日時が変わらない。確認コマンド（前後で実行して比較）: `Get-FileHash $env:USERPROFILE\.codex\config.toml, $env:USERPROFILE\.codexuth.json`|
 |5|既存の保存済み会話を開く|履歴が出る。開くだけではresumeされない（実行中表示にならない）|
 |6|保存済み会話へ送信|ユーザー送信時のみresumeして送られる|
 |7|承認が出る依頼（ファイル書込みなど）|承認カードがホスト通知で即時表示され、許可・拒否で更新される|
