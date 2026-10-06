@@ -10,7 +10,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   codexExecutable: null, autostart: false,
   notifications: { enabled: true, approvalAndQuestion: true, completed: true, failed: true, sound: true, showChatName: true },
   mainWindow: { alwaysOnTop: false, bounds: null }, monitorWindow: { alwaysOnTop: false, bounds: null },
-  monitorScope: "selectedChat", defaultModel: null, sendKey: "ctrlEnter",
+  monitorScope: "selectedChat", defaultModel: null, sendKey: "ctrlEnter", acknowledgedWarnings: [],
 };
 
 const emptySnapshot = (): HostSnapshot => ({

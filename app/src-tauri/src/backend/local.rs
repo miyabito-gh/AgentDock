@@ -470,6 +470,10 @@ pub struct AppSettings {
     /// 新しいチャットの既定モデル（既存チャットに波及させない）。
     pub default_model: Option<ModelChoice>,
     pub send_key: SendKey,
+    /// 確認済みにした起動時の保存データ警告（警告文＝領域のパスと警告の種類を含む）。同じ警告は以後出さない。
+    /// 別の種類・別の領域の警告は文が変わるので、また出る。領域のファイルは消さず、作り直しもしない。
+    #[serde(default)]
+    pub acknowledged_warnings: Vec<String>,
 }
 
 impl Default for AppSettings {
@@ -484,6 +488,7 @@ impl Default for AppSettings {
             monitor_scope: MonitorWindowScope::default(),
             default_model: None,
             send_key: SendKey::CtrlEnter,
+            acknowledged_warnings: Vec::new(),
         }
     }
 }

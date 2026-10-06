@@ -33,10 +33,11 @@ function Berth({ a, depth, orphan, mini, confirmed, onConfirmFail, rootName }: {
   return (
     <div className={`berth ${m.c} ${notLive ? "stale" : ""}`}>
       <div className="l1">
-        <span className="nm">{a.agent.parent.kind === "root" ? (rootName ?? showKnown(a.agent.displayName)) : showKnown(a.agent.displayName)}</span><span className="rel">{rel}</span>
+        <span className="nm" title={a.agent.parent.kind === "root" ? undefined : "Codexが付けた呼び名です（役割ではありません）"}>{a.agent.parent.kind === "root" ? (rootName ?? showKnown(a.agent.displayName)) : showKnown(a.agent.displayName)}</span><span className="rel">{rel}</span>
+        {a.agent.parent.kind !== "root" && a.agent.agentPath.kind === "value" ? <span className="path mono" title="Codexが返したエージェントの経路（呼び名とは別）">{a.agent.agentPath.value}</span> : null}
         <span className={`st ${m.c}`}><Flag c={m.c} />{m.t}</span>
       </div>
-      {mini ? null : <div className="l2">{a.agent.parent.kind === "root" ? "役割: メイン（会話の本体）" : <>役割: {a.agent.role.kind === "missing" ? "未提供（Codexが返していません）" : showKnown(a.agent.role)}{a.agent.agentPath.kind === "value" ? <>　経路: <span className="mono" title="Codexが返したエージェントの経路">{a.agent.agentPath.value}</span></> : null}　担当: {showKnown(a.agent.assignment)}</>}</div>}
+      {mini ? null : <div className="l2">{a.agent.parent.kind === "root" ? "役割: メイン（会話の本体）" : <>役割: {a.agent.role.kind === "missing" ? "未提供（Codexが返していません）" : showKnown(a.agent.role)}　担当: {showKnown(a.agent.assignment)}</>}</div>}
       <div className="l3" title={act}>{act}</div>
       {mini ? null : (
         <div className="l4">

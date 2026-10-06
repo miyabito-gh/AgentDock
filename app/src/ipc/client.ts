@@ -74,6 +74,8 @@ export const setChatCwd = (chat: ChatKey, cwd: string, queueRetargetConfirmed: b
   invokeCmd("set_chat_cwd", { chat, cwd, queueRetargetConfirmed });
 /** アプリ設定の保存（通知設定など。ホストが保存し、`settingsUpdated` で返る）。 */
 export const setAppSettings = (settings: AppSettings): Promise<AppSettings> => invokeCmd("set_app_settings", { settings });
+/** 起動時の保存データ警告を確認済みにする（reset=true で解除）。設定へ保存するだけで、領域のファイルは触らない。 */
+export const acknowledgeWarnings = (reset: boolean): Promise<AppSettings> => invokeCmd("acknowledge_warnings", { reset });
 /** 「確認済み」にする。印を外すだけで、再実行・成功化はしない。agent省略＝チャット内の未確認の失敗すべて。 */
 export const acknowledgeFailure = (chat: ChatKey, agent: AgentKey | null): Promise<null> => invokeCmd("acknowledge_failure", { chat, agent });
 /** 選択中のチャットをホストへ伝える（通知の抑制判定だけに使う）。 */

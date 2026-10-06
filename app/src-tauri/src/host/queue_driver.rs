@@ -689,7 +689,7 @@ impl Host {
                             seen.insert(attempt.clone());
                             found.push((attempt.clone(), chat.clone(), UnconfirmedSend::restore(chat.clone(), a.client_message_id.clone(), e.text.clone(), a.at)));
                         }
-                        None => warnings.push("受理不明の送信の記録（照合に必要なID）が残っていません。履歴で送信の有無を確認してください。".to_string()),
+                        None => warnings.push(StartupWarning::acknowledgeable(format!("受理不明の送信の記録（照合に必要なID）が残っていません。履歴で送信の有無を確認してください（チャット {}）。", chat.id.0))),
                     }
                 }
             }

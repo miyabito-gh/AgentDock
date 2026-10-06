@@ -24,6 +24,8 @@ export interface CenterProps {
   models: ModelInfo[];
   save: SaveState | null;
   externalLabel: string | undefined;
+  /** このアプリの起動中に、この会話が一度でも live 監視になったか。 */
+  wasLive: boolean;
   enterMode: "ctrl" | "enter";
   draft: string;
   setDraft: (v: string) => void;
@@ -187,8 +189,10 @@ function Banners({ p }: { p: CenterProps }) {
       ) : null}
       {root && root.freshness === "historyOnly" && chat.origin !== "external" ? (
         <div className="cbanner info" role="alert">
-          <h4>接続を回復しましたが、ライブ監視はまだ戻っていません</h4>
-          保存履歴から取得した状態です（{hms(root.status.evidence.observedAt)}）。実行中の途中経過は表示されません。送信待ちは照合が終わるまで保留します。
+          <h4>{p.wasLive ? "接続を回復しましたが、ライブ監視はまだ戻っていません" : "アプリの再起動後のため、保存履歴から表示しています"}</h4>
+          {p.wasLive
+            ? "保存履歴から取得した状態です（"
+            : "送信すると続きから再開します（再開するまでライブ監視はしません）。保存履歴から取得した状態です（"}{hms(root.status.evidence.observedAt)}）。実行中の途中経過は表示されません。送信待ちは照合が終わるまで保留します。
           <div className="acts"><button className="btn-line" title="保存履歴を読み直して状態を取り直します（読み取りのみ）" onClick={() => onAct("reloadHistory")}>状態を再照合</button><button className="btn-line" onClick={() => onAct("reloadHistory")}>保存履歴を再取得</button></div>
         </div>
       ) : null}
@@ -585,7 +589,7 @@ function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock
         <span>
           {changed ? `選択: ${model}／${effort}（未受理。次のターンから適用）　` : ""}
           受理済み: {settings ? (accepted ? `${accepted.model}／${accepted.effort ?? "既定"}` : showKnown(settings.accepted)) : "未確認"}
-          {!accepted ? "（Codex が会話の設定を通知するまで、受理は確認できません）" : ""}
+          {!accepted ? "（会話の再開・開始の応答か Codex の設定通知でモデルを受け取るまで、受理は確認できません。受け取っていない間は、選択値が使われたとは言えません）" : ""}
         </span>
       </div>
     </div>

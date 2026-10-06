@@ -41,6 +41,9 @@ pub enum StoreError {
     InsufficientSpace { required: u64, available: u64 },
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
+    /// 領域・ファイルに紐づく通知（文にパスを含む。確認済みにできる）。
+    #[error("{message}")]
+    Notice { message: String },
     /// 読めなかったファイルは `moved_to` へ退避した（削除していない）。
     #[error("corrupt: {path} (moved to {moved_to:?})")]
     Corrupt { path: String, moved_to: Option<String> },
@@ -178,10 +181,12 @@ impl Store {
                 // 作業領域（workspace）や送信待ちが残っているのに記録が無いときは、ピン・下書き・送信待ちなどを復元できないので警告する。
                 Ok(None) => {
                     if layout::workspace_dir(&dir).exists() || dir.join(layout::QUEUE_FILE).exists() {
-                        r.problems.push(StoreError::Io(std::io::Error::other(format!(
-                            "チャットの記録（chat.json）が見つかりません。ピン・下書き・送信待ちを復元できません（元のファイルは変更していません）: {}",
-                            shown(&dir)
-                        ))));
+                        r.problems.push(StoreError::Notice {
+                            message: format!(
+                                "チャットの記録（chat.json）が見つかりません。ピン・下書き・送信待ちを復元できません（元のファイルは変更していません）: {}",
+                                shown(&dir)
+                            ),
+                        });
                     }
                     continue;
                 }
@@ -199,7 +204,7 @@ impl Store {
             }
             if let Some(key) = &local.chat {
                 if !seen.insert(key.clone()) {
-                    r.problems.push(StoreError::Io(std::io::Error::other(format!("同じチャットの記録が複数あります（先に読んだ方を使います）: {}", shown(&dir)))));
+                    r.problems.push(StoreError::Notice { message: format!("同じチャットの記録が複数あります（先に読んだ方を使います）: {}", shown(&dir)) });
                     continue;
                 }
                 self.index.lock().unwrap().insert(key.clone(), local.dir_id.clone());

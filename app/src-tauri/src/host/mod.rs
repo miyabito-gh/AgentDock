@@ -430,7 +430,7 @@ impl Host {
             include_external: true,
             include_descendants: false,
         };
-        // 先頭から最後までを1回で取れた通常の一覧だけが「バックエンドにない」の根拠になる（検索・続きのページ・アーカイブ側では判断しない）。
+        // 通常の一覧の取得（先頭ページ）だけが、一覧に無いアプリ管理の会話を補う契機になる（検索・続きのページ・アーカイブ側では判断しない）。
         let complete = query.cursor.is_none() && query.search.is_none() && !query.archived;
         let page = self.backend.list_chats(query).await?;
         let listed: HashSet<ChatKey> = page.items.iter().map(|s| s.chat.key.clone()).collect();
@@ -445,7 +445,7 @@ impl Host {
         for k in &listed {
             self.refresh_cached_meta(k);
         }
-        if complete && page.next_cursor.is_none() {
+        if complete {
             self.add_unlisted_hosted_chats(&listed).await;
         }
         Ok(page)
@@ -587,18 +587,8 @@ impl Host {
     /// ユーザー操作での再開の結果を反映する。外部で作られた会話の origin は変えず、アプリ管理の印も付けない
     /// （再開済みはliveの間だけ。再起動・再接続後は外部扱いに戻り、再開確認が再び要る。§3.6）。
     fn apply_resumed(self: &Arc<Self>, chat: &ChatKey, history: AgentHistory, accepted_model: Known<ModelChoice>) {
-        self.mutate(|d| {
-            let mut ev = Vec::new();
-            if let Some(c) = &history.chat {
-                ev.extend(d.upsert_chat(c.clone()));
-            }
-            ev.extend(d.set_live(history.agent, history.status));
-            // 応答が示した会話のモデル設定を「受理した設定」として記録する（示されなければ未取得のまま）。
-            if let Known::Value { value, .. } = accepted_model {
-                ev.extend(d.note_accepted_model(chat, value));
-            }
-            ((), ev)
-        });
+        crate::diag::log("resume-applied", &format!("acceptedModel={}", if matches!(accepted_model, Known::Value { .. }) { "value" } else { "none" }));
+        self.mutate(|d| ((), d.apply_resumed(chat, history, accepted_model)));
     }
 
     /// 一覧の取得後、アプリ管理の会話の表示記録（名前・作業フォルダ）が変わっていれば書き直す。
@@ -620,20 +610,20 @@ impl Host {
     }
 
     /// バックエンドの一覧に載らないアプリ管理の会話（発話前のチャットなど）を、記録から一覧へ出す。
-    /// バックエンドが履歴の読取りを明示的に拒否したときだけ「履歴なし」として出す。読めた会話は通常どおり反映し、
-    /// 取得できなかった（通信断など）ものは何も出さず、次の更新で再試行する。
+    /// 一覧の先頭ページに無いだけの会話もあるので、候補ごとに履歴を読んで確かめる（読み取りのみ。再開はしない）。
+    /// 読めた会話は通常どおり反映し、バックエンドが明示的に拒否した会話だけ「履歴なし」として記録から出す。
+    /// 通信断などで取得できなかったものは何も出さず、次の更新で再試行する。
     async fn add_unlisted_hosted_chats(self: &Arc<Self>, listed: &HashSet<ChatKey>) {
-        let cands: Vec<ChatKey> = self.read(|d| {
-            d.hosted
-                .iter()
-                .filter(|k| !listed.contains(*k) && d.chat(k).is_none())
-                .filter(|k| d.locals.get(*k).is_some_and(|l| matches!(l.visibility, crate::backend::local::ListVisibility::Visible) && l.delete_pending.is_none() && l.cached_meta.is_some()))
-                .cloned()
-                .collect()
-        });
+        let cands: Vec<ChatKey> = self.read(|d| d.unlisted_hosted_candidates(listed));
         for k in cands {
-            match self.backend.read(agent_key_of(&k), ReadOptions { include_turns: false }).await {
-                Ok(h) => {
+            let res = self.backend.read(agent_key_of(&k), ReadOptions { include_turns: false }).await;
+            if let Err(e) = &res {
+                // 想定外の応答形式などは履歴の有無を断定できない。出さずに次回再試行する（原因を調べられるよう種類だけ残す）。
+                crate::diag::log("unlisted-read", &crate::diag::error_kind(e));
+            }
+            match persist::unlisted_action(res.as_ref().map(|_| ())) {
+                persist::UnlistedAction::FromBackend => {
+                    let Ok(h) = res else { continue };
                     self.mutate(|d| {
                         let mut ev = Vec::new();
                         if let Some(c) = &h.chat {
@@ -643,7 +633,7 @@ impl Host {
                         ((), ev)
                     });
                 }
-                Err(BackendError::Rejected { .. }) => {
+                persist::UnlistedAction::FromRecord => {
                     self.mutate(|d| {
                         let Some(chat) = d.locals.get(&k).and_then(|l| persist::chat_from_record(&k, l)) else { return ((), vec![]) };
                         if d.chat(&k).is_some() {
@@ -652,7 +642,7 @@ impl Host {
                         ((), d.upsert_chat(chat))
                     });
                 }
-                Err(_) => {}
+                persist::UnlistedAction::Skip => {}
             }
         }
     }

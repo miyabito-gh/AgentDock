@@ -104,6 +104,11 @@ pub async fn set_monitor_scope(host: Hs<'_>, args: SetMonitorScopeArgs) -> R<()>
 }
 
 #[tauri::command]
+pub async fn acknowledge_warnings(host: Hs<'_>, args: AcknowledgeWarningsArgs) -> R<AppSettings> {
+    host.inner().clone().acknowledge_warnings(args)
+}
+
+#[tauri::command]
 pub async fn get_app_settings(host: Hs<'_>) -> R<AppSettings> {
     Ok(host.get_app_settings())
 }

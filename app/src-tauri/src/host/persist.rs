@@ -13,6 +13,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use super::{blocked, err, now_ms, Host};
+use crate::backend::backend::BackendError;
 use crate::backend::ipc::*;
 use crate::backend::local::*;
 use crate::backend::model::*;
@@ -86,8 +87,18 @@ impl Persist {
 }
 
 /// 読めなかった保存ファイルの警告文。
-pub fn problem_text(e: &StoreError) -> String {
+pub fn problem_warning(e: &StoreError) -> StartupWarning {
+    let text = problem_text(e);
     match e {
+        // 領域・ファイルに紐づく（パスを含む）ものだけ確認済みにできる。空き不足・パスなしの読取り失敗は毎回出す。
+        StoreError::Corrupt { .. } | StoreError::NewerSchema { .. } | StoreError::Notice { .. } => StartupWarning::acknowledgeable(text),
+        StoreError::InsufficientSpace { .. } | StoreError::Io(_) => StartupWarning::transient(text),
+    }
+}
+
+fn problem_text(e: &StoreError) -> String {
+    match e {
+        StoreError::Notice { message } => message.clone(),
         StoreError::Corrupt { path, moved_to: Some(to) } => {
             format!("保存ファイルを読めなかったため退避しました（削除・上書きはしていません）: {path} → {to}")
         }
@@ -128,6 +139,51 @@ pub fn chat_from_record(key: &ChatKey, local: &ChatLocalFile) -> Option<Chat> {
     })
 }
 
+/// 起動時の警告のうち、確認済みにしていないもの（警告文が完全に一致するものだけを隠す。順序は保つ）。
+/// 文には領域のパスと警告の種類が入るので、別の種類・別の領域の警告は隠れない。
+/// 確認済みにできない警告（`acknowledgeable=false`）は、一覧に同じ文があっても隠さない。
+pub fn pending_warnings(all: &[StartupWarning], acknowledged: &[String]) -> Vec<StartupWarning> {
+    all.iter().filter(|w| !(w.acknowledgeable && acknowledged.contains(&w.message))).cloned().collect()
+}
+
+/// 一覧に載らなかったアプリ管理の会話の履歴を読んだ結果の扱い。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnlistedAction {
+    /// 読めた（バックエンドの内容を使う）。
+    FromBackend,
+    /// バックエンドが明示的に拒否した。記録だけから「履歴なし」として出す。
+    FromRecord,
+    /// 通信断・結果不明・想定外の応答形式などで取得できなかった（履歴が実在するかもしれない）。何も出さず、次の更新で再試行する（「履歴なし」と断定しない）。
+    Skip,
+}
+
+pub fn unlisted_action(read: Result<(), &BackendError>) -> UnlistedAction {
+    match read {
+        Ok(()) => UnlistedAction::FromBackend,
+        Err(BackendError::Rejected { .. }) => UnlistedAction::FromRecord,
+        Err(_) => UnlistedAction::Skip,
+    }
+}
+
+impl HostData {
+    /// 一覧（先頭ページ）に載らず、まだ表示していない、表示対象のアプリ管理の会話。表示記録（`cachedMeta`）が無いものは出せない。
+    pub fn unlisted_hosted_candidates(&self, listed: &std::collections::HashSet<ChatKey>) -> Vec<ChatKey> {
+        let mut v: Vec<ChatKey> = self
+            .hosted
+            .iter()
+            .filter(|k| !listed.contains(*k) && self.chat(k).is_none())
+            .filter(|k| {
+                self.locals
+                    .get(*k)
+                    .is_some_and(|l| matches!(l.visibility, ListVisibility::Visible) && l.delete_pending.is_none() && l.cached_meta.is_some())
+            })
+            .cloned()
+            .collect();
+        v.sort_by(|a, b| a.id.0.cmp(&b.id.0));
+        v
+    }
+}
+
 /// 保存失敗の案内文（原因別）。
 pub fn save_failure_message(e: &StoreError) -> String {
     const MIB: u64 = 1024 * 1024;
@@ -138,6 +194,7 @@ pub fn save_failure_message(e: &StoreError) -> String {
             available / MIB
         ),
         StoreError::Io(e) => format!("書き込めませんでした: {e}"),
+        StoreError::Notice { message } => message.clone(),
         StoreError::Corrupt { .. } => "読めなかった保存ファイルが残っているため、上書きしません。".to_string(),
         StoreError::NewerSchema { .. } => "新しい版で作られた保存ファイルのため、上書きしません。".to_string(),
     }
@@ -219,7 +276,7 @@ impl HostData {
             }
             self.locals.insert(key, c.local);
         }
-        self.startup_warnings.extend(r.problems.iter().map(problem_text));
+        self.startup_warnings.extend(r.problems.iter().map(problem_warning));
     }
 }
 
@@ -243,7 +300,8 @@ impl Host {
     }
 
     pub fn add_startup_warning(&self, message: impl Into<String>) {
-        self.data.lock().unwrap().startup_warnings.push(message.into());
+        // 保存領域を開けない等の状況依存の警告。確認済みにはせず毎回出す。
+        self.data.lock().unwrap().startup_warnings.push(StartupWarning::transient(message));
     }
 
     /// 書込みに必要な空きがなければ、対象の操作を止めて案内する（D02）。空きを取得できないときは止めない。
@@ -500,8 +558,10 @@ impl Host {
     /// 設定を反映して保存を依頼する。空き不足ならこの操作を止める。保存の成否は `saveStatusUpdated` で伝える。
     pub fn set_app_settings(self: &Arc<Self>, args: SetAppSettingsArgs) -> Result<AppSettings, IpcError> {
         self.precheck_space()?;
-        let settings = args.settings;
+        let mut settings = args.settings;
         self.mutate(|d| {
+            // 確認済みの警告は専用の操作（acknowledge_warnings）だけが変える。設定画面の古い写しで上書きしない。
+            settings.acknowledged_warnings = d.settings.acknowledged_warnings.clone();
             d.settings = settings.clone();
             ((), vec![HostEvent::SettingsUpdated { settings: settings.clone() }])
         });
@@ -509,6 +569,25 @@ impl Host {
             // 次回の接続から使う（接続済みのApp Serverは変えない）。
             *self.executable.lock().unwrap() = p.to_string();
         }
+        self.schedule_save(SaveScope::AppSettings, Duration::ZERO);
+        Ok(settings)
+    }
+
+    /// 起動時の保存データ警告の確認（ユーザーの「閉じる」）。表示中の警告を確認済みとして設定へ保存する（ファイルは触らない）。
+    /// `reset` なら確認済みを解除する（次回起動から再び出る）。
+    pub fn acknowledge_warnings(self: &Arc<Self>, args: AcknowledgeWarningsArgs) -> Result<AppSettings, IpcError> {
+        self.precheck_space()?;
+        let settings = self.mutate(|d| {
+            if args.reset {
+                d.settings.acknowledged_warnings.clear();
+            } else {
+                let shown = pending_warnings(&d.startup_warnings, &d.settings.acknowledged_warnings);
+                // 確認済みにできるのは、領域・ファイルに紐づく警告だけ。
+                d.settings.acknowledged_warnings.extend(shown.into_iter().filter(|w| w.acknowledgeable).map(|w| w.message));
+            }
+            let s = d.settings.clone();
+            (s.clone(), vec![HostEvent::SettingsUpdated { settings: s }])
+        });
         self.schedule_save(SaveScope::AppSettings, Duration::ZERO);
         Ok(settings)
     }
@@ -558,6 +637,7 @@ fn error_kind(e: &StoreError) -> &'static str {
         StoreError::Io(_) => "io",
         StoreError::Corrupt { .. } => "corrupt",
         StoreError::NewerSchema { .. } => "newerSchema",
+        StoreError::Notice { .. } => "notice",
     }
 }
 
@@ -644,6 +724,82 @@ mod tests {
         c.origin = ChatOrigin::External;
         d.upsert_chat(c);
         assert_eq!(d.chat(&key("ext")).unwrap().origin, ChatOrigin::External);
+    }
+
+    #[test]
+    fn acknowledged_warnings_are_hidden_but_other_kinds_and_areas_still_show() {
+        let missing = |dir: &str| format!("チャットの記録（chat.json）が見つかりません: C:/data/chats/{dir}");
+        let corrupt = |dir: &str| format!("保存ファイルを読めなかったため退避しました: C:/data/chats/{dir}/chat.json");
+        let w = |s: String| StartupWarning::acknowledgeable(s);
+        let all = vec![w(missing("dir-1")), w(missing("dir-2")), w(corrupt("dir-1"))];
+        assert_eq!(pending_warnings(&all, &[]), all);
+        // 領域dir-1の「chat.json なし」だけを確認済みにしても、別の領域・別の種類は出る。
+        let acked = vec![missing("dir-1")];
+        assert_eq!(pending_warnings(&all, &acked), vec![w(missing("dir-2")), w(corrupt("dir-1"))]);
+        // 同じ警告が再起動後にもう一度出ても隠れる。確認済みの一覧は警告が無くなっても残る（解除は専用の操作）。
+        assert!(pending_warnings(&[w(missing("dir-1"))], &acked).is_empty());
+        assert_eq!(pending_warnings(&[w(missing("dir-3"))], &acked), vec![w(missing("dir-3"))]);
+        // 保存できない状態の警告は、同じ文が確認済みに入っていても隠さない（種類で決める。文字列判定ではない）。
+        let space = problem_warning(&StoreError::InsufficientSpace { required: 1, available: 0 });
+        let open = StartupWarning::transient("保存領域を開けませんでした（x）。");
+        assert!(!space.acknowledgeable && !open.acknowledgeable);
+        let acked_all = vec![space.message.clone(), open.message.clone()];
+        assert_eq!(pending_warnings(&[space.clone(), open.clone()], &acked_all), vec![space, open]);
+        assert!(problem_warning(&StoreError::Notice { message: "p".into() }).acknowledgeable);
+        assert!(problem_warning(&StoreError::Corrupt { path: "p".into(), moved_to: None }).acknowledgeable);
+        assert!(!problem_warning(&StoreError::Io(std::io::Error::other("x"))).acknowledgeable);
+        // 確認済みはsettings.jsonへ保存される。以前の版の設定（項目なし）も読める。
+        let mut st = AppSettings::default();
+        st.acknowledged_warnings = acked.clone();
+        let back: AppSettings = serde_json::from_str(&serde_json::to_string(&st).unwrap()).unwrap();
+        assert_eq!(back.acknowledged_warnings, acked);
+        let mut v = serde_json::to_value(AppSettings::default()).unwrap();
+        v.as_object_mut().unwrap().remove("acknowledgedWarnings");
+        let old: AppSettings = serde_json::from_value(v).unwrap();
+        assert!(old.acknowledged_warnings.is_empty());
+    }
+
+    #[test]
+    fn hosted_chat_missing_from_the_backend_list_is_shown_from_the_record() {
+        let mut d = HostData::default();
+        let meta = |l: &mut ChatLocalFile| {
+            l.cached_meta = Some(CachedChatMeta { name: Known::Missing, cwd: Known::direct("C:/w".into()), kind: ChatKind::General, origin: ChatOrigin::AppManaged, saved_at: UnixMillis(1) })
+        };
+        for id in ["listed", "shown-already", "hidden", "no-record", "plain-external"] {
+            if id != "plain-external" {
+                d.hosted.insert(key(id));
+            }
+            let mut l = ChatLocalFile::new(LocalId(format!("dir-{id}")), Some(key(id)));
+            if id != "no-record" {
+                meta(&mut l);
+            }
+            if id == "hidden" {
+                l.visibility = ListVisibility::RemovedFromList { at: UnixMillis(1) };
+            }
+            d.locals.insert(key(id), l);
+        }
+        let l = d.locals.get(&key("shown-already")).unwrap().clone();
+        d.upsert_chat(chat_from_record(&key("shown-already"), &l).unwrap());
+        let listed: std::collections::HashSet<ChatKey> = [key("listed")].into_iter().collect();
+        // 先頭ページに載っていない・まだ出していない・表示対象・表示記録がある、アプリ管理の会話だけが候補。
+        assert!(d.unlisted_hosted_candidates(&listed).is_empty());
+        d.hosted.insert(key("late"));
+        let mut l = ChatLocalFile::new(LocalId("dir-late".into()), Some(key("late")));
+        meta(&mut l);
+        d.locals.insert(key("late"), l);
+        assert_eq!(d.unlisted_hosted_candidates(&listed), vec![key("late")]);
+        // 読めた→バックエンドの内容、明示的な拒否→記録から「履歴なし」、通信断・結果不明・想定外の形→出さない（履歴なしと断定しない）。
+        assert_eq!(unlisted_action(Ok(())), UnlistedAction::FromBackend);
+        assert_eq!(unlisted_action(Err(&BackendError::Rejected { code: None, message: "no rollout".into() })), UnlistedAction::FromRecord);
+        assert_eq!(unlisted_action(Err(&BackendError::Protocol { message: "bad thread".into() })), UnlistedAction::Skip);
+        assert_eq!(unlisted_action(Err(&BackendError::NotConnected)), UnlistedAction::Skip);
+        assert_eq!(unlisted_action(Err(&BackendError::OutcomeUnknown { message: "timeout".into() })), UnlistedAction::Skip);
+        let l = d.locals.get(&key("late")).unwrap().clone();
+        let c = chat_from_record(&key("late"), &l).unwrap();
+        assert!(c.no_history);
+        assert_eq!(c.name, Known::Missing, "the name is not made up");
+        d.upsert_chat(c);
+        assert!(d.unlisted_hosted_candidates(&listed).is_empty());
     }
 
     #[test]

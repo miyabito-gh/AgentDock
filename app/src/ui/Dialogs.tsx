@@ -34,7 +34,7 @@ const TABS: Array<[string, string]> = [["general", "全般"], ["notify", "通知
 export interface CodexExe { path: string; setPath: (p: string) => void; placeholder: string; connect: (p: string) => void; openDiag: () => void; browse: () => void; live: boolean }
 
 /** 削除・エクスポート・使用量（P7）。 */
-export interface ManageProps { del: DeleteProps; exp: ExportProps; usage: UsageProps; selectedId: string | null }
+export interface ManageProps { del: DeleteProps; exp: ExportProps; usage: UsageProps; selectedId: string | null; ackedWarnings: { list: string[]; reset: () => void } }
 
 export interface NotifyProps { value: NotificationSettings; set: (n: NotificationSettings) => void }
 
@@ -98,7 +98,7 @@ function SettingsBody({ tab, enterMode, setEnterMode, top, source, models, exe, 
     }
     case "mcp": return <p className="small muted">導入・有効・信頼・認証・接続・会話への反映を分けて表示します（T5以降で取得）。</p>;
     case "skills": return <p className="small muted">AGENTS.md と Skills の確認（T5以降で取得）。</p>;
-    default: return <StorageBody u={manage.usage} chats={chats} selected={manage.selectedId} />;
+    default: return <StorageBody u={manage.usage} chats={chats} selected={manage.selectedId} acked={manage.ackedWarnings} />;
   }
 }
 

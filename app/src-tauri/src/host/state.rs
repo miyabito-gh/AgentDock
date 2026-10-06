@@ -55,7 +55,7 @@ pub struct HostData {
     pub save_status: HashMap<SaveScope, SaveStatus>,
     pub settings: AppSettings,
     /// 起動時に読めなかった保存ファイルなどの警告。
-    pub startup_warnings: Vec<String>,
+    pub startup_warnings: Vec<StartupWarning>,
     /// 親のspawn依頼から確定できた子の担当（エージェントの再登録で失わないよう保持）。
     assignments: HashMap<AgentKey, String>,
     /// 実行中と分かっているturn（中断・追加指示の対象）。
@@ -143,7 +143,7 @@ impl HostData {
             save_status: self.save_status.values().cloned().collect(),
             settings: self.settings.clone(),
             model_settings: self.model_settings.iter().map(|(chat, settings)| ChatModelEntry { chat: chat.clone(), settings: settings.clone() }).collect(),
-            startup_warnings: self.startup_warnings.clone(),
+            startup_warnings: crate::host::persist::pending_warnings(&self.startup_warnings, &self.settings.acknowledged_warnings),
             attachments: self.locals.values().flat_map(|f| f.attachments.iter().cloned()).collect(),
             artifacts: self.locals.values().flat_map(|f| f.artifacts.iter().cloned()).collect(),
         }
@@ -338,6 +338,20 @@ impl HostData {
         }
         s.accepted = accepted;
         vec![HostEvent::ModelSettingsUpdated { chat: chat.clone(), settings: s.clone() }]
+    }
+
+    /// ユーザー操作での再開（`thread/resume`）の応答を反映する。履歴・live購読を戻し、応答が示した会話のモデル設定を
+    /// 「受理した設定」として記録する（示されなければ未取得のまま。選択値は変えない）。
+    pub fn apply_resumed(&mut self, chat: &ChatKey, history: AgentHistory, accepted_model: Known<ModelChoice>) -> Vec<HostEvent> {
+        let mut ev = Vec::new();
+        if let Some(c) = &history.chat {
+            ev.extend(self.upsert_chat(c.clone()));
+        }
+        ev.extend(self.set_live(history.agent, history.status));
+        if let Known::Value { value, .. } = accepted_model {
+            ev.extend(self.note_accepted_model(chat, value));
+        }
+        ev
     }
 
     /// このホストが開始・再開した会話として記録する（origin表示を自管理に揃える）。
@@ -921,6 +935,29 @@ mod tests {
     }
     fn live_root(d: &mut HostData, st: AgentState) {
         d.set_live(agent("root", true), status(st, None, StateScope::Agent));
+    }
+
+    #[test]
+    fn resumed_response_records_the_accepted_model_and_keeps_the_selection() {
+        let mut d = HostData::default();
+        // 再起動後の復元: 選択値だけで、受理値は未取得。
+        let selected = ModelChoice { model: "sel".into(), effort: Some("low".into()) };
+        d.model_settings.insert(
+            ck("root"),
+            ChatModelSettings { selected: Some(selected.clone()), accepted: Known::NotFetched, effective: Known::NotFetched, applies: ApplyTiming::NextTurn },
+        );
+        let history = AgentHistory { agent: agent("root", true), chat: None, status: status(AgentState::Idle, None, StateScope::Agent), turns: vec![] };
+        // 応答が会話のモデルを示さなければ、未取得のまま（受理済みにしない）。
+        let ev = d.apply_resumed(&ck("root"), history.clone(), Known::NotFetched);
+        assert!(!ev.iter().any(|e| matches!(e, HostEvent::ModelSettingsUpdated { .. })));
+        assert_eq!(d.model_settings.get(&ck("root")).unwrap().accepted, Known::NotFetched);
+        // 示されたら受理値として記録し、UIへ出す。選択値は変えない。
+        let got = ModelChoice { model: "resumed".into(), effort: None };
+        let ev = d.apply_resumed(&ck("root"), history, Known::direct(got.clone()));
+        assert!(ev.iter().any(|e| matches!(e, HostEvent::ModelSettingsUpdated { chat, .. } if chat == &ck("root"))));
+        let s = d.model_settings.get(&ck("root")).unwrap();
+        assert_eq!((s.accepted.clone(), s.selected.clone()), (Known::direct(got), Some(selected)));
+        assert_eq!(d.root_view(&ck("root")).unwrap().freshness, Freshness::Live);
     }
 
     #[test]

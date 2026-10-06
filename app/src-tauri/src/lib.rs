@@ -159,6 +159,7 @@ pub fn run() {
             commands::list_models,
             commands::set_chat_model,
             commands::set_monitor_scope,
+            commands::acknowledge_warnings,
             commands::open_diag_dir,
             commands::get_app_settings,
             commands::set_app_settings,

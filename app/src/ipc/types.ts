@@ -3,6 +3,8 @@
 // 再生成: cd app/src-tauri && cargo test export_bindings
 
 export type { AcknowledgeFailureArgs } from "./gen/AcknowledgeFailureArgs";
+export type { StartupWarning } from "./gen/StartupWarning";
+export type { AcknowledgeWarningsArgs } from "./gen/AcknowledgeWarningsArgs";
 export type { Activity } from "./gen/Activity";
 export type { ActivityKind } from "./gen/ActivityKind";
 export type { ActivityPhase } from "./gen/ActivityPhase";
@@ -197,6 +199,7 @@ import type { ListModelsArgs } from "./gen/ListModelsArgs";
 import type { SetChatModelArgs } from "./gen/SetChatModelArgs";
 import type { SetMonitorScopeArgs } from "./gen/SetMonitorScopeArgs";
 import type { AcknowledgeFailureArgs } from "./gen/AcknowledgeFailureArgs";
+import type { AcknowledgeWarningsArgs } from "./gen/AcknowledgeWarningsArgs";
 import type { AddAttachmentFileArgs } from "./gen/AddAttachmentFileArgs";
 import type { AppSettings } from "./gen/AppSettings";
 import type { AttachmentArgs } from "./gen/AttachmentArgs";
@@ -256,6 +259,7 @@ export interface CommandMap {
   list_models: { args: ListModelsArgs; result: ModelInfo[] };
   set_chat_model: { args: SetChatModelArgs; result: ChatModelSettings };
   set_monitor_scope: { args: SetMonitorScopeArgs; result: null };
+  acknowledge_warnings: { args: AcknowledgeWarningsArgs; result: AppSettings };
   get_app_settings: { args: Record<string, never>; result: AppSettings };
   set_app_settings: { args: SetAppSettingsArgs; result: AppSettings };
   get_chat_locals: { args: Record<string, never>; result: ChatLocalView[] };

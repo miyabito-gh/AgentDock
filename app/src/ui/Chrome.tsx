@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { Icon } from "./Icon";
-import type { SaveScope, SaveStatus, SourceInfo } from "../ipc/types";
+import type { SaveScope, SaveStatus, SourceInfo, StartupWarning } from "../ipc/types";
 
 export function TitleBar({ title, tag, mini, top, onAct }: { title: string; tag?: string; mini?: boolean; top?: boolean; onAct: (a: string) => void }) {
   return (
@@ -85,7 +85,7 @@ export const SCOPE_TEXT: Record<SaveScope["kind"], string> = {
 
 /** 保存できていない内容と、起動時に読めなかった保存ファイルの警告（目立ちすぎない帯）。保存失敗を保存済みと表示しない。 */
 export function SaveBanner({ failed, warnings, onDismissWarnings, onAct }: {
-  failed: SaveStatus[]; warnings: string[]; onDismissWarnings: () => void; onAct: (a: string) => void;
+  failed: SaveStatus[]; warnings: StartupWarning[]; onDismissWarnings: () => void; onAct: (a: string) => void;
 }) {
   const first = failed[0]?.state;
   return (
@@ -101,8 +101,8 @@ export function SaveBanner({ failed, warnings, onDismissWarnings, onAct }: {
       ) : null}
       {warnings.length > 0 ? (
         <div className="gbanner warn" role="status">
-          <Icon name="alert" /><span className="grow">保存データの警告: {warnings.join(" / ")}</span>
-          <button className="btn-line" onClick={onDismissWarnings}>閉じる</button>
+          <Icon name="alert" /><span className="grow">保存データの警告: {warnings.map((w) => w.message).join(" / ")}</span>
+          <button className="btn-line" title={warnings.some((w) => !w.acknowledgeable) ? "保存できない状態の警告は確認済みにせず、この起動中だけ隠します" : "確認済みにして、以後は出しません"} onClick={onDismissWarnings}>閉じる</button>
         </div>
       ) : null}
     </>

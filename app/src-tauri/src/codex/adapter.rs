@@ -448,7 +448,7 @@ impl CodexBackend {
     /// メタデータのみの `thread/read` ＋（必要なら）ページングでturn取得。
     async fn read_thread(&self, thread_id: &str, include_turns: bool) -> BackendResult<WireThread> {
         let r = self.call("thread/read", json!({"threadId": thread_id, "includeTurns": false}), READ_TIMEOUT).await?;
-        let mut t = thread_of(&r)?;
+        let mut t = thread_of(&r).inspect_err(|_| crate::diag::log("thread-read-shape", &crate::diag::shape(&r)))?;
         if include_turns {
             t.turns = self.fetch_turns(thread_id).await?;
         }
@@ -628,6 +628,7 @@ impl AiBackend for CodexBackend {
         match self.call("thread/resume", json!({"threadId": chat.id.0}), WRITE_TIMEOUT).await {
             Ok(r) => {
                 log_source("thread/resume", &r);
+                crate::diag::log("resume-model", &format!("model={} effort={}", r.get("model").map_or("absent", |v| if v.is_string() { "str" } else { "other" }), r.get("reasoningEffort").map_or("absent", |v| if v.is_string() { "str" } else if v.is_null() { "null" } else { "other" })));
                 let t = thread_of(&r)?;
                 Ok(ResumeOutcome::Resumed { history: self.history_from_thread(&t, true, EvidenceSource::Response, "thread/resume"), accepted_model: accepted_model_of(&r) })
             }
@@ -862,6 +863,17 @@ mod tests {
         assert!(f.iter().all(|v| v["type"] != "mention"));
         // 添付がなければ本文だけ。
         assert_eq!(build_turn_input("x", &[]).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn accepted_model_is_read_from_the_resume_or_start_response() {
+        // ThreadResumeResponse / ThreadStartResponse: model は必須、reasoningEffort は null があり得る。
+        let r = json!({"thread": {"id": "t"}, "model": "gpt-6-luna", "modelProvider": "openai", "reasoningEffort": "medium"});
+        assert_eq!(accepted_model_of(&r), Known::direct(ModelChoice { model: "gpt-6-luna".into(), effort: Some("medium".into()) }));
+        let r = json!({"thread": {"id": "t"}, "model": "gpt-6-luna", "reasoningEffort": null});
+        assert_eq!(accepted_model_of(&r), Known::direct(ModelChoice { model: "gpt-6-luna".into(), effort: None }));
+        // modelが無い応答は未取得（受理済みにしない）。
+        assert_eq!(accepted_model_of(&json!({"thread": {"id": "t"}})), Known::NotFetched);
     }
 
     #[test]

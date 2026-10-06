@@ -37,6 +37,7 @@ pub mod command_names {
     pub const LIST_MODELS: &str = "list_models";
     pub const SET_CHAT_MODEL: &str = "set_chat_model";
     pub const SET_MONITOR_SCOPE: &str = "set_monitor_scope";
+    pub const ACKNOWLEDGE_WARNINGS: &str = "acknowledge_warnings";
     pub const GET_APP_SETTINGS: &str = "get_app_settings";
     pub const SET_APP_SETTINGS: &str = "set_app_settings";
     pub const GET_CHAT_LOCALS: &str = "get_chat_locals";
@@ -182,7 +183,7 @@ pub struct HostSnapshot {
     /// チャット別のモデル設定（再起動・renderer再読込み後の復元用）。
     pub model_settings: Vec<ChatModelEntry>,
     /// 起動時に読めなかった保存ファイルなどの警告（イベントは購読前に出るので、スナップショットで渡す）。
-    pub startup_warnings: Vec<String>,
+    pub startup_warnings: Vec<StartupWarning>,
     /// 添付の台帳（再起動・renderer再読込み後の復元用）。実体の有無は `state` で示す。
     pub attachments: Vec<AttachmentEntry>,
     /// 実在を確認した成果物。
@@ -393,6 +394,35 @@ pub enum MonitorScope {
 #[serde(rename_all = "camelCase")]
 pub struct SetMonitorScopeArgs {
     pub scope: MonitorScope,
+}
+
+/// 起動時の警告。`acknowledgeable` は、領域・ファイルに紐づく警告（パスやIDを含み、状況が変われば文が変わる）だけが true。
+/// 保存できない状態の警告（空き不足・保存領域を開けない等）は false で、確認済みにせず毎回出す。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct StartupWarning {
+    pub message: String,
+    pub acknowledgeable: bool,
+}
+
+impl StartupWarning {
+    pub fn acknowledgeable(message: impl Into<String>) -> Self {
+        StartupWarning { message: message.into(), acknowledgeable: true }
+    }
+    pub fn transient(message: impl Into<String>) -> Self {
+        StartupWarning { message: message.into(), acknowledgeable: false }
+    }
+}
+
+/// 起動時の保存データ警告の確認。`reset=false` は表示中の警告を確認済みにする、`true` は確認済みを解除する（次回起動から再表示）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct AcknowledgeWarningsArgs {
+    pub reset: bool,
 }
 
 // ───────────────────────────── ホスト→UIイベント ─────────────────────────────

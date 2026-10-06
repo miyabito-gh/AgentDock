@@ -110,7 +110,7 @@ const LINES: Array<[keyof UsageBreakdown, string]> = [
 const breakdownText = (b: UsageBreakdown): string => LINES.map(([k, t]) => `${t} ${fmtBytes(b[k])}`).join("／");
 
 /** 設定の「保存と容量」。全体とチャット別の使用量・内訳・空き容量・旧領域。 */
-export function StorageBody({ u, chats, selected }: { u: UsageProps; chats: Chat[]; selected: string | null }) {
+export function StorageBody({ u, chats, selected, acked }: { u: UsageProps; chats: Chat[]; selected: string | null; acked: { list: string[]; reset: () => void } }) {
   const r = u.report;
   const nameOf = (id: string) => { const c = chats.find((x) => x.key.id === id); return c ? chatName(c) : "（名前を確認できないチャット）"; };
   const mine = r?.chats.find((c) => c.chat.id === selected);
@@ -147,6 +147,15 @@ export function StorageBody({ u, chats, selected }: { u: UsageProps; chats: Chat
           <ul className="quit-list" style={{ gridColumn: 2 }}>{r.unreadable.slice(0, 8).map((p) => <li key={p} className="mono small">{p}</li>)}</ul>
         </div>
       ) : null}
+      <div className="field"><span>確認済みの警告</span>
+        {acked.list.length === 0 ? <span className="muted">なし</span> : (
+          <>
+            <span>{acked.list.length} 件（起動時の保存データの警告を「閉じる」で確認済みにしたもの。同じ警告は出しません）</span>
+            <ul className="quit-list" style={{ gridColumn: 2 }}>{acked.list.map((w) => <li key={w} className="small">{w}</li>)}</ul>
+            <span className="note"><button className="btn-line" onClick={acked.reset}>確認済みを解除</button>　解除すると、次回起動から該当する警告が再び表示されます。対象のファイルは削除・作成しません。</span>
+          </>
+        )}
+      </div>
       <div className="field"><span>保存場所</span><span className="mono">%LOCALAPPDATA%\com.agentdock.app</span></div>
     </>
   );

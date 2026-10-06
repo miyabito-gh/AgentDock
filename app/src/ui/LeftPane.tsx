@@ -5,8 +5,10 @@ import { TENTATIVE_HINT, TENTATIVE_STYLE, chatAgents, chatName, chatRequests, ch
 import { keyStr, knownValue } from "./format";
 import { archiveTag } from "./ManageDialogs";
 
-export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge }: {
+export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, listStatus }: {
   snap: HostSnapshot; sel: string | null; onSelect: (id: string) => void; onAct: (a: string) => void; onAcknowledge: (c: Chat) => void;
+  /** 直近の「更新」の結果（成功・失敗とも次の更新まで残す）。 */
+  listStatus?: { ok: boolean; text: string } | null;
 }) {
   const [query, setQuery] = useState("");
   const [inclArch, setInclArch] = useState(false);
@@ -56,6 +58,7 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge }: {
           <button className="btn-line grow" onClick={() => onAct("newChat")}><Icon name="plus" />新しいチャット</button>
           <button className="btn-line" title="チャット一覧を Codex から取り直します（読み取りのみ）" aria-label="一覧を更新" onClick={() => onAct("refreshList")}>更新</button>
         </div>
+        {listStatus ? <div className="small" role="status" style={{ color: listStatus.ok ? "var(--ink3)" : "var(--fail)" }}>{listStatus.text}</div> : null}
         <input type="search" placeholder="名前で検索" aria-label="チャットを名前で検索" value={query} onChange={(e) => setQuery(e.target.value)} />
         <label className="small"><input type="checkbox" checked={inclArch} onChange={(e) => setInclArch(e.target.checked)} />アーカイブも含める</label>
       </div>

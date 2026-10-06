@@ -19,7 +19,7 @@ import { fenceCode, insertBlock } from "./ui/attach";
 import { DockPane, MiniWindow } from "./ui/Dock";
 import { Dialogs, type DialogState, type NewChatInput } from "./ui/Dialogs";
 import { chatName, isRunning, stopOpen } from "./ui/derive";
-import { keyStr } from "./ui/format";
+import { hms, keyStr } from "./ui/format";
 
 type Mode = "live" | "mock";
 const EXE_KEY = "agentdock.codexExe";
@@ -91,6 +91,7 @@ export default function App() {
   const [exePath, setExePath] = useState<string>(readExe);
   const [attempts, setAttempts] = useState<Record<string, SendAttempt>>({});
   const [warnHidden, setWarnHidden] = useState(false);
+  const [listStatus, setListStatus] = useState<{ ok: boolean; text: string } | null>(null);
   const [steerOf, setSteerOf] = useState<Record<string, { attemptId: string; text: string; attachments: string[] }>>({});
   const [dragging, setDragging] = useState(false);
   const toastTimer = useRef<number | undefined>(undefined);
@@ -229,6 +230,9 @@ export default function App() {
   }, [live, boot, loadChat, noteAttempt, say, sayErr]);
 
   const snap: HostSnapshot = bundle.snapshot;
+  // このアプリの起動中に一度でも live 監視になったエージェント（再起動後の保存履歴表示と、接続断からの回復を区別する）。
+  const liveSeen = useRef<Set<string>>(new Set());
+  for (const v of snap.agents) if (v.freshness === "live") liveSeen.current.add(v.agent.key.id);
   const mainTop = live ? snap.settings.mainWindow.alwaysOnTop : mockMainTop;
   const miniTop = live ? snap.settings.monitorWindow.alwaysOnTop : mockMiniTop;
   /** 最前面の切替（窓ごと）。フォーカスは移さない。設定はホストが保存する。 */
@@ -691,10 +695,33 @@ export default function App() {
     host.setPinned(chat.key, on).then(() => say(on ? "ピン留めしました。" : "ピン留めを外しました。")).catch((e) => sayErr("ピン留めを変更できませんでした", e));
   };
 
+  /** 起動時の保存データ警告を閉じる。確認済みとして設定へ保存し、以後は（状況が変わるまで）出さない。保存できなければ次回また出る。 */
+  const dismissWarnings = () => {
+    setWarnHidden(true);
+    // 確認済みにできるのは領域・ファイルに紐づく警告だけ。保存できない状態の警告は、この起動中だけ隠す（ホストも保存しない）。
+    if (!live || !snap.startupWarnings.some((w) => w.acknowledgeable)) return;
+    host.acknowledgeWarnings(false).catch((e) => sayErr("警告を確認済みとして保存できませんでした（次回起動時にもう一度表示されます）", e));
+  };
+  /** 確認済みにした警告を解除する（次回起動から再び表示）。 */
+  const resetWarnings = async () => {
+    if (!live) { say("この操作はモックでは動きません。"); return; }
+    try { await host.acknowledgeWarnings(true); say("確認済みの警告を解除しました。次回起動から、該当する警告が再び表示されます。"); } catch (e) { sayErr("確認済みの警告を解除できませんでした", e); }
+  };
+
   /** チャット一覧を取り直す（読み取りのみ。再開・送信はしない）。 */
   const refreshList = async () => {
     if (!live) { say("この操作はモックでは動きません。"); return; }
-    try { const page = await host.listChats(); say(`一覧を更新しました（${page.items.length}件を取得）。`); } catch (e) { sayErr("一覧を更新できませんでした", e); }
+    const at = hms(Date.now());
+    try {
+      const page = await host.listChats();
+      const text = `一覧を更新しました（Codex から${page.items.length}件${page.nextCursor ? "、続きあり" : ""}）`;
+      setListStatus({ ok: true, text: `${text}　${at}` });
+      say(`${text}。`);
+    } catch (e) {
+      const msg = host.asIpcError(e).message;
+      setListStatus({ ok: false, text: `一覧を更新できませんでした: ${msg}　${at}` });
+      sayErr("一覧を更新できませんでした", e);
+    }
   };
 
   /** 名前の変更。Codex が受け付けたと確認できたときだけダイアログを閉じる。失敗の理由は返してダイアログに残す。 */
@@ -796,10 +823,10 @@ export default function App() {
             <button className="btn-line" onClick={() => setDialog({ type: "quit" })}>状況を見る</button>
           </div>
         ) : null}
-        <SaveBanner failed={failedSaves.filter((s) => !forChat(s))} warnings={warnHidden ? [] : snap.startupWarnings} onDismissWarnings={() => setWarnHidden(true)} onAct={act} />
+        <SaveBanner failed={failedSaves.filter((s) => !forChat(s))} warnings={warnHidden ? [] : snap.startupWarnings} onDismissWarnings={dismissWarnings} onAct={act} />
         <div className={`body ${leftOpen ? "" : "l-off"} ${rightOpen ? "" : "r-off"} ${lNarrow ? "n-l" : ""} ${rNarrow ? "n-r" : ""}`}>
           <aside className="left" aria-label="チャット一覧">
-            <LeftPane snap={snap} sel={chat ? keyStr(chat.key) : null} onSelect={(id) => { selectChat(id); setLNarrow(false); }} onAct={act} onAcknowledge={(c) => onAcknowledge(c.key, null)} />
+            <LeftPane snap={snap} sel={chat ? keyStr(chat.key) : null} onSelect={(id) => { selectChat(id); setLNarrow(false); }} onAct={act} onAcknowledge={(c) => onAcknowledge(c.key, null)} listStatus={listStatus} />
           </aside>
           <main className="center">
             {chat ? (
@@ -807,7 +834,7 @@ export default function App() {
                 snap={snap} chat={chat} turns={bundle.turns[chat.key.id] ?? []}
                 attachments={draftAttachments} files={files} inputRef={composerRef}
                 settings={bundle.modelSettings[chat.key.id]} models={models} save={chatSave}
-                externalLabel={bundle.externalLabel[chat.key.id]} enterMode={enterMode}
+                externalLabel={bundle.externalLabel[chat.key.id]} wasLive={liveSeen.current.has(chat.key.id)} enterMode={enterMode}
                 draft={curDraft} setDraft={(v) => onDraft(chat, v)}
                 onAct={act} onRespond={(r, a) => void onRespond(r, a)}
                 onSend={onSend} onModel={onModel}
@@ -837,6 +864,7 @@ export default function App() {
           force={{ ...force, run: () => void runForce() }}
           manage={{
             selectedId: selId,
+            ackedWarnings: { list: snap.settings.acknowledgedWarnings, reset: () => void resetWarnings() },
             del: { ...del, local: snap.chatLocals.find((l) => l.chat.id === (dialog.type === "delete" ? dialog.chatId : "")), run: () => void runDelete() },
             exp: { ...exp, setInclude: (b) => setExp((s) => ({ ...s, include: b })), run: () => void runExport() },
             usage: { ...usage, reload: loadUsage },

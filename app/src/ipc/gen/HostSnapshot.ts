@@ -11,6 +11,7 @@ import type { MonitorScope } from "./MonitorScope";
 import type { PendingRequest } from "./PendingRequest";
 import type { SaveStatus } from "./SaveStatus";
 import type { SourceInfo } from "./SourceInfo";
+import type { StartupWarning } from "./StartupWarning";
 import type { StopRecord } from "./StopRecord";
 
 /**
@@ -40,7 +41,7 @@ modelSettings: Array<ChatModelEntry>,
 /**
  * 起動時に読めなかった保存ファイルなどの警告（イベントは購読前に出るので、スナップショットで渡す）。
  */
-startupWarnings: Array<string>, 
+startupWarnings: Array<StartupWarning>, 
 /**
  * 添付の台帳（再起動・renderer再読込み後の復元用）。実体の有無は `state` で示す。
  */
