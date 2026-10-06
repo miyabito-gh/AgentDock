@@ -280,6 +280,14 @@ fn log_item_shape_once(params: &Value) {
     crate::diag::log("item-shape", &format!("{key} {text}"));
 }
 
+/// thread/start・thread/resume の応答が示す、会話に設定されているモデル・推論の強さ（無ければ未取得）。
+fn accepted_model_of(resp: &Value) -> Known<ModelChoice> {
+    match resp.get("model").and_then(Value::as_str) {
+        Some(m) => Known::direct(ModelChoice { model: m.to_string(), effort: resp.get("reasoningEffort").and_then(Value::as_str).map(str::to_string) }),
+        None => Known::NotFetched,
+    }
+}
+
 fn log_source(label: &str, resp: &Value) {
     let kind = crate::diag::source_kind(resp.get("thread").and_then(|t| t.get("source")));
     crate::diag::log("thread-source", &format!("{label} sourceKind={kind}"));
@@ -577,10 +585,7 @@ impl AiBackend for CodexBackend {
         let chat = thread_to_chat(&t, self.app_dir().as_deref(), Known::Value { value: false, basis: Basis::Derived });
         let root = thread_to_agent(&t, chat_key(&t.id));
         self.shared.remember(&root);
-        let accepted_model = match r.get("model").and_then(Value::as_str) {
-            Some(m) => Known::direct(ModelChoice { model: m.to_string(), effort: r.get("reasoningEffort").and_then(Value::as_str).map(str::to_string) }),
-            None => Known::NotFetched,
-        };
+        let accepted_model = accepted_model_of(&r);
         Ok(ChatStarted { chat, root, accepted_model })
     }
 
@@ -624,7 +629,7 @@ impl AiBackend for CodexBackend {
             Ok(r) => {
                 log_source("thread/resume", &r);
                 let t = thread_of(&r)?;
-                Ok(ResumeOutcome::Resumed { history: self.history_from_thread(&t, true, EvidenceSource::Response, "thread/resume") })
+                Ok(ResumeOutcome::Resumed { history: self.history_from_thread(&t, true, EvidenceSource::Response, "thread/resume"), accepted_model: accepted_model_of(&r) })
             }
             // 明示的に拒否された。別threadで代替せず理由を返す。
             Err(BackendError::Rejected { message, .. }) => Ok(ResumeOutcome::Unavailable { reason: message }),

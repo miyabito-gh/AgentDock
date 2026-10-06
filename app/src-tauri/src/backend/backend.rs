@@ -74,6 +74,8 @@ pub enum BackendEvent {
     /// 要求がバックエンド側で解決済み（他経路の回答・取消・turn終了）。
     RequestResolved { request: RequestKey, evidence: Evidence },
     ChatMetaChanged { chat: ChatKey, change: ChatMetaChange },
+    /// バックエンドが会話に設定されているモデル・推論の強さを通知した（設定の更新通知、§3.9）。受理した設定の根拠になる。
+    ModelAccepted { agent: AgentKey, choice: ModelChoice },
     /// モデルの実効値が変わった（reroute等、§3.9）。
     ModelRerouted { agent: AgentKey, turn: Option<ExternalId>, effective: ModelChoice },
     /// 未知のイベント・正規化できない内容。破棄せず警告として表示（M12）。
@@ -218,7 +220,8 @@ pub struct AgentHistory {
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum ResumeOutcome {
     /// 同じ会話として再開し、live購読が戻った。
-    Resumed { history: AgentHistory },
+    /// `accepted_model` は再開の応答が示した、会話に設定されているモデル（応答に無ければ NotFetched。適用済みと偽らない）。
+    Resumed { history: AgentHistory, accepted_model: Known<ModelChoice> },
     /// 外部で実行中のため閲覧のみ（M36）。
     RunningElsewhere,
     /// 再開できない（理由を表示。別threadで代替しない）。

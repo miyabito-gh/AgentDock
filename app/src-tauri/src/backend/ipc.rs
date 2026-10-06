@@ -46,6 +46,8 @@ pub mod command_names {
     pub const EDIT_QUEUE_ENTRY: &str = "edit_queue_entry";
     pub const CANCEL_QUEUE_ENTRY: &str = "cancel_queue_entry";
     pub const RESUME_QUEUE: &str = "resume_queue";
+    pub const RECHECK_QUEUE_STATE: &str = "recheck_queue_state";
+    pub const SEND_QUEUE_ENTRY_NOW: &str = "send_queue_entry_now";
     pub const RECONCILE_SEND: &str = "reconcile_send";
     pub const SET_CHAT_PERMISSION: &str = "set_chat_permission";
     pub const SET_CHAT_CWD: &str = "set_chat_cwd";

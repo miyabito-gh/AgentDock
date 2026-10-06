@@ -11,7 +11,7 @@ import {
   type StartChatResult, type ResumeOutcome, type SaveScope, type SaveStatus, type ChatQueue, type QueueEntry, type SettingsImpact,
   type AttachmentEntry, type FileRef,
   type ForceKillPreview, type MonitorWindowScope, type QuitDecision, type QuitPhase, type StopRecord, type WindowKind,
-  type ChatLocalView, type DeleteOutcome, type DeletePreview, type UsageReport,
+  type ChatLocalView, type DeleteOutcome, type DeletePreview, type UsageReport, type ManageOutcome,
 } from "./types";
 
 /** 型付きinvoke。引数は `args` 1個で渡す（types.ts CommandMap の規約）。 */
@@ -45,6 +45,8 @@ export const respondRequest = (request: RequestKey, answer: RequestAnswer): Prom
   invokeCmd("respond_request", { request, answer });
 export const interruptChat = (chat: ChatKey): Promise<InterruptChatResult> => invokeCmd("interrupt_chat", { chat });
 export const resumeChat = (chat: ChatKey): Promise<ResumeOutcome> => invokeCmd("resume_chat", { chat });
+/** 名前の変更（ユーザー操作）。Codex が受け付けたことを確認できたときだけ成功になる。 */
+export const renameChat = (chat: ChatKey, name: string): Promise<ManageOutcome> => invokeCmd("manage_chat", { chat, op: { kind: "rename", name } });
 export const setPinned = (chat: ChatKey, pinned: boolean): Promise<Chat> => invokeCmd("set_pinned", { chat, pinned });
 export const listModels = (): Promise<ModelInfo[]> => invokeCmd("list_models", { backend: "codex", includeHidden: false });
 export const setChatModel = (chat: ChatKey, choice: ModelChoice): Promise<ChatModelSettings> => invokeCmd("set_chat_model", { chat, choice });
@@ -60,6 +62,10 @@ export const editQueueEntry = (chat: ChatKey, entry: LocalId, text: string, atta
 export const cancelQueueEntry = (chat: ChatKey, entry: LocalId): Promise<null> => invokeCmd("cancel_queue_entry", { chat, entry });
 /** 「キューを再開」（ユーザー操作）。「確認済み」とは別。失敗した依頼そのものは再実行しない。 */
 export const resumeQueue = (chat: ChatKey): Promise<ChatQueue> => invokeCmd("resume_queue", { chat });
+/** 「状態を再確認」。保留中の子孫の履歴を読み直す（読み取りのみ。resumeしない）。 */
+export const recheckQueueState = (chat: ChatKey): Promise<ChatQueue> => invokeCmd("recheck_queue_state", { chat });
+/** 「確認して今すぐ送る」。確認ダイアログで承認した後にだけ呼ぶ。先頭の送信待ち1件だけを送る。 */
+export const sendQueueEntryNow = (chat: ChatKey, entry: LocalId): Promise<ChatQueue> => invokeCmd("send_queue_entry_now", { chat, entry });
 /** 「履歴と照合」。読み取りのみで再送しない。 */
 export const reconcileSend = (chat: ChatKey, attempt: LocalId): Promise<SendAttempt> => invokeCmd("reconcile_send", { chat, attempt });
 export const setChatPermission = (chat: ChatKey, permission: PermissionPreset): Promise<SettingsImpact> =>

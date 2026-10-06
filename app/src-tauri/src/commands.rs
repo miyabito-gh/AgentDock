@@ -161,6 +161,19 @@ pub async fn resume_queue(host: Hs<'_>, args: ChatArgs) -> R<ChatQueue> {
     host.inner().clone().resume_queue(args, &confirmed).await
 }
 
+/// 「状態を再確認」。保留中の子孫の履歴を読み直す（読み取りのみ。resumeしない）。
+#[tauri::command]
+pub async fn recheck_queue_state(host: Hs<'_>, args: ChatArgs) -> R<ChatQueue> {
+    host.inner().clone().recheck_queue_state(args).await
+}
+
+/// 「確認して今すぐ送る」。UIの確認ダイアログで承認された操作なので、ここで証票を作る。先頭の1件だけを送る。
+#[tauri::command]
+pub async fn send_queue_entry_now(host: Hs<'_>, args: QueueEntryArgs) -> R<ChatQueue> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().send_queue_entry_now(args, &confirmed).await
+}
+
 /// 「履歴と照合」。読み取りのみで、再送しない。
 #[tauri::command]
 pub async fn reconcile_send(host: Hs<'_>, args: ReconcileSendArgs) -> R<SendAttempt> {

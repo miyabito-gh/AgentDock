@@ -38,6 +38,13 @@ struct TerminalFact {
     checked_at: UnixMillis,
 }
 
+/// 履歴で確認した終端を、このエージェントの最新turnの根拠として使えるか。
+/// 一覧・走査で作った子は最新turnを持たない（`thread/list` はturnを返さない）ので、その場合は履歴の最新turnを採る。
+/// 最新turnを持つのに履歴の最新turnと違うときは、新しいturnが始まっているので使わない。
+fn history_term<'a>(latest: Option<&ExternalId>, term: Option<&'a TerminalFact>) -> Option<&'a TerminalFact> {
+    term.filter(|t| t.end.is_some() && t.turn.is_some() && latest.is_none_or(|l| t.turn.as_ref() == Some(l)))
+}
+
 /// キュー実行の作業状態（保存しない）。
 #[derive(Default)]
 pub struct QueueRuntime {
@@ -137,19 +144,21 @@ fn gate_input(
     scan_complete: bool,
     unresolved: Option<LocalId>,
     ctx: GateContext,
+    user_confirmed_unknown: bool,
 ) -> q::GateInput {
     let root_key = agent_key_of(chat);
     let fact = |v: &AgentView| -> q::AgentFact {
         let key = &v.agent.key;
         let latest = v.agent.latest_turn.as_ref();
         let live_end = d.last_end.get(key).filter(|(t, _, _)| Some(t) == latest).map(|(_, end, at)| (*end, *at));
-        let term = terminals.get(key).filter(|t| t.turn.as_ref() == latest && t.end.is_some());
+        let term = history_term(latest, terminals.get(key));
         let history_end = term.and_then(|t| t.end.map(|e| (e, t.completed_at.unwrap_or(t.checked_at))));
         q::AgentFact {
             agent: key.clone(),
             state: v.status.state,
             freshness: v.freshness,
-            latest_turn: v.agent.latest_turn.clone(),
+            // 最新turnが未取得の子は、終端を確認した履歴のturnを最新とする（終端だけがあってturnがない値は評価が信用しない）。
+            latest_turn: v.agent.latest_turn.clone().or_else(|| term.and_then(|t| t.turn.clone())),
             latest_end: live_end.or(history_end),
             terminal_explicit: term.is_some(),
             observed_at: term.map(|t| t.checked_at).unwrap_or(v.status.evidence.observed_at),
@@ -165,6 +174,7 @@ fn gate_input(
         delete_pending: ctx.deleting || d.locals.get(chat).is_some_and(|l| l.delete_pending.is_some()),
         quitting: ctx.quitting,
         manual_turn_pending: manual_turn_pending(ctx.manual.as_ref(), d.last_end.get(&root_key).map(|(t, _, _)| t), now_ms()),
+        user_confirmed_unknown,
     }
 }
 
@@ -262,7 +272,7 @@ impl Host {
             deleting: self.manage_rt.is_deleting(chat),
             manual: self.queue_rt.manual_accepts.lock().unwrap().get(chat).cloned(),
         };
-        let decision = self.read(|d| d.queues.get(chat).map(|f| q::evaluate(&f.queue, &gate_input(d, chat, &terminals, scan_complete, unresolved, ctx))));
+        let decision = self.read(|d| d.queues.get(chat).map(|f| q::evaluate(&f.queue, &gate_input(d, chat, &terminals, scan_complete, unresolved, ctx, false))));
         match decision {
             Some(q::GateDecision::Send { entry }) => self.send_queue_entry(chat, entry).await,
             Some(q::GateDecision::Hold(h)) => self.set_hold(chat, Some(h)),
@@ -342,7 +352,7 @@ impl Host {
                     .filter(|v| match terminals.get(&v.agent.key) {
                         None => true,
                         Some(t) => {
-                            let stale = t.turn.as_ref() != v.agent.latest_turn.as_ref() || baseline.is_some_and(|b| t.checked_at < b) || t.end.is_none();
+                            let stale = v.agent.latest_turn.as_ref().is_some_and(|l| t.turn.as_ref() != Some(l)) || baseline.is_some_and(|b| t.checked_at < b) || t.end.is_none();
                             stale && now.0 - t.checked_at.0 >= TERMINAL_RECHECK.as_millis() as i64
                         }
                     })
@@ -352,20 +362,94 @@ impl Host {
             })
         };
         for agent in cands {
-            let fact = match self.backend.read(agent.clone(), ReadOptions { include_turns: true }).await {
-                Ok(h) => {
-                    let last = h.turns.last();
-                    TerminalFact {
-                        turn: last.map(|t| t.key.turn_id.clone()),
-                        end: last.and_then(|t| t.end),
-                        completed_at: last.and_then(|t| t.completed_at.value().copied()),
-                        checked_at: now_ms(),
-                    }
+            self.read_terminal_fact(agent).await;
+        }
+    }
+
+    /// 1エージェントの履歴を読み、最新turnの終端を確認結果として記録する（読み取りのみ。resumeしない）。終端を確認できたら true。
+    async fn read_terminal_fact(self: &Arc<Self>, agent: AgentKey) -> bool {
+        let fact = match self.backend.read(agent.clone(), ReadOptions { include_turns: true }).await {
+            Ok(h) => {
+                let last = h.turns.last();
+                TerminalFact {
+                    turn: last.map(|t| t.key.turn_id.clone()),
+                    end: last.and_then(|t| t.end),
+                    completed_at: last.and_then(|t| t.completed_at.value().copied()),
+                    checked_at: now_ms(),
                 }
-                // 読めなかった: 確認できていないまま。次の間隔で再試行する（終端があったことにしない）。
-                Err(_) => TerminalFact { turn: None, end: None, completed_at: None, checked_at: now_ms() },
-            };
-            self.queue_rt.terminals.lock().unwrap().insert(agent, fact);
+            }
+            // 読めなかった: 確認できていないまま。次の間隔で再試行する（終端があったことにしない）。
+            Err(_) => TerminalFact { turn: None, end: None, completed_at: None, checked_at: now_ms() },
+        };
+        let ok = fact.end.is_some();
+        self.queue_rt.terminals.lock().unwrap().insert(agent, fact);
+        ok
+    }
+
+    /// 「状態を再確認」（ユーザー操作）。ライブでなく作業中でもない子孫の履歴を、間隔を待たずに読み直す（読み取りのみ。resumeしない）。
+    /// 走査が完了していなければ読み取りの走査も始める。終端を確認できた結果は、次の評価（すぐ）で自動送信の判断に使われる。
+    pub async fn recheck_queue_state(self: &Arc<Self>, args: ChatArgs) -> Result<ChatQueue, IpcError> {
+        if !self.is_connected() {
+            return Err(err(IpcErrorCode::NotConnected, "Codex に接続していないため、状態を再確認できません"));
+        }
+        if self.read(|d| d.queues.get(&args.chat).is_none()) {
+            return Err(err(IpcErrorCode::NotFound, "送信待ちがありません"));
+        }
+        let root = agent_key_of(&args.chat);
+        let scan_running = self.scanning.lock().unwrap().contains(&root);
+        let flag = self.queue_rt.scans.lock().unwrap().get(&root).copied();
+        if !scan_running && !scan_ready(flag, false) {
+            self.start_scan(root.clone());
+        }
+        let cands: Vec<AgentKey> = self.read(|d| {
+            d.agents
+                .iter()
+                .filter(|v| v.agent.chat == args.chat && v.agent.key != root && v.freshness != Freshness::Live && !is_working(v.status.state))
+                .map(|v| v.agent.key.clone())
+                .collect()
+        });
+        for agent in cands {
+            self.read_terminal_fact(agent).await;
+        }
+        self.kick_queue();
+        self.read(|d| d.queues.get(&args.chat).map(|f| f.queue.clone())).ok_or_else(|| err(IpcErrorCode::NotFound, "送信待ちがありません"))
+    }
+
+    /// 「確認して今すぐ送る」（ユーザー操作。確認ダイアログの承認後に呼ばれる）。先頭の送信待ち1件だけを、
+    /// 状態不明・ライブ未復旧の子孫と走査未完了を承知のうえで送る。作業中の子孫・失敗・中断・親の条件・停止未確認・受理不明は緩めない。
+    /// 送信は通常の経路（Sending保存→送信、受理不明の扱い）を通る。指定は1回の評価だけで、次の項目は通常の判定に戻る。
+    pub async fn send_queue_entry_now(self: &Arc<Self>, args: QueueEntryArgs, _confirmed: &UserConfirmed) -> Result<ChatQueue, IpcError> {
+        let chat = args.chat.clone();
+        // 手動送信・自動送信と同時に `turn/start` を送らない。
+        let send_lock = self.queue_rt.send_lock(&chat);
+        let _send_guard = send_lock.lock().await;
+        self.check_not_delete_pending(&chat)?;
+        self.precheck_space()?;
+        let root = agent_key_of(&chat);
+        let scan_running = self.scanning.lock().unwrap().contains(&root);
+        let scan_complete = scan_ready(self.queue_rt.scans.lock().unwrap().get(&root).copied(), scan_running);
+        let terminals = self.queue_rt.terminals.lock().unwrap().clone();
+        let unresolved = self.unknown_attempt(&chat);
+        let ctx = GateContext {
+            quitting: self.quit_phase() != QuitPhase::Idle,
+            deleting: self.manage_rt.is_deleting(&chat),
+            manual: self.queue_rt.manual_accepts.lock().unwrap().get(&chat).cloned(),
+        };
+        let decision = self.read(|d| d.queues.get(&chat).map(|f| q::evaluate(&f.queue, &gate_input(d, &chat, &terminals, scan_complete, unresolved, ctx, true))));
+        match decision {
+            None => Err(err(IpcErrorCode::NotFound, "送信待ちがありません")),
+            Some(q::GateDecision::Send { entry }) if entry == args.entry => {
+                self.send_queue_entry(&chat, entry).await;
+                self.read(|d| d.queues.get(&chat).map(|f| f.queue.clone())).ok_or_else(|| err(IpcErrorCode::NotFound, "送信待ちがありません"))
+            }
+            Some(q::GateDecision::Send { .. }) => Err(err(IpcErrorCode::InvalidArgs, "先頭の送信待ちの依頼ではないため、今すぐ送れません")),
+            Some(q::GateDecision::Hold(h)) => {
+                self.set_hold(&chat, Some(h));
+                Err(err(IpcErrorCode::Blocked, "状態不明の対象以外の理由（作業中・接続・停止未確認・受理不明など）で保留されているため、送りませんでした"))
+            }
+            Some(q::GateDecision::Stop(_)) => Err(err(IpcErrorCode::Blocked, "失敗または中断を検出したため、送りませんでした。キューの状態を確認してください")),
+            Some(q::GateDecision::Paused) => Err(err(IpcErrorCode::Blocked, "キューが止まっているため送りませんでした。先に「キューを再開」してください")),
+            Some(q::GateDecision::Nothing) => Err(err(IpcErrorCode::InvalidArgs, "送れる依頼がありません")),
         }
     }
 
@@ -936,6 +1020,133 @@ mod tests {
         assert!(!should_start_scan(ready, true, true, Some(started), later), "no restart while a scan runs");
         assert!(!should_start_scan(true, false, true, Some(started), later), "no restart once complete");
         assert!(should_start_scan(false, false, true, None, later), "never scanned");
+    }
+}
+
+#[cfg(test)]
+mod history_gate_tests {
+    use super::*;
+
+    fn ck() -> ChatKey {
+        ChatKey { backend: BackendKind::Codex, id: ExternalId("root".into()) }
+    }
+    fn ak(id: &str) -> AgentKey {
+        AgentKey { backend: BackendKind::Codex, id: ExternalId(id.into()) }
+    }
+    fn ev(at: i64) -> Evidence {
+        Evidence { source: EvidenceSource::HistoryRead, raw_label: Some("thread/read".into()), source_time: None, observed_at: UnixMillis(at) }
+    }
+    fn view(id: &str, root: bool, state: AgentState, fresh: Freshness) -> AgentView {
+        AgentView {
+            agent: Agent {
+                key: ak(id),
+                chat: ck(),
+                parent: if root { ParentLink::Root } else { ParentLink::Explicit { parent: ak("root") } },
+                forked_from: Known::NotFetched,
+                display_name: Known::NotFetched,
+                role: Known::NotFetched,
+                assignment: Known::NotFetched,
+                agent_path: Known::NotFetched,
+                // 一覧・走査で作った子は最新turnを持たない。
+                latest_turn: None,
+            },
+            status: AgentStatus { state, raw: RawState { label: "notLoaded".into() }, scope: StateScope::Agent, turn: None, wait: None, evidence: ev(5_000) },
+            freshness: fresh,
+            current_activity: None,
+        }
+    }
+    fn data() -> HostData {
+        let mut d = HostData::default();
+        d.sources.push(SourceInfo {
+            source: SourceId("s".into()),
+            backend: BackendKind::Codex,
+            pid: Known::NotFetched,
+            started_at: UnixMillis(0),
+            version: VersionCheck::Unknown { message: "t".into() },
+            capabilities: crate::codex::adapter::codex_capabilities(true),
+            connection: ConnectionState::Connected,
+        });
+        d.agents.push(view("root", true, AgentState::Done, Freshness::Live));
+        // 親は終端を観測済み（t0）。
+        d.agents[0].agent.latest_turn = Some(ExternalId("t0".into()));
+        d.last_end.insert(ak("root"), (ExternalId("t0".into()), TurnEnd::Completed, UnixMillis(3_000)));
+        // 親の作業が終わった後に登録された依頼（基準時刻より前の終端は失敗として扱わない）。
+        let mut queue = q::new_queue(ck());
+        q::enqueue(&mut queue, LocalId("e1".into()), "next".into(), vec![], UnixMillis(2_000));
+        queue.baseline_at = Some(UnixMillis(2_500));
+        d.queues.insert(ck(), QueueFile { schema_version: SCHEMA_VERSION, queue, unresolved_sends: Vec::new() });
+        d.agents.push(view("luna", false, AgentState::Unknown, Freshness::HistoryOnly));
+        d
+    }
+    fn ctx() -> GateContext {
+        GateContext { quitting: false, deleting: false, manual: None }
+    }
+    fn fact_of(turn: Option<&str>, end: Option<TurnEnd>) -> TerminalFact {
+        TerminalFact { turn: turn.map(|t| ExternalId(t.into())), end, completed_at: None, checked_at: UnixMillis(6_000) }
+    }
+    fn decide(d: &HostData, terms: &HashMap<AgentKey, TerminalFact>, confirmed: bool) -> q::GateDecision {
+        let f = &d.queues.get(&ck()).unwrap().queue;
+        q::evaluate(f, &gate_input(d, &ck(), terms, true, None, ctx(), confirmed))
+    }
+
+    #[test]
+    fn not_loaded_child_with_a_history_terminal_lets_the_queue_send() {
+        let d = data();
+        let mut terms = HashMap::new();
+        // 履歴の最新turnに終端あり。子の最新turn（走査では未取得）が無くても確認済みとして扱う。
+        terms.insert(ak("luna"), fact_of(Some("c1"), Some(TurnEnd::Completed)));
+        assert_eq!(decide(&d, &terms, false), q::GateDecision::Send { entry: LocalId("e1".into()) });
+    }
+
+    #[test]
+    fn not_loaded_child_without_a_history_terminal_stays_on_hold() {
+        let d = data();
+        let mut terms = HashMap::new();
+        // 履歴に終端がない（途中で止まっている）・読めなかった・未確認は、いずれも保留。
+        terms.insert(ak("luna"), fact_of(Some("c1"), None));
+        assert!(matches!(decide(&d, &terms, false), q::GateDecision::Hold(QueueHold::StateUnknown { .. })));
+        terms.insert(ak("luna"), fact_of(None, None));
+        assert!(matches!(decide(&d, &terms, false), q::GateDecision::Hold(QueueHold::StateUnknown { .. })));
+        terms.clear();
+        assert!(matches!(decide(&d, &terms, false), q::GateDecision::Hold(QueueHold::StateUnknown { .. })));
+    }
+
+    #[test]
+    fn history_terminal_of_an_older_turn_is_not_used_once_the_child_has_a_newer_turn() {
+        let mut d = data();
+        d.agents[1].agent.latest_turn = Some(ExternalId("c2".into()));
+        let mut terms = HashMap::new();
+        terms.insert(ak("luna"), fact_of(Some("c1"), Some(TurnEnd::Completed)));
+        assert!(matches!(decide(&d, &terms, false), q::GateDecision::Hold(_)));
+        terms.insert(ak("luna"), fact_of(Some("c2"), Some(TurnEnd::Completed)));
+        assert_eq!(decide(&d, &terms, false), q::GateDecision::Send { entry: LocalId("e1".into()) });
+    }
+
+    #[test]
+    fn failed_history_terminal_after_baseline_stops_the_queue() {
+        let d = data();
+        let mut terms = HashMap::new();
+        let mut f = fact_of(Some("c1"), Some(TurnEnd::Failed));
+        f.completed_at = Some(UnixMillis(4_000));
+        terms.insert(ak("luna"), f);
+        assert!(matches!(decide(&d, &terms, false), q::GateDecision::Stop(QueueStopCause::DescendantFailed { .. })));
+    }
+
+    #[test]
+    fn send_now_confirmation_covers_one_evaluation_and_the_next_entry_returns_to_normal() {
+        let mut d = data();
+        let terms = HashMap::new();
+        // 終端を確認できない状態不明の子。通常は保留、ユーザー確認つきの評価だけ送れる。
+        assert!(matches!(decide(&d, &terms, false), q::GateDecision::Hold(QueueHold::StateUnknown { .. })));
+        assert_eq!(decide(&d, &terms, true), q::GateDecision::Send { entry: LocalId("e1".into()) });
+        // 1件目を送った後（送信済み・次の依頼が先頭）。指定は持ち越されず、通常の判定は保留のまま。
+        {
+            let f = d.queues.get_mut(&ck()).unwrap();
+            f.queue.entries[0].state = QueueEntryState::Sent { turn: TurnKey { agent: ak("root"), turn_id: ExternalId("t1".into()) } };
+            q::enqueue(&mut f.queue, LocalId("e2".into()), "after".into(), vec![], UnixMillis(2_100));
+            f.queue.awaiting = None;
+        }
+        assert!(matches!(decide(&d, &terms, false), q::GateDecision::Hold(QueueHold::StateUnknown { .. })));
     }
 }
 

@@ -45,7 +45,7 @@ pub struct HostData {
     pub stops: Vec<StopRecord>,
     pub monitor_scope: MonitorScope,
     pub pinned: HashSet<ChatKey>,
-    /// このホスト（現在の接続）が開始・再開した会話。originに関わらず送信可能として扱う。
+    /// このアプリが開始した会話（アプリ管理。外部会話の再開は含めない）。originに関わらず送信可能として扱う。再起動後も `chat.json` から復元する。
     pub hosted: HashSet<ChatKey>,
     pub model_settings: HashMap<ChatKey, ChatModelSettings>,
     /// アプリ側の補足情報（保存ファイルと同じ形。ピン・下書き・モデル/権限など）。保存は `host::persist` が行う。
@@ -314,14 +314,30 @@ impl HostData {
             }
         }
         if self.sources.iter().any(|s| s.source != info.source) {
-            // 新しい接続。以前の購読は失われているので、ホスト管理の扱いも引き継がない。
-            self.hosted.clear();
+            // 新しい接続。以前の購読は失われているので、wake後の照合の記録は引き継がない。
+            // アプリ管理（hosted）は会話の属性として永続するので、接続をまたいでも消さない。
             self.wake_reconciled.clear();
         }
         // 同じIDの仮の項目（接続通知が結果より先に届いた場合）も置き換える。残すと先頭の仮項目が表示される。
         self.sources.clear();
         self.sources.push(info.clone());
         vec![HostEvent::SourceUpdated { source: info }]
+    }
+
+    /// バックエンドが示した、会話に設定されているモデルを「受理した設定」として記録する（選択値・実効値とは別）。
+    pub fn note_accepted_model(&mut self, chat: &ChatKey, choice: ModelChoice) -> Vec<HostEvent> {
+        let s = self.model_settings.entry(chat.clone()).or_insert(ChatModelSettings {
+            selected: None,
+            accepted: Known::NotFetched,
+            effective: Known::NotFetched,
+            applies: ApplyTiming::NextTurn,
+        });
+        let accepted = Known::direct(choice);
+        if s.accepted == accepted {
+            return Vec::new();
+        }
+        s.accepted = accepted;
+        vec![HostEvent::ModelSettingsUpdated { chat: chat.clone(), settings: s.clone() }]
     }
 
     /// このホストが開始・再開した会話として記録する（origin表示を自管理に揃える）。
@@ -825,6 +841,11 @@ impl HostData {
                 }
                 ChatMetaChange::Deleted => out.extend(self.remove_chat(chat)),
             },
+            BackendEvent::ModelAccepted { agent, choice } => {
+                if let Some(chat) = self.view(agent).filter(|_| self.is_root(agent)).map(|v| v.agent.chat.clone()) {
+                    out.extend(self.note_accepted_model(&chat, choice.clone()));
+                }
+            }
             BackendEvent::ModelRerouted { agent, effective, .. } => {
                 if let Some(chat) = self.view(agent).filter(|_| self.is_root(agent)).map(|v| v.agent.chat.clone()) {
                     let s = self.model_settings.entry(chat.clone()).or_insert(ChatModelSettings {
@@ -1060,6 +1081,24 @@ mod tests {
     }
 
     #[test]
+    fn settings_notification_records_the_accepted_model_only_for_the_root() {
+        let mut d = HostData::default();
+        live_root(&mut d, AgentState::Idle);
+        d.set_live(agent("child", false), status(AgentState::Idle, None, StateScope::Agent));
+        let choice = ModelChoice { model: "m".into(), effort: Some("low".into()) };
+        // 選択値と受理値は別。通知前は未取得のまま。
+        assert!(d.model_settings.get(&ck("root")).is_none());
+        let (ev, _) = d.apply_event(&env(1, 1, BackendEvent::ModelAccepted { agent: ak("root"), choice: choice.clone() }), &caps());
+        assert!(matches!(ev[0], HostEvent::ModelSettingsUpdated { .. }));
+        assert_eq!(d.model_settings.get(&ck("root")).unwrap().accepted, Known::direct(choice.clone()));
+        // 同じ値の再通知ではイベントを出さない。子の設定はチャットのモデル設定にしない。
+        let (ev, _) = d.apply_event(&env(2, 2, BackendEvent::ModelAccepted { agent: ak("root"), choice: choice.clone() }), &caps());
+        assert!(ev.is_empty());
+        d.apply_event(&env(3, 3, BackendEvent::ModelAccepted { agent: ak("child"), choice: ModelChoice { model: "x".into(), effort: None } }), &caps());
+        assert_eq!(d.model_settings.get(&ck("root")).unwrap().accepted, Known::direct(choice));
+    }
+
+    #[test]
     fn external_chat_is_locked_until_resumed_and_live() {
         assert!(external_send_locked(ChatOrigin::External, Some(Freshness::HistoryOnly)));
         assert!(external_send_locked(ChatOrigin::External, None));
@@ -1070,7 +1109,7 @@ mod tests {
         let mut d = HostData::default();
         let chat = Chat {
             key: ck("root"), kind: ChatKind::Development, cwd: Known::NotFetched, name: Known::NotFetched, preview: Known::NotFetched, pinned: false,
-            archived: Known::NotFetched, origin: ChatOrigin::External, draft: None, created_at: Known::NotFetched, last_used_at: None,
+            archived: Known::NotFetched, origin: ChatOrigin::External, draft: None, created_at: Known::NotFetched, last_used_at: None, no_history: false,
         };
         d.upsert_chat(chat);
         d.upsert_history_agent(agent("root", true), status(AgentState::Unknown, None, StateScope::Agent));
@@ -1114,6 +1153,7 @@ mod tests {
             draft: None,
             created_at: Known::NotFetched,
             last_used_at: None,
+            no_history: false,
         };
         d.upsert_chat(mk(ChatOrigin::External));
         assert_eq!(d.chat(&ck("root")).unwrap().origin, ChatOrigin::External);
@@ -1123,7 +1163,7 @@ mod tests {
         // 一覧の再取得でexternalと返ってもホスト管理を保つ。
         d.upsert_chat(mk(ChatOrigin::External));
         assert_eq!(d.chat(&ck("root")).unwrap().origin, ChatOrigin::AppManaged);
-        // 新しい接続では引き継がない。
+        // 新しい接続でも、アプリ管理の印は保つ（会話の属性として永続する。再開の要否は鮮度で判断する）。
         let src = |id: &str| SourceInfo {
             source: SourceId(id.into()),
             backend: BackendKind::Codex,
@@ -1136,7 +1176,7 @@ mod tests {
         d.set_source(src("a"));
         d.set_source(src("b"));
         d.upsert_chat(mk(ChatOrigin::External));
-        assert_eq!(d.chat(&ck("root")).unwrap().origin, ChatOrigin::External);
+        assert_eq!(d.chat(&ck("root")).unwrap().origin, ChatOrigin::AppManaged);
     }
 
     #[test]

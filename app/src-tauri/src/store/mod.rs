@@ -174,8 +174,17 @@ impl Store {
         for dir in dirs {
             let mut local = match self.read_file::<ChatLocalFile>(&dir.join(layout::CHAT_FILE)) {
                 Ok(Some(l)) => l,
-                // chat.json の無い領域（段階①の作業領域・作成途中）は対象外。
-                Ok(None) => continue,
+                // chat.json の無い領域。監視活動だけの領域や段階①の作業領域は対象外。
+                // 作業領域（workspace）や送信待ちが残っているのに記録が無いときは、ピン・下書き・送信待ちなどを復元できないので警告する。
+                Ok(None) => {
+                    if layout::workspace_dir(&dir).exists() || dir.join(layout::QUEUE_FILE).exists() {
+                        r.problems.push(StoreError::Io(std::io::Error::other(format!(
+                            "チャットの記録（chat.json）が見つかりません。ピン・下書き・送信待ちを復元できません（元のファイルは変更していません）: {}",
+                            shown(&dir)
+                        ))));
+                    }
+                    continue;
+                }
                 Err(e) => {
                     r.problems.push(e);
                     continue;

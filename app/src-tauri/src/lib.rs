@@ -169,6 +169,8 @@ pub fn run() {
             commands::edit_queue_entry,
             commands::cancel_queue_entry,
             commands::resume_queue,
+            commands::recheck_queue_state,
+            commands::send_queue_entry_now,
             commands::reconcile_send,
             commands::set_chat_permission,
             commands::set_chat_cwd,

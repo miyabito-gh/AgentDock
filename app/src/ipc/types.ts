@@ -265,6 +265,8 @@ export interface CommandMap {
   edit_queue_entry: { args: EditQueueEntryArgs; result: QueueEntry };
   cancel_queue_entry: { args: QueueEntryArgs; result: null };
   resume_queue: { args: ChatArgs; result: ChatQueue };
+  recheck_queue_state: { args: ChatArgs; result: ChatQueue };
+  send_queue_entry_now: { args: QueueEntryArgs; result: ChatQueue };
   reconcile_send: { args: ReconcileSendArgs; result: SendAttempt };
   set_chat_permission: { args: SetChatPermissionArgs; result: SettingsImpact };
   set_chat_cwd: { args: SetChatCwdArgs; result: SettingsImpact };

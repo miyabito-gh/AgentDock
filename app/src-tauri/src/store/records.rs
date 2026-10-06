@@ -47,6 +47,10 @@ pub struct ChatLocalFile {
     pub acknowledged_failures: Vec<TurnKey>,
     /// 起動直後に一覧へ出すための表示用メタデータ（正本はCodex。接続後に上書きされる）。
     pub cached_meta: Option<CachedChatMeta>,
+    /// このアプリが thread/start で開始した会話（アプリ管理）。再起動後も「アプリ管理」として扱う。
+    /// 外部で作られた会話をユーザー確認のうえ再開した印は含めない（再起動後は外部扱いに戻り、再開確認が要る）。
+    #[serde(default)]
+    pub hosted: bool,
 }
 
 /// 接続前の一覧表示用。鮮度は常に「切断」として扱い、状態の根拠にしない。
@@ -141,6 +145,7 @@ impl ChatLocalFile {
             artifacts: Vec::new(),
             acknowledged_failures: Vec::new(),
             cached_meta: None,
+            hosted: false,
         }
     }
 }

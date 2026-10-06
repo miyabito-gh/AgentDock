@@ -42,7 +42,7 @@ const source = (connection: SourceInfo["connection"], version?: SourceInfo["vers
 function chat(id: string, name: string, over: Partial<Chat> = {}): Chat {
   return {
     key: ck(id), kind: "development", cwd: val(`C:\\Users\\wmasa\\Documents\\Rust\\${name}`), name: val(name), preview: nf(),
-    pinned: false, archived: val(false), origin: "appManaged", draft: null, createdAt: val(ago(86400)), lastUsedAt: ago(60), ...over,
+    pinned: false, archived: val(false), origin: "appManaged", draft: null, createdAt: val(ago(86400)), lastUsedAt: ago(60), noHistory: false, ...over,
   };
 }
 

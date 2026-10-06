@@ -17,7 +17,7 @@ use crate::backend::ipc::*;
 use crate::backend::local::*;
 use crate::backend::model::*;
 use crate::host::state::HostData;
-use crate::store::records::{ActivityLine, AppSettingsFile, ChatLocalFile};
+use crate::store::records::{ActivityLine, AppSettingsFile, CachedChatMeta, ChatLocalFile};
 use crate::store::{layout, Restored, Store, StoreError, AUTO_RETRY_LIMIT, DRAFT_DEBOUNCE_MS};
 
 /// 保存の呼出しに必要な共有状態。
@@ -98,6 +98,36 @@ pub fn problem_text(e: &StoreError) -> String {
     }
 }
 
+/// 一覧表示用の記録（正本はバックエンド。接続後の取得で上書きされる）。
+pub fn cached_meta_of(c: &Chat, at: UnixMillis) -> CachedChatMeta {
+    CachedChatMeta { name: c.name.clone(), cwd: c.cwd.clone(), kind: c.kind, origin: c.origin, saved_at: at }
+}
+
+/// 保存時刻を除いて同じか（変わっていなければ書き直さない）。
+pub fn same_cached_meta(a: &CachedChatMeta, b: &CachedChatMeta) -> bool {
+    a.name == b.name && a.cwd == b.cwd && a.kind == b.kind && a.origin == b.origin
+}
+
+/// バックエンドに履歴が無いチャット（発話前など）を、アプリの記録だけから一覧に出す。名前・要約は未取得のまま（作らない）。
+/// 記録（`cachedMeta`）が無ければ種類・作業フォルダが分からないので出さない。
+pub fn chat_from_record(key: &ChatKey, local: &ChatLocalFile) -> Option<Chat> {
+    let meta = local.cached_meta.as_ref()?;
+    Some(Chat {
+        key: key.clone(),
+        kind: meta.kind,
+        cwd: meta.cwd.clone(),
+        name: meta.name.clone(),
+        preview: Known::NotFetched,
+        pinned: local.pinned,
+        archived: Known::NotFetched,
+        origin: ChatOrigin::AppManaged,
+        draft: None,
+        created_at: Known::NotFetched,
+        last_used_at: local.last_used_at,
+        no_history: true,
+    })
+}
+
 /// 保存失敗の案内文（原因別）。
 pub fn save_failure_message(e: &StoreError) -> String {
     const MIB: u64 = 1024 * 1024;
@@ -171,6 +201,9 @@ impl HostData {
             let Some(key) = c.local.chat.clone() else { continue };
             if c.local.pinned {
                 self.pinned.insert(key.clone());
+            }
+            if c.local.hosted {
+                self.hosted.insert(key.clone());
             }
             if let Some(model) = &c.local.model {
                 // 選択値だけを戻す。受理値・実効値は未取得のまま（適用済みとは表示しない）。
@@ -563,6 +596,70 @@ mod tests {
         assert_eq!(v.save, SaveState::Saved { at: UnixMillis(7) });
         assert_eq!(d.startup_warnings.len(), 1);
         assert!(d.snapshot().chat_locals.len() == 1 && d.snapshot().model_settings.len() == 1);
+    }
+
+    #[test]
+    fn restore_brings_back_the_app_managed_mark() {
+        let mut local = ChatLocalFile::new(LocalId("dir-1".into()), Some(key("t1")));
+        local.hosted = true;
+        let mut other = ChatLocalFile::new(LocalId("dir-2".into()), Some(key("t2")));
+        other.pinned = true;
+        let restored = Restored {
+            settings: None,
+            windows: None,
+            chats: vec![
+                crate::store::RestoredChat { dir: "x".into(), local, queue: None },
+                crate::store::RestoredChat { dir: "y".into(), local: other, queue: None },
+            ],
+            problems: vec![],
+        };
+        let mut d = HostData::default();
+        d.restore(restored, UnixMillis(7));
+        assert!(d.hosted.contains(&key("t1")), "started/resumed by this app: still app-managed after a restart");
+        assert!(!d.hosted.contains(&key("t2")));
+        // 再起動後の一覧で、バックエンドが外部作成（vscode）と返しても、アプリ管理を保つ。
+        let mut c = chat_from_record(&key("t1"), &{
+            let mut l = ChatLocalFile::new(LocalId("d".into()), Some(key("t1")));
+            l.cached_meta = Some(CachedChatMeta { name: Known::NotFetched, cwd: Known::direct("C:\\w".into()), kind: ChatKind::General, origin: ChatOrigin::AppManaged, saved_at: UnixMillis(1) });
+            l
+        })
+        .unwrap();
+        c.origin = ChatOrigin::External;
+        d.upsert_chat(c);
+        assert_eq!(d.chat(&key("t1")).unwrap().origin, ChatOrigin::AppManaged);
+    }
+
+    #[test]
+    fn resumed_external_chat_returns_to_external_after_a_restart() {
+        // 外部会話をユーザー確認のうえ再開しても、永続する印（hosted）は付かない。再起動（新しい読込み）後の一覧は外部のまま。
+        let local = ChatLocalFile::new(LocalId("dir-1".into()), Some(key("ext")));
+        assert!(!local.hosted);
+        let restored = Restored { settings: None, windows: None, chats: vec![crate::store::RestoredChat { dir: "x".into(), local, queue: None }], problems: vec![] };
+        let mut d = HostData::default();
+        d.restore(restored, UnixMillis(7));
+        assert!(!d.hosted.contains(&key("ext")));
+        let mut l = ChatLocalFile::new(LocalId("d".into()), Some(key("ext")));
+        l.cached_meta = Some(CachedChatMeta { name: Known::NotFetched, cwd: Known::NotFetched, kind: ChatKind::Development, origin: ChatOrigin::External, saved_at: UnixMillis(1) });
+        let mut c = chat_from_record(&key("ext"), &l).unwrap();
+        c.origin = ChatOrigin::External;
+        d.upsert_chat(c);
+        assert_eq!(d.chat(&key("ext")).unwrap().origin, ChatOrigin::External);
+    }
+
+    #[test]
+    fn chat_without_backend_history_is_listed_from_the_record_and_marked() {
+        let mut l = ChatLocalFile::new(LocalId("d".into()), Some(key("t")));
+        assert!(chat_from_record(&key("t"), &l).is_none(), "no display record: nothing is invented");
+        l.pinned = true;
+        l.last_used_at = Some(UnixMillis(9));
+        l.cached_meta = Some(CachedChatMeta { name: Known::NotFetched, cwd: Known::direct("C:\\w".into()), kind: ChatKind::General, origin: ChatOrigin::AppManaged, saved_at: UnixMillis(1) });
+        let c = chat_from_record(&key("t"), &l).unwrap();
+        assert!(c.no_history && c.pinned);
+        assert_eq!(c.name, Known::NotFetched, "the name is not made up");
+        assert_eq!(c.preview, Known::NotFetched);
+        assert_eq!(c.last_used_at, Some(UnixMillis(9)));
+        let m = cached_meta_of(&c, UnixMillis(5));
+        assert!(same_cached_meta(&m, l.cached_meta.as_ref().unwrap()), "saved_at is not part of the comparison");
     }
 
     #[test]

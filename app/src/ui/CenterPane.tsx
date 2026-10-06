@@ -5,7 +5,7 @@ import type {
 } from "../ipc/types";
 import { Icon } from "./Icon";
 import { TENTATIVE_HINT, TENTATIVE_STYLE, chatAgents, chatName, chatRequests, chatTitle, chatStatusText, chatStops, isRunning, rootView, stopOpen } from "./derive";
-import { FRESH, STOP_LABEL, hms, holdText, keyStr, knownValue, showKnown, stopCauseText } from "./format";
+import { FRESH, STOP_LABEL, hms, holdText, keyStr, knownValue, showKnown, stopCauseText, targetList } from "./format";
 import { baseName, clipboardImageName, mimeOf } from "./attach";
 
 const SCOPE_TEXT = { once: "1回だけ", session: "このセッション中", persistent: "以後ずっと（永続）", unknown: "効力範囲は不明" } as const;
@@ -68,6 +68,10 @@ export interface QueueActions {
   resume: () => void;
   /** 「履歴と照合」。読み取りのみで再送しない。 */
   reconcile: (attempt: string) => void;
+  /** 「状態を再確認」。保留中の子孫の履歴を読み直す（読み取りのみ。resumeしない）。 */
+  recheck: () => void;
+  /** 「確認して今すぐ送る」。確認ダイアログで承認した後にだけ呼ぶ。先頭の1件だけを送る（以後は通常の判定）。 */
+  sendNow: (entry: string) => Promise<boolean>;
   /** 受理なしが確定した依頼を、ユーザーの確認のうえで再送する。 */
   retry: (attempt: string) => void;
 }
@@ -136,7 +140,7 @@ function StopBanner({ snap, chat, rec, onAct }: { snap: HostSnapshot; chat: Chat
       </ul>
       <div style={{ marginTop: 4 }}>時間の経過だけで停止や失敗とは判断しません。停止が確認できるまで、削除と新しい送信は保留します。</div>
       <div className="acts">
-        <button className="btn-line" onClick={() => onAct("stub")}>待つ</button>
+        <button className="btn-line" onClick={() => onAct("noop")}>待つ</button>
         <button className="btn-line" onClick={() => onAct("interrupt")}>中断を再試行</button>
         <button className="btn-danger" onClick={() => onAct("force")}>強制終了…</button>
       </div>
@@ -162,6 +166,12 @@ function Banners({ p }: { p: CenterProps }) {
           ) : null}
         </div>
       ) : null}
+      {chat.noHistory ? (
+        <div className="cbanner info">
+          <h4>Codex に、この会話の履歴がありません</h4>
+          発話前のチャットなどは、Codex の一覧に載りません。このアプリの記録（ピン・下書き・モデル選択）だけを表示しています。履歴を作る送信は、再開できる状態になってから行えます。
+        </div>
+      ) : null}
       {chat.origin === "external" && root?.freshness === "live" ? (
         <div className="cbanner info">
           <h4>{p.externalLabel ?? "外部"} で作成された会話を、このアプリで再開済みです</h4>
@@ -179,7 +189,7 @@ function Banners({ p }: { p: CenterProps }) {
         <div className="cbanner info" role="alert">
           <h4>接続を回復しましたが、ライブ監視はまだ戻っていません</h4>
           保存履歴から取得した状態です（{hms(root.status.evidence.observedAt)}）。実行中の途中経過は表示されません。送信待ちは照合が終わるまで保留します。
-          <div className="acts"><button className="btn-line" onClick={() => onAct("stub")}>状態を再照合</button><button className="btn-line" onClick={() => onAct("stub")}>保存履歴を再取得</button></div>
+          <div className="acts"><button className="btn-line" title="保存履歴を読み直して状態を取り直します（読み取りのみ）" onClick={() => onAct("reloadHistory")}>状態を再照合</button><button className="btn-line" onClick={() => onAct("reloadHistory")}>保存履歴を再取得</button></div>
         </div>
       ) : null}
       {stops.map((r) => <StopBanner key={r.id} snap={snap} chat={chat} rec={r} onAct={onAct} />)}
@@ -410,6 +420,41 @@ function EntryRow({ n, e, qact }: { n: number; e: QueueEntry; qact: QueueActions
   );
 }
 
+/** 状態不明の子孫で保留しているときの出口（再確認／確認して今すぐ送る）。親の状態が原因の保留には出さない。 */
+function HoldExit({ q, head, nameOf, qact }: { q: ChatQueue; head: QueueEntry | undefined; nameOf: (a: AgentKey) => string; qact: QueueActions }) {
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const h = q.hold;
+  if (q.run.kind !== "active" || !h || (h.kind !== "stateUnknown" && h.kind !== "notLive")) return null;
+  const targets = h.targets;
+  // 親自身の状態・鮮度が原因のときは、子孫の確認では解けない（ホストも送らない）。
+  const rootBlocked = targets.some((t) => t.agent.id === q.chat.id);
+  const canSend = !!head && head.state.kind === "waiting" && !rootBlocked;
+  return (
+    <div style={{ padding: "2px 10px" }}>
+      <div className="acts">
+        <button className="small" title="保留中の子孫の履歴を読み直します（読み取りのみ。再開はしません）。終端を確認できれば、自動で送信に進みます" onClick={qact.recheck}>状態を再確認</button>
+        {canSend ? <button className="small" onClick={() => setConfirming(true)}>確認して今すぐ送る…</button> : null}
+      </div>
+      {confirming && head ? (
+        <div className="cbanner warn" role="alert" style={{ margin: "6px 0" }}>
+          <h4>状態を確認できないまま、先頭の依頼を送ります</h4>
+          <div>次の対象は、完了・失敗・中断を確認できていません。作業が続いている可能性があります。</div>
+          <ul style={{ margin: "4px 0 4px 18px", padding: 0 }}>
+            {targets.length ? targets.map((t) => <li key={t.agent.id}>{targetList([t], nameOf)}</li>) : null}
+            {h.kind === "stateUnknown" && h.descendantScanIncomplete ? <li>子孫の探索が完了していません（未発見の子孫がいる可能性）</li> : null}
+          </ul>
+          <div>送るのは先頭の1件（「{head.text.slice(0, 40)}{head.text.length > 40 ? "…" : ""}」）だけです。以後の依頼は、通常どおり条件を判定します。</div>
+          <div className="acts">
+            <button className="btn-main" disabled={busy} onClick={() => { setBusy(true); void qact.sendNow(head.id).then(() => { setBusy(false); setConfirming(false); }); }}>確認して送る</button>
+            <button className="btn-line" disabled={busy} onClick={() => setConfirming(false)}>やめる</button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function Queue({ q, nameOf, qact }: { q: ChatQueue | undefined; nameOf: (a: AgentKey) => string; qact: QueueActions }) {
   if (!q) return null;
   const items = q.entries.filter((e) => e.state.kind !== "sent" && e.state.kind !== "cancelled");
@@ -431,6 +476,7 @@ function Queue({ q, nameOf, qact }: { q: ChatQueue | undefined; nameOf: (a: Agen
       <details open>
         <summary><Icon name="list" /><b>完了後に送る依頼 {items.length}件</b>
           <span className="muted">{stopped ? "停止中" : q.hold ? holdText(q.hold, nameOf) : "親と子孫の作業が終わると、登録順に1件ずつ送ります"}</span></summary>
+        <HoldExit q={q} head={items[0]} nameOf={nameOf} qact={qact} />
         <div className="muted small" style={{ padding: "2px 10px" }}>送信待ちの依頼は、送信する時点のモデル・権限・作業フォルダで送ります。</div>
         {items.map((e, i) => <EntryRow key={e.id + e.state.kind} n={i + 1} e={e} qact={qact} />)}
       </details>
@@ -539,6 +585,7 @@ function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock
         <span>
           {changed ? `選択: ${model}／${effort}（未受理。次のターンから適用）　` : ""}
           受理済み: {settings ? (accepted ? `${accepted.model}／${accepted.effort ?? "既定"}` : showKnown(settings.accepted)) : "未確認"}
+          {!accepted ? "（Codex が会話の設定を通知するまで、受理は確認できません）" : ""}
         </span>
       </div>
     </div>

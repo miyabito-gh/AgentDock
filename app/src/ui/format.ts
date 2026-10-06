@@ -45,7 +45,7 @@ export const STOP_LABEL: Record<StopSummary, string> = {
 };
 
 /** 保留の対象の一覧（名前・状態・鮮度）。状態と鮮度は別軸のまま並べる。 */
-const targetList = (ts: HoldTarget[], nameOf: (a: AgentKey) => string): string =>
+export const targetList = (ts: HoldTarget[], nameOf: (a: AgentKey) => string): string =>
   ts.map((t) => `${nameOf(t.agent)}（${STATE[t.state].t}／${FRESH[t.freshness].t}）`).join("、");
 
 /** 自動送信を待っている理由。対象があるものは対象も示す（§3.7）。 */

@@ -285,7 +285,8 @@ export default function App() {
 
   const selectChat = (id: string | null) => {
     setSelId(id);
-    if (live && id) void loadChat(id);
+    // 履歴のないチャット（記録だけの表示）は、読み込みを試みない。
+    if (live && id && !snap.chats.find((c) => c.key.id === id)?.noHistory) void loadChat(id);
   };
 
   const changeScenario = async (name: string) => {
@@ -382,6 +383,14 @@ export default function App() {
     resume: () => {
       if (!chat || !live) return;
       host.resumeQueue(chat.key).then(() => say("キューを再開しました。条件がそろえば、登録順に1件ずつ送ります。")).catch((e) => sayErr("キューを再開できませんでした", e));
+    },
+    recheck: () => {
+      if (!chat || !live) return;
+      host.recheckQueueState(chat.key).then(() => say("子孫の履歴を再確認しました。終端を確認できていれば、まもなく自動で送信に進みます。確認できなければ、保留のままです。")).catch((e) => sayErr("状態を再確認できませんでした", e));
+    },
+    sendNow: async (entry: string): Promise<boolean> => {
+      if (!chat || !live) return false;
+      try { await host.sendQueueEntryNow(chat.key, entry); say("先頭の依頼の送信を依頼しました。受理されたかどうかは、会話とキューの表示で確認してください。"); return true; } catch (e) { sayErr("今すぐ送れませんでした", e); return false; }
     },
     reconcile: (attempt: string) => {
       if (!chat || !live) return;
@@ -674,6 +683,32 @@ export default function App() {
     }).catch((e) => sayErr("ファイルを選択できませんでした", e));
   };
 
+  /** ピン留めの切替（ホストが chat.json へ保存する。再起動後も戻る）。 */
+  const togglePin = () => {
+    if (!chat) return;
+    const on = !chat.pinned;
+    if (!live) { updateSnap((s) => ({ ...s, chats: s.chats.map((c) => (c.key.id === chat.key.id ? { ...c, pinned: on } : c)) })); return; }
+    host.setPinned(chat.key, on).then(() => say(on ? "ピン留めしました。" : "ピン留めを外しました。")).catch((e) => sayErr("ピン留めを変更できませんでした", e));
+  };
+
+  /** チャット一覧を取り直す（読み取りのみ。再開・送信はしない）。 */
+  const refreshList = async () => {
+    if (!live) { say("この操作はモックでは動きません。"); return; }
+    try { const page = await host.listChats(); say(`一覧を更新しました（${page.items.length}件を取得）。`); } catch (e) { sayErr("一覧を更新できませんでした", e); }
+  };
+
+  /** 名前の変更。Codex が受け付けたと確認できたときだけダイアログを閉じる。失敗の理由は返してダイアログに残す。 */
+  const renameChat = async (chatId: string, name: string): Promise<string | null> => {
+    if (!live) return "モックでは動きません。";
+    const c = snap.chats.find((x) => x.key.id === chatId);
+    if (!c) return "チャットが見つかりません。";
+    try {
+      const out = await host.renameChat(c.key, name);
+      if (out.kind !== "done") return "名前の変更を確認できませんでした。";
+      setDialog(null); say("名前を変更しました。"); return null;
+    } catch (e) { return host.asIpcError(e).message; }
+  };
+
   const act = (a: string) => {
     if (a.startsWith("unv:")) { setDialog({ type: "unv", why: a.slice(4) }); return; }
     if (a.startsWith("settings:")) { setDialog({ type: "settings", tab: a.split(":")[1] }); return; }
@@ -694,6 +729,10 @@ export default function App() {
       case "unarchiveChat": archiveOp(false); break;
       case "exportMd": openExport(); break;
       case "deleteChat": openDelete(); break;
+      case "togglePin": togglePin(); break;
+      case "renameChat": if (chat) setDialog({ type: "rename", chatId: chat.key.id }); break;
+      case "refreshList": void refreshList(); break;
+      case "reloadHistory": if (chat && live) { void loadChat(chat.key.id); say("保存履歴を取り直しています（読み取りのみ）。"); } break;
       case "attachPick": void pickFiles(); break;
       case "attachPasteSelection": void pasteSelection(); break;
       case "interrupt": void interrupt(); break;
@@ -719,7 +758,7 @@ export default function App() {
 
   const checked = {
     toggleLeft: narrow() ? lNarrow : leftOpen, toggleRight: narrow() ? rNarrow : rightOpen, toggleMini: mini,
-    toggleDone: scope.kind === "allChats" && scope.showFinished, toggleMainTop: mainTop, toggleMiniTop: miniTop,
+    toggleDone: scope.kind === "allChats" && scope.showFinished, toggleMainTop: mainTop, toggleMiniTop: miniTop, togglePin: !!chat?.pinned,
   };
 
   // 確認済みの失敗。実接続ではホストの記録（chatLocals）と現在の失敗turnの一致で判定し、左一覧と揃える。モックは画面内の集合。
@@ -803,7 +842,7 @@ export default function App() {
             usage: { ...usage, reload: loadUsage },
           }}
           exe={{ path: exePath, setPath: setExePath, placeholder: DEFAULT_EXE, connect: retryLaunch, browse: browseExe, openDiag: () => { host.openDiagDir().then((p) => say(`診断ログの場所: ${p}`)).catch((e) => sayErr("診断ログの場所を開けませんでした", e)); }, live: live && snap.sources.every((s) => s.connection.kind !== "connected") }}
-          onCreateChat={(i) => void createChat(i)}
+          onCreateChat={(i) => void createChat(i)} onRename={renameChat}
           setTab={(t) => setDialog({ type: "settings", tab: t })} onAct={act} />
       ) : null}
       {dragging ? <div className="dropzone" role="status">ここにドロップすると、このチャット用にコピーして添付します（元のファイルは変更しません。フォルダは添付できません）</div> : null}

@@ -223,6 +223,15 @@ fn convert_known(method: &str, p: &Value, ctx: &EventCtx, live: &dyn Fn(Option<U
             };
             vec![BackendEvent::ChatMetaChanged { chat: chat_key(id), change }]
         }
+        "thread/settings/updated" => {
+            // 会話に設定されたモデル・推論の強さ（turn/startで指定した値の受理を確認できる根拠）。
+            let (Some(tid), Some(settings)) = (s(p, "threadId"), p.get("threadSettings")) else { return missing("threadId/threadSettings") };
+            let Some(model) = s(settings, "model") else { return missing("threadSettings.model") };
+            vec![BackendEvent::ModelAccepted {
+                agent: agent_key(tid),
+                choice: ModelChoice { model: model.to_string(), effort: s(settings, "effort").map(str::to_string) },
+            }]
+        }
         "model/rerouted" => {
             let (Some(tid), Some(to)) = (s(p, "threadId"), s(p, "toModel")) else { return missing("threadId/toModel") };
             vec![BackendEvent::ModelRerouted {

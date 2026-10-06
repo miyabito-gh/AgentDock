@@ -52,7 +52,10 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge }: {
   return (
     <>
       <div className="left-top">
-        <button className="btn-line" onClick={() => onAct("newChat")}><Icon name="plus" />新しいチャット</button>
+        <div style={{ display: "flex", gap: 4 }}>
+          <button className="btn-line grow" onClick={() => onAct("newChat")}><Icon name="plus" />新しいチャット</button>
+          <button className="btn-line" title="チャット一覧を Codex から取り直します（読み取りのみ）" aria-label="一覧を更新" onClick={() => onAct("refreshList")}>更新</button>
+        </div>
         <input type="search" placeholder="名前で検索" aria-label="チャットを名前で検索" value={query} onChange={(e) => setQuery(e.target.value)} />
         <label className="small"><input type="checkbox" checked={inclArch} onChange={(e) => setInclArch(e.target.checked)} />アーカイブも含める</label>
       </div>

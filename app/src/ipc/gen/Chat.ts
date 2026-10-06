@@ -20,4 +20,8 @@ pinned: boolean, archived: Known<boolean>, origin: ChatOrigin, draft: string | n
 /**
  * ユーザーの利用で更新する最近利用時刻（背景活動では更新しない、§3.6）。
  */
-lastUsedAt: UnixMillis | null, };
+lastUsedAt: UnixMillis | null, 
+/**
+ * バックエンドに履歴がない（発話前のチャットなど、バックエンドの一覧・読取りに現れない）。アプリの記録だけから出している表示。
+ */
+noHistory: boolean, };

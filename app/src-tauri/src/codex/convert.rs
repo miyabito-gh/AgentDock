@@ -251,6 +251,7 @@ pub fn thread_to_chat(t: &WireThread, app_data_dir: Option<&str>, archived: Know
             None => Known::Missing,
         },
         last_used_at: None,
+        no_history: false,
     }
 }
 

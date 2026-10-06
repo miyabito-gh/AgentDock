@@ -438,6 +438,9 @@ pub struct Chat {
     pub created_at: Known<UnixMillis>,
     /// ユーザーの利用で更新する最近利用時刻（背景活動では更新しない、§3.6）。
     pub last_used_at: Option<UnixMillis>,
+    /// バックエンドに履歴がない（発話前のチャットなど、バックエンドの一覧・読取りに現れない）。アプリの記録だけから出している表示。
+    #[serde(default)]
+    pub no_history: bool,
 }
 
 /// 直接親の関係（M03）。深さから推定しない。

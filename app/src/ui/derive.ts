@@ -34,6 +34,7 @@ export const stopOpen = (r: StopRecord): boolean => r.targets.some((t) => t.summ
 export function chatStatusText(s: HostSnapshot, c: Chat): string {
   if (chatRequests(s, c).length) return "対応待ち";
   const root = rootView(s, c);
+  if (c.noHistory) return "履歴なし（Codex に記録なし）";
   if (!root) return "状態不明";
   const childFail = chatAgents(s, c).some((a) => a.agent.parent.kind !== "root" && a.status.state === "failed");
   if (root.status.state === "running" && childFail) return "作業中・子の失敗あり";

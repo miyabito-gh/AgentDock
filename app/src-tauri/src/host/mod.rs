@@ -421,7 +421,7 @@ impl Host {
 
     // ── 一覧・履歴 ──
 
-    pub async fn list_chats(&self, args: ListChatsArgs) -> Result<Page<ChatSummary>, IpcError> {
+    pub async fn list_chats(self: &Arc<Self>, args: ListChatsArgs) -> Result<Page<ChatSummary>, IpcError> {
         let query = ListChatsQuery {
             cursor: args.cursor,
             limit: Some(args.limit.unwrap_or(LIST_DEFAULT_LIMIT)),
@@ -430,7 +430,10 @@ impl Host {
             include_external: true,
             include_descendants: false,
         };
+        // 先頭から最後までを1回で取れた通常の一覧だけが「バックエンドにない」の根拠になる（検索・続きのページ・アーカイブ側では判断しない）。
+        let complete = query.cursor.is_none() && query.search.is_none() && !query.archived;
         let page = self.backend.list_chats(query).await?;
+        let listed: HashSet<ChatKey> = page.items.iter().map(|s| s.chat.key.clone()).collect();
         self.mutate(|d| {
             let mut ev = Vec::new();
             for s in &page.items {
@@ -439,6 +442,12 @@ impl Host {
             }
             ((), ev)
         });
+        for k in &listed {
+            self.refresh_cached_meta(k);
+        }
+        if complete && page.next_cursor.is_none() {
+            self.add_unlisted_hosted_chats(&listed).await;
+        }
         Ok(page)
     }
 
@@ -493,13 +502,14 @@ impl Host {
         };
         let key = started.chat.key.clone();
         self.adopt_general_workspace(&key, &area);
-        if area.is_some() || args.model.is_some() || args.permission.is_some() {
-            // 作業領域とチャットの結び付き、チャット別のモデル・権限を保存する。
-            self.update_local(&key, false, Duration::ZERO, |f| {
-                f.model = args.model.clone();
-                f.permission = args.permission;
-            });
-        }
+        // 作業領域とチャットの結び付き、チャット別のモデル・権限、アプリ管理の印と一覧用の表示記録を保存する。
+        let meta = persist::cached_meta_of(&started.chat, now_ms());
+        self.update_local(&key, false, Duration::ZERO, |f| {
+            f.model = args.model.clone();
+            f.permission = args.permission;
+            f.hosted = true;
+            f.cached_meta = Some(meta);
+        });
         let now = now_ms();
         let settings = ChatModelSettings {
             selected: args.model.clone(),
@@ -558,12 +568,15 @@ impl Host {
     async fn ensure_live(self: &Arc<Self>, chat: &ChatKey, confirmed: &UserConfirmed) -> Result<(), IpcError> {
         match self.read(|d| d.root_view(chat).map(|v| v.freshness)) {
             Some(Freshness::Live) => return Ok(()),
+            None if self.read(|d| d.chat(chat).is_some_and(|c| c.no_history)) => {
+                return Err(err(IpcErrorCode::NotFound, "Codex に履歴がないため、このチャットには送信できません（発話前のチャットは、再起動後に再開できない場合があります）"))
+            }
             None => return Err(err(IpcErrorCode::NotFound, "チャットが一覧にありません")),
             _ => {}
         }
         match self.backend.resume(chat.clone(), confirmed).await? {
-            ResumeOutcome::Resumed { history } => {
-                self.apply_resumed(history);
+            ResumeOutcome::Resumed { history, accepted_model } => {
+                self.apply_resumed(chat, history, accepted_model);
                 Ok(())
             }
             ResumeOutcome::RunningElsewhere => Err(blocked(BlockedReason::RunningElsewhere, "外部で実行中のため、この会話には送信できません")),
@@ -571,22 +584,83 @@ impl Host {
         }
     }
 
-    fn apply_resumed(&self, history: AgentHistory) {
+    /// ユーザー操作での再開の結果を反映する。外部で作られた会話の origin は変えず、アプリ管理の印も付けない
+    /// （再開済みはliveの間だけ。再起動・再接続後は外部扱いに戻り、再開確認が再び要る。§3.6）。
+    fn apply_resumed(self: &Arc<Self>, chat: &ChatKey, history: AgentHistory, accepted_model: Known<ModelChoice>) {
         self.mutate(|d| {
-            // 再開した外部会話の origin は変えない（UIは鮮度で送信可否を判断し、バナーを「再開済み」にする）。
             let mut ev = Vec::new();
             if let Some(c) = &history.chat {
                 ev.extend(d.upsert_chat(c.clone()));
             }
             ev.extend(d.set_live(history.agent, history.status));
+            // 応答が示した会話のモデル設定を「受理した設定」として記録する（示されなければ未取得のまま）。
+            if let Known::Value { value, .. } = accepted_model {
+                ev.extend(d.note_accepted_model(chat, value));
+            }
             ((), ev)
         });
     }
 
+    /// 一覧の取得後、アプリ管理の会話の表示記録（名前・作業フォルダ）が変わっていれば書き直す。
+    fn refresh_cached_meta(self: &Arc<Self>, chat: &ChatKey) {
+        let meta = self.read(|d| {
+            if !d.hosted.contains(chat) {
+                return None;
+            }
+            let c = d.chat(chat).filter(|c| !c.no_history)?;
+            let m = persist::cached_meta_of(c, now_ms());
+            match d.locals.get(chat) {
+                Some(l) if l.cached_meta.as_ref().is_none_or(|o| !persist::same_cached_meta(o, &m)) => Some(m),
+                _ => None,
+            }
+        });
+        if let Some(m) = meta {
+            self.update_local(chat, false, Duration::from_millis(500), |f| f.cached_meta = Some(m));
+        }
+    }
+
+    /// バックエンドの一覧に載らないアプリ管理の会話（発話前のチャットなど）を、記録から一覧へ出す。
+    /// バックエンドが履歴の読取りを明示的に拒否したときだけ「履歴なし」として出す。読めた会話は通常どおり反映し、
+    /// 取得できなかった（通信断など）ものは何も出さず、次の更新で再試行する。
+    async fn add_unlisted_hosted_chats(self: &Arc<Self>, listed: &HashSet<ChatKey>) {
+        let cands: Vec<ChatKey> = self.read(|d| {
+            d.hosted
+                .iter()
+                .filter(|k| !listed.contains(*k) && d.chat(k).is_none())
+                .filter(|k| d.locals.get(*k).is_some_and(|l| matches!(l.visibility, crate::backend::local::ListVisibility::Visible) && l.delete_pending.is_none() && l.cached_meta.is_some()))
+                .cloned()
+                .collect()
+        });
+        for k in cands {
+            match self.backend.read(agent_key_of(&k), ReadOptions { include_turns: false }).await {
+                Ok(h) => {
+                    self.mutate(|d| {
+                        let mut ev = Vec::new();
+                        if let Some(c) = &h.chat {
+                            ev.extend(d.upsert_chat(c.clone()));
+                        }
+                        ev.extend(d.upsert_history_agent(h.agent.clone(), h.status.clone()));
+                        ((), ev)
+                    });
+                }
+                Err(BackendError::Rejected { .. }) => {
+                    self.mutate(|d| {
+                        let Some(chat) = d.locals.get(&k).and_then(|l| persist::chat_from_record(&k, l)) else { return ((), vec![]) };
+                        if d.chat(&k).is_some() {
+                            return ((), vec![]);
+                        }
+                        ((), d.upsert_chat(chat))
+                    });
+                }
+                Err(_) => {}
+            }
+        }
+    }
+
     pub async fn resume_chat(self: &Arc<Self>, args: ResumeChatArgs, confirmed: &UserConfirmed) -> Result<ResumeOutcome, IpcError> {
         let out = self.backend.resume(args.chat.clone(), confirmed).await?;
-        if let ResumeOutcome::Resumed { history } = &out {
-            self.apply_resumed(history.clone());
+        if let ResumeOutcome::Resumed { history, accepted_model } = &out {
+            self.apply_resumed(&args.chat, history.clone(), accepted_model.clone());
             let host = self.clone();
             let root = agent_key_of(&args.chat);
             host.start_scan(root);

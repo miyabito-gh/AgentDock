@@ -14,7 +14,8 @@ export type DialogState =
   | { type: "export"; chatId: string }
   | { type: "unv"; why: string }
   | { type: "attach" }
-  | { type: "resumeExternal"; chatId: string };
+  | { type: "resumeExternal"; chatId: string }
+  | { type: "rename"; chatId: string };
 
 function Shell({ title, children, foot, wide, onClose }: { title: string; children: ReactNode; foot?: ReactNode; wide?: boolean; onClose: () => void }) {
   return (
@@ -205,9 +206,32 @@ function ForceDialog({ f, chats, onClose }: { f: ForceProps; chats: Chat[]; onCl
     </Shell>);
 }
 
+/** 名前の変更。Codex に反映できたと確認できたときだけ閉じる（失敗は理由を残す）。 */
+function RenameDialog({ chat, onClose, run }: { chat: Chat | undefined; onClose: () => void; run: (name: string) => Promise<string | null> }) {
+  const [name, setName] = useState(chat ? chatName(chat) : "");
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const go = async () => {
+    setBusy(true); setErr(null);
+    const e = await run(name.trim());
+    setBusy(false);
+    if (e) setErr(e);
+  };
+  return (
+    <Shell title="名前を変更" onClose={onClose} foot={<><button className="btn-line" onClick={onClose}>キャンセル</button><button className="btn-main" disabled={busy || !name.trim()} onClick={() => void go()}>{busy ? "変更しています…" : "変更"}</button></>}>
+      <div className="content">
+        <input type="text" style={{ width: "100%" }} value={name} onChange={(e) => setName(e.target.value)} aria-label="チャットの名前" autoFocus />
+        {err ? <div className="why err" style={{ marginTop: 4 }}>{err}</div> : null}
+        <p className="small muted">Codex 側の名前を変更します。変更を確認できるまで、表示は変わりません。</p>
+      </div>
+    </Shell>
+  );
+}
+
 export interface NewChatInput { cwd: string | null; model: string; firstMessage: string | null }
 
-export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnterMode, top, setTab, onAct, exe, onCreateChat, notify, autostart, quit, force, manage }: {
+export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnterMode, top, setTab, onAct, exe, onCreateChat, notify, autostart, quit, force, manage, onRename }: {
+  onRename: (chatId: string, name: string) => Promise<string | null>;
   autostart: AutostartProps; quit: QuitProps; force: ForceProps; manage: ManageProps;
   notify: NotifyProps;
   d: DialogState; onClose: () => void; chats: Chat[]; source: SourceInfo | undefined; models: ModelInfo[];
@@ -237,6 +261,7 @@ export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnter
           <div className="field"><span>最初の依頼</span><textarea value={first} onChange={(e) => setFirst(e.target.value)} rows={3} style={{ width: "100%" }} placeholder="空欄なら、チャットだけ作成します" aria-label="最初の依頼" /></div>
         </div>
       </Shell>);
+    case "rename": return <RenameDialog chat={chats.find((x) => x.key.id === d.chatId)} onClose={onClose} run={(n) => onRename(d.chatId, n)} />;
     case "quit": return <QuitDialog q={quit} chats={chats} onClose={onClose} onAct={onAct} />;
     case "force": return <ForceDialog f={force} chats={chats} onClose={onClose} />;
     case "delete": {
