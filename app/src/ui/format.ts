@@ -62,6 +62,8 @@ export function holdText(h: QueueHold, nameOf: (a: AgentKey) => string): string 
     case "acceptanceUnknown": return "受理不明の依頼があるため保留（履歴との照合を待っています）";
     case "deletePending": return "削除保留中のため、送信を止めています";
     case "disconnected": return "接続が切れているため保留（再接続後に判断します）";
+    case "quitting": return "完全終了の手順中のため、新しい送信を始めていません";
+    case "saveFailed": return "送信前の保存に失敗したため、送っていません。保存を再試行して成功してから送ります";
   }
 }
 
@@ -75,6 +77,7 @@ export function stopCauseText(c: QueueStopCause, nameOf: (a: AgentKey) => string
     case "sendRejected": return "依頼の送信が受け付けられなかったため、後続の送信を止めています";
     case "notAcceptedAfterReconcile": return "履歴に受理の痕跡がない依頼があるため、後続の送信を止めています";
     case "attachmentUnavailable": return `添付「${c.name}」を使えないため、依頼を送らずに後続の送信を止めています（送信は試みていません）`;
+    case "appServerKilled": return "強制終了でCodexのプロセスが消えたため、送信済みの依頼の完了を確認できないまま後続の送信を止めています（完了とは扱っていません）";
   }
 }
 

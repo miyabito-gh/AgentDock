@@ -17,7 +17,7 @@ use crate::backend::ipc::*;
 use crate::backend::local::*;
 use crate::backend::model::*;
 use crate::host::state::HostData;
-use crate::store::records::{AppSettingsFile, ChatLocalFile};
+use crate::store::records::{ActivityLine, AppSettingsFile, ChatLocalFile};
 use crate::store::{layout, Restored, Store, StoreError, AUTO_RETRY_LIMIT, DRAFT_DEBOUNCE_MS};
 
 /// 保存の呼出しに必要な共有状態。
@@ -28,11 +28,21 @@ pub struct Persist {
     /// 単位ごとの世代。新しい保存要求が入ったら進め、古いtaskの結果が新しい状態を「保存済み」にしないようにする。
     generation: Mutex<HashMap<SaveScope, u64>>,
     counter: AtomicU64,
+    /// 監視活動（`activity.jsonl`）の追記を、書込みtaskへ順に渡す口。taskを始めるまで（保存先なし・テスト）は捨てる。
+    activity_tx: std::sync::OnceLock<tokio::sync::mpsc::UnboundedSender<(ChatKey, ActivityLine)>>,
 }
 
 impl Persist {
     pub fn new(store: Option<Arc<Store>>) -> Self {
-        Persist { store, io_lock: Mutex::new(()), generation: Mutex::new(HashMap::new()), counter: AtomicU64::new(1) }
+        Persist { store, io_lock: Mutex::new(()), generation: Mutex::new(HashMap::new()), counter: AtomicU64::new(1), activity_tx: std::sync::OnceLock::new() }
+    }
+
+    pub(super) fn submit_activity(&self, lines: Vec<(ChatKey, ActivityLine)>) {
+        if let Some(tx) = self.activity_tx.get() {
+            for l in lines {
+                let _ = tx.send(l);
+            }
+        }
     }
 
     pub fn enabled(&self) -> bool {
@@ -293,7 +303,7 @@ impl Host {
         self.set_status(&scope, SaveState::Unsaved, None, retries);
         let gen = self.persist.bump(&scope);
         let host = self.clone();
-        tokio::spawn(async move {
+        let task = async move {
             if !delay.is_zero() {
                 tokio::time::sleep(delay).await;
                 if !host.persist.is_current(&scope, gen) {
@@ -301,7 +311,13 @@ impl Host {
                 }
             }
             host.run_save(scope, gen, true).await;
-        });
+        };
+        // 窓イベントはtokioランタイム外（メインスレッド）から届くため、ランタイムが無ければTauriのものを使う。
+        if tokio::runtime::Handle::try_current().is_ok() {
+            tokio::spawn(task);
+        } else {
+            tauri::async_runtime::spawn(task);
+        }
     }
 
     /// 書き終えるまで待つ保存（送信前に Sending を保存してから送る、など。再試行の待ちはしない）。
@@ -382,6 +398,60 @@ impl Host {
             let gen = self.persist.bump(&scope);
             self.clone().run_save(scope, gen, false).await;
         }
+    }
+
+    // ── 監視活動の追記（M5） ──
+
+    /// 監視活動の書込みtaskを始める（イベントpump開始時に1回。保存先が使えないときは何もしない）。
+    /// 行は届いた順に1本のtaskで追記する。失敗しても監視は止めず、失敗が続く間は1回だけ警告する（その区間の記録は欠ける）。
+    pub(super) fn start_activity_writer(self: &Arc<Self>) {
+        if !self.persist.enabled() {
+            return;
+        }
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        if self.persist.activity_tx.set(tx).is_err() {
+            return;
+        }
+        let host = self.clone();
+        tokio::spawn(async move {
+            let mut failing = false;
+            while let Some(first) = rx.recv().await {
+                let mut batch = vec![first];
+                while batch.len() < 200 {
+                    match rx.try_recv() {
+                        Ok(x) => batch.push(x),
+                        Err(_) => break,
+                    }
+                }
+                let h = host.clone();
+                let res = tokio::task::spawn_blocking(move || h.append_activity_batch(batch)).await.unwrap_or_else(|e| Err(StoreError::Io(std::io::Error::other(e.to_string()))));
+                match res {
+                    Ok(()) => failing = false,
+                    Err(e) => {
+                        if !failing {
+                            failing = true;
+                            host.warn(format!("監視活動の履歴を保存できませんでした（この間の記録は欠けます）: {}", save_failure_message(&e)));
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    /// 追記（書込みの直列化ロックの中で行う）。削除中・削除済みのチャットには書かない（領域を作り直さない）。
+    fn append_activity_batch(&self, batch: Vec<(ChatKey, ActivityLine)>) -> Result<(), StoreError> {
+        let store = self.persist.store.as_ref().ok_or_else(|| StoreError::Io(std::io::Error::other("保存先が使えません")))?;
+        let _g = self.persist.io_lock.lock().unwrap_or_else(|e| e.into_inner());
+        let mut first_err = None;
+        for (chat, line) in batch {
+            if self.manage_rt.is_deleting(&chat) || !self.read(|d| d.chat(&chat).is_some() || d.locals.contains_key(&chat)) {
+                continue;
+            }
+            if let Err(e) = store.append_activity(&chat, &line) {
+                first_err.get_or_insert(e);
+            }
+        }
+        first_err.map_or(Ok(()), Err)
     }
 
     // ── IPC ──

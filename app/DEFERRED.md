@@ -39,3 +39,8 @@ T4検証（2026-10-05）で見つかった、段階①では対応しない項�
 - 旧IPC `manage_chat{Archive}` はCodex未反映でもDoneを返す（UI未使用）
 - ドックの確認済みはモック時のみ画面内Set
 - 通知のクリック・AUMID、自動起動、トレイ、D&D、ダイアログはNSIS導入後の実機で確認
+- R2-L6 手動送信は送信前に記録を保存しない。送信中に落ちると再起動後に受理不明の記録が残らず照合・送信抑止が効かない（再送はユーザー操作のみ）。`unresolved_sends` へ Sending 相当を先に保存する（P8では未対応）
+- R2-L7 保存形式にCodex固有の名前が入っている（`AppSettings.codex_executable`、削除工程の印 `BACKEND_DONE` の表示文）。`executables: {backend → path}` と列挙値（例 `DeleteStep::BackendHistory`）へ分け、表示文はUIで作る（保存形式の移行を伴うため持ち越し）
+- R2-H3 補足: 状態不明（notLoaded）の終端確認は背景で10秒間隔・1周期8件まで。起動直後の十数秒は終了確認に未確認のチャットが並びうる（削除は実行時に強制確認する）。確認済みの結果は新しいturnが来るまで読み直さない
+- 終了手順のflush_pendingは監視活動（activity.jsonl）の未書込み分を待たない。終了直前の数行が欠けうる
+- 切断時にrunning_turn等を接続全体で消している。監視元が複数になったら監視元単位に見直す

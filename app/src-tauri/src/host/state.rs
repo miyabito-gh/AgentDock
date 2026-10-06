@@ -14,7 +14,7 @@ use crate::backend::ipc::*;
 use crate::backend::local::{AppSettings, ChatMarks, SaveScope, SaveStatus};
 use crate::backend::model::*;
 use crate::rules::notify::NotifyInput;
-use crate::store::records::{ChatLocalFile, QueueFile};
+use crate::store::records::{ActivityLine, ChatLocalFile, QueueFile};
 
 /// イベント適用後にホストが非同期で行う追加作業（reducer内では待たない）。
 #[derive(Debug, Clone, PartialEq)]
@@ -23,6 +23,17 @@ pub enum Followup {
     ScanDescendants(AgentKey),
     /// 会話で作られたファイルの候補。実在を確認できたものだけ成果物にする（ファイルを読むので別taskで行う）。
     ObserveArtifact { agent: AgentKey, item: ItemKey, path: String },
+}
+
+/// 履歴の読取りで確認した、最新turnの末尾の様子（状態が不明のエージェントを未完了と数えるかの根拠）。
+#[derive(Debug, Clone, PartialEq)]
+pub enum HistoryTail {
+    /// turnがまだない。
+    NoTurns,
+    /// 最新turnの終端（完了・失敗・中断）を確認した。
+    Ended(ExternalId, TurnEnd),
+    /// 最新turnが進行中のまま、または終端を判別できない（外部で実行中の可能性）。
+    NotTerminal,
 }
 
 pub struct HostData {
@@ -59,6 +70,12 @@ pub struct HostData {
     failed_seen: HashSet<AgentKey>,
     /// 通知の入力（ホストが `mutate` の直後に取り出して `Notifier` へ渡す）。
     pub notify_inbox: Vec<NotifyInput>,
+    /// 状態が不明（notLoaded等）で live でないエージェントについて、履歴の読取りで確認した最新turnの末尾。liveになる・新しいturnで無効にする。
+    pub history_terminal: HashMap<AgentKey, (HistoryTail, UnixMillis)>,
+    /// wake後の照合に成功し、まだ live 通知を受けていないエージェント（照合を終えた時刻）。切断・新しい接続で破棄する。
+    wake_reconciled: HashMap<AgentKey, UnixMillis>,
+    /// 監視活動履歴（`activity.jsonl`）へ追記する行（ホストが `mutate` の直後に取り出す）。
+    pub activity_outbox: Vec<(ChatKey, ActivityLine)>,
 }
 
 impl Default for HostData {
@@ -86,6 +103,9 @@ impl Default for HostData {
             nonterminal_seen: HashSet::new(),
             failed_seen: HashSet::new(),
             notify_inbox: Vec::new(),
+            history_terminal: HashMap::new(),
+            wake_reconciled: HashMap::new(),
+            activity_outbox: Vec::new(),
         }
     }
 }
@@ -191,6 +211,99 @@ impl HostData {
         self.stops.iter().find(|r| &r.chat == chat && r.blocks_deletion())
     }
 
+    // ── 履歴で確認した末尾・監視活動の記録・wake後の復帰 ──
+
+    /// 状態が不明のエージェントの最新turnの末尾を、履歴の読取り結果として記録する。
+    pub fn note_history_tail(&mut self, agent: &AgentKey, tail: HistoryTail, now: UnixMillis) {
+        self.history_terminal.insert(agent.clone(), (tail, now));
+    }
+
+    /// 状態が不明のエージェントのうち、履歴で終端（またはturnなし）を確認できたもの。未完了と数えない。
+    /// 最新turnが記録と食い違う（新しいturnが始まった）ときは根拠にしない。
+    pub fn unknown_confirmed_idle(&self, v: &AgentView) -> bool {
+        if v.status.state != AgentState::Unknown {
+            return false;
+        }
+        match self.history_terminal.get(&v.agent.key) {
+            Some((HistoryTail::NoTurns, _)) => v.agent.latest_turn.is_none(),
+            Some((HistoryTail::Ended(t, _), _)) => v.agent.latest_turn.as_ref().is_none_or(|l| l == t),
+            _ => false,
+        }
+    }
+
+    /// 履歴を読めたうえで、最新turnが進行中（終端を確認できない）の状態不明のエージェント。外部実行の可能性がある。
+    pub fn unknown_maybe_running(&self, v: &AgentView) -> bool {
+        v.status.state == AgentState::Unknown && matches!(self.history_terminal.get(&v.agent.key), Some((HistoryTail::NotTerminal, _)))
+    }
+
+    fn chat_of_agent(&self, a: &AgentKey) -> Option<ChatKey> {
+        self.view(a).map(|v| v.agent.chat.clone())
+    }
+
+    fn record_activity(&mut self, chat: ChatKey, line: ActivityLine) {
+        self.activity_outbox.push((chat, line));
+    }
+
+    fn record_status(&mut self, agent: &AgentKey, status: &AgentStatus, at: UnixMillis) {
+        if let Some(chat) = self.chat_of_agent(agent) {
+            let line = ActivityLine::StatusChanged {
+                at,
+                agent: agent.clone(),
+                state: status.state,
+                raw: status.raw.label.clone(),
+                turn: status.turn.clone(),
+                source: status.evidence.source,
+            };
+            self.record_activity(chat, line);
+        }
+    }
+
+    /// 鮮度を変えて記録する（変化があったときだけ）。
+    pub fn set_agent_freshness(&mut self, key: &AgentKey, to: Freshness, now: UnixMillis) -> Vec<HostEvent> {
+        let mut out = Vec::new();
+        let mut line = None;
+        if let Some(v) = self.view_mut(key) {
+            if v.freshness != to {
+                v.freshness = to;
+                out.push(HostEvent::AgentUpdated { view: v.clone() });
+                line = Some((v.agent.chat.clone(), ActivityLine::Freshness { at: now, agent: Some(key.clone()), freshness: to }));
+            }
+        }
+        if let Some((chat, l)) = line {
+            self.record_activity(chat, l);
+        }
+        out
+    }
+
+    /// wake後の照合の読み取りが成功した。以後、同じ接続でlive通知を受けたら live に戻す（H4）。
+    /// あわせて、照合が終わるまでの再観測を「非終端→終端」の通知にしない（L1）。
+    pub fn note_wake_reconciled(&mut self, agent: &AgentKey, at: UnixMillis) {
+        if self.view(agent).is_some_and(|v| v.freshness == Freshness::HistoryOnly) {
+            self.wake_reconciled.insert(agent.clone(), at);
+        }
+    }
+
+    /// wakeで要照合にしたエージェントの「非終端を観測した」印を外す（sleep中に終わったものを後から通知しない）。
+    pub fn forget_nonterminal(&mut self, agents: &[AgentKey]) {
+        for a in agents {
+            self.nonterminal_seen.remove(a);
+        }
+    }
+
+    /// 照合の後にlive通知を受けたエージェントを live に戻す。照合に成功していないもの・切断をまたいだものは戻さない。
+    fn restore_live_after_wake(&mut self, agent: &AgentKey, now: UnixMillis) -> Vec<HostEvent> {
+        match self.wake_reconciled.get(agent) {
+            Some(at) if now.0 > at.0 => {
+                self.wake_reconciled.remove(agent);
+                if self.view(agent).is_some_and(|v| v.freshness == Freshness::HistoryOnly) {
+                    return self.set_agent_freshness(agent, Freshness::Live, now);
+                }
+                Vec::new()
+            }
+            _ => Vec::new(),
+        }
+    }
+
     // ── 更新（呼び出し側が返ったイベントを発行する） ──
 
     pub fn set_source(&mut self, mut info: SourceInfo) -> Vec<HostEvent> {
@@ -203,6 +316,7 @@ impl HostData {
         if self.sources.iter().any(|s| s.source != info.source) {
             // 新しい接続。以前の購読は失われているので、ホスト管理の扱いも引き継がない。
             self.hosted.clear();
+            self.wake_reconciled.clear();
         }
         // 同じIDの仮の項目（接続通知が結果より先に届いた場合）も置き換える。残すと先頭の仮項目が表示される。
         self.sources.clear();
@@ -248,26 +362,38 @@ impl HostData {
     }
 
     /// 履歴・一覧から得た状態を反映する。live購読中のエージェントの状態は、古い可能性がある読み取りで上書きしない。
+    /// 子孫（ルート以外）の発見・状態変化は監視活動として記録する（一覧のルートは記録しない）。
     pub fn upsert_history_agent(&mut self, agent: Agent, status: AgentStatus) -> Vec<HostEvent> {
         let agent = self.with_assignment(agent);
         let key = agent.key.clone();
+        let is_root = matches!(agent.parent, ParentLink::Root);
+        let at = status.evidence.observed_at;
         let mut applied = None;
         if let Some(v) = self.view_mut(&key) {
             v.agent = agent;
+            let before = (v.status.state, v.status.turn.clone());
             if v.freshness != Freshness::Live {
                 applied = Some((status.state, status.turn.clone()));
-                v.status = status;
+                v.status = status.clone();
                 v.freshness = Freshness::HistoryOnly;
             }
+            let changed = applied.is_some() && before != (status.state, status.turn.clone());
             let mut out = vec![HostEvent::AgentUpdated { view: v.clone() }];
+            if changed && !is_root {
+                self.record_status(&key, &status, at);
+            }
             if let Some((state, turn)) = applied {
                 out.extend(self.note_state(&key, state, turn));
             }
             return out;
         }
         let (state, turn) = (status.state, status.turn.clone());
-        let view = AgentView { agent, status, freshness: Freshness::HistoryOnly, current_activity: None };
+        let view = AgentView { agent: agent.clone(), status: status.clone(), freshness: Freshness::HistoryOnly, current_activity: None };
         self.agents.push(view.clone());
+        if !is_root {
+            self.record_activity(agent.chat.clone(), ActivityLine::AgentSeen { at, agent });
+            self.record_status(&key, &status, at);
+        }
         let mut out = vec![HostEvent::AgentUpdated { view }];
         out.extend(self.note_state(&key, state, turn));
         out
@@ -277,31 +403,52 @@ impl HostData {
     pub fn set_live(&mut self, agent: Agent, status: AgentStatus) -> Vec<HostEvent> {
         let agent = self.with_assignment(agent);
         let key = agent.key.clone();
+        self.history_terminal.remove(&key);
+        self.wake_reconciled.remove(&key);
         if let Some(t) = &status.turn {
             if is_active(status.state) {
                 self.running_turn.insert(key.clone(), t.clone());
             }
         }
+        // 作業中でなければ、残っていた実行中turnの印を外す（切断・再起動をまたいだ死んだturnで送信を止めない）。
+        if !is_active(status.state) {
+            self.running_turn.remove(&key);
+        }
         let (state, turn) = (status.state, status.turn.clone());
+        let at = status.evidence.observed_at;
+        let is_new = self.view(&key).is_none();
+        let prev = self.view(&key).map(|v| (v.status.state, v.status.turn.clone(), v.freshness));
         let view = match self.view_mut(&key) {
             Some(v) => {
                 v.agent = agent;
-                v.status = status;
+                v.status = status.clone();
                 v.freshness = Freshness::Live;
                 v.clone()
             }
             None => {
-                let view = AgentView { agent, status, freshness: Freshness::Live, current_activity: None };
+                let view = AgentView { agent, status: status.clone(), freshness: Freshness::Live, current_activity: None };
                 self.agents.push(view.clone());
                 view
             }
         };
+        let chat = view.agent.chat.clone();
+        if is_new {
+            self.record_activity(chat.clone(), ActivityLine::AgentSeen { at, agent: view.agent.clone() });
+        }
+        if prev.as_ref().is_none_or(|(s, t, _)| (*s, t) != (state, &turn)) {
+            self.record_status(&key, &status, at);
+        }
+        if prev.as_ref().is_some_and(|(_, _, f)| *f != Freshness::Live) {
+            self.record_activity(chat, ActivityLine::Freshness { at, agent: Some(key.clone()), freshness: Freshness::Live });
+        }
         let mut out = vec![HostEvent::AgentUpdated { view }];
         out.extend(self.note_state(&key, state, turn));
         out
     }
 
     pub fn remove_chat(&mut self, chat: &ChatKey) -> Vec<HostEvent> {
+        self.history_terminal.retain(|a, _| a.id != chat.id);
+        self.wake_reconciled.retain(|a, _| a.id != chat.id);
         self.chats.retain(|c| &c.key != chat);
         self.agents.retain(|v| &v.agent.chat != chat);
         self.requests.retain(|r| &r.chat != chat);
@@ -341,8 +488,9 @@ impl HostData {
         out
     }
 
-    fn set_freshness_where(&mut self, agent: Option<&AgentKey>, to: Freshness, from: impl Fn(Freshness) -> bool) -> Vec<HostEvent> {
+    fn set_freshness_where(&mut self, agent: Option<&AgentKey>, to: Freshness, now: UnixMillis, from: impl Fn(Freshness) -> bool) -> Vec<HostEvent> {
         let mut out = Vec::new();
+        let mut lines = Vec::new();
         for v in &mut self.agents {
             if agent.is_some_and(|a| a != &v.agent.key) {
                 continue;
@@ -350,8 +498,10 @@ impl HostData {
             if from(v.freshness) && v.freshness != to {
                 v.freshness = to;
                 out.push(HostEvent::AgentUpdated { view: v.clone() });
+                lines.push((v.agent.chat.clone(), ActivityLine::Freshness { at: now, agent: Some(v.agent.key.clone()), freshness: to }));
             }
         }
+        self.activity_outbox.extend(lines);
         out
     }
 
@@ -435,6 +585,16 @@ impl HostData {
         let now = env.received_at;
         let mut out = Vec::new();
         let mut follow = Vec::new();
+        // wake後の照合に成功したエージェントが、その後にlive通知を受けたら live に戻す（自動のresumeはしない）。
+        let touched = match &env.event {
+            BackendEvent::AgentStatus { agent, .. } => Some(agent.clone()),
+            BackendEvent::TurnStarted { turn, .. } | BackendEvent::TurnEnded { turn, .. } => Some(turn.agent.clone()),
+            BackendEvent::Activity { activity } => Some(activity.key.agent.clone()),
+            _ => None,
+        };
+        if let Some(a) = touched {
+            out.extend(self.restore_live_after_wake(&a, now));
+        }
         match &env.event {
             BackendEvent::Connection { state } => {
                 match self.sources.iter_mut().find(|s| s.source == env.source) {
@@ -460,7 +620,12 @@ impl HostData {
                 }
                 if matches!(state, ConnectionState::Disconnected { .. }) {
                     // 状態は変えず、鮮度だけを切断にする（doneにもfailedにもしない）。
-                    out.extend(self.set_freshness_where(None, Freshness::Disconnected, |f| f != Freshness::Unsupported));
+                    out.extend(self.set_freshness_where(None, Freshness::Disconnected, now, |f| f != Freshness::Unsupported));
+                    // 切断で、実行中と分かっていたturnの印と、新しいturnの基準を外す（死んだturnが送信・追加指示・走査を止めない）。
+                    // 状態と鮮度は変えず、停止の証拠にもしない。wake後の照合の成立も無効にする。
+                    self.running_turn.clear();
+                    self.latest_turn_start.clear();
+                    self.wake_reconciled.clear();
                     let mut expired_chats = Vec::new();
                     for r in &mut self.requests {
                         if r.key.source == env.source && r.state == RequestState::Pending {
@@ -497,6 +662,7 @@ impl HostData {
                         freshness: Freshness::Live,
                         current_activity: None,
                     };
+                    self.record_activity(agent.chat.clone(), ActivityLine::AgentSeen { at: now, agent: agent.clone() });
                     self.agents.push(view.clone());
                     out.push(HostEvent::AgentUpdated { view });
                 } else if let Some(v) = self.view_mut(&agent.key) {
@@ -520,6 +686,10 @@ impl HostData {
                         }
                     } else if matches!(status.state, AgentState::Idle | AgentState::Done | AgentState::Failed | AgentState::Interrupted | AgentState::Closed) {
                         self.running_turn.remove(agent);
+                    }
+                    let changed = self.view(agent).is_none_or(|v| (v.status.state, &v.status.turn) != (status.state, &status.turn));
+                    if changed {
+                        self.record_status(agent, status, now);
                     }
                     let view = self.view_mut(agent).map(|v| {
                         v.status = status.clone();
@@ -554,6 +724,7 @@ impl HostData {
                 }
             }
             BackendEvent::TurnStarted { turn, .. } => {
+                self.history_terminal.remove(&turn.agent);
                 self.nonterminal_seen.insert(turn.agent.clone());
                 self.latest_turn_start.insert(turn.agent.clone(), turn.turn_id.clone());
                 self.running_turn.insert(turn.agent.clone(), turn.turn_id.clone());
@@ -574,6 +745,9 @@ impl HostData {
                 self.note_end(&turn.agent, turn.turn_id.clone(), *end, was_nonterminal);
                 let at = ev.source_time.unwrap_or(now);
                 self.last_end.insert(turn.agent.clone(), (turn.turn_id.clone(), *end, at));
+                if let Some(chat) = self.chat_of_agent(&turn.agent) {
+                    self.record_activity(chat, ActivityLine::TurnEnded { at, turn: turn.clone(), end: *end });
+                }
                 out.push(HostEvent::TurnUpdated { turn: turn.clone(), end: Some(*end) });
                 for r in &mut self.stops {
                     if stop::apply_turn_end(r, turn, *end, at, now) {
@@ -583,6 +757,11 @@ impl HostData {
             }
             BackendEvent::Activity { activity } => {
                 out.push(HostEvent::ActivityUpdated { activity: activity.clone() });
+                if matches!(activity.phase, ActivityPhase::Completed | ActivityPhase::Unconfirmed) {
+                    if let Some(chat) = self.chat_of_agent(&activity.key.agent) {
+                        self.record_activity(chat, ActivityLine::Activity { at: now, activity: activity.clone() });
+                    }
+                }
                 // サブエージェント関連のitem（spawn・待機・送信など）が来たら、子孫の監視を始める（既に動いていれば何もしない）。
                 if matches!(activity.kind, ActivityKind::SubAgent) {
                     if let Some(v) = self.view(&activity.key.agent) {
@@ -665,9 +844,9 @@ impl HostData {
             }),
             BackendEvent::Gap { scope, reason } => {
                 match scope {
-                    GapScope::Source => out.extend(self.set_freshness_where(None, Freshness::NeedsReconcile, |f| f == Freshness::Live)),
+                    GapScope::Source => out.extend(self.set_freshness_where(None, Freshness::NeedsReconcile, now, |f| f == Freshness::Live)),
                     GapScope::Agent { agent } => {
-                        out.extend(self.set_freshness_where(Some(agent), Freshness::NeedsReconcile, |f| f == Freshness::Live))
+                        out.extend(self.set_freshness_where(Some(agent), Freshness::NeedsReconcile, now, |f| f == Freshness::Live))
                     }
                 }
                 out.push(HostEvent::Warning { source: Some(env.source.clone()), message: format!("イベントの欠落の可能性: {reason}"), raw_label: Some("gap".into()) });
@@ -1036,5 +1215,102 @@ mod tests {
         d.apply_event(&env(1, 1, BackendEvent::Gap { scope: GapScope::Source, reason: "r".into() }), &caps());
         let v = d.root_view(&ck("root")).unwrap();
         assert_eq!((v.freshness, v.status.state), (Freshness::NeedsReconcile, AgentState::Running));
+    }
+
+    // ── P8（R2レビューの修正） ──
+
+    #[test]
+    fn disconnect_drops_dead_running_turns_and_set_live_clears_them_when_not_working() {
+        let mut d = HostData::default();
+        live_root(&mut d, AgentState::Idle);
+        d.apply_event(&env(1, 1, BackendEvent::TurnStarted { turn: tk("root", "t1"), evidence: evidence(EvidenceSource::LiveEvent, "x", UnixMillis(1)) }), &caps());
+        assert!(d.running_turn.contains_key(&ak("root")));
+        d.apply_event(&env(2, 2, BackendEvent::Connection { state: ConnectionState::Disconnected { message: None } }), &caps());
+        assert!(d.running_turn.is_empty(), "a dead turn must not block sending after reconnect");
+        assert_eq!(d.root_view(&ck("root")).unwrap().freshness, Freshness::Disconnected);
+        // 再開（resume）で作業中でない状態になれば、残っていた印も外れる。
+        d.running_turn.insert(ak("root"), ExternalId("t1".into()));
+        d.set_live(agent("root", true), status(AgentState::Idle, None, StateScope::Agent));
+        assert!(d.running_turn.is_empty());
+    }
+
+    #[test]
+    fn unknown_agent_is_unfinished_unless_history_confirms_an_end() {
+        let mut d = HostData::default();
+        d.upsert_history_agent(agent("root", true), status(AgentState::Unknown, None, StateScope::Agent));
+        let v = d.root_view(&ck("root")).unwrap().clone();
+        assert!(!d.unknown_confirmed_idle(&v), "nothing read: stays unfinished");
+        d.note_history_tail(&ak("root"), HistoryTail::NotTerminal, UnixMillis(5));
+        assert!(!d.unknown_confirmed_idle(&v) && d.unknown_maybe_running(&v));
+        d.note_history_tail(&ak("root"), HistoryTail::Ended(ExternalId("t1".into()), TurnEnd::Completed), UnixMillis(6));
+        assert!(d.unknown_confirmed_idle(&v) && !d.unknown_maybe_running(&v));
+        // 新しいturnが始まれば、確認は無効。
+        d.apply_event(&env(1, 7, BackendEvent::TurnStarted { turn: tk("root", "t2"), evidence: evidence(EvidenceSource::LiveEvent, "x", UnixMillis(7)) }), &caps());
+        assert!(!d.unknown_confirmed_idle(d.root_view(&ck("root")).unwrap()));
+    }
+
+    #[test]
+    fn history_only_returns_to_live_only_after_a_reconcile_and_a_later_live_event_on_the_same_connection() {
+        let mut d = HostData::default();
+        live_root(&mut d, AgentState::Running);
+        d.apply_event(&env(1, 1, BackendEvent::Gap { scope: GapScope::Source, reason: "wake".into() }), &caps());
+        d.upsert_history_agent(agent("root", true), status(AgentState::Running, Some("t1"), StateScope::Agent));
+        assert_eq!(d.root_view(&ck("root")).unwrap().freshness, Freshness::HistoryOnly);
+        // 照合に成功する前のlive通知では戻さない。
+        d.apply_event(&env(2, 10, BackendEvent::AgentStatus { agent: ak("root"), status: status(AgentState::Running, Some("t1"), StateScope::Turn) }), &caps());
+        assert_eq!(d.root_view(&ck("root")).unwrap().freshness, Freshness::HistoryOnly);
+        d.note_wake_reconciled(&ak("root"), UnixMillis(20));
+        // 照合と同時刻（以前）の通知でも戻さない。
+        d.apply_event(&env(3, 20, BackendEvent::AgentStatus { agent: ak("root"), status: status(AgentState::Running, Some("t1"), StateScope::Turn) }), &caps());
+        assert_eq!(d.root_view(&ck("root")).unwrap().freshness, Freshness::HistoryOnly);
+        d.apply_event(&env(4, 21, BackendEvent::AgentStatus { agent: ak("root"), status: status(AgentState::Running, Some("t1"), StateScope::Turn) }), &caps());
+        assert_eq!(d.root_view(&ck("root")).unwrap().freshness, Freshness::Live);
+        // 切断をまたいだ照合は無効（再接続後の通知だけでは戻さない）。
+        d.apply_event(&env(5, 30, BackendEvent::Gap { scope: GapScope::Source, reason: "wake".into() }), &caps());
+        d.upsert_history_agent(agent("root", true), status(AgentState::Running, Some("t1"), StateScope::Agent));
+        d.note_wake_reconciled(&ak("root"), UnixMillis(31));
+        d.apply_event(&env(6, 32, BackendEvent::Connection { state: ConnectionState::Disconnected { message: None } }), &caps());
+        d.apply_event(&env(7, 40, BackendEvent::AgentStatus { agent: ak("root"), status: status(AgentState::Running, Some("t1"), StateScope::Turn) }), &caps());
+        assert_ne!(d.root_view(&ck("root")).unwrap().freshness, Freshness::Live);
+    }
+
+    #[test]
+    fn wake_marked_agents_do_not_notify_when_they_are_read_as_ended_later() {
+        let mut d = HostData::default();
+        d.set_live(agent("c1", false), status(AgentState::Running, Some("t1"), StateScope::Turn));
+        d.notify_inbox.clear();
+        d.forget_nonterminal(&[ak("c1")]);
+        d.upsert_history_agent(agent("c1", false), status(AgentState::Done, Some("t1"), StateScope::Turn));
+        assert!(d.notify_inbox.is_empty(), "an end seen only after wake is not a notification");
+    }
+
+    #[test]
+    fn monitor_activity_is_queued_for_discovery_status_end_and_freshness_but_not_for_listed_roots() {
+        let mut d = HostData::default();
+        // 一覧のルートは記録しない。
+        d.upsert_history_agent(agent("root", true), status(AgentState::Idle, None, StateScope::Agent));
+        assert!(d.activity_outbox.is_empty());
+        live_root(&mut d, AgentState::Idle);
+        d.activity_outbox.clear();
+        d.apply_event(&env(1, 1, BackendEvent::AgentStatus { agent: ak("root"), status: status(AgentState::Running, Some("t1"), StateScope::Turn) }), &caps());
+        d.apply_event(&env(2, 2, BackendEvent::TurnEnded { turn: tk("root", "t1"), end: TurnEnd::Completed, error: None, evidence: evidence(EvidenceSource::LiveEvent, "x", UnixMillis(2)) }), &caps());
+        d.apply_event(&env(3, 3, BackendEvent::Connection { state: ConnectionState::Disconnected { message: None } }), &caps());
+        let kinds: Vec<&str> = d
+            .activity_outbox
+            .iter()
+            .map(|(_, l)| match l {
+                ActivityLine::StatusChanged { .. } => "status",
+                ActivityLine::TurnEnded { .. } => "end",
+                ActivityLine::Freshness { .. } => "fresh",
+                ActivityLine::AgentSeen { .. } => "seen",
+                ActivityLine::Activity { .. } => "act",
+            })
+            .collect();
+        assert_eq!(kinds, vec!["status", "end", "fresh"]);
+        // 同じ状態の再通知は記録しない。
+        d.activity_outbox.clear();
+        d.apply_event(&env(4, 4, BackendEvent::AgentStatus { agent: ak("root"), status: status(AgentState::Running, Some("t2"), StateScope::Turn) }), &caps());
+        d.apply_event(&env(5, 5, BackendEvent::AgentStatus { agent: ak("root"), status: status(AgentState::Running, Some("t2"), StateScope::Turn) }), &caps());
+        assert_eq!(d.activity_outbox.len(), 1);
     }
 }

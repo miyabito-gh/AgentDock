@@ -282,6 +282,8 @@ pub enum QueueStopCause {
     NotAcceptedAfterReconcile { entry: LocalId },
     /// 先頭項目の添付（コピー中・失敗・欠損など）を送信時に使えず、送らずに止めた。送信は試みていない。
     AttachmentUnavailable { entry: LocalId, name: String },
+    /// 強制終了でApp Serverのプロセスが消えたため、送信済みのturnの終端を確認できないまま止めた（完了扱いにしない）。
+    AppServerKilled { turn: TurnKey },
 }
 
 /// 保留の対象（表示用）。
@@ -313,6 +315,10 @@ pub enum QueueHold {
     AcceptanceUnknown { attempt: LocalId },
     DeletePending,
     Disconnected,
+    /// 完全終了の手順中のため、新しい送信を止めている。
+    Quitting,
+    /// 送信前の保存に失敗したため、送っていない。保存が成功するまで保留する。
+    SaveFailed,
 }
 
 /// キュー項目の状態。保留（Hold）は項目ではなくキュー全体に付く。

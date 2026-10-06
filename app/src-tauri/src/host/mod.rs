@@ -201,7 +201,11 @@ impl Host {
             }
         }
         let inbox = std::mem::take(&mut d.notify_inbox);
+        let activity = std::mem::take(&mut d.activity_outbox);
         drop(d);
+        if !activity.is_empty() {
+            self.persist.submit_activity(activity);
+        }
         if !inbox.is_empty() {
             self.notify_submit(inbox);
         }
@@ -225,6 +229,7 @@ impl Host {
 
     /// バックエンドのイベントを常にdrainする専用task。ここでは要求をawaitしない。
     pub fn start_event_pump(self: &Arc<Self>) {
+        self.start_activity_writer();
         self.start_queue_driver();
         self.start_manage_watch();
         self.spawn_recheck_files(None);
@@ -617,6 +622,9 @@ impl Host {
         if args.text.trim().is_empty() {
             return Err(err(IpcErrorCode::InvalidArgs, "メッセージが空です"));
         }
+        // このチャットの手動送信とキューの自動送信を同時に走らせない（再開から受理まで）。
+        let lock = self.queue_rt.send_lock(&args.chat);
+        let _send_guard = lock.lock().await;
         self.check_sendable(&args.chat)?;
         // 使えない添付（コピー中・失敗・欠損）やモデルが受けない入力があれば、再開（resume）より前に止める。
         let attachments = self.prepare_attachments(&args.chat, &args.attachments).await?;
@@ -658,6 +666,8 @@ impl Host {
     }
 
     pub async fn retry_send(self: &Arc<Self>, args: RetrySendArgs, confirmed: UserConfirmed) -> Result<SendAttempt, IpcError> {
+        let lock = self.queue_rt.send_lock(&args.chat);
+        let _send_guard = lock.lock().await;
         if self.unresolved.lock().unwrap().contains(&args.attempt) {
             return Err(blocked(BlockedReason::AcceptanceUnknown { attempt: args.attempt }, "受理を確認できるまで再送しません"));
         }
@@ -700,6 +710,10 @@ impl Host {
         };
         attempt.state = state;
         self.emit_send(&chat, &attempt);
+        if let SendState::Accepted { turn } = &attempt.state {
+            // 受理からそのturnの開始・終端を観測するまで、キューは親が作業中として保留する。
+            self.queue_rt.note_manual_accept(&chat, turn.turn_id.clone());
+        }
         if matches!(attempt.state, SendState::Accepted { .. }) {
             // 新しいturnで子孫が生まれ得る。キュー後続の判定に前の走査結果（完了）を残さず、読み取りだけの再走査を始める。
             let root = agent_key_of(&chat);

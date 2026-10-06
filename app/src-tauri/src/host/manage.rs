@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use super::lifecycle::work_of;
-use super::state::{agent_key_of, HostData};
+use super::state::{agent_key_of, HistoryTail, HostData};
 use super::{blocked, err, now_ms, stop, Host};
 use crate::backend::backend::*;
 use crate::backend::ipc::*;
@@ -93,10 +93,54 @@ impl Host {
         tokio::spawn(async move {
             loop {
                 tokio::time::sleep(MANAGE_TICK).await;
+                host.confirm_unknown_terminals(None, false).await;
                 host.drive_archives();
                 host.refresh_delete_pendings().await;
             }
         });
+    }
+
+    /// 状態が不明（notLoaded等）で live でないエージェントの最新turnの末尾を、履歴の読取りで確認する（読み取りのみ。resumeしない）。
+    /// 終端（またはturnなし）を確認できたものは、終了・削除・アーカイブの判断で未完了と数えない（`work_of`）。
+    /// 読めなかったものは何も記録せず、未完了のまま。`only` 指定はそのチャットだけ、`force` は確認済みも読み直す。
+    pub(super) async fn confirm_unknown_terminals(self: &Arc<Self>, only: Option<&ChatKey>, force: bool) {
+        if !self.is_connected() {
+            return;
+        }
+        let now = now_ms();
+        let limit = if only.is_some() { 64 } else { 8 };
+        let cands: Vec<AgentKey> = self.read(|d| {
+            d.agents
+                .iter()
+                .filter(|v| v.status.state == AgentState::Unknown && !matches!(v.freshness, Freshness::Live | Freshness::Unsupported))
+                .filter(|v| only.is_none_or(|c| &v.agent.chat == c))
+                .filter(|v| {
+                    force
+                        || match d.history_terminal.get(&v.agent.key) {
+                            None => true,
+                            // 進行中と読めたものは、終わったかを一定間隔で見直す。終端を確認済みのものは、新しいturnが来るまで読み直さない。
+                            Some((HistoryTail::NotTerminal, at)) => now.0 - at.0 >= 10_000,
+                            Some(_) => false,
+                        }
+                })
+                .map(|v| v.agent.key.clone())
+                .take(limit)
+                .collect()
+        });
+        for agent in cands {
+            let Ok(h) = self.backend.read(agent.clone(), ReadOptions { include_turns: true }).await else { continue };
+            let tail = match h.turns.last() {
+                None => HistoryTail::NoTurns,
+                Some(t) => match t.end {
+                    Some(end) => HistoryTail::Ended(t.key.turn_id.clone(), end),
+                    None => HistoryTail::NotTerminal,
+                },
+            };
+            self.mutate(|d| {
+                d.note_history_tail(&agent, tail, now_ms());
+                ((), vec![])
+            });
+        }
     }
 
     /// 作業状況（受理不明の送信を含む）。
@@ -292,6 +336,8 @@ impl Host {
                 "このチャットの保存に失敗している内容があります。保存を再試行して成功を確認してから削除してください",
             ));
         }
+        // 状態不明（notLoaded等）のエージェントは、履歴で終端を確認し直してから判断する（確認できなければ未完了のまま）。
+        self.confirm_unknown_terminals(Some(chat), true).await;
         let mut work = self.chat_work(chat);
         let mut pending = self.read(|d| d.locals.get(chat).and_then(|l| l.delete_pending.clone()));
         // 前回の保留を、現在の停止状況で更新してから判断する（確認できていれば、ユーザーの再操作を受けて削除へ進める）。
@@ -303,21 +349,23 @@ impl Host {
         }
         let mut decision = delete_decision(&work, pending.as_ref());
         if decision == DeleteDecision::StopFirst {
-            if work.has_unfinished {
+            if work.has_unfinished || work.queue_in_flight {
                 // 中断の間も送信・キュー送信を止める（保留の記録を先に残す）。
                 self.set_delete_pending(chat, DeletePendingReason::StopUnconfirmed, work.stop_unconfirmed.clone()).await;
-                if let Err(e) = self.interrupt_chat(InterruptChatArgs { chat: chat.clone() }, confirmed).await {
-                    self.warn(format!("削除のための中断要求を送れませんでした: {}", e.message));
+                if work.has_unfinished {
+                    if let Err(e) = self.interrupt_chat(InterruptChatArgs { chat: chat.clone() }, confirmed).await {
+                        self.warn(format!("削除のための中断要求を送れませんでした: {}", e.message));
+                    }
                 }
                 work = self.wait_for_stop(chat).await;
-                // 削除すればキューの登録も消える。停止の確認だけを見る。
-                work.queue_pending = false;
+                // 削除すれば登録だけの送信待ち（Waiting）は消える。送信中・終端待ちは停止の確認の対象なので残す。
+                work.queue_pending = work.queue_in_flight;
                 decision = delete_decision(&work, None);
                 if decision == DeleteDecision::StopFirst {
                     decision = DeleteDecision::Pend(DeletePendingReason::StopUnconfirmed);
                 }
             } else {
-                // 登録済みのキューだけが残っている。削除すれば消える。
+                // 登録済み（Waiting）のキューだけが残っている。削除すれば消える。
                 decision = DeleteDecision::Proceed;
             }
         }
@@ -360,7 +408,7 @@ impl Host {
         loop {
             self.mutate(|d| ((), d.refresh_stops(now_ms())));
             let w = self.chat_work(chat);
-            if !w.has_unfinished && w.stop_unconfirmed.is_none() && !w.ownership_unknown && !w.unresolved_send {
+            if !w.has_unfinished && w.stop_unconfirmed.is_none() && !w.ownership_unknown && !w.unresolved_send && !w.queue_in_flight {
                 return w;
             }
             if Instant::now() >= deadline {

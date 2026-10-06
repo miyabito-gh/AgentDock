@@ -52,9 +52,23 @@ pub struct QueueRuntime {
     /// 走査を最後に（再）開始した時刻。失敗が続くとき、作り直しの間隔を空ける。
     scan_started: Mutex<HashMap<AgentKey, UnixMillis>>,
     awaiting_checked: Mutex<HashMap<ChatKey, UnixMillis>>,
+    /// チャット単位の送信ロック。手動送信（再開を含む）とキューの自動送信が同時に `turn/start` を送らないよう、両方が取る。
+    send_locks: Mutex<HashMap<ChatKey, Arc<tokio::sync::Mutex<()>>>>,
+    /// 手動送信を受理したturn（受理の時刻つき）。開始・終端を観測するまで、キューは親が作業中として保留する。
+    manual_accepts: Mutex<HashMap<ChatKey, (ExternalId, UnixMillis)>>,
+    /// 送信前の保存に失敗して送らなかったチャット。保存が成功するまで保留にする（2秒ごとの警告を繰り返さない）。
+    save_blocked: Mutex<HashSet<ChatKey>>,
 }
 
 impl QueueRuntime {
+    pub fn send_lock(&self, chat: &ChatKey) -> Arc<tokio::sync::Mutex<()>> {
+        self.send_locks.lock().unwrap().entry(chat.clone()).or_default().clone()
+    }
+
+    pub fn note_manual_accept(&self, chat: &ChatKey, turn: ExternalId) {
+        self.manual_accepts.lock().unwrap().insert(chat.clone(), (turn, now_ms()));
+    }
+
     pub fn note_scan(&self, root: &AgentKey, complete: bool) {
         self.scans.lock().unwrap().insert(root.clone(), complete);
     }
@@ -80,6 +94,12 @@ fn scan_ready(flag: Option<bool>, scan_running: bool) -> bool {
     flag == Some(true) && !scan_running
 }
 
+/// 手動送信の受理から、そのturnの終端を観測するまでの間か（受理から一定時間で打ち切り、観測できないまま保留し続けない）。
+const MANUAL_PENDING_MS: i64 = 15_000;
+fn manual_turn_pending(accepted: Option<&(ExternalId, UnixMillis)>, last_end_turn: Option<&ExternalId>, now: UnixMillis) -> bool {
+    accepted.is_some_and(|(turn, at)| now.0 - at.0 < MANUAL_PENDING_MS && last_end_turn != Some(turn))
+}
+
 /// 照合1回の結果。
 pub(super) enum ReconcileStep {
     Resolved(SendAttempt),
@@ -102,6 +122,13 @@ fn queue_event(file: &QueueFile) -> HostEvent {
     HostEvent::ChatQueueUpdated { queue: file.queue.clone() }
 }
 
+/// ホスト側の状況（データのロックの外で取るもの）。
+struct GateContext {
+    quitting: bool,
+    deleting: bool,
+    manual: Option<(ExternalId, UnixMillis)>,
+}
+
 /// 状態（`HostData`）と履歴確認の結果から、純粋な判断の入力を組む。
 fn gate_input(
     d: &HostData,
@@ -109,6 +136,7 @@ fn gate_input(
     terminals: &HashMap<AgentKey, TerminalFact>,
     scan_complete: bool,
     unresolved: Option<LocalId>,
+    ctx: GateContext,
 ) -> q::GateInput {
     let root_key = agent_key_of(chat);
     let fact = |v: &AgentView| -> q::AgentFact {
@@ -134,7 +162,9 @@ fn gate_input(
         descendant_scan_complete: scan_complete,
         open_stop: d.open_stop(chat).map(|r| r.id.clone()),
         unresolved_attempt: unresolved,
-        delete_pending: d.locals.get(chat).is_some_and(|l| l.delete_pending.is_some()),
+        delete_pending: ctx.deleting || d.locals.get(chat).is_some_and(|l| l.delete_pending.is_some()),
+        quitting: ctx.quitting,
+        manual_turn_pending: manual_turn_pending(ctx.manual.as_ref(), d.last_end.get(&root_key).map(|(t, _, _)| t), now_ms()),
     }
 }
 
@@ -190,12 +220,15 @@ impl Host {
         }
     }
 
-    fn is_connected(&self) -> bool {
+    pub(super) fn is_connected(&self) -> bool {
         self.read(|d| d.sources.first().is_some_and(|s| matches!(s.connection, ConnectionState::Connected)))
     }
 
     /// 1チャット分: 待っているturnの終端確認 → 判断 → 送信・停止・保留表示。
     async fn drive_chat(self: &Arc<Self>, chat: &ChatKey) {
+        // 手動送信（再開を含む）の最中は評価しない（同時に `turn/start` を送らない）。次の周期で見る。
+        let send_lock = self.queue_rt.send_lock(chat);
+        let Ok(_send_guard) = send_lock.try_lock() else { return };
         self.settle_awaiting(chat).await;
         let (active, pending) = self.read(|d| d.queues.get(chat).map(|f| (f.queue.run == QueueRun::Active, q::has_pending(&f.queue))).unwrap_or((false, false)));
         if !(active && pending) {
@@ -216,7 +249,20 @@ impl Host {
         let scan_running = self.scanning.lock().unwrap().contains(&root);
         let scan_complete = scan_ready(self.queue_rt.scans.lock().unwrap().get(&root).copied(), scan_running);
         let unresolved = self.unknown_attempt(chat);
-        let decision = self.read(|d| d.queues.get(chat).map(|f| q::evaluate(&f.queue, &gate_input(d, chat, &terminals, scan_complete, unresolved))));
+        // 送信前の保存に失敗したままなら、保存が成功するまで保留する（2秒ごとに送信を試して警告を出し続けない）。
+        if self.queue_rt.save_blocked.lock().unwrap().contains(chat) {
+            if self.read(|d| d.save_status.get(&SaveScope::Queue { chat: chat.clone() }).is_some_and(|s| matches!(s.state, SaveState::SaveFailed { .. }))) {
+                self.set_hold(chat, Some(QueueHold::SaveFailed));
+                return;
+            }
+            self.queue_rt.save_blocked.lock().unwrap().remove(chat);
+        }
+        let ctx = GateContext {
+            quitting: self.quit_phase() != QuitPhase::Idle,
+            deleting: self.manage_rt.is_deleting(chat),
+            manual: self.queue_rt.manual_accepts.lock().unwrap().get(chat).cloned(),
+        };
+        let decision = self.read(|d| d.queues.get(chat).map(|f| q::evaluate(&f.queue, &gate_input(d, chat, &terminals, scan_complete, unresolved, ctx))));
         match decision {
             Some(q::GateDecision::Send { entry }) => self.send_queue_entry(chat, entry).await,
             Some(q::GateDecision::Hold(h)) => self.set_hold(chat, Some(h)),
@@ -251,7 +297,8 @@ impl Host {
         let end = match live {
             Some(e) => Some(e),
             None => {
-                let working = self.read(|d| d.view(&turn.agent).is_none_or(|v| is_working(v.status.state)));
+                // 状態が作業中でも、liveでなければ（切断・再起動をまたいだ死んだturnかもしれないので）履歴を読む。
+                let working = self.read(|d| d.view(&turn.agent).is_none_or(|v| is_working(v.status.state) && v.freshness == Freshness::Live));
                 let now = now_ms();
                 let due = {
                     let mut m = self.queue_rt.awaiting_checked.lock().unwrap();
@@ -385,12 +432,19 @@ impl Host {
             cwd: plan.cwd,
             client_message_id: attempt.client_message_id.clone(),
         };
-        self.run_entry_send(chat, entry, attempt, request).await;
+        self.run_entry_send(chat, entry, attempt, request, None).await;
     }
 
     /// 受理なしが確定した項目の、ユーザー確認つきの再送（`retry_send` から）。
     pub(super) async fn retry_entry_send(self: &Arc<Self>, chat: &ChatKey, entry: LocalId, mut request: SendRequest) -> Result<SendAttempt, IpcError> {
         let attempt = SendAttempt { attempt_id: self.local_id("att"), client_message_id: request.client_message_id.clone(), at: now_ms(), state: SendState::Sending };
+        // 送信前の保存に失敗したときに元の受理なしへ戻せるよう、再送前の状態を控える。
+        let prior = self.read(|d| {
+            d.queues.get(chat).and_then(|f| f.queue.entries.iter().find(|e| e.id == entry)).and_then(|e| match &e.state {
+                QueueEntryState::NotAccepted { attempt, message } => Some((attempt.clone(), message.clone())),
+                _ => None,
+            })
+        });
         let Some(plan) = self.begin_entry_send(chat, &entry, attempt.clone()) else {
             return Err(err(IpcErrorCode::NotFound, "再送できる依頼がありません"));
         };
@@ -398,19 +452,27 @@ impl Host {
         request.model = plan.model;
         request.permission = plan.permission;
         request.cwd = plan.cwd;
-        Ok(self.run_entry_send(chat, entry, attempt, request).await)
+        Ok(self.run_entry_send(chat, entry, attempt, request, prior).await)
     }
 
     /// Sending を保存してから送り、結果を項目へ反映する。保存できなければ送らない。
-    async fn run_entry_send(self: &Arc<Self>, chat: &ChatKey, entry: LocalId, attempt: SendAttempt, request: SendRequest) -> SendAttempt {
+    async fn run_entry_send(self: &Arc<Self>, chat: &ChatKey, entry: LocalId, attempt: SendAttempt, request: SendRequest, prior: Option<(LocalId, String)>) -> SendAttempt {
         let scope = SaveScope::Queue { chat: chat.clone() };
         if let Some(st) = self.save_now(scope).await {
             if !matches!(st.state, SaveState::Saved { .. }) {
                 self.mutate(|d| {
                     let Some(f) = d.queues.get_mut(chat) else { return ((), vec![]) };
-                    q::abort_send(&mut f.queue, &entry);
+                    match &prior {
+                        // 再送の取消し: 元の「受理なし」に戻し、再送権（保管した送信内容）も戻す。
+                        Some((old, message)) => q::abort_retry(&mut f.queue, &entry, old.clone(), message.clone()),
+                        None => q::abort_send(&mut f.queue, &entry),
+                    }
                     ((), vec![queue_event(f)])
                 });
+                if let Some((old, _)) = &prior {
+                    self.rejected.lock().unwrap().insert(old.clone(), NotAccepted::new(request));
+                }
+                self.queue_rt.save_blocked.lock().unwrap().insert(chat.clone());
                 self.warn("送信前に送信待ちを保存できなかったため、依頼を送っていません。保存の状態を確認してください。");
                 return SendAttempt { state: SendState::Rejected { message: "送信前の保存に失敗したため送っていません".into() }, ..attempt };
             }
@@ -703,6 +765,13 @@ impl Host {
 
     pub fn cancel_queue_entry(self: &Arc<Self>, args: QueueEntryArgs) -> Result<(), IpcError> {
         self.precheck_space()?;
+        // 取り消す項目が「受理なし」なら、保管している送信内容も捨てる（再送で手動送信として送れないように）。
+        let dropped_attempt = self.read(|d| {
+            d.queues.get(&args.chat).and_then(|f| f.queue.entries.iter().find(|e| e.id == args.entry)).and_then(|e| match &e.state {
+                QueueEntryState::NotAccepted { attempt, .. } => Some(attempt.clone()),
+                _ => None,
+            })
+        });
         self.mutate(|d| {
             let Some(f) = d.queues.get_mut(&args.chat) else { return (Err(q::EditError::NotFound), vec![]) };
             match q::cancel(&mut f.queue, &args.entry) {
@@ -711,6 +780,9 @@ impl Host {
             }
         })
         .map_err(Self::editable)?;
+        if let Some(a) = dropped_attempt {
+            self.rejected.lock().unwrap().remove(&a);
+        }
         self.schedule_save(SaveScope::Queue { chat: args.chat }, Duration::ZERO);
         self.kick_queue();
         Ok(())
@@ -718,12 +790,19 @@ impl Host {
 
     /// 「キューを再開」（ユーザー操作）。親がliveでなければ、ここで再開（resume）する。「確認済み」とは別の操作。
     pub async fn resume_queue(self: &Arc<Self>, args: ChatArgs, confirmed: &UserConfirmed) -> Result<ChatQueue, IpcError> {
+        let send_lock = self.queue_rt.send_lock(&args.chat);
+        let _send_guard = send_lock.lock().await;
+        // 停止を確認できないチャットを、再開（resume）で触らない。
+        self.check_not_delete_pending(&args.chat)?;
         let state = self.read(|d| d.queues.get(&args.chat).map(|f| (f.queue.run.clone(), q::has_pending(&f.queue))));
-        match state {
+        let root_live = self.read(|d| d.root_view(&args.chat).is_some_and(|v| v.freshness == Freshness::Live));
+        let was_active = match state {
             None => return Err(err(IpcErrorCode::NotFound, "送信待ちがありません")),
-            Some((QueueRun::Active, _)) => return Err(err(IpcErrorCode::InvalidArgs, "キューはすでに有効です")),
-            _ => {}
-        }
+            // 有効でも親がliveでなければ（wake・切断のあと）、ユーザー操作として再開処理を行って受け付ける。
+            Some((QueueRun::Active, _)) if root_live => return Err(err(IpcErrorCode::InvalidArgs, "キューはすでに有効です")),
+            Some((QueueRun::Active, _)) => true,
+            _ => false,
+        };
         if let Some(attempt) = self.unknown_attempt(&args.chat) {
             return Err(blocked(BlockedReason::AcceptanceUnknown { attempt }, "受理を確認できるまで、キューは再開できません"));
         }
@@ -731,6 +810,11 @@ impl Host {
         if self.read(|d| d.root_view(&args.chat).is_none_or(|v| v.freshness != Freshness::Live)) {
             self.ensure_live(&args.chat, confirmed).await?;
             self.start_scan(agent_key_of(&args.chat));
+        }
+        if was_active {
+            let queue = self.read(|d| d.queues.get(&args.chat).map(|f| f.queue.clone()));
+            self.kick_queue();
+            return queue.ok_or_else(|| err(IpcErrorCode::NotFound, "送信待ちがありません"));
         }
         let now = now_ms();
         let r = self.mutate(|d| {
@@ -852,5 +936,21 @@ mod tests {
         assert!(!should_start_scan(ready, true, true, Some(started), later), "no restart while a scan runs");
         assert!(!should_start_scan(true, false, true, Some(started), later), "no restart once complete");
         assert!(should_start_scan(false, false, true, None, later), "never scanned");
+    }
+}
+
+#[cfg(test)]
+mod manual_tests {
+    use super::*;
+
+    #[test]
+    fn manual_send_holds_the_queue_until_the_turn_ends_or_the_window_passes() {
+        let t1 = ExternalId("t1".into());
+        let acc = (t1.clone(), UnixMillis(1_000));
+        assert!(!manual_turn_pending(None, None, UnixMillis(1_100)));
+        assert!(manual_turn_pending(Some(&acc), None, UnixMillis(1_100)));
+        assert!(manual_turn_pending(Some(&acc), Some(&ExternalId("t0".into())), UnixMillis(1_100)), "an older turn's end is not this turn's");
+        assert!(!manual_turn_pending(Some(&acc), Some(&t1), UnixMillis(1_100)), "ended");
+        assert!(!manual_turn_pending(Some(&acc), None, UnixMillis(1_000 + MANUAL_PENDING_MS)), "never observed: not held forever");
     }
 }

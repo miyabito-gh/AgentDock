@@ -39,6 +39,10 @@ pub struct GateInput {
     /// このチャットの受理不明の送信（キュー外の直接送信も含む）。
     pub unresolved_attempt: Option<LocalId>,
     pub delete_pending: bool,
+    /// 完全終了の手順中（確認・停止・保存）。新しい送信を始めない。
+    pub quitting: bool,
+    /// ユーザーの手動送信を受理してから、そのturnの開始・終端を観測するまでの間。
+    pub manual_turn_pending: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -148,6 +152,9 @@ pub fn evaluate(queue: &ChatQueue, input: &GateInput) -> GateDecision {
         QueueEntryState::AcceptanceUnknown { attempt } => return GateDecision::Hold(QueueHold::AcceptanceUnknown { attempt: attempt.clone() }),
         _ => return GateDecision::Nothing,
     }
+    if input.quitting {
+        return GateDecision::Hold(QueueHold::Quitting);
+    }
     if input.delete_pending {
         return GateDecision::Hold(QueueHold::DeletePending);
     }
@@ -177,7 +184,7 @@ pub fn evaluate(queue: &ChatQueue, input: &GateInput) -> GateDecision {
     if let Some(bad) = std::iter::once(root).chain(input.descendants.iter()).find(|f| f.latest_end.is_some() && f.latest_turn.is_none()) {
         return GateDecision::Hold(QueueHold::StateUnknown { targets: vec![target(bad)], descendant_scan_incomplete: false });
     }
-    if is_working(root.state) || queue.awaiting.is_some() {
+    if is_working(root.state) || queue.awaiting.is_some() || input.manual_turn_pending {
         return GateDecision::Hold(QueueHold::ParentWorking);
     }
     if matches!(root.state, AgentState::Unknown | AgentState::Closed) {
@@ -281,6 +288,24 @@ pub fn abort_send(queue: &mut ChatQueue, id: &LocalId) {
             e.attempts.pop();
         }
     }
+}
+
+/// 再送（ユーザー確認つき）の送信前の保存に失敗するなど、何も送らずに取り消すとき。元の `NotAccepted` に戻す（再送権を失わない）。
+pub fn abort_retry(queue: &mut ChatQueue, id: &LocalId, prior_attempt: LocalId, message: String) {
+    if let Some(e) = queue.entries.iter_mut().find(|e| &e.id == id) {
+        if matches!(e.state, QueueEntryState::Sending { .. }) {
+            e.state = QueueEntryState::NotAccepted { attempt: prior_attempt, message };
+            e.attempts.pop();
+        }
+    }
+}
+
+/// 強制終了でプロセスの消滅を確認できたとき、送信済みで終端待ち（`awaiting`）のturnがあれば、待ちを外してキューを止める。
+/// 完了扱いにはしない。変更があれば true。
+pub fn stop_after_kill(queue: &mut ChatQueue, now: UnixMillis) -> bool {
+    let Some(turn) = queue.awaiting.take() else { return false };
+    stop(queue, QueueStopCause::AppServerKilled { turn }, now);
+    true
 }
 
 /// 送信・照合の結果。
@@ -469,6 +494,8 @@ mod tests {
             open_stop: None,
             unresolved_attempt: None,
             delete_pending: false,
+            quitting: false,
+            manual_turn_pending: false,
         }
     }
     fn attempt(id: &str) -> SendAttempt {
@@ -798,5 +825,35 @@ mod tests {
         cancel(&mut q, &lid("q1")).unwrap();
         assert_eq!(check_cwd_change(&q, false, false), CwdChangeCheck::Allowed);
         assert_eq!(affected_by_settings_change(&queue_with(&["a"], 1)), vec![lid("q0")]);
+    }
+
+    #[test]
+    fn quitting_and_a_pending_manual_turn_hold_the_queue() {
+        let q = queue_with(&["a"], 1500);
+        let mut i = input();
+        i.quitting = true;
+        assert_eq!(evaluate(&q, &i), GateDecision::Hold(QueueHold::Quitting));
+        i.quitting = false;
+        i.manual_turn_pending = true;
+        assert_eq!(evaluate(&q, &i), GateDecision::Hold(QueueHold::ParentWorking));
+        i.manual_turn_pending = false;
+        assert_eq!(evaluate(&q, &i), GateDecision::Send { entry: lid("q0") });
+    }
+
+    #[test]
+    fn aborted_retry_keeps_the_not_accepted_state_and_kill_stops_instead_of_completing() {
+        let mut q = queue_with(&["a"], 1500);
+        q.entries[0].state = QueueEntryState::NotAccepted { attempt: lid("old"), message: "m".into() };
+        q.entries[0].attempts.push(SendAttempt { state: SendState::Rejected { message: "m".into() }, ..attempt("old") });
+        assert!(begin_send(&mut q, &lid("q0"), attempt("new"), applied()));
+        abort_retry(&mut q, &lid("q0"), lid("old"), "m".into());
+        assert_eq!(q.entries[0].state, QueueEntryState::NotAccepted { attempt: lid("old"), message: "m".into() });
+        assert_eq!(q.entries[0].attempts.len(), 1);
+        // 強制終了: 終端待ちのturnは完了扱いにせず止める。
+        q.awaiting = Some(tk("root", "t1"));
+        assert!(stop_after_kill(&mut q, UnixMillis(9)));
+        assert!(q.awaiting.is_none());
+        assert!(matches!(q.run, QueueRun::Stopped { cause: QueueStopCause::AppServerKilled { .. }, .. }));
+        assert!(!stop_after_kill(&mut q, UnixMillis(10)));
     }
 }

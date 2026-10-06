@@ -17,7 +17,8 @@ use crate::backend::backend::*;
 use crate::backend::ipc::*;
 use crate::backend::local::*;
 use crate::backend::model::*;
-use crate::rules::manage::{agents_to_mark_on_resume, busy_for_quit, looks_like_resume, next_quit_phase, ChatWork};
+use crate::rules::queue as q;
+use crate::rules::manage::{agents_to_mark_on_resume, busy_for_quit, looks_like_resume, new_work_for_quit, next_quit_phase, ChatWork};
 use crate::store::records::{WindowsFile, SCHEMA_VERSION};
 use crate::win::power::{PowerEvent, PowerWatcher};
 
@@ -62,20 +63,28 @@ impl Default for Lifecycle {
 }
 
 /// チャット単位の作業状況（終了確認の材料）。
+/// 状態が不明（notLoaded等）のエージェントは、履歴で最新turnの終端（またはturnなし）を確認できていれば未完了と数えない。
+/// 履歴を読めたが最新turnが進行中のままなら、外部実行の可能性があるので所有不明として保留する。読めていないものは未完了のまま。
 pub(super) fn work_of(d: &HostData, chat: &ChatKey) -> ChatWork {
-    let has_unfinished = d
-        .agents
-        .iter()
-        .any(|v| &v.agent.chat == chat && matches!(v.status.state, AgentState::Initializing | AgentState::Running | AgentState::Waiting | AgentState::Unknown));
+    let mut in_chat = d.agents.iter().filter(|v| &v.agent.chat == chat);
+    let has_unfinished = in_chat.clone().any(|v| match v.status.state {
+        AgentState::Initializing | AgentState::Running | AgentState::Waiting => true,
+        AgentState::Unknown => !d.unknown_confirmed_idle(v),
+        _ => false,
+    });
+    let maybe_running = in_chat.any(|v| d.unknown_maybe_running(v));
     ChatWork {
         chat: chat.clone(),
         has_unfinished,
         stop_unconfirmed: d.open_stop(chat).map(|r| r.id.clone()),
-        ownership_unknown: d.stops.iter().any(|r| &r.chat == chat && r.targets.iter().any(|t| t.ownership == Ownership::Unknown)),
+        ownership_unknown: maybe_running || d.stops.iter().any(|r| &r.chat == chat && r.targets.iter().any(|t| t.ownership == Ownership::Unknown)),
         queue_pending: d.queues.get(chat).is_some_and(|q| {
             // 自動送信して終端を確認していないturn（awaiting）も未完了として数える。
             q.queue.awaiting.is_some()
                 || q.queue.entries.iter().any(|e| matches!(e.state, QueueEntryState::Waiting | QueueEntryState::Sending { .. } | QueueEntryState::AcceptanceUnknown { .. }))
+        }),
+        queue_in_flight: d.queues.get(chat).is_some_and(|q| {
+            q.queue.awaiting.is_some() || q.queue.entries.iter().any(|e| matches!(e.state, QueueEntryState::Sending { .. } | QueueEntryState::AcceptanceUnknown { .. }))
         }),
         unresolved_send: false,
     }
@@ -97,6 +106,7 @@ fn force_kill_records(
     new_id: &mut dyn FnMut() -> LocalId,
     affected: &[ChatKey],
     pid: Option<u32>,
+    requested_at: UnixMillis,
     gone_at: Option<UnixMillis>,
     now: UnixMillis,
 ) -> (Vec<StopRecord>, Vec<HostEvent>) {
@@ -104,10 +114,11 @@ fn force_kill_records(
     let mut events = Vec::new();
     for chat in affected {
         if d.open_stop(chat).is_none() {
-            let mut targets: Vec<StopTarget> = running_turns(d, chat).into_iter().map(|t| stop::new_target(t, None, now)).collect();
+            let mut targets: Vec<StopTarget> = running_turns(d, chat).into_iter().map(|t| stop::new_target(t, Some(requested_at), now)).collect();
             if targets.is_empty() {
                 if let Some(pid) = pid {
-                    let evidence = StopEvidence::default();
+                    // 強制終了を要求した時刻を証拠に残す。10秒経っても消滅を確認できなければ停止未確認になり、削除・送信を止める。
+                    let evidence = StopEvidence { interrupt_requested_at: Some(requested_at), ..Default::default() };
                     let summary = stop::derive_summary(Ownership::Confirmed, &evidence, now);
                     targets.push(StopTarget {
                         target: StopTargetRef::OsProcess { pid, created_at: Known::NotFetched, executable: Known::NotFetched },
@@ -269,7 +280,7 @@ impl Host {
         let busy = busy_for_quit(&self.chat_works());
         if busy.is_empty() {
             let gen = self.start_quit_phase(QuitPhase::Flushing);
-            self.spawn_quit_driver(gen);
+            self.spawn_quit_driver(gen, Vec::new());
             return QuitPhase::Flushing;
         }
         let phase = QuitPhase::Confirming { busy };
@@ -290,11 +301,13 @@ impl Host {
             }
             QuitDecision::Wait => Ok(current),
             QuitDecision::StopAndQuit => {
-                let QuitPhase::Confirming { busy } = current else {
+                let QuitPhase::Confirming { .. } = current else {
                     return Err(err(IpcErrorCode::InvalidArgs, "終了の確認中ではありません"));
                 };
+                // 確認を出してから状況が変わっていることがあるので、対象を取り直す。
+                let busy = busy_for_quit(&self.chat_works());
                 let ids = self.interrupt_for_quit(&busy, Vec::new(), confirmed).await;
-                self.begin_stopping(ids)
+                self.begin_stopping(ids, busy)
             }
             QuitDecision::RetryInterrupt => {
                 let QuitPhase::StopUnconfirmed { records } = current else {
@@ -310,19 +323,19 @@ impl Host {
                     chats
                 });
                 let ids = self.interrupt_for_quit(&chats, records, confirmed).await;
-                self.begin_stopping(ids)
+                self.begin_stopping(ids, chats)
             }
         }
     }
 
-    fn begin_stopping(self: &Arc<Self>, records: Vec<LocalId>) -> Result<QuitPhase, IpcError> {
+    fn begin_stopping(self: &Arc<Self>, records: Vec<LocalId>, handled: Vec<ChatKey>) -> Result<QuitPhase, IpcError> {
         // 取消しなどで手順が変わっていたら、古い要求の結果で上書きしない。
         if matches!(self.quit_phase(), QuitPhase::Idle) {
             return Ok(QuitPhase::Idle);
         }
         let phase = QuitPhase::Stopping { records, started_at: now_ms() };
         let gen = self.start_quit_phase(phase.clone());
-        self.spawn_quit_driver(gen);
+        self.spawn_quit_driver(gen, handled);
         Ok(phase)
     }
 
@@ -373,7 +386,8 @@ impl Host {
     }
 
     /// 終了手順を進める（世代が変わったら終わる）。停止と保存を確認でき、保存に失敗がなければ終了する。
-    fn spawn_quit_driver(self: &Arc<Self>, gen: u64) {
+    /// `handled` は確認・中断の対象にしたチャット。それ以外に新しい作業が現れたら、終了へ進まず確認へ戻す。
+    fn spawn_quit_driver(self: &Arc<Self>, gen: u64, handled: Vec<ChatKey>) {
         let host = self.clone();
         tokio::spawn(async move {
             loop {
@@ -381,8 +395,17 @@ impl Host {
                 host.mutate(|d| ((), d.refresh_stops(now)));
                 let phase = host.quit_phase();
                 let (records, failed) = (host.read(|d| d.stops.clone()), host.failed_saves());
-                let next = next_quit_phase(&phase, &records, &failed, now);
+                let mut next = next_quit_phase(&phase, &records, &failed, now);
+                if next == QuitPhase::Flushing {
+                    let fresh = new_work_for_quit(&host.chat_works(), &handled);
+                    if !fresh.is_empty() {
+                        next = QuitPhase::Confirming { busy: fresh };
+                    }
+                }
                 if !host.advance_quit_phase(gen, next.clone()) {
+                    return;
+                }
+                if matches!(next, QuitPhase::Confirming { .. }) {
                     return;
                 }
                 if next == QuitPhase::Flushing {
@@ -390,7 +413,12 @@ impl Host {
                     let failed = host.failed_saves();
                     match next_quit_phase(&QuitPhase::Flushing, &[], &failed, now_ms()) {
                         QuitPhase::Flushing => {
-                            // 保存に失敗がないことを確認できた。取消しが入っていなければ終了する。
+                            // 保存に失敗がないことを確認できた。書き込み中に新しい作業が現れていれば確認へ戻し、取消しが入っていなければ終了する。
+                            let fresh = new_work_for_quit(&host.chat_works(), &handled);
+                            if !fresh.is_empty() {
+                                host.advance_quit_phase(gen, QuitPhase::Confirming { busy: fresh });
+                                return;
+                            }
                             if host.advance_quit_phase(gen, QuitPhase::Flushing) {
                                 if let Some(exit) = host.lifecycle.exit.get() {
                                     exit();
@@ -440,6 +468,7 @@ impl Host {
         let job = self.force_target(&args.source)?;
         let affected = busy_for_quit(&self.chat_works());
         let pid = self.read(|d| d.sources.iter().find(|s| s.source == args.source).and_then(|s| s.pid.value().copied()));
+        let requested_at = now_ms();
         job.terminate(confirmed).map_err(|e| err(IpcErrorCode::Io, format!("強制終了を要求できませんでした: {e}")))?;
         crate::diag::log("force_kill", &format!("terminated job affected={}", affected.len()));
         let mut gone_at = None;
@@ -454,15 +483,30 @@ impl Host {
             self.warn("強制終了を要求しましたが、プロセスの消滅を確認できていません。停止未確認のまま扱います。");
         }
         let now = now_ms();
-        let records = self.mutate(|d| {
+        let (records, stopped_queues) = self.mutate(|d| {
             let mut counter = 0u32;
             let mut new_id = || {
                 counter += 1;
                 LocalId(format!("stop-{}-kill{counter}", now.0))
             };
-            let (records, events) = force_kill_records(d, &mut new_id, &affected, pid, gone_at, now);
-            (records, events)
+            let (records, mut events) = force_kill_records(d, &mut new_id, &affected, pid, requested_at, gone_at, now);
+            // プロセスの消滅を確認できた: 終端待ちだったキューは、完了扱いにせず止める（再開はユーザー操作）。
+            let mut stopped = Vec::new();
+            if gone_at.is_some() {
+                for chat in &affected {
+                    if let Some(f) = d.queues.get_mut(chat) {
+                        if q::stop_after_kill(&mut f.queue, now) {
+                            events.push(HostEvent::ChatQueueUpdated { queue: f.queue.clone() });
+                            stopped.push(chat.clone());
+                        }
+                    }
+                }
+            }
+            ((records, stopped), events)
         });
+        for chat in stopped_queues {
+            self.schedule_save(SaveScope::Queue { chat }, Duration::ZERO);
+        }
         Ok(records)
     }
 
@@ -509,7 +553,7 @@ impl Host {
     }
 
     /// sleepから復帰した。live の鮮度を要照合にし（状態は変えない）、状態を読み直す。読み取りは live 購読の回復ではないので、結果は履歴のみ（historyOnly）に留める。
-    /// live に戻るのはユーザーの送信・再開操作（resume）だけ。通知・再送・resumeはしない。読めなかったものは要照合のまま残す。
+    /// 照合に成功し、その後に同じ接続でlive通知を受けたものは live に戻る（`HostData::restore_live_after_wake`）。それ以外はユーザーの送信・再開操作（resume）で戻す。
     /// 通知・再送・resumeはしない。読めなかったものは要照合のまま残す。
     pub async fn on_resume(self: &Arc<Self>) {
         let at = now_ms();
@@ -523,10 +567,11 @@ impl Host {
         let marked: Vec<AgentKey> = self.mutate(|d| {
             let keys = agents_to_mark_on_resume(&d.agents);
             let mut events = Vec::new();
-            for v in d.agents.iter_mut().filter(|v| keys.contains(&v.agent.key)) {
-                v.freshness = Freshness::NeedsReconcile;
-                events.push(HostEvent::AgentUpdated { view: v.clone() });
+            for k in &keys {
+                events.extend(d.set_agent_freshness(k, Freshness::NeedsReconcile, at));
             }
+            // 照合が済むまでの再観測は、「非終端→終端」の通知の起点にしない（sleep中に終わったものを後から通知しない）。
+            d.forget_nonterminal(&keys);
             events.push(HostEvent::SystemResumed { at });
             (keys, events)
         });
@@ -540,6 +585,8 @@ impl Host {
                 let notified = d.notify_inbox.len();
                 let events = d.upsert_history_agent(existing.clone(), h.status);
                 d.notify_inbox.truncate(notified);
+                // 照合に成功した。以後この接続でlive通知を受けたら live に戻す（自動のresumeはしない）。
+                d.note_wake_reconciled(&key, now_ms());
                 (Some(agent_key_of(&existing.chat)), events)
             });
             if let Some(r) = root {
@@ -553,5 +600,76 @@ impl Host {
         for r in seen {
             self.start_scan(r);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::host::state::HistoryTail;
+
+    fn ck(s: &str) -> ChatKey {
+        ChatKey { backend: BackendKind::Codex, id: ExternalId(s.into()) }
+    }
+    fn ak(s: &str) -> AgentKey {
+        AgentKey { backend: BackendKind::Codex, id: ExternalId(s.into()) }
+    }
+    fn unknown_root(d: &mut HostData) {
+        let agent = Agent {
+            key: ak("root"),
+            chat: ck("root"),
+            parent: ParentLink::Root,
+            forked_from: Known::NotFetched,
+            display_name: Known::NotFetched,
+            role: Known::NotFetched,
+            assignment: Known::NotFetched,
+            agent_path: Known::NotFetched,
+            latest_turn: None,
+        };
+        let status = AgentStatus {
+            state: AgentState::Unknown,
+            raw: RawState { label: "notLoaded".into() },
+            scope: StateScope::Agent,
+            turn: None,
+            wait: None,
+            evidence: Evidence { source: EvidenceSource::LiveEvent, raw_label: None, source_time: None, observed_at: UnixMillis(0) },
+        };
+        d.upsert_history_agent(agent, status);
+    }
+
+    #[test]
+    fn not_loaded_chat_is_unfinished_until_history_confirms_an_end_and_maybe_running_is_ownership_unknown() {
+        let mut d = HostData::default();
+        unknown_root(&mut d);
+        let w = work_of(&d, &ck("root"));
+        assert!(w.has_unfinished && !w.ownership_unknown, "not read yet: unfinished, not completed");
+        d.note_history_tail(&ak("root"), HistoryTail::NotTerminal, UnixMillis(1));
+        let w = work_of(&d, &ck("root"));
+        assert!(w.has_unfinished && w.ownership_unknown, "in progress in history: hold as ownership unknown");
+        d.note_history_tail(&ak("root"), HistoryTail::Ended(ExternalId("t1".into()), TurnEnd::Completed), UnixMillis(2));
+        let w = work_of(&d, &ck("root"));
+        assert!(!w.has_unfinished && !w.ownership_unknown);
+        assert!(busy_for_quit(&[w]).is_empty());
+    }
+
+    #[test]
+    fn force_kill_without_confirmation_leaves_a_record_that_blocks_deletion() {
+        let mut d = HostData::default();
+        let mut n = 0;
+        let mut new_id = || {
+            n += 1;
+            LocalId(format!("s{n}"))
+        };
+        let chat = ck("root");
+        let (records, _) = force_kill_records(&mut d, &mut new_id, std::slice::from_ref(&chat), Some(42), UnixMillis(1_000), None, UnixMillis(1_000));
+        assert_eq!(records.len(), 1);
+        assert!(d.open_stop(&chat).is_some(), "kill requested: must block sending/deleting");
+        // 10秒経っても消滅を確認できなければ停止未確認。
+        d.refresh_stops(UnixMillis(11_000));
+        assert_eq!(d.stops[0].targets[0].summary, StopSummary::Unconfirmed);
+        assert!(d.open_stop(&chat).is_some());
+        // 消滅を確認できたときだけ確認済み。
+        let (_, _) = force_kill_records(&mut d, &mut new_id, std::slice::from_ref(&chat), Some(42), UnixMillis(1_000), Some(UnixMillis(12_000)), UnixMillis(12_000));
+        assert!(d.open_stop(&chat).is_none());
     }
 }

@@ -14,6 +14,8 @@ pub struct ChatWork {
     pub ownership_unknown: bool,
     /// キューに Waiting / Sending / AcceptanceUnknown がある。
     pub queue_pending: bool,
+    /// キューの送信中（Sending）・受理不明・自動送信したturnの終端待ち。送信待ち（Waiting）だけのときは false。
+    pub queue_in_flight: bool,
     pub unresolved_send: bool,
 }
 
@@ -55,7 +57,7 @@ pub fn delete_decision(work: &ChatWork, pending: Option<&DeletePending>) -> Dele
 fn unconfirmed_reason(work: &ChatWork) -> Option<DeletePendingReason> {
     if work.ownership_unknown || work.unresolved_send {
         Some(DeletePendingReason::OwnershipUnknown)
-    } else if work.stop_unconfirmed.is_some() || work.has_unfinished {
+    } else if work.stop_unconfirmed.is_some() || work.has_unfinished || work.queue_in_flight {
         Some(DeletePendingReason::StopUnconfirmed)
     } else {
         None
@@ -106,6 +108,17 @@ pub fn busy_for_quit(works: &[ChatWork]) -> Vec<ChatKey> {
     works
         .iter()
         .filter(|w| w.has_unfinished || w.stop_unconfirmed.is_some() || w.ownership_unknown || w.queue_pending || w.unresolved_send)
+        .map(|w| w.chat.clone())
+        .collect()
+}
+
+/// 終了手順の途中で新しく現れた作業（Flushing へ進む前の再確認）。すでに確認・中断の対象にしたチャット（`handled`）は除く。
+/// 送信待ち（Waiting）だけは数えない（確認のときに承知済みで、終了中は送信を保留している）。
+pub fn new_work_for_quit(works: &[ChatWork], handled: &[ChatKey]) -> Vec<ChatKey> {
+    works
+        .iter()
+        .filter(|w| !handled.contains(&w.chat))
+        .filter(|w| w.has_unfinished || w.stop_unconfirmed.is_some() || w.ownership_unknown || w.queue_in_flight || w.unresolved_send)
         .map(|w| w.chat.clone())
         .collect()
 }
@@ -187,7 +200,7 @@ mod tests {
         AgentKey { backend: BackendKind::Codex, id: ExternalId(s.into()) }
     }
     fn work(c: &str) -> ChatWork {
-        ChatWork { chat: ck(c), has_unfinished: false, stop_unconfirmed: None, ownership_unknown: false, queue_pending: false, unresolved_send: false }
+        ChatWork { chat: ck(c), has_unfinished: false, stop_unconfirmed: None, ownership_unknown: false, queue_pending: false, queue_in_flight: false, unresolved_send: false }
     }
     fn target(summary: StopSummary, ownership: Ownership) -> StopTarget {
         StopTarget {
@@ -429,5 +442,26 @@ mod tests {
         assert!(looks_like_resume(UnixMillis(1_000), UnixMillis(36_000), 5_000));
         assert!(looks_like_resume(UnixMillis(1_000), UnixMillis(3_600_000), 5_000));
         assert!(!looks_like_resume(UnixMillis(10_000), UnixMillis(1_000), 5_000));
+    }
+
+    #[test]
+    fn in_flight_queue_work_is_not_a_registered_only_queue_and_new_work_skips_handled_chats() {
+        // 送信中・終端待ちは「停止を確認できていない」側に倒す（登録だけの Waiting とは別）。
+        let mut w = work("a");
+        w.queue_pending = true;
+        w.queue_in_flight = true;
+        assert!(archive_ready(&w) == false);
+        let mut p = pending(DeletePendingReason::ReadyForUserRetry);
+        assert!(refresh_delete_pending(&mut p, &w));
+        assert_eq!(p.reason, DeletePendingReason::StopUnconfirmed);
+        // 終了手順: 確認済みのチャットと、送信待ちだけのチャットは新しい作業に数えない。
+        let mut waiting_only = work("b");
+        waiting_only.queue_pending = true;
+        let mut fresh = work("c");
+        fresh.has_unfinished = true;
+        let mut sending = work("d");
+        sending.queue_in_flight = true;
+        let works = [w, waiting_only, fresh, sending];
+        assert_eq!(new_work_for_quit(&works, &[ck("a")]), vec![ck("c"), ck("d")]);
     }
 }

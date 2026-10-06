@@ -5,4 +5,4 @@ import type { LocalId } from "./LocalId";
 /**
  * 自動送信を待っている理由。対象と理由を表示する（§3.7）。
  */
-export type QueueHold = { "kind": "parentWorking" } | { "kind": "descendantsActive", targets: Array<HoldTarget>, } | { "kind": "stateUnknown", targets: Array<HoldTarget>, descendantScanIncomplete: boolean, } | { "kind": "notLive", targets: Array<HoldTarget>, } | { "kind": "stopUnconfirmed", record: LocalId, } | { "kind": "acceptanceUnknown", attempt: LocalId, } | { "kind": "deletePending" } | { "kind": "disconnected" };
+export type QueueHold = { "kind": "parentWorking" } | { "kind": "descendantsActive", targets: Array<HoldTarget>, } | { "kind": "stateUnknown", targets: Array<HoldTarget>, descendantScanIncomplete: boolean, } | { "kind": "notLive", targets: Array<HoldTarget>, } | { "kind": "stopUnconfirmed", record: LocalId, } | { "kind": "acceptanceUnknown", attempt: LocalId, } | { "kind": "deletePending" } | { "kind": "disconnected" } | { "kind": "quitting" } | { "kind": "saveFailed" };
