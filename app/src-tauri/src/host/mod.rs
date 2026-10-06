@@ -534,6 +534,8 @@ impl Host {
             ev.push(HostEvent::ModelSettingsUpdated { chat: key.clone(), settings });
             (d.chat(&key).cloned().unwrap_or(started.chat.clone()), ev)
         });
+        // 作成も利用として扱う（発話の有無にかかわらず、作成時刻を最近利用時刻とする）。
+        self.touch_chat_used(&key);
         let mut first_send = None;
         if let Some(text) = args.first_message.filter(|t| !t.trim().is_empty()) {
             if let Some(name) = derive_chat_name(&text) {
@@ -787,17 +789,16 @@ impl Host {
                 self.apply_cwd_after_accept(&chat, cwd);
             }
             // ユーザーの利用として最近利用時刻を更新する（背景活動では更新しない、§3.6）。
-            self.mutate(|d| {
-                if let Some(c) = d.chats.iter_mut().find(|c| c.key == chat) {
-                    c.last_used_at = Some(now_ms());
-                    let c = c.clone();
-                    return ((), vec![HostEvent::ChatUpdated { chat: c }]);
-                }
-                ((), vec![])
-            });
-            self.update_local(&chat, true, Duration::ZERO, |f| f.last_used_at = Some(now_ms()));
+            self.touch_chat_used(&chat);
         }
         attempt
+    }
+
+    /// ユーザー操作（作成・開く・送信）による最近利用時刻の更新。一覧の並び（§3.6）に使い、再起動後も戻す。
+    pub fn touch_chat_used(self: &Arc<Self>, chat: &ChatKey) {
+        let now = now_ms();
+        self.mutate(|d| ((), d.mark_used(chat, now)));
+        self.update_local(chat, true, Duration::ZERO, |f| f.last_used_at = Some(now));
     }
 
     fn emit_send(&self, chat: &ChatKey, attempt: &SendAttempt) {
@@ -958,6 +959,7 @@ impl Host {
                 Some(c) => {
                     c.pinned = args.pinned;
                     let c = c.clone();
+                    state::sort_chats(&mut d.chats);
                     (Ok(c.clone()), vec![HostEvent::ChatUpdated { chat: c }])
                 }
                 None => (Err(err(IpcErrorCode::NotFound, "チャットが見つかりません")), vec![]),

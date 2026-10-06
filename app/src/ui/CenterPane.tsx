@@ -4,6 +4,7 @@ import type {
   PermissionPreset, QueueEntry, RequestAnswer, ActivityKind, SaveState, StopRecord, TurnRecord,
 } from "../ipc/types";
 import { Icon } from "./Icon";
+import { PENDING_TEXT } from "./ManageDialogs";
 import { TENTATIVE_HINT, TENTATIVE_STYLE, chatAgents, chatName, chatRequests, chatTitle, chatStatusText, chatStops, isRunning, rootView, stopOpen } from "./derive";
 import { FRESH, STOP_LABEL, hms, holdText, keyStr, knownValue, showKnown, stopCauseText, targetList } from "./format";
 import { baseName, clipboardImageName, mimeOf } from "./attach";
@@ -607,7 +608,9 @@ export function CenterPane(p: CenterProps) {
     const v = chatAgents(snap, chat).find((x) => keyStr(x.agent.key) === keyStr(a));
     return v ? showKnown(v.agent.displayName) : a.id;
   };
-  const lock = hasOpenStop ? "停止を確認できるまで、このチャットへの新しい送信は止めています。"
+  const delPending = p.local?.deletePending ?? null;
+  const lock = delPending ? `削除を保留中のため、送信できません。${PENDING_TEXT(delPending.reason)}`
+    : hasOpenStop ? "停止を確認できるまで、このチャットへの新しい送信は止めています。"
     : chat.origin === "external" && rootView(snap, chat)?.freshness !== "live" ? "外部で実行中かどうか確認できないため、再開するまでこの会話には送信できません。上のボタンから、外部側の終了を確認して再開してください。" : null;
   return (
     <>

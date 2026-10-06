@@ -1,9 +1,9 @@
 import { useState } from "react";
 import type { Chat, HostSnapshot } from "../ipc/types";
 import { Icon } from "./Icon";
-import { TENTATIVE_HINT, TENTATIVE_STYLE, chatAgents, chatName, chatRequests, chatStatusText, chatTitle } from "./derive";
+import { TENTATIVE_HINT, TENTATIVE_STYLE, chatAgents, chatName, chatRequests, chatStatusText, chatTitle, sortChats } from "./derive";
 import { keyStr, knownValue } from "./format";
-import { archiveTag } from "./ManageDialogs";
+import { PENDING_TEXT, archiveTag } from "./ManageDialogs";
 
 export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, listStatus }: {
   snap: HostSnapshot; sel: string | null; onSelect: (id: string) => void; onAct: (a: string) => void; onAcknowledge: (c: Chat) => void;
@@ -19,7 +19,7 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, listStatus
   const archived = (c: Chat) => localOf(c)?.visibility.kind === "archived" || knownValue(c.archived) === true;
   // 外部作成の会話を「一覧から外した」ものは、元の履歴を消さずにアプリの一覧からだけ隠す。
   const removed = (c: Chat) => localOf(c)?.visibility.kind === "removedFromList";
-  const visible = snap.chats.filter((c) => !removed(c)).filter((c) =>
+  const visible = sortChats(snap.chats).filter((c) => !removed(c)).filter((c) =>
     (showArch ? archived(c) : !archived(c) || (q !== "" && inclArch)) && (!q || chatName(c).includes(q)));
   const pinned = visible.filter((c) => c.pinned && !showArch);
   const rest = visible.filter((c) => !c.pinned || showArch);
@@ -34,6 +34,7 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, listStatus
       <button key={k} className={`row-chat ${k === sel ? "sel" : ""}`} onClick={() => onSelect(c.key.id)} aria-current={k === sel}>
         <span className="nm" style={chatTitle(c).confirmed ? undefined : TENTATIVE_STYLE} title={chatTitle(c).confirmed ? undefined : TENTATIVE_HINT}>{chatName(c)}</span>
         <span className="marks">
+          {localOf(c)?.deletePending ? <span className="tag unv" title={PENDING_TEXT(localOf(c)!.deletePending!.reason)}>削除保留</span> : null}
           {hasReq ? <span className="mark wait" title="承認・質問待ち">待</span> : null}
           {unconfirmedFail ? (
             <span className="mark fail" role="button" tabIndex={0} title="未確認の失敗があります。クリックで「確認済み」にします（再実行ではありません）"
@@ -45,7 +46,6 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, listStatus
           {c.kind === "general" ? "一般" : <Icon name="folder" />}
           <span>{chatStatusText(snap, c)}</span>
           {archived(c) ? <span className="tag" title={archiveTag(localOf(c)).title || undefined}>{archiveTag(localOf(c)).text}</span> : null}
-          {localOf(c)?.deletePending ? <span className="tag unv" title="停止を確認できていない、または一部の削除に失敗したため、削除を保留しています。会話・添付・成果物は残っています。">削除保留</span> : null}
         </span>
       </button>
     );

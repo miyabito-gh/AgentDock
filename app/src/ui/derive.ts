@@ -16,6 +16,14 @@ export const chatTitle = (c: Chat): { text: string; confirmed: boolean } => {
   const p = previewTitle(c);
   return { text: p ?? "（名前未確認）", confirmed: false };
 };
+/** 一覧の並び（§3.6）。ピン→最近利用時刻の降順（無ければ作成時刻）→時刻不明。安定ソートで、ホストの `sort_chats` と同じ規則。 */
+export const sortChats = (chats: Chat[]): Chat[] => {
+  const t = (c: Chat): number | null => c.lastUsedAt ?? knownValue(c.createdAt) ?? null;
+  return chats.map((c, i) => ({ c, i, t: t(c) })).sort((a, b) =>
+    Number(b.c.pinned) - Number(a.c.pinned)
+    || (a.t === null ? (b.t === null ? 0 : 1) : b.t === null ? -1 : b.t - a.t)
+    || a.i - b.i).map((x) => x.c);
+};
 export const chatName = (c: Chat) => chatTitle(c).text;
 export const TENTATIVE_STYLE = { opacity: 0.65, fontStyle: "italic" } as const;
 export const TENTATIVE_HINT = "確認済みの名前ではありません（最初の依頼から仮表示）";

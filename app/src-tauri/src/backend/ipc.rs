@@ -68,6 +68,7 @@ pub mod command_names {
     pub const OPEN_MONITOR_WINDOW: &str = "open_monitor_window";
     pub const SET_MONITOR_WINDOW_SCOPE: &str = "set_monitor_window_scope";
     pub const SHOW_MAIN_WINDOW: &str = "show_main_window";
+    pub const TOUCH_CHAT_USED: &str = "touch_chat_used";
     pub const PREVIEW_DELETE: &str = "preview_delete";
     pub const DELETE_CHAT: &str = "delete_chat";
     pub const ARCHIVE_CHAT: &str = "archive_chat";

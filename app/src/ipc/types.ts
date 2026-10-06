@@ -284,6 +284,7 @@ export interface CommandMap {
   open_monitor_window: { args: Record<string, never>; result: null };
   set_monitor_window_scope: { args: SetMonitorWindowScopeArgs; result: null };
   show_main_window: { args: ShowMainWindowArgs; result: null };
+  touch_chat_used: { args: ChatArgs; result: null };
   preview_delete: { args: ChatArgs; result: DeletePreview };
   delete_chat: { args: ChatArgs; result: DeleteOutcome };
   archive_chat: { args: ChatArgs; result: ChatLocalView };

@@ -191,6 +191,7 @@ pub fn run() {
             commands::open_monitor_window,
             commands::set_monitor_window_scope,
             commands::show_main_window,
+            commands::touch_chat_used,
             commands::preview_delete,
             commands::delete_chat,
             commands::archive_chat,

@@ -331,6 +331,13 @@ pub async fn open_diag_dir() -> R<String> {
 
 // ───────────────────────────── 削除・アーカイブ・エクスポート・使用量（P7） ─────────────────────────────
 
+/// ユーザーがチャットを開いた操作で、最近利用時刻を更新する（一覧の並び用。背景の読み込みでは呼ばない）。
+#[tauri::command]
+pub async fn touch_chat_used(host: Hs<'_>, args: ChatArgs) -> R<()> {
+    host.inner().clone().touch_chat_used(&args.chat);
+    Ok(())
+}
+
 /// 削除確認に出す内容（実行しない）。
 #[tauri::command]
 pub async fn preview_delete(host: Hs<'_>, args: ChatArgs) -> R<DeletePreview> {

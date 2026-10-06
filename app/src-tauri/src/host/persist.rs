@@ -119,6 +119,14 @@ pub fn same_cached_meta(a: &CachedChatMeta, b: &CachedChatMeta) -> bool {
     a.name == b.name && a.cwd == b.cwd && a.kind == b.kind && a.origin == b.origin
 }
 
+/// `dir-<Unix ms>-<連番>` の作成時刻。形式が違う・数値でなければ None。
+pub fn created_at_from_dir_id(id: &str) -> Option<UnixMillis> {
+    let mut it = id.strip_prefix("dir-")?.split('-');
+    let ms: i64 = it.next()?.parse().ok()?;
+    it.next()?.parse::<u64>().ok()?;
+    (it.next().is_none() && ms > 0).then_some(UnixMillis(ms))
+}
+
 /// バックエンドに履歴が無いチャット（発話前など）を、アプリの記録だけから一覧に出す。名前・要約は未取得のまま（作らない）。
 /// 記録（`cachedMeta`）が無ければ種類・作業フォルダが分からないので出さない。
 pub fn chat_from_record(key: &ChatKey, local: &ChatLocalFile) -> Option<Chat> {
@@ -133,7 +141,8 @@ pub fn chat_from_record(key: &ChatKey, local: &ChatLocalFile) -> Option<Chat> {
         archived: Known::NotFetched,
         origin: ChatOrigin::AppManaged,
         draft: None,
-        created_at: Known::NotFetched,
+        // AgentDock が付けた専用領域名 `dir-<作成時のUnix ms>-<連番>` から作成時刻を機械的に導く（解析できなければ不明のまま）。
+        created_at: created_at_from_dir_id(&local.dir_id.0).map_or(Known::NotFetched, |t| Known::Value { value: t, basis: Basis::Derived }),
         last_used_at: local.last_used_at,
         no_history: true,
     })
@@ -830,5 +839,13 @@ mod tests {
     fn insufficient_space_message_guides_and_promises_no_deletion() {
         let m = save_failure_message(&StoreError::InsufficientSpace { required: 70 * 1024 * 1024, available: 10 * 1024 * 1024 });
         assert!(m.contains("空き容量") && m.contains("自動では削除しません"));
+    }
+
+    #[test]
+    fn dir_id_creation_time_is_parsed_or_unknown() {
+        assert_eq!(created_at_from_dir_id("dir-1791329043410-7"), Some(UnixMillis(1791329043410)));
+        for bad in ["dir-x-1", "dir-123", "chat-1-2", "dir-1-2-3", "dir--1-2", ""] {
+            assert_eq!(created_at_from_dir_id(bad), None, "{bad}");
+        }
     }
 }

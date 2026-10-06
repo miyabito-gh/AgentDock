@@ -127,11 +127,17 @@ fn list_time(c: &Chat) -> Option<UnixMillis> {
     c.last_used_at.or_else(|| c.created_at.value().copied())
 }
 
-/// 履歴なしのチャットを入れる位置。時刻が分かる最初の「より古い」チャットの手前、無ければ末尾。
-/// 時刻が不明なチャットは比較せず飛ばす。時刻が不明なチャット自身は従来どおり末尾。
-pub fn no_history_position(chats: &[Chat], key: Option<UnixMillis>) -> usize {
-    let Some(key) = key else { return chats.len() };
-    chats.iter().position(|c| list_time(c).is_some_and(|t| t.0 < key.0)).unwrap_or(chats.len())
+/// 一覧の並び（§3.6）。ピンを上、次に最近利用時刻の降順（新規作成は作成時刻）、時刻不明は最後。安定ソートなので同順位は元の順を保つ。
+/// 最近利用時刻はユーザー操作（作成・開く・送信）でだけ更新される。背景活動・一覧取得・走査では変えない。
+pub fn sort_chats(chats: &mut [Chat]) {
+    chats.sort_by(|a, b| {
+        b.pinned.cmp(&a.pinned).then_with(|| match (list_time(a), list_time(b)) {
+            (Some(x), Some(y)) => y.0.cmp(&x.0),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => std::cmp::Ordering::Equal,
+        })
+    });
 }
 
 fn is_active(s: AgentState) -> bool {
@@ -384,6 +390,15 @@ impl HostData {
         }
     }
 
+    /// ユーザー操作（作成・開く・送信）で最近利用時刻を更新する。背景活動からは呼ばない。
+    pub fn mark_used(&mut self, chat: &ChatKey, now: UnixMillis) -> Vec<HostEvent> {
+        let Some(c) = self.chats.iter_mut().find(|c| &c.key == chat) else { return Vec::new() };
+        c.last_used_at = Some(now);
+        let c = c.clone();
+        sort_chats(&mut self.chats);
+        vec![HostEvent::ChatUpdated { chat: c }]
+    }
+
     pub fn upsert_chat(&mut self, mut chat: Chat) -> Vec<HostEvent> {
         chat.pinned = self.pinned.contains(&chat.key);
         if self.hosted.contains(&chat.key) || is_app_workspace_chat(&chat) {
@@ -403,16 +418,10 @@ impl HostData {
                 if chat.last_used_at.is_none() {
                     chat.last_used_at = self.locals.get(&chat.key).and_then(|l| l.last_used_at);
                 }
-                if chat.no_history {
-                    // 履歴なしのチャットは、他のチャットと同じ「最近利用した順」の位置に入れる（最下部に固めない、§3.6）。
-                    let key = list_time(&chat).or_else(|| self.locals.get(&chat.key).and_then(|l| l.cached_meta.as_ref().map(|m| m.saved_at)));
-                    let at = no_history_position(&self.chats, key);
-                    self.chats.insert(at, chat.clone());
-                } else {
-                    self.chats.push(chat.clone());
-                }
+                self.chats.push(chat.clone());
             }
         }
+        sort_chats(&mut self.chats);
         vec![HostEvent::ChatUpdated { chat }]
     }
 
@@ -1440,22 +1449,43 @@ mod tests {
     }
 
     #[test]
-    fn no_history_chat_is_placed_by_last_used_time_not_at_the_bottom() {
-        let mk = |id: &str, t: Option<i64>| Chat {
+    fn list_order_is_pinned_then_recent_use_then_unknown_and_stable() {
+        let mk = |id: &str, created: Option<i64>, used: Option<i64>, pinned: bool| Chat {
+            key: ck(id), kind: ChatKind::General, cwd: Known::NotFetched, name: Known::NotFetched, preview: Known::NotFetched, pinned, archived: Known::NotFetched,
+            origin: ChatOrigin::AppManaged, draft: None, created_at: created.map_or(Known::NotFetched, |t| Known::direct(UnixMillis(t))),
+            last_used_at: used.map(UnixMillis), no_history: false,
+        };
+        let mut v = vec![
+            mk("unk1", None, None, false),
+            mk("old", Some(100), None, false),
+            mk("used", Some(50), Some(300), false),
+            mk("pin", Some(10), None, true),
+            mk("unk2", None, None, false),
+            mk("new", None, Some(400), false),
+        ];
+        sort_chats(&mut v);
+        let order: Vec<&str> = v.iter().map(|c| c.key.id.0.as_str()).collect();
+        assert_eq!(order, ["pin", "new", "used", "old", "unk1", "unk2"]);
+    }
+
+    #[test]
+    fn only_user_use_moves_a_chat_up_not_background_upserts() {
+        let mk = |id: &str, t: i64| Chat {
             key: ck(id), kind: ChatKind::General, cwd: Known::NotFetched, name: Known::NotFetched, preview: Known::NotFetched, pinned: false, archived: Known::NotFetched,
-            origin: ChatOrigin::AppManaged, draft: None, created_at: t.map_or(Known::NotFetched, |t| Known::direct(UnixMillis(t))), last_used_at: None, no_history: false,
+            origin: ChatOrigin::AppManaged, draft: None, created_at: Known::direct(UnixMillis(t)), last_used_at: None, no_history: false,
         };
         let mut d = HostData::default();
-        for (id, t) in [("new", 300), ("mid", 200), ("unknown", 0), ("old", 100)] {
-            d.upsert_chat(mk(id, if t == 0 { None } else { Some(t) }));
+        for (id, t) in [("a", 300), ("b", 200), ("c", 100)] {
+            d.upsert_chat(mk(id, t));
         }
-        let mut c = mk("nh", None);
-        c.no_history = true;
-        c.last_used_at = Some(UnixMillis(250));
-        d.upsert_chat(c);
-        let order: Vec<&str> = d.chats.iter().map(|c| c.key.id.0.as_str()).collect();
-        assert_eq!(order, ["new", "nh", "mid", "unknown", "old"]);
-        // 時刻が分からなければ末尾（比較できないものを上に出さない）。
-        assert_eq!(no_history_position(&d.chats, None), d.chats.len());
+        // 一覧の再取得（背景）では順序が変わらない。
+        d.upsert_chat(mk("c", 100));
+        d.upsert_chat(mk("b", 200));
+        let ids = |d: &HostData| d.chats.iter().map(|c| c.key.id.0.clone()).collect::<Vec<_>>();
+        assert_eq!(ids(&d), ["a", "b", "c"]);
+        // 作成・開く・送信（mark_used）で先頭へ。その後の再取得でも保たれる。
+        d.mark_used(&ck("c"), UnixMillis(900));
+        d.upsert_chat(mk("c", 100));
+        assert_eq!(ids(&d), ["c", "a", "b"]);
     }
 }

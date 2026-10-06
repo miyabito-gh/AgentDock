@@ -625,12 +625,13 @@ impl AiBackend for CodexBackend {
     }
 
     async fn resume(&self, chat: ChatKey, _confirmed: &UserConfirmed) -> BackendResult<ResumeOutcome> {
-        match self.call("thread/resume", json!({"threadId": chat.id.0}), WRITE_TIMEOUT).await {
+        match self.call("thread/resume", json!({"threadId": chat.id.0, "excludeTurns": true}), WRITE_TIMEOUT).await {
             Ok(r) => {
                 log_source("thread/resume", &r);
                 crate::diag::log("resume-model", &format!("model={} effort={}", r.get("model").map_or("absent", |v| if v.is_string() { "str" } else { "other" }), r.get("reasoningEffort").map_or("absent", |v| if v.is_string() { "str" } else if v.is_null() { "null" } else { "other" })));
+                // 全履歴の取得は非推奨のため turns を省く。本文は開く操作（thread/turns/list）で読む。使うのはメタ情報・モデル・状態だけ。
                 let t = thread_of(&r)?;
-                Ok(ResumeOutcome::Resumed { history: self.history_from_thread(&t, true, EvidenceSource::Response, "thread/resume"), accepted_model: accepted_model_of(&r) })
+                Ok(ResumeOutcome::Resumed { history: self.history_from_thread(&t, false, EvidenceSource::Response, "thread/resume"), accepted_model: accepted_model_of(&r) })
             }
             // 明示的に拒否された。別threadで代替せず理由を返す。
             Err(BackendError::Rejected { message, .. }) => Ok(ResumeOutcome::Unavailable { reason: message }),

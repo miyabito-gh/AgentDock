@@ -103,10 +103,10 @@ export default function App() {
   const live = mode === "live";
 
   const narrow = () => window.matchMedia("(max-width:900px)").matches;
-  const say = useCallback((t: string) => {
+  const say = useCallback((t: string, ms = 3200) => {
     setToast(t);
     window.clearTimeout(toastTimer.current);
-    toastTimer.current = window.setTimeout(() => setToast(null), 3200);
+    toastTimer.current = window.setTimeout(() => setToast(null), ms);
   }, []);
   const sayErr = useCallback((prefix: string, e: unknown) => say(`${prefix}: ${host.asIpcError(e).message}`), [say]);
 
@@ -188,7 +188,7 @@ export default function App() {
         say("スリープから復帰しました。状態を再照合しています。");
         if (selRef.current) void loadChat(selRef.current);
       }
-      else if (e.kind === "warning") say(`警告: ${e.message}`);
+      else if (e.kind === "warning") say(`警告${e.rawLabel ? `（${e.rawLabel}）` : ""}: ${e.message}`, 15000); // Codex 由来の通知などは読めるよう長めに出す
     };
     const handle = (env: HostEventEnvelope) => {
       const a = seqAction(last, env.seq);
@@ -289,6 +289,7 @@ export default function App() {
 
   const selectChat = (id: string | null) => {
     setSelId(id);
+    if (live && id) void host.touchChatUsed({ backend: "codex", id }).catch(() => undefined);
     // 履歴のないチャット（記録だけの表示）は、読み込みを試みない。
     if (live && id && !snap.chats.find((c) => c.key.id === id)?.noHistory) void loadChat(id);
   };

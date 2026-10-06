@@ -107,6 +107,8 @@ export const requestSelectedChat = (): Promise<void> => emit(SELECTED_CHAT_REQUE
 export const onSelectedChatRequest = (handler: () => void): Promise<UnlistenFn> => listen(SELECTED_CHAT_REQUEST, () => handler());
 
 // ── 削除・アーカイブ・エクスポート・使用量（P7） ──
+/** ユーザーがチャットを開いた操作を記録する（最近利用時刻。一覧の並び用。背景の読み込みでは呼ばない）。 */
+export const touchChatUsed = (chat: ChatKey): Promise<null> => invokeCmd("touch_chat_used", { chat });
 /** 削除確認に出す内容（実行しない）。 */
 export const previewDelete = (chat: ChatKey): Promise<DeletePreview> => invokeCmd("preview_delete", { chat });
 /** 削除（確認画面の後だけ）。停止を確認できなければ pending、部分失敗は partial（完了とは言わない）。 */
