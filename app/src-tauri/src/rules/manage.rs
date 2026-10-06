@@ -89,6 +89,15 @@ pub fn delete_result(done: Vec<String>, failed: Vec<String>) -> DeleteOutcome {
     }
 }
 
+/// Codex の履歴削除（`thread/delete`）の拒否が「対象の履歴が存在しない」を意味するか。
+/// 発話前のチャットなど、Codex に履歴（rollout）が作られていない会話の削除は、消す対象がないだけなので、Codex 側は「対象なし」として完了扱いにできる。
+/// 根拠: App Server は履歴の無い thread の削除を、専用のエラーコードを持たない一般の拒否（実機では
+/// `no rollout found for thread id <id>`）で返す。コードでは他の拒否と区別できないため、この文言だけを限定的に判定する。
+/// 他の拒否・通信断・結果不明は対象外（従来どおり部分失敗として保留を残す）。
+pub fn backend_delete_target_missing(e: &crate::backend::backend::BackendError) -> bool {
+    matches!(e, crate::backend::backend::BackendError::Rejected { message, .. } if message.contains("no rollout found for thread id"))
+}
+
 /// 保存に失敗している単位があれば、削除・アーカイブを完了と表示しない。対象チャットの単位だけを見る。
 pub fn save_blocks_chat(statuses: &[SaveStatus], chat: &ChatKey) -> Option<SaveScope> {
     statuses
@@ -463,5 +472,15 @@ mod tests {
         sending.queue_in_flight = true;
         let works = [w, waiting_only, fresh, sending];
         assert_eq!(new_work_for_quit(&works, &[ck("a")]), vec![ck("c"), ck("d")]);
+    }
+
+    #[test]
+    fn delete_rejection_for_a_thread_without_history_is_treated_as_nothing_to_delete() {
+        use crate::backend::backend::BackendError;
+        let rej = |m: &str| BackendError::Rejected { code: Some(-32600), message: m.into() };
+        assert!(backend_delete_target_missing(&rej("no rollout found for thread id 01a1")));
+        assert!(!backend_delete_target_missing(&rej("permission denied")));
+        assert!(!backend_delete_target_missing(&BackendError::OutcomeUnknown { message: "no rollout found for thread id x".into() }));
+        assert!(!backend_delete_target_missing(&BackendError::NotConnected));
     }
 }

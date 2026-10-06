@@ -203,20 +203,10 @@ pub fn default_chat_for(t: &WireThread) -> ChatKey {
     }
 }
 
-/// 一般チャット（アプリ管理の作業領域配下）か開発チャットか。パス区切りと大文字小文字を正規化して比較する。
+/// 一般チャット（アプリ専用領域の `chats/<dirId>/workspace` 配下）か開発チャットか。`..`・大文字小文字・ドライブ表記は `layout::is_chat_workspace` が吸収する。
 pub fn chat_kind(cwd: Option<&str>, app_data_dir: Option<&str>) -> ChatKind {
-    fn norm(p: &str) -> String {
-        p.replace('\\', "/").trim_end_matches('/').to_lowercase()
-    }
     match (cwd, app_data_dir) {
-        (Some(c), Some(a)) if !a.is_empty() => {
-            let (c, a) = (norm(c), norm(a));
-            if c == a || c.starts_with(&format!("{a}/")) {
-                ChatKind::General
-            } else {
-                ChatKind::Development
-            }
-        }
+        (Some(c), Some(a)) if !a.is_empty() && crate::store::layout::is_chat_workspace(std::path::Path::new(a), std::path::Path::new(c)) => ChatKind::General,
         _ => ChatKind::Development,
     }
 }
@@ -748,7 +738,10 @@ mod tests {
 
     #[test]
     fn chat_kind_by_app_dir() {
-        assert_eq!(chat_kind(Some(r"C:\Data\AgentDock\chats\a"), Some("c:/data/agentdock/")), ChatKind::General);
+        assert_eq!(chat_kind(Some(r"C:\Data\AgentDock\chats\a\workspace\s"), Some("c:/data/agentdock/")), ChatKind::General);
+        assert_eq!(chat_kind(Some(r"C:\Data\AgentDock\diag"), Some(r"C:\Data\AgentDock")), ChatKind::Development);
+        assert_eq!(chat_kind(Some(r"C:\Data\AgentDock\chats\a"), Some(r"C:\Data\AgentDock")), ChatKind::Development);
+        assert_eq!(chat_kind(Some(r"C:\Data\AgentDock\chats\a\workspace\..\..\..\x"), Some(r"C:\Data\AgentDock")), ChatKind::Development);
         assert_eq!(chat_kind(Some(r"C:\Work\proj"), Some(r"C:\Data\AgentDock")), ChatKind::Development);
         assert_eq!(chat_kind(None, Some("x")), ChatKind::Development);
     }

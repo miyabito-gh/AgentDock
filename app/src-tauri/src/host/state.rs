@@ -116,6 +116,24 @@ pub fn external_send_locked(origin: ChatOrigin, root_freshness: Option<Freshness
     origin == ChatOrigin::External && root_freshness != Some(Freshness::Live)
 }
 
+/// 作業フォルダがアプリ専用領域内（一般チャット）の会話は、AgentDockが領域を割り当てて開始したものなので、
+/// 記録（hosted）を失っていてもアプリ管理として扱う（App Serverは自分の開始分も `vscode` 等と返すことがある）。
+pub fn is_app_workspace_chat(c: &Chat) -> bool {
+    c.kind == ChatKind::General
+}
+
+/// 一覧の並びに使う時刻（最近利用時刻。無ければ作成時刻）。どちらも無ければ比較しない。
+fn list_time(c: &Chat) -> Option<UnixMillis> {
+    c.last_used_at.or_else(|| c.created_at.value().copied())
+}
+
+/// 履歴なしのチャットを入れる位置。時刻が分かる最初の「より古い」チャットの手前、無ければ末尾。
+/// 時刻が不明なチャットは比較せず飛ばす。時刻が不明なチャット自身は従来どおり末尾。
+pub fn no_history_position(chats: &[Chat], key: Option<UnixMillis>) -> usize {
+    let Some(key) = key else { return chats.len() };
+    chats.iter().position(|c| list_time(c).is_some_and(|t| t.0 < key.0)).unwrap_or(chats.len())
+}
+
 fn is_active(s: AgentState) -> bool {
     matches!(s, AgentState::Running | AgentState::Waiting | AgentState::Initializing)
 }
@@ -368,7 +386,7 @@ impl HostData {
 
     pub fn upsert_chat(&mut self, mut chat: Chat) -> Vec<HostEvent> {
         chat.pinned = self.pinned.contains(&chat.key);
-        if self.hosted.contains(&chat.key) {
+        if self.hosted.contains(&chat.key) || is_app_workspace_chat(&chat) {
             chat.origin = ChatOrigin::AppManaged;
         }
         match self.chats.iter_mut().find(|c| c.key == chat.key) {
@@ -385,7 +403,14 @@ impl HostData {
                 if chat.last_used_at.is_none() {
                     chat.last_used_at = self.locals.get(&chat.key).and_then(|l| l.last_used_at);
                 }
-                self.chats.push(chat.clone());
+                if chat.no_history {
+                    // 履歴なしのチャットは、他のチャットと同じ「最近利用した順」の位置に入れる（最下部に固めない、§3.6）。
+                    let key = list_time(&chat).or_else(|| self.locals.get(&chat.key).and_then(|l| l.cached_meta.as_ref().map(|m| m.saved_at)));
+                    let at = no_history_position(&self.chats, key);
+                    self.chats.insert(at, chat.clone());
+                } else {
+                    self.chats.push(chat.clone());
+                }
             }
         }
         vec![HostEvent::ChatUpdated { chat }]
@@ -1180,7 +1205,7 @@ mod tests {
         let mut d = HostData::default();
         let mk = |origin| Chat {
             key: ck("root"),
-            kind: ChatKind::General,
+            kind: ChatKind::Development,
             cwd: Known::NotFetched,
             name: Known::NotFetched,
             preview: Known::NotFetched,
@@ -1389,5 +1414,48 @@ mod tests {
         d.apply_event(&env(4, 4, BackendEvent::AgentStatus { agent: ak("root"), status: status(AgentState::Running, Some("t2"), StateScope::Turn) }), &caps());
         d.apply_event(&env(5, 5, BackendEvent::AgentStatus { agent: ak("root"), status: status(AgentState::Running, Some("t2"), StateScope::Turn) }), &caps());
         assert_eq!(d.activity_outbox.len(), 1);
+    }
+
+    #[test]
+    fn app_started_chats_stay_app_managed_after_restart_even_if_the_backend_says_vscode() {
+        let mk = |id: &str, kind, created: Option<i64>| Chat {
+            key: ck(id), kind, cwd: Known::NotFetched, name: Known::NotFetched, preview: Known::NotFetched, pinned: false, archived: Known::NotFetched,
+            origin: ChatOrigin::External, draft: None,
+            created_at: created.map_or(Known::NotFetched, |t| Known::direct(UnixMillis(t))), last_used_at: None, no_history: false,
+        };
+        let mut d = HostData::default();
+        // 復元した hosted の印は、一覧取得（外部と返る）でも保たれ、送信は止まらない。
+        d.hosted.insert(ck("dev"));
+        d.upsert_chat(mk("dev", ChatKind::Development, None));
+        d.upsert_history_agent(agent("dev", true), status(AgentState::Unknown, None, StateScope::Agent));
+        let c = d.chat(&ck("dev")).unwrap();
+        assert_eq!(c.origin, ChatOrigin::AppManaged);
+        assert!(!external_send_locked(c.origin, d.root_view(&ck("dev")).map(|v| v.freshness)));
+        // 記録（hosted）を失っていても、アプリ専用領域の作業フォルダ（一般チャット）はアプリ管理。
+        d.upsert_chat(mk("gen", ChatKind::General, None));
+        assert_eq!(d.chat(&ck("gen")).unwrap().origin, ChatOrigin::AppManaged);
+        // 記録の無い開発チャットは外部のまま（外部の再開確認は変えない）。
+        d.upsert_chat(mk("ext", ChatKind::Development, None));
+        assert_eq!(d.chat(&ck("ext")).unwrap().origin, ChatOrigin::External);
+    }
+
+    #[test]
+    fn no_history_chat_is_placed_by_last_used_time_not_at_the_bottom() {
+        let mk = |id: &str, t: Option<i64>| Chat {
+            key: ck(id), kind: ChatKind::General, cwd: Known::NotFetched, name: Known::NotFetched, preview: Known::NotFetched, pinned: false, archived: Known::NotFetched,
+            origin: ChatOrigin::AppManaged, draft: None, created_at: t.map_or(Known::NotFetched, |t| Known::direct(UnixMillis(t))), last_used_at: None, no_history: false,
+        };
+        let mut d = HostData::default();
+        for (id, t) in [("new", 300), ("mid", 200), ("unknown", 0), ("old", 100)] {
+            d.upsert_chat(mk(id, if t == 0 { None } else { Some(t) }));
+        }
+        let mut c = mk("nh", None);
+        c.no_history = true;
+        c.last_used_at = Some(UnixMillis(250));
+        d.upsert_chat(c);
+        let order: Vec<&str> = d.chats.iter().map(|c| c.key.id.0.as_str()).collect();
+        assert_eq!(order, ["new", "nh", "mid", "unknown", "old"]);
+        // 時刻が分からなければ末尾（比較できないものを上に出さない）。
+        assert_eq!(no_history_position(&d.chats, None), d.chats.len());
     }
 }

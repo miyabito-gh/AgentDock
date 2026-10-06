@@ -138,6 +138,16 @@ pub fn is_inside(base: &Path, path: &Path) -> bool {
     p.len() >= b.len() && p[..b.len()] == b[..]
 }
 
+/// パスが一般チャットの作業領域（`<app_data>\chats\<dirId>\workspace` またはその配下）か。
+/// 領域の他の場所（diag・`chats\<dirId>` 直下・他の保存領域）や、`..` で外へ出るパスは含めない。
+pub fn is_chat_workspace(app_data_dir: &Path, path: &Path) -> bool {
+    if !app_data_dir.is_absolute() || !path.is_absolute() {
+        return false;
+    }
+    let (c, p) = (normalized(&app_data_dir.join(CHATS_DIR)), normalized(path));
+    p.len() >= c.len() + 2 && p[..c.len()] == c[..] && p[c.len() + 1] == WORKSPACE_DIR
+}
+
 /// 一覧の索引用（ログ・診断で使う文字列）。ファイル名には使わない。
 pub fn chat_label(chat: &ChatKey) -> String {
     format!("{:?}/{}", chat.backend, chat.id.0)
@@ -208,6 +218,20 @@ mod tests {
         assert!(!is_inside(base, Path::new(r"D:\Data\Chat1\a.txt")));
         assert!(!is_inside(base, Path::new(r"relative\a.txt")));
         assert!(is_inside(base, Path::new(r"\\?\C:\Data\Chat1\a.txt")));
+    }
+
+    #[test]
+    fn chat_workspace_is_only_under_chats_dirid_workspace() {
+        let app = Path::new(r"C:\Data\App");
+        assert!(is_chat_workspace(app, Path::new(r"c:\data\app\chats\x\workspace")));
+        assert!(is_chat_workspace(app, Path::new(r"C:\Data\App\chats\x\workspace\sub\f")));
+        assert!(is_chat_workspace(app, Path::new("C:/Data/App/chats/x/workspace")));
+        assert!(!is_chat_workspace(app, Path::new(r"C:\Data\App\diag")));
+        assert!(!is_chat_workspace(app, Path::new(r"C:\Data\App\chats\x")));
+        assert!(!is_chat_workspace(app, Path::new(r"C:\Data\App\chats\x\attachments")));
+        assert!(!is_chat_workspace(app, Path::new(r"C:\Data\App\chats\x\workspace\..\..\..\diag")));
+        assert!(!is_chat_workspace(app, Path::new(r"C:\Data\AppOther\chats\x\workspace")));
+        assert!(!is_chat_workspace(app, Path::new(r"relative\chats\x\workspace")));
     }
 
     #[test]

@@ -22,12 +22,14 @@ use crate::backend::ipc::*;
 use crate::backend::local::*;
 use crate::backend::model::*;
 use crate::rules::export::{render_markdown, ExportInput};
-use crate::rules::manage::{archive_ready, delete_decision, delete_result, refresh_delete_pending, save_blocks_chat, ChatWork, DeleteDecision};
+use crate::rules::manage::{archive_ready, backend_delete_target_missing,delete_decision, delete_result, refresh_delete_pending, save_blocks_chat, ChatWork, DeleteDecision};
 use crate::store::records::ChatLocalFile;
 use crate::store::{atomic, layout, legacy_area_usage, StoreError};
 
 /// 削除の途中結果に残す、完了した工程の名前（再実行で Codex の削除を繰り返さないための印でもある）。
 pub const BACKEND_DONE: &str = "Codexの履歴の削除";
+/// Codex に履歴が無く、削除する対象がなかった場合（完了扱い。再実行でも繰り返さない）。
+pub const BACKEND_NONE: &str = "Codexの履歴の削除（Codexに履歴がなく、対象なし）";
 pub const AREA_DONE: &str = "このチャット専用領域（添付・成果物・作業領域・監視活動の記録）の削除";
 
 /// 管理操作の作業状態（保存しない）。
@@ -429,13 +431,15 @@ impl Host {
                 self.set_delete_pending(chat, DeletePendingReason::ReadyForUserRetry, None).await;
             }
         }
-        if !external && !done.iter().any(|s| s == BACKEND_DONE) {
+        if !external && !done.iter().any(|s| s == BACKEND_DONE || s == BACKEND_NONE) {
             match self.backend.manage_chat(chat.clone(), ManageOp::Delete, confirmed).await {
                 Ok(ManageOutcome::Done) => done.push(BACKEND_DONE.to_string()),
                 Ok(ManageOutcome::Partial { done: d, failed: f }) => {
                     done.extend(d);
                     failed.extend(f);
                 }
+                // Codex に履歴が無い（発話前のチャットなど）。消す対象がないので、Codex 側は完了扱いにして領域の削除へ進む。
+                Err(e) if backend_delete_target_missing(&e) => done.push(BACKEND_NONE.to_string()),
                 Err(e) => failed.push(format!("{BACKEND_DONE}に失敗しました（{e}）")),
             }
         }

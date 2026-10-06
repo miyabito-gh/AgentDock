@@ -167,6 +167,7 @@ pub fn unlisted_action(read: Result<(), &BackendError>) -> UnlistedAction {
 
 impl HostData {
     /// 一覧（先頭ページ）に載らず、まだ表示していない、表示対象のアプリ管理の会話。表示記録（`cachedMeta`）が無いものは出せない。
+    /// 削除保留（部分失敗など）のものも出す（一覧から消えて保留が見えなくなるのを防ぐ、§3.6）。
     pub fn unlisted_hosted_candidates(&self, listed: &std::collections::HashSet<ChatKey>) -> Vec<ChatKey> {
         let mut v: Vec<ChatKey> = self
             .hosted
@@ -175,7 +176,7 @@ impl HostData {
             .filter(|k| {
                 self.locals
                     .get(*k)
-                    .is_some_and(|l| matches!(l.visibility, ListVisibility::Visible) && l.delete_pending.is_none() && l.cached_meta.is_some())
+                    .is_some_and(|l| matches!(l.visibility, ListVisibility::Visible) && l.cached_meta.is_some())
             })
             .cloned()
             .collect();

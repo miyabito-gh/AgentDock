@@ -586,10 +586,10 @@ function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock
       </div>
       <div className="hint">
         <span>{p.enterMode === "ctrl" ? "Ctrl＋Enter で送信、Enter で改行" : "Enter で送信、Shift＋Enter で改行"}</span>
-        <span>
+        <span title={!accepted ? "会話の再開・開始の応答か Codex の設定通知でモデルを受け取るまで、受理は確認できません。受け取っていない間は、選択値が使われたとは言えません。" : undefined}>
           {changed ? `選択: ${model}／${effort}（未受理。次のターンから適用）　` : ""}
           受理済み: {settings ? (accepted ? `${accepted.model}／${accepted.effort ?? "既定"}` : showKnown(settings.accepted)) : "未確認"}
-          {!accepted ? "（会話の再開・開始の応答か Codex の設定通知でモデルを受け取るまで、受理は確認できません。受け取っていない間は、選択値が使われたとは言えません）" : ""}
+          {!accepted ? "（受け取るまで確認不可）" : ""}
         </span>
       </div>
     </div>
