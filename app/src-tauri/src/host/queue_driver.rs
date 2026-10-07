@@ -534,10 +534,11 @@ impl Host {
     /// 計画／実行を送るときにバックエンドが要る「モデル」。選択値がなければ、受理を確認できた値（速度は引き継がない）。
     /// どちらもなければ None（バックエンドが送らずに拒否する）。計画／実行の選択がなければ選択値をそのまま返す。
     pub(super) fn model_for_send(&self, chat: &ChatKey, selected: Option<ModelChoice>, work_mode: Option<WorkMode>) -> Option<ModelChoice> {
-        if selected.is_some() || work_mode.is_none() {
+        if work_mode.is_none() {
             return selected;
         }
-        self.read(|d| d.model_settings.get(chat).and_then(|s| s.accepted.value().cloned())).map(|m| ModelChoice { speed_tier: None, ..m })
+        let accepted = self.read(|d| d.model_settings.get(chat).and_then(|s| s.accepted.value().cloned()));
+        super::chat_prefs::resolve_model_for_work_mode(selected, accepted, &self.models_cache.lock().unwrap())
     }
 
     /// 項目を Sending にして、送信時点の設定を記録する。送れない状態の項目なら None。
@@ -548,9 +549,11 @@ impl Host {
                 let l = d.locals.get(chat);
                 let work_mode = d.model_settings.get(chat).and_then(|s| s.work_mode);
                 let selected = d.model_settings.get(chat).and_then(|s| s.selected.clone());
-                let model = match (&selected, work_mode) {
-                    (None, Some(_)) => d.model_settings.get(chat).and_then(|s| s.accepted.value().cloned()).map(|m| ModelChoice { speed_tier: None, ..m }),
-                    _ => selected,
+                let model = if work_mode.is_some() {
+                    let accepted = d.model_settings.get(chat).and_then(|s| s.accepted.value().cloned());
+                    super::chat_prefs::resolve_model_for_work_mode(selected, accepted, &self.models_cache.lock().unwrap())
+                } else {
+                    selected
                 };
                 (model, l.and_then(|l| l.permission), l.and_then(|l| l.next_cwd.clone()), work_mode)
             };

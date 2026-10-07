@@ -171,6 +171,8 @@ pub struct Host {
     queue_rt: queue_driver::QueueRuntime,
     /// アーカイブ・削除の作業状態（`manage.rs`）。
     manage_rt: manage::ManageRuntime,
+    /// 直近に取得したモデル一覧（隠しなし。画面の既定モデルの表示と同じ解決に使う）。
+    models_cache: Mutex<Vec<ModelInfo>>,
     /// 変更の観測・戻す計画（`changes.rs`）。
     changes_rt: changes::ChangesRuntime,
     /// worktreeの作成・削除（`worktree.rs`）。
@@ -203,6 +205,7 @@ impl Host {
             scanning: Mutex::new(HashSet::new()),
             queue_rt: queue_driver::QueueRuntime::default(),
             manage_rt: manage::ManageRuntime::default(),
+            models_cache: Mutex::new(Vec::new()),
             changes_rt: changes::ChangesRuntime::default(),
             worktree_rt: worktree::WorktreeRuntime::default(),
             side_rt: side::SideRuntime::default(),
@@ -1034,7 +1037,11 @@ impl Host {
     }
 
     pub async fn list_models(&self, args: ListModelsArgs) -> Result<Vec<ModelInfo>, IpcError> {
-        Ok(self.backend.list_models(ModelQuery { include_hidden: args.include_hidden }).await?)
+        let models = self.backend.list_models(ModelQuery { include_hidden: args.include_hidden }).await?;
+        if !args.include_hidden {
+            *self.models_cache.lock().unwrap() = models.clone();
+        }
+        Ok(models)
     }
 
     /// チャット単位の選択を保持する。送信時に適用し、受理応答までは `accepted` を更新しない（適用済みと表示しない）。

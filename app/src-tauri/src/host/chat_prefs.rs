@@ -31,6 +31,20 @@ pub fn should_refresh_after(ack: &OpAck) -> bool {
     !matches!(ack, OpAck::Rejected { .. })
 }
 
+/// 計画／実行を送るときにバックエンドが要る「モデル・推論の強さ」の解決規則（ここ一箇所）。
+/// ①チャットの選択値 ②受理済み ③画面が表示している既定（モデル一覧の既定、なければ先頭。推論は既定値）の順。
+/// ②③は送信に使うだけで、選択値にも受理値にも書き戻さない。速度は引き継がない。どれも決まらなければ None（送らずに拒否）。
+pub fn resolve_model_for_work_mode(selected: Option<ModelChoice>, accepted: Option<ModelChoice>, models: &[ModelInfo]) -> Option<ModelChoice> {
+    if selected.is_some() {
+        return selected;
+    }
+    if let Some(a) = accepted {
+        return Some(ModelChoice { speed_tier: None, ..a });
+    }
+    let d = models.iter().find(|m| m.is_default).or_else(|| models.first())?;
+    Some(ModelChoice { model: d.id.clone(), effort: d.default_effort.clone(), speed_tier: None })
+}
+
 impl Host {
     /// 操作の対象にできるチャットか（削除保留中・外部で実行中は不可）。
     pub(super) fn check_op_target(&self, chat: &ChatKey) -> Result<(), IpcError> {
@@ -170,6 +184,22 @@ mod tests {
         assert_eq!(known_of(timeout), Known::NotFetched);
         assert_eq!(known_of(Ok(Known::Missing::<u32>)), Known::Missing);
         assert_eq!(known_of(Ok(Known::direct(3u32))), Known::direct(3));
+    }
+
+    fn info(id: &str, default: bool, effort: Option<&str>) -> ModelInfo {
+        ModelInfo { id: id.into(), display_name: id.into(), description: None, efforts: vec![], default_effort: effort.map(str::to_string), is_default: default, hidden: false, input_kinds: vec![], speed_tiers: vec![], default_speed_tier: None }
+    }
+
+    #[test]
+    fn work_mode_model_resolves_selected_then_accepted_then_displayed_default() {
+        let models = vec![info("a", false, Some("high")), info("sol", true, Some("low"))];
+        let sel = ModelChoice { model: "s".into(), effort: None, speed_tier: Some("fast".into()) };
+        let acc = ModelChoice { model: "acc".into(), effort: Some("mid".into()), speed_tier: Some("fast".into()) };
+        assert_eq!(resolve_model_for_work_mode(Some(sel.clone()), Some(acc.clone()), &models), Some(sel));
+        assert_eq!(resolve_model_for_work_mode(None, Some(acc), &models), Some(ModelChoice { model: "acc".into(), effort: Some("mid".into()), speed_tier: None }));
+        assert_eq!(resolve_model_for_work_mode(None, None, &models), Some(ModelChoice { model: "sol".into(), effort: Some("low".into()), speed_tier: None }));
+        assert_eq!(resolve_model_for_work_mode(None, None, &[info("first", false, None)]).map(|m| m.model), Some("first".into()));
+        assert_eq!(resolve_model_for_work_mode(None, None, &[]), None);
     }
 
     #[test]
