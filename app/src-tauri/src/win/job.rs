@@ -109,6 +109,12 @@ impl ProcessJob {
         sys::active_processes(self)
     }
 
+    /// AgentDockが自分で起動した外部コマンド（`exec::run_bounded`）の時間切れ・出力超過で、孫プロセスごと終了させる。
+    /// 監視元（App Server）には使わない（そちらは確認つきの `terminate`）。
+    pub fn terminate_own(&self) -> std::io::Result<()> {
+        sys::terminate(self)
+    }
+
     /// ユーザーの明示確認後にだけ呼ぶ（`UserConfirmed` を要求する）。`TerminateJobObject`。
     pub fn terminate(&self, _confirmed: &crate::backend::backend::UserConfirmed) -> std::io::Result<()> {
         sys::terminate(self)

@@ -47,28 +47,34 @@ pub struct RunSpec<'a> {
     pub stdout_limit: usize,
 }
 
-async fn read_capped<R: AsyncRead + Unpin>(mut r: R, limit: usize) -> Result<Vec<u8>, usize> {
+/// 読取りの失敗。EOFとは区別する（途中で切れた出力を完全な結果として扱わない）。
+enum ReadFail {
+    TooLarge(usize),
+    Io(String),
+}
+
+async fn read_capped<R: AsyncRead + Unpin>(mut r: R, limit: usize) -> Result<Vec<u8>, ReadFail> {
     let mut buf = Vec::new();
     let mut chunk = [0u8; 8192];
     loop {
-        let n = r.read(&mut chunk).await.unwrap_or(0);
+        let n = r.read(&mut chunk).await.map_err(|e| ReadFail::Io(e.to_string()))?;
         if n == 0 {
             return Ok(buf);
         }
         if buf.len() + n > limit {
-            return Err(limit);
+            return Err(ReadFail::TooLarge(limit));
         }
         buf.extend_from_slice(&chunk[..n]);
     }
 }
 
-async fn read_truncated<R: AsyncRead + Unpin>(mut r: R, keep: usize) -> Vec<u8> {
+async fn read_truncated<R: AsyncRead + Unpin>(mut r: R, keep: usize) -> Result<Vec<u8>, String> {
     let mut buf = Vec::new();
     let mut chunk = [0u8; 8192];
     loop {
-        let n = r.read(&mut chunk).await.unwrap_or(0);
+        let n = r.read(&mut chunk).await.map_err(|e| e.to_string())?;
         if n == 0 {
-            return buf;
+            return Ok(buf);
         }
         // 読み続ける（詰まらせない）が、保持は上限まで。
         let room = keep.saturating_sub(buf.len());
@@ -93,24 +99,36 @@ pub async fn run_bounded(spec: RunSpec<'_>) -> Result<RunOutput, RunError> {
     let stdout = child.stdout.take().ok_or_else(|| RunError::Io("no stdout".into()))?;
     let stderr = child.stderr.take().ok_or_else(|| RunError::Io("no stderr".into()))?;
     let limit = spec.stdout_limit;
+    // 孫プロセスごと終了できるよう、起動直後にJobへ入れる（入れられなければ直接の子だけを終了する）。
+    let job = child.id().and_then(|pid| crate::win::job::ProcessJob::assign(pid).ok());
     let err_task = tokio::spawn(read_truncated(stderr, STDERR_LIMIT));
     let work = async {
         match read_capped(stdout, limit).await {
-            Err(l) => {
+            Err(ReadFail::TooLarge(l)) => {
                 let _ = child.kill().await;
                 Err(RunError::OutputTooLarge(l))
             }
+            Err(ReadFail::Io(m)) => {
+                let _ = child.kill().await;
+                Err(RunError::Io(m))
+            }
             Ok(out) => {
                 let status = child.wait().await.map_err(|e| RunError::Io(e.to_string()))?;
-                let err = err_task.await.unwrap_or_default();
+                let err = err_task.await.map_err(|e| RunError::Io(e.to_string()))?.map_err(RunError::Io)?;
                 Ok(RunOutput { exit_code: status.code(), stdout: out, stderr: err })
             }
         }
     };
-    match tokio::time::timeout(spec.timeout, work).await {
+    let result = match tokio::time::timeout(spec.timeout, work).await {
         Ok(r) => r,
         Err(_) => Err(RunError::Timeout),
+    };
+    if matches!(result, Err(RunError::Timeout | RunError::OutputTooLarge(_) | RunError::Io(_))) {
+        if let Some(job) = &job {
+            let _ = job.terminate_own();
+        }
     }
+    result
 }
 
 #[cfg(test)]

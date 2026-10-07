@@ -225,7 +225,9 @@ impl Host {
     fn cloud_apply_blocker(&self, folders: &[&str]) -> Option<IpcError> {
         let overlapping = self.read(|d| d.chats.iter().filter(|c| c.cwd.value().is_some_and(|w| folders.iter().any(|f| paths_overlap(w, f)))).map(|c| c.key.clone()).collect::<Vec<_>>());
         let busy = self.read(|d| {
-            overlapping.iter().any(|k| d.agents.iter().any(|v| &v.agent.chat == k && d.running_turn.contains_key(&v.agent.key)) || d.open_stop(k).is_some())
+            overlapping.iter().any(|k| {
+                d.agents.iter().any(|v| &v.agent.chat == k && d.running_turn.contains_key(&v.agent.key)) || d.open_stop(k).is_some() || d.locals.get(k).is_some_and(|l| !l.pending_ops.is_empty())
+            })
         });
         if busy {
             return Some(blocked(BlockedReason::ChatBusy, "取込み先の作業フォルダで作業中（または停止未確認）のチャットがあるため、取り込めません。完了または停止の確認後に実行してください"));
@@ -251,6 +253,8 @@ impl Host {
             Some(r) => r,
             None => return Err(blocked(BlockedReason::NotARepository, "取込み先はGitのリポジトリではないため、取り込めません（変更を照合できません）")),
         };
+        // 実行中は、重なる作業フォルダのチャットのキューを保留する（先に印を付けてから判定する）。
+        let _folder_op = self.begin_folder_op(vec![folder.clone(), root.clone()]);
         if let Some(e) = self.cloud_apply_blocker(&[folder.as_str(), root.as_str()]) {
             return Err(e);
         }

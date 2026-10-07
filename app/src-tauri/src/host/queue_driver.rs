@@ -13,6 +13,7 @@ use std::time::Duration;
 
 use tokio::sync::Notify;
 
+use super::cloud::paths_overlap;
 use super::state::{agent_key_of, HostData};
 use super::{blocked, err, now_ms, Host};
 use crate::backend::backend::*;
@@ -63,6 +64,10 @@ pub struct QueueRuntime {
     send_locks: Mutex<HashMap<ChatKey, Arc<tokio::sync::Mutex<()>>>>,
     /// 手動送信を受理したturn（受理の時刻つき）。開始・終端を観測するまで、キューは親が作業中として保留する。
     manual_accepts: Mutex<HashMap<ChatKey, (ExternalId, UnixMillis)>>,
+    /// レビュー・圧縮など、turnを始める操作の受付時刻。そのturnの終端を観測するまで（上限15秒）、キューは保留する。
+    op_accepts: Mutex<HashMap<ChatKey, UnixMillis>>,
+    /// 作業フォルダを書き換える操作（変更を戻す・クラウド取込み）の実行中のフォルダ。重なる作業フォルダのチャットのキューを保留する。
+    folder_ops: Mutex<Vec<String>>,
     /// 送信前の保存に失敗して送らなかったチャット。保存が成功するまで保留にする（2秒ごとの警告を繰り返さない）。
     save_blocked: Mutex<HashSet<ChatKey>>,
 }
@@ -74,6 +79,11 @@ impl QueueRuntime {
 
     pub fn note_manual_accept(&self, chat: &ChatKey, turn: ExternalId) {
         self.manual_accepts.lock().unwrap().insert(chat.clone(), (turn, now_ms()));
+    }
+
+    /// turnを始める操作（レビュー・圧縮）の受付を記録する。応答の時点では、そのturnの開始通知が未処理のことがある。
+    pub fn note_op_accept(&self, chat: &ChatKey) {
+        self.op_accepts.lock().unwrap().insert(chat.clone(), now_ms());
     }
 
     pub fn note_scan(&self, root: &AgentKey, complete: bool) {
@@ -107,6 +117,36 @@ fn manual_turn_pending(accepted: Option<&(ExternalId, UnixMillis)>, last_end_tur
     accepted.is_some_and(|(turn, at)| now.0 - at.0 < MANUAL_PENDING_MS && last_end_turn != Some(turn))
 }
 
+/// 操作（レビュー・圧縮）の受付から、受付以後のturnの終端を観測するまでの間か（上限は手動送信と同じ。観測できないまま保留し続けない）。
+fn op_turn_pending(accepted: Option<UnixMillis>, last_end_at: Option<UnixMillis>, now: UnixMillis) -> bool {
+    accepted.is_some_and(|since| now.0 - since.0 < MANUAL_PENDING_MS && !last_end_at.is_some_and(|at| at.0 >= since.0))
+}
+
+/// 実行中のフォルダ操作の対象と、チャットの作業フォルダが重なるか。
+fn folder_op_overlaps(active: &[String], cwd: Option<&str>) -> bool {
+    cwd.is_some_and(|w| active.iter().any(|f| paths_overlap(w, f)))
+}
+
+/// フォルダ操作の実行中を示す（破棄で解除し、キューを起こす）。
+pub(super) struct FolderOpGuard {
+    host: Arc<Host>,
+    folders: Vec<String>,
+}
+
+impl Drop for FolderOpGuard {
+    fn drop(&mut self) {
+        {
+            let mut v = self.host.queue_rt.folder_ops.lock().unwrap();
+            for f in &self.folders {
+                if let Some(i) = v.iter().position(|x| x == f) {
+                    v.remove(i);
+                }
+            }
+        }
+        self.host.kick_queue();
+    }
+}
+
 /// 照合1回の結果。
 pub(super) enum ReconcileStep {
     Resolved(SendAttempt),
@@ -134,6 +174,10 @@ struct GateContext {
     quitting: bool,
     deleting: bool,
     manual: Option<(ExternalId, UnixMillis)>,
+    /// 操作（レビュー・圧縮）の受付時刻。
+    op_accept: Option<UnixMillis>,
+    /// 作業フォルダが、実行中のフォルダ操作（戻す・クラウド取込み）と重なる。
+    folder_busy: bool,
 }
 
 /// 状態（`HostData`）と履歴確認の結果から、純粋な判断の入力を組む。
@@ -174,7 +218,9 @@ fn gate_input(
         unresolved_op: d.locals.get(chat).and_then(|l| l.pending_ops.first()).map(|p| p.id.clone()),
         delete_pending: ctx.deleting || d.locals.get(chat).is_some_and(|l| l.delete_pending.is_some()),
         quitting: ctx.quitting,
-        manual_turn_pending: manual_turn_pending(ctx.manual.as_ref(), d.last_end.get(&root_key).map(|(t, _, _)| t), now_ms()),
+        manual_turn_pending: manual_turn_pending(ctx.manual.as_ref(), d.last_end.get(&root_key).map(|(t, _, _)| t), now_ms())
+            || op_turn_pending(ctx.op_accept, d.last_end.get(&root_key).map(|(_, _, at)| *at), now_ms())
+            || ctx.folder_busy,
         user_confirmed_unknown,
     }
 }
@@ -208,6 +254,17 @@ impl Host {
                 host.queue_tick().await;
             }
         });
+    }
+
+    /// 作業フォルダを書き換える操作の間、重なるチャットのキューの自動送信を保留する。戻り値を持っている間が対象。
+    pub(super) fn begin_folder_op(self: &Arc<Self>, folders: Vec<String>) -> FolderOpGuard {
+        self.queue_rt.folder_ops.lock().unwrap().extend(folders.iter().cloned());
+        FolderOpGuard { host: self.clone(), folders }
+    }
+
+    fn folder_op_active(&self, chat: &ChatKey) -> bool {
+        let active = self.queue_rt.folder_ops.lock().unwrap().clone();
+        !active.is_empty() && folder_op_overlaps(&active, self.read(|d| d.chat(chat).and_then(|c| c.cwd.value().cloned())).as_deref())
     }
 
     /// 状態が変わったかもしれないので、次の評価を早める。
@@ -273,6 +330,8 @@ impl Host {
             quitting: self.quit_phase() != QuitPhase::Idle,
             deleting: self.manage_rt.is_deleting(chat),
             manual: self.queue_rt.manual_accepts.lock().unwrap().get(chat).cloned(),
+            op_accept: self.queue_rt.op_accepts.lock().unwrap().get(chat).copied(),
+            folder_busy: self.folder_op_active(chat),
         };
         let decision = self.read(|d| d.queues.get(chat).map(|f| q::evaluate(&f.queue, &gate_input(d, chat, &terminals, scan_complete, unresolved, ctx, false))));
         match decision {
@@ -436,6 +495,8 @@ impl Host {
             quitting: self.quit_phase() != QuitPhase::Idle,
             deleting: self.manage_rt.is_deleting(&chat),
             manual: self.queue_rt.manual_accepts.lock().unwrap().get(&chat).cloned(),
+            op_accept: self.queue_rt.op_accepts.lock().unwrap().get(&chat).copied(),
+            folder_busy: self.folder_op_active(&chat),
         };
         let decision = self.read(|d| d.queues.get(&chat).map(|f| q::evaluate(&f.queue, &gate_input(d, &chat, &terminals, scan_complete, unresolved, ctx, true))));
         match decision {
@@ -1132,7 +1193,7 @@ mod history_gate_tests {
         d
     }
     fn ctx() -> GateContext {
-        GateContext { quitting: false, deleting: false, manual: None }
+        GateContext { quitting: false, deleting: false, manual: None, op_accept: None, folder_busy: false }
     }
     fn fact_of(turn: Option<&str>, end: Option<TurnEnd>) -> TerminalFact {
         TerminalFact { turn: turn.map(|t| ExternalId(t.into())), end, completed_at: None, checked_at: UnixMillis(6_000) }
@@ -1216,5 +1277,17 @@ mod manual_tests {
         assert!(manual_turn_pending(Some(&acc), Some(&ExternalId("t0".into())), UnixMillis(1_100)), "an older turn's end is not this turn's");
         assert!(!manual_turn_pending(Some(&acc), Some(&t1), UnixMillis(1_100)), "ended");
         assert!(!manual_turn_pending(Some(&acc), None, UnixMillis(1_000 + MANUAL_PENDING_MS)), "never observed: not held forever");
+        // フォルダ操作と重なる作業フォルダだけ保留する。
+        let active = vec![r"C:\repo".to_string()];
+        assert!(folder_op_overlaps(&active, Some("c:/repo/app")));
+        assert!(!folder_op_overlaps(&active, Some(r"C:\repo2")));
+        assert!(!folder_op_overlaps(&active, None));
+        // 操作（レビュー・圧縮）の受付: 受付以後のturnの終端を観測するまで保留、上限で解除。
+        let since = Some(UnixMillis(1_000));
+        assert!(!op_turn_pending(None, None, UnixMillis(1_100)));
+        assert!(op_turn_pending(since, None, UnixMillis(1_100)));
+        assert!(op_turn_pending(since, Some(UnixMillis(900)), UnixMillis(1_100)), "an end before the accept is not this op's");
+        assert!(!op_turn_pending(since, Some(UnixMillis(1_050)), UnixMillis(1_100)), "ended after the accept");
+        assert!(!op_turn_pending(since, None, UnixMillis(1_000 + MANUAL_PENDING_MS)), "never observed: not held forever");
     }
 }

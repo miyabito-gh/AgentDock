@@ -31,6 +31,8 @@ pub enum GitOp {
     RevParse { rev: String },
     /// 作業ツリーの状態（索引を書かない）。
     Status,
+    /// 作業ツリーの状態に、無視ファイルも含める（読取りのみ。worktree削除前に、消えるものを数える）。
+    StatusIgnored,
     /// 作業ツリーの差分（読取りのみ）。`path` があればそのファイルだけ。
     Diff { path: Option<String> },
     /// 作業ツリーとHEADの差分（索引・作業ツリーの変更をまとめて。読取りのみ）。`path` があればそのファイルだけ。
@@ -129,6 +131,7 @@ impl GitOp {
                 vec!["rev-parse".into(), "--verify".into(), "--quiet".into(), format!("{rev}^{{commit}}")]
             }
             GitOp::Status => strings(&["--no-optional-locks", "status", "--porcelain=v2", "-z"]),
+            GitOp::StatusIgnored => strings(&["--no-optional-locks", "status", "--porcelain=v2", "-z", "--ignored=matching"]),
             GitOp::Diff { path } => {
                 let mut a = strings(&["--no-optional-locks", "-c", "core.quotepath=false", "diff", "--no-ext-diff", "--no-textconv", "--no-color"]);
                 if let Some(p) = path {
@@ -222,6 +225,7 @@ mod tests {
         let a = GitOp::Diff { path: Some("src/a.rs".into()) }.args().unwrap();
         assert_eq!(&a[a.len() - 2..], ["--", "src/a.rs"]);
         assert!(GitOp::Status.args().unwrap().contains(&"--no-optional-locks".to_string()));
+        assert!(GitOp::StatusIgnored.args().unwrap().contains(&"--ignored=matching".to_string()));
     }
 
     #[test]

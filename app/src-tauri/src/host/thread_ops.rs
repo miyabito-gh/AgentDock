@@ -203,6 +203,10 @@ impl Host {
         };
         match sent {
             Ok(ack @ (OpAck::Accepted | OpAck::Rejected { .. })) => {
+                if matches!(ack, OpAck::Accepted) {
+                    // 応答の時点ではturnの開始通知が未処理のことがある。終端を観測するまで、キューの自動送信を保留する。
+                    self.queue_rt.note_op_accept(chat);
+                }
                 self.resolve_pending_op(chat, &pending.id);
                 Ok(ack)
             }

@@ -30,6 +30,17 @@ pub type ReadResult = Result<Option<Vec<u8>>, String>;
 pub struct Write {
     pub path: String,
     pub content: Option<Vec<u8>>,
+    /// 計画時の現在の内容のSHA-256（`None` は存在しない）。書換え直前に照合する。
+    pub expect: Option<String>,
+}
+
+/// 書換え直前の内容が、計画時の内容と同じか。
+pub fn matches_expect(expect: &Option<String>, current: &Option<Vec<u8>>) -> bool {
+    match (expect, current) {
+        (None, None) => true,
+        (Some(h), Some(b)) => &sha256_hex(b) == h,
+        _ => false,
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -49,6 +60,8 @@ pub struct Planned {
     pub path: String,
     pub kind: Option<ChangeKind>,
     pub includes_turns: Vec<ExternalId>,
+    /// 戻すと消化される記録（計画の連鎖に入ったもの）。
+    pub records: Vec<RecordId>,
     pub outcome: Result<Vec<Write>, Block>,
 }
 
@@ -66,6 +79,8 @@ pub struct Selection {
 pub struct RevertMark {
     pub at: UnixMillis,
     pub paths: Vec<String>,
+    /// 識別子つきの記録。`None`（旧形式）は時刻＋パスで判定する。
+    pub records: Option<Vec<RecordId>>,
 }
 
 /// パスの比較用の形（Windows: 区切りと大文字小文字を区別しない）。
@@ -149,13 +164,22 @@ fn reverse_one(rec: &ChangeRecord, state: &State) -> Result<State, Block> {
     }
 }
 
-/// 「戻し」で消化済みの記録か（戻した時刻以前に観測され、そのパスを戻している）。
+/// 記録の識別子。
+pub fn record_id(rec: &ChangeRecord) -> RecordId {
+    RecordId { chat: rec.chat.clone(), item: rec.item.clone(), path: rec.path.clone() }
+}
+
+/// 「戻し」で消化済みの記録か。識別子つきの戻しは、その記録だけを消化する。
+/// 旧形式（識別子なし）は、戻した時刻以前に観測され、そのパスを戻している記録を消化済みとみなす（従来の判定）。
 pub fn is_consumed(rec: &ChangeRecord, marks: &[RevertMark]) -> bool {
     let (a, b) = (norm_path(&rec.path), norm_path(rec.post_path()));
-    marks.iter().any(|m| m.at >= rec.observed_at && m.paths.iter().any(|p| {
-        let n = norm_path(p);
-        n == a || n == b
-    }))
+    marks.iter().any(|m| match &m.records {
+        Some(ids) => ids.iter().any(|r| r.chat == rec.chat && r.item == rec.item && norm_path(&r.path) == a),
+        None => m.at >= rec.observed_at && m.paths.iter().any(|p| {
+            let n = norm_path(p);
+            n == a || n == b
+        }),
+    })
 }
 
 /// 戻す計画を作る。`records` は全チャットの観測記録（観測の順）、`marks` は「戻し」の記録、`read` は現在のファイルの読取り。
@@ -191,6 +215,7 @@ pub fn plan_confined(chat: &ChatKey, records: &[ChangeRecord], marks: &[RevertMa
                     path: p.clone(),
                     kind: None,
                     includes_turns: vec![],
+                    records: vec![],
                     outcome: block(RevertBlockCode::NotObserved, "このチャットの変更として、AgentDockが観測した記録がありません（再起動中・外部・コマンドによる変更は戻せません）"),
                 });
             }
@@ -217,7 +242,8 @@ fn plan_path(chat: &ChatKey, live: &[&ChangeRecord], sel: &Selection, p: &str, r
         }
     }
     let outcome = plan_chain(chat, chain, p, read, confine);
-    Planned { path: p.to_string(), kind, includes_turns, outcome }
+    let records = chain.iter().map(|r| record_id(r)).collect();
+    Planned { path: p.to_string(), kind, includes_turns, records, outcome }
 }
 
 fn plan_chain(chat: &ChatKey, chain: &[&ChangeRecord], p: &str, read: &dyn Fn(&str) -> ReadResult, confine: Confine) -> Result<Vec<Write>, Block> {
@@ -244,6 +270,10 @@ fn plan_chain(chat: &ChatKey, chain: &[&ChangeRecord], p: &str, read: &dyn Fn(&s
         }
     }
     let mut state = state_of(read(p))?;
+    let before = match &state {
+        State::Absent => None,
+        State::Content(b) => Some(sha256_hex(b)),
+    };
     for r in chain.iter().rev() {
         verify_post(&state, &r.post, p)?;
         state = reverse_one(r, &state)?;
@@ -259,9 +289,10 @@ fn plan_chain(chat: &ChatKey, chain: &[&ChangeRecord], p: &str, read: &dyn Fn(&s
             return block(RevertBlockCode::TargetExists, format!("{}: 戻し先に別のファイルがあるため、上書きしません", first.path));
         }
         let Some(c) = content else { return block(RevertBlockCode::Unsupported, format!("{p}: 移動元の内容を復元できません")) };
-        return Ok(vec![Write { path: first.path.clone(), content: Some(c) }, Write { path: p.to_string(), content: None }]);
+        // 元の場所は不在を確認済み（上の `is_present`）。
+        return Ok(vec![Write { path: first.path.clone(), content: Some(c), expect: None }, Write { path: p.to_string(), content: None, expect: before }]);
     }
-    Ok(vec![Write { path: p.to_string(), content }])
+    Ok(vec![Write { path: p.to_string(), content, expect: before }])
 }
 
 impl State {
@@ -433,7 +464,7 @@ mod tests {
         assert_eq!(v.len(), 1);
         assert_eq!(v[0].outcome.clone().unwrap_err().code, RevertBlockCode::NotObserved);
         // 戻し済みの記録は、以後の判定に使わない。
-        let marks = vec![RevertMark { at: UnixMillis(15), paths: vec![A.into()] }];
+        let marks = vec![RevertMark { at: UnixMillis(15), paths: vec![A.into()], records: None }];
         assert!(plan(&chat("c1"), &r, &marks, &Selection::default(), &fs(&[(A, "keep\none\n")])).is_empty());
         // 戻し後に別チャットが変更した記録は有効のまま。
         let r2 = vec![r[0].clone(), rec("c2", "t9", 20, A, ChangeKind::Modified, None, D2, h("x"))];
@@ -475,6 +506,65 @@ mod tests {
         let deny = |_: &str| -> Result<(), String> { Err("リンクの先が作業フォルダの外".into()) };
         let p = only(plan_confined(&chat("c1"), &r, &[], &Selection::default(), &fs(&[(A, "keep\ntwo\n")]), &deny));
         assert_eq!(p.outcome.unwrap_err().code, RevertBlockCode::PathOutside);
+    }
+
+    #[test]
+    fn identified_revert_consumes_only_the_reverted_records_and_legacy_falls_back() {
+        let r = vec![
+            rec("c1", "t1", 10, A, ChangeKind::Modified, None, D1, h("keep
+two
+")),
+            rec("c1", "t2", 20, A, ChangeKind::Modified, None, D2, h("keep
+three
+")),
+        ];
+        // t2 だけ戻した記録: t1 は消化されない。
+        let marks = vec![RevertMark { at: UnixMillis(30), paths: vec![A.into()], records: Some(vec![record_id(&r[1])]) }];
+        assert!(!is_consumed(&r[0], &marks));
+        assert!(is_consumed(&r[1], &marks));
+        let p = only(plan(&chat("c1"), &r, &marks, &Selection::default(), &fs(&[(A, "keep
+two
+")])));
+        assert_eq!(write_of(&p), vec![(A.to_string(), Some("keep
+one
+".to_string()))]);
+        // 別チャットの記録は、同じパス・時刻でも消化されない。
+        let other = rec("c2", "t9", 5, A, ChangeKind::Modified, None, D2, h("x"));
+        assert!(!is_consumed(&other, &marks));
+        // 旧形式（識別子なし）は時刻＋パスの判定。
+        let legacy = vec![RevertMark { at: UnixMillis(30), paths: vec![A.into()], records: None }];
+        assert!(is_consumed(&r[0], &legacy) && is_consumed(&r[1], &legacy));
+        // 識別子ありで空なら何も消化しない。
+        let empty = vec![RevertMark { at: UnixMillis(30), paths: vec![A.into()], records: Some(vec![]) }];
+        assert!(!is_consumed(&r[0], &empty));
+    }
+
+    #[test]
+    fn plan_records_the_chain_and_write_expects_the_planned_content() {
+        let r = vec![
+            rec("c1", "t1", 10, A, ChangeKind::Modified, None, D1, h("keep
+two
+")),
+            rec("c1", "t2", 20, A, ChangeKind::Modified, None, D2, h("keep
+three
+")),
+        ];
+        let sel = Selection { turn: Some(ExternalId("t2".into())), paths: None };
+        let p = only(plan(&chat("c1"), &r, &[], &sel, &fs(&[(A, "keep
+three
+")])));
+        assert_eq!(p.records, vec![record_id(&r[1])]);
+        let w = &p.outcome.unwrap()[0];
+        assert!(matches_expect(&w.expect, &Some(b"keep
+three
+".to_vec())));
+        // 計画後に内容が変わった・消えた場合は一致しない。
+        assert!(!matches_expect(&w.expect, &Some(b"keep
+three EDITED
+".to_vec())));
+        assert!(!matches_expect(&w.expect, &None));
+        assert!(matches_expect(&None, &None));
+        assert!(!matches_expect(&None, &Some(vec![])));
     }
 
     #[test]

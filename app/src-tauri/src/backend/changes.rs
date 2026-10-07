@@ -78,7 +78,17 @@ impl ChangeRecord {
 pub enum ChangeLine {
     Observed { record: ChangeRecord },
     /// 「戻す」で元に戻したファイル。以前の記録はこの時点で消化済み（以後の判定に使わない）。
-    Reverted { at: UnixMillis, chat: ChatKey, paths: Vec<String>, backup_dir: String },
+    /// `records` は戻した記録の識別子。旧形式の行（`None`）は、時刻とパスだけで消化を判定する（従来どおり）。
+    Reverted { at: UnixMillis, chat: ChatKey, paths: Vec<String>, backup_dir: String, #[serde(default)] records: Option<Vec<RecordId>> },
+}
+
+/// 観測した記録1件の識別子（チャット・項目・観測時のパス）。「戻し」が消化した記録を特定する。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordId {
+    pub chat: ChatKey,
+    pub item: ExternalId,
+    pub path: String,
 }
 
 // ───────────────────────────── 一覧・差分（IPC） ─────────────────────────────

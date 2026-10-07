@@ -6,7 +6,7 @@
 use std::path::Path;
 
 use super::{Git, GitError, GitOp, GitOutput};
-use crate::rules::diff::parse_status_v2;
+use crate::rules::diff::{count_ignored_v2, parse_status_v2};
 use crate::rules::worktree::{parse_worktree_list, ListedWorktree};
 
 /// gitを実行できなかった（`Run`）か、実行したが非0で終わった（`Exit`。標準エラーの先頭行）。
@@ -105,6 +105,12 @@ pub async fn delete_branch_merged(git: &Git, repo: &Path, branch: &str) -> Resul
 pub async fn dirty_count(git: &Git, worktree: &Path) -> Result<u32, WtError> {
     let out = ok(git.run(worktree, &GitOp::Status).await?)?;
     Ok(parse_status_v2(&String::from_utf8_lossy(&out.stdout)).len() as u32)
+}
+
+/// 作業ツリーの無視ファイル（`.gitignore` 対象）の件数（読取りのみ）。`git worktree remove` は無視ファイルを確認なしに消す。
+pub async fn ignored_count(git: &Git, worktree: &Path) -> Result<u32, WtError> {
+    let out = ok(git.run(worktree, &GitOp::StatusIgnored).await?)?;
+    Ok(count_ignored_v2(&String::from_utf8_lossy(&out.stdout)))
 }
 
 #[cfg(test)]

@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use serde_json::json;
 
+use super::cloud::paths_overlap;
 use super::persist::save_failure_message;
 use super::state::{external_send_locked, HostData};
 use super::{blocked, err, now_ms, Host};
@@ -291,7 +292,7 @@ impl Host {
         for l in lines {
             match l {
                 ChangeLine::Observed { record } => records.push(record),
-                ChangeLine::Reverted { at, paths, .. } => marks.push(RevertMark { at, paths }),
+                ChangeLine::Reverted { at, paths, records, .. } => marks.push(RevertMark { at, paths, records }),
             }
         }
         Ok((records, marks))
@@ -467,11 +468,15 @@ impl Host {
         if let Err(e) = self.check_not_delete_pending(chat) {
             return Some(e);
         }
-        let busy = |d: &HostData, c: &ChatKey| d.agents.iter().any(|v| &v.agent.chat == c && d.running_turn.contains_key(&v.agent.key)) || d.open_stop(c).is_some();
+        // 作業中・停止未確認、または受理不明の操作（レビュー・圧縮。turnが動いている可能性）がある。
+        let busy = |d: &HostData, c: &ChatKey| {
+            d.agents.iter().any(|v| &v.agent.chat == c && d.running_turn.contains_key(&v.agent.key)) || d.open_stop(c).is_some() || d.locals.get(c).is_some_and(|l| !l.pending_ops.is_empty())
+        };
         let (this_busy, ext, others_busy) = self.read(|d| {
-            let cwd = d.chat(chat).and_then(|c| c.cwd.value().map(|s| norm_path(s)));
+            let cwd = d.chat(chat).and_then(|c| c.cwd.value().cloned());
             let ext = d.chat(chat).is_some_and(|c| external_send_locked(c.origin, d.root_view(chat).map(|v| v.freshness)));
-            let others = cwd.is_some_and(|w| d.chats.iter().any(|c| &c.key != chat && c.cwd.value().is_some_and(|x| norm_path(x) == w) && busy(d, &c.key)));
+            // 親・子フォルダの関係にある作業フォルダも同じ場所として扱う。
+            let others = cwd.is_some_and(|w| d.chats.iter().any(|c| &c.key != chat && c.cwd.value().is_some_and(|x| paths_overlap(x, &w)) && busy(d, &c.key)));
             (busy(d, chat), ext, others)
         });
         if ext {
@@ -530,11 +535,13 @@ impl Host {
         if args.paths.is_empty() {
             return Err(err(IpcErrorCode::InvalidArgs, "戻すファイルが選ばれていません"));
         }
+        // 実行中は、重なる作業フォルダのチャットのキューを保留する（先に印を付けてから判定する）。
+        let _folder_op = self.read(|d| d.chat(&args.chat).and_then(|c| c.cwd.value().cloned())).map(|w| self.begin_folder_op(vec![w]));
         if let Some(e) = self.revert_blocker(&args.chat) {
             return Err(e);
         }
         let fresh = self.plan_now(&args.chat, &sel).await?;
-        let mut run: Vec<(String, Vec<Write>)> = Vec::new();
+        let mut run: Vec<(String, Vec<Write>, Vec<RecordId>)> = Vec::new();
         let mut failed: Vec<RevertFailure> = Vec::new();
         for p in &args.paths {
             let key = norm_path(p);
@@ -547,7 +554,7 @@ impl Host {
                 return Err(stale());
             }
             match a.outcome {
-                Ok(writes) => run.push((a.path, writes)),
+                Ok(writes) => run.push((a.path, writes, a.records)),
                 Err(block) => failed.push(RevertFailure { path: p.clone(), reason: block.message }),
             }
         }
@@ -562,9 +569,7 @@ impl Host {
         let host = self.clone();
         let cwd = self.read(|d| d.chat(&args.chat).and_then(|c| c.cwd.value().cloned()));
         let outcome = tokio::task::spawn_blocking(move || {
-            // 領域の書込みの直列化ロックの中で行う（チャット領域の削除と同時に書かない）。
-            let _g = host.persist.io_guard();
-            execute_revert(&store, &chat_for_manifest, at, &backup, &run_for_blocking, cwd.as_deref())
+            execute_revert(&host, &store, &chat_for_manifest, at, &backup, &run_for_blocking, cwd.as_deref())
         })
         .await
         .map_err(|e| err(IpcErrorCode::Io, format!("戻す処理に失敗しました: {e}")))?;
@@ -578,7 +583,7 @@ impl Host {
         };
         failed.extend(done.failed);
         if !done.touched.is_empty() {
-            let line = ChangeLine::Reverted { at, chat: args.chat.clone(), paths: done.touched, backup_dir: done.backup_dir.clone() };
+            let line = ChangeLine::Reverted { at, chat: args.chat.clone(), paths: done.touched, backup_dir: done.backup_dir.clone(), records: Some(done.records) };
             let store = self.persist.store().cloned();
             if let Some(store) = store {
                 let chat = args.chat.clone();
@@ -622,15 +627,19 @@ enum RevertStop {
 struct Executed {
     reverted: Vec<String>,
     failed: Vec<RevertFailure>,
-    /// 書き換えた（または書換えを始めた）パス。以後の判定で消化済みにする。
+    /// 書換えに成功したパス（旧形式の判定と記録用）。失敗した書込みは含めない。
     touched: Vec<String>,
+    /// 戻しを完了したファイルの記録。以後の判定で消化済みにする（一部だけ成功・失敗したものは含めない）。
+    records: Vec<RecordId>,
     backup_dir: String,
 }
 
 /// 控えを保存してから書き換える。控えの保存に失敗したら、何も書き換えずに止める。
-fn execute_revert(store: &crate::store::Store, chat: &ChatKey, at: UnixMillis, backup: &Path, run: &[(String, Vec<Write>)], cwd: Option<&str>) -> Result<Executed, RevertStop> {
+fn execute_revert(host: &Host, store: &crate::store::Store, chat: &ChatKey, at: UnixMillis, backup: &Path, run: &[(String, Vec<Write>, Vec<RecordId>)], cwd: Option<&str>) -> Result<Executed, RevertStop> {
+    // 控え（チャット領域への書込み）の間だけ、書込みの直列化ロックを持つ（チャット領域の削除と同時に書かない）。作業フォルダの書換えはロック外。
+    let guard = host.persist.io_guard();
     // 0. 書き換える全パス（移動元を含む）を、控え・書込み・削除の前にもう一度、解決後の位置で検査する。1つでも外なら何もしない。
-    for (_, writes) in run {
+    for (_, writes, _) in run {
         for w in writes {
             revert::check_inside(&w.path, &|p: &str| confine_to(cwd, p)).map_err(|b| RevertStop::Outside(b.message))?;
         }
@@ -640,7 +649,7 @@ fn execute_revert(store: &crate::store::Store, chat: &ChatKey, at: UnixMillis, b
     let mut total: u64 = 0;
     let mut contents: Vec<(usize, Vec<u8>)> = Vec::new();
     let mut seen: Vec<String> = Vec::new();
-    for (_, writes) in run {
+    for (_, writes, _) in run {
         for w in writes {
             if seen.iter().any(|s| norm_path(s) == norm_path(&w.path)) {
                 continue;
@@ -680,14 +689,37 @@ fn execute_revert(store: &crate::store::Store, chat: &ChatKey, at: UnixMillis, b
     let text = serde_json::to_vec_pretty(&manifest).map_err(|e| RevertStop::Backup(e.to_string()))?;
     atomic::write_atomic(&backup.join("manifest.json"), &text).map_err(|e| RevertStop::Backup(e.to_string()))?;
 
+    drop(guard);
+    if host.check_not_delete_pending(chat).is_err() {
+        return Err(RevertStop::Backup("チャットが削除の保留中になったため、何も変更していません".into()));
+    }
+
     // 2. 書換え。ファイルごとに成否を記録する（一部だけ成功しても完了とは言わない）。
     let mut reverted = Vec::new();
     let mut failed = Vec::new();
     let mut touched = Vec::new();
-    for (path, writes) in run {
+    let mut records = Vec::new();
+    for (path, writes, recs) in run {
         let mut step_err: Option<String> = None;
+        // 書く前に、このファイルの全書込みについて、計画時の内容のままか確かめる（変わっていれば何も書かない）。
         for w in writes {
-            touched.push(w.path.clone());
+            match read_current(&w.path) {
+                Ok(cur) if revert::matches_expect(&w.expect, &cur) => {}
+                Ok(_) => {
+                    step_err = Some(format!("{}: 計画後に変更されたため、書き換えませんでした", w.path));
+                    break;
+                }
+                Err(m) => {
+                    step_err = Some(format!("{}: 書換え前の確認で読めませんでした（{m}）", w.path));
+                    break;
+                }
+            }
+        }
+        if let Some(m) = step_err {
+            failed.push(RevertFailure { path: path.clone(), reason: format!("書き換えていません: {m}") });
+            continue;
+        }
+        for w in writes {
             let res = match &w.content {
                 Some(bytes) => atomic::write_atomic(Path::new(&w.path), bytes),
                 None => match std::fs::remove_file(&w.path) {
@@ -695,17 +727,23 @@ fn execute_revert(store: &crate::store::Store, chat: &ChatKey, at: UnixMillis, b
                     _ => Ok(()),
                 },
             };
-            if let Err(e) = res {
-                step_err = Some(format!("{}: {e}", w.path));
-                break;
+            match res {
+                Ok(()) => touched.push(w.path.clone()),
+                Err(e) => {
+                    step_err = Some(format!("{}: {e}", w.path));
+                    break;
+                }
             }
         }
         match step_err {
-            None => reverted.push(path.clone()),
+            None => {
+                reverted.push(path.clone());
+                records.extend(recs.iter().cloned());
+            }
             Some(m) => failed.push(RevertFailure { path: path.clone(), reason: format!("書き換えに失敗しました（一部だけ実行された可能性があります。控えから確認できます）: {m}") }),
         }
     }
-    Ok(Executed { reverted, failed, touched, backup_dir: backup.to_string_lossy().into_owned() })
+    Ok(Executed { reverted, failed, touched, records, backup_dir: backup.to_string_lossy().into_owned() })
 }
 
 #[cfg(test)]

@@ -353,7 +353,16 @@ impl Host {
         };
         if matches!(listed, Listed::Yes { main: false }) && path_exists {
             match gw::dirty_count(git, Path::new(&rec.path)).await {
-                Ok(n) => dirty = Known::direct(n),
+                // 無視ファイル（.env・ビルド成果物など）も削除で消えるので、件数に加えて2段目の確認の対象にする。
+                Ok(n) => match gw::ignored_count(git, Path::new(&rec.path)).await {
+                    Ok(i) => {
+                        dirty = Known::direct(n + i);
+                        if i > 0 {
+                            detail = Some(format!("無視ファイル（.gitignore対象。.env・ビルド成果物など）{i}件も削除されます"));
+                        }
+                    }
+                    Err(e) => detail = Some(e.message()),
+                },
                 Err(e) => detail = Some(e.message()),
             }
         }
@@ -387,7 +396,7 @@ impl Host {
             }
             RemoveVerdict::Blocked(b) => return Err(err(IpcErrorCode::Rejected, blocked_message(b, a.detail.as_deref()))),
             RemoveVerdict::NeedsDiscard { dirty } if !args.force => {
-                return Err(blocked(BlockedReason::WorktreeDirty, format!("未コミットの変更が{dirty}件あるため、削除を止めました。変更を破棄してよいか、もう一度確認してください")));
+                return Err(blocked(BlockedReason::WorktreeDirty, format!("未コミットの変更・無視ファイルが{dirty}件あるため、削除を止めました。破棄してよいか、もう一度確認してください")));
             }
             RemoveVerdict::NeedsDiscard { .. } => true,
             RemoveVerdict::AlreadyGone => {

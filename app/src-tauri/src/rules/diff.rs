@@ -234,6 +234,11 @@ pub fn parse_status_v2(out: &str) -> Vec<StatusEntry> {
     entries
 }
 
+/// `-z` 区切りの出力にある無視ファイル（`! ` の行）の数。ディレクトリごと無視されたものは1件と数える。
+pub fn count_ignored_v2(out: &str) -> u32 {
+    out.split('\0').filter(|s| s.starts_with("! ")).count() as u32
+}
+
 // ───────────────────────────── 変更箇所（hunk） ─────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -563,6 +568,10 @@ mod tests {
         assert!(v[4].untracked && v[4].path == "untracked file.txt" && v[4].kind() == ChangeKind::Added);
         assert!(v[5].unmerged);
         assert!(parse_status_v2("").is_empty());
+        // 無視ファイルは変更に数えず、別に数える。
+        assert_eq!(count_ignored_v2(&out), 1);
+        assert_eq!(count_ignored_v2("! a.log\0! build/\0? x\01 .M N... 100644 100644 100644 a b !c.rs\0"), 2);
+        assert_eq!(count_ignored_v2(""), 0);
     }
 
     #[test]
