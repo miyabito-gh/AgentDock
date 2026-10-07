@@ -6,14 +6,19 @@ import type { AttachmentEntry } from "./AttachmentEntry";
 import type { Chat } from "./Chat";
 import type { ChatLocalView } from "./ChatLocalView";
 import type { ChatModelEntry } from "./ChatModelEntry";
+import type { ChatPendingOp } from "./ChatPendingOp";
 import type { ChatQueue } from "./ChatQueue";
+import type { CloudTaskRecord } from "./CloudTaskRecord";
 import type { MonitorScope } from "./MonitorScope";
+import type { OpCapability } from "./OpCapability";
 import type { PendingRequest } from "./PendingRequest";
 import type { QuitPhase } from "./QuitPhase";
 import type { SaveStatus } from "./SaveStatus";
+import type { SideSessionMeta } from "./SideSessionMeta";
 import type { SourceInfo } from "./SourceInfo";
 import type { StartupWarning } from "./StartupWarning";
 import type { StopRecord } from "./StopRecord";
+import type { WorktreeRecord } from "./WorktreeRecord";
 
 /**
  * 監視・表示の全体像（renderer再読込み時の取り直し用）。
@@ -54,4 +59,24 @@ artifacts: Array<ArtifactEntry>,
 /**
  * 完全終了の手順の状態（renderer再読込み・再接続後も確認画面を復元するため）。
  */
-quit: QuitPhase, };
+quit: QuitPhase, 
+/**
+ * 同等性の操作ごとの能力（宣言・経路・確認状況）。接続前でも宣言と「未確認」を返す。`Host::snapshot` が重ねる。
+ */
+opCapabilities: Array<OpCapability>, 
+/**
+ * 結果が未確認の操作（レビュー・圧縮）。照合まで残る。
+ */
+pendingOps: Array<ChatPendingOp>, 
+/**
+ * side相談の記録。
+ */
+sideSessions: Array<SideSessionMeta>, 
+/**
+ * worktree台帳。P3-7が読み込むまで常に空（記録の保存先がまだない）。
+ */
+worktrees: Array<WorktreeRecord>, 
+/**
+ * クラウド委任の記録。P3-6が読み込むまで常に空（記録の保存先がまだない）。
+ */
+cloudTasks: Array<CloudTaskRecord>, };

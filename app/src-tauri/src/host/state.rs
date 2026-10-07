@@ -171,6 +171,15 @@ impl HostData {
             attachments: self.locals.values().flat_map(|f| f.attachments.iter().cloned()).collect(),
             artifacts: self.locals.values().flat_map(|f| f.artifacts.iter().cloned()).collect(),
             quit: crate::backend::local::QuitPhase::Idle, // 手順の状態は `Host::snapshot` が重ねる
+            op_capabilities: Vec::new(), // `Host::snapshot` がバックエンドの宣言を重ねる
+            pending_ops: self
+                .locals
+                .iter()
+                .flat_map(|(chat, f)| f.pending_ops.iter().map(|p| crate::backend::model::ChatPendingOp { chat: chat.clone(), pending: p.clone() }))
+                .collect(),
+            side_sessions: self.locals.values().flat_map(|f| f.side_sessions.iter().cloned()).collect(),
+            worktrees: Vec::new(),
+            cloud_tasks: Vec::new(),
         }
     }
 
@@ -976,7 +985,7 @@ mod tests {
     fn resumed_response_records_the_accepted_model_and_keeps_the_selection() {
         let mut d = HostData::default();
         // 再起動後の復元: 選択値だけで、受理値は未取得。
-        let selected = ModelChoice { model: "sel".into(), effort: Some("low".into()) };
+        let selected = ModelChoice { model: "sel".into(), effort: Some("low".into()), speed_tier: None };
         d.model_settings.insert(
             ck("root"),
             ChatModelSettings { selected: Some(selected.clone()), accepted: Known::NotFetched, effective: Known::NotFetched, applies: ApplyTiming::NextTurn },
@@ -987,7 +996,7 @@ mod tests {
         assert!(!ev.iter().any(|e| matches!(e, HostEvent::ModelSettingsUpdated { .. })));
         assert_eq!(d.model_settings.get(&ck("root")).unwrap().accepted, Known::NotFetched);
         // 示されたら受理値として記録し、UIへ出す。選択値は変えない。
-        let got = ModelChoice { model: "resumed".into(), effort: None };
+        let got = ModelChoice { model: "resumed".into(), effort: None, speed_tier: None };
         let ev = d.apply_resumed(&ck("root"), history, Known::direct(got.clone()));
         assert!(ev.iter().any(|e| matches!(e, HostEvent::ModelSettingsUpdated { chat, .. } if chat == &ck("root"))));
         let s = d.model_settings.get(&ck("root")).unwrap();
@@ -1157,7 +1166,7 @@ mod tests {
         let mut d = HostData::default();
         live_root(&mut d, AgentState::Idle);
         d.set_live(agent("child", false), status(AgentState::Idle, None, StateScope::Agent));
-        let choice = ModelChoice { model: "m".into(), effort: Some("low".into()) };
+        let choice = ModelChoice { model: "m".into(), effort: Some("low".into()), speed_tier: None };
         // 選択値と受理値は別。通知前は未取得のまま。
         assert!(d.model_settings.get(&ck("root")).is_none());
         let (ev, _) = d.apply_event(&env(1, 1, BackendEvent::ModelAccepted { agent: ak("root"), choice: choice.clone() }), &caps());
@@ -1166,7 +1175,7 @@ mod tests {
         // 同じ値の再通知ではイベントを出さない。子の設定はチャットのモデル設定にしない。
         let (ev, _) = d.apply_event(&env(2, 2, BackendEvent::ModelAccepted { agent: ak("root"), choice: choice.clone() }), &caps());
         assert!(ev.is_empty());
-        d.apply_event(&env(3, 3, BackendEvent::ModelAccepted { agent: ak("child"), choice: ModelChoice { model: "x".into(), effort: None } }), &caps());
+        d.apply_event(&env(3, 3, BackendEvent::ModelAccepted { agent: ak("child"), choice: ModelChoice { model: "x".into(), effort: None, speed_tier: None } }), &caps());
         assert_eq!(d.model_settings.get(&ck("root")).unwrap().accepted, Known::direct(choice));
     }
 

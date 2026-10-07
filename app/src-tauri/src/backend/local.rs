@@ -313,6 +313,8 @@ pub enum QueueHold {
     NotLive { targets: Vec<HoldTarget> },
     StopUnconfirmed { record: LocalId },
     AcceptanceUnknown { attempt: LocalId },
+    /// レビュー・圧縮など、turnを開始する操作の結果が未確認（送る前に保存した記録が未解決）。照合まで自動送信しない。
+    OperationUnconfirmed { op: LocalId },
     DeletePending,
     Disconnected,
     /// 完全終了の手順中のため、新しい送信を止めている。
@@ -479,6 +481,19 @@ pub struct AppSettings {
     /// 別の種類・別の領域の警告は文が変わるので、また出る。領域のファイルは消さず、作り直しもしない。
     #[serde(default)]
     pub acknowledged_warnings: Vec<String>,
+    /// バックエンドではない外部ツールの場所（段階③）。`executables` には入れない。
+    #[serde(default)]
+    pub tools: ToolSettings,
+}
+
+/// 外部ツールの場所。None＝PATH。
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct ToolSettings {
+    #[serde(default)]
+    pub git: Option<String>,
 }
 
 impl AppSettings {
@@ -520,6 +535,7 @@ impl Default for AppSettings {
             default_model: None,
             send_key: SendKey::CtrlEnter,
             acknowledged_warnings: Vec::new(),
+            tools: ToolSettings::default(),
         }
     }
 }

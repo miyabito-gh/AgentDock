@@ -60,6 +60,7 @@ export function holdText(h: QueueHold, nameOf: (a: AgentKey) => string): string 
     case "notLive": return `受信（ライブ監視）が戻っていないため保留: ${targetList(h.targets, nameOf)}`;
     case "stopUnconfirmed": return "停止を確認できていないため保留";
     case "acceptanceUnknown": return "受理不明の依頼があるため保留（履歴との照合を待っています）";
+    case "operationUnconfirmed": return "結果が未確認の操作（レビュー・圧縮）があるため保留（状態の確認を待っています）";
     case "deletePending": return "削除保留中のため、送信を止めています";
     case "disconnected": return "接続が切れているため保留（再接続後に判断します）";
     case "quitting": return "完全終了の手順中のため、新しい送信を始めていません";

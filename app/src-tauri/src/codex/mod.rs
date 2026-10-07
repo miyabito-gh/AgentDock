@@ -7,10 +7,13 @@
 //! - [`process`]: codex.exeの起動（`app-server`、stdio）・版確認・initialize握手。
 
 pub mod adapter;
+pub mod cli;
 pub mod convert;
 pub mod events;
 pub mod id;
 pub mod outbox;
+pub mod parity;
+pub mod parity_table;
 pub mod process;
 pub mod rpc;
 pub mod tree;

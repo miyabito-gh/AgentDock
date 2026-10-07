@@ -148,6 +148,22 @@ pub enum BlockedReason {
     AttachmentNotReady { attachment: LocalId },
     /// 選択中のモデルが画像入力に対応していない（表示できることと、モデルが読めることは別）。
     ModelLacksInput { input: AttachmentKind },
+    // ── 段階③（同等性の操作、DESIGN_P3 §2.5） ──
+    /// 外部で実行中（閲覧のみ）の会話には、状態を変える操作を出さない。
+    ExternalRunning,
+    /// レビュー・圧縮など、結果が未確認の操作がある。照合（読取り）が済むまで同じ操作と自動送信を止める。
+    OperationUnconfirmed { op: LocalId },
+    /// 戻す計画が古くなった（作り直しが要る）。
+    PlanStale,
+    /// 作ろうとしたファイルがすでにある（上書きしない）。
+    AlreadyExists,
+    /// Gitを実行できない（未導入・パス違い）。
+    GitUnavailable,
+    NotARepository,
+    /// worktreeを使っているチャットに、作業中・停止未確認・送信待ち・受理不明がある。
+    WorktreeInUse,
+    /// worktreeに未コミットの変更がある。
+    WorktreeDirty,
 }
 
 /// 保存先の選択ダイアログ（ファイルの書込みはしない）。
@@ -193,6 +209,16 @@ pub struct HostSnapshot {
     pub artifacts: Vec<ArtifactEntry>,
     /// 完全終了の手順の状態（renderer再読込み・再接続後も確認画面を復元するため）。
     pub quit: QuitPhase,
+    /// 同等性の操作ごとの能力（宣言・経路・確認状況）。接続前でも宣言と「未確認」を返す。`Host::snapshot` が重ねる。
+    pub op_capabilities: Vec<OpCapability>,
+    /// 結果が未確認の操作（レビュー・圧縮）。照合まで残る。
+    pub pending_ops: Vec<ChatPendingOp>,
+    /// side相談の記録。
+    pub side_sessions: Vec<SideSessionMeta>,
+    /// worktree台帳。P3-7が読み込むまで常に空（記録の保存先がまだない）。
+    pub worktrees: Vec<WorktreeRecord>,
+    /// クラウド委任の記録。P3-6が読み込むまで常に空（記録の保存先がまだない）。
+    pub cloud_tasks: Vec<CloudTaskRecord>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -456,6 +482,8 @@ pub enum HostEvent {
     /// チャット別の補足情報（ピン・下書き・モデル/権限・保存状態）の更新。
     ChatLocalUpdated { local: ChatLocalView },
     SaveStatusUpdated { status: SaveStatus },
+    /// チャット1件分の、結果が未確認の操作（レビュー・圧縮）。一覧全体で置き換える。
+    PendingOpsUpdated { chat: ChatKey, pending_ops: Vec<PendingOp> },
     SettingsUpdated { settings: AppSettings },
     /// 添付の追加・コピーの進行・失敗・欠損の更新（1件分で置き換える）。
     AttachmentUpdated { entry: AttachmentEntry },

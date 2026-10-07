@@ -378,6 +378,235 @@ pub struct Capabilities {
     pub attachment_kinds: Vec<AttachmentKind>,
     /// 管理実行（バックグラウンド端末等）の一覧・終了。
     pub managed_exec_control: Support,
+    /// VS Code拡張との同等性の操作ごとの能力（段階③、`app/DESIGN_P3.md` §2.1）。
+    #[serde(default)]
+    pub ops: Vec<OpCapability>,
+}
+
+// ───────────────────────────── 同等性の操作（段階③、DESIGN_P3 §0・§2） ─────────────────────────────
+
+/// VS Code拡張との同等性の操作（正本§3.14）。名前は中立（Codexの用語を使わない）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub enum ParityOp {
+    ChangeList,
+    RevertChanges,
+    CodeReview,
+    ReviewToNewChat,
+    WorkMode,
+    Fork,
+    Compact,
+    ReferenceChat,
+    Goal,
+    SideChat,
+    Skills,
+    InstructionFiles,
+    /// MCP相当。
+    ToolServers,
+    /// Plugins相当。
+    Extensions,
+    CloudDelegation,
+    Worktree,
+    BackendStatus,
+    SpeedTier,
+    Personality,
+    Memory,
+}
+
+impl ParityOp {
+    pub const ALL: [ParityOp; 20] = [
+        ParityOp::ChangeList,
+        ParityOp::RevertChanges,
+        ParityOp::CodeReview,
+        ParityOp::ReviewToNewChat,
+        ParityOp::WorkMode,
+        ParityOp::Fork,
+        ParityOp::Compact,
+        ParityOp::ReferenceChat,
+        ParityOp::Goal,
+        ParityOp::SideChat,
+        ParityOp::Skills,
+        ParityOp::InstructionFiles,
+        ParityOp::ToolServers,
+        ParityOp::Extensions,
+        ParityOp::CloudDelegation,
+        ParityOp::Worktree,
+        ParityOp::BackendStatus,
+        ParityOp::SpeedTier,
+        ParityOp::Personality,
+        ParityOp::Memory,
+    ];
+
+    /// 診断・エラー文用の安定した名前（IPCの `camelCase` と同じ）。
+    pub fn name(self) -> String {
+        serde_json::to_value(self).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default()
+    }
+}
+
+/// 操作の経路の区分（DESIGN_P3 §0.1）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub enum OpRoute {
+    /// バックエンドのAPI。
+    BackendApi,
+    /// AgentDock管理（バックエンドに依存しないホスト処理）。
+    AppManaged,
+    /// バックエンドのCLIを明示操作時だけ起動する補助。
+    CliHelper,
+}
+
+/// 実機で確認済みか。宣言（[`Support`]）とは別の軸。`Unverified` の操作は「未確認」と表示し、成功と書かない。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub enum Verification {
+    Verified,
+    Unverified,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OpCapability {
+    pub op: ParityOp,
+    pub support: Support,
+    pub route: OpRoute,
+    pub verification: Verification,
+    /// バックエンドが非推奨としている（使わない）。
+    pub deprecated: bool,
+    pub note: Option<String>,
+}
+
+/// 状態を変える操作の受付結果。`Accepted` は「要求を受け付けた」であり、結果の成功ではない（DESIGN_P3 §0.2）。
+/// `Unknown` は再送しない。読取り専用の照合だけを行う。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum OpAck {
+    Accepted,
+    Rejected { message: String },
+    Unknown { message: String },
+}
+
+/// 送る前に保存する、turnを開始する操作（レビュー・圧縮）の記録。未解決の間は同じ操作の重複実行と
+/// そのチャットのキュー自動送信を止める（`QueueHold::OperationUnconfirmed`）。照合（読取り）以外で解消しない。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct PendingOp {
+    pub id: LocalId,
+    pub op: ParityOp,
+    pub since: UnixMillis,
+}
+
+/// スナップショット用（どのチャットの未解決か）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct ChatPendingOp {
+    pub chat: ChatKey,
+    pub pending: PendingOp,
+}
+
+/// 計画／実行の切替（`ParityOp::WorkMode`）。選択値。受理値は別に持つ（P3-3）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub enum WorkMode {
+    Plan,
+    Default,
+}
+
+/// 会話の分岐元（表示用。バックエンド側の記録が読めない場合の控え）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct ForkOrigin {
+    pub chat: ChatKey,
+    pub through_turn: Option<ExternalId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum SideState {
+    Open,
+    Ended { reason: String },
+}
+
+/// side相談の記録（主会話の `chat.json` に持つ。sideの会話は一覧に出さず、キュー条件に入れない。停止対象には入る）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct SideSessionMeta {
+    pub id: LocalId,
+    pub main: ChatKey,
+    pub thread: ChatKey,
+    pub state: SideState,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum WorktreeState {
+    Creating,
+    Ready,
+    Failed { message: String },
+}
+
+/// worktree台帳の1件（ルートの `worktrees.json`。P3-7）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreeRecord {
+    pub id: LocalId,
+    pub repo_root: String,
+    pub path: String,
+    pub branch: String,
+    pub base_commit: String,
+    pub created_at: UnixMillis,
+    pub created_for_chat: Option<ChatKey>,
+    pub state: WorktreeState,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum CloudTaskState {
+    /// 送る前に保存した。以後に結果が確認できなければ照合まで再送しない。
+    Submitting,
+    /// タスクIDを出力から取れた（不透明な文字列）。
+    Submitted { task_id: String },
+    Rejected { message: String },
+    Unknown { message: String },
+}
+
+/// クラウド委任の記録（ルートの `cloud-tasks.json`。P3-6）。状態語はAgentDockの状態（§4.1）へ写像しない。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct CloudTaskRecord {
+    pub id: LocalId,
+    pub state: CloudTaskState,
+    pub since: UnixMillis,
+    pub origin_chat: Option<ChatKey>,
 }
 
 // ───────────────────────────── 論理データ（§5） ─────────────────────────────
@@ -793,6 +1022,10 @@ pub struct ModelInfo {
 pub struct ModelChoice {
     pub model: String,
     pub effort: Option<String>,
+    /// 速度の選択（バックエンドが示す不透明ID。None＝指定なし）。
+    #[serde(default)]
+    #[cfg_attr(test, ts(optional))]
+    pub speed_tier: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

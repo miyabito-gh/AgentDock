@@ -45,6 +45,11 @@ fn now_ms() -> UnixMillis {
 
 /// 対象版（0.160.0）で確認できた能力。`enable_experimental` が偽なら実験的な操作は使えない。
 pub fn codex_capabilities(experimental: bool) -> Capabilities {
+    codex_capabilities_for(experimental, None)
+}
+
+/// 接続先の実際の版（不明なら None）を渡すと、同等性の操作の確認状況を版別の表から引く。
+pub fn codex_capabilities_for(experimental: bool, version: Option<&str>) -> Capabilities {
     let exp = if experimental { Support::Supported } else { Support::Experimental };
     Capabilities {
         descendant_monitoring: Support::Supported,
@@ -71,6 +76,7 @@ pub fn codex_capabilities(experimental: bool) -> Capabilities {
         attachment_kinds: vec![AttachmentKind::Image, AttachmentKind::Audio, AttachmentKind::File],
         // thread/backgroundTerminals/* はexperimental。
         managed_exec_control: exp,
+        ops: super::parity::op_capabilities(version),
     }
 }
 
@@ -92,6 +98,8 @@ fn unknown_capabilities() -> Capabilities {
         external_history: Support::Unknown,
         attachment_kinds: Vec::new(),
         managed_exec_control: Support::Unknown,
+        // 接続前でも一覧できるよう、宣言と確認状況（版不明＝すべて未確認）を持つ。
+        ops: super::parity::op_capabilities(None),
     }
 }
 
@@ -283,7 +291,7 @@ fn log_item_shape_once(params: &Value) {
 /// thread/start・thread/resume の応答が示す、会話に設定されているモデル・推論の強さ（無ければ未取得）。
 fn accepted_model_of(resp: &Value) -> Known<ModelChoice> {
     match resp.get("model").and_then(Value::as_str) {
-        Some(m) => Known::direct(ModelChoice { model: m.to_string(), effort: resp.get("reasoningEffort").and_then(Value::as_str).map(str::to_string) }),
+        Some(m) => Known::direct(ModelChoice { model: m.to_string(), effort: resp.get("reasoningEffort").and_then(Value::as_str).map(str::to_string), speed_tier: None }),
         None => Known::NotFetched,
     }
 }
@@ -539,7 +547,12 @@ impl AiBackend for CodexBackend {
                 crate::diag::version_check_kind(&version)
             ),
         );
-        let caps = codex_capabilities(config.enable_experimental);
+        let actual_version = match &version {
+            VersionCheck::Match { version } => Some(version.as_str()),
+            VersionCheck::Mismatch { actual, .. } => Some(actual.as_str()),
+            VersionCheck::Unknown { .. } => None,
+        };
+        let caps = codex_capabilities_for(config.enable_experimental, actual_version);
         *self.shared.caps.lock().unwrap() = caps.clone();
         let pid = match process.pid {
             Some(p) => Known::direct(p),
@@ -796,7 +809,7 @@ mod tests {
             mode,
             text: "hi".into(),
             attachments: vec![],
-            model: Some(ModelChoice { model: "m".into(), effort: Some("low".into()) }),
+            model: Some(ModelChoice { model: "m".into(), effort: Some("low".into()), speed_tier: None }),
             permission: None,
             cwd: None,
             client_message_id: "cm1".into(),
@@ -870,9 +883,9 @@ mod tests {
     fn accepted_model_is_read_from_the_resume_or_start_response() {
         // ThreadResumeResponse / ThreadStartResponse: model は必須、reasoningEffort は null があり得る。
         let r = json!({"thread": {"id": "t"}, "model": "gpt-6-luna", "modelProvider": "openai", "reasoningEffort": "medium"});
-        assert_eq!(accepted_model_of(&r), Known::direct(ModelChoice { model: "gpt-6-luna".into(), effort: Some("medium".into()) }));
+        assert_eq!(accepted_model_of(&r), Known::direct(ModelChoice { model: "gpt-6-luna".into(), effort: Some("medium".into()), speed_tier: None }));
         let r = json!({"thread": {"id": "t"}, "model": "gpt-6-luna", "reasoningEffort": null});
-        assert_eq!(accepted_model_of(&r), Known::direct(ModelChoice { model: "gpt-6-luna".into(), effort: None }));
+        assert_eq!(accepted_model_of(&r), Known::direct(ModelChoice { model: "gpt-6-luna".into(), effort: None, speed_tier: None }));
         // modelが無い応答は未取得（受理済みにしない）。
         assert_eq!(accepted_model_of(&json!({"thread": {"id": "t"}})), Known::NotFetched);
     }

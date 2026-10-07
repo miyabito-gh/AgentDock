@@ -3,6 +3,8 @@ pub mod backend;
 pub mod codex;
 pub mod commands;
 pub mod diag;
+pub mod exec;
+pub mod gitops;
 pub mod host;
 pub mod rules;
 pub mod store;

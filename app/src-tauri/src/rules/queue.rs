@@ -38,6 +38,8 @@ pub struct GateInput {
     pub open_stop: Option<LocalId>,
     /// このチャットの受理不明の送信（キュー外の直接送信も含む）。
     pub unresolved_attempt: Option<LocalId>,
+    /// このチャットの、結果が未確認の操作（レビュー・圧縮。`PendingOp`）。未解決の間は自動送信しない。
+    pub unresolved_op: Option<LocalId>,
     pub delete_pending: bool,
     /// 完全終了の手順中（確認・停止・保存）。新しい送信を始めない。
     pub quitting: bool,
@@ -169,6 +171,9 @@ pub fn evaluate(queue: &ChatQueue, input: &GateInput) -> GateDecision {
     }
     if let Some(attempt) = &input.unresolved_attempt {
         return GateDecision::Hold(QueueHold::AcceptanceUnknown { attempt: attempt.clone() });
+    }
+    if let Some(op) = &input.unresolved_op {
+        return GateDecision::Hold(QueueHold::OperationUnconfirmed { op: op.clone() });
     }
     let Some(root) = &input.root else {
         // 親の状態を取得できていない。
@@ -497,6 +502,7 @@ mod tests {
             descendant_scan_complete: true,
             open_stop: None,
             unresolved_attempt: None,
+            unresolved_op: None,
             delete_pending: false,
             quitting: false,
             manual_turn_pending: false,
@@ -524,6 +530,20 @@ mod tests {
         assert_eq!(evaluate(&q, &input()), GateDecision::Paused);
         stop(&mut q, QueueStopCause::SendRejected { entry: lid("q0") }, UnixMillis(5));
         assert_eq!(evaluate(&q, &input()), GateDecision::Paused);
+    }
+
+    #[test]
+    fn unresolved_operation_holds_even_when_everything_else_is_ready() {
+        let q = queue_with(&["a"], 1500);
+        let mut i = input();
+        i.unresolved_op = Some(lid("op-1"));
+        assert_eq!(evaluate(&q, &i), GateDecision::Hold(QueueHold::OperationUnconfirmed { op: lid("op-1") }));
+        // 「今すぐ送る」の確認でも緩めない。
+        i.user_confirmed_unknown = true;
+        assert_eq!(evaluate(&q, &i), GateDecision::Hold(QueueHold::OperationUnconfirmed { op: lid("op-1") }));
+        // 解決（照合）後は送れる。
+        i.unresolved_op = None;
+        assert_eq!(evaluate(&q, &i), GateDecision::Send { entry: lid("q0") });
     }
 
     #[test]

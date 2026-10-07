@@ -31,7 +31,7 @@ const caps: Capabilities = {
   resume: "supported", listLoaded: "supported", approvalKinds: [{ kind: "commandApproval" }, { kind: "fileChangeApproval" }, { kind: "userInput" }],
   steer: "supported", interrupt: "supported", modelSelection: "supported", effortSelection: "supported",
   rename: "supported", archive: "supported", delete: "unknown", externalHistory: "supported",
-  attachmentKinds: ["image", "file"], managedExecControl: "experimental",
+  attachmentKinds: ["image", "file"], managedExecControl: "experimental", ops: [],
 };
 
 const source = (connection: SourceInfo["connection"], version?: SourceInfo["version"]): SourceInfo => ({
@@ -145,6 +145,7 @@ function base(): Bundle {
       requests: [], stops: [], queues: [queue], monitorScope: { kind: "selectedChat", chat: ck("a") },
       chatLocals: [], saveStatus: [], settings: DEFAULT_SETTINGS, modelSettings: [], startupWarnings: [],
       attachments: MOCK_ATTACHMENTS, artifacts: MOCK_ARTIFACTS, quit: { kind: "idle" },
+      opCapabilities: [], pendingOps: [], sideSessions: [], worktrees: [], cloudTasks: [],
     },
     turns: {
       a: turns("a", [

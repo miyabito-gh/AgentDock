@@ -664,7 +664,7 @@ mod tests {
     fn restore_brings_back_pin_model_draft_and_settings_without_sending() {
         let mut local = ChatLocalFile::new(LocalId("dir-1".into()), Some(key("t1")));
         local.pinned = true;
-        local.model = Some(ModelChoice { model: "m".into(), effort: Some("high".into()) });
+        local.model = Some(ModelChoice { model: "m".into(), effort: Some("high".into()), speed_tier: None });
         local.draft.text = "続きを書く".into();
         let mut settings = AppSettings::default();
         settings.autostart = true;

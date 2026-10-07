@@ -25,7 +25,7 @@ const MENUS: Record<string, MenuItem[]> = {
   "作業": [["差分を確認", "stub"], ["変更を戻す…", "stub"], ["コードレビュー…", "stub"], ["計画／実行の切替", "unv:Plan（collaborationMode）は experimental"], ["会話を分岐", "stub"], ["文脈を圧縮", "stub"], ["Goal を設定…", "stub"], ["worktree で開始…", "unv:worktree の公開経路は未確認"], ["クラウドに委任…", "unv:クラウド委任の公開経路は未確認"], "-", ["中断", "interrupt", "Esc"]],
   "表示": [["チャット一覧", "toggleLeft"], ["エージェントのドック", "toggleRight"], ["コンパクト監視窓", "toggleMini"], "-", ["通常画面を最前面に", "toggleMainTop"], ["監視窓を最前面に", "toggleMiniTop"], "-", ["終了済みも表示（全チャット）", "toggleDone"]],
   "設定": [["設定…", "settings:general"], ["MCP・Plugins…", "settings:mcp"], ["Skills・AGENTS.md…", "settings:skills"]],
-  "ヘルプ": [["状態の見方", "stub"], ["Codex の状態", "stub"], ["バージョン情報", "stub"]],
+  "ヘルプ": [["状態の見方", "stub"], ["Codex の状態", "stub"], ["同等性の確認状況…", "parity"], ["バージョン情報", "stub"]],
 };
 
 export function MenuBar({ open, setOpen, checked, onAct }: {

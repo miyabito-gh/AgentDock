@@ -229,7 +229,7 @@ fn convert_known(method: &str, p: &Value, ctx: &EventCtx, live: &dyn Fn(Option<U
             let Some(model) = s(settings, "model") else { return missing("threadSettings.model") };
             vec![BackendEvent::ModelAccepted {
                 agent: agent_key(tid),
-                choice: ModelChoice { model: model.to_string(), effort: s(settings, "effort").map(str::to_string) },
+                choice: ModelChoice { model: model.to_string(), effort: s(settings, "effort").map(str::to_string), speed_tier: None },
             }]
         }
         "model/rerouted" => {
@@ -237,7 +237,7 @@ fn convert_known(method: &str, p: &Value, ctx: &EventCtx, live: &dyn Fn(Option<U
             vec![BackendEvent::ModelRerouted {
                 agent: agent_key(tid),
                 turn: s(p, "turnId").map(ext),
-                effective: ModelChoice { model: to.to_string(), effort: None },
+                effective: ModelChoice { model: to.to_string(), effort: None, speed_tier: None },
             }]
         }
         "error" => {

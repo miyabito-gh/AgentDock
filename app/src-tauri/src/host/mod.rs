@@ -11,6 +11,7 @@ pub mod attachments;
 pub mod lifecycle;
 pub mod manage;
 pub mod notifier;
+pub mod pending_ops;
 pub mod persist;
 pub mod queue_driver;
 pub mod state;
@@ -224,6 +225,7 @@ impl Host {
     pub fn snapshot(&self) -> HostSnapshot {
         let mut s = self.read(|d| d.snapshot());
         s.quit = self.quit_phase();
+        s.op_capabilities = self.backend.capabilities().ops;
         s
     }
 

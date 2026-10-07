@@ -1,9 +1,10 @@
 import { useState, type ReactNode } from "react";
-import type { Chat, ChatKey, ForceKillPreview, ModelInfo, NotificationSettings, QuitDecision, QuitPhase, SaveStatus, SourceInfo, StopRecord, StopSummary } from "../ipc/types";
+import type { Chat, ChatKey, ForceKillPreview, ModelInfo, NotificationSettings, OpCapability, QuitDecision, QuitPhase, SaveStatus, SourceInfo, StopRecord, StopSummary } from "../ipc/types";
 import { chatName } from "./derive";
 import { SCOPE_TEXT } from "./Chrome";
 import { Icon } from "./Icon";
 import { DeleteBody, ExportBody, StorageBody, type DeleteProps, type ExportProps, type UsageProps } from "./ManageDialogs";
+import { ParityBody } from "./ParityDialog";
 
 export type DialogState =
   | { type: "settings"; tab: string }
@@ -13,6 +14,7 @@ export type DialogState =
   | { type: "delete"; chatId: string }
   | { type: "export"; chatId: string }
   | { type: "unv"; why: string }
+  | { type: "parity" }
   | { type: "attach" }
   | { type: "resumeExternal"; chatId: string }
   | { type: "rename"; chatId: string };
@@ -230,7 +232,8 @@ function RenameDialog({ chat, onClose, run }: { chat: Chat | undefined; onClose:
 
 export interface NewChatInput { cwd: string | null; model: string; firstMessage: string | null }
 
-export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnterMode, top, setTab, onAct, exe, onCreateChat, notify, autostart, quit, force, manage, onRename }: {
+export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnterMode, top, setTab, onAct, exe, onCreateChat, notify, autostart, quit, force, manage, onRename, opCaps }: {
+  opCaps: OpCapability[];
   onRename: (chatId: string, name: string) => Promise<string | null>;
   autostart: AutostartProps; quit: QuitProps; force: ForceProps; manage: ManageProps;
   notify: NotifyProps;
@@ -287,6 +290,10 @@ export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnter
     case "unv": return (
       <Shell title="この操作はまだ使えません" onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>
         <div className="content"><p>{d.why}。</p><p className="small muted">Codex 側の経路と動作を確認できるまで、成功したように見せることはしません。</p></div>
+      </Shell>);
+    case "parity": return (
+      <Shell title="同等性の確認状況" wide onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>
+        <ParityBody caps={opCaps} />
       </Shell>);
     case "resumeExternal": return (
       <Shell title="外部の会話を再開" onClose={onClose} foot={<><button className="btn-line" onClick={onClose}>やめる</button><button className="btn-main" onClick={() => onAct("doResumeExternal")}>実行中ではないことを確認した。再開する</button></>}>

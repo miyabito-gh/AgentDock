@@ -10,12 +10,13 @@ export const DEFAULT_SETTINGS: AppSettings = {
   executables: {}, autostart: false,
   notifications: { enabled: true, approvalAndQuestion: true, completed: true, failed: true, sound: true, showChatName: true },
   mainWindow: { alwaysOnTop: false, bounds: null }, monitorWindow: { alwaysOnTop: false, bounds: null },
-  monitorScope: "selectedChat", defaultModel: null, sendKey: "ctrlEnter", acknowledgedWarnings: [],
+  monitorScope: "selectedChat", defaultModel: null, sendKey: "ctrlEnter", acknowledgedWarnings: [], tools: { git: null },
 };
 
 const emptySnapshot = (): HostSnapshot => ({
   seq: 0, sources: [], chats: [], agents: [], requests: [], stops: [], queues: [], monitorScope: { kind: "selectedChat", chat: null },
   chatLocals: [], saveStatus: [], settings: DEFAULT_SETTINGS, modelSettings: [], startupWarnings: [], attachments: [], artifacts: [], quit: { kind: "idle" },
+  opCapabilities: [], pendingOps: [], sideSessions: [], worktrees: [], cloudTasks: [],
 });
 
 export const emptyBundle = (): Bundle => ({
@@ -26,7 +27,7 @@ export const emptyBundle = (): Bundle => ({
 export const UNKNOWN_CAPS: Capabilities = {
   descendantMonitoring: "unknown", descendantSearch: "unknown", historyReadWithoutResume: "unknown", resume: "unknown", listLoaded: "unknown",
   approvalKinds: [], steer: "unknown", interrupt: "unknown", modelSelection: "unknown", effortSelection: "unknown", rename: "unknown",
-  archive: "unknown", delete: "unknown", externalHistory: "unknown", attachmentKinds: [], managedExecControl: "unknown",
+  archive: "unknown", delete: "unknown", externalHistory: "unknown", attachmentKinds: [], managedExecControl: "unknown", ops: [],
 };
 
 const upsert =<T,>(list: T[], item: T, same: (a: T) => boolean): T[] => {
@@ -137,6 +138,9 @@ export function applyHostEvent(b: Bundle, e: HostEvent): Bundle {
       return { ...b, modelSettings: { ...b.modelSettings, [e.chat.id]: e.settings } };
     case "chatLocalUpdated":
       return set({ chatLocals: upsert(s.chatLocals, e.local, (l) => l.chat.id === e.local.chat.id) });
+    case "pendingOpsUpdated":
+      // 結果が未確認の操作（レビュー・圧縮）。そのチャットの分を置き換える。
+      return set({ pendingOps: [...s.pendingOps.filter((p) => p.chat.id !== e.chat.id), ...e.pendingOps.map((pending) => ({ chat: e.chat, pending }))] });
     case "saveStatusUpdated":
       return set({ saveStatus: upsert(s.saveStatus, e.status, (x) => sameScope(x.scope, e.status.scope)) });
     case "attachmentUpdated":

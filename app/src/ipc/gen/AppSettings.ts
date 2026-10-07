@@ -3,6 +3,7 @@ import type { ModelChoice } from "./ModelChoice";
 import type { MonitorWindowScope } from "./MonitorWindowScope";
 import type { NotificationSettings } from "./NotificationSettings";
 import type { SendKey } from "./SendKey";
+import type { ToolSettings } from "./ToolSettings";
 import type { WindowPrefs } from "./WindowPrefs";
 
 /**
@@ -25,4 +26,8 @@ defaultModel: ModelChoice | null, sendKey: SendKey,
  * 確認済みにした起動時の保存データ警告（警告文＝領域のパスと警告の種類を含む）。同じ警告は以後出さない。
  * 別の種類・別の領域の警告は文が変わるので、また出る。領域のファイルは消さず、作り直しもしない。
  */
-acknowledgedWarnings: Array<string>, };
+acknowledgedWarnings: Array<string>, 
+/**
+ * バックエンドではない外部ツールの場所（段階③）。`executables` には入れない。
+ */
+tools: ToolSettings, };

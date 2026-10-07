@@ -770,6 +770,7 @@ export default function App() {
         if (live) host.closeThisWindow().catch((e) => sayErr("窓を閉じられませんでした", e)); else say("モックではトレイへ格納しません。");
         break;
       case "newChat": setDialog({ type: "newChat" }); break;
+      case "parity": setDialog({ type: "parity" }); break;
       case "quit":
         if (!live) { setDialog({ type: "quit" }); break; }
         host.requestQuit().then((p) => { setQuit(p); setDialog({ type: "quit" }); }).catch((e) => sayErr("終了を要求できませんでした", e));
@@ -873,7 +874,7 @@ export default function App() {
       </div>
       {mini && !live ? <MiniWindow {...dockProps} top={miniTop} /> : null}
       {dialog ? (
-        <Dialogs d={dialog} onClose={closeDialog} chats={snap.chats} source={src} models={models}
+        <Dialogs d={dialog} onClose={closeDialog} opCaps={snap.opCapabilities} chats={snap.chats} source={src} models={models}
           enterMode={enterMode} setEnterMode={setEnterMode}
           notify={{ value: snap.settings.notifications, set: onNotifySettings }}
           top={{ main: mainTop, mini: miniTop, setMain: (b) => setTop("main", b), setMini: (b) => setTop("monitor", b) }}

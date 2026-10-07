@@ -171,6 +171,7 @@ fn gate_input(
         descendant_scan_complete: scan_complete,
         open_stop: d.open_stop(chat).map(|r| r.id.clone()),
         unresolved_attempt: unresolved,
+        unresolved_op: d.locals.get(chat).and_then(|l| l.pending_ops.first()).map(|p| p.id.clone()),
         delete_pending: ctx.deleting || d.locals.get(chat).is_some_and(|l| l.delete_pending.is_some()),
         quitting: ctx.quitting,
         manual_turn_pending: manual_turn_pending(ctx.manual.as_ref(), d.last_end.get(&root_key).map(|(t, _, _)| t), now_ms()),

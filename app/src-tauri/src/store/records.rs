@@ -51,6 +51,28 @@ pub struct ChatLocalFile {
     /// 外部で作られた会話をユーザー確認のうえ再開した印は含めない（再起動後は外部扱いに戻り、再開確認が要る）。
     #[serde(default)]
     pub hosted: bool,
+    // ── 段階③の追加（すべて既定値あり。旧ファイルも読める。SCHEMA_VERSION は上げない） ──
+    /// 計画／実行の選択値（None＝未選択。受理値は別。P3-3）。
+    #[serde(default)]
+    pub work_mode: Option<WorkMode>,
+    /// memoriesのチャット別設定（バックエンドが示す不透明な値。P3-3）。
+    #[serde(default)]
+    pub memory_mode: Option<String>,
+    /// このチャットがレビュー用に作られたときの、レビュー元（P3-2）。
+    #[serde(default)]
+    pub review_of: Option<ChatKey>,
+    /// このチャットが分岐で作られたときの、分岐元（P3-2）。
+    #[serde(default)]
+    pub fork_of: Option<ForkOrigin>,
+    /// side相談の記録（P3-4）。
+    #[serde(default)]
+    pub side_sessions: Vec<SideSessionMeta>,
+    /// このチャットの作業場所として作ったworktree（`worktrees.json` の項目、P3-7）。
+    #[serde(default)]
+    pub worktree: Option<LocalId>,
+    /// 送る前に保存した、turnを開始する操作（レビュー・圧縮）の未解決の記録。照合（読取り）だけが消す。
+    #[serde(default)]
+    pub pending_ops: Vec<PendingOp>,
 }
 
 /// 接続前の一覧表示用。鮮度は常に「切断」として扱い、状態の根拠にしない。
@@ -146,6 +168,13 @@ impl ChatLocalFile {
             acknowledged_failures: Vec::new(),
             cached_meta: None,
             hosted: false,
+            work_mode: None,
+            memory_mode: None,
+            review_of: None,
+            fork_of: None,
+            side_sessions: Vec::new(),
+            worktree: None,
+            pending_ops: Vec::new(),
         }
     }
 }
@@ -168,7 +197,7 @@ mod tests {
         let mut f = ChatLocalFile::new(LocalId("dir-1".into()), Some(key()));
         f.pinned = true;
         f.last_used_at = Some(UnixMillis(1_700_000_000_000));
-        f.model = Some(ModelChoice { model: "m".into(), effort: Some("high".into()) });
+        f.model = Some(ModelChoice { model: "m".into(), effort: Some("high".into()), speed_tier: None });
         f.permission = Some(PermissionPreset::ReadOnly);
         f.next_cwd = Some(r"C:\work".into());
         f.draft = Draft { text: "下書き\n2行目".into(), attachments: vec![LocalId("att-1".into())], updated_at: Some(UnixMillis(5)) };
@@ -199,6 +228,44 @@ mod tests {
         assert_eq!(v["schemaVersion"], 1);
         assert_eq!(v["dirId"], "dir-1");
         assert_eq!(v["pinned"], true);
+    }
+
+    /// 段階③の追加フィールドを持たない旧ファイルが読め、追加分は既定値になる。
+    #[test]
+    fn chat_local_without_stage3_fields_still_reads() {
+        let mut v: serde_json::Value = serde_json::from_slice(&to_bytes(&sample_local()).unwrap()).unwrap();
+        let o = v.as_object_mut().unwrap();
+        for k in ["workMode", "memoryMode", "reviewOf", "forkOf", "sideSessions", "worktree", "pendingOps"] {
+            assert!(o.remove(k).is_some(), "{k}");
+        }
+        let back: ChatLocalFile = parse_versioned(&serde_json::to_vec(&v).unwrap()).unwrap();
+        assert_eq!(back, sample_local());
+        assert!(back.pending_ops.is_empty() && back.side_sessions.is_empty() && back.work_mode.is_none());
+    }
+
+    #[test]
+    fn stage3_fields_round_trip() {
+        let mut f = sample_local();
+        f.work_mode = Some(WorkMode::Plan);
+        f.memory_mode = Some("raw-mode".into());
+        f.review_of = Some(key());
+        f.fork_of = Some(ForkOrigin { chat: key(), through_turn: Some(ExternalId("turn-2".into())) });
+        f.side_sessions.push(SideSessionMeta { id: LocalId("s1".into()), main: key(), thread: key(), state: SideState::Ended { reason: "closed".into() } });
+        f.worktree = Some(LocalId("w1".into()));
+        f.pending_ops.push(PendingOp { id: LocalId("op-1".into()), op: ParityOp::Compact, since: UnixMillis(7) });
+        f.model = Some(ModelChoice { model: "m".into(), effort: None, speed_tier: Some("fast".into()) });
+        let back: ChatLocalFile = parse_versioned(&to_bytes(&f).unwrap()).unwrap();
+        assert_eq!(back, f);
+        let v: serde_json::Value = serde_json::from_slice(&to_bytes(&f).unwrap()).unwrap();
+        assert_eq!(v["pendingOps"][0]["op"], "compact");
+        assert_eq!(v["schemaVersion"], 1);
+    }
+
+    /// `speedTier` を持たない旧い `model` も読める。
+    #[test]
+    fn model_choice_without_speed_tier_reads() {
+        let m: ModelChoice = serde_json::from_str(r#"{"model":"m","effort":"low"}"#).unwrap();
+        assert_eq!(m.speed_tier, None);
     }
 
     #[test]

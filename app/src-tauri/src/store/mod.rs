@@ -610,7 +610,7 @@ mod tests {
         let (dir_id, _) = (LocalId("dir-test-1".into()), ());
         let mut f = ChatLocalFile::new(dir_id.clone(), Some(key("t1")));
         f.pinned = true;
-        f.model = Some(ModelChoice { model: "m".into(), effort: None });
+        f.model = Some(ModelChoice { model: "m".into(), effort: None, speed_tier: None });
         f.permission = Some(PermissionPreset::ReadOnly);
         f.draft.text = "途中の文章".into();
         store.save_chat_local(&f).unwrap();
