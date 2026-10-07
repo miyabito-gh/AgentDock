@@ -100,6 +100,10 @@ pub mod command_names {
     pub const RECONCILE_OP: &str = "reconcile_op";
     pub const LIST_COMPACTION_SNAPSHOTS: &str = "list_compaction_snapshots";
     pub const READ_COMPACTION_SNAPSHOT: &str = "read_compaction_snapshot";
+    pub const GIT_INFO: &str = "git_info";
+    pub const CREATE_WORKTREE: &str = "create_worktree";
+    pub const PREVIEW_REMOVE_WORKTREE: &str = "preview_remove_worktree";
+    pub const REMOVE_WORKTREE: &str = "remove_worktree";
 }
 
 // ───────────────────────────── エラー ─────────────────────────────
@@ -238,7 +242,7 @@ pub struct HostSnapshot {
     pub pending_ops: Vec<ChatPendingOp>,
     /// side相談の記録。
     pub side_sessions: Vec<SideSessionMeta>,
-    /// worktree台帳。P3-7が読み込むまで常に空（記録の保存先がまだない）。
+    /// worktree台帳（`worktrees.json`。AgentDockが作ったもの）。
     pub worktrees: Vec<WorktreeRecord>,
     /// クラウド委任の記録。P3-6が読み込むまで常に空（記録の保存先がまだない）。
     pub cloud_tasks: Vec<CloudTaskRecord>,
@@ -300,6 +304,9 @@ pub struct StartChatArgs {
     pub permission: Option<PermissionPreset>,
     /// 最初の依頼文。あれば開始直後に送信する（チャット名の機械的切り出しにも使う）。
     pub first_message: Option<String>,
+    /// `cwd` が、AgentDockが作ったworktree（`create_worktree` の戻り値のID）の場所なら、そのチャットに結び付ける（P3-7）。
+    #[serde(default)]
+    pub worktree: Option<LocalId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -717,6 +724,8 @@ pub enum HostEvent {
     /// 変更の報告（turn集約diff・観測記録）が更新された。中身は送らず、開いている差分表示が取り直す。
     ChangesUpdated { chat: ChatKey, turn: Option<ExternalId> },
     SettingsUpdated { settings: AppSettings },
+    /// worktree台帳の1件の追加・更新（`record=None` は記録を外した）。UIは一覧のこの項目だけ置き換える。
+    WorktreeUpdated { id: LocalId, record: Option<WorktreeRecord> },
     /// 目標（Goal）の更新・解除（`goal=None` は解除）。UIが表示している分だけ置き換える。エージェント状態には使わない。
     GoalUpdated { chat: ChatKey, goal: Option<Goal> },
     /// 操作ごとの能力の出し直し（experimentalの拒否で非対応へ降格したときなど）。

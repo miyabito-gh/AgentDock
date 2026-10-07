@@ -58,6 +58,8 @@ pub enum StoreError {
 pub struct Restored {
     pub settings: Option<AppSettingsFile>,
     pub windows: Option<WindowsFile>,
+    /// worktree台帳（P3-7）。
+    pub worktrees: Vec<WorktreeRecord>,
     pub chats: Vec<RestoredChat>,
     /// 読めなかったファイル（警告表示用）。
     pub problems: Vec<StoreError>,
@@ -176,6 +178,10 @@ impl Store {
             Ok(v) => r.windows = v,
             Err(e) => r.problems.push(e),
         }
+        match self.read_file::<WorktreesFile>(&self.root.join(layout::WORKTREES_FILE)) {
+            Ok(v) => r.worktrees = v.map(|f| f.worktrees).unwrap_or_default(),
+            Err(e) => r.problems.push(e),
+        }
         let Ok(rd) = std::fs::read_dir(self.root.join(layout::CHATS_DIR)) else { return r };
         let mut dirs: Vec<PathBuf> = rd.filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.is_dir()).collect();
         dirs.sort();
@@ -260,6 +266,16 @@ impl Store {
 
     pub fn save_windows(&self, file: &WindowsFile) -> Result<UnixMillis, StoreError> {
         self.write_json(&self.root.join(layout::WINDOWS_FILE), file)
+    }
+
+    /// worktree台帳を書く（空き確認つき。読めなかった・新しい版のファイルは上書きしない）。
+    pub fn save_worktrees(&self, file: &WorktreesFile) -> Result<UnixMillis, StoreError> {
+        self.write_json(&self.root.join(layout::WORKTREES_FILE), file)
+    }
+
+    /// worktreeの置き場所（`<root>\worktrees`）。フォルダは作らない。
+    pub fn worktrees_dir(&self) -> PathBuf {
+        self.root.join(layout::WORKTREES_DIR)
     }
 
     /// チャット領域を新規作成する（一般チャットはthread開始前に作業領域が要るので、ChatKeyより先に作る）。

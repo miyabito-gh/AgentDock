@@ -73,7 +73,7 @@ pendingOps: Array<ChatPendingOp>,
  */
 sideSessions: Array<SideSessionMeta>, 
 /**
- * worktree台帳。P3-7が読み込むまで常に空（記録の保存先がまだない）。
+ * worktree台帳（`worktrees.json`。AgentDockが作ったもの）。
  */
 worktrees: Array<WorktreeRecord>, 
 /**

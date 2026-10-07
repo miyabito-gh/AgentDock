@@ -13,4 +13,8 @@ deletesBackendHistory: boolean, descendants: Known<number>, attachments: number,
 /**
  * 作業中なら、中断して停止を確認してから削除する（停止未確認なら保留）。
  */
-requiresStop: boolean, };
+requiresStop: boolean, 
+/**
+ * このチャットがAgentDockが作ったworktreeに結び付いているとき、その場所。チャットを削除してもworktreeとブランチは残る（P3-7）。
+ */
+worktreePath: string | null, };

@@ -15,3 +15,5 @@ pub mod local;
 pub mod model;
 /// 段階③: VS Code拡張との同等性の操作のtrait（`app/DESIGN_P3.md` §2.2）。
 pub mod parity;
+/// 段階③ P3-7: Git worktree（`app/DESIGN_P3.md` §1 #14）のIPC型。`WorktreeRecord` は `model`。
+pub mod worktree;

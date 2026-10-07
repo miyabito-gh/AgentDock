@@ -153,7 +153,7 @@ impl Host {
             (d.chat(origin).and_then(|c| c.cwd.value().cloned()), d.model_settings.get(origin).and_then(|s| s.selected.clone()), d.locals.get(origin).and_then(|l| l.permission))
         });
         let Some(cwd) = cwd else { return Err(err(IpcErrorCode::InvalidArgs, "作業フォルダが分からないため、別チャットを作れません")) };
-        let started = self.start_chat(StartChatArgs { backend: origin.backend, cwd: Some(cwd), model, permission, first_message: None }, confirmed).await?;
+        let started = self.start_chat(StartChatArgs { backend: origin.backend, cwd: Some(cwd), model, permission, first_message: None, worktree: None }, confirmed).await?;
         let key = started.chat.key;
         self.update_local(&key, true, std::time::Duration::ZERO, |f| f.review_of = Some(origin.clone()));
         Ok(key)

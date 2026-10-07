@@ -82,7 +82,7 @@ fn read_current(path: &str) -> ReadResult {
 
 /// 解決（親のcanonicalize。対象がなければ最寄りの既存の祖先）した位置が、作業フォルダ（canonicalize後）の内側か。
 /// リンク・ジャンクションは解決され、外へ出れば `Err`。作業フォルダが分からない・解決できないときも `Err`（書き換えない）。
-fn confine_to(cwd: Option<&str>, p: &str) -> Result<(), String> {
+pub(super) fn confine_to(cwd: Option<&str>, p: &str) -> Result<(), String> {
     fn plain(s: &Path) -> String {
         let t = s.to_string_lossy().replace('/', "\\").to_lowercase();
         t.strip_prefix(r"\\?\").unwrap_or(&t).trim_end_matches('\\').to_string()
@@ -205,7 +205,7 @@ fn first_line(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).lines().next().unwrap_or("").chars().take(200).collect()
 }
 
-fn git_error_status(e: &GitError) -> ListStatus {
+pub(super) fn git_error_status(e: &GitError) -> ListStatus {
     match e {
         GitError::Unavailable(_) => ListStatus::NotSupported { message: "Gitを実行できません（未導入、または設定のGitの場所が違います）".into() },
         other => ListStatus::NotFetched { message: format!("Gitから取得できませんでした（{other}）") },

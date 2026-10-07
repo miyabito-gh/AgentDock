@@ -147,6 +147,8 @@ export function applyHostEvent(b: Bundle, e: HostEvent): Bundle {
       return set({ attachments: upsert(s.attachments, e.entry, (a) => a.id === e.entry.id) });
     case "artifactUpdated":
       return set({ artifacts: upsert(s.artifacts, e.entry, (a) => a.id === e.entry.id) });
+    case "worktreeUpdated": // worktree台帳の1件（record=null は記録を外した）
+      return set({ worktrees: e.record ? upsert(s.worktrees, e.record, (w) => w.id === e.id) : s.worktrees.filter((w) => w.id !== e.id) });
     case "settingsUpdated":
       return set({ settings: e.settings });
     case "opCapabilitiesUpdated": // experimental の拒否などによる降格。能力を出し直す

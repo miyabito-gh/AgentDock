@@ -55,7 +55,8 @@ const DECLARED: [Declared; 20] = [
     d(ParityOp::ToolServers, OpRoute::BackendApi, Support::Supported),
     d(ParityOp::Extensions, OpRoute::CliHelper, Support::Supported),
     d(ParityOp::CloudDelegation, OpRoute::CliHelper, Support::Experimental),
-    d(ParityOp::Worktree, OpRoute::AppManaged, Support::Supported),
+    // P3-7: Git worktree（AgentDock管理）。確認状況は未確認のまま。
+    done(ParityOp::Worktree, OpRoute::AppManaged, Support::Supported),
     done(ParityOp::BackendStatus, OpRoute::BackendApi, Support::Supported),
     done(ParityOp::SpeedTier, OpRoute::BackendApi, Support::Supported),
     // schema注記: 常に効果なし。操作は置かない。

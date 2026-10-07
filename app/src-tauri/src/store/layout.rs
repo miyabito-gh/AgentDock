@@ -4,6 +4,8 @@
 //! %LOCALAPPDATA%\com.agentdock.app\
 //!   settings.json                 アプリ設定（AppSettingsFile）
 //!   windows.json                  窓の位置・サイズ（WindowsFile）
+//!   worktrees.json                AgentDockが作ったworktreeの台帳（WorktreesFile。DESIGN_P3 #14）
+//!   worktrees\<リポジトリ名>-<短いID>\   worktreeの作業ツリー本体（チャット領域の外。自動では削除しない）
 //!   diag\                         診断ログ
 //!   chats\<dirId>\                チャット1件の専用領域（dirIdはAgentDockのLocalId。ChatKeyはchat.jsonに書く）
 //!     chat.json                   補足情報（ChatLocalFile）
@@ -27,6 +29,8 @@ use crate::backend::model::{ChatKey, LocalId};
 
 pub const SETTINGS_FILE: &str = "settings.json";
 pub const WINDOWS_FILE: &str = "windows.json";
+pub const WORKTREES_FILE: &str = "worktrees.json";
+pub const WORKTREES_DIR: &str = "worktrees";
 pub const CHATS_DIR: &str = "chats";
 pub const CHAT_FILE: &str = "chat.json";
 pub const QUEUE_FILE: &str = "queue.json";

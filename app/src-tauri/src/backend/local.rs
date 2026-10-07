@@ -652,6 +652,9 @@ pub struct DeletePreview {
     pub chat_area_bytes: Known<u64>,
     /// 作業中なら、中断して停止を確認してから削除する（停止未確認なら保留）。
     pub requires_stop: bool,
+    /// このチャットがAgentDockが作ったworktreeに結び付いているとき、その場所。チャットを削除してもworktreeとブランチは残る（P3-7）。
+    #[serde(default)]
+    pub worktree_path: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

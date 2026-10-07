@@ -71,6 +71,7 @@ export function DeleteBody({ chat, d }: { chat: Chat | undefined; d: DeleteProps
             <li>添付の元のファイル、別の場所に保存したファイル</li>
             <li>作業フォルダ・プロジェクト内のファイル</li>
             <li>他のチャットのファイル</li>
+            {pv.worktreePath ? <li>このチャットが使っている worktree（<span className="mono">{pv.worktreePath}</span>）とそのブランチ（worktree は残ります。メニュー「作業 → worktree を管理」から削除できます）</li> : null}
           </ul>
           {pv.requiresStop ? (
             <p style={{ color: "var(--fail)" }}>作業中、または停止を確認できていません。作業を中断し、停止を確認してから削除します。停止を確認できなければ、削除を保留します（会話・添付・成果物は残り、送信は止まります）。</p>

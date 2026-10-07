@@ -524,7 +524,20 @@ export default function App() {
     if (!live) { setDialog(null); say("この操作はモックでは動きません。"); return; }
     const m = models.find((x) => x.id === i.model);
     try {
-      const r = await host.startChat(i.cwd, i.model ? { model: i.model, effort: m?.defaultEffort ?? null } : null, i.firstMessage);
+      let cwd = i.cwd;
+      let worktree = i.worktree;
+      if (i.isolate && i.cwd) {
+        // 「分離」を選んだときだけ、worktreeを作ってから開始する（作れなければチャットは作らない。作られた分は自動削除しない）。
+        const rec = await host.createWorktree(i.cwd, null, null, i.firstMessage?.split(/\r?\n/).find((l) => l.trim())?.trim().slice(0, 40) ?? null);
+        if (rec.state.kind !== "ready") {
+          say(rec.state.kind === "failed" ? `worktreeを作成できませんでした: ${rec.state.message}（メニュー「作業 → worktree を管理」で確認できます）` : "worktreeの作成を確認できませんでした。メニュー「作業 → worktree を管理」で確認してください。");
+          return;
+        }
+        cwd = rec.path;
+        worktree = rec.id;
+        say(`worktreeを作成しました（ブランチ ${rec.branch}）。`);
+      }
+      const r = await host.startChat(cwd, i.model ? { model: i.model, effort: m?.defaultEffort ?? null } : null, i.firstMessage, null, worktree);
       setDialog(null);
       setSelId(r.chat.key.id);
       if (r.firstSend) noteAttempt(r.chat.key.id, r.firstSend);
@@ -818,6 +831,8 @@ export default function App() {
         if (live) host.closeThisWindow().catch((e) => sayErr("窓を閉じられませんでした", e)); else say("モックではトレイへ格納しません。");
         break;
       case "newChat": setDialog({ type: "newChat" }); break;
+      case "newChatWorktree": setDialog({ type: "newChat", dev: true }); break;
+      case "worktrees": setDialog({ type: "worktrees" }); break;
       case "parity": setDialog({ type: "parity" }); break;
       case "goal": if (chat) setDialog({ type: "goal", chatId: chat.key.id }); else say("チャットを選んでください。"); break;
       case "review": if (chat) setDialog({ type: "review", chatId: chat.key.id }); else say("チャットを選んでください。"); break;
@@ -938,6 +953,7 @@ export default function App() {
           prefs={{ goal: dialog.type === "goal" ? goals[dialog.chatId] : undefined, saveGoal,
             settings: dialog.type === "status" && dialog.chatId ? bundle.modelSettings[dialog.chatId] : undefined,
             local: dialog.type === "status" && dialog.chatId ? snap.chatLocals.find((l) => l.chat.id === dialog.chatId) : undefined }}
+          worktree={{ records: snap.worktrees, cwd: chat?.cwd.kind === "value" ? chat.cwd.value : null }}
           threadOps={{ pendingOps: snap.pendingOps, queues: snap.queues, onOpenChat: (k) => { selectChat(k.id); } }}
           live={live} changesTick={changesTick} onRevertDone={(r) => say(r.failed.length > 0 ? `一部のみ戻しました（失敗 ${r.failed.length} 件）。` : `${r.reverted.length} 件のファイルを書き換えました。`)}
           enterMode={enterMode} setEnterMode={setEnterMode}

@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import type { Chat, ChatKey, ChatLocalView, ChatPendingOp, ChatQueue, ChatModelSettings, ForceKillPreview, Goal, GoalUpdate, Known, ModelInfo, NotificationSettings, OpCapability, QuitDecision, QuitPhase, RevertResult, SaveStatus, SourceInfo, StopRecord, StopSummary } from "../ipc/types";
+import type { Chat, ChatKey, ChatLocalView, ChatPendingOp, ChatQueue, ChatModelSettings, ForceKillPreview, Goal, GoalUpdate, Known, ModelInfo, NotificationSettings, OpCapability, QuitDecision, QuitPhase, RevertResult, SaveStatus, SourceInfo, StopRecord, StopSummary, WorktreeRecord } from "../ipc/types";
 import { chatName } from "./derive";
 import { SCOPE_TEXT } from "./Chrome";
 import { Icon } from "./Icon";
@@ -8,10 +8,12 @@ import { ParityBody } from "./ParityDialog";
 import { ChangesBody, RevertBody } from "./ChangesDialog";
 import { GoalBody, StatusBody } from "./PrefsDialogs";
 import { CompactBody, ForkBody, ReviewBody } from "./ThreadOpsDialogs";
+import { WorkspaceChoice, WorktreesBody } from "./WorktreeDialogs";
 
 export type DialogState =
   | { type: "settings"; tab: string }
-  | { type: "newChat" }
+  | { type: "newChat"; dev?: boolean }
+  | { type: "worktrees" }
   | { type: "quit" }
   | { type: "force" }
   | { type: "delete"; chatId: string }
@@ -249,10 +251,13 @@ function RenameDialog({ chat, onClose, run }: { chat: Chat | undefined; onClose:
   );
 }
 
-export interface NewChatInput { cwd: string | null; model: string; firstMessage: string | null }
+/** isolate は「分離」（worktreeを作成してから開始）。worktree は既存のAgentDock作成worktreeの記録ID（チャットに結び付ける）。 */
+export interface NewChatInput { cwd: string | null; model: string; firstMessage: string | null; isolate: boolean; worktree: string | null }
 
-export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnterMode, top, setTab, onAct, exe, onCreateChat, notify, autostart, quit, force, manage, onRename, opCaps, live, changesTick, onRevertDone, prefs, threadOps }: {
+export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnterMode, top, setTab, onAct, exe, onCreateChat, notify, autostart, quit, force, manage, onRename, opCaps, live, changesTick, onRevertDone, prefs, threadOps, worktree }: {
   opCaps: OpCapability[];
+  /** worktreeの台帳と、選択中のチャットの作業フォルダ（リポジトリの一覧用）。 */
+  worktree: { records: WorktreeRecord[]; cwd: string | null };
   /** レビュー・分岐・圧縮に使う、結果が未確認の操作・送信待ち・別の会話を開く操作。 */
   threadOps: { pendingOps: ChatPendingOp[]; queues: ChatQueue[]; onOpenChat: (chat: ChatKey) => void };
   prefs: PrefsProps;
@@ -270,8 +275,10 @@ export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnter
   top: { main: boolean; mini: boolean; setMain: (b: boolean) => void; setMini: (b: boolean) => void };
   setTab: (t: string) => void; onAct: (a: string) => void;
 }) {
-  const [kind, setKind] = useState("general");
+  const [kind, setKind] = useState(d.type === "newChat" && d.dev ? "dev" : "general");
   const [cwd, setCwd] = useState("");
+  const [isolate, setIsolate] = useState(false);
+  const [wt, setWt] = useState<string | null>(null);
   const [model, setModel] = useState(models.find((m) => m.isDefault)?.id ?? models[0]?.id ?? "");
   const [first, setFirst] = useState("");
   void chats;
@@ -282,11 +289,12 @@ export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnter
         <div className="content"><SettingsBody tab={d.tab} enterMode={enterMode} setEnterMode={setEnterMode} top={top} source={source} models={models} exe={exe} notify={notify} autostart={autostart} manage={manage} chats={chats} /></div>
       </Shell>);
     case "newChat": return (
-      <Shell title="新しいチャット" onClose={onClose} foot={<><button className="btn-line" onClick={onClose}>キャンセル</button><button className="btn-main" disabled={kind === "dev" && !cwd.trim()} onClick={() => onCreateChat({ cwd: kind === "dev" ? cwd.trim() : null, model, firstMessage: first.trim() || null })}>作成</button></>}>
+      <Shell title="新しいチャット" onClose={onClose} foot={<><button className="btn-line" onClick={onClose}>キャンセル</button><button className="btn-main" disabled={kind === "dev" && !cwd.trim()} onClick={() => onCreateChat({ cwd: kind === "dev" ? cwd.trim() : null, model, firstMessage: first.trim() || null, isolate: kind === "dev" && isolate, worktree: kind === "dev" && !isolate ? wt : null })}>{kind === "dev" && isolate ? "worktreeを作って開始" : "作成"}</button></>}>
         <div className="content">
           <div className="field"><span>AI</span><div><label><input type="radio" defaultChecked />Codex</label><div className="small muted">他の AI は今後追加できるようにする予定です。</div></div></div>
           <div className="field"><span>作業フォルダ</span><div><label><input type="radio" name="k" checked={kind === "general"} onChange={() => setKind("general")} />指定しない（一般チャット）</label><br /><label><input type="radio" name="k" checked={kind === "dev"} onChange={() => setKind("dev")} />フォルダを指定する</label>
-            {kind === "dev" ? <input type="text" className="mono" style={{ width: "100%", marginTop: 4 }} value={cwd} onChange={(e) => setCwd(e.target.value)} placeholder="作業フォルダのフルパス" aria-label="作業フォルダのパス" /> : null}</div></div>
+            {kind === "dev" ? <input type="text" className="mono" style={{ width: "100%", marginTop: 4 }} value={cwd} onChange={(e) => { setCwd(e.target.value); setIsolate(false); setWt(null); }} placeholder="作業フォルダのフルパス" aria-label="作業フォルダのパス" /> : null}</div></div>
+          {kind === "dev" ? <WorkspaceChoice live={live} cwd={cwd} isolate={isolate} setIsolate={setIsolate} onUse={(p, r) => { setCwd(p); setWt(r); setIsolate(false); }} /> : null}
           <div className="field"><span>モデル</span><div style={{ display: "flex", gap: 6 }}><select value={model} onChange={(e) => setModel(e.target.value)}>{models.map((m) => <option key={m.id} value={m.id}>{m.displayName}</option>)}</select></div><span className="note">このチャットの最初の選択です。Codex から取得した一覧です。</span></div>
           <div className="field"><span>最初の依頼</span><textarea value={first} onChange={(e) => setFirst(e.target.value)} rows={3} style={{ width: "100%" }} placeholder="空欄なら、チャットだけ作成します" aria-label="最初の依頼" /></div>
         </div>
@@ -351,6 +359,10 @@ export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnter
     case "status": return (
       <Shell title="Codex の状態" wide onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>
         <StatusBody live={live} chat={chats.find((x) => x.key.id === d.chatId)} settings={prefs.settings} local={prefs.local} caps={opCaps} />
+      </Shell>);
+    case "worktrees": return (
+      <Shell title="worktree の管理" wide onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>
+        <WorktreesBody live={live} records={worktree.records} cwd={worktree.cwd} chats={chats} />
       </Shell>);
     case "parity": return (
       <Shell title="同等性の確認状況" wide onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>

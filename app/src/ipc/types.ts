@@ -21,6 +21,18 @@ export type { Verification } from "./gen/Verification";
 export type { WorkMode } from "./gen/WorkMode";
 export type { WorktreeRecord } from "./gen/WorktreeRecord";
 export type { WorktreeState } from "./gen/WorktreeState";
+export type { BranchOutcome } from "./gen/BranchOutcome";
+export type { CreateWorktreeArgs } from "./gen/CreateWorktreeArgs";
+export type { GitInfo } from "./gen/GitInfo";
+export type { GitInfoArgs } from "./gen/GitInfoArgs";
+export type { RemoveBlockReason } from "./gen/RemoveBlockReason";
+export type { RemoveWorktreeArgs } from "./gen/RemoveWorktreeArgs";
+export type { WorktreeEntry } from "./gen/WorktreeEntry";
+export type { WorktreeIdArgs } from "./gen/WorktreeIdArgs";
+export type { WorktreeOrigin } from "./gen/WorktreeOrigin";
+export type { WorktreeRemoveOutcome } from "./gen/WorktreeRemoveOutcome";
+export type { WorktreeRemovePreview } from "./gen/WorktreeRemovePreview";
+export type { WorktreeRemoveVerdict } from "./gen/WorktreeRemoveVerdict";
 export type { ChangeKind } from "./gen/ChangeKind";
 export type { ChangeList } from "./gen/ChangeList";
 export type { ChangeScope } from "./gen/ChangeScope";
@@ -332,6 +344,14 @@ import type { ReconcileOpArgs } from "./gen/ReconcileOpArgs";
 import type { ReviewChoices } from "./gen/ReviewChoices";
 import type { ReviewOutcome } from "./gen/ReviewOutcome";
 import type { StartReviewArgs } from "./gen/StartReviewArgs";
+import type { WorktreeRecord } from "./gen/WorktreeRecord";
+import type { CreateWorktreeArgs } from "./gen/CreateWorktreeArgs";
+import type { GitInfo } from "./gen/GitInfo";
+import type { GitInfoArgs } from "./gen/GitInfoArgs";
+import type { RemoveWorktreeArgs } from "./gen/RemoveWorktreeArgs";
+import type { WorktreeIdArgs } from "./gen/WorktreeIdArgs";
+import type { WorktreeRemoveOutcome } from "./gen/WorktreeRemoveOutcome";
+import type { WorktreeRemovePreview } from "./gen/WorktreeRemovePreview";
 
 export const HOST_EVENT_CHANNEL = "agentdock://host-event";
 
@@ -414,6 +434,10 @@ export interface CommandMap {
   reconcile_op: { args: ReconcileOpArgs; result: OpReconcile };
   list_compaction_snapshots: { args: ChatArgs; result: number[] };
   read_compaction_snapshot: { args: ReadCompactionArgs; result: CompactionSnapshot };
+  git_info: { args: GitInfoArgs; result: GitInfo };
+  create_worktree: { args: CreateWorktreeArgs; result: WorktreeRecord };
+  preview_remove_worktree: { args: WorktreeIdArgs; result: WorktreeRemovePreview };
+  remove_worktree: { args: RemoveWorktreeArgs; result: WorktreeRemoveOutcome };
 }
 export type CommandName = keyof CommandMap;
 

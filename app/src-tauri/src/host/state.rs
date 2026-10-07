@@ -57,6 +57,8 @@ pub struct HostData {
     pub queues: HashMap<ChatKey, QueueFile>,
     pub save_status: HashMap<SaveScope, SaveStatus>,
     pub settings: AppSettings,
+    /// worktree台帳（AgentDockが作ったもの。保存は `host::worktree` が `worktrees.json` へ書く）。
+    pub worktrees: Vec<WorktreeRecord>,
     /// 起動時に読めなかった保存ファイルなどの警告。
     pub startup_warnings: Vec<StartupWarning>,
     /// 親のspawn依頼から確定できた子の担当（エージェントの再登録で失わないよう保持）。
@@ -104,6 +106,7 @@ impl Default for HostData {
             queues: HashMap::new(),
             save_status: HashMap::new(),
             settings: AppSettings::default(),
+            worktrees: Vec::new(),
             startup_warnings: Vec::new(),
             assignments: HashMap::new(),
             running_turn: HashMap::new(),
@@ -189,7 +192,7 @@ impl HostData {
                 .flat_map(|(chat, f)| f.pending_ops.iter().map(|p| crate::backend::model::ChatPendingOp { chat: chat.clone(), pending: p.clone() }))
                 .collect(),
             side_sessions: self.locals.values().flat_map(|f| f.side_sessions.iter().cloned()).collect(),
-            worktrees: Vec::new(),
+            worktrees: self.worktrees.clone(),
             cloud_tasks: Vec::new(),
         }
     }

@@ -25,6 +25,14 @@ pub struct WindowsFile {
     pub monitor: Option<WindowBounds>,
 }
 
+/// worktree台帳（ルートの `worktrees.json`、P3-7）。AgentDockが作った（作ろうとした）ものだけ。外部のworktreeは持たない。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreesFile {
+    pub schema_version: u32,
+    pub worktrees: Vec<WorktreeRecord>,
+}
+
 /// チャット別の補足情報（`chats\<dirId>\chat.json`）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

@@ -19,6 +19,7 @@ pub mod queue_driver;
 pub mod state;
 pub mod stop;
 pub mod thread_ops;
+pub mod worktree;
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -165,6 +166,8 @@ pub struct Host {
     manage_rt: manage::ManageRuntime,
     /// 変更の観測・戻す計画（`changes.rs`）。
     changes_rt: changes::ChangesRuntime,
+    /// worktreeの作成・削除（`worktree.rs`）。
+    worktree_rt: worktree::WorktreeRuntime,
 }
 
 impl Host {
@@ -186,6 +189,7 @@ impl Host {
             queue_rt: queue_driver::QueueRuntime::default(),
             manage_rt: manage::ManageRuntime::default(),
             changes_rt: changes::ChangesRuntime::default(),
+            worktree_rt: worktree::WorktreeRuntime::default(),
         }
     }
 
@@ -485,6 +489,7 @@ impl Host {
 
     pub async fn start_chat(self: &Arc<Self>, args: StartChatArgs, confirmed: &UserConfirmed) -> Result<StartChatResult, IpcError> {
         let mut area: Option<LocalId> = None;
+        self.check_worktree_binding(&args.worktree, args.cwd.as_deref().map(str::trim))?;
         let (kind, cwd) = match args.cwd.as_deref().map(str::trim).filter(|c| !c.is_empty()) {
             Some(c) => {
                 if !std::path::Path::new(c).is_dir() {
@@ -521,7 +526,11 @@ impl Host {
             f.permission = args.permission;
             f.hosted = true;
             f.cached_meta = Some(meta);
+            f.worktree = args.worktree.clone();
         });
+        if let Some(w) = &args.worktree {
+            self.bind_worktree_chat(w, &key).await;
+        }
         let now = now_ms();
         let settings = ChatModelSettings { selected: args.model.clone(), accepted: started.accepted_model.clone(), ..ChatModelSettings::blank(ApplyTiming::NextTurn) };
         // 作成直後でturnがないので待機中（Idle）。応答由来であることをevidenceに残す。

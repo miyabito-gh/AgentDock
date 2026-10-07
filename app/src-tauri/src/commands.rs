@@ -531,3 +531,29 @@ pub async fn revert_changes(host: Hs<'_>, args: RevertChangesArgs) -> R<RevertRe
     let confirmed = UserConfirmed::from_user_command();
     host.inner().clone().revert_changes(args, &confirmed).await
 }
+
+/// フォルダのGit情報（読取りのみ。リポジトリでない・Gitなしは理由つき）。
+#[tauri::command]
+pub async fn git_info(host: Hs<'_>, args: crate::backend::worktree::GitInfoArgs) -> R<crate::backend::worktree::GitInfo> {
+    host.inner().clone().git_info(args).await
+}
+
+/// worktreeの作成。確認画面の後のユーザー操作だけが呼ぶ（`state` が `ready` のときだけ作成成功）。
+#[tauri::command]
+pub async fn create_worktree(host: Hs<'_>, args: crate::backend::worktree::CreateWorktreeArgs) -> R<WorktreeRecord> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().create_worktree(args, &confirmed).await
+}
+
+/// worktree削除の確認内容（読取りのみ）。
+#[tauri::command]
+pub async fn preview_remove_worktree(host: Hs<'_>, args: crate::backend::worktree::WorktreeIdArgs) -> R<crate::backend::worktree::WorktreeRemovePreview> {
+    host.inner().clone().preview_remove_worktree(args).await
+}
+
+/// worktreeの削除。確認画面の後のユーザー操作だけが呼ぶ（`force` は2段目の確認の後だけ）。
+#[tauri::command]
+pub async fn remove_worktree(host: Hs<'_>, args: crate::backend::worktree::RemoveWorktreeArgs) -> R<crate::backend::worktree::WorktreeRemoveOutcome> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().remove_worktree(args, &confirmed).await
+}

@@ -221,6 +221,10 @@ pub fn run() {
             commands::reconcile_op,
             commands::list_compaction_snapshots,
             commands::read_compaction_snapshot,
+            commands::git_info,
+            commands::create_worktree,
+            commands::preview_remove_worktree,
+            commands::remove_worktree,
             commands::pick_codex_executable,
             commands::pick_save_file,
         ])

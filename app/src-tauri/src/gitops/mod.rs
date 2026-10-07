@@ -5,6 +5,8 @@
 //! タイムアウトと出力上限（16MiB）あり、実行は直列化する。`git` の場所は設定 `tools.git`（なければPATH）。
 //! 強制系（`--force`）は削除操作の2段目の確認後にだけ呼出し側が指定する。`branch -D` は提供しない。
 
+pub mod worktree;
+
 use std::path::Path;
 use std::time::Duration;
 
@@ -25,6 +27,8 @@ pub enum GitOp {
     Head,
     /// 現在のブランチ名（detachedなら `HEAD`）。
     CurrentBranch,
+    /// 参照（ブランチ名・コミット）をコミットのIDに解決する（読取りのみ。なければ非0終了）。
+    RevParse { rev: String },
     /// 作業ツリーの状態（索引を書かない）。
     Status,
     /// 作業ツリーの差分（読取りのみ）。`path` があればそのファイルだけ。
@@ -120,6 +124,10 @@ impl GitOp {
             GitOp::RepoRoot => strings(&["rev-parse", "--show-toplevel"]),
             GitOp::Head => strings(&["rev-parse", "HEAD"]),
             GitOp::CurrentBranch => strings(&["rev-parse", "--abbrev-ref", "HEAD"]),
+            GitOp::RevParse { rev } => {
+                check(valid_ref(rev), "rev")?;
+                vec!["rev-parse".into(), "--verify".into(), "--quiet".into(), format!("{rev}^{{commit}}")]
+            }
             GitOp::Status => strings(&["--no-optional-locks", "status", "--porcelain=v2", "-z"]),
             GitOp::Diff { path } => {
                 let mut a = strings(&["--no-optional-locks", "-c", "core.quotepath=false", "diff", "--no-ext-diff", "--no-textconv", "--no-color"]);
@@ -234,6 +242,13 @@ b".into()) }.args().is_err());
         assert!(add("a..b", "HEAD").is_err());
         assert!(add("agentdock/x-1", "HEAD").is_ok());
         assert!(GitOp::BranchDeleteMerged { branch: "-D".into() }.args().is_err());
+    }
+
+    #[test]
+    fn rev_parse_rejects_option_like_values_and_peels_to_a_commit() {
+        assert_eq!(GitOp::RevParse { rev: "main".into() }.args().unwrap(), ["rev-parse", "--verify", "--quiet", "main^{commit}"]);
+        assert!(GitOp::RevParse { rev: "--all".into() }.args().is_err());
+        assert!(GitOp::RevParse { rev: "a^b".into() }.args().is_err());
     }
 
     #[test]

@@ -14,6 +14,7 @@ import {
   type ChatLocalView, type DeleteOutcome, type DeletePreview, type UsageReport, type ManageOutcome,
   type ChangeList, type ChangeScope, type ChangeSource, type ExternalId, type RevertPlan, type RevertResult, type UnifiedDiff,
   type BackendStatus, type Goal, type GoalUpdate, type Known, type MemoryStatus, type OpAck, type ResetMemoryResult, type WorkMode, type WorkModeInfo,
+  type GitInfo, type WorktreeRecord, type WorktreeRemoveOutcome, type WorktreeRemovePreview,
   type CompactChatResult, type CompactionSnapshot, type ForkReconcile, type ForkResult, type OpReconcile, type ParityOp, type ReviewChoices, type ReviewDelivery, type ReviewOutcome, type ReviewTarget,
 } from "./types";
 
@@ -39,8 +40,9 @@ export const connectBackend = (executable: string | null): Promise<SourceInfo> =
 export const listChats = (cursor: string | null = null, includeArchived = false): Promise<Page<ChatSummary>> =>
   invokeCmd("list_chats", { cursor, limit: null, search: null, includeArchived });
 export const openChat = (chat: ChatKey): Promise<AgentHistory> => invokeCmd("open_chat", { chat });
-export const startChat = (cwd: string | null, model: ModelChoice | null, firstMessage: string | null, permission: PermissionPreset | null = null): Promise<StartChatResult> =>
-  invokeCmd("start_chat", { backend: "codex", cwd, model, permission, firstMessage });
+/** worktree は、作業フォルダ（cwd）がAgentDockが作ったworktreeの場所のとき、その記録のID（チャットに結び付ける）。 */
+export const startChat = (cwd: string | null, model: ModelChoice | null, firstMessage: string | null, permission: PermissionPreset | null = null, worktree: LocalId | null = null): Promise<StartChatResult> =>
+  invokeCmd("start_chat", { backend: "codex", cwd, model, permission, firstMessage, worktree });
 export const sendMessage = (chat: ChatKey, text: string, intent: SendIntent, attachments: LocalId[] = []): Promise<SendAttempt> =>
   invokeCmd("send_message", { chat, text, attachments, intent });
 export const retrySend = (chat: ChatKey, attempt: LocalId): Promise<SendAttempt> => invokeCmd("retry_send", { chat, attempt });
@@ -188,3 +190,15 @@ export const reconcileOp = (chat: ChatKey, op: ParityOp): Promise<OpReconcile> =
 /** 圧縮前の控えの一覧（作成時刻。新しい順）と本文。AgentDockが保存した表示専用の控え。 */
 export const listCompactionSnapshots = (chat: ChatKey): Promise<number[]> => invokeCmd("list_compaction_snapshots", { chat });
 export const readCompactionSnapshot = (chat: ChatKey, snapshot: number): Promise<CompactionSnapshot> => invokeCmd("read_compaction_snapshot", { chat, snapshot });
+
+// ── Git worktree（段階③ #14）。作成・削除はユーザー操作。削除はAgentDockが作った記録のあるものだけ。 ──
+/** フォルダのGit情報（読取りのみ）。リポジトリでない・Gitなしは status に理由が入る。 */
+export const gitInfo = (folder: string): Promise<GitInfo> => invokeCmd("git_info", { folder });
+/** worktreeの作成。戻り値の state が ready のときだけ作成成功（failed は作られた分を自動削除していない）。 */
+export const createWorktree = (repoRoot: string, branch: string | null, base: string | null, chatName: string | null): Promise<WorktreeRecord> =>
+  invokeCmd("create_worktree", { repoRoot, branch, base, chatName });
+/** 削除確認の内容（読取りのみ）。 */
+export const previewRemoveWorktree = (id: LocalId): Promise<WorktreeRemovePreview> => invokeCmd("preview_remove_worktree", { id });
+/** 削除。force は未コミット変更の破棄（2段目の確認の後だけ）。deleteBranch はマージ済みのときだけブランチも削除。 */
+export const removeWorktree = (id: LocalId, force: boolean, deleteBranch: boolean): Promise<WorktreeRemoveOutcome> =>
+  invokeCmd("remove_worktree", { id, force, deleteBranch });
