@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Chat, HostSnapshot } from "../ipc/types";
 import { Icon } from "./Icon";
 import { TENTATIVE_HINT, TENTATIVE_STYLE, chatAgents, chatName, chatRequests, chatStatusText, chatTitle, sortChats } from "./derive";
 import { keyStr, knownValue } from "./format";
 import { PENDING_TEXT, archiveTag } from "./ManageDialogs";
+import { ROW_HEIGHT, WINDOW_THRESHOLD, scrollTopToReveal, windowRange } from "./listWindow";
 
 export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, listStatus }: {
   snap: HostSnapshot; sel: string | null; onSelect: (id: string) => void; onAct: (a: string) => void; onAcknowledge: (c: Chat) => void;
@@ -24,14 +25,67 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, listStatus
   const pinned = visible.filter((c) => c.pinned && !showArch);
   const rest = visible.filter((c) => !c.pinned || showArch);
 
-  const row = (c: Chat) => {
+  // 200件を超えたら固定行高の窓表示（見える範囲＋少しだけ描く）。スクロール位置は一覧の先頭からの相対で持つ。
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const [metrics, setMetrics] = useState({ rel: 0, view: 600 });
+  const windowed = rest.length > WINDOW_THRESHOLD;
+  const measure = useCallback(() => {
+    const sc = scrollerRef.current, ls = listRef.current;
+    if (!sc || !ls) return;
+    const offset = ls.getBoundingClientRect().top - sc.getBoundingClientRect().top + sc.scrollTop;
+    const next = { rel: sc.scrollTop - offset, view: sc.clientHeight };
+    setMetrics((m) => (m.rel === next.rel && m.view === next.view ? m : next));
+  }, []);
+  useLayoutEffect(() => { if (windowed) measure(); }, [windowed, rest.length, showArch, pinned.length, measure]);
+  useEffect(() => {
+    const sc = scrollerRef.current;
+    if (!windowed || !sc || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => measure());
+    ro.observe(sc);
+    return () => ro.disconnect();
+  }, [windowed, measure]);
+  const range = windowed ? windowRange(rest.length, metrics.rel, metrics.view) : { start: 0, end: rest.length };
+  // 矢印キーの移動で窓の外へ出る行は、スクロールしてから描画後にフォーカスする。
+  const focusIdx = useRef<number | null>(null);
+  useEffect(() => {
+    if (focusIdx.current === null) return;
+    const el = listRef.current?.querySelector<HTMLElement>(`[data-idx="${focusIdx.current}"]`);
+    if (el) { el.focus(); focusIdx.current = null; }
+  });
+  const onListKey = (e: React.KeyboardEvent) => {
+    if (!windowed || (e.key !== "ArrowDown" && e.key !== "ArrowUp")) return;
+    const cur = (e.target as HTMLElement).closest<HTMLElement>("[data-idx]");
+    if (!cur) return;
+    e.preventDefault();
+    const idx = Math.min(rest.length - 1, Math.max(0, Number(cur.dataset.idx) + (e.key === "ArrowDown" ? 1 : -1)));
+    const sc = scrollerRef.current, ls = listRef.current;
+    if (sc && ls) {
+      const offset = ls.getBoundingClientRect().top - sc.getBoundingClientRect().top + sc.scrollTop;
+      sc.scrollTop = offset + scrollTopToReveal(idx, sc.scrollTop - offset, sc.clientHeight);
+    }
+    focusIdx.current = idx;
+    measure();
+    const el = ls?.querySelector<HTMLElement>(`[data-idx="${idx}"]`);
+    if (el) { el.focus(); focusIdx.current = null; }
+  };
+  const restRows = () => (windowed ? (
+    <div ref={listRef} onKeyDown={onListKey} style={{ height: rest.length * ROW_HEIGHT, position: "relative" }}>
+      <div style={{ position: "absolute", top: range.start * ROW_HEIGHT, left: 0, right: 0 }}>
+        {rest.slice(range.start, range.end).map((c, i) => row(c, range.start + i))}
+      </div>
+    </div>
+  ) : <div ref={listRef}>{rest.map((c) => row(c))}</div>);
+
+  const row = (c: Chat, idx?: number) => {
     const k = keyStr(c.key);
     // 印はホストが状態から導く（通知設定に関係なく付く）。ホストの値がなければ（モック）画面側の状態から出す。
     const marks = snap.chatLocals.find((l) => l.chat.id === c.key.id)?.marks;
     const hasReq = marks?.awaitingAnswer || chatRequests(snap, c).length > 0;
     const unconfirmedFail = marks ? marks.unacknowledgedFailure : chatAgents(snap, c).some((a) => a.status.state === "failed");
     return (
-      <button key={k} className={`row-chat ${k === sel ? "sel" : ""}`} onClick={() => onSelect(c.key.id)} aria-current={k === sel}>
+      <button key={k} className={`row-chat ${k === sel ? "sel" : ""}${idx !== undefined ? " fixed" : ""}`} onClick={() => onSelect(c.key.id)} aria-current={k === sel}
+        {...(idx !== undefined ? { "data-idx": idx, "aria-posinset": idx + 1, "aria-setsize": rest.length } : {})}>
         <span className="nm" style={chatTitle(c).confirmed ? undefined : TENTATIVE_STYLE} title={chatTitle(c).confirmed ? undefined : TENTATIVE_HINT}>{chatName(c)}</span>
         <span className="marks">
           {localOf(c)?.deletePending ? <span className="tag unv" title={PENDING_TEXT(localOf(c)!.deletePending!.reason)}>削除保留</span> : null}
@@ -62,17 +116,17 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, listStatus
         <input type="search" placeholder="名前で検索" aria-label="チャットを名前で検索" value={query} onChange={(e) => setQuery(e.target.value)} />
         <label className="small"><input type="checkbox" checked={inclArch} onChange={(e) => setInclArch(e.target.checked)} />アーカイブも含める</label>
       </div>
-      <div className="left-scroll">
+      <div className="left-scroll" ref={scrollerRef} onScroll={windowed ? measure : undefined}>
         {showArch ? (
           <>
             <div className="list-h"><span>アーカイブ</span><button className="small" style={{ height: 20 }} onClick={() => setShowArch(false)}>戻る</button></div>
-            {rest.length ? rest.map(row) : <div className="empty-note">アーカイブしたチャットはありません</div>}
+            {rest.length ? restRows() : <div className="empty-note">アーカイブしたチャットはありません</div>}
           </>
         ) : (
           <>
             {pinned.length ? <><div className="list-h"><span>ピン留め</span></div>{pinned.map(row)}</> : null}
             <div className="list-h"><span>最近使った順</span></div>
-            {rest.length ? rest.map(row) : <div className="empty-note">{q ? "一致するチャットはありません" : "まだチャットがありません"}</div>}
+            {rest.length ? restRows() : <div className="empty-note">{q ? "一致するチャットはありません" : "まだチャットがありません"}</div>}
           </>
         )}
       </div>

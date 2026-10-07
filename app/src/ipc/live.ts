@@ -1,6 +1,7 @@
 // ホストイベント → 表示状態の reducer（純粋関数）。状態判定はホストの責務で、ここは受け取った値を並べ替えて保持するだけ。
 // 規則: 通信断・取得不能をdone/failedに変換しない。逐次本文（activityDelta）は描画専用。
 import type { Bundle } from "../mock/data";
+import { DeltaCoalescer, FrameBatcher } from "./batch";
 import type {
   ActivityKind, AppSettings, Capabilities, HostEvent, HostSnapshot, ItemKey, Known, SaveScope, TranscriptEntry, TurnKey, TurnRecord,
 } from "./types";
@@ -177,4 +178,18 @@ export type SeqAction = "apply" | "ignore" | "resync";
 export function seqAction(last: number, next: number): SeqAction {
   if (next <= last) return "ignore";
   return next === last + 1 ? "apply" : "resync";
+}
+
+/**
+ * ホストイベントの適用の流れ: 逐次本文を同一itemで50msまとめ → 1フレームにまとめて適用。順序は保たれ、欠落しない。
+ * `flushAll` はスナップショットで置き換える直前に呼ぶ（会話本文はスナップショットに含まれないので、溜めた分を先に適用する）。
+ */
+export function createEventPipeline(applyBatch: (events: HostEvent[]) => void) {
+  const frame = new FrameBatcher<HostEvent>(applyBatch);
+  const coalescer = new DeltaCoalescer<HostEvent>((e) => frame.push(e));
+  return {
+    push: (e: HostEvent) => coalescer.push(e),
+    flushAll: () => { coalescer.flush(); frame.flush(); },
+    dispose: () => { coalescer.clear(); frame.clear(); },
+  };
 }

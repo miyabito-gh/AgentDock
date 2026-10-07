@@ -136,7 +136,7 @@ impl Host {
                 .collect()
         });
         for agent in cands {
-            let Ok(h) = self.backend.read(agent.clone(), ReadOptions { include_turns: true }).await else { continue };
+            let Ok(h) = self.read_history(agent.clone(), ReadOptions { include_turns: true }).await else { continue };
             let tail = match h.turns.last() {
                 None => HistoryTail::NoTurns,
                 Some(t) => match t.end {
@@ -541,7 +541,7 @@ impl Host {
         }
         let chat = args.chat;
         // 本文はCodexの保存履歴から取り直す（アプリは本文を保存していない）。取得できなければ、空のファイルを成功にしない。
-        let history = self.backend.read(agent_key_of(&chat), ReadOptions { include_turns: true }).await?;
+        let history = self.read_history(agent_key_of(&chat), ReadOptions { include_turns: true }).await?;
         let (name, attachments, artifacts) = self.read(|d| {
             let l = d.locals.get(&chat);
             (

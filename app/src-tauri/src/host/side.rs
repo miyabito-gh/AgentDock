@@ -125,8 +125,7 @@ impl Host {
         let main = args.chat;
         // 分岐点は履歴の最後の終端turn（進行中のturnは指定できない）。履歴は読取りだけで確かめる。
         let history = self
-            .backend
-            .read(agent_key_of(&main), ReadOptions { include_turns: true })
+            .read_history(agent_key_of(&main), ReadOptions { include_turns: true })
             .await
             .map_err(|e| err(IpcErrorCode::Io, format!("履歴を取得できないため、side相談を開けません（{e}）")))?;
         let through = last_terminal_turn(&history.turns);

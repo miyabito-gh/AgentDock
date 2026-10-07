@@ -31,8 +31,8 @@ impl Host {
         self.require_op(ParityOp::ReferenceChat)?;
         self.require_chat(chat)?;
         // 履歴の読取りだけ（resumeしない。アーカイブ・外部の会話も読める）。
-        self.backend
-            .read(agent_key_of(chat), ReadOptions { include_turns: true })
+        self
+            .read_history(agent_key_of(chat), ReadOptions { include_turns: true })
             .await
             .map_err(|e| err(IpcErrorCode::Io, format!("履歴を取得できませんでした（未取得）: {e}")))
     }

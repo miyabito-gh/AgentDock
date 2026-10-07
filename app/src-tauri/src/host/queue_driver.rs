@@ -323,7 +323,7 @@ impl Host {
                 if !due {
                     return;
                 }
-                match self.backend.read(turn.agent.clone(), ReadOptions { include_turns: true }).await {
+                match self.read_history(turn.agent.clone(), ReadOptions { include_turns: true }).await {
                     Ok(h) => h.turns.iter().find(|t| t.key.turn_id == turn.turn_id).and_then(|t| t.end),
                     Err(_) => None,
                 }
@@ -370,7 +370,7 @@ impl Host {
 
     /// 1エージェントの履歴を読み、最新turnの終端を確認結果として記録する（読み取りのみ。resumeしない）。終端を確認できたら true。
     async fn read_terminal_fact(self: &Arc<Self>, agent: AgentKey) -> bool {
-        let fact = match self.backend.read(agent.clone(), ReadOptions { include_turns: true }).await {
+        let fact = match self.read_history(agent.clone(), ReadOptions { include_turns: true }).await {
             Ok(h) => {
                 let last = h.turns.last();
                 TerminalFact {

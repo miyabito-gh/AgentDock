@@ -14,11 +14,14 @@ pub mod cloud;
 pub mod compose;
 pub mod extensions;
 pub mod lifecycle;
+#[cfg(test)]
+mod load_test;
 pub mod manage;
 pub mod notifier;
 pub mod pending_ops;
 pub mod persist;
 pub mod queue_driver;
+pub mod read_limit;
 pub mod side;
 pub mod state;
 pub mod stop;
@@ -178,6 +181,8 @@ pub struct Host {
     ext_rt: extensions::ExtensionsRuntime,
     /// クラウド委任・取込みの直列化（`cloud.rs`）。
     cloud_rt: cloud::CloudRuntime,
+    /// 履歴の読取りの同時実行数の上限（`read_limit.rs`）。
+    read_limit: read_limit::ReadLimiter,
 }
 
 impl Host {
@@ -203,6 +208,7 @@ impl Host {
             side_rt: side::SideRuntime::default(),
             ext_rt: extensions::ExtensionsRuntime::default(),
             cloud_rt: cloud::CloudRuntime::default(),
+            read_limit: read_limit::ReadLimiter::default(),
         }
     }
 
@@ -238,6 +244,11 @@ impl Host {
 
     fn read<R>(&self, f: impl FnOnce(&HostData) -> R) -> R {
         f(&self.data.lock().unwrap())
+    }
+
+    /// 履歴の読取り。同時実行数を上限（4）に抑える。許可はこの1回のあいだだけ持つ。
+    async fn read_history(&self, agent: AgentKey, options: ReadOptions) -> BackendResult<AgentHistory> {
+        self.read_limit.run(self.backend.read(agent, options)).await
     }
 
     fn warn(&self, message: impl Into<String>) {
@@ -339,7 +350,7 @@ impl Host {
                 // 未登録、または所属不明の仮登録のままのものを、見つかった正しい所属・親で反映する。
                 let todo: Vec<Agent> = self.read(|d| scan.found.iter().filter(|a| d.needs_adoption(&a.key)).cloned().collect());
                 for a in take_window(&todo, &mut memo.off_fresh, SCAN_READ_LIMIT) {
-                    match self.backend.read(a.key.clone(), ReadOptions { include_turns: false }).await {
+                    match self.read_history(a.key.clone(), ReadOptions { include_turns: false }).await {
                         Ok(h) => {
                             self.mutate(|d| ((), d.upsert_history_agent(a, h.status)));
                         }
@@ -363,7 +374,7 @@ impl Host {
                 loaded_n = loaded.len();
                 let candidates = self.read(|d| pick_unread(&loaded, &|k| !d.needs_adoption(k), memo));
                 for k in take_window(&candidates, &mut memo.off_loaded, SCAN_READ_LIMIT) {
-                    let Ok(h) = self.backend.read(k.clone(), ReadOptions { include_turns: false }).await else { continue };
+                    let Ok(h) = self.read_history(k.clone(), ReadOptions { include_turns: false }).await else { continue };
                     match &h.agent.parent {
                         ParentLink::Explicit { .. } => {
                             memo.waiting.insert(k, (h.agent, h.status));
@@ -408,7 +419,7 @@ impl Host {
                 .collect()
         });
         for (k, c) in take_window(&stale, &mut memo.off_stale, SCAN_READ_LIMIT) {
-            if let Ok(h) = self.backend.read(k, ReadOptions { include_turns: false }).await {
+            if let Ok(h) = self.read_history(k, ReadOptions { include_turns: false }).await {
                 let mut agent = h.agent;
                 agent.chat = c;
                 self.mutate(|d| ((), d.upsert_history_agent(agent, h.status)));
@@ -485,7 +496,7 @@ impl Host {
     }
 
     pub async fn open_chat(self: &Arc<Self>, args: OpenChatArgs) -> Result<AgentHistory, IpcError> {
-        let history = self.backend.read(agent_key_of(&args.chat), ReadOptions { include_turns: true }).await?;
+        let history = self.read_history(agent_key_of(&args.chat), ReadOptions { include_turns: true }).await?;
         self.mutate(|d| {
             let mut ev = Vec::new();
             if let Some(c) = &history.chat {
@@ -653,7 +664,7 @@ impl Host {
     async fn add_unlisted_hosted_chats(self: &Arc<Self>, listed: &HashSet<ChatKey>) {
         let cands: Vec<ChatKey> = self.read(|d| d.unlisted_hosted_candidates(listed));
         for k in cands {
-            let res = self.backend.read(agent_key_of(&k), ReadOptions { include_turns: false }).await;
+            let res = self.read_history(agent_key_of(&k), ReadOptions { include_turns: false }).await;
             if let Err(e) = &res {
                 // 想定外の応答形式などは履歴の有無を断定できない。出さずに次回再試行する（原因を調べられるよう種類だけ残す）。
                 crate::diag::log("unlisted-read", &crate::diag::error_kind(e));

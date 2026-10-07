@@ -4,7 +4,7 @@ import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialo
 import { readText } from "@tauri-apps/plugin-clipboard-manager";
 import type { AttachmentEntry, Chat, ChatKey, Goal, GoalUpdate, Known, WorkMode, WorkModeInfo, DeleteOutcome, DeletePreview, UsageReport, ForceKillPreview, HostEvent, HostEventEnvelope, HostSnapshot, ModelInfo, MonitorScope, PendingRequest, PermissionPreset, QuitDecision, QuitPhase, RequestAnswer, SendAttempt, SettingsImpact, SourceInfo } from "./ipc/types";
 import * as host from "./ipc/client";
-import { applyHostEvent, emptyBundle, replaceSnapshot, seqAction, UNKNOWN_CAPS } from "./ipc/live";
+import { applyHostEvent, createEventPipeline, emptyBundle, replaceSnapshot, seqAction, UNKNOWN_CAPS } from "./ipc/live";
 import type { Bundle } from "./mock/data";
 
 // 仮データはmockモードに入るときだけ読み込む（live製品バンドルに含めない）。
@@ -181,6 +181,7 @@ export default function App() {
     let ready = false;
     let last = 0;
     let resyncing = false;
+    const pipe = createEventPipeline((events) => setBundle((b) => events.reduce(applyHostEvent, b)));
     const pending: HostEventEnvelope[] = [];
 
     /** スナップショットの終了手順の状態を反映する（再読込み後の復元）。段階が変わった／初回で手順の途中なら確認画面を開く。 */
@@ -198,6 +199,7 @@ export default function App() {
         const snap = await host.getSnapshot();
         if (!alive) return;
         last = snap.seq;
+        pipe.flushAll();
         setBundle((b) => replaceSnapshot(b, snap));
         restoreQuit(snap, false);
       } catch (e) { sayErr("状態を取り直せませんでした", e); } finally { resyncing = false; }
@@ -231,7 +233,7 @@ export default function App() {
       if (a === "ignore") return;
       if (a === "resync") { void resync(); return; }
       last = env.seq;
-      setBundle((b) => applyHostEvent(b, env.event));
+      pipe.push(env.event);
       effects(env.event);
     };
 
@@ -253,6 +255,7 @@ export default function App() {
         }
         if (!alive) return;
         last = snap.seq;
+        pipe.flushAll();
         setBundle((b) => replaceSnapshot(b, snap));
         setScope(snap.monitorScope);
         restoreQuit(snap, true);
@@ -263,7 +266,7 @@ export default function App() {
         ready = true;
       }
     })();
-    return () => { alive = false; unlisten?.(); };
+    return () => { alive = false; unlisten?.(); pipe.dispose(); };
   }, [live, boot, loadChat, noteAttempt, say, sayErr]);
 
   const snap: HostSnapshot = bundle.snapshot;

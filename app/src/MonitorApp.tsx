@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { HostEvent, HostEventEnvelope, MonitorScope } from "./ipc/types";
 import * as host from "./ipc/client";
-import { applyHostEvent, emptyBundle, replaceSnapshot, seqAction } from "./ipc/live";
+import { applyHostEvent, createEventPipeline, emptyBundle, replaceSnapshot, seqAction } from "./ipc/live";
 import type { Bundle } from "./mock/data";
 import { DockPane } from "./ui/Dock";
 import { keyStr } from "./ui/format";
@@ -28,6 +28,7 @@ export default function MonitorApp() {
     let ready = false;
     let last = 0;
     let resyncing = false;
+    const pipe = createEventPipeline((events) => setBundle((b) => events.reduce(applyHostEvent, b)));
     const pending: HostEventEnvelope[] = [];
     const resync = async () => {
       if (resyncing) return;
@@ -36,6 +37,7 @@ export default function MonitorApp() {
         const snap = await host.getSnapshot();
         if (!alive) return;
         last = snap.seq;
+        pipe.flushAll();
         setBundle((b) => replaceSnapshot(b, snap));
       } catch (e) { sayErr("状態を取り直せませんでした", e); } finally { resyncing = false; }
     };
@@ -44,7 +46,7 @@ export default function MonitorApp() {
       if (a === "ignore") return;
       if (a === "resync") { void resync(); return; }
       last = env.seq;
-      setBundle((b) => applyHostEvent(b, env.event as HostEvent));
+      pipe.push(env.event as HostEvent);
     };
     void (async () => {
       try {
@@ -58,12 +60,13 @@ export default function MonitorApp() {
         const snap = await host.getSnapshot();
         if (!alive) return;
         last = snap.seq;
+        pipe.flushAll();
         setBundle((b) => replaceSnapshot(b, snap));
         ready = true;
         for (const env of pending.splice(0)) handle(env);
       } catch (e) { ready = true; sayErr("ホストに接続できませんでした", e); }
     })();
-    return () => { alive = false; unlisten.forEach((u) => u()); };
+    return () => { alive = false; unlisten.forEach((u) => u()); pipe.dispose(); };
   }, [sayErr]);
 
   const snap = bundle.snapshot;

@@ -583,7 +583,7 @@ impl Host {
         crate::diag::log("wake", &format!("resumed marked={}", marked.len()));
         let mut roots: Vec<AgentKey> = Vec::new();
         for key in marked {
-            let Ok(h) = self.backend.read(key.clone(), ReadOptions { include_turns: false }).await else { continue };
+            let Ok(h) = self.read_history(key.clone(), ReadOptions { include_turns: false }).await else { continue };
             let root = self.mutate(|d| {
                 let Some(existing) = d.view(&key).map(|v| v.agent.clone()) else { return (None, Vec::new()) };
                 // 照合の結果は通知しない（sleep中の完了を後から通知にしない）。

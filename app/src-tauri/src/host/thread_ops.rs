@@ -249,7 +249,7 @@ impl Host {
 
     /// 分岐先をアプリ管理として記録し、読めれば一覧へ入れる（読取りのみ）。読めないときは記録だけ残し、補足を返す。
     async fn register_forked_chat(self: &Arc<Self>, key: &ChatKey, origin: ForkOrigin) -> (Option<Chat>, Option<String>) {
-        let read = self.backend.read(agent_key_of(key), ReadOptions { include_turns: false }).await;
+        let read = self.read_history(agent_key_of(key), ReadOptions { include_turns: false }).await;
         self.adopt_forked(key, origin, read.ok().map(|h| (h.chat, h.agent, h.status)))
     }
 
@@ -329,8 +329,7 @@ impl Host {
         };
         // 1. 圧縮前の本文を読む（読取りのみ。再開しない）。
         let history = self
-            .backend
-            .read(agent_key_of(&args.chat), ReadOptions { include_turns: true })
+            .read_history(agent_key_of(&args.chat), ReadOptions { include_turns: true })
             .await
             .map_err(|e| err(IpcErrorCode::Io, format!("圧縮前の本文を取得できないため、圧縮は送っていません（{e}）")))?;
         // 2. 控えとして保存する（領域の書込みの直列化ロックの中で）。
@@ -384,7 +383,7 @@ impl Host {
         self.require_chat(&args.chat)?;
         let pending = self.read(|d| d.locals.get(&args.chat).and_then(|l| unresolved_same_op(&l.pending_ops, args.op).cloned()));
         let Some(pending) = pending else { return Err(err(IpcErrorCode::NotFound, "この操作の未確認の記録はありません")) };
-        let history = match self.backend.read(agent_key_of(&args.chat), ReadOptions { include_turns: true }).await {
+        let history = match self.read_history(agent_key_of(&args.chat), ReadOptions { include_turns: true }).await {
             Ok(h) => h,
             Err(e) => return Ok(OpReconcile::Unreadable { message: e.to_string() }),
         };
