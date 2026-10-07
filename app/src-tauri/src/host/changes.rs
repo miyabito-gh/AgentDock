@@ -146,6 +146,7 @@ impl Reported {
             deletions: self.deletions.clone(),
             turn: self.turn.clone(),
             reverted: self.reverted,
+            binary: false,
         }
     }
 }
@@ -394,7 +395,10 @@ impl Host {
         let files = entries
             .iter()
             .map(|e| {
-                let counts = diff_files.as_ref().and_then(|v| v.iter().find(|f| norm_path(&f.path) == norm_path(&e.path))).map(|f| (f.additions, f.deletions));
+                let found = diff_files.as_ref().and_then(|v| v.iter().find(|f| norm_path(&f.path) == norm_path(&e.path)));
+                let binary = found.is_some_and(|f| f.binary);
+                let counts = found.filter(|f| !f.binary).map(|f| (f.additions, f.deletions));
+                let none = if binary { Known::Unsupported } else { Known::NotFetched };
                 let (path, move_to) = match &e.old_path {
                     Some(old) => (old.clone(), Some(e.path.clone())),
                     None => (e.path.clone(), None),
@@ -404,10 +408,11 @@ impl Host {
                     kind: e.kind(),
                     move_to,
                     source: ChangeSource::Git,
-                    additions: counts.map_or(Known::NotFetched, |c| Known::direct(c.0)),
-                    deletions: counts.map_or(Known::NotFetched, |c| Known::direct(c.1)),
+                    additions: counts.map_or(none.clone(), |c| Known::direct(c.0)),
+                    deletions: counts.map_or(none, |c| Known::direct(c.1)),
                     turn: None,
                     reverted: false,
+                    binary,
                 }
             })
             .collect();

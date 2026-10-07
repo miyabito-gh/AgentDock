@@ -16,4 +16,8 @@ turn: ExternalId | null,
 /**
  * 「戻す」で戻し済み（以後の判定に使わない）。
  */
-reverted: boolean, };
+reverted: boolean, 
+/**
+ * Gitがバイナリ扱いにした（行数・本文は出せない。`additions`/`deletions` は0ではなく `Unsupported`）。
+ */
+binary: boolean, };

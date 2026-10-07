@@ -115,8 +115,9 @@ export function ChangesBody({ chat, live, tick, cap, onRevert }: ChangesProps) {
                     <tr key={fileKey(f)} className={fileKey(f) === sel ? "sel" : ""} onClick={() => setSel(fileKey(f))}>
                       <td>{f.moveTo ? "移動" : KIND_TEXT[f.kind]}</td>
                       <td className="mono"><button className="linkish" aria-pressed={fileKey(f) === sel} onClick={() => setSel(fileKey(f))}>{f.path}{f.moveTo ? ` → ${f.moveTo}` : ""}</button>{f.reverted ? <span className="tag"> 戻し済み</span> : null}</td>
-                      <td>{showKnown(f.additions, (v) => `+${v}`)}</td>
-                      <td>{showKnown(f.deletions, (v) => `−${v}`)}</td>
+                      {f.binary ? <td colSpan={2} className="small muted">バイナリ（行数なし）</td> : <>
+                        <td>{showKnown(f.additions, (v) => `+${v}`)}</td>
+                        <td>{showKnown(f.deletions, (v) => `−${v}`)}</td></>}
                       <td className="small">{f.turn ?? ""}</td>
                     </tr>))}
                 </tbody>
@@ -124,7 +125,7 @@ export function ChangesBody({ chat, live, tick, cap, onRevert }: ChangesProps) {
             {file ? (
               <div style={{ marginTop: 8 }}>
                 <p className="small"><b>{SOURCE_TEXT[tab]}</b>: <span className="mono">{file.path}</span></p>
-                {diffErr ? <p style={{ color: "var(--fail)" }}>{diffErr}</p> : !diff ? <p>差分を取得しています…</p>
+                {file.binary ? <p>バイナリのため表示できません。</p> : diffErr ? <p style={{ color: "var(--fail)" }}>{diffErr}</p> : !diff ? <p>差分を取得しています…</p>
                   : diff.status.kind !== "ready" ? <p className="gbanner warn" role="status">{statusText(diff.status)}</p>
                     : diff.text.trim() === "" ? <p>差分の本文はありません（空）。</p> : <DiffText text={diff.text} />}
               </div>) : list.files.length > 0 ? <p className="small muted">ファイルを選ぶと差分を表示します。</p> : null}

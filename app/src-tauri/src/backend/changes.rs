@@ -142,6 +142,9 @@ pub struct ChangedFile {
     pub turn: Option<ExternalId>,
     /// 「戻す」で戻し済み（以後の判定に使わない）。
     pub reverted: bool,
+    /// Gitがバイナリ扱いにした（行数・本文は出せない。`additions`/`deletions` は0ではなく `Unsupported`）。
+    #[serde(default)]
+    pub binary: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -15,6 +15,8 @@ pub struct FileDiff {
     pub kind: ChangeKind,
     pub additions: u32,
     pub deletions: u32,
+    /// Gitがバイナリ扱いにした（`Binary files … differ`／`GIT binary patch`）。行数は数えられない（0ではない）。
+    pub binary: bool,
     pub text: String,
 }
 
@@ -134,7 +136,8 @@ fn parse_block(text: &str) -> FileDiff {
     let old = rename_from.or_else(|| git_paths.as_ref().map(|(a, _)| a.clone())).or_else(|| minus.flatten());
     let old_path = old.filter(|o| !o.is_empty() && *o != path && kind == ChangeKind::Modified);
     let (additions, deletions) = count_body(&lines[first_hunk..]);
-    FileDiff { path, old_path, kind, additions, deletions, text: text.to_string() }
+    let binary = first_hunk == lines.len() && lines.iter().any(|l| (l.starts_with("Binary files ") && l.ends_with(" differ")) || l.starts_with("GIT binary patch"));
+    FileDiff { path, old_path, kind, additions, deletions, binary, text: text.to_string() }
 }
 
 /// turn集約のdiffをファイル別に分ける。空のdiffは空の一覧。
@@ -468,6 +471,18 @@ mod tests {
     use super::*;
 
     const TWO_FILES: &str = "diff --git a/src/a.rs b/src/a.rs\nindex 111..222 100644\n--- a/src/a.rs\n+++ b/src/a.rs\n@@ -1,3 +1,3 @@\n fn a() {\n-    1\n+    2\n }\ndiff --git a/new.txt b/new.txt\nnew file mode 100644\nindex 0000000..333\n--- /dev/null\n+++ b/new.txt\n@@ -0,0 +1,2 @@\n+hello\n+world\n";
+
+    #[test]
+    fn binary_files_are_flagged_not_counted_as_zero() {
+        let d = "diff --git a/img.png b/img.png\nindex 111..222 100644\nBinary files a/img.png and b/img.png differ\ndiff --git a/a.txt b/a.txt\nindex 1..2 100644\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-x\n+y\n";
+        let files = split_files(d);
+        assert_eq!(files.len(), 2);
+        assert!(files[0].binary);
+        assert!(!files[1].binary);
+        assert_eq!((files[1].additions, files[1].deletions), (1, 1));
+        let p = "diff --git a/b.bin b/b.bin\nindex 1..2 100644\nGIT binary patch\nliteral 0\nHcmV?d00001\n";
+        assert!(split_files(p)[0].binary);
+    }
 
     #[test]
     fn split_files_separates_git_style_blocks_with_kinds_and_counts() {
