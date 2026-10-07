@@ -38,10 +38,10 @@ export type DialogState =
   | { type: "resumeExternal"; chatId: string }
   | { type: "rename"; chatId: string };
 
-function Shell({ title, children, foot, wide, onClose }: { title: string; children: ReactNode; foot?: ReactNode; wide?: boolean; onClose: () => void }) {
+function Shell({ title, children, foot, wide, full, onClose }: { title: string; children: ReactNode; foot?: ReactNode; wide?: boolean; full?: boolean; onClose: () => void }) {
   return (
     <div className="scrim" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className={`dialog ${wide ? "wide" : ""}`} role="dialog" aria-modal="true" aria-label={title}>
+      <div className={`dialog ${wide ? "wide" : ""} ${full ? "full-narrow" : ""}`} role="dialog" aria-modal="true" aria-label={title}>
         <header><h3>{title}</h3><button aria-label="閉じる" onClick={onClose}><Icon name="x" /></button></header>
         {children}
         {foot ? <footer>{foot}</footer> : null}
@@ -357,11 +357,11 @@ export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnter
         <div className="content"><p>{d.why}。</p><p className="small muted">Codex 側の経路と動作を確認できるまで、成功したように見せることはしません。</p></div>
       </Shell>);
     case "changes": return (
-      <Shell title="変更ファイルと差分" wide onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>
+      <Shell title="変更ファイルと差分" wide full onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>
         <ChangesBody chat={chats.find((x) => x.key.id === d.chatId)} live={live} tick={changesTick} cap={opCaps.find((c) => c.op === "changeList")} onRevert={() => onAct("revert")} />
       </Shell>);
     case "revert": return (
-      <Shell title="変更を戻す" wide onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>
+      <Shell title="変更を戻す" wide full onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>
         <RevertBody chat={chats.find((x) => x.key.id === d.chatId)} live={live} cap={opCaps.find((c) => c.op === "revertChanges")} onDone={onRevertDone} />
       </Shell>);
     case "review": case "compact": case "fork": {
@@ -370,7 +370,7 @@ export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnter
       const waiting = threadOps.queues.find((q) => q.chat.id === d.chatId)?.entries.filter((e) => e.state.kind === "waiting").length ?? 0;
       const common = { chat: c, live, pending, waiting, onOpenChat: (k: ChatKey) => { onClose(); threadOps.onOpenChat(k); } };
       if (d.type === "review") return (
-        <Shell title="コードレビュー" wide onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>
+        <Shell title="コードレビュー" wide full onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>
           <ReviewBody {...common} cap={opCaps.find((x) => x.op === "codeReview")} />
         </Shell>);
       if (d.type === "fork") return (

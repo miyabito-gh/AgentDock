@@ -17,6 +17,8 @@ import { LeftPane } from "./ui/LeftPane";
 import { CenterPane, EmptyCenter, type CwdResult, type FileActions, type SendNotice } from "./ui/CenterPane";
 import { fenceCode, insertBlock } from "./ui/attach";
 import { DockPane, MiniWindow } from "./ui/Dock";
+import { commandViews } from "./ui/commands";
+import { CommandPalette } from "./ui/CommandPalette";
 import { Dialogs, type DialogState, type NewChatInput } from "./ui/Dialogs";
 import { ackText } from "./ui/PrefsDialogs";
 import { SidePanel } from "./ui/SidePanel";
@@ -83,6 +85,7 @@ export default function App() {
   const [exp, setExp] = useState<{ include: boolean; running: boolean; error: string | null }>({ include: false, running: false, error: null });
   const [usage, setUsage] = useState<{ report: UsageReport | null; error: string | null; loading: boolean }>({ report: null, error: null, loading: false });
   const [menu, setMenu] = useState<string | null>(null);
+  const [palette, setPalette] = useState(false);
   const [dialog, setDialog] = useState<DialogState | null>(null);
   /** 表示しているside相談（主会話を選んでいる間だけ出す。相談そのものはホストが持つ）。 */
   const [sideId, setSideId] = useState<string | null>(null);
@@ -111,7 +114,19 @@ export default function App() {
   const dropRef = useRef<(paths: string[]) => void>(() => undefined);
   const live = mode === "live";
 
-  const narrow = () => window.matchMedia("(max-width:900px)").matches;
+  // 画面幅の区分（D07）。1280px以上は3領域、960〜1279pxは右を一時パネル、960px未満は左右とも一時パネル。中央を優先する。
+  // 境界は styles.css の @media と同じ値。一時パネルの開閉は通知・新しい活動では変えない（利用者の操作だけ）。
+  const [winW, setWinW] = useState(() => window.innerWidth);
+  useEffect(() => {
+    const h = () => setWinW(window.innerWidth);
+    window.addEventListener("resize", h);
+    return () => window.removeEventListener("resize", h);
+  }, []);
+  const leftTemp = winW < 960;
+  const rightTemp = winW < 1280;
+  // 広い幅へ戻ったら、一時パネルの「開いた」状態は持ち越さない（次に狭くなったとき勝手に開かない）。
+  useEffect(() => { if (!leftTemp) setLNarrow(false); }, [leftTemp]);
+  useEffect(() => { if (!rightTemp) setRNarrow(false); }, [rightTemp]);
   const say = useCallback((t: string, ms = 3200) => {
     setToast(t);
     window.clearTimeout(toastTimer.current);
@@ -265,6 +280,8 @@ export default function App() {
   const src: SourceInfo | undefined = snap.sources[0] ?? (live && connectError ? failedSource(connectError) : undefined);
   const chat = snap.chats.find((c) => c.key.id === selId) ?? null;
   const connected = src?.connection.kind === "connected";
+  /** 主要ボタン・メニュー「作業」・Ctrl+K が共有する操作の可否（台帳から導く）。 */
+  const cmdViews = commandViews(snap, chat, connected);
   const goalSupported = snap.opCapabilities.some((c) => c.op === "goal" && c.support === "supported");
   const workModeSupported = snap.opCapabilities.some((c) => c.op === "workMode" && c.support === "supported");
   /** 目標を読む（読取りのみ。会話は再開しない）。読めなければ未取得のまま表示する。 */
@@ -880,6 +897,7 @@ export default function App() {
       case "review": if (chat) setDialog({ type: "review", chatId: chat.key.id }); else say("チャットを選んでください。"); break;
       case "fork": if (chat) setDialog({ type: "fork", chatId: chat.key.id, throughTurn: null }); else say("チャットを選んでください。"); break;
       case "compact": if (chat) setDialog({ type: "compact", chatId: chat.key.id }); else say("チャットを選んでください。"); break;
+      case "palette": if (!dialog) setPalette(true); break;
       case "status": setDialog({ type: "status", chatId: chat?.key.id ?? null }); break;
       case "workMode":
         if (!chat) { say("チャットを選んでください。"); break; }
@@ -913,8 +931,8 @@ export default function App() {
       case "doResumeExternal": if (dialog?.type === "resumeExternal") void resumeExternal(dialog.chatId); break;
       case "retryLaunch": if (live) retryLaunch(exePath); break;
       case "retrySave": void retrySave(); break;
-      case "toggleLeft": if (narrow()) setLNarrow((v) => !v); else setLeftOpen((v) => !v); break;
-      case "toggleRight": if (narrow()) setRNarrow((v) => !v); else setRightOpen((v) => !v); break;
+      case "toggleLeft": if (leftTemp) setLNarrow((v) => !v); else setLeftOpen((v) => !v); break;
+      case "toggleRight": if (rightTemp) setRNarrow((v) => !v); else setRightOpen((v) => !v); break;
       case "toggleMini":
         // 実接続では別窓の監視窓を開く（なければ作る）。モックでは画面内の仮の窓。
         if (live) host.openMonitorWindow().catch((e) => sayErr("監視窓を開けませんでした", e)); else setMini((v) => !v);
@@ -928,8 +946,21 @@ export default function App() {
     }
   };
 
+  // Ctrl+K でコマンドメニュー。入力欄の送信キー（Ctrl+Enter／Enter）とは別のキー。ダイアログの表示中は開かない。
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if (!e.ctrlKey || e.shiftKey || e.altKey || e.metaKey || e.key.toLowerCase() !== "k" || e.isComposing) return;
+      e.preventDefault();
+      if (dialog) return;
+      setMenu(null);
+      setPalette((v) => !v);
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [dialog]);
+
   const checked = {
-    toggleLeft: narrow() ? lNarrow : leftOpen, toggleRight: narrow() ? rNarrow : rightOpen, toggleMini: mini,
+    toggleLeft: leftTemp ? lNarrow : leftOpen, toggleRight: rightTemp ? rNarrow : rightOpen, toggleMini: mini,
     toggleDone: scope.kind === "allChats" && scope.showFinished, toggleMainTop: mainTop, toggleMiniTop: miniTop, togglePin: !!chat?.pinned,
   };
 
@@ -960,7 +991,7 @@ export default function App() {
       </svg>
       <div className="window" role="application" aria-label="AgentDock" onClick={() => { if (menu) setMenu(null); if (mockOpen) setMockOpen(false); }}>
         <TitleBar title="AgentDock" tag={modeTag} top={mainTop} onAct={act} />
-        <MenuBar open={menu} setOpen={setMenu} checked={checked} onAct={act} />
+        <MenuBar open={menu} setOpen={setMenu} checked={checked} views={cmdViews} onAct={act} />
         <GlobalBanner source={src} onAct={act} />
         {live && quit.kind !== "idle" && dialog?.type !== "quit" && dialog?.type !== "force" ? (
           <div className="gbanner warn" role="status">
@@ -981,7 +1012,7 @@ export default function App() {
                 settings={bundle.modelSettings[chat.key.id]} models={models} save={chatSave}
                 externalLabel={bundle.externalLabel[chat.key.id]} wasLive={liveSeen.current.has(chat.key.id)} enterMode={enterMode}
                 draft={curDraft} setDraft={(v) => onDraft(chat, v)}
-                onAct={act} onRespond={(r, a) => void onRespond(r, a)}
+                onAct={act} commands={cmdViews} onRespond={(r, a) => void onRespond(r, a)}
                 onSend={onSend} onModel={onModel} onWorkMode={onWorkMode} workModes={workModes}
                 goal={goals[chat.key.id]} goalBusy={goalBusy} onGoalReload={() => void loadGoal(chat.key)} onGoalClear={clearGoal}
                 notice={live ? noticeOf(attempts[chat.key.id], steerOf[chat.key.id] ? { attemptId: steerOf[chat.key.id].attemptId, queueInstead: () => { void onSend(steerOf[chat.key.id].text, false, steerOf[chat.key.id].attachments); } } : null) : null} onRetrySend={() => void onRetrySend()}
@@ -991,6 +1022,7 @@ export default function App() {
             ) : <EmptyCenter onAct={act} />}
           </main>
           <aside className="right" aria-label="エージェントのドック"><DockPane {...dockProps} /></aside>
+          {lNarrow || rNarrow ? <div className="panel-scrim" aria-hidden="true" onClick={() => { setLNarrow(false); setRNarrow(false); }} /> : null}
         </div>
       </div>
       {live && chat && sideId && sideShown ? (
@@ -998,6 +1030,7 @@ export default function App() {
           onRespond={(r, a) => void onRespond(r, a)} onInsertMain={insertIntoDraft} say={say} />
       ) : null}
       {mini && !live ? <MiniWindow {...dockProps} top={miniTop} /> : null}
+      {palette && !dialog ? <CommandPalette views={cmdViews} onRun={act} onClose={() => setPalette(false)} /> : null}
       {dialog ? (
         <Dialogs d={dialog} onClose={closeDialog} opCaps={snap.opCapabilities} chats={snap.chats} source={src} models={models}
           prefs={{ goal: dialog.type === "goal" ? goals[dialog.chatId] : undefined, saveGoal,

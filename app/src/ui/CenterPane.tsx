@@ -8,6 +8,7 @@ import { PENDING_TEXT } from "./ManageDialogs";
 import { TENTATIVE_HINT, TENTATIVE_STYLE, chatAgents, chatName, chatRequests, chatTitle, chatStatusText, chatStops, isRunning, rootView, stopOpen } from "./derive";
 import { FRESH, STOP_LABEL, hms, holdText, keyStr, knownValue, showKnown, stopCauseText, targetList } from "./format";
 import { baseName, clipboardImageName, mimeOf } from "./attach";
+import type { CommandView } from "./commands";
 import { GoalBar, UnverifiedTag, WORK_MODE_TEXT } from "./PrefsDialogs";
 
 const SCOPE_TEXT = { once: "1回だけ", session: "このセッション中", persistent: "以後ずっと（永続）", unknown: "効力範囲は不明" } as const;
@@ -32,6 +33,8 @@ export interface CenterProps {
   draft: string;
   setDraft: (v: string) => void;
   onAct: (a: string) => void;
+  /** 操作台帳から作った可否の一覧（主要ボタン・メニュー・Ctrl+K で共通）。 */
+  commands: CommandView[];
   onRespond: (r: PendingRequest, a: RequestAnswer) => void;
   /** 依頼を受け付けたら true（下書きを消す）。拒否・前提不足なら false（下書きを残す）。 */
   onSend: (text: string, steer: boolean, attachments: string[]) => boolean | Promise<boolean>;
@@ -109,8 +112,8 @@ const origName = (snap: HostSnapshot, k: ChatKey): string => {
   return c ? chatName(c) : k.id;
 };
 
-function Header({ snap, chat, onAct, running, local, onCwdToggle, cwdLock }: {
-  snap: HostSnapshot; chat: Chat; onAct: (a: string) => void; running: boolean; local: ChatLocalView | undefined;
+function Header({ snap, chat, onAct, commands, running, local, onCwdToggle, cwdLock }: {
+  snap: HostSnapshot; chat: Chat; onAct: (a: string) => void; commands: CommandView[]; running: boolean; local: ChatLocalView | undefined;
   onCwdToggle: () => void; cwdLock: string | null;
 }) {
   const root = rootView(snap, chat);
@@ -118,7 +121,7 @@ function Header({ snap, chat, onAct, running, local, onCwdToggle, cwdLock }: {
   const cwd = knownValue(chat.cwd);
   return (
     <div className="chead">
-      <button className="only-narrow" aria-label="チャット一覧を開く" onClick={() => onAct("toggleLeft")}><Icon name="list" /></button>
+      <button className="only-narrow-l" aria-label="チャット一覧を開く" onClick={() => onAct("toggleLeft")}><Icon name="list" /></button>
       <div className="grow">
         <div className="ttl" style={chatTitle(chat).confirmed ? undefined : TENTATIVE_STYLE} title={chatTitle(chat).confirmed ? undefined : TENTATIVE_HINT}>{chatName(chat)}</div>
         <div className="meta">
@@ -134,8 +137,21 @@ function Header({ snap, chat, onAct, running, local, onCwdToggle, cwdLock }: {
         </div>
       </div>
       {running ? <button className="btn-line" title="Esc" onClick={() => onAct("interrupt")}><Icon name="stop" />中断</button> : null}
-      <button aria-label="差分を確認" onClick={() => onAct("diff")}><Icon name="diff" /><span className="hide-s">差分</span></button>
-      <button className="only-narrow" aria-label="エージェントのドックを開く" onClick={() => onAct("toggleRight")}><Icon name="dock" /></button>
+      {/* 主要操作は台帳から作る。無効のときは押せず、理由をツールチップで示す（文字のみ） */}
+      <div className="chead-ops" role="group" aria-label="主要な操作">
+        {commands.filter((v) => v.cmd.header).map((v) => {
+          const st = v.state;
+          return (
+            <button key={v.cmd.id} disabled={st.kind === "disabled"} aria-label={v.cmd.label.replace(/…$/, "")}
+              title={st.kind === "disabled" ? st.reason : st.unverified ? "未確認の操作です（結果は観測した事実だけを表示します）" : undefined}
+              onClick={() => onAct(v.cmd.act)}>
+              {v.cmd.header}{st.kind === "enabled" && st.unverified ? <span className="tag unv">未確認</span> : null}
+            </button>
+          );
+        })}
+        <button aria-label="コマンドメニューを開く" title="すべての操作を検索（Ctrl+K）" onClick={() => onAct("palette")}>操作…</button>
+      </div>
+      <button className="only-narrow-r" aria-label="エージェントのドックを開く" onClick={() => onAct("toggleRight")}><Icon name="dock" /></button>
     </div>
   );
 }
@@ -671,7 +687,7 @@ export function CenterPane(p: CenterProps) {
     : chat.origin === "external" && rootView(snap, chat)?.freshness !== "live" ? "外部で実行中かどうか確認できないため、再開するまでこの会話には送信できません。上のボタンから、外部側の終了を確認して再開してください。" : null;
   return (
     <>
-      <Header snap={snap} chat={chat} onAct={p.onAct} running={running} local={p.local} onCwdToggle={() => setCwdOpen((o) => !o)} cwdLock={cwdLock} />
+      <Header snap={snap} chat={chat} onAct={p.onAct} commands={p.commands} running={running} local={p.local} onCwdToggle={() => setCwdOpen((o) => !o)} cwdLock={cwdLock} />
       {cwdOpen && !cwdLock ? <CwdPanel current={p.local?.nextCwd ?? knownValue(chat.cwd) ?? ""} onCwd={p.onCwd} onClose={() => setCwdOpen(false)} /> : null}
       <Banners p={p} />
       <Messages key={chat.key.id} turns={p.turns} reqs={reqs} running={running} onRespond={p.onRespond} onAct={p.onAct}

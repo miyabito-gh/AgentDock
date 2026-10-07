@@ -130,7 +130,7 @@ export function DockPane({ snap, scope, selId, mini, confirmed, onScope, onOpen,
         {mini ? null : (
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <b style={{ flex: 1 }}>エージェントのドック</b>
-            <button className="only-narrow small" onClick={() => onAct("toggleRight")}>閉じる</button>
+            <button className="only-narrow-r small" onClick={() => onAct("toggleRight")}>閉じる</button>
           </div>
         )}
         <span className="seg" role="group" aria-label="表示範囲">

@@ -241,14 +241,38 @@ textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;paddin
 .mockctl .panel button{width:100%;justify-content:flex-start;height:28px}
 .mockctl .panel button[aria-current=true]{background:var(--harbor-weak);font-weight:700}
 
-/* narrow: D07 left/right become temporary panels */
-@media (max-width:900px){
+/* 画面幅の区分（D07、App.tsx の leftTemp／rightTemp と同じ境界）。
+   >=1280px: 3領域。960〜1279px: 右（ドック）を一時パネル。<960px: 左右とも一時パネル。中央を優先する。 */
+.panel-scrim{display:none}
+.only-narrow-l,.only-narrow-r{display:none!important}
+.chead-ops{display:flex;gap:4px;align-items:center;flex-wrap:wrap}
+.chead-ops .tag{margin-left:4px}
+.dropdown button.has-why{height:auto;min-height:30px;flex-wrap:wrap;padding-top:4px;padding-bottom:4px}
+.dropdown .why,.palette-list .why{flex-basis:100%;font-size:11px;color:var(--ink3);text-align:left;white-space:normal}
+.dropdown button:disabled{color:var(--ink3);cursor:default}
+.palette{width:min(560px,100%);align-self:flex-start;margin-top:12vh}
+.palette header{padding:8px 10px}
+.palette-q{width:100%;height:30px}
+.palette-list{list-style:none;margin:0;padding:4px;overflow:auto;max-height:50vh}
+.palette-list li{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:5px 8px;border-radius:var(--r-s);cursor:pointer}
+.palette-list li.cur{background:var(--harbor-weak)}
+.palette-list li.off{color:var(--ink3);cursor:default}
+.palette-list .kbd{color:var(--ink3);font-size:11px}
+.palette-none{padding:8px}
+@media (max-width:1279px){
+  .body{grid-template-columns:var(--lw,232px) minmax(0,1fr)!important}
+  .right{position:fixed;top:0;bottom:0;right:0;z-index:25;width:min(300px,86vw);display:none;box-shadow:0 0 30px rgba(20,32,38,.25)}
+  .body.n-r .right{display:flex}
+  .body.n-l .panel-scrim,.body.n-r .panel-scrim{display:block;position:fixed;inset:0;z-index:24;background:rgba(20,32,38,.18)}
+  .only-narrow-r{display:inline-flex!important}
+}
+@media (max-width:959px){
   .window{inset:0;border-radius:0;border:0}
   .body{grid-template-columns:minmax(0,1fr)!important}
-  .left,.right{position:fixed;top:0;bottom:0;z-index:25;width:min(300px,86vw);display:none;box-shadow:0 0 30px rgba(20,32,38,.25)}
-  .left{left:0}.right{right:0}
+  .left{position:fixed;top:0;bottom:0;left:0;z-index:25;width:min(300px,86vw);display:none;box-shadow:0 0 30px rgba(20,32,38,.25)}
   .center{grid-column:1}
-  .body.n-l .left,.body.n-r .right{display:flex}
+  .body.n-l .left{display:flex}
+  .only-narrow-l{display:inline-flex!important}
   .winbtn{width:38px}
   .titlebar .mock-tag{display:none}
   .chead{padding:8px 10px;flex-wrap:wrap}
@@ -267,7 +291,6 @@ textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;paddin
   .mockctl{left:8px;top:32px}
   .mockctl .panel{max-height:70vh;overflow:auto}
 }
-@media (min-width:901px){ .only-narrow{display:none!important} }
 
 .msgs-wrap{position:relative;flex:1;min-height:0;display:flex;flex-direction:column}
 .msgs-wrap .msgs{min-height:0}
@@ -312,3 +335,11 @@ textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;paddin
 .sidepanel .sp-in textarea{width:100%;resize:vertical}
 .sidepanel .sp-btn{display:flex;align-items:center;gap:6px;margin-top:4px}
 .sidepanel .req{margin:0 0 8px}
+
+/* side相談・差分・レビュー結果は、1280px未満では全面オーバーレイ（閉じると会話へ戻る）。
+   基本規則（.sidepanel／.dialog）より後ろに置き、詳細度も上げて必ず勝たせる。 */
+@media (max-width:1279px){
+  .sidepanel.sidepanel{top:0;right:0;bottom:0;left:0;width:auto;max-width:none;height:auto;border-radius:0;border:0;z-index:38}
+  .dialog.wide.full-narrow{width:100%;max-width:none;height:100%;max-height:none;border-radius:0;border:0}
+  .scrim:has(> .dialog.full-narrow){padding:0;align-items:stretch;justify-content:stretch}
+}

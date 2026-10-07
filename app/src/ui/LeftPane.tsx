@@ -78,7 +78,7 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, listStatus
       </div>
       <div className="left-foot">
         <button className="small" style={{ height: 22 }} onClick={() => setShowArch(true)}><Icon name="archive" />アーカイブ（{snap.chats.filter((c) => !removed(c) && archived(c)).length}）</button>
-        <span className="only-narrow"><button className="small" style={{ height: 22 }} onClick={() => onAct("toggleLeft")}>閉じる</button></span>
+        <span className="only-narrow-l"><button className="small" style={{ height: 22 }} onClick={() => onAct("toggleLeft")}>閉じる</button></span>
       </div>
     </>
   );
