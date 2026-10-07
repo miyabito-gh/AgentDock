@@ -235,10 +235,28 @@ fn convert_known(method: &str, p: &Value, ctx: &EventCtx, live: &dyn Fn(Option<U
             // 会話に設定されたモデル・推論の強さ（turn/startで指定した値の受理を確認できる根拠）。
             let (Some(tid), Some(settings)) = (s(p, "threadId"), p.get("threadSettings")) else { return missing("threadId/threadSettings") };
             let Some(model) = s(settings, "model") else { return missing("threadSettings.model") };
-            vec![BackendEvent::ModelAccepted {
-                agent: agent_key(tid),
-                choice: ModelChoice { model: model.to_string(), effort: s(settings, "effort").map(str::to_string), speed_tier: None },
-            }]
+            let agent = agent_key(tid);
+            let mut out = vec![BackendEvent::ModelAccepted {
+                agent: agent.clone(),
+                // 速度は設定に示された値（null＝指定なし）。示されていない項目は選択値と食い違って見えるだけで、受理済みと偽らない。
+                choice: ModelChoice { model: model.to_string(), effort: s(settings, "effort").map(str::to_string), speed_tier: s(settings, "serviceTier").map(str::to_string) },
+            }];
+            // 計画／実行の設定（示されていて、知っている値のときだけ受理値にする）。
+            if let Some(mode) = settings.get("collaborationMode").and_then(|c| s(c, "mode")).and_then(super::parity::work_mode_from_wire) {
+                out.push(BackendEvent::WorkModeAccepted { agent, mode });
+            }
+            out
+        }
+        "thread/goal/updated" => {
+            let (Some(tid), Some(g)) = (s(p, "threadId"), p.get("goal")) else { return missing("threadId/goal") };
+            match super::parity::goal_from_wire(g) {
+                Some(goal) => vec![BackendEvent::GoalUpdated { chat: chat_key(tid), goal: Some(goal) }],
+                None => return missing("goal.objective/status"),
+            }
+        }
+        "thread/goal/cleared" => {
+            let Some(tid) = s(p, "threadId") else { return missing("threadId") };
+            vec![BackendEvent::GoalUpdated { chat: chat_key(tid), goal: None }]
         }
         "model/rerouted" => {
             let (Some(tid), Some(to)) = (s(p, "threadId"), s(p, "toModel")) else { return missing("threadId/toModel") };

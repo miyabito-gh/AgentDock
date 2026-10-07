@@ -29,7 +29,11 @@ permission: PermissionPreset | null,
 /**
  * 次のturnから使う作業フォルダ（M44）。None＝会話の現在の作業フォルダ。
  */
-nextCwd: string | null, draft: Draft, visibility: ListVisibility, deletePending: DeletePending | null, marks: ChatMarks, 
+nextCwd: string | null, 
+/**
+ * memoriesのチャット別設定として要求した値（バックエンドが示す不透明な値。受け付けられたときだけ入る）。
+ */
+memoryMode: string | null, draft: Draft, visibility: ListVisibility, deletePending: DeletePending | null, marks: ChatMarks, 
 /**
  * 「確認済み」にした失敗（agent＋turn）。UIが現在の失敗との一致で確認済みを判定する（M42）。
  */

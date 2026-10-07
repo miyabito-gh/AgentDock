@@ -80,6 +80,7 @@ export function availability(c: Pick<ParityCommand, "needsChat" | "blockedWhileB
   if (!cap) return disabled("この AI の対応状況を取得できていません");
   if (cap.deprecated) return disabled(cap.note ?? "非推奨のため使えません");
   if (cap.support === "unsupported") return disabled(cap.note ?? "このAIでは非対応です");
+  if (cap.support === "experimental") return disabled(cap.note ?? "experimental API が無効のため使えません");
   if (cap.support === "unknown") return disabled("対応しているか確認できません");
   if (!ctx.connected) return disabled("接続されていません");
   if (c.needsChat && !ctx.hasChat) return disabled("チャットを選んでください");

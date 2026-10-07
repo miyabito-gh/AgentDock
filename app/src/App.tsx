@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { readText } from "@tauri-apps/plugin-clipboard-manager";
-import type { AttachmentEntry, Chat, ChatKey, DeleteOutcome, DeletePreview, UsageReport, ForceKillPreview, HostEvent, HostEventEnvelope, HostSnapshot, ModelInfo, MonitorScope, PendingRequest, PermissionPreset, QuitDecision, QuitPhase, RequestAnswer, SendAttempt, SettingsImpact, SourceInfo } from "./ipc/types";
+import type { AttachmentEntry, Chat, ChatKey, Goal, GoalUpdate, Known, WorkMode, WorkModeInfo, DeleteOutcome, DeletePreview, UsageReport, ForceKillPreview, HostEvent, HostEventEnvelope, HostSnapshot, ModelInfo, MonitorScope, PendingRequest, PermissionPreset, QuitDecision, QuitPhase, RequestAnswer, SendAttempt, SettingsImpact, SourceInfo } from "./ipc/types";
 import * as host from "./ipc/client";
 import { applyHostEvent, emptyBundle, replaceSnapshot, seqAction, UNKNOWN_CAPS } from "./ipc/live";
 import type { Bundle } from "./mock/data";
@@ -18,6 +18,7 @@ import { CenterPane, EmptyCenter, type CwdResult, type FileActions, type SendNot
 import { fenceCode, insertBlock } from "./ui/attach";
 import { DockPane, MiniWindow } from "./ui/Dock";
 import { Dialogs, type DialogState, type NewChatInput } from "./ui/Dialogs";
+import { ackText } from "./ui/PrefsDialogs";
 import { chatName, isRunning, stopOpen } from "./ui/derive";
 import { hms, keyStr } from "./ui/format";
 
@@ -95,6 +96,10 @@ export default function App() {
   const [steerOf, setSteerOf] = useState<Record<string, { attemptId: string; text: string; attachments: string[] }>>({});
   const [dragging, setDragging] = useState(false);
   const [changesTick, setChangesTick] = useState(0);
+  // 目標（Goal）の表示。読取りで得た値と、更新通知で置き換えた値（ホストが持つ値のコピー。保存はしない）。
+  const [goals, setGoals] = useState<Record<string, Known<Goal>>>({});
+  const [goalBusy, setGoalBusy] = useState(false);
+  const [workModes, setWorkModes] = useState<WorkModeInfo[]>([]);
   const toastTimer = useRef<number | undefined>(undefined);
   const selRef = useRef<string | null>(null);
   const quitKindRef = useRef<QuitPhase["kind"]>("idle");
@@ -183,6 +188,7 @@ export default function App() {
       if (e.kind === "turnUpdated" && e.end !== null && e.turn.agent.id === selRef.current) void loadChat(e.turn.agent.id);
       else if (e.kind === "sendUpdated") noteAttempt(e.chat.id, e.attempt);
       else if (e.kind === "changesUpdated") setChangesTick((n) => n + 1); // 開いている差分表示が取り直す（読取りのみ）
+      else if (e.kind === "goalUpdated") setGoals((m) => ({ ...m, [e.chat.id]: e.goal ? { kind: "value", value: e.goal, basis: "direct" } : { kind: "missing" } })); // 目標の表示を置き換える（エージェント状態には使わない）
       else if (e.kind === "navigateToChat") { setSelId(e.chat.id); void loadChat(e.chat.id); } // 通知を開いた操作。表示だけで、回答・再実行はしない
       else if (e.kind === "quitPrompt") { quitKindRef.current = e.phase.kind; setQuit(e.phase); setDialog((d) => (d?.type === "force" ? d : { type: "quit" })); } // もう一度「終了」が要求された。確認画面を開き直す
       else if (e.kind === "quitUpdated") {
@@ -255,6 +261,25 @@ export default function App() {
   };
   const src: SourceInfo | undefined = snap.sources[0] ?? (live && connectError ? failedSource(connectError) : undefined);
   const chat = snap.chats.find((c) => c.key.id === selId) ?? null;
+  const connected = src?.connection.kind === "connected";
+  const goalSupported = snap.opCapabilities.some((c) => c.op === "goal" && c.support === "supported");
+  const workModeSupported = snap.opCapabilities.some((c) => c.op === "workMode" && c.support === "supported");
+  /** 目標を読む（読取りのみ。会話は再開しない）。読めなければ未取得のまま表示する。 */
+  const loadGoal = useCallback(async (key: ChatKey) => {
+    try {
+      const g = await host.getGoal(key);
+      setGoals((m) => ({ ...m, [key.id]: g }));
+    } catch { setGoals((m) => ({ ...m, [key.id]: { kind: "notFetched" } })); }
+  }, []);
+  const goalChatKey = chat?.key ?? null;
+  useEffect(() => {
+    if (live && connected && goalSupported && goalChatKey) void loadGoal(goalChatKey);
+  }, [live, connected, goalSupported, goalChatKey?.id, loadGoal]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 計画／実行の選択肢（Codex から取得。取れなければ画面側の既定の名前を使う）。
+  useEffect(() => {
+    if (!live || !connected || !workModeSupported) { setWorkModes([]); return; }
+    host.listWorkModes().then(setWorkModes).catch(() => setWorkModes([]));
+  }, [live, connected, workModeSupported]);
   // 選択中のチャットをホストへ伝える（通知の抑制判定だけに使う）。
   const selectedKey = chat?.key ?? null;
   useEffect(() => {
@@ -447,9 +472,29 @@ export default function App() {
     try { noteAttempt(chat.key.id, await host.retrySend(chat.key, a.attemptId)); } catch (e) { sayErr("再送できませんでした", e); }
   };
 
-  const onModel = (model: string, effort: string) => {
+  const onModel = (model: string, effort: string, speed: string) => {
     if (!chat || !live) return;
-    host.setChatModel(chat.key, { model, effort: effort || null }).catch((e) => sayErr("モデルの選択を保存できませんでした", e));
+    host.setChatModel(chat.key, speed ? { model, effort: effort || null, speedTier: speed } : { model, effort: effort || null }).catch((e) => sayErr("モデルの選択を保存できませんでした", e));
+  };
+
+  /** 計画／実行の選択（次の送信から適用。受理済みは設定の更新通知を受けたときだけ表示される）。 */
+  const onWorkMode = (mode: WorkMode | null) => {
+    if (!chat || !live) return;
+    host.setWorkMode(chat.key, mode).then((r) => say(mode === null ? "計画／実行の選択を外しました。" : impactText("計画／実行", r))).catch((e) => sayErr("計画／実行を変更できませんでした", e));
+  };
+
+  /** 目標の設定・変更。戻り値は表示する文（受け付けた事実だけ。結果は常設欄の更新で確認する）。 */
+  const saveGoal = async (chatId: string, update: GoalUpdate): Promise<string> => {
+    const c = snap.chats.find((x) => x.key.id === chatId);
+    if (!c || !live) return "モックでは動きません。";
+    setGoalBusy(true);
+    try { return ackText(await host.setGoal(c.key, update), "目標の設定"); } finally { setGoalBusy(false); }
+  };
+  const clearGoal = () => {
+    if (!chat || !live) return;
+    const key = chat.key;
+    setGoalBusy(true);
+    host.clearGoal(key).then((a) => say(ackText(a, "目標の解除"))).catch((e) => sayErr("目標を解除できませんでした", e)).finally(() => setGoalBusy(false));
   };
 
   const interrupt = async () => {
@@ -773,6 +818,12 @@ export default function App() {
         break;
       case "newChat": setDialog({ type: "newChat" }); break;
       case "parity": setDialog({ type: "parity" }); break;
+      case "goal": if (chat) setDialog({ type: "goal", chatId: chat.key.id }); else say("チャットを選んでください。"); break;
+      case "status": setDialog({ type: "status", chatId: chat?.key.id ?? null }); break;
+      case "workMode":
+        if (!chat) { say("チャットを選んでください。"); break; }
+        onWorkMode(bundle.modelSettings[chat.key.id]?.workMode === "plan" ? "default" : "plan");
+        break;
       case "diff": if (chat) setDialog({ type: "changes", chatId: chat.key.id }); else say("チャットを選んでください。"); break;
       case "revert": if (chat) setDialog({ type: "revert", chatId: chat.key.id }); else say("チャットを選んでください。"); break;
       case "quit":
@@ -866,7 +917,8 @@ export default function App() {
                 externalLabel={bundle.externalLabel[chat.key.id]} wasLive={liveSeen.current.has(chat.key.id)} enterMode={enterMode}
                 draft={curDraft} setDraft={(v) => onDraft(chat, v)}
                 onAct={act} onRespond={(r, a) => void onRespond(r, a)}
-                onSend={onSend} onModel={onModel}
+                onSend={onSend} onModel={onModel} onWorkMode={onWorkMode} workModes={workModes}
+                goal={goals[chat.key.id]} goalBusy={goalBusy} onGoalReload={() => void loadGoal(chat.key)} onGoalClear={clearGoal}
                 notice={live ? noticeOf(attempts[chat.key.id], steerOf[chat.key.id] ? { attemptId: steerOf[chat.key.id].attemptId, queueInstead: () => { void onSend(steerOf[chat.key.id].text, false, steerOf[chat.key.id].attachments); } } : null) : null} onRetrySend={() => void onRetrySend()}
                 queue={snap.queues.find((q) => q.chat.id === chat.key.id)} local={snap.chatLocals.find((l) => l.chat.id === chat.key.id)}
                 qact={qact} onPermission={onPermission} onCwd={onCwd}
@@ -879,6 +931,9 @@ export default function App() {
       {mini && !live ? <MiniWindow {...dockProps} top={miniTop} /> : null}
       {dialog ? (
         <Dialogs d={dialog} onClose={closeDialog} opCaps={snap.opCapabilities} chats={snap.chats} source={src} models={models}
+          prefs={{ goal: dialog.type === "goal" ? goals[dialog.chatId] : undefined, saveGoal,
+            settings: dialog.type === "status" && dialog.chatId ? bundle.modelSettings[dialog.chatId] : undefined,
+            local: dialog.type === "status" && dialog.chatId ? snap.chatLocals.find((l) => l.chat.id === dialog.chatId) : undefined }}
           live={live} changesTick={changesTick} onRevertDone={(r) => say(r.failed.length > 0 ? `一部のみ戻しました（失敗 ${r.failed.length} 件）。` : `${r.reverted.length} 件のファイルを書き換えました。`)}
           enterMode={enterMode} setEnterMode={setEnterMode}
           notify={{ value: snap.settings.notifications, set: onNotifySettings }}

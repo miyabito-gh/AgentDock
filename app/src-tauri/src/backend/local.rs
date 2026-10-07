@@ -141,6 +141,8 @@ pub struct ChatLocalView {
     pub permission: Option<PermissionPreset>,
     /// 次のturnから使う作業フォルダ（M44）。None＝会話の現在の作業フォルダ。
     pub next_cwd: Option<String>,
+    /// memoriesのチャット別設定として要求した値（バックエンドが示す不透明な値。受け付けられたときだけ入る）。
+    pub memory_mode: Option<String>,
     pub draft: Draft,
     pub visibility: ListVisibility,
     pub delete_pending: Option<DeletePending>,
@@ -251,6 +253,10 @@ pub struct AppliedSettings {
     pub permission: PermissionPreset,
     pub cwd: Known<String>,
     pub decided_at: UnixMillis,
+    /// 送信時点の計画／実行の選択（None＝指定なし）。速度の選択は `model.speed_tier` に含まれる。
+    #[serde(default)]
+    #[cfg_attr(test, ts(optional))]
+    pub work_mode: Option<WorkMode>,
 }
 
 /// キュー全体の進行。項目の状態とは別に持つ。

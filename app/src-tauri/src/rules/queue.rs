@@ -513,7 +513,7 @@ mod tests {
         SendAttempt { attempt_id: lid(id), client_message_id: format!("cm-{id}"), at: UnixMillis(3000), state: SendState::Sending }
     }
     fn applied() -> AppliedSettings {
-        AppliedSettings { model: None, permission: PermissionPreset::WorkspaceWriteOnRequest, cwd: Known::NotFetched, decided_at: UnixMillis(3000) }
+        AppliedSettings { model: None, permission: PermissionPreset::WorkspaceWriteOnRequest, cwd: Known::NotFetched, decided_at: UnixMillis(3000), work_mode: None }
     }
 
     #[test]

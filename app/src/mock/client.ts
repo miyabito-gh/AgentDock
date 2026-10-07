@@ -27,5 +27,5 @@ export async function interruptChat(_chat: ChatKey): Promise<InterruptChatResult
   return null;
 }
 export async function setChatModel(_chat: ChatKey, choice: ModelChoice): Promise<ChatModelSettings> {
-  return { selected: choice, accepted: { kind: "notFetched" }, effective: { kind: "notFetched" }, applies: "nextTurn" };
+  return { selected: choice, accepted: { kind: "notFetched" }, effective: { kind: "notFetched" }, applies: "nextTurn", acceptedWorkMode: { kind: "notFetched" } };
 }

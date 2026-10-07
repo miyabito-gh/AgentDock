@@ -38,6 +38,22 @@ export type { RevertPlan } from "./gen/RevertPlan";
 export type { RevertResult } from "./gen/RevertResult";
 export type { RevertVerdict } from "./gen/RevertVerdict";
 export type { UnifiedDiff } from "./gen/UnifiedDiff";
+export type { BackendStatus } from "./gen/BackendStatus";
+export type { Goal } from "./gen/Goal";
+export type { GoalStatus } from "./gen/GoalStatus";
+export type { GoalUpdate } from "./gen/GoalUpdate";
+export type { LimitWindowRole } from "./gen/LimitWindowRole";
+export type { MemoryStatus } from "./gen/MemoryStatus";
+export type { RateLimitView } from "./gen/RateLimitView";
+export type { RateLimitWindowView } from "./gen/RateLimitWindowView";
+export type { ResetMemoryArgs } from "./gen/ResetMemoryArgs";
+export type { ResetMemoryResult } from "./gen/ResetMemoryResult";
+export type { SetGoalArgs } from "./gen/SetGoalArgs";
+export type { SetMemoryModeArgs } from "./gen/SetMemoryModeArgs";
+export type { SetWorkModeArgs } from "./gen/SetWorkModeArgs";
+export type { SpeedTierOption } from "./gen/SpeedTierOption";
+export type { UsageSummary } from "./gen/UsageSummary";
+export type { WorkModeInfo } from "./gen/WorkModeInfo";
 export type { Activity } from "./gen/Activity";
 export type { ActivityKind } from "./gen/ActivityKind";
 export type { ActivityPhase } from "./gen/ActivityPhase";
@@ -278,6 +294,17 @@ import type { RevertChangesArgs } from "./gen/RevertChangesArgs";
 import type { RevertPlan } from "./gen/RevertPlan";
 import type { RevertResult } from "./gen/RevertResult";
 import type { UnifiedDiff } from "./gen/UnifiedDiff";
+import type { BackendStatus } from "./gen/BackendStatus";
+import type { Goal } from "./gen/Goal";
+import type { Known } from "./gen/Known";
+import type { MemoryStatus } from "./gen/MemoryStatus";
+import type { OpAck } from "./gen/OpAck";
+import type { ResetMemoryArgs } from "./gen/ResetMemoryArgs";
+import type { ResetMemoryResult } from "./gen/ResetMemoryResult";
+import type { SetGoalArgs } from "./gen/SetGoalArgs";
+import type { SetMemoryModeArgs } from "./gen/SetMemoryModeArgs";
+import type { SetWorkModeArgs } from "./gen/SetWorkModeArgs";
+import type { WorkModeInfo } from "./gen/WorkModeInfo";
 
 export const HOST_EVENT_CHANNEL = "agentdock://host-event";
 
@@ -343,6 +370,15 @@ export interface CommandMap {
   get_file_diff: { args: GetFileDiffArgs; result: UnifiedDiff };
   preview_revert: { args: PreviewRevertArgs; result: RevertPlan };
   revert_changes: { args: RevertChangesArgs; result: RevertResult };
+  set_work_mode: { args: SetWorkModeArgs; result: SettingsImpact };
+  list_work_modes: { args: Record<string, never>; result: WorkModeInfo[] };
+  get_goal: { args: ChatArgs; result: Known<Goal> };
+  set_goal: { args: SetGoalArgs; result: OpAck };
+  clear_goal: { args: ChatArgs; result: OpAck };
+  get_backend_status: { args: Record<string, never>; result: BackendStatus };
+  get_memory_status: { args: Record<string, never>; result: MemoryStatus };
+  set_memory_mode: { args: SetMemoryModeArgs; result: OpAck };
+  reset_memory: { args: ResetMemoryArgs; result: ResetMemoryResult };
 }
 export type CommandName = keyof CommandMap;
 

@@ -555,7 +555,28 @@ pub fn model_to_info(m: &Value) -> Option<ModelInfo> {
         is_default: m.get("isDefault").and_then(Value::as_bool).unwrap_or(false),
         hidden: m.get("hidden").and_then(Value::as_bool).unwrap_or(false),
         input_kinds: input_kinds(m.get("inputModalities")),
+        speed_tiers: speed_tiers_of(m),
+        default_speed_tier: str_of(m, "defaultServiceTier").filter(|s| !s.is_empty()).map(str::to_string),
     })
+}
+
+/// モデルが示す速度の選択肢（`serviceTiers`。非推奨の `additionalSpeedTiers` は使わない）。IDは不透明。
+pub fn speed_tiers_of(m: &Value) -> Vec<SpeedTierOption> {
+    m.get("serviceTiers")
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(|t| {
+                    let id = str_of(t, "id").filter(|s| !s.is_empty())?.to_string();
+                    Some(SpeedTierOption {
+                        name: str_of(t, "name").filter(|s| !s.is_empty()).unwrap_or(&id).to_string(),
+                        description: str_of(t, "description").filter(|s| !s.is_empty()).map(str::to_string),
+                        id,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// 権限プリセット → (approvalPolicy, sandbox)。無断でフルアクセスにしない（FullAccessはユーザー選択のみ）。

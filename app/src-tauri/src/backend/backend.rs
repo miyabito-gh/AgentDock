@@ -19,6 +19,7 @@ use tokio::sync::mpsc;
 
 use super::changes::FileChange;
 use super::model::*;
+use super::parity::Goal;
 
 // ───────────────────────────── エラー ─────────────────────────────
 
@@ -83,6 +84,12 @@ pub enum BackendEvent {
     ModelAccepted { agent: AgentKey, choice: ModelChoice },
     /// モデルの実効値が変わった（reroute等、§3.9）。
     ModelRerouted { agent: AgentKey, turn: Option<ExternalId>, effective: ModelChoice },
+    /// 会話の計画／実行の設定をバックエンドが通知した（設定の更新通知、§3.9と同じ「受理した設定」の根拠）。
+    WorkModeAccepted { agent: AgentKey, mode: WorkMode },
+    /// 目標（Goal）の更新・解除の通知。`goal=None` は解除。エージェント状態（§4.1）には流用しない。
+    GoalUpdated { chat: ChatKey, goal: Option<Goal> },
+    /// 操作ごとの能力が実行時に変わった（experimentalの拒否による非対応への降格など）。
+    OpCapabilitiesChanged { ops: Vec<OpCapability> },
     /// 未知のイベント・正規化できない内容。破棄せず警告として表示（M12）。
     Unrecognized { raw_label: String, note: Option<String> },
     /// イベント欠落の可能性（キュー溢れ・lag・パース失敗）。対象の鮮度を要照合にする。
@@ -300,6 +307,10 @@ pub struct SendRequest {
     pub permission: Option<PermissionPreset>,
     /// 送信時点で有効な作業フォルダ。None＝上書きしない。追加指示（Steer）では使わない。
     pub cwd: Option<String>,
+    /// 送信時点の計画／実行の選択。None＝上書きしない。追加指示（Steer）では使わない。
+    pub work_mode: Option<WorkMode>,
+    /// 送信時点の速度の選択（バックエンドが示す不透明ID）。None＝上書きしない。追加指示（Steer）では使わない。
+    pub speed_tier: Option<String>,
     /// 照合用ID。ホストが試行ごとに新規発行する。
     pub client_message_id: String,
 }
@@ -347,6 +358,8 @@ impl UnconfirmedSend {
                 model: None,
                 permission: None,
                 cwd: None,
+                work_mode: None,
+                speed_tier: None,
                 client_message_id,
             },
             since,

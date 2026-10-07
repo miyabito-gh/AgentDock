@@ -186,6 +186,7 @@ struct Plan {
     model: Option<ModelChoice>,
     permission: Option<PermissionPreset>,
     cwd: Option<String>,
+    work_mode: Option<WorkMode>,
 }
 
 impl Host {
@@ -464,25 +465,45 @@ impl Host {
         })
     }
 
+    /// 送信時点の計画／実行の選択（未選択なら None）。
+    pub(super) fn chat_work_mode(&self, chat: &ChatKey) -> Option<WorkMode> {
+        self.read(|d| d.model_settings.get(chat).and_then(|s| s.work_mode))
+    }
+
+    /// 計画／実行を送るときにバックエンドが要る「モデル」。選択値がなければ、受理を確認できた値（速度は引き継がない）。
+    /// どちらもなければ None（バックエンドが送らずに拒否する）。計画／実行の選択がなければ選択値をそのまま返す。
+    pub(super) fn model_for_send(&self, chat: &ChatKey, selected: Option<ModelChoice>, work_mode: Option<WorkMode>) -> Option<ModelChoice> {
+        if selected.is_some() || work_mode.is_none() {
+            return selected;
+        }
+        self.read(|d| d.model_settings.get(chat).and_then(|s| s.accepted.value().cloned())).map(|m| ModelChoice { speed_tier: None, ..m })
+    }
+
     /// 項目を Sending にして、送信時点の設定を記録する。送れない状態の項目なら None。
     fn begin_entry_send(&self, chat: &ChatKey, entry: &LocalId, attempt: SendAttempt) -> Option<Plan> {
         let now = attempt.at;
         self.mutate(|d| {
-            let (model, permission, cwd_override) = {
+            let (model, permission, cwd_override, work_mode) = {
                 let l = d.locals.get(chat);
-                (d.model_settings.get(chat).and_then(|s| s.selected.clone()), l.and_then(|l| l.permission), l.and_then(|l| l.next_cwd.clone()))
+                let work_mode = d.model_settings.get(chat).and_then(|s| s.work_mode);
+                let selected = d.model_settings.get(chat).and_then(|s| s.selected.clone());
+                let model = match (&selected, work_mode) {
+                    (None, Some(_)) => d.model_settings.get(chat).and_then(|s| s.accepted.value().cloned()).map(|m| ModelChoice { speed_tier: None, ..m }),
+                    _ => selected,
+                };
+                (model, l.and_then(|l| l.permission), l.and_then(|l| l.next_cwd.clone()), work_mode)
             };
             let cwd_known = match &cwd_override {
                 Some(c) => Known::direct(c.clone()),
                 None => d.chat(chat).map(|c| c.cwd.clone()).unwrap_or(Known::NotFetched),
             };
-            let applied = AppliedSettings { model: model.clone(), permission: permission.unwrap_or(PermissionPreset::WorkspaceWriteOnRequest), cwd: cwd_known, decided_at: now };
+            let applied = AppliedSettings { model: model.clone(), permission: permission.unwrap_or(PermissionPreset::WorkspaceWriteOnRequest), cwd: cwd_known, decided_at: now, work_mode };
             let Some(f) = d.queues.get_mut(chat) else { return (None, vec![]) };
             let Some((text, attachments)) = f.queue.entries.iter().find(|e| &e.id == entry).map(|e| (e.text.clone(), e.attachments.clone())) else { return (None, vec![]) };
             if !q::begin_send(&mut f.queue, entry, attempt, applied) {
                 return (None, vec![]);
             }
-            (Some(Plan { text, attachments, model, permission, cwd: cwd_override }), vec![queue_event(f)])
+            (Some(Plan { text, attachments, model, permission, cwd: cwd_override, work_mode }), vec![queue_event(f)])
         })
     }
 
@@ -512,9 +533,11 @@ impl Host {
             mode: SendMode::NewTurn,
             text: plan.text,
             attachments,
+            speed_tier: plan.model.as_ref().and_then(|m| m.speed_tier.clone()),
             model: plan.model,
             permission: plan.permission,
             cwd: plan.cwd,
+            work_mode: plan.work_mode,
             client_message_id: attempt.client_message_id.clone(),
         };
         self.run_entry_send(chat, entry, attempt, request, None).await;
@@ -1001,7 +1024,7 @@ impl Host {
         Ok(self.settings_impact(&args.chat))
     }
 
-    fn settings_impact(&self, chat: &ChatKey) -> SettingsImpact {
+    pub(super) fn settings_impact(&self, chat: &ChatKey) -> SettingsImpact {
         self.read(|d| SettingsImpact {
             local: d.local_view(chat).expect("update_local created the record"),
             affected_entries: d.queues.get(chat).map(|f| q::affected_by_settings_change(&f.queue)).unwrap_or_default(),

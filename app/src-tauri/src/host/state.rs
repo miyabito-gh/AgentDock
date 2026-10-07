@@ -371,17 +371,23 @@ impl HostData {
 
     /// バックエンドが示した、会話に設定されているモデルを「受理した設定」として記録する（選択値・実効値とは別）。
     pub fn note_accepted_model(&mut self, chat: &ChatKey, choice: ModelChoice) -> Vec<HostEvent> {
-        let s = self.model_settings.entry(chat.clone()).or_insert(ChatModelSettings {
-            selected: None,
-            accepted: Known::NotFetched,
-            effective: Known::NotFetched,
-            applies: ApplyTiming::NextTurn,
-        });
+        let s = self.model_settings.entry(chat.clone()).or_insert_with(|| ChatModelSettings::blank(ApplyTiming::NextTurn));
         let accepted = Known::direct(choice);
         if s.accepted == accepted {
             return Vec::new();
         }
         s.accepted = accepted;
+        vec![HostEvent::ModelSettingsUpdated { chat: chat.clone(), settings: s.clone() }]
+    }
+
+    /// バックエンドが示した、会話の計画／実行の設定を「受理した設定」として記録する（選択値とは別）。
+    pub fn note_accepted_work_mode(&mut self, chat: &ChatKey, mode: WorkMode) -> Vec<HostEvent> {
+        let s = self.model_settings.entry(chat.clone()).or_insert_with(|| ChatModelSettings::blank(ApplyTiming::NextTurn));
+        let accepted = Known::direct(mode);
+        if s.accepted_work_mode == accepted {
+            return Vec::new();
+        }
+        s.accepted_work_mode = accepted;
         vec![HostEvent::ModelSettingsUpdated { chat: chat.clone(), settings: s.clone() }]
     }
 
@@ -950,14 +956,17 @@ impl HostData {
                     out.extend(self.note_accepted_model(&chat, choice.clone()));
                 }
             }
+            BackendEvent::WorkModeAccepted { agent, mode } => {
+                if let Some(chat) = self.view(agent).filter(|_| self.is_root(agent)).map(|v| v.agent.chat.clone()) {
+                    out.extend(self.note_accepted_work_mode(&chat, *mode));
+                }
+            }
+            // 目標の更新・解除はUIが表示している分を置き換えるだけ。エージェント状態（§4.1）には流用しない。
+            BackendEvent::GoalUpdated { chat, goal } => out.push(HostEvent::GoalUpdated { chat: chat.clone(), goal: goal.clone() }),
+            BackendEvent::OpCapabilitiesChanged { ops } => out.push(HostEvent::OpCapabilitiesUpdated { ops: ops.clone() }),
             BackendEvent::ModelRerouted { agent, effective, .. } => {
                 if let Some(chat) = self.view(agent).filter(|_| self.is_root(agent)).map(|v| v.agent.chat.clone()) {
-                    let s = self.model_settings.entry(chat.clone()).or_insert(ChatModelSettings {
-                        selected: None,
-                        accepted: Known::NotFetched,
-                        effective: Known::NotFetched,
-                        applies: ApplyTiming::Unknown,
-                    });
+                    let s = self.model_settings.entry(chat.clone()).or_insert_with(|| ChatModelSettings::blank(ApplyTiming::Unknown));
                     s.effective = Known::direct(effective.clone());
                     out.push(HostEvent::ModelSettingsUpdated { chat, settings: s.clone() });
                 }
@@ -1034,7 +1043,7 @@ mod tests {
         let selected = ModelChoice { model: "sel".into(), effort: Some("low".into()), speed_tier: None };
         d.model_settings.insert(
             ck("root"),
-            ChatModelSettings { selected: Some(selected.clone()), accepted: Known::NotFetched, effective: Known::NotFetched, applies: ApplyTiming::NextTurn },
+            ChatModelSettings { selected: Some(selected.clone()), ..ChatModelSettings::blank(ApplyTiming::NextTurn) },
         );
         let history = AgentHistory { agent: agent("root", true), chat: None, status: status(AgentState::Idle, None, StateScope::Agent), turns: vec![] };
         // 応答が会話のモデルを示さなければ、未取得のまま（受理済みにしない）。
@@ -1223,6 +1232,29 @@ mod tests {
         assert!(ev.is_empty());
         d.apply_event(&env(3, 3, BackendEvent::ModelAccepted { agent: ak("child"), choice: ModelChoice { model: "x".into(), effort: None, speed_tier: None } }), &caps());
         assert_eq!(d.model_settings.get(&ck("root")).unwrap().accepted, Known::direct(choice));
+    }
+
+    #[test]
+    fn accepted_work_mode_is_separate_from_the_selection_and_only_set_by_the_notification() {
+        let mut d = HostData::default();
+        live_root(&mut d, AgentState::Idle);
+        d.set_live(agent("child", false), status(AgentState::Idle, None, StateScope::Agent));
+        // 選択値だけでは受理済みにならない。
+        let mut s = ChatModelSettings::blank(ApplyTiming::NextTurn);
+        s.work_mode = Some(WorkMode::Plan);
+        d.model_settings.insert(ck("root"), s);
+        assert_eq!(d.model_settings.get(&ck("root")).unwrap().accepted_work_mode, Known::NotFetched);
+        let (ev, _) = d.apply_event(&env(1, 1, BackendEvent::WorkModeAccepted { agent: ak("root"), mode: WorkMode::Default }), &caps());
+        assert!(matches!(ev[0], HostEvent::ModelSettingsUpdated { .. }));
+        let s = d.model_settings.get(&ck("root")).unwrap();
+        // 受理値は通知の値（選択はPlanのまま。食い違いはUIが「未受理」と示す）。
+        assert_eq!(s.accepted_work_mode, Known::direct(WorkMode::Default));
+        assert_eq!(s.work_mode, Some(WorkMode::Plan));
+        // 同じ値の再通知ではイベントを出さない。子の設定はチャットの設定にしない。
+        let (ev, _) = d.apply_event(&env(2, 2, BackendEvent::WorkModeAccepted { agent: ak("root"), mode: WorkMode::Default }), &caps());
+        assert!(ev.is_empty());
+        d.apply_event(&env(3, 3, BackendEvent::WorkModeAccepted { agent: ak("child"), mode: WorkMode::Plan }), &caps());
+        assert_eq!(d.model_settings.get(&ck("root")).unwrap().accepted_work_mode, Known::direct(WorkMode::Default));
     }
 
     #[test]

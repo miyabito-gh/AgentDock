@@ -2,6 +2,7 @@
 import type { ApplyTiming } from "./ApplyTiming";
 import type { Known } from "./Known";
 import type { ModelChoice } from "./ModelChoice";
+import type { WorkMode } from "./WorkMode";
 
 /**
  * チャット単位のモデル設定。選択値・受理値・実効値を区別する（§3.9）。
@@ -15,4 +16,12 @@ accepted: Known<ModelChoice>,
 /**
  * 観測できる実効値（reroute通知等）。
  */
-effective: Known<ModelChoice>, applies: ApplyTiming, };
+effective: Known<ModelChoice>, applies: ApplyTiming, 
+/**
+ * 計画／実行の選択値（None＝未選択。次のturnから適用）。
+ */
+workMode?: WorkMode, 
+/**
+ * 計画／実行の受理値。設定の更新通知で確認できたときだけ入る（選択値とは別）。
+ */
+acceptedWorkMode: Known<WorkMode>, };

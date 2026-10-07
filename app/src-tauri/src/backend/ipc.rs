@@ -16,6 +16,7 @@ use super::backend::{
 };
 use super::local::{AppSettings, ArtifactEntry, AttachmentEntry, ChatLocalView, ChatQueue, QuitPhase, SaveScope, SaveStatus};
 use super::model::*;
+use super::parity::{Goal, GoalUpdate, MemoryStatus};
 
 /// ホスト→UIのイベント名（Tauri `emit` のチャネル）。
 pub const HOST_EVENT_CHANNEL: &str = "agentdock://host-event";
@@ -81,6 +82,15 @@ pub mod command_names {
     pub const GET_FILE_DIFF: &str = "get_file_diff";
     pub const PREVIEW_REVERT: &str = "preview_revert";
     pub const REVERT_CHANGES: &str = "revert_changes";
+    pub const SET_WORK_MODE: &str = "set_work_mode";
+    pub const LIST_WORK_MODES: &str = "list_work_modes";
+    pub const GET_GOAL: &str = "get_goal";
+    pub const SET_GOAL: &str = "set_goal";
+    pub const CLEAR_GOAL: &str = "clear_goal";
+    pub const GET_BACKEND_STATUS: &str = "get_backend_status";
+    pub const GET_MEMORY_STATUS: &str = "get_memory_status";
+    pub const SET_MEMORY_MODE: &str = "set_memory_mode";
+    pub const RESET_MEMORY: &str = "reset_memory";
 }
 
 // ───────────────────────────── エラー ─────────────────────────────
@@ -460,6 +470,56 @@ pub struct AcknowledgeWarningsArgs {
     pub reset: bool,
 }
 
+// ───────────────────────────── 計画／実行・Goal・状態・memories（段階③ P3-3） ─────────────────────────────
+
+/// 計画／実行の選択（次のturnから適用）。None＝選択を外す（バックエンドの現在の設定のまま）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct SetWorkModeArgs {
+    pub chat: ChatKey,
+    pub mode: Option<WorkMode>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct SetGoalArgs {
+    pub chat: ChatKey,
+    pub update: GoalUpdate,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct SetMemoryModeArgs {
+    pub chat: ChatKey,
+    /// バックエンドが示す不透明な値（`enabled` / `disabled` など）。
+    pub mode: String,
+}
+
+/// memoriesのリセット。保存済みの記憶データを消すので、影響を表示して確認したあとだけ `confirmed=true` で呼ぶ。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct ResetMemoryArgs {
+    pub confirmed: bool,
+}
+
+/// リセットの結果。`status_after` は実行後に読み直した値（観測値）。読めなければ None（結果は未確認）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct ResetMemoryResult {
+    pub ack: OpAck,
+    pub status_after: Option<MemoryStatus>,
+}
+
 // ───────────────────────────── ホスト→UIイベント ─────────────────────────────
 
 /// UIへの差分イベント。状態と鮮度は `AgentView` に並置して送り、UIは片方からもう片方を導かない。
@@ -491,6 +551,10 @@ pub enum HostEvent {
     /// 変更の報告（turn集約diff・観測記録）が更新された。中身は送らず、開いている差分表示が取り直す。
     ChangesUpdated { chat: ChatKey, turn: Option<ExternalId> },
     SettingsUpdated { settings: AppSettings },
+    /// 目標（Goal）の更新・解除（`goal=None` は解除）。UIが表示している分だけ置き換える。エージェント状態には使わない。
+    GoalUpdated { chat: ChatKey, goal: Option<Goal> },
+    /// 操作ごとの能力の出し直し（experimentalの拒否で非対応へ降格したときなど）。
+    OpCapabilitiesUpdated { ops: Vec<OpCapability> },
     /// 添付の追加・コピーの進行・失敗・欠損の更新（1件分で置き換える）。
     AttachmentUpdated { entry: AttachmentEntry },
     /// 成果物の追加・実在確認の更新（1件分で置き換える）。

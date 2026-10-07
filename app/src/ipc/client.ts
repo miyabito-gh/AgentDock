@@ -13,6 +13,7 @@ import {
   type ForceKillPreview, type MonitorWindowScope, type QuitDecision, type QuitPhase, type StopRecord, type WindowKind,
   type ChatLocalView, type DeleteOutcome, type DeletePreview, type UsageReport, type ManageOutcome,
   type ChangeList, type ChangeScope, type ChangeSource, type ExternalId, type RevertPlan, type RevertResult, type UnifiedDiff,
+  type BackendStatus, type Goal, type GoalUpdate, type Known, type MemoryStatus, type OpAck, type ResetMemoryResult, type WorkMode, type WorkModeInfo,
 } from "./types";
 
 /** 型付きinvoke。引数は `args` 1個で渡す（types.ts CommandMap の規約）。 */
@@ -153,3 +154,19 @@ export const getFileDiff = (chat: ChatKey, path: string, source: ChangeSource, t
 export const previewRevert = (chat: ChatKey, turn: ExternalId | null, paths: string[] | null): Promise<RevertPlan> => invokeCmd("preview_revert", { chat, turn, paths });
 /** 変更を戻す（確認画面の後だけ）。控えを保存できなければ何も変えない。部分成功は failed に出る。 */
 export const revertChanges = (chat: ChatKey, planId: LocalId, paths: string[]): Promise<RevertResult> => invokeCmd("revert_changes", { chat, planId, paths });
+
+// ── 計画／実行・Goal・状態・memories（段階③ P3-3） ──
+/** 計画／実行の選択（次のturnから適用）。null＝選択を外す。受理されたかは、設定の更新通知を受けたときだけ「受理済み」に出る。 */
+export const setWorkMode = (chat: ChatKey, mode: WorkMode | null): Promise<SettingsImpact> => invokeCmd("set_work_mode", { chat, mode });
+export const listWorkModes = (): Promise<WorkModeInfo[]> => invokeCmd("list_work_modes", {});
+/** 目標の取得（読取りのみ。resumeしない）。値なし＝目標は設定されていない、未取得＝読めなかった。 */
+export const getGoal = (chat: ChatKey): Promise<Known<Goal>> => invokeCmd("get_goal", { chat });
+/** 目標の設定・変更（ユーザー操作。必要なら会話を再開する）。accepted は要求の受付で、結果は画面の目標の更新で確認する。 */
+export const setGoal = (chat: ChatKey, update: GoalUpdate): Promise<OpAck> => invokeCmd("set_goal", { chat, update });
+export const clearGoal = (chat: ChatKey): Promise<OpAck> => invokeCmd("clear_goal", { chat });
+/** Codex の状態（読取りのみ）。取れない項目は未取得のまま。 */
+export const getBackendStatus = (): Promise<BackendStatus> => invokeCmd("get_backend_status", {});
+export const getMemoryStatus = (): Promise<MemoryStatus> => invokeCmd("get_memory_status", {});
+export const setMemoryMode = (chat: ChatKey, mode: string): Promise<OpAck> => invokeCmd("set_memory_mode", { chat, mode });
+/** memoriesのリセット（記憶データを消す）。影響を表示して確認した後だけ confirmed=true で呼ぶ。 */
+export const resetMemory = (confirmed: boolean): Promise<ResetMemoryResult> => invokeCmd("reset_memory", { confirmed });

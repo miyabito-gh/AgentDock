@@ -50,6 +50,8 @@ pub enum ReviewTarget {
 
 /// 目標（Goal）の状態。未知の値は `Unknown`＋原文（中立名に写像できないものを捨てない）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum GoalStatus {
     Active,
@@ -61,26 +63,38 @@ pub enum GoalStatus {
     Unknown { raw: String },
 }
 
+/// 目標。トークン数・時間は表示だけで、料金や残量に換算しない（§3.10）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct Goal {
     pub objective: String,
     pub status: GoalStatus,
+    #[cfg_attr(test, ts(as = "Known<f64>"))]
     pub token_budget: Known<u64>,
+    #[cfg_attr(test, ts(as = "Known<f64>"))]
     pub tokens_used: Known<u64>,
+    #[cfg_attr(test, ts(as = "Known<f64>"))]
     pub time_used_secs: Known<u64>,
+    /// 更新時刻。バックエンドが単位を示していない間は取得扱い（推測で換算しない）。
     pub updated_at: Known<UnixMillis>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct GoalUpdate {
     pub objective: Option<String>,
     pub status: Option<GoalStatus>,
+    #[cfg_attr(test, ts(as = "Option<f64>"))]
     pub token_budget: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct WorkModeInfo {
     pub mode: WorkMode,
@@ -186,8 +200,51 @@ pub struct CloudTaskInfo {
     pub observed_at: UnixMillis,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub enum LimitWindowRole {
+    Primary,
+    Secondary,
+}
+
+/// 利用上限の枠1つ分。使用率はバックエンドが示した値のまま（残量・料金への換算や、回復の推測をしない）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct RateLimitWindowView {
+    pub role: LimitWindowRole,
+    pub used_percent: f64,
+    pub window_minutes: Known<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct RateLimitView {
+    pub name: Known<String>,
+    pub windows: Vec<RateLimitWindowView>,
+}
+
+/// 累計の使用量（表示だけ。換算しない）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct UsageSummary {
+    #[cfg_attr(test, ts(as = "Known<f64>"))]
+    pub lifetime_tokens: Known<u64>,
+    #[cfg_attr(test, ts(as = "Known<f64>"))]
+    pub peak_daily_tokens: Known<u64>,
+}
+
 /// 接続・アカウント・設定の読取り表示（トークン類は含めない。取れない項目は `Known` のまま）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct BackendStatus {
     pub version: Known<String>,
@@ -195,10 +252,15 @@ pub struct BackendStatus {
     pub experimental_enabled: Known<bool>,
     pub account_kind: Known<String>,
     pub plan: Known<String>,
+    /// 利用上限（取れなければ未取得。使用率を残量に換算しない）。
+    pub rate_limits: Known<Vec<RateLimitView>>,
+    pub usage: Known<UsageSummary>,
     pub warnings: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct MemoryStatus {
     pub summary: Known<String>,

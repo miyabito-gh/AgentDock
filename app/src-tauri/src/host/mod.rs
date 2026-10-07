@@ -9,6 +9,7 @@
 
 pub mod attachments;
 pub mod changes;
+pub mod chat_prefs;
 pub mod lifecycle;
 pub mod manage;
 pub mod notifier;
@@ -521,12 +522,7 @@ impl Host {
             f.cached_meta = Some(meta);
         });
         let now = now_ms();
-        let settings = ChatModelSettings {
-            selected: args.model.clone(),
-            accepted: started.accepted_model.clone(),
-            effective: Known::NotFetched,
-            applies: ApplyTiming::NextTurn,
-        };
+        let settings = ChatModelSettings { selected: args.model.clone(), accepted: started.accepted_model.clone(), ..ChatModelSettings::blank(ApplyTiming::NextTurn) };
         // 作成直後でturnがないので待機中（Idle）。応答由来であることをevidenceに残す。
         let status = AgentStatus {
             state: AgentState::Idle,
@@ -565,10 +561,12 @@ impl Host {
                 mode: SendMode::NewTurn,
                 text,
                 attachments: Vec::new(),
+                speed_tier: args.model.as_ref().and_then(|m| m.speed_tier.clone()),
                 model: args.model.clone(),
                 // スレッド開始時に権限・作業フォルダを渡し済み。
                 permission: None,
                 cwd: None,
+                work_mode: None,
                 client_message_id: self.local_id("cm").0,
             };
             first_send = Some(self.dispatch_send(request).await);
@@ -706,7 +704,7 @@ impl Host {
         let attachments = self.prepare_attachments(&args.chat, &args.attachments).await?;
         self.ensure_live(&args.chat, confirmed).await?;
         let root = agent_key_of(&args.chat);
-        let (running, active, model) = self.read(|d| {
+        let (running, active, selected_model) = self.read(|d| {
             (
                 d.running_turn.get(&root).cloned(),
                 d.root_view(&args.chat).is_some_and(|v| matches!(v.status.state, AgentState::Running | AgentState::Waiting | AgentState::Initializing)),
@@ -724,15 +722,20 @@ impl Host {
         };
         // 権限・作業フォルダは新しいturnにだけ付ける。追加指示（turn/steer）では設定を変えない。
         let (permission, cwd) = if matches!(mode, SendMode::NewTurn) { self.send_overrides(&args.chat) } else { (None, None) };
+        let is_new_turn = matches!(mode, SendMode::NewTurn);
+        let work_mode = if is_new_turn { self.chat_work_mode(&args.chat) } else { None };
+        let model = self.model_for_send(&args.chat, selected_model, work_mode);
         let chat = args.chat.clone();
         let request = SendRequest {
             chat: args.chat,
             mode,
             text: args.text,
             attachments,
+            speed_tier: if is_new_turn { model.as_ref().and_then(|m| m.speed_tier.clone()) } else { None },
             model,
             permission,
             cwd,
+            work_mode,
             client_message_id: self.local_id("cm").0,
         };
         let attempt = self.dispatch_send(request).await;
@@ -1003,12 +1006,7 @@ impl Host {
         }
         self.precheck_space()?;
         let settings = self.mutate(|d| {
-            let s = d.model_settings.entry(args.chat.clone()).or_insert(ChatModelSettings {
-                selected: None,
-                accepted: Known::NotFetched,
-                effective: Known::NotFetched,
-                applies: ApplyTiming::NextTurn,
-            });
+            let s = d.model_settings.entry(args.chat.clone()).or_insert_with(|| ChatModelSettings::blank(ApplyTiming::NextTurn));
             s.selected = Some(args.choice.clone());
             s.applies = ApplyTiming::NextTurn;
             let s = s.clone();

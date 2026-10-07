@@ -27,8 +27,8 @@ use tokio::sync::{mpsc, Mutex};
 
 const EVENT_QUEUE_CAPACITY: usize = 4096;
 const RPC_EVENT_CAPACITY: usize = 1024;
-const READ_TIMEOUT: Duration = Duration::from_secs(30);
-const WRITE_TIMEOUT: Duration = Duration::from_secs(60);
+pub(super) const READ_TIMEOUT: Duration = Duration::from_secs(30);
+pub(super) const WRITE_TIMEOUT: Duration = Duration::from_secs(60);
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
 const PAGE_LIMIT: u32 = 100;
 const MAX_PAGES: usize = 100;
@@ -76,7 +76,7 @@ pub fn codex_capabilities_for(experimental: bool, version: Option<&str>) -> Capa
         attachment_kinds: vec![AttachmentKind::Image, AttachmentKind::Audio, AttachmentKind::File],
         // thread/backgroundTerminals/* はexperimental。
         managed_exec_control: exp,
-        ops: super::parity::op_capabilities(version),
+        ops: super::parity::op_capabilities(version, experimental),
     }
 }
 
@@ -99,7 +99,7 @@ fn unknown_capabilities() -> Capabilities {
         attachment_kinds: Vec::new(),
         managed_exec_control: Support::Unknown,
         // 接続前でも一覧できるよう、宣言と確認状況（版不明＝すべて未確認）を持つ。
-        ops: super::parity::op_capabilities(None),
+        ops: super::parity::op_capabilities(None, true),
     }
 }
 
@@ -146,6 +146,14 @@ pub fn build_send_call(req: &SendRequest) -> BackendResult<(&'static str, Value)
             }
             if let Some(cwd) = &req.cwd {
                 p["cwd"] = json!(cwd);
+            }
+            // 速度の選択（不透明ID）。指定がなければ上書きしない。
+            if let Some(tier) = &req.speed_tier {
+                p["serviceTier"] = json!(tier);
+            }
+            // 計画／実行（experimental）。モデルを特定できなければ、何も送らずに拒否する。
+            if let Some(mode) = req.work_mode {
+                p["collaborationMode"] = super::parity::collaboration_mode_json(mode, req.model.as_ref())?;
             }
             Ok(("turn/start", p))
         }
@@ -203,7 +211,19 @@ struct Shared {
     forwarder_started: AtomicBool,
     /// connect / disconnect を直列化する（二重起動・起動中の切断を防ぐ）。
     lifecycle: Mutex<()>,
+    /// 接続した実行ファイルと、確認できた版（状態表示用。確認できなければ None）。
+    launched: StdMutex<Launched>,
+    /// 設定の警告通知（`configWarning`）の要約。状態表示用で、直近の数件だけ持つ。
+    config_warnings: StdMutex<Vec<String>>,
 }
+
+#[derive(Default)]
+struct Launched {
+    executable: Option<String>,
+    version: Option<String>,
+}
+
+const CONFIG_WARNING_KEEP: usize = 10;
 
 impl Shared {
     /// 送出バッファへ積む。重要イベントは落とさず、落とした分は `Gap` で必ず知らせる（[`Outbox`]）。
@@ -220,6 +240,17 @@ impl Shared {
             }
         }
         retain_other_sources(&mut self.pending.lock().unwrap(), source);
+    }
+
+    /// 設定の警告通知の要約を覚える（状態表示用。本文の長い詳細・パスは要約に含まれたものだけ）。
+    fn note_config_warning(&self, params: &Value) {
+        let summary = params.get("summary").and_then(Value::as_str).or_else(|| params.get("message").and_then(Value::as_str)).unwrap_or("(no message)");
+        let mut w = self.config_warnings.lock().unwrap();
+        if !w.iter().any(|x| x == summary) {
+            w.push(summary.to_string());
+            let extra = w.len().saturating_sub(CONFIG_WARNING_KEEP);
+            w.drain(..extra);
+        }
     }
 
     fn chat_of(&self, a: &AgentKey) -> ChatKey {
@@ -291,7 +322,11 @@ fn log_item_shape_once(params: &Value) {
 /// thread/start・thread/resume の応答が示す、会話に設定されているモデル・推論の強さ（無ければ未取得）。
 fn accepted_model_of(resp: &Value) -> Known<ModelChoice> {
     match resp.get("model").and_then(Value::as_str) {
-        Some(m) => Known::direct(ModelChoice { model: m.to_string(), effort: resp.get("reasoningEffort").and_then(Value::as_str).map(str::to_string), speed_tier: None }),
+        Some(m) => Known::direct(ModelChoice {
+            model: m.to_string(),
+            effort: resp.get("reasoningEffort").and_then(Value::as_str).map(str::to_string),
+            speed_tier: resp.get("serviceTier").and_then(Value::as_str).map(str::to_string),
+        }),
         None => Known::NotFetched,
     }
 }
@@ -306,6 +341,9 @@ async fn pump(shared: Arc<Shared>, source: SourceId, mut rx: mpsc::Receiver<RpcE
     while let Some(ev) = rx.recv().await {
         match ev {
             RpcEvent::Notification { method, params, .. } => {
+                if method == "configWarning" {
+                    shared.note_config_warning(&params);
+                }
                 let chat_of = |a: &AgentKey| shared.chat_of(a);
                 let ctx = EventCtx { source: &source, now: now_ms(), chat_of: &chat_of };
                 for e in notification_to_events(&method, &params, &ctx) {
@@ -393,6 +431,8 @@ impl CodexBackend {
                 event_rx: StdMutex::new(Some(rx)),
                 forwarder_started: AtomicBool::new(false),
                 lifecycle: Mutex::new(()),
+                launched: StdMutex::new(Launched::default()),
+                config_warnings: StdMutex::new(Vec::new()),
             }),
         }
     }
@@ -405,9 +445,47 @@ impl CodexBackend {
         }
     }
 
-    async fn call(&self, method: &str, params: Value, timeout: Duration) -> BackendResult<Value> {
+    pub(super) async fn call(&self, method: &str, params: Value, timeout: Duration) -> BackendResult<Value> {
         let (client, _) = self.client()?;
         client.request(method, params, Some(timeout)).await
+    }
+
+    /// experimental APIで接続しているか（未接続は `NotConnected`）。
+    pub(super) fn experimental_enabled(&self) -> BackendResult<bool> {
+        self.client().map(|(_, e)| e)
+    }
+
+    /// 宣言上、その操作が使える状態か（降格後・experimental無効なら false）。
+    pub(super) fn op_supported(&self, op: ParityOp) -> bool {
+        self.shared.caps.lock().unwrap().ops.iter().find(|c| c.op == op).is_some_and(|c| c.support == Support::Supported)
+    }
+
+    /// 実行時の降格（experimentalの拒否など）。能力を `Unsupported` にして理由を残し、出し直しのイベントを出す。
+    pub(super) fn degrade_op(&self, op: ParityOp, reason: &str) {
+        let ops = {
+            let mut caps = self.shared.caps.lock().unwrap();
+            let Some(c) = caps.ops.iter_mut().find(|c| c.op == op) else { return };
+            if c.support == Support::Unsupported {
+                return;
+            }
+            c.support = Support::Unsupported;
+            c.note = Some(format!("このCodex接続では非対応（{reason}）"));
+            caps.ops.clone()
+        };
+        let source = self.shared.conn.lock().unwrap().as_ref().map(|c| c.source.clone());
+        if let Some(source) = source {
+            self.shared.emit(&source, BackendEvent::OpCapabilitiesChanged { ops });
+        }
+    }
+
+    /// 接続した実行ファイルと確認できた版（状態表示用）。
+    pub(super) fn launched_info(&self) -> (Option<String>, Option<String>) {
+        let l = self.shared.launched.lock().unwrap();
+        (l.executable.clone(), l.version.clone())
+    }
+
+    pub(super) fn config_warnings(&self) -> Vec<String> {
+        self.shared.config_warnings.lock().unwrap().clone()
     }
 
     fn app_dir(&self) -> Option<String> {
@@ -554,6 +632,8 @@ impl AiBackend for CodexBackend {
         };
         let caps = codex_capabilities_for(config.enable_experimental, actual_version);
         *self.shared.caps.lock().unwrap() = caps.clone();
+        *self.shared.launched.lock().unwrap() = Launched { executable: Some(path.clone()), version: actual_version.map(str::to_string) };
+        self.shared.config_warnings.lock().unwrap().clear();
         let pid = match process.pid {
             Some(p) => Known::direct(p),
             None => Known::Missing,
@@ -715,6 +795,11 @@ impl AiBackend for CodexBackend {
     }
 
     async fn send(&self, request: SendRequest) -> SendOutcome {
+        // 計画／実行を選んだまま、この接続では使えない（降格済み）ときは、黙って外さず何も送らずに拒否する。
+        if request.work_mode.is_some() && matches!(request.mode, SendMode::NewTurn) && !self.op_supported(ParityOp::WorkMode) {
+            let error = BackendError::Rejected { code: None, message: "計画／実行の切替はこの Codex 接続では使えません。選択を外してから送ってください".into() };
+            return SendOutcome::Rejected { error, request: NotAccepted::new(request) };
+        }
         // 送る前に確定できる失敗は、何も送っていないので明示拒否。
         let (method, params) = match build_send_call(&request) {
             Ok(x) => x,
@@ -735,6 +820,10 @@ impl AiBackend for CodexBackend {
                 None => SendOutcome::AcceptanceUnknown(UnconfirmedSend::new(request, now_ms())),
             },
             Err(error @ BackendError::Rejected { .. }) | Err(error @ BackendError::NotConnected) => {
+                // 計画／実行を付けた送信が experimental の拒否なら、能力を非対応へ降格して出し直す（送信は受理されていない）。
+                if request.work_mode.is_some() && super::parity::is_experimental_rejection(&error) {
+                    self.degrade_op(ParityOp::WorkMode, "experimental API の利用を Codex が拒否しました");
+                }
                 SendOutcome::Rejected { error, request: NotAccepted::new(request) }
             }
             // timeout・切断・書込み失敗・応答不正: 相手が実行した可能性がある。再送しない。
@@ -812,6 +901,8 @@ mod tests {
             model: Some(ModelChoice { model: "m".into(), effort: Some("low".into()), speed_tier: None }),
             permission: None,
             cwd: None,
+            work_mode: None,
+            speed_tier: None,
             client_message_id: "cm1".into(),
         }
     }

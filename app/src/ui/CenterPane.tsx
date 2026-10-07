@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import type {
-  AgentKey, ArtifactEntry, AttachmentEntry, Chat, ChatLocalView, ChatModelSettings, ChatQueue, DecisionOption, FileRef, HostSnapshot, ModelInfo, PendingRequest,
-  PermissionPreset, QueueEntry, RequestAnswer, ActivityKind, SaveState, StopRecord, TurnRecord,
+  AgentKey, ArtifactEntry, AttachmentEntry, Chat, ChatLocalView, ChatModelSettings, ChatQueue, DecisionOption, FileRef, Goal, HostSnapshot, Known, ModelInfo, PendingRequest,
+  PermissionPreset, QueueEntry, RequestAnswer, ActivityKind, SaveState, StopRecord, TurnRecord, WorkMode, WorkModeInfo,
 } from "../ipc/types";
 import { Icon } from "./Icon";
 import { PENDING_TEXT } from "./ManageDialogs";
 import { TENTATIVE_HINT, TENTATIVE_STYLE, chatAgents, chatName, chatRequests, chatTitle, chatStatusText, chatStops, isRunning, rootView, stopOpen } from "./derive";
 import { FRESH, STOP_LABEL, hms, holdText, keyStr, knownValue, showKnown, stopCauseText, targetList } from "./format";
 import { baseName, clipboardImageName, mimeOf } from "./attach";
+import { GoalBar, UnverifiedTag, WORK_MODE_TEXT } from "./PrefsDialogs";
 
 const SCOPE_TEXT = { once: "1回だけ", session: "このセッション中", persistent: "以後ずっと（永続）", unknown: "効力範囲は不明" } as const;
 
@@ -34,8 +35,17 @@ export interface CenterProps {
   onRespond: (r: PendingRequest, a: RequestAnswer) => void;
   /** 依頼を受け付けたら true（下書きを消す）。拒否・前提不足なら false（下書きを残す）。 */
   onSend: (text: string, steer: boolean, attachments: string[]) => boolean | Promise<boolean>;
-  /** モデル・推論の強さの選択（次のターンから適用。受理済みは別に表示）。 */
-  onModel: (model: string, effort: string) => void;
+  /** モデル・推論の強さ・速度の選択（次のターンから適用。受理済みは別に表示）。speed が空なら指定なし。 */
+  onModel: (model: string, effort: string, speed: string) => void;
+  /** 計画／実行の選択（null＝選択を外す）。次のターンから適用。受理済みは別に表示する。 */
+  onWorkMode: (m: WorkMode | null) => void;
+  /** バックエンドが示した計画／実行の選択肢（取得できていなければ空）。 */
+  workModes: WorkModeInfo[];
+  /** 目標（Goal）の表示。undefined＝まだ読んでいない。 */
+  goal: Known<Goal> | undefined;
+  goalBusy: boolean;
+  onGoalReload: () => void;
+  onGoalClear: () => void;
   /** 直近の送信の受理状態の案内（受理なし・受理不明・照合の結果）。 */
   notice: SendNotice | null;
   onRetrySend: () => void;
@@ -516,10 +526,19 @@ function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock
   const dflt = models.find((m) => m.isDefault) ?? models[0];
   const [model, setModel] = useState(settings?.selected?.model ?? dflt?.id ?? "");
   const [effort, setEffort] = useState(settings?.selected?.effort ?? dflt?.defaultEffort ?? "");
+  const [speed, setSpeed] = useState(settings?.selected?.speedTier ?? "");
   const [steer, setSteer] = useState(false);
   const accepted = settings?.accepted.kind === "value" ? settings.accepted.value : null;
-  const changed = !!accepted && (accepted.model !== model || (accepted.effort ?? "") !== effort);
+  const changed = !!accepted && (accepted.model !== model || (accepted.effort ?? "") !== effort || (accepted.speedTier ?? "") !== speed);
   const efforts = models.find((m) => m.id === model)?.efforts ?? [];
+  const tiers = models.find((m) => m.id === model)?.speedTiers ?? [];
+  const caps = p.snap.opCapabilities;
+  const wmCap = caps.find((c) => c.op === "workMode");
+  const stCap = caps.find((c) => c.op === "speedTier");
+  const wmUsable = wmCap?.support === "supported";
+  const wmSelected = settings?.workMode ?? null;
+  const wmAccepted = settings && settings.acceptedWorkMode.kind === "value" ? settings.acceptedWorkMode.value : null;
+  const wmOptions: WorkModeInfo[] = p.workModes.length ? p.workModes : [{ mode: "plan", label: WORK_MODE_TEXT.plan }, { mode: "default", label: WORK_MODE_TEXT.default }];
   // コピー中・失敗・欠損の添付があるうちは送らない（ホストも同じ規則で止める。不完全なコピーは送れない）。
   const attachBlock = attachments.some((a) => a.state.kind !== "ready") ? "コピー中・コピー失敗・欠損の添付があります。取り外すか、もう一度添付してから送信してください。" : null;
   const send = async () => {
@@ -529,9 +548,11 @@ function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock
   };
   const pickModel = (id: string) => {
     const e = models.find((m) => m.id === id)?.defaultEffort ?? "";
-    setModel(id); setEffort(e); p.onModel(id, e);
+    // 速度の選択肢はモデルごとに違うので、モデルを変えたら指定なしに戻す。
+    setModel(id); setEffort(e); setSpeed(""); p.onModel(id, e, "");
   };
-  const pickEffort = (e: string) => { setEffort(e); p.onModel(model, e); };
+  const pickEffort = (e: string) => { setEffort(e); p.onModel(model, e, speed); };
+  const pickSpeed = (s: string) => { setSpeed(s); p.onModel(model, effort, s); };
   return (
     <div className="composer">
       <div className={`shell ${lock ? "locked" : ""}`}>
@@ -554,6 +575,9 @@ function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock
         ) : null}
         {lock ? <div className="lockmsg">{lock}</div> : null}
         {attachBlock ? <div className="lockmsg">{attachBlock}</div> : null}
+        {wmSelected && !wmUsable ? (
+          <div className="lockmsg">計画／実行（{WORK_MODE_TEXT[wmSelected]}）を選んだままですが、この Codex 接続では使えないため、送信は止まります。<button className="small" onClick={() => p.onWorkMode(null)}>選択を外す</button></div>
+        ) : null}
         <textarea aria-label="メッセージ" disabled={!!lock} value={p.draft} onChange={(e) => p.setDraft(e.target.value)} ref={p.inputRef}
           placeholder={running ? (steer ? "現在の作業への追加指示" : "完了後に送る次の依頼") : "メッセージを入力"}
           onPaste={(e) => {
@@ -571,6 +595,18 @@ function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock
           <button aria-label="ファイル・画像・参考情報を追加" disabled={!!lock} onClick={() => p.onAct("attach")}><Icon name="clip" /></button>
           <select aria-label="モデル" value={model} onChange={(e) => pickModel(e.target.value)}>{models.map((m) => <option key={m.id} value={m.id}>{m.displayName}</option>)}</select>
           <select aria-label="推論の強さ" value={effort} onChange={(e) => pickEffort(e.target.value)}>{efforts.map((x) => <option key={x.id} value={x.id}>{x.id}</option>)}</select>
+          <select aria-label="速度" value={speed} disabled={tiers.length === 0}
+            title={tiers.length === 0 ? "このモデルが示す速度の選択肢はありません（Codex から取得した一覧）" : "次の送信から適用。実際に適用されたかは、受理済みの表示で確認します"}
+            onChange={(e) => pickSpeed(e.target.value)}>
+            <option value="">速度: 指定なし</option>
+            {tiers.map((t) => <option key={t.id} value={t.id} title={t.description ?? undefined}>{t.name}</option>)}
+          </select>
+          <select aria-label="計画／実行" value={wmSelected ?? ""} disabled={!wmUsable && wmSelected === null}
+            title={wmUsable ? "次の送信から適用。実際に適用されたかは、受理済みの表示で確認します（experimental）" : (wmCap?.note ?? "この Codex 接続では使えません")}
+            onChange={(e) => p.onWorkMode(e.target.value === "" ? null : (e.target.value as WorkMode))}>
+            <option value="">計画／実行: 指定なし</option>
+            {wmOptions.map((m) => <option key={m.mode} value={m.mode} disabled={!wmUsable}>{m.label}</option>)}
+          </select>
           {running ? (
             <span className="seg" role="group" aria-label="実行中の送信方法">
               <button aria-pressed={steer} title="実行中のturnへ対象を照合して送ります。モデル・権限・フォルダの変更には使えません" onClick={() => setSteer(true)}>追加指示（現在のturnへ）</button>
@@ -588,10 +624,17 @@ function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock
       <div className="hint">
         <span>{p.enterMode === "ctrl" ? "Ctrl＋Enter で送信、Enter で改行" : "Enter で送信、Shift＋Enter で改行"}</span>
         <span title={!accepted ? "会話の再開・開始の応答か Codex の設定通知でモデルを受け取るまで、受理は確認できません。受け取っていない間は、選択値が使われたとは言えません。" : undefined}>
-          {changed ? `選択: ${model}／${effort}（未受理。次のターンから適用）　` : ""}
-          受理済み: {settings ? (accepted ? `${accepted.model}／${accepted.effort ?? "既定"}` : showKnown(settings.accepted)) : "未確認"}
+          {changed ? `選択: ${model}／${effort}${speed ? `／速度 ${speed}` : ""}（未受理。次のターンから適用）　` : ""}
+          受理済み: {settings ? (accepted ? `${accepted.model}／${accepted.effort ?? "既定"}${accepted.speedTier ? `／速度 ${accepted.speedTier}` : ""}` : showKnown(settings.accepted)) : "未確認"}
           {!accepted ? "（受け取るまで確認不可）" : ""}
         </span>
+        {wmSelected || wmAccepted ? (
+          <span title="計画／実行は experimental の設定で、設定の更新通知を受け取るまで受理は確認できません。">
+            計画／実行: 選択 {wmSelected ? WORK_MODE_TEXT[wmSelected] : "未選択"}／受理済み {wmAccepted ? WORK_MODE_TEXT[wmAccepted] : "未確認"}
+            {wmSelected && wmAccepted !== wmSelected ? "（未受理。次のターンから適用）" : ""} <UnverifiedTag cap={wmCap} />
+          </span>
+        ) : null}
+        {stCap?.verification === "unverified" && speed ? <span><UnverifiedTag cap={stCap} /> 速度</span> : null}
       </div>
     </div>
   );
@@ -620,6 +663,8 @@ export function CenterPane(p: CenterProps) {
       <Messages key={chat.key.id} turns={p.turns} reqs={reqs} running={running} onRespond={p.onRespond} onAct={p.onAct}
         extra={<FilesBlock sent={snap.attachments.filter((a) => keyStr(a.chat) === keyStr(chat.key) && a.usedBy.length > 0)} artifacts={snap.artifacts.filter((a) => keyStr(a.chat) === keyStr(chat.key))} files={p.files} />} />
       <Queue q={snap.queues.find((q) => keyStr(q.chat) === keyStr(chat.key))} nameOf={nameOf} qact={p.qact} />
+      <GoalBar goal={p.goal} live={rootView(snap, chat)?.freshness === "live"} cap={snap.opCapabilities.find((o) => o.op === "goal")} busy={p.goalBusy}
+        onEdit={() => p.onAct("goal")} onClear={p.onGoalClear} onReload={p.onGoalReload} />
       <Composer key={`${chat.key.id}:${p.models.length}`} p={p} running={running} lock={lock} />
     </>
   );

@@ -97,11 +97,12 @@ function turns(chatId: string, entries: Array<[string, string]>, end: TurnRecord
 
 const settings = (m: string, e: string): ChatModelSettings => ({
   selected: { model: m, effort: e }, accepted: val({ model: m, effort: e }), effective: val({ model: m, effort: e }), applies: "nextTurn",
+  acceptedWorkMode: { kind: "notFetched" },
 });
 
 export const MODELS: ModelInfo[] = [
-  { id: "gpt-6.1-sol", displayName: "gpt-6.1-sol", description: null, efforts: [{ id: "低", description: null }, { id: "中", description: null }, { id: "高", description: null }], defaultEffort: "中", isDefault: true, hidden: false, inputKinds: ["image", "file"] },
-  { id: "gpt-6.1-mini", displayName: "gpt-6.1-mini", description: null, efforts: [{ id: "低", description: null }, { id: "中", description: null }], defaultEffort: "低", isDefault: false, hidden: false, inputKinds: ["file"] },
+  { id: "gpt-6.1-sol", displayName: "gpt-6.1-sol", description: null, efforts: [{ id: "低", description: null }, { id: "中", description: null }, { id: "高", description: null }], defaultEffort: "中", isDefault: true, hidden: false, inputKinds: ["image", "file"], speedTiers: [] },
+  { id: "gpt-6.1-mini", displayName: "gpt-6.1-mini", description: null, efforts: [{ id: "低", description: null }, { id: "中", description: null }], defaultEffort: "低", isDefault: false, hidden: false, inputKinds: ["file"], speedTiers: [] },
 ];
 
 function base(): Bundle {

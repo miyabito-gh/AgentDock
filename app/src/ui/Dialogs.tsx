@@ -1,11 +1,12 @@
 import { useState, type ReactNode } from "react";
-import type { Chat, ChatKey, ForceKillPreview, ModelInfo, NotificationSettings, OpCapability, QuitDecision, QuitPhase, RevertResult, SaveStatus, SourceInfo, StopRecord, StopSummary } from "../ipc/types";
+import type { Chat, ChatKey, ChatLocalView, ChatModelSettings, ForceKillPreview, Goal, GoalUpdate, Known, ModelInfo, NotificationSettings, OpCapability, QuitDecision, QuitPhase, RevertResult, SaveStatus, SourceInfo, StopRecord, StopSummary } from "../ipc/types";
 import { chatName } from "./derive";
 import { SCOPE_TEXT } from "./Chrome";
 import { Icon } from "./Icon";
 import { DeleteBody, ExportBody, StorageBody, type DeleteProps, type ExportProps, type UsageProps } from "./ManageDialogs";
 import { ParityBody } from "./ParityDialog";
 import { ChangesBody, RevertBody } from "./ChangesDialog";
+import { GoalBody, StatusBody } from "./PrefsDialogs";
 
 export type DialogState =
   | { type: "settings"; tab: string }
@@ -18,6 +19,8 @@ export type DialogState =
   | { type: "parity" }
   | { type: "changes"; chatId: string }
   | { type: "revert"; chatId: string }
+  | { type: "goal"; chatId: string }
+  | { type: "status"; chatId: string | null }
   | { type: "attach" }
   | { type: "resumeExternal"; chatId: string }
   | { type: "rename"; chatId: string };
@@ -40,6 +43,15 @@ export interface CodexExe { path: string; setPath: (p: string) => void; placehol
 
 /** 削除・エクスポート・使用量（P7）。 */
 export interface ManageProps { del: DeleteProps; exp: ExportProps; usage: UsageProps; selectedId: string | null; ackedWarnings: { list: string[]; reset: () => void } }
+
+/** Goal・Codex の状態の表示に使う、選択中チャットの値（ホストが持つ値のコピー）。 */
+export interface PrefsProps {
+  goal: Known<Goal> | undefined;
+  /** 目標を要求する。戻り値は表示する文（結果は断定しない）。 */
+  saveGoal: (chatId: string, u: GoalUpdate) => Promise<string>;
+  settings: ChatModelSettings | undefined;
+  local: ChatLocalView | undefined;
+}
 
 export interface NotifyProps { value: NotificationSettings; set: (n: NotificationSettings) => void }
 
@@ -235,8 +247,9 @@ function RenameDialog({ chat, onClose, run }: { chat: Chat | undefined; onClose:
 
 export interface NewChatInput { cwd: string | null; model: string; firstMessage: string | null }
 
-export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnterMode, top, setTab, onAct, exe, onCreateChat, notify, autostart, quit, force, manage, onRename, opCaps, live, changesTick, onRevertDone }: {
+export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnterMode, top, setTab, onAct, exe, onCreateChat, notify, autostart, quit, force, manage, onRename, opCaps, live, changesTick, onRevertDone, prefs }: {
   opCaps: OpCapability[];
+  prefs: PrefsProps;
   /** 実接続か（差分・戻すはモックでは動かない）。 */
   live: boolean;
   /** 変更の報告が更新されるたびに増える。 */
@@ -306,6 +319,14 @@ export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnter
     case "revert": return (
       <Shell title="変更を戻す" wide onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>
         <RevertBody chat={chats.find((x) => x.key.id === d.chatId)} live={live} cap={opCaps.find((c) => c.op === "revertChanges")} onDone={onRevertDone} />
+      </Shell>);
+    case "goal": return (
+      <Shell title="Goal" onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>
+        <GoalBody key={d.chatId} chat={chats.find((x) => x.key.id === d.chatId)} current={prefs.goal} live={live} cap={opCaps.find((c) => c.op === "goal")} save={(u) => prefs.saveGoal(d.chatId, u)} />
+      </Shell>);
+    case "status": return (
+      <Shell title="Codex の状態" wide onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>
+        <StatusBody live={live} chat={chats.find((x) => x.key.id === d.chatId)} settings={prefs.settings} local={prefs.local} caps={opCaps} />
       </Shell>);
     case "parity": return (
       <Shell title="同等性の確認状況" wide onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>

@@ -425,6 +425,57 @@ pub async fn preview_revert(host: Hs<'_>, args: PreviewRevertArgs) -> R<RevertPl
     host.inner().clone().preview_revert(args).await
 }
 
+#[tauri::command]
+pub async fn set_work_mode(host: Hs<'_>, args: SetWorkModeArgs) -> R<SettingsImpact> {
+    host.set_work_mode(args)
+}
+
+#[tauri::command]
+pub async fn list_work_modes(host: Hs<'_>) -> R<Vec<crate::backend::parity::WorkModeInfo>> {
+    host.list_work_modes().await
+}
+
+/// 目標の取得（読取りのみ。resumeしない）。
+#[tauri::command]
+pub async fn get_goal(host: Hs<'_>, args: ChatArgs) -> R<Known<crate::backend::parity::Goal>> {
+    host.get_goal(args).await
+}
+
+#[tauri::command]
+pub async fn set_goal(host: Hs<'_>, args: SetGoalArgs) -> R<OpAck> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().set_goal(args, &confirmed).await
+}
+
+#[tauri::command]
+pub async fn clear_goal(host: Hs<'_>, args: ChatArgs) -> R<OpAck> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().clear_goal(args, &confirmed).await
+}
+
+#[tauri::command]
+pub async fn get_backend_status(host: Hs<'_>) -> R<crate::backend::parity::BackendStatus> {
+    host.get_backend_status().await
+}
+
+#[tauri::command]
+pub async fn get_memory_status(host: Hs<'_>) -> R<crate::backend::parity::MemoryStatus> {
+    host.get_memory_status().await
+}
+
+#[tauri::command]
+pub async fn set_memory_mode(host: Hs<'_>, args: SetMemoryModeArgs) -> R<OpAck> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().set_memory_mode(args, &confirmed).await
+}
+
+/// memoriesのリセット。影響を表示して確認した後のユーザー操作だけが呼ぶ（`args.confirmed` が偽なら拒否）。
+#[tauri::command]
+pub async fn reset_memory(host: Hs<'_>, args: ResetMemoryArgs) -> R<ResetMemoryResult> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().reset_memory(args, &confirmed).await
+}
+
 /// 変更を戻す。確認画面の後のユーザー操作だけが呼ぶ（`UserConfirmed` はここでだけ発行する）。
 #[tauri::command]
 pub async fn revert_changes(host: Hs<'_>, args: RevertChangesArgs) -> R<RevertResult> {

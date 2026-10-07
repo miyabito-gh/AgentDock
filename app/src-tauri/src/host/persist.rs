@@ -242,6 +242,7 @@ impl HostData {
             model: f.model.clone(),
             permission: f.permission,
             next_cwd: f.next_cwd.clone(),
+            memory_mode: f.memory_mode.clone(),
             draft: f.draft.clone(),
             visibility: f.visibility.clone(),
             delete_pending: f.delete_pending.clone(),
@@ -272,11 +273,11 @@ impl HostData {
             if c.local.hosted {
                 self.hosted.insert(key.clone());
             }
-            if let Some(model) = &c.local.model {
+            if c.local.model.is_some() || c.local.work_mode.is_some() {
                 // 選択値だけを戻す。受理値・実効値は未取得のまま（適用済みとは表示しない）。
                 self.model_settings.insert(
                     key.clone(),
-                    ChatModelSettings { selected: Some(model.clone()), accepted: Known::NotFetched, effective: Known::NotFetched, applies: ApplyTiming::NextTurn },
+                    ChatModelSettings { selected: c.local.model.clone(), work_mode: c.local.work_mode, ..ChatModelSettings::blank(ApplyTiming::NextTurn) },
                 );
             }
             self.save_status.insert(SaveScope::ChatLocal { chat: key.clone() }, saved(SaveScope::ChatLocal { chat: key.clone() }));

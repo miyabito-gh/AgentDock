@@ -502,7 +502,7 @@ mod tests {
     use super::*;
 
     fn model(id: &str, kinds: Vec<AttachmentKind>) -> ModelInfo {
-        ModelInfo { id: id.into(), display_name: id.into(), description: None, efforts: vec![], default_effort: None, is_default: false, hidden: false, input_kinds: kinds }
+        ModelInfo { id: id.into(), display_name: id.into(), description: None, efforts: vec![], default_effort: None, is_default: false, hidden: false, input_kinds: kinds, speed_tiers: vec![], default_speed_tier: None }
     }
 
     #[test]

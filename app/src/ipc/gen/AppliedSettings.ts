@@ -3,8 +3,13 @@ import type { Known } from "./Known";
 import type { ModelChoice } from "./ModelChoice";
 import type { PermissionPreset } from "./PermissionPreset";
 import type { UnixMillis } from "./UnixMillis";
+import type { WorkMode } from "./WorkMode";
 
 /**
  * 送信時点で適用した設定（§3.7「送信時点で有効なチャットの設定」）。登録時には決めない。
  */
-export type AppliedSettings = { model: ModelChoice | null, permission: PermissionPreset, cwd: Known<string>, decidedAt: UnixMillis, };
+export type AppliedSettings = { model: ModelChoice | null, permission: PermissionPreset, cwd: Known<string>, decidedAt: UnixMillis, 
+/**
+ * 送信時点の計画／実行の選択（None＝指定なし）。速度の選択は `model.speed_tier` に含まれる。
+ */
+workMode?: WorkMode, };

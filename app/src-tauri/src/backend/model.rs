@@ -143,6 +143,10 @@ impl<T> Known<T> {
     pub fn direct(value: T) -> Self {
         Known::Value { value, basis: Basis::Direct }
     }
+    /// serdeの既定値用（保存・通信の旧形式に項目がないときは「未取得」）。
+    pub fn not_fetched() -> Self {
+        Known::NotFetched
+    }
     pub fn value(&self) -> Option<&T> {
         match self {
             Known::Value { value, .. } => Some(value),
@@ -1013,6 +1017,24 @@ pub struct ModelInfo {
     pub is_default: bool,
     pub hidden: bool,
     pub input_kinds: Vec<AttachmentKind>,
+    /// このモデルで選べる速度の選択肢（バックエンドが示す。固定一覧にしない）。
+    #[serde(default)]
+    pub speed_tiers: Vec<SpeedTierOption>,
+    /// 速度の既定（選択肢のID）。示されなければ None。
+    #[serde(default)]
+    #[cfg_attr(test, ts(optional))]
+    pub default_speed_tier: Option<String>,
+}
+
+/// 速度の選択肢1件（IDは不透明。名前・説明はバックエンドが示した文字列）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct SpeedTierOption {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1052,6 +1074,27 @@ pub struct ChatModelSettings {
     /// 観測できる実効値（reroute通知等）。
     pub effective: Known<ModelChoice>,
     pub applies: ApplyTiming,
+    /// 計画／実行の選択値（None＝未選択。次のturnから適用）。
+    #[serde(default)]
+    #[cfg_attr(test, ts(optional))]
+    pub work_mode: Option<WorkMode>,
+    /// 計画／実行の受理値。設定の更新通知で確認できたときだけ入る（選択値とは別）。
+    #[serde(default = "Known::not_fetched")]
+    pub accepted_work_mode: Known<WorkMode>,
+}
+
+impl ChatModelSettings {
+    /// 何も選択・受理していない状態。
+    pub fn blank(applies: ApplyTiming) -> Self {
+        ChatModelSettings {
+            selected: None,
+            accepted: Known::NotFetched,
+            effective: Known::NotFetched,
+            applies,
+            work_mode: None,
+            accepted_work_mode: Known::NotFetched,
+        }
+    }
 }
 
 // ───────────────────────────── 停止・保存（§4.3） ─────────────────────────────

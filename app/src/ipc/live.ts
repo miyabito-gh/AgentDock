@@ -149,6 +149,9 @@ export function applyHostEvent(b: Bundle, e: HostEvent): Bundle {
       return set({ artifacts: upsert(s.artifacts, e.entry, (a) => a.id === e.entry.id) });
     case "settingsUpdated":
       return set({ settings: e.settings });
+    case "opCapabilitiesUpdated": // experimental の拒否などによる降格。能力を出し直す
+      return set({ opCapabilities: e.ops });
+    case "goalUpdated": // 画面側（App）が目標の表示を置き換える（状態は変えない）
     case "changesUpdated": // 開いている差分表示が画面側で取り直す（状態は変えない）
     case "sendUpdated":
     case "quitPrompt":
