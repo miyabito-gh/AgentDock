@@ -2,8 +2,13 @@
 import type { ChatKey } from "./ChatKey";
 import type { LocalId } from "./LocalId";
 import type { SideState } from "./SideState";
+import type { UnixMillis } from "./UnixMillis";
 
 /**
  * side相談の記録（主会話の `chat.json` に持つ。sideの会話は一覧に出さず、キュー条件に入れない。停止対象には入る）。
  */
-export type SideSessionMeta = { id: LocalId, main: ChatKey, thread: ChatKey, state: SideState, };
+export type SideSessionMeta = { id: LocalId, main: ChatKey, thread: ChatKey, state: SideState, 
+/**
+ * 開いた時刻（旧い記録にはない）。
+ */
+openedAt: UnixMillis | null, };

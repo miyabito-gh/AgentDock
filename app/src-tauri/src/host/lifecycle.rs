@@ -66,7 +66,9 @@ impl Default for Lifecycle {
 /// 状態が不明（notLoaded等）のエージェントは、履歴で最新turnの終端（またはturnなし）を確認できていれば未完了と数えない。
 /// 履歴を読めたが最新turnが進行中のままなら、外部実行の可能性があるので所有不明として保留する。読めていないものは未完了のまま。
 pub(super) fn work_of(d: &HostData, chat: &ChatKey) -> ChatWork {
-    let mut in_chat = d.agents.iter().filter(|v| &v.agent.chat == chat);
+    // 主会話に属するside相談の会話も、停止の確認の対象に含める（一覧・キューの条件には入れないが、停止は確認する）。
+    let scope = d.stop_scope(chat);
+    let mut in_chat = d.agents.iter().filter(|v| scope.contains(&v.agent.chat));
     let has_unfinished = in_chat.clone().any(|v| match v.status.state {
         AgentState::Initializing | AgentState::Running | AgentState::Waiting => true,
         AgentState::Unknown => !d.unknown_confirmed_idle(v),
@@ -76,8 +78,8 @@ pub(super) fn work_of(d: &HostData, chat: &ChatKey) -> ChatWork {
     ChatWork {
         chat: chat.clone(),
         has_unfinished,
-        stop_unconfirmed: d.open_stop(chat).map(|r| r.id.clone()),
-        ownership_unknown: maybe_running || d.stops.iter().any(|r| &r.chat == chat && r.targets.iter().any(|t| t.ownership == Ownership::Unknown)),
+        stop_unconfirmed: scope.iter().find_map(|c| d.open_stop(c)).map(|r| r.id.clone()),
+        ownership_unknown: maybe_running || d.stops.iter().any(|r| scope.contains(&r.chat) && r.targets.iter().any(|t| t.ownership == Ownership::Unknown)),
         queue_pending: d.queues.get(chat).is_some_and(|q| {
             // 自動送信して終端を確認していないturn（awaiting）も未完了として数える。
             q.queue.awaiting.is_some()
@@ -92,9 +94,10 @@ pub(super) fn work_of(d: &HostData, chat: &ChatKey) -> ChatWork {
 
 /// チャットの実行中turn（中断の対象）。
 fn running_turns(d: &HostData, chat: &ChatKey) -> Vec<TurnKey> {
+    let scope = d.stop_scope(chat);
     d.agents
         .iter()
-        .filter(|v| &v.agent.chat == chat)
+        .filter(|v| scope.contains(&v.agent.chat))
         .filter_map(|v| d.running_turn.get(&v.agent.key).map(|t| TurnKey { agent: v.agent.key.clone(), turn_id: t.clone() }))
         .collect()
 }
@@ -229,7 +232,8 @@ impl Host {
         let mut works = self.read(|d| {
             let mut keys: Vec<ChatKey> = d.chats.iter().map(|c| c.key.clone()).collect();
             for v in &d.agents {
-                if !keys.contains(&v.agent.chat) {
+                // side相談の会話は主会話の範囲で数える（別のチャットとして並べない）。
+                if !keys.contains(&v.agent.chat) && !d.is_side_thread(&v.agent.chat) {
                     keys.push(v.agent.chat.clone());
                 }
             }

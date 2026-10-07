@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import type { Chat, ChatKey, ChatLocalView, ChatPendingOp, ChatQueue, ChatModelSettings, ForceKillPreview, Goal, GoalUpdate, Known, ModelInfo, NotificationSettings, OpCapability, QuitDecision, QuitPhase, RevertResult, SaveStatus, SourceInfo, StopRecord, StopSummary, WorktreeRecord } from "../ipc/types";
+import type { Chat, ChatKey, ChatLocalView, ChatPendingOp, ChatQueue, ChatModelSettings, ForceKillPreview, Goal, GoalUpdate, Known, ModelInfo, NotificationSettings, OpCapability, QuitDecision, QuitPhase, RevertResult, SaveStatus, SideSessionMeta, SourceInfo, StopRecord, StopSummary, WorktreeRecord } from "../ipc/types";
 import { chatName } from "./derive";
 import { SCOPE_TEXT } from "./Chrome";
 import { Icon } from "./Icon";
@@ -8,6 +8,7 @@ import { ParityBody } from "./ParityDialog";
 import { ChangesBody, RevertBody } from "./ChangesDialog";
 import { GoalBody, StatusBody } from "./PrefsDialogs";
 import { CompactBody, ForkBody, ReviewBody } from "./ThreadOpsDialogs";
+import { InstructionBody, ReferenceBody, SkillsBody, type ComposeProps } from "./ComposeDialogs";
 import { WorkspaceChoice, WorktreesBody } from "./WorktreeDialogs";
 
 export type DialogState =
@@ -28,6 +29,9 @@ export type DialogState =
   | { type: "goal"; chatId: string }
   | { type: "status"; chatId: string | null }
   | { type: "attach" }
+  | { type: "reference"; chatId: string }
+  | { type: "skills"; chatId: string }
+  | { type: "instructions"; chatId: string }
   | { type: "resumeExternal"; chatId: string }
   | { type: "rename"; chatId: string };
 
@@ -59,6 +63,16 @@ export interface PrefsProps {
   local: ChatLocalView | undefined;
 }
 
+/** 参考指定・Skill・指示ファイルに使う、選択中のチャットと入力欄への操作（ホスト側の値のコピーと操作の入口）。 */
+export interface ComposeDialogProps extends ComposeProps {
+  /** 選択中のチャットのside相談（新しい順）と、開く・記録を見る操作。 */
+  sides: SideSessionMeta[];
+  onOpenSide: () => void;
+  onShowSide: (id: string) => void;
+  /** 指示ファイル・作成した雛形を関連アプリで開く（ユーザー操作）。 */
+  openPath: (path: string) => void;
+}
+
 export interface NotifyProps { value: NotificationSettings; set: (n: NotificationSettings) => void }
 
 export interface AutostartProps { value: boolean; set: (on: boolean) => void }
@@ -72,8 +86,8 @@ export interface QuitProps {
 /** 強制終了の確認（`preview_force_kill` の結果）。preview が null の間は取得中（error があれば取得失敗）。 */
 export interface ForceProps { preview: ForceKillPreview | null; error: string | null; running: boolean; run: () => void }
 
-function SettingsBody({ tab, enterMode, setEnterMode, top, source, models, exe, notify, autostart, manage, chats }: {
-  manage: ManageProps; chats: Chat[];
+function SettingsBody({ tab, enterMode, setEnterMode, top, source, models, exe, notify, autostart, manage, chats, compose, opCaps }: {
+  manage: ManageProps; chats: Chat[]; compose: ComposeDialogProps; opCaps: OpCapability[];
   autostart: AutostartProps;
   notify: NotifyProps;
   tab: string; enterMode: "ctrl" | "enter"; setEnterMode: (m: "ctrl" | "enter") => void; top: { main: boolean; mini: boolean; setMain: (b: boolean) => void; setMini: (b: boolean) => void };
@@ -120,7 +134,17 @@ function SettingsBody({ tab, enterMode, setEnterMode, top, source, models, exe, 
         </>);
     }
     case "mcp": return <p className="small muted">導入・有効・信頼・認証・接続・会話への反映を分けて表示します（T5以降で取得）。</p>;
-    case "skills": return <p className="small muted">AGENTS.md と Skills の確認（T5以降で取得）。</p>;
+    case "skills": {
+      // 選んでいるチャットの作業フォルダのSkillと、読み込まれた指示ファイル（確認だけ。有効・無効の切替はしない）。
+      const c = compose.chat;
+      return (
+        <>
+          <p className="small muted">{c ? `対象のチャット: ${chatName(c)}` : "チャットを選ぶと、その作業フォルダのSkillと指示ファイルを表示します。"}</p>
+          <SkillsBody chat={c} live={compose.live} cap={opCaps.find((x) => x.op === "skills")} />
+          <hr />
+          <InstructionBody chat={c} live={compose.live} cap={opCaps.find((x) => x.op === "instructionFiles")} insertText={compose.insertText} openFile={compose.openPath} />
+        </>);
+    }
     default: return <StorageBody u={manage.usage} chats={chats} selected={manage.selectedId} acked={manage.ackedWarnings} />;
   }
 }
@@ -254,7 +278,8 @@ function RenameDialog({ chat, onClose, run }: { chat: Chat | undefined; onClose:
 /** isolate は「分離」（worktreeを作成してから開始）。worktree は既存のAgentDock作成worktreeの記録ID（チャットに結び付ける）。 */
 export interface NewChatInput { cwd: string | null; model: string; firstMessage: string | null; isolate: boolean; worktree: string | null }
 
-export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnterMode, top, setTab, onAct, exe, onCreateChat, notify, autostart, quit, force, manage, onRename, opCaps, live, changesTick, onRevertDone, prefs, threadOps, worktree }: {
+export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnterMode, top, setTab, onAct, exe, onCreateChat, notify, autostart, quit, force, manage, onRename, opCaps, live, changesTick, onRevertDone, prefs, threadOps, worktree, compose }: {
+  compose: ComposeDialogProps;
   opCaps: OpCapability[];
   /** worktreeの台帳と、選択中のチャットの作業フォルダ（リポジトリの一覧用）。 */
   worktree: { records: WorktreeRecord[]; cwd: string | null };
@@ -286,7 +311,7 @@ export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnter
     case "settings": return (
       <Shell title="設定" wide onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>
         <div className="tabs" role="tablist">{TABS.map(([k, t]) => <button key={k} role="tab" aria-selected={d.tab === k} onClick={() => setTab(k)}>{t}</button>)}</div>
-        <div className="content"><SettingsBody tab={d.tab} enterMode={enterMode} setEnterMode={setEnterMode} top={top} source={source} models={models} exe={exe} notify={notify} autostart={autostart} manage={manage} chats={chats} /></div>
+        <div className="content"><SettingsBody tab={d.tab} enterMode={enterMode} setEnterMode={setEnterMode} top={top} source={source} models={models} exe={exe} notify={notify} autostart={autostart} manage={manage} chats={chats} compose={compose} opCaps={opCaps} /></div>
       </Shell>);
     case "newChat": return (
       <Shell title="新しいチャット" onClose={onClose} foot={<><button className="btn-line" onClick={onClose}>キャンセル</button><button className="btn-main" disabled={kind === "dev" && !cwd.trim()} onClick={() => onCreateChat({ cwd: kind === "dev" ? cwd.trim() : null, model, firstMessage: first.trim() || null, isolate: kind === "dev" && isolate, worktree: kind === "dev" && !isolate ? wt : null })}>{kind === "dev" && isolate ? "worktreeを作って開始" : "作成"}</button></>}>
@@ -368,6 +393,18 @@ export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnter
       <Shell title="同等性の確認状況" wide onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>
         <ParityBody caps={opCaps} />
       </Shell>);
+    case "reference": return (
+      <Shell title="過去の会話を参考に" wide onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>
+        <ReferenceBody key={d.chatId} chat={chats.find((x) => x.key.id === d.chatId)} chats={chats} live={live} cap={opCaps.find((c) => c.op === "referenceChat")} insertText={compose.insertText} onDone={onClose} />
+      </Shell>);
+    case "skills": return (
+      <Shell title="Skill を指定" wide onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>
+        <SkillsBody key={d.chatId} chat={chats.find((x) => x.key.id === d.chatId)} live={live} cap={opCaps.find((c) => c.op === "skills")} pickSkill={compose.pickSkill} onDone={onClose} />
+      </Shell>);
+    case "instructions": return (
+      <Shell title="指示ファイル（AGENTS.md）" wide onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>
+        <InstructionBody key={d.chatId} chat={chats.find((x) => x.key.id === d.chatId)} live={live} cap={opCaps.find((c) => c.op === "instructionFiles")} insertText={compose.insertText} openFile={compose.openPath} />
+      </Shell>);
     case "resumeExternal": return (
       <Shell title="外部の会話を再開" onClose={onClose} foot={<><button className="btn-line" onClick={onClose}>やめる</button><button className="btn-main" onClick={() => onAct("doResumeExternal")}>実行中ではないことを確認した。再開する</button></>}>
         <div className="content"><p>外部（VS Code／CLI）側で実行中でないことを確認しましたか？</p><p>実行中の場合は再開しないでください。同じ会話を二つの場所で同時に動かすと、履歴や作業内容が食い違うおそれがあります。</p></div>
@@ -377,6 +414,16 @@ export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnter
         <div className="content" style={{ display: "grid", gap: 6 }}>
           <button className="btn-line" onClick={() => onAct("attachPick")}><Icon name="clip" />ファイルを選ぶ（このチャット用にコピーします）</button>
           <button className="btn-line" onClick={() => onAct("attachPasteSelection")}><Icon name="copy" />選択範囲を貼り付け（クリップボードの文章をコード枠で入力欄へ）</button>
+          <button className="btn-line" disabled={opCaps.find((c) => c.op === "referenceChat")?.support !== "supported"} onClick={() => onAct("reference")}><Icon name="chat" />過去の会話を参考に…（本文の抜粋を入力欄へ。要約しません）</button>
+          <button className="btn-line" disabled={opCaps.find((c) => c.op === "skills")?.support !== "supported"} onClick={() => onAct("skills")}><Icon name="check" />Skill を指定…（送信時に明示的に呼び出します）</button>
+          <button className="btn-line" disabled={opCaps.find((c) => c.op === "sideChat")?.support !== "supported"} onClick={() => onAct("sideOpen")}><Icon name="branch" />side相談を開く（読み取り専用の一時的な相談。主会話には影響しません）</button>
+          {compose.sides.length ? (
+            <div className="small" style={{ borderTop: "1px solid var(--line2)", paddingTop: 6 }}>このチャットのside相談:
+              {compose.sides.map((s) => (
+                <div key={s.id} className="frow"><span className="grow">{s.openedAt !== null ? new Date(s.openedAt).toLocaleString("ja-JP") : "（開いた時刻は不明）"}　{s.state.kind === "open" ? "開いています" : "終了（再開不可）"}</span><button className="small" onClick={() => compose.onShowSide(s.id)}>{s.state.kind === "open" ? "パネルを開く" : "記録を見る"}</button></div>
+              ))}
+            </div>
+          ) : null}
           <p className="small muted">ドラッグ＆ドロップや、画像の貼り付け（Ctrl＋V）でも添付できます。元のファイルは変更しません。フォルダは作業フォルダの指定として扱い、中身をコピーしません。</p>
         </div>
       </Shell>);

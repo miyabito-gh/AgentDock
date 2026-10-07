@@ -560,6 +560,31 @@ pub struct SideSessionMeta {
     pub main: ChatKey,
     pub thread: ChatKey,
     pub state: SideState,
+    /// 開いた時刻（旧い記録にはない）。
+    #[serde(default)]
+    pub opened_at: Option<UnixMillis>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub enum SideRole {
+    User,
+    Agent,
+}
+
+/// side相談の確定した発言1件（AgentDockの表示用記録。`chats\<dirId>\side\<id>.json` に保存する）。
+/// `truncated` は本文が短縮されている可能性（逐次本文を受け取れず、短い要約しかなかったとき）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct SideEntry {
+    pub role: SideRole,
+    pub text: String,
+    pub at: UnixMillis,
+    pub truncated: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -981,6 +1006,8 @@ pub enum AttachmentKind {
     Image,
     File,
     Audio,
+    /// Skillの明示指定（コピーしない参照。送信時は名前とパスだけをバックエンドへ渡す、P3-4）。
+    Skill,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -996,6 +1023,9 @@ pub struct Attachment {
     pub attached_at: UnixMillis,
     pub exists: Known<bool>,
     pub owner_chat: ChatKey,
+    /// Skillの名前（`kind` が `Skill` のときだけ。他は None）。パスは `original_path` に入る。
+    #[serde(default)]
+    pub name: Option<String>,
 }
 
 // ───────────────────────────── モデル・effort（§3.9） ─────────────────────────────

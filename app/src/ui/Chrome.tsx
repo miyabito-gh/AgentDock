@@ -22,7 +22,7 @@ export function TitleBar({ title, tag, mini, top, onAct }: { title: string; tag?
 type MenuItem = [label: string, action: string, kbd?: string] | "-";
 const MENUS: Record<string, MenuItem[]> = {
   "チャット": [["新しいチャット", "newChat", "Ctrl+N"], ["名前を変更…", "renameChat"], ["ピン留めを切替", "togglePin"], ["一覧を更新", "refreshList"], ["アーカイブ", "archiveChat"], ["アーカイブを解除", "unarchiveChat"], ["Markdown にエクスポート…", "exportMd"], "-", ["削除…", "deleteChat"], "-", ["AgentDock を終了…", "quit"]],
-  "作業": [["差分を確認", "diff"], ["変更を戻す…", "revert"], ["コードレビュー…", "review"], ["計画／実行の切替", "workMode"], ["会話を分岐", "fork"], ["文脈を圧縮…", "compact"], ["Goal を設定…", "goal"], ["worktree で開始…", "newChatWorktree"], ["worktree を管理…", "worktrees"], ["クラウドに委任…", "unv:クラウド委任の公開経路は未確認"], "-", ["中断", "interrupt", "Esc"]],
+  "作業": [["差分を確認", "diff"], ["変更を戻す…", "revert"], ["コードレビュー…", "review"], ["計画／実行の切替", "workMode"], ["会話を分岐", "fork"], ["文脈を圧縮…", "compact"], ["Goal を設定…", "goal"], ["過去の会話を参考に…", "reference"], ["side相談を開く", "sideOpen"], ["Skill を指定…", "skills"], ["指示ファイル（AGENTS.md）を確認…", "instructions"], ["worktree で開始…", "newChatWorktree"], ["worktree を管理…", "worktrees"], ["クラウドに委任…", "unv:クラウド委任の公開経路は未確認"], "-", ["中断", "interrupt", "Esc"]],
   "表示": [["チャット一覧", "toggleLeft"], ["エージェントのドック", "toggleRight"], ["コンパクト監視窓", "toggleMini"], "-", ["通常画面を最前面に", "toggleMainTop"], ["監視窓を最前面に", "toggleMiniTop"], "-", ["終了済みも表示（全チャット）", "toggleDone"]],
   "設定": [["設定…", "settings:general"], ["MCP・Plugins…", "settings:mcp"], ["Skills・AGENTS.md…", "settings:skills"]],
   "ヘルプ": [["状態の見方", "stub"], ["Codex の状態", "status"], ["同等性の確認状況…", "parity"], ["バージョン情報", "stub"]],

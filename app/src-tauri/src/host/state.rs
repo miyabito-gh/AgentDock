@@ -61,6 +61,9 @@ pub struct HostData {
     pub worktrees: Vec<WorktreeRecord>,
     /// 起動時に読めなかった保存ファイルなどの警告。
     pub startup_warnings: Vec<StartupWarning>,
+    /// side相談の一時の会話 → 主会話（P3-4）。一覧に出さず、キュー・子孫の条件に入れない。停止対象には入れる（`stop_scope`）。
+    /// 終了した相談も、停止の確認が済むまで外さない（主会話の削除で外す）。
+    pub side_threads: HashMap<ChatKey, ChatKey>,
     /// 親のspawn依頼から確定できた子の担当（エージェントの再登録で失わないよう保持）。
     assignments: HashMap<AgentKey, String>,
     /// 実行中と分かっているturn（中断・追加指示の対象）。
@@ -108,6 +111,7 @@ impl Default for HostData {
             settings: AppSettings::default(),
             worktrees: Vec::new(),
             startup_warnings: Vec::new(),
+            side_threads: HashMap::new(),
             assignments: HashMap::new(),
             running_turn: HashMap::new(),
             latest_turn_start: HashMap::new(),
@@ -289,7 +293,21 @@ impl HostData {
     }
 
     fn record_activity(&mut self, chat: ChatKey, line: ActivityLine) {
+        // side相談の会話の記録は、監視活動履歴（チャット領域）に残さない（一時の会話。記録は主会話のside記録に別に残す）。
+        if self.side_threads.contains_key(&chat) {
+            return;
+        }
         self.activity_outbox.push((chat, line));
+    }
+
+    /// side相談の一時の会話か。
+    pub fn is_side_thread(&self, chat: &ChatKey) -> bool {
+        self.side_threads.contains_key(chat)
+    }
+
+    /// 主会話の停止の範囲（主会話＋その side の会話）。完全終了・強制終了・削除の停止照合が使う。
+    pub fn stop_scope(&self, main: &ChatKey) -> Vec<ChatKey> {
+        crate::rules::side::stop_scope(main, &self.side_threads)
     }
 
     fn record_status(&mut self, agent: &AgentKey, status: &AgentStatus, at: UnixMillis) {
@@ -669,6 +687,10 @@ impl HostData {
             return;
         }
         let Some(chat) = self.view(agent).map(|v| v.agent.chat.clone()) else { return };
+        // side相談の終了は通知しない（相談のパネルで見える。一覧にないチャットを通知の対象にしない）。
+        if self.is_side_thread(&chat) {
+            return;
+        }
         let is_root = self.is_root(agent);
         self.notify_inbox.push(NotifyInput::Ended { chat, agent: agent.clone(), is_root, turn, end, was_nonterminal });
     }
@@ -851,7 +873,8 @@ impl HostData {
                 if let Some(v) = self.view_mut(&turn.agent) {
                     v.agent.latest_turn = Some(turn.turn_id.clone());
                 }
-                if self.is_root(&turn.agent) {
+                // side相談の会話は、子孫の走査をしない（読取りでも不要な負荷。主会話の子孫に数えない）。
+                if self.is_root(&turn.agent) && !self.is_side_thread(&ChatKey { backend: turn.agent.backend, id: turn.agent.id.clone() }) {
                     follow.push(Followup::ScanDescendants(turn.agent.clone()));
                 }
                 out.push(HostEvent::TurnUpdated { turn: turn.clone(), end: None });
@@ -884,7 +907,7 @@ impl HostData {
                 }
                 // サブエージェント関連のitem（spawn・待機・送信など）が来たら、子孫の監視を始める（既に動いていれば何もしない）。
                 if matches!(activity.kind, ActivityKind::SubAgent) {
-                    if let Some(v) = self.view(&activity.key.agent) {
+                    if let Some(v) = self.view(&activity.key.agent).filter(|v| !self.is_side_thread(&v.agent.chat)) {
                         follow.push(Followup::ScanDescendants(agent_key_of(&v.agent.chat)));
                     }
                 }
@@ -922,7 +945,9 @@ impl HostData {
                 }
                 out.push(HostEvent::RequestUpdated { request: request.clone() });
                 if request.state == RequestState::Pending {
-                    self.notify_inbox.push(NotifyInput::AwaitingAnswer { chat: request.chat.clone(), request: request.key.clone(), kind: request.kind.clone() });
+                    // side相談の承認・質問は、一覧にない会話ではなく主会話を通知の宛先にする（回答は相談のパネルで行う）。
+                    let target = self.side_threads.get(&request.chat).unwrap_or(&request.chat).clone();
+                    self.notify_inbox.push(NotifyInput::AwaitingAnswer { chat: target, request: request.key.clone(), kind: request.kind.clone() });
                     out.extend(self.marks_event(&request.chat));
                 }
             }
@@ -1133,6 +1158,37 @@ mod tests {
         let (ev, _) = d.apply_event(&env(3, 3, BackendEvent::AgentStatus { agent: ak("root"), status: status(AgentState::Done, Some("t1"), StateScope::Turn) }), &caps());
         assert_eq!(d.root_view(&ck("root")).unwrap().status.state, AgentState::Running);
         assert!(matches!(ev[0], HostEvent::Warning { .. }));
+    }
+
+    #[test]
+    fn side_thread_is_not_scanned_notified_or_logged_but_is_in_the_main_stop_scope() {
+        let mut d = HostData::default();
+        live_root(&mut d, AgentState::Idle);
+        // side相談の一時の会話（自分自身が所属。ルート扱い）。
+        let mut side = agent("side", true);
+        side.chat = ck("side");
+        d.side_threads.insert(ck("side"), ck("root"));
+        d.set_live(side, status(AgentState::Idle, None, StateScope::Agent));
+        d.activity_outbox.clear();
+        d.notify_inbox.clear();
+        let (_, follow) = d.apply_event(&env(1, 1, BackendEvent::TurnStarted { turn: tk("side", "t1"), evidence: evidence(EvidenceSource::LiveEvent, "x", UnixMillis(1)) }), &caps());
+        assert!(follow.is_empty(), "no descendant scan for a side conversation");
+        assert!(d.running_turn.contains_key(&ak("side")), "its running turn is tracked so it can be stopped");
+        d.apply_event(&env(2, 2, BackendEvent::AgentStatus { agent: ak("side"), status: status(AgentState::Running, Some("t1"), StateScope::Turn) }), &caps());
+        d.apply_event(&env(3, 3, BackendEvent::AgentStatus { agent: ak("side"), status: status(AgentState::Done, Some("t1"), StateScope::Turn) }), &caps());
+        assert!(d.notify_inbox.is_empty(), "the end of a side conversation is not notified");
+        assert!(d.activity_outbox.is_empty(), "nothing is written to the activity log for a side conversation");
+        // 主会話の停止の範囲には入る。主会話自体の条件（agent.chat が主会話）には入らない。
+        assert_eq!(d.stop_scope(&ck("root")), vec![ck("root"), ck("side")]);
+        assert!(!d.agents.iter().any(|v| v.agent.chat == ck("root") && v.agent.key == ak("side")));
+        let work = crate::host::lifecycle::work_of(&d, &ck("root"));
+        assert!(!work.has_unfinished, "the side conversation finished");
+        d.apply_event(&env(4, 4, BackendEvent::TurnStarted { turn: tk("side", "t2"), evidence: evidence(EvidenceSource::LiveEvent, "x", UnixMillis(4)) }), &caps());
+        d.apply_event(&env(5, 5, BackendEvent::AgentStatus { agent: ak("side"), status: status(AgentState::Running, Some("t2"), StateScope::Turn) }), &caps());
+        assert!(crate::host::lifecycle::work_of(&d, &ck("root")).has_unfinished, "a running side conversation counts for stop checks");
+        let removed = d.forget_deleted_chat(&ck("root"));
+        assert!(!removed.is_empty());
+        assert!(d.side_threads.is_empty() && !d.running_turn.contains_key(&ak("side")), "deleting the main chat forgets its side conversations");
     }
 
     #[test]

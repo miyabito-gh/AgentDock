@@ -73,7 +73,7 @@ pub fn codex_capabilities_for(experimental: bool, version: Option<&str>) -> Capa
         archive: Support::Supported,
         delete: Support::Supported,
         external_history: Support::Supported,
-        attachment_kinds: vec![AttachmentKind::Image, AttachmentKind::Audio, AttachmentKind::File],
+        attachment_kinds: vec![AttachmentKind::Image, AttachmentKind::Audio, AttachmentKind::File, AttachmentKind::Skill],
         // thread/backgroundTerminals/* はexperimental。
         managed_exec_control: exp,
         ops: super::parity::op_capabilities(version, experimental),
@@ -107,6 +107,7 @@ fn unknown_capabilities() -> Capabilities {
 
 /// 添付 → `UserInput`。画像は `localImage`、その他のファイルはコピー先のパスを本文の後ろの `text` 入力に列挙する
 /// （`mention` は使わない。モデルがファイルの中身を読めるかは未確認、V09）。
+/// Skillの明示指定は `skill`（名前とSkill定義のパス。実測で成立済み、DESIGN_P3 #11）。名前が欠けていれば送らず拒否する。
 pub fn build_turn_input(text: &str, attachments: &[Attachment]) -> BackendResult<Vec<Value>> {
     let mut input = vec![json!({"type": "text", "text": text, "text_elements": []})];
     let mut files: Vec<String> = Vec::new();
@@ -115,6 +116,12 @@ pub fn build_turn_input(text: &str, attachments: &[Attachment]) -> BackendResult
         match a.kind {
             AttachmentKind::Image => input.push(json!({"type": "localImage", "path": path})),
             AttachmentKind::Audio => input.push(json!({"type": "localAudio", "path": path})),
+            AttachmentKind::Skill => {
+                let Some(name) = a.name.as_deref().filter(|n| !n.is_empty()) else {
+                    return Err(BackendError::Rejected { code: None, message: "Skillの名前を特定できないため送りません".into() });
+                };
+                input.push(json!({"type": "skill", "name": name, "path": a.original_path}));
+            }
             AttachmentKind::File => {
                 let name = std::path::Path::new(&path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.clone());
                 files.push(format!("- {name} — {path}"));
@@ -215,6 +222,8 @@ struct Shared {
     launched: StdMutex<Launched>,
     /// 設定の警告通知（`configWarning`）の要約。状態表示用で、直近の数件だけ持つ。
     config_warnings: StdMutex<Vec<String>>,
+    /// 会話ごとの、読み込まれた指示ファイルのパス（start・resume・forkの応答が示した最後の値。この接続の間だけ持つ）。
+    instruction_sources: StdMutex<HashMap<ChatKey, Vec<String>>>,
 }
 
 #[derive(Default)]
@@ -317,6 +326,11 @@ fn log_item_shape_once(params: &Value) {
     }
     seen.push(key.clone());
     crate::diag::log("item-shape", &format!("{key} {text}"));
+}
+
+/// thread/start・resume・fork の応答の、読み込まれた指示ファイルのパス。配列でない・文字列以外を含むものは取得できなかったとして None。
+pub(super) fn instruction_sources_of(resp: &Value) -> Option<Vec<String>> {
+    resp.get("instructionSources")?.as_array()?.iter().map(|v| v.as_str().map(str::to_string)).collect()
 }
 
 /// thread/start・thread/resume の応答が示す、会話に設定されているモデル・推論の強さ（無ければ未取得）。
@@ -433,6 +447,7 @@ impl CodexBackend {
                 lifecycle: Mutex::new(()),
                 launched: StdMutex::new(Launched::default()),
                 config_warnings: StdMutex::new(Vec::new()),
+                instruction_sources: StdMutex::new(HashMap::new()),
             }),
         }
     }
@@ -482,6 +497,18 @@ impl CodexBackend {
     pub(super) fn launched_info(&self) -> (Option<String>, Option<String>) {
         let l = self.shared.launched.lock().unwrap();
         (l.executable.clone(), l.version.clone())
+    }
+
+    /// 応答が指示ファイルの一覧を示していれば覚える（示していなければ前の値を残す）。
+    pub(super) fn note_instruction_sources(&self, chat: &ChatKey, resp: &Value) {
+        if let Some(list) = instruction_sources_of(resp) {
+            self.shared.instruction_sources.lock().unwrap().insert(chat.clone(), list);
+        }
+    }
+
+    /// この接続で応答が示した、会話の指示ファイル（まだ示されていなければ None＝未取得。読むためにresumeしない）。
+    pub(super) fn instruction_sources_seen(&self, chat: &ChatKey) -> Option<Vec<String>> {
+        self.shared.instruction_sources.lock().unwrap().get(chat).cloned()
     }
 
     pub(super) fn config_warnings(&self) -> Vec<String> {
@@ -676,6 +703,7 @@ impl AiBackend for CodexBackend {
         log_source("thread/start", &r);
         let t = thread_of(&r)?;
         let chat = thread_to_chat(&t, self.app_dir().as_deref(), Known::Value { value: false, basis: Basis::Derived });
+        self.note_instruction_sources(&chat.key, &r);
         let root = thread_to_agent(&t, chat_key(&t.id));
         self.shared.remember(&root);
         let accepted_model = accepted_model_of(&r);
@@ -724,6 +752,7 @@ impl AiBackend for CodexBackend {
                 crate::diag::log("resume-model", &format!("model={} effort={}", r.get("model").map_or("absent", |v| if v.is_string() { "str" } else { "other" }), r.get("reasoningEffort").map_or("absent", |v| if v.is_string() { "str" } else if v.is_null() { "null" } else { "other" })));
                 // 全履歴の取得は非推奨のため turns を省く。本文は開く操作（thread/turns/list）で読む。使うのはメタ情報・モデル・状態だけ。
                 let t = thread_of(&r)?;
+                self.note_instruction_sources(&chat, &r);
                 Ok(ResumeOutcome::Resumed { history: self.history_from_thread(&t, false, EvidenceSource::Response, "thread/resume"), accepted_model: accepted_model_of(&r) })
             }
             // 明示的に拒否された。別threadで代替せず理由を返す。
@@ -916,6 +945,7 @@ mod tests {
             attached_at: UnixMillis(0),
             exists: Known::NotFetched,
             owner_chat: chat_key("th"),
+            name: None,
         }
     }
 
@@ -968,6 +998,28 @@ mod tests {
         assert!(f.iter().all(|v| v["type"] != "mention"));
         // 添付がなければ本文だけ。
         assert_eq!(build_turn_input("x", &[]).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn skill_attachment_becomes_a_skill_input_without_a_copy_and_needs_a_name() {
+        let skill = |name: Option<&str>| Attachment { kind: AttachmentKind::Skill, original_path: "C:/s/SKILL.md".into(), copy_path: None, name: name.map(str::to_string), ..att(AttachmentKind::Skill) };
+        let i = build_turn_input("x", &[skill(Some("review")), att(AttachmentKind::Image)]).unwrap();
+        assert_eq!(i.len(), 3);
+        assert_eq!(i[1], json!({"type": "skill", "name": "review", "path": "C:/s/SKILL.md"}));
+        assert!(i.iter().all(|v| v["type"] != "mention"), "mention is not used");
+        // 名前が分からないSkillは何も送らず拒否する（推測で補わない）。
+        assert!(matches!(build_turn_input("x", &[skill(None)]), Err(BackendError::Rejected { .. })));
+        assert!(matches!(build_turn_input("x", &[skill(Some(""))]), Err(BackendError::Rejected { .. })));
+    }
+
+    #[test]
+    fn instruction_sources_are_read_only_from_a_string_array() {
+        assert_eq!(instruction_sources_of(&json!({"instructionSources": ["C:/a/AGENTS.md", "C:/b/x.md"]})), Some(vec!["C:/a/AGENTS.md".to_string(), "C:/b/x.md".to_string()]));
+        assert_eq!(instruction_sources_of(&json!({"instructionSources": []})), Some(vec![]));
+        // 欠けている・配列でない・文字列でない要素を含む応答は、取得できたことにしない。
+        assert_eq!(instruction_sources_of(&json!({})), None);
+        assert_eq!(instruction_sources_of(&json!({"instructionSources": "x"})), None);
+        assert_eq!(instruction_sources_of(&json!({"instructionSources": ["a", 1]})), None);
     }
 
     #[test]

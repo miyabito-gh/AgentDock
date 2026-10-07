@@ -297,3 +297,18 @@ textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;paddin
 .change-table tbody tr{cursor:pointer}
 .change-table tbody tr.sel{background:var(--harbor-weak)}
 .change-table .linkish{height:auto;padding:0;border:0;background:transparent;text-align:left;white-space:normal;word-break:break-all;color:inherit}
+
+/* side相談のパネル（P3-4）。主会話を見ながら使う、右側の浮かぶパネル。狭い画面では幅を縮める。 */
+.sidepanel{position:fixed;right:12px;top:92px;bottom:12px;width:min(380px,92vw);z-index:22;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);box-shadow:0 12px 36px rgba(20,32,38,.25);display:flex;flex-direction:column;min-height:0}
+.sidepanel header{display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid var(--line2)}
+.sidepanel .sp-note{padding:6px 10px}
+.sidepanel .sp-state{padding:0 10px 4px}
+.sidepanel .sp-body{flex:1;min-height:0;overflow:auto;padding:6px 10px}
+.sidepanel .sp-msg{margin:0 0 8px;padding:6px 8px;border:1px solid var(--line2);border-radius:var(--r-s);background:var(--paper)}
+.sidepanel .sp-msg.u{background:var(--surface)}
+.sidepanel .sp-text{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px}
+.sidepanel .sp-act{padding:4px 10px}
+.sidepanel .sp-in{padding:6px 10px;border-top:1px solid var(--line2)}
+.sidepanel .sp-in textarea{width:100%;resize:vertical}
+.sidepanel .sp-btn{display:flex;align-items:center;gap:6px;margin-top:4px}
+.sidepanel .req{margin:0 0 8px}

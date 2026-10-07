@@ -169,6 +169,8 @@ pub enum AttachmentSource {
     File { original_path: String },
     /// クリップボードの画像（元ファイルなし）。
     ClipboardImage,
+    /// Skillの明示指定（コピーしない。パスは `skills/list` が示したSkillの定義ファイル。読むだけ、P3-4）。
+    Skill { name: String, path: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

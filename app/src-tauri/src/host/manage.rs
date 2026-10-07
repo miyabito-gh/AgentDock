@@ -48,13 +48,25 @@ const STOP_WAIT_MS: u64 = stop::STOP_CONFIRM_DEADLINE_MS as u64 + 1_500;
 
 impl HostData {
     /// 削除が完了したチャットのアプリ側の状態をすべて消す。
-    fn forget_deleted_chat(&mut self, chat: &ChatKey) -> Vec<HostEvent> {
+    pub(super) fn forget_deleted_chat(&mut self, chat: &ChatKey) -> Vec<HostEvent> {
         let agents: Vec<AgentKey> = self.agents.iter().filter(|v| &v.agent.chat == chat).map(|v| v.agent.key.clone()).collect();
         for a in &agents {
             self.running_turn.remove(a);
             self.last_end.remove(a);
         }
         self.stops.retain(|r| &r.chat != chat);
+        // 主会話に属するside相談の会話（一時の分岐）の状態も消す（記録ファイルはチャット領域ごと消える）。
+        let sides: Vec<ChatKey> = self.side_threads.iter().filter(|(_, m)| *m == chat).map(|(t, _)| t.clone()).collect();
+        for t in &sides {
+            self.side_threads.remove(t);
+            self.stops.retain(|r| &r.chat != t);
+            self.requests.retain(|r| &r.chat != t);
+            for a in self.agents.iter().filter(|v| &v.agent.chat == t).map(|v| v.agent.key.clone()).collect::<Vec<_>>() {
+                self.running_turn.remove(&a);
+                self.last_end.remove(&a);
+            }
+            self.agents.retain(|v| &v.agent.chat != t);
+        }
         self.pinned.remove(chat);
         self.hosted.remove(chat);
         self.model_settings.remove(chat);

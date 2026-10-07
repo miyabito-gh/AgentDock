@@ -14,6 +14,7 @@
 //!     changes.jsonl               観測したファイル変更の記録と「戻し」の記録（追記。DESIGN_P3 #1・#2）
 //!     revert-backup\<ms>\         変更を戻す前の控え（ファイル実体と manifest.json。自動では削除しない）
 //!     compactions\<ms>.json       文脈の圧縮前の控え（AgentDock保存・表示専用。自動では削除しない。DESIGN_P3 #7）
+//!     side\<id>.json              side相談の確定した発言の記録（AgentDock保存・表示専用。主会話の削除まで残す。DESIGN_P3 #10）
 //!     attachments\<attId>\<name>  添付のコピー（添付ごとに別フォルダ。同名・再添付でも衝突しない）
 //!     attachments\<attId>\<name>.partial   コピー途中（完了まで利用不可）
 //!     workspace\                  一般チャットの作業フォルダ（開発チャットは使わない）
@@ -38,6 +39,7 @@ pub const ACTIVITY_FILE: &str = "activity.jsonl";
 pub const CHANGES_FILE: &str = "changes.jsonl";
 pub const REVERT_BACKUP_DIR: &str = "revert-backup";
 pub const COMPACTIONS_DIR: &str = "compactions";
+pub const SIDE_DIR: &str = "side";
 pub const ATTACHMENTS_DIR: &str = "attachments";
 pub const WORKSPACE_DIR: &str = "workspace";
 pub const PARTIAL_SUFFIX: &str = ".partial";

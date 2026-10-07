@@ -172,23 +172,43 @@ pub fn write_image_into(
     Ok(finish_copy(chat_dir, entry, size, |dst| dst.write_all(bytes).map_err(|_| CopyFailure::WriteFailed)))
 }
 
+/// 実在を確認する対象のパス。ファイルはチャット領域内のコピー、Skillは指定したSkill定義の元の場所（コピーしない）。
+pub fn backing_path(e: &AttachmentEntry) -> Option<&str> {
+    match &e.source {
+        AttachmentSource::Skill { path, .. } => Some(path.as_str()),
+        _ => e.copy_path.as_deref(),
+    }
+}
+
 /// 送信に使える形へ変換する。`Ready` 以外は `Err(id)`（送信を止めて案内する）。
 pub fn to_send_attachments(entries: &[AttachmentEntry]) -> Result<Vec<Attachment>, LocalId> {
     entries
         .iter()
-        .map(|e| match (&e.state, &e.copy_path) {
-            (AttachmentState::Ready, Some(copy)) => Ok(Attachment {
+        .map(|e| match (&e.state, &e.source, &e.copy_path) {
+            // Skillはコピーせず、名前とパスだけを渡す（明示呼出し）。
+            (AttachmentState::Ready, AttachmentSource::Skill { name, path }, _) => Ok(Attachment {
+                id: e.id.clone(),
+                kind: AttachmentKind::Skill,
+                original_path: path.clone(),
+                copy_path: None,
+                attached_at: e.attached_at,
+                exists: Known::NotFetched,
+                owner_chat: e.chat.clone(),
+                name: Some(name.clone()),
+            }),
+            (AttachmentState::Ready, source, Some(copy)) => Ok(Attachment {
                 id: e.id.clone(),
                 kind: e.kind,
                 // クリップボード画像には元ファイルがないので、コピーのパスを入れる（送信にはコピーだけを使う）。
-                original_path: match &e.source {
+                original_path: match source {
                     AttachmentSource::File { original_path } => original_path.clone(),
-                    AttachmentSource::ClipboardImage => copy.clone(),
+                    _ => copy.clone(),
                 },
                 copy_path: Some(copy.clone()),
                 attached_at: e.attached_at,
                 exists: Known::NotFetched,
                 owner_chat: e.chat.clone(),
+                name: None,
             }),
             _ => Err(e.id.clone()),
         })

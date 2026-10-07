@@ -19,6 +19,7 @@ import { fenceCode, insertBlock } from "./ui/attach";
 import { DockPane, MiniWindow } from "./ui/Dock";
 import { Dialogs, type DialogState, type NewChatInput } from "./ui/Dialogs";
 import { ackText } from "./ui/PrefsDialogs";
+import { SidePanel } from "./ui/SidePanel";
 import { chatName, isRunning, stopOpen } from "./ui/derive";
 import { hms, keyStr } from "./ui/format";
 
@@ -83,6 +84,8 @@ export default function App() {
   const [usage, setUsage] = useState<{ report: UsageReport | null; error: string | null; loading: boolean }>({ report: null, error: null, loading: false });
   const [menu, setMenu] = useState<string | null>(null);
   const [dialog, setDialog] = useState<DialogState | null>(null);
+  /** 表示しているside相談（主会話を選んでいる間だけ出す。相談そのものはホストが持つ）。 */
+  const [sideId, setSideId] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState<Set<string>>(new Set());
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -317,6 +320,8 @@ export default function App() {
   const draftAttachments: AttachmentEntry[] = !chat ? [] : live
     ? (snap.chatLocals.find((l) => l.chat.id === chat.key.id)?.draft.attachments ?? []).flatMap((id) => snap.attachments.find((a) => a.id === id) ?? [])
     : snap.attachments.filter((a) => a.chat.id === chat.key.id);
+  // 表示するside相談。選んでいるチャットが相談の主会話のときだけ出す。
+  const sideShown = chat && sideId ? snap.sideSessions.find((x) => x.id === sideId && x.main.id === chat.key.id) : undefined;
   const v = src?.version;
   // 現在の接続先を示す。実接続では接続中のCodexの版を出す（版が取れなければ、そう表示する）。
   const modeTag = !live ? "モック（仮データ）"
@@ -599,6 +604,42 @@ export default function App() {
     window.requestAnimationFrame(() => { const el = composerRef.current; if (el) { el.focus(); el.setSelectionRange(r.cursor, r.cursor); } });
   };
 
+  /** 文章を入力欄のカーソル位置へ入れる（枠は付けない。送信しない）。参考指定・指示の依頼文・side相談の引渡しで使う。 */
+  const insertIntoDraft = (text: string) => {
+    if (!chat) return;
+    const pos = composerRef.current?.selectionStart ?? curDraft.length;
+    const r = insertBlock(curDraft, pos, text.replace(/\n$/, ""));
+    onDraft(chat, r.text);
+    window.requestAnimationFrame(() => { const el = composerRef.current; if (el) { el.focus(); el.setSelectionRange(r.cursor, r.cursor); } });
+  };
+
+  /** Skillを入力欄の指定（チップ）にする。コピーせず、送信時に明示的に呼び出す。 */
+  const pickSkill = async (c: ChatKey, name: string, path: string): Promise<string> => {
+    if (!live) { say("この操作はモックでは動きません。"); return "モックでは動きません"; }
+    let msg: string;
+    try {
+      const e = await host.addSkillAttachment(c, name, path);
+      msg = `Skill「${e.displayName}」を指定しました（入力欄のチップ。送信時に明示的に呼び出します）。`;
+    } catch (er) { msg = `Skillを指定できませんでした: ${host.asIpcError(er).message}`; }
+    say(msg);
+    return msg;
+  };
+
+  /** side相談を開く（読み取り専用の一時的な分岐）。開けたか不明のときは再送せず、状況を知らせる。 */
+  const openSide = async () => {
+    setDialog(null);
+    if (!chat) { say("チャットを選んでください。"); return; }
+    if (!live) { say("この操作はモックでは動きません。"); return; }
+    try {
+      const r = await host.openSide(chat.key);
+      if (r.ack.kind === "accepted") {
+        if (r.side) { setSideId(r.side.id); say("side相談を開きました（読み取り専用の一時的な相談）。"); }
+        else say("side相談を開けたか確認できません。再送はしていません。必要なら開き直してください。");
+      } else if (r.ack.kind === "rejected") say(`side相談を開けませんでした: ${r.ack.message}`);
+      else say(`side相談を開けたか確認できません（${r.ack.message}）。再送はしていません。必要なら開き直してください。`);
+    } catch (e) { sayErr("side相談を開けませんでした", e); }
+  };
+
   const files: FileActions = {
     open: (t) => {
       if (!live) { say("この操作はモックでは動きません。"); return; }
@@ -851,6 +892,10 @@ export default function App() {
         break;
       case "force": openForce(); break;
       case "attach": setDialog({ type: "attach" }); break;
+      case "reference": if (chat) setDialog({ type: "reference", chatId: chat.key.id }); else say("チャットを選んでください。"); break;
+      case "skills": if (chat) setDialog({ type: "skills", chatId: chat.key.id }); else say("チャットを選んでください。"); break;
+      case "instructions": if (chat) setDialog({ type: "instructions", chatId: chat.key.id }); else say("チャットを選んでください。"); break;
+      case "sideOpen": void openSide(); break;
       case "archiveChat": archiveOp(true); break;
       case "unarchiveChat": archiveOp(false); break;
       case "exportMd": openExport(); break;
@@ -947,6 +992,10 @@ export default function App() {
           <aside className="right" aria-label="エージェントのドック"><DockPane {...dockProps} /></aside>
         </div>
       </div>
+      {live && chat && sideId && sideShown ? (
+        <SidePanel snap={snap} side={sideShown} live={live} cap={snap.opCapabilities.find((c) => c.op === "sideChat")} onClose={() => setSideId(null)}
+          onRespond={(r, a) => void onRespond(r, a)} onInsertMain={insertIntoDraft} say={say} />
+      ) : null}
       {mini && !live ? <MiniWindow {...dockProps} top={miniTop} /> : null}
       {dialog ? (
         <Dialogs d={dialog} onClose={closeDialog} opCaps={snap.opCapabilities} chats={snap.chats} source={src} models={models}
@@ -954,6 +1003,13 @@ export default function App() {
             settings: dialog.type === "status" && dialog.chatId ? bundle.modelSettings[dialog.chatId] : undefined,
             local: dialog.type === "status" && dialog.chatId ? snap.chatLocals.find((l) => l.chat.id === dialog.chatId) : undefined }}
           worktree={{ records: snap.worktrees, cwd: chat?.cwd.kind === "value" ? chat.cwd.value : null }}
+          compose={{
+            chat: chat ?? undefined, live, insertText: insertIntoDraft, pickSkill,
+            sides: chat ? snap.sideSessions.filter((x) => x.main.id === chat.key.id).slice().sort((a, b) => (b.openedAt ?? 0) - (a.openedAt ?? 0)) : [],
+            onOpenSide: () => void openSide(),
+            onShowSide: (id) => { setDialog(null); setSideId(id); },
+            openPath: (p) => { if (chat) host.openInstructionFile(chat.key, p).catch((e) => sayErr("開けませんでした", e)); },
+          }}
           threadOps={{ pendingOps: snap.pendingOps, queues: snap.queues, onOpenChat: (k) => { selectChat(k.id); } }}
           live={live} changesTick={changesTick} onRevertDone={(r) => say(r.failed.length > 0 ? `一部のみ戻しました（失敗 ${r.failed.length} 件）。` : `${r.reverted.length} 件のファイルを書き換えました。`)}
           enterMode={enterMode} setEnterMode={setEnterMode}

@@ -221,6 +221,10 @@ impl Store {
                 }
                 self.index.lock().unwrap().insert(key.clone(), local.dir_id.clone());
             }
+            // 開いたままのside相談（一時の分岐）は、再起動で消えている。終了（再開不可）の記録に変える。
+            if crate::rules::side::end_open_after_restart(&mut local.side_sessions) {
+                changed = true;
+            }
             for att in &mut local.attachments {
                 if att.state == AttachmentState::Copying {
                     att.state = AttachmentState::CopyFailed {
@@ -422,6 +426,22 @@ impl Store {
         let path = layout::chat_dir(&self.root, &self.ensure_dir_id(chat)).join(layout::COMPACTIONS_DIR).join(format!("{}.json", at.0));
         let bytes = std::fs::read(&path)?;
         parse_versioned::<CompactionFile>(&bytes).map_err(|e| StoreError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("控えを読めません: {e:?}"))))
+    }
+
+    /// side相談の記録を保存する（`chats/<dirId>/side/<id>.json`）。空き確認つき。同じIDは最新の内容で置き換える（原子的）。
+    pub fn write_side(&self, file: &SideFile) -> Result<(), StoreError> {
+        let bytes = to_bytes(file).map_err(|e| StoreError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, e)))?;
+        self.check_space(bytes.len() as u64 + 16 * 1024)?;
+        let dir = layout::chat_dir(&self.root, &self.ensure_dir_id(&file.main)).join(layout::SIDE_DIR);
+        atomic::write_atomic(&dir.join(format!("{}.json", layout::sanitize_file_name(&file.id.0))), &bytes)?;
+        Ok(())
+    }
+
+    /// side相談の記録を読む。壊れている・新しい版のファイルは `Err`（推測で補わない）。
+    pub fn read_side(&self, main: &ChatKey, id: &LocalId) -> Result<SideFile, StoreError> {
+        let path = layout::chat_dir(&self.root, &self.ensure_dir_id(main)).join(layout::SIDE_DIR).join(format!("{}.json", layout::sanitize_file_name(&id.0)));
+        let bytes = std::fs::read(&path)?;
+        parse_versioned::<SideFile>(&bytes).map_err(|e| StoreError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("side相談の記録を読めません: {e:?}"))))
     }
 
     /// 書込み前の空き確認。`needed` に [`FREE_SPACE_MARGIN_BYTES`] を足して比べる。

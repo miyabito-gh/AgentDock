@@ -104,13 +104,26 @@ pub struct WorkModeInfo {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct SkillInfo {
     pub name: String,
     pub description: Known<String>,
     pub scope: Known<String>,
     pub enabled: Known<bool>,
+    /// Skill定義ファイルのパス（明示指定でそのまま渡す）。
     pub path: String,
+    pub errors: Vec<String>,
+}
+
+/// 作業フォルダのSkillの一覧。読み込めなかったSkill定義の問題は、Skill単位ではなく一覧全体の `errors`（`パス: 内容`）に出す。
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct SkillList {
+    pub skills: Vec<SkillInfo>,
     pub errors: Vec<String>,
 }
 
@@ -303,7 +316,7 @@ pub trait ParityOps: AiBackend {
     }
 
     // ── Skills・指示ファイル（P3-4） ──
-    async fn list_skills(&self, _cwd: String, _force_reload: bool) -> BackendResult<Vec<SkillInfo>> {
+    async fn list_skills(&self, _cwd: String, _force_reload: bool) -> BackendResult<SkillList> {
         unsupported(ParityOp::Skills)
     }
     /// 読み込まれた指示ファイルのパス（読取り）。

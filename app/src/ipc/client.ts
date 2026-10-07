@@ -15,6 +15,7 @@ import {
   type ChangeList, type ChangeScope, type ChangeSource, type ExternalId, type RevertPlan, type RevertResult, type UnifiedDiff,
   type BackendStatus, type Goal, type GoalUpdate, type Known, type MemoryStatus, type OpAck, type ResetMemoryResult, type WorkMode, type WorkModeInfo,
   type GitInfo, type WorktreeRecord, type WorktreeRemoveOutcome, type WorktreeRemovePreview,
+  type HandoffText, type InstructionFiles, type InstructionTemplateResult, type OpenSideResult, type ReferenceBlock, type ReferenceTurns, type SideSessionMeta, type SideTranscript, type SkillList,
   type CompactChatResult, type CompactionSnapshot, type ForkReconcile, type ForkResult, type OpReconcile, type ParityOp, type ReviewChoices, type ReviewDelivery, type ReviewOutcome, type ReviewTarget,
 } from "./types";
 
@@ -202,3 +203,29 @@ export const previewRemoveWorktree = (id: LocalId): Promise<WorktreeRemovePrevie
 /** 削除。force は未コミット変更の破棄（2段目の確認の後だけ）。deleteBranch はマージ済みのときだけブランチも削除。 */
 export const removeWorktree = (id: LocalId, force: boolean, deleteBranch: boolean): Promise<WorktreeRemoveOutcome> =>
   invokeCmd("remove_worktree", { id, force, deleteBranch });
+
+// ── 過去会話の参考指定・Skills・指示ファイル・side相談（段階③ P3-4）。参考・一覧・確認は読取りのみ（resumeしない）。 ──
+/** 参考にできるturnの一覧（古い順。読取りのみ。取得できなければエラー）。 */
+export const listReferenceTurns = (chat: ChatKey): Promise<ReferenceTurns> => invokeCmd("list_reference_turns", { chat });
+/** 選んだturnの抜粋（原文のまま。取得できなかったturnは missing と本文の「未取得」で示す）。入力欄へ入れるだけで、自動送信しない。 */
+export const buildReference = (chat: ChatKey, turns: ExternalId[]): Promise<ReferenceBlock> => invokeCmd("build_reference", { chat, turns });
+/** 作業フォルダのSkill一覧（読取りのみ）。forceReload はディスクの再走査（明示操作のときだけ）。 */
+export const listSkills = (chat: ChatKey, forceReload: boolean): Promise<SkillList> => invokeCmd("list_skills", { chat, forceReload });
+/** Skillを入力欄の指定（チップ）にする（コピーしない。送信時に明示呼出しの入力になる）。 */
+export const addSkillAttachment = (chat: ChatKey, name: string, path: string): Promise<AttachmentEntry> => invokeCmd("add_skill_attachment", { chat, name, path });
+/** 指示ファイル（AGENTS.md等）の確認（読取りのみ）。読み込み済みの一覧は、会話を開始・再開・分岐した応答にだけ載る（なければ未取得）。 */
+export const getInstructionFiles = (chat: ChatKey): Promise<InstructionFiles> => invokeCmd("get_instruction_files", { chat });
+/** AGENTS.md の雛形の作成（確認の後だけ。既存があれば blocked.alreadyExists で何も書かない）。 */
+export const createInstructionTemplate = (chat: ChatKey): Promise<InstructionTemplateResult> => invokeCmd("create_instruction_template", { chat });
+/** 指示ファイルを関連アプリで開く（ユーザー操作のときだけ。その会話の指示ファイルとして確認できたパスだけ）。 */
+export const openInstructionFile = (chat: ChatKey, path: string): Promise<null> => invokeCmd("open_instruction_file", { chat, path });
+/** side相談を開く（読取り専用の一時の分岐）。unknown は開けたか不明（再送しない）。 */
+export const openSide = (chat: ChatKey): Promise<OpenSideResult> => invokeCmd("open_side", { chat });
+/** sideへ送る（再送しない）。unknown は受理を確認できない。 */
+export const sendSide = (side: LocalId, text: string): Promise<OpAck> => invokeCmd("send_side", { side, text });
+/** 相談を閉じる。実行中は interrupt=true（確認のうえ）のときだけ閉じる。 */
+export const closeSide = (side: LocalId, interrupt: boolean): Promise<SideSessionMeta> => invokeCmd("close_side", { side, interrupt });
+/** 相談の記録（確定した発言。閉じた後は保存した記録を読み取り専用で返す）。 */
+export const readSide = (side: LocalId): Promise<SideTranscript> => invokeCmd("read_side", { side });
+/** 選んだ発言を主会話へ渡す引用ブロック（入力欄へ入れるだけで、自動送信しない）。entries は SideTranscript.entries の添字。 */
+export const handoffSide = (side: LocalId, entries: number[]): Promise<HandoffText> => invokeCmd("handoff_side", { side, entries });

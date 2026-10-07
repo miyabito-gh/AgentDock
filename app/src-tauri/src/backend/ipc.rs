@@ -693,6 +693,185 @@ pub struct CompactionSnapshot {
     pub turns: Vec<TurnRecord>,
 }
 
+// ───────────────────────────── 参考指定・Skills・指示ファイル・side相談（段階③ P3-4） ─────────────────────────────
+
+/// 参考にできる過去のturn1件（一覧用。本文は `build_reference` で取り出す）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct ReferenceTurn {
+    pub turn: ExternalId,
+    /// ユーザー依頼の先頭（1行・短縮。本文の要約ではなく、選ぶための目印）。
+    pub user_preview: String,
+    pub has_agent_text: bool,
+    /// このturnの本文を全部取得できているか。
+    pub complete: bool,
+}
+
+/// 参考にできるturnの一覧（古い順）。履歴の読取りだけで作る（再開しない）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct ReferenceTurns {
+    pub title: String,
+    pub turns: Vec<ReferenceTurn>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct BuildReferenceArgs {
+    pub chat: ChatKey,
+    /// 抜粋するturn（古い順で渡す）。
+    pub turns: Vec<ExternalId>,
+}
+
+/// 入力欄へ挿入する参考ブロック。要約はしない。`missing` は取得できなかったturn（本文中にも「未取得」と書く）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct ReferenceBlock {
+    pub text: String,
+    pub chars: u32,
+    pub missing: Vec<ExternalId>,
+    /// 長すぎる（警告するだけで止めない）。
+    pub over_limit: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct ListSkillsArgs {
+    pub chat: ChatKey,
+    /// ディスクの再走査（明示操作のときだけ）。
+    pub force_reload: bool,
+}
+
+/// Skillを入力欄の指定（チップ）にする。`path` は一覧が示したSkill定義のパス。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct AddSkillArgs {
+    pub chat: ChatKey,
+    pub name: String,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct InstructionFileEntry {
+    pub path: String,
+    /// 実在確認（読取りのみ）。
+    pub exists: Known<bool>,
+}
+
+/// 指示ファイル（AGENTS.md等）の確認。`sources` は、この接続でCodexが応答に示した読み込み済みの指示ファイル
+/// （会話を開始・再開・分岐したときの応答にだけ載る。まだなら未取得。読むためにresumeしない）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct InstructionFiles {
+    pub cwd: Known<String>,
+    pub sources: Known<Vec<InstructionFileEntry>>,
+    /// 作業フォルダ直下に `AGENTS.md` があるか（雛形を作れるかの判断用）。
+    pub agents_md_exists: Known<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct InstructionTemplateResult {
+    pub path: String,
+}
+
+/// 指示ファイルを関連アプリで開く。開けるのは、その会話の指示ファイルとして確認できたパス（読み込み済みの一覧、または作業フォルダ直下の AGENTS.md）だけ。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OpenInstructionFileArgs {
+    pub chat: ChatKey,
+    pub path: String,
+}
+
+/// side相談を開いた結果。`Unknown` のときは開けたか不明（再送しない。閉じて開き直すかはユーザーが決める）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OpenSideResult {
+    pub ack: OpAck,
+    pub side: Option<SideSessionMeta>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct SideIdArgs {
+    pub side: LocalId,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct SendSideArgs {
+    pub side: LocalId,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct CloseSideArgs {
+    pub side: LocalId,
+    /// 実行中のとき、中断を要求して閉じる（確認のうえで）。偽なら実行中は閉じない。
+    pub interrupt: bool,
+}
+
+/// side相談の表示用の記録（確定した発言だけ。実行中の逐次本文は含まない）。`running` はいま作業中か。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct SideTranscript {
+    pub side: SideSessionMeta,
+    pub entries: Vec<SideEntry>,
+    pub running: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct HandoffSideArgs {
+    pub side: LocalId,
+    /// 渡す発言（`SideTranscript.entries` の添字。古い順で渡す）。
+    pub entries: Vec<u32>,
+}
+
+/// 主会話の入力欄へ挿入する引用ブロック（自動送信しない）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct HandoffText {
+    pub text: String,
+    pub chars: u32,
+}
+
 // ───────────────────────────── ホスト→UIイベント ─────────────────────────────
 
 /// UIへの差分イベント。状態と鮮度は `AgentView` に並置して送り、UIは片方からもう片方を導かない。
@@ -734,6 +913,8 @@ pub enum HostEvent {
     AttachmentUpdated { entry: AttachmentEntry },
     /// 成果物の追加・実在確認の更新（1件分で置き換える）。
     ArtifactUpdated { entry: ArtifactEntry },
+    /// side相談の記録の更新（開いた・閉じた・終了。1件分で置き換える）。
+    SideUpdated { side: SideSessionMeta },
     /// 通知を開いた操作（トレイ・通知クリック）。該当チャットを表示するだけで、回答・再実行はしない。
     NavigateToChat { chat: ChatKey },
     /// 完全終了の進行（確認・停止照合・保存・保存失敗）。閉じる操作（トレイ格納）では出ない。

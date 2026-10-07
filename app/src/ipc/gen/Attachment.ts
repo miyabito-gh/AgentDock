@@ -9,4 +9,8 @@ export type Attachment = { id: LocalId, kind: AttachmentKind,
 /**
  * 元パス（参照のみ。削除しない）。
  */
-originalPath: string, copyPath: string | null, attachedAt: UnixMillis, exists: Known<boolean>, ownerChat: ChatKey, };
+originalPath: string, copyPath: string | null, attachedAt: UnixMillis, exists: Known<boolean>, ownerChat: ChatKey, 
+/**
+ * Skillの名前（`kind` が `Skill` のときだけ。他は None）。パスは `original_path` に入る。
+ */
+name: string | null, };

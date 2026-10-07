@@ -147,6 +147,8 @@ export function applyHostEvent(b: Bundle, e: HostEvent): Bundle {
       return set({ attachments: upsert(s.attachments, e.entry, (a) => a.id === e.entry.id) });
     case "artifactUpdated":
       return set({ artifacts: upsert(s.artifacts, e.entry, (a) => a.id === e.entry.id) });
+    case "sideUpdated": // side相談の記録の1件（開いた・閉じた・終了）
+      return set({ sideSessions: upsert(s.sideSessions, e.side, (x) => x.id === e.side.id) });
     case "worktreeUpdated": // worktree台帳の1件（record=null は記録を外した）
       return set({ worktrees: e.record ? upsert(s.worktrees, e.record, (w) => w.id === e.id) : s.worktrees.filter((w) => w.id !== e.id) });
     case "settingsUpdated":

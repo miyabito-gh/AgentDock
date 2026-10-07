@@ -557,3 +557,85 @@ pub async fn remove_worktree(host: Hs<'_>, args: crate::backend::worktree::Remov
     let confirmed = UserConfirmed::from_user_command();
     host.inner().clone().remove_worktree(args, &confirmed).await
 }
+
+// ───────────── 参考指定・Skills・指示ファイル・side相談（P3-4） ─────────────
+
+/// 参考にできる過去のturnの一覧（読取りのみ。resumeしない）。
+#[tauri::command]
+pub async fn list_reference_turns(host: Hs<'_>, args: ChatArgs) -> R<ReferenceTurns> {
+    host.inner().clone().list_reference_turns(args).await
+}
+
+/// 選んだturnの抜粋（読取りのみ。入力欄へ入れるのはUI。自動送信・要約はしない）。
+#[tauri::command]
+pub async fn build_reference(host: Hs<'_>, args: BuildReferenceArgs) -> R<ReferenceBlock> {
+    host.inner().clone().build_reference(args).await
+}
+
+/// 作業フォルダのSkill一覧（読取りのみ）。
+#[tauri::command]
+pub async fn list_skills(host: Hs<'_>, args: ListSkillsArgs) -> R<crate::backend::parity::SkillList> {
+    host.inner().clone().list_skills(args).await
+}
+
+/// Skillを入力欄の指定（チップ）にする（コピーしない。送信時に明示呼出しになる）。
+#[tauri::command]
+pub async fn add_skill_attachment(host: Hs<'_>, args: AddSkillArgs) -> R<AttachmentEntry> {
+    host.inner().clone().add_skill_attachment(args).await
+}
+
+/// 指示ファイル（AGENTS.md等）の確認（読取りのみ）。
+#[tauri::command]
+pub async fn get_instruction_files(host: Hs<'_>, args: ChatArgs) -> R<InstructionFiles> {
+    host.inner().clone().get_instruction_files(args).await
+}
+
+/// 指示ファイルを関連アプリで開く（ユーザー操作のときだけ。その会話の指示ファイルとして確認できたパスだけ）。
+#[tauri::command]
+pub async fn open_instruction_file(app: tauri::AppHandle, host: Hs<'_>, args: OpenInstructionFileArgs) -> R<()> {
+    use tauri_plugin_opener::OpenerExt;
+    let path = host.inner().clone().resolve_instruction_file(&args).await?;
+    app.opener()
+        .open_path(path.to_string_lossy(), None::<&str>)
+        .map_err(|e| IpcError { code: IpcErrorCode::Io, message: format!("開けませんでした: {e}"), blocked: None })
+}
+
+/// AGENTS.md の雛形の作成。確認画面の後のユーザー操作だけが呼ぶ（新規作成のみ。既存があれば `alreadyExists` で何も書かない）。
+#[tauri::command]
+pub async fn create_instruction_template(host: Hs<'_>, args: ChatArgs) -> R<InstructionTemplateResult> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().create_instruction_template(args, &confirmed).await
+}
+
+/// side相談を開く（読取り専用の一時の分岐）。ユーザー操作だけが呼ぶ。
+#[tauri::command]
+pub async fn open_side(host: Hs<'_>, args: ChatArgs) -> R<OpenSideResult> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().open_side(args, &confirmed).await
+}
+
+/// sideへの送信（再送しない）。
+#[tauri::command]
+pub async fn send_side(host: Hs<'_>, args: SendSideArgs) -> R<OpAck> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().send_side(args, &confirmed).await
+}
+
+/// side相談を閉じる。実行中は `interrupt` を確認したうえでだけ閉じる。
+#[tauri::command]
+pub async fn close_side(host: Hs<'_>, args: CloseSideArgs) -> R<SideSessionMeta> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().close_side(args, &confirmed).await
+}
+
+/// side相談の記録（確定した発言。閉じた後は読み取り専用の記録）。
+#[tauri::command]
+pub async fn read_side(host: Hs<'_>, args: SideIdArgs) -> R<SideTranscript> {
+    host.inner().clone().read_side(args).await
+}
+
+/// 選んだ発言を、主会話の入力欄へ入れる引用ブロックにする（自動送信しない）。
+#[tauri::command]
+pub async fn handoff_side(host: Hs<'_>, args: HandoffSideArgs) -> R<HandoffText> {
+    host.inner().clone().handoff_side(args).await
+}

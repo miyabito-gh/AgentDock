@@ -10,12 +10,14 @@
 pub mod attachments;
 pub mod changes;
 pub mod chat_prefs;
+pub mod compose;
 pub mod lifecycle;
 pub mod manage;
 pub mod notifier;
 pub mod pending_ops;
 pub mod persist;
 pub mod queue_driver;
+pub mod side;
 pub mod state;
 pub mod stop;
 pub mod thread_ops;
@@ -168,6 +170,8 @@ pub struct Host {
     changes_rt: changes::ChangesRuntime,
     /// worktreeの作成・削除（`worktree.rs`）。
     worktree_rt: worktree::WorktreeRuntime,
+    /// side相談の開いている会話の記録（`side.rs`）。
+    side_rt: side::SideRuntime,
 }
 
 impl Host {
@@ -190,6 +194,7 @@ impl Host {
             manage_rt: manage::ManageRuntime::default(),
             changes_rt: changes::ChangesRuntime::default(),
             worktree_rt: worktree::WorktreeRuntime::default(),
+            side_rt: side::SideRuntime::default(),
         }
     }
 
@@ -263,6 +268,8 @@ impl Host {
             let (events, follow) = d.apply_event(env, &caps);
             (follow, events)
         });
+        // side相談の発言の記録・切断による終了（状態の判定には使わない）。
+        self.side_observe(&env.event);
         if !matches!(env.event, BackendEvent::Activity { .. } | BackendEvent::ActivityDelta { .. } | BackendEvent::ArtifactObserved { .. } | BackendEvent::TurnChangesUpdated { .. } | BackendEvent::FileChangeObserved { .. }) {
             self.kick_queue();
         }

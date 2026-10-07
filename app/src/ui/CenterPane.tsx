@@ -261,6 +261,11 @@ function Thumb({ target, name, load }: { target: FileRef; name: string; load: Fi
 /** 添付の状態の表示。コピーできていないもの・実体がないものは、使えると言わない。 */
 function attachmentStatus(a: AttachmentEntry): { text: string; bad: boolean } {
   const s = a.state;
+  // Skillの指定はコピーしない参照。コピー済みとは書かない。
+  if (a.source.kind === "skill") {
+    if (s.kind === "ready") return { text: "Skill・コピーなし（送信時に明示的に呼び出します）", bad: false };
+    if (s.kind === "missing") return { text: "Skillの定義ファイルが見つかりません（欠損）", bad: true };
+  }
   switch (s.kind) {
     case "copying": return { text: "コピー中…", bad: false };
     case "ready": return { text: `コピー済み　${hms(a.attachedAt)}`, bad: false };
@@ -286,8 +291,8 @@ function FilesBlock({ sent, artifacts, files }: { sent: AttachmentEntry[]; artif
             <div className="frow" key={a.id}>
               {a.kind === "image" && a.state.kind === "ready" ? <Thumb target={target} name={a.displayName} load={files.preview} /> : <Icon name="clip" />}
               <div className="grow"><b>{a.displayName}</b>　<span className="st">添付・{st.text}</span></div>
-              <button className="small" disabled={st.bad || a.state.kind !== "ready"} onClick={() => files.open(target)}>開く</button>
-              <button className="small" disabled={st.bad || a.state.kind !== "ready"} onClick={() => files.save(target, a.displayName)}>名前を付けて保存…</button>
+              <button className="small" disabled={st.bad || a.state.kind !== "ready" || a.kind === "skill"} onClick={() => files.open(target)}>開く</button>
+              <button className="small" disabled={st.bad || a.state.kind !== "ready" || a.kind === "skill"} onClick={() => files.save(target, a.displayName)}>名前を付けて保存…</button>
             </div>
           );
         })}
@@ -385,7 +390,7 @@ function optClass(o: DecisionOption, first: boolean): string {
   return first ? "btn-main" : "btn-line";
 }
 
-function RequestCard({ r, onRespond }: { r: PendingRequest; onRespond: CenterProps["onRespond"] }) {
+export function RequestCard({ r, onRespond }: { r: PendingRequest; onRespond: CenterProps["onRespond"] }) {
   const isQuestion = r.kind.kind === "userInput" || r.kind.kind === "toolElicitation";
   const d = r.detail;
   return (
@@ -574,7 +579,7 @@ function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock
                 <span key={f.id} className={`chip ${st.bad ? "bad" : ""}`}>
                   {f.kind === "image" && f.state.kind === "ready" ? <Thumb target={target} name={f.displayName} load={p.files.preview} /> : <Icon name="clip" />}
                   <span>{f.displayName}</span><span className="st">{st.text}</span>
-                  {f.state.kind === "ready" ? <button className="small" aria-label={`${f.displayName}を関連アプリで開く`} onClick={() => p.files.open(target)}>開く</button> : null}
+                  {f.state.kind === "ready" && f.kind !== "skill" ? <button className="small" aria-label={`${f.displayName}を関連アプリで開く`} onClick={() => p.files.open(target)}>開く</button> : null}
                   <button aria-label={`${f.displayName}を取り外す`} disabled={f.state.kind === "copying"} onClick={() => p.files.remove(f.id)}><Icon name="x" /></button>
                 </span>
               );

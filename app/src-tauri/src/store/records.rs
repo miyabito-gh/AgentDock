@@ -94,6 +94,19 @@ pub struct CompactionFile {
     pub turns: Vec<TurnRecord>,
 }
 
+/// side相談の確定した発言の記録（`chats\<dirId>\side\<id>.json`）。AgentDock保存・表示専用で、バックエンドへは戻さない。
+/// 閉じた後・再起動後は「終了（再開不可）」の読取り専用の記録として開く。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SideFile {
+    pub schema_version: u32,
+    pub id: LocalId,
+    pub main: ChatKey,
+    pub thread: ChatKey,
+    pub opened_at: UnixMillis,
+    pub entries: Vec<SideEntry>,
+}
+
 /// 接続前の一覧表示用。鮮度は常に「切断」として扱い、状態の根拠にしない。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -269,7 +282,7 @@ mod tests {
         f.memory_mode = Some("raw-mode".into());
         f.review_of = Some(key());
         f.fork_of = Some(ForkOrigin { chat: key(), through_turn: Some(ExternalId("turn-2".into())) });
-        f.side_sessions.push(SideSessionMeta { id: LocalId("s1".into()), main: key(), thread: key(), state: SideState::Ended { reason: "closed".into() } });
+        f.side_sessions.push(SideSessionMeta { id: LocalId("s1".into()), main: key(), thread: key(), state: SideState::Ended { reason: "closed".into() }, opened_at: Some(UnixMillis(5)) });
         f.worktree = Some(LocalId("w1".into()));
         f.pending_ops.push(PendingOp { id: LocalId("op-1".into()), op: ParityOp::Compact, since: UnixMillis(7) });
         f.model = Some(ModelChoice { model: "m".into(), effort: None, speed_tier: Some("fast".into()) });

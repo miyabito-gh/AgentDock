@@ -53,7 +53,7 @@ fn failed_before_dispatch(e: &BackendError) -> bool {
 }
 
 impl Host {
-    fn require_op(&self, op: ParityOp) -> Result<(), IpcError> {
+    pub(super) fn require_op(&self, op: ParityOp) -> Result<(), IpcError> {
         let cap = self.backend.capabilities().ops.into_iter().find(|c| c.op == op);
         if cap.is_some_and(|c| c.support == Support::Supported) {
             return Ok(());
@@ -81,7 +81,7 @@ impl Host {
     }
 
     /// チャットの表示名（名前、なければ最初の依頼の先頭）。
-    fn chat_title(&self, chat: &ChatKey) -> String {
+    pub(super) fn chat_title(&self, chat: &ChatKey) -> String {
         self.read(|d| {
             d.chat(chat).and_then(|c| match c.name.value() {
                 Some(n) if !n.trim().is_empty() => Some(n.clone()),

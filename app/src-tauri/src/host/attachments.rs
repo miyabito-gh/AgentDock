@@ -46,7 +46,7 @@ impl Host {
 
     /// チャットの補足情報を更新する（なければ作る）。保存は呼び出し側が依頼する。
     /// 返したイベントがあれば、補足情報の更新（`chatLocalUpdated`）も続けて出す。
-    fn edit_local<R>(&self, chat: &ChatKey, f: impl FnOnce(&mut ChatLocalFile) -> (R, Vec<HostEvent>)) -> R {
+    pub(super) fn edit_local<R>(&self, chat: &ChatKey, f: impl FnOnce(&mut ChatLocalFile) -> (R, Vec<HostEvent>)) -> R {
         let dir_id = self.persist.dir_id_for(chat);
         self.mutate(|d| {
             let file = d.locals.entry(chat.clone()).or_insert_with(|| ChatLocalFile::new(dir_id, Some(chat.clone())));
@@ -58,12 +58,12 @@ impl Host {
         })
     }
 
-    fn save_soon(self: &Arc<Self>, chat: &ChatKey) {
+    pub(super) fn save_soon(self: &Arc<Self>, chat: &ChatKey) {
         self.schedule_save(SaveScope::ChatLocal { chat: chat.clone() }, Duration::ZERO);
     }
 
     /// 添付を台帳へ追加または置き換える。`to_draft` なら送信前の添付にも加える。
-    fn upsert_attachment(&self, chat: &ChatKey, entry: AttachmentEntry, to_draft: bool) {
+    pub(super) fn upsert_attachment(&self, chat: &ChatKey, entry: AttachmentEntry, to_draft: bool) {
         self.edit_local(chat, |f| {
             match f.attachments.iter_mut().find(|a| a.id == entry.id) {
                 Some(old) => *old = entry.clone(),
@@ -210,7 +210,7 @@ impl Host {
             let missing: Vec<LocalId> = atts
                 .iter()
                 .filter(|a| a.state == AttachmentState::Ready)
-                .filter(|a| a.copy_path.as_deref().is_none_or(|p| attach::check_exists(Path::new(p)) == Known::direct(false)))
+                .filter(|a| attach::backing_path(a).is_none_or(|p| attach::check_exists(Path::new(p)) == Known::direct(false)))
                 .map(|a| a.id.clone())
                 .collect();
             let checked: Vec<(LocalId, Known<bool>)> = arts.iter().map(|a| (a.id.clone(), attach::check_exists(Path::new(&a.path)))).collect();
@@ -422,7 +422,7 @@ impl Host {
         let entries = self.ledger_entries(chat, ids)?;
         let gone: Vec<LocalId> = entries
             .iter()
-            .filter(|e| e.state == AttachmentState::Ready && e.copy_path.as_deref().is_none_or(|p| attach::check_exists(Path::new(p)) != Known::direct(true)))
+            .filter(|e| e.state == AttachmentState::Ready && attach::backing_path(e).is_none_or(|p| attach::check_exists(Path::new(p)) != Known::direct(true)))
             .map(|e| e.id.clone())
             .collect();
         if let Some(first) = gone.first().cloned() {

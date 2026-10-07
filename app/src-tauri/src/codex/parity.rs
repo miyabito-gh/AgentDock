@@ -47,11 +47,12 @@ const DECLARED: [Declared; 20] = [
     done(ParityOp::WorkMode, OpRoute::BackendApi, Support::Experimental),
     done(ParityOp::Fork, OpRoute::BackendApi, Support::Supported),
     done(ParityOp::Compact, OpRoute::BackendApi, Support::Supported),
-    d(ParityOp::ReferenceChat, OpRoute::AppManaged, Support::Supported),
+    // P3-4: 過去会話の参考指定（AgentDock管理・履歴の読取りだけ）、side相談（一時fork）、Skills、指示ファイル。確認状況は未確認（Skillsの明示呼出しだけ実測済み）。
+    done(ParityOp::ReferenceChat, OpRoute::AppManaged, Support::Supported),
     done(ParityOp::Goal, OpRoute::BackendApi, Support::Supported),
-    d(ParityOp::SideChat, OpRoute::BackendApi, Support::Supported),
-    d(ParityOp::Skills, OpRoute::BackendApi, Support::Supported),
-    d(ParityOp::InstructionFiles, OpRoute::BackendApi, Support::Supported),
+    done(ParityOp::SideChat, OpRoute::BackendApi, Support::Supported),
+    done(ParityOp::Skills, OpRoute::BackendApi, Support::Supported),
+    done(ParityOp::InstructionFiles, OpRoute::BackendApi, Support::Supported),
     d(ParityOp::ToolServers, OpRoute::BackendApi, Support::Supported),
     d(ParityOp::Extensions, OpRoute::CliHelper, Support::Supported),
     d(ParityOp::CloudDelegation, OpRoute::CliHelper, Support::Experimental),
@@ -97,7 +98,12 @@ impl ParityOps for CodexBackend {
     async fn fork_chat(&self, chat: ChatKey, params: ForkParams, _confirmed: &UserConfirmed) -> BackendResult<ForkOutcome> {
         match self.call("thread/fork", fork_params_json(&chat.id.0, &params), WRITE_TIMEOUT).await {
             Ok(r) => Ok(match forked_thread_id(&r) {
-                Some(id) => ForkOutcome { ack: OpAck::Accepted, chat: Some(chat_key(id)) },
+                Some(id) => {
+                    let forked = chat_key(id);
+                    // 分岐先の読み込まれた指示ファイル（応答が示していれば覚える。後で確認画面に出す）。
+                    self.note_instruction_sources(&forked, &r);
+                    ForkOutcome { ack: OpAck::Accepted, chat: Some(forked) }
+                }
                 None => ForkOutcome { ack: OpAck::Unknown { message: "分岐の応答から、新しい会話を特定できませんでした".into() }, chat: None },
             }),
             Err(BackendError::Rejected { message, .. }) => Ok(ForkOutcome { ack: OpAck::Rejected { message }, chat: None }),
@@ -141,11 +147,17 @@ impl ParityOps for CodexBackend {
     }
 
     // ── Skills・指示ファイル（P3-4） ──
-    async fn list_skills(&self, _cwd: String, _force_reload: bool) -> BackendResult<Vec<SkillInfo>> {
-        unsupported(ParityOp::Skills)
+    /// 作業フォルダのSkillを一覧する（読取りのみ。`forceReload` は明示操作のときだけ）。
+    async fn list_skills(&self, cwd: String, force_reload: bool) -> BackendResult<SkillList> {
+        let r = self.call("skills/list", json!({"cwds": [cwd], "forceReload": force_reload}), READ_TIMEOUT).await?;
+        skill_list_of(&r).ok_or_else(|| BackendError::Protocol { message: "skills/list: unexpected response shape".into() })
     }
-    async fn instruction_sources(&self, _chat: ChatKey) -> BackendResult<Known<Vec<String>>> {
-        unsupported(ParityOp::InstructionFiles)
+    /// この接続で、start・resume・forkの応答が示した指示ファイル。読むためにresumeしないので、まだ示されていなければ未取得。
+    async fn instruction_sources(&self, chat: ChatKey) -> BackendResult<Known<Vec<String>>> {
+        Ok(match self.instruction_sources_seen(&chat) {
+            Some(list) => Known::direct(list),
+            None => Known::NotFetched,
+        })
     }
 
     // ── ツールサーバー・拡張（P3-5） ──
@@ -271,6 +283,39 @@ pub fn fork_params_json(thread_id: &str, p: &ForkParams) -> Value {
 /// `thread/fork` の応答の、新しい会話のID。
 pub fn forked_thread_id(r: &Value) -> Option<&str> {
     r.get("thread")?.get("id")?.as_str().filter(|s| !s.is_empty())
+}
+
+/// `skills/list` の応答 → Skill一覧。複数の作業フォルダの項目を連結する（同じ定義ファイルは1件）。
+/// 名前・定義ファイルのパスが読めないSkillは捨てずに errors へ出す。説明・scope・有効は欠けたら未取得（空・既定値にしない）。
+pub fn skill_list_of(r: &Value) -> Option<SkillList> {
+    let mut out = SkillList::default();
+    for entry in r.get("data")?.as_array()? {
+        for s in entry.get("skills").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default() {
+            let name = s.get("name").and_then(Value::as_str).filter(|n| !n.is_empty());
+            let path = s.get("path").and_then(Value::as_str).filter(|p| !p.is_empty());
+            let (Some(name), Some(path)) = (name, path) else {
+                out.errors.push("名前または定義ファイルの場所を読めないSkillがありました".into());
+                continue;
+            };
+            if out.skills.iter().any(|x| x.path == path) {
+                continue;
+            }
+            out.skills.push(SkillInfo {
+                name: name.to_string(),
+                description: s.get("description").and_then(Value::as_str).map(|d| Known::direct(d.to_string())).unwrap_or(Known::NotFetched),
+                scope: s.get("scope").and_then(Value::as_str).map(|d| Known::direct(d.to_string())).unwrap_or(Known::NotFetched),
+                enabled: s.get("enabled").and_then(Value::as_bool).map(Known::direct).unwrap_or(Known::NotFetched),
+                path: path.to_string(),
+                errors: Vec::new(),
+            });
+        }
+        for e in entry.get("errors").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default() {
+            let path = e.get("path").and_then(Value::as_str).unwrap_or("（場所不明）");
+            let message = e.get("message").and_then(Value::as_str).unwrap_or("（内容不明）");
+            out.errors.push(format!("{path}: {message}"));
+        }
+    }
+    Some(out)
 }
 
 /// 状態を変える要求の結果を `OpAck` にする。明示拒否は `Rejected`、応答なしは `Unknown`（再送しない）。接続・非対応はエラーのまま。
@@ -485,8 +530,14 @@ mod tests {
     fn unimplemented_operations_are_unsupported_never_supported() {
         let caps = op_capabilities(Some("0.160.0"), true);
         assert_eq!(caps.len(), ParityOp::ALL.len());
-        // 実装済みの操作（P3-1: 変更の一覧・戻す、P3-2: レビュー・分岐・圧縮、P3-3: 計画／実行・Goal・状態・速度・memories）だけが対応。確認状況は未確認のまま。
+        // 実装済みの操作（P3-1: 変更の一覧・戻す、P3-2: レビュー・分岐・圧縮、P3-3: 計画／実行・Goal・状態・速度・memories、P3-4: 参考指定・side・Skills・指示ファイル）だけが対応。
+        // 確認状況は未確認のまま（Skillsの明示呼出しだけ実測済み）。
         let implemented = [
+            ParityOp::Worktree,
+            ParityOp::ReferenceChat,
+            ParityOp::SideChat,
+            ParityOp::Skills,
+            ParityOp::InstructionFiles,
             ParityOp::ChangeList,
             ParityOp::RevertChanges,
             ParityOp::CodeReview,
@@ -502,7 +553,8 @@ mod tests {
         for c in &caps {
             if implemented.contains(&c.op) {
                 assert_eq!(c.support, Support::Supported, "{:?}", c.op);
-                assert_eq!(c.verification, Verification::Unverified, "{:?}", c.op);
+                let expected = if c.op == ParityOp::Skills { Verification::Verified } else { Verification::Unverified };
+                assert_eq!(c.verification, expected, "{:?}", c.op);
                 assert!(c.note.is_none());
             } else {
                 assert_eq!(c.support, Support::Unsupported, "{:?}", c.op);
@@ -622,6 +674,28 @@ mod tests {
         assert_eq!(forked_thread_id(&json!({"thread": {"id": "n1"}})), Some("n1"));
         assert_eq!(forked_thread_id(&json!({"thread": {"id": ""}})), None);
         assert_eq!(forked_thread_id(&json!({})), None);
+    }
+
+    #[test]
+    fn skill_list_keeps_unreadable_entries_as_errors_and_never_invents_fields() {
+        let r = json!({"data": [{
+            "cwd": "C:/w",
+            "skills": [
+                {"name": "review", "description": "d", "path": "C:/s/review/SKILL.md", "scope": "repo", "enabled": true, "pluginId": null},
+                {"name": "bare", "path": "C:/s/bare/SKILL.md"},
+                {"name": "", "path": "C:/s/x/SKILL.md"},
+                {"name": "dup", "path": "C:/s/review/SKILL.md"}
+            ],
+            "errors": [{"path": "C:/s/bad/SKILL.md", "message": "bad yaml"}]
+        }]});
+        let l = skill_list_of(&r).unwrap();
+        assert_eq!(l.skills.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), vec!["review", "bare"], "unnamed and duplicate definitions are not listed twice");
+        assert_eq!(l.skills[0].scope, Known::direct("repo".to_string()));
+        assert_eq!(l.skills[1].description, Known::NotFetched);
+        assert_eq!(l.skills[1].enabled, Known::NotFetched, "a missing flag is not turned into false");
+        assert_eq!(l.errors.len(), 2);
+        assert!(l.errors.iter().any(|e| e == "C:/s/bad/SKILL.md: bad yaml"));
+        assert!(skill_list_of(&json!({})).is_none());
     }
 
     #[test]
