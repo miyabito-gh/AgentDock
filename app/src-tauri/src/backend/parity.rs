@@ -128,6 +128,8 @@ pub struct SkillList {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub enum ToolServerConnection {
     NotStarted,
@@ -141,6 +143,8 @@ pub enum ToolServerConnection {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub enum ToolServerAuth {
     NotLoggedIn,
@@ -152,6 +156,8 @@ pub enum ToolServerAuth {
 
 /// MCP相当のサーバー1件の状態（項目ごとに `Known`／列挙で持ち、一覧に出ることを会話への反映と扱わない、§4.4）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct ToolServerView {
     pub name: String,
@@ -162,17 +168,24 @@ pub struct ToolServerView {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct ExtensionView {
+    /// 管理操作に渡す識別子（`名前@提供元` など）。
     pub id: String,
+    pub name: String,
     pub installed: Known<bool>,
     pub enabled_in_config: Known<bool>,
+    /// 取得手段がない項目は未取得のまま（一覧に出ることを既存会話への反映と扱わない）。
     pub cache_present: Known<bool>,
     pub advertised_in_chat: Known<bool>,
 }
 
 /// 拡張・ツールサーバーの管理操作（CLI補助。ユーザーの明示確認の後だけ）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum ExtensionOp {
     Install { id: String },
@@ -181,21 +194,49 @@ pub enum ExtensionOp {
     RemoveToolServer { name: String },
 }
 
-/// 設定の前後照合の結果（自動rollbackはしない）。
+/// 設定の前後照合の結果（自動rollbackはしない）。キーは設定の項目名だけで、値は含めない。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum ConfigCompare {
+    /// 前後で設定に変化がない。
     Unchanged,
+    /// 変化はすべて、操作の対象の項目の下にある。
     ChangedAsExpected,
+    /// 操作の対象外の項目が変わっている。
     Unexpected { keys: Vec<String> },
+    /// 照合できなかった（設定を読めなかった等）。一致とは扱わない。
+    Unverified { reason: String },
+}
+
+/// CLIの実行結果の区分。タイムアウト・異常終了は「結果未確認」（成功・失敗のどちらにも変換しない）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum ExtensionOpStatus {
+    ExitedZero,
+    ExitedNonZero,
+    ResultUnconfirmed { reason: String },
+    /// 起動できなかった（実行していない）。
+    NotRun { reason: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct ExtensionOpResult {
+    pub status: ExtensionOpStatus,
     pub exit_code: Known<i32>,
     pub config_compare: ConfigCompare,
+    /// 設定ファイルの前後のハッシュ（変更の有無の照合用。内容は記録しない）。
+    pub config_hash_before: Known<String>,
+    pub config_hash_after: Known<String>,
+    /// 想定形式なら要約、そうでなければ原文の先頭（`summary_is_raw` が真）。
     pub output_summary: String,
+    pub summary_is_raw: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

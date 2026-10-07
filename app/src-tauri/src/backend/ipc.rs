@@ -17,7 +17,7 @@ use super::backend::{
 use super::local::{AppSettings, ArtifactEntry, AttachmentEntry, ChatLocalView, ChatQueue, QuitPhase, SaveScope, SaveStatus};
 use super::model::*;
 use super::changes::ListStatus;
-use super::parity::{Goal, GoalUpdate, MemoryStatus, ReviewTarget};
+use super::parity::{ExtensionOp, ExtensionOpResult, Goal, GoalUpdate, MemoryStatus, ReviewTarget, ToolServerView};
 
 /// ホスト→UIのイベント名（Tauri `emit` のチャネル）。
 pub const HOST_EVENT_CHANNEL: &str = "agentdock://host-event";
@@ -872,6 +872,106 @@ pub struct HandoffText {
     pub chars: u32,
 }
 
+// ───────────────────────────── MCP・Plugins（P3-5） ─────────────────────────────
+
+/// 認可（OAuth）の進行。完了通知で `Completed`、5分来なければ `CompletionUnconfirmed`（失敗とは言わない）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum ToolServerLoginState {
+    Waiting,
+    Completed { success: bool },
+    CompletionUnconfirmed,
+}
+
+/// ツールサーバー1件の認可の記録（URL・トークンは持たない）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct ToolServerLogin {
+    pub name: String,
+    pub state: ToolServerLoginState,
+    pub since: UnixMillis,
+}
+
+/// ツールサーバーの一覧。`servers` は「いま」のバックエンド側の状態で、既存の会話に反映済みという意味ではない。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct ToolServerList {
+    pub servers: Vec<ToolServerView>,
+    pub logins: Vec<ToolServerLogin>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct ToolServerNameArgs {
+    pub name: String,
+}
+
+/// 認可URL。UIが明示クリックのときだけ既定ブラウザで開く。ログ・診断・履歴に出さない（Debugにも出さない）。
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct ToolServerLoginStart {
+    pub authorization_url: String,
+}
+
+impl std::fmt::Debug for ToolServerLoginStart {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ToolServerLoginStart { authorization_url: <redacted> }")
+    }
+}
+
+/// 管理操作の実行。確認画面を経たユーザー操作だけが呼ぶ。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct ManageExtensionArgs {
+    pub op: ExtensionOp,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub enum ExtensionOpKind {
+    Install,
+    Remove,
+    AddToolServer,
+    RemoveToolServer,
+}
+
+/// 管理操作の記録1件（`extension-ops.jsonl`）。`result` がなければ「結果未確認」（開始の記録だけが残っている）。
+/// 起動コマンド・環境変数・認証情報・出力の原文は記録しない。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionOpRecord {
+    pub id: LocalId,
+    pub at: UnixMillis,
+    pub kind: ExtensionOpKind,
+    /// 対象の名前（プラグインの識別子またはサーバー名）。
+    pub target: String,
+    pub result: Option<ExtensionOpResult>,
+}
+
+/// `extension-ops.jsonl` の1行。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "line", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum ExtensionOpLine {
+    Started { id: LocalId, at: UnixMillis, kind: ExtensionOpKind, target: String },
+    Finished { id: LocalId, at: UnixMillis, result: ExtensionOpResult },
+}
+
 // ───────────────────────────── ホスト→UIイベント ─────────────────────────────
 
 /// UIへの差分イベント。状態と鮮度は `AgentView` に並置して送り、UIは片方からもう片方を導かない。
@@ -907,6 +1007,12 @@ pub enum HostEvent {
     WorktreeUpdated { id: LocalId, record: Option<WorktreeRecord> },
     /// 目標（Goal）の更新・解除（`goal=None` は解除）。UIが表示している分だけ置き換える。エージェント状態には使わない。
     GoalUpdated { chat: ChatKey, goal: Option<Goal> },
+    /// ツールサーバー（MCP）の起動状態が変わった通知（UIは表示中の一覧を取り直す。会話への反映の確認ではない）。
+    ToolServersChanged { name: String },
+    /// ツールサーバーの認可の進行（待機・完了・完了未確認）。URL・トークンは含めない。
+    ToolServerLoginUpdated { login: ToolServerLogin },
+    /// 拡張・ツールサーバーの管理操作の記録の追加・更新（1件分で置き換える）。
+    ExtensionOpUpdated { record: ExtensionOpRecord },
     /// 操作ごとの能力の出し直し（experimentalの拒否で非対応へ降格したときなど）。
     OpCapabilitiesUpdated { ops: Vec<OpCapability> },
     /// 添付の追加・コピーの進行・失敗・欠損の更新（1件分で置き換える）。

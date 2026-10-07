@@ -607,6 +607,58 @@ pub async fn create_instruction_template(host: Hs<'_>, args: ChatArgs) -> R<Inst
     host.inner().clone().create_instruction_template(args, &confirmed).await
 }
 
+// ───────────── MCP・Plugins（P3-5） ─────────────
+
+/// ツールサーバー（MCP）の一覧（読取りのみ）。表示は「いま」の状態で、既存会話への反映ではない。
+#[tauri::command]
+pub async fn list_tool_servers(host: Hs<'_>) -> R<ToolServerList> {
+    host.inner().clone().list_tool_servers().await
+}
+
+/// ツールサーバーの認可を始め、認可URLを返す（開くのはUIの明示クリックだけ。URLは記録しない）。
+#[tauri::command]
+pub async fn login_tool_server(host: Hs<'_>, args: ToolServerNameArgs) -> R<ToolServerLoginStart> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().login_tool_server(args, &confirmed).await
+}
+
+/// 設定の再読込みの要求（ボタンのときだけ。既存会話への反映は確認できない）。
+#[tauri::command]
+pub async fn reload_tool_servers(host: Hs<'_>) -> R<OpAck> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().reload_tool_servers(&confirmed).await
+}
+
+/// 認可URLを既定のブラウザで開く（UIの明示クリックのときだけ。http・httpsのURLだけ）。
+#[tauri::command]
+pub async fn open_authorization_url(app: tauri::AppHandle, url: String) -> R<()> {
+    use tauri_plugin_opener::OpenerExt;
+    let lower = url.to_ascii_lowercase();
+    if !(lower.starts_with("https://") || lower.starts_with("http://")) {
+        return Err(IpcError { code: IpcErrorCode::InvalidArgs, message: "http・https以外のURLは開きません".into(), blocked: None });
+    }
+    app.opener().open_url(url, None::<&str>).map_err(|_| IpcError { code: IpcErrorCode::Io, message: "ブラウザで開けませんでした".into(), blocked: None })
+}
+
+/// 拡張（Plugins）の一覧（読取りのみ）。
+#[tauri::command]
+pub async fn list_extensions(host: Hs<'_>) -> R<Vec<crate::backend::parity::ExtensionView>> {
+    host.inner().clone().list_extensions().await
+}
+
+/// 管理操作（導入・削除・サーバーの追加・削除）。確認画面の後のユーザー操作だけが呼ぶ。
+#[tauri::command]
+pub async fn manage_extension(host: Hs<'_>, args: ManageExtensionArgs) -> R<ExtensionOpRecord> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().manage_extension(args, &confirmed).await
+}
+
+/// 管理操作の記録（新しい順。終了の記録がないものは結果未確認）。
+#[tauri::command]
+pub async fn list_extension_ops(host: Hs<'_>) -> R<Vec<ExtensionOpRecord>> {
+    host.inner().clone().list_extension_ops().await
+}
+
 /// side相談を開く（読取り専用の一時の分岐）。ユーザー操作だけが呼ぶ。
 #[tauri::command]
 pub async fn open_side(host: Hs<'_>, args: ChatArgs) -> R<OpenSideResult> {

@@ -8,6 +8,7 @@ import { ParityBody } from "./ParityDialog";
 import { ChangesBody, RevertBody } from "./ChangesDialog";
 import { GoalBody, StatusBody } from "./PrefsDialogs";
 import { CompactBody, ForkBody, ReviewBody } from "./ThreadOpsDialogs";
+import { ExtensionsBody } from "./ExtensionsDialogs";
 import { InstructionBody, ReferenceBody, SkillsBody, type ComposeProps } from "./ComposeDialogs";
 import { WorkspaceChoice, WorktreesBody } from "./WorktreeDialogs";
 
@@ -133,7 +134,7 @@ function SettingsBody({ tab, enterMode, setEnterMode, top, source, models, exe, 
           <div className="field"><span>診断ログ</span><div><button className="btn-line" onClick={exe.openDiag}>診断ログの場所を開く</button></div><span className="note">%APPDATA%\com.agentdock.app\diag\diag.log。未対応の通知・項目の形（キー構造のみ。本文・認証情報は記録しません）と、子孫の走査結果などを記録します。</span></div>
         </>);
     }
-    case "mcp": return <p className="small muted">導入・有効・信頼・認証・接続・会話への反映を分けて表示します（T5以降で取得）。</p>;
+    case "mcp": return <ExtensionsBody live={compose.live} toolCap={opCaps.find((x) => x.op === "toolServers")} extCap={opCaps.find((x) => x.op === "extensions")} />;
     case "skills": {
       // 選んでいるチャットの作業フォルダのSkillと、読み込まれた指示ファイル（確認だけ。有効・無効の切替はしない）。
       const c = compose.chat;

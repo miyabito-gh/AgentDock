@@ -992,6 +992,8 @@ impl HostData {
             // 目標の更新・解除はUIが表示している分を置き換えるだけ。エージェント状態（§4.1）には流用しない。
             BackendEvent::GoalUpdated { chat, goal } => out.push(HostEvent::GoalUpdated { chat: chat.clone(), goal: goal.clone() }),
             BackendEvent::OpCapabilitiesChanged { ops } => out.push(HostEvent::OpCapabilitiesUpdated { ops: ops.clone() }),
+            // ツールサーバーの通知は、ホストの拡張管理（`extensions.rs`）が見る。エージェントの状態には使わない。
+            BackendEvent::ToolServerStatusChanged { .. } | BackendEvent::ToolServerLoginCompleted { .. } => {}
             BackendEvent::ModelRerouted { agent, effective, .. } => {
                 if let Some(chat) = self.view(agent).filter(|_| self.is_root(agent)).map(|v| v.agent.chat.clone()) {
                     let s = self.model_settings.entry(chat.clone()).or_insert_with(|| ChatModelSettings::blank(ApplyTiming::Unknown));

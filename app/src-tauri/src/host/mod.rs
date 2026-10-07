@@ -11,6 +11,7 @@ pub mod attachments;
 pub mod changes;
 pub mod chat_prefs;
 pub mod compose;
+pub mod extensions;
 pub mod lifecycle;
 pub mod manage;
 pub mod notifier;
@@ -172,6 +173,8 @@ pub struct Host {
     worktree_rt: worktree::WorktreeRuntime,
     /// side相談の開いている会話の記録（`side.rs`）。
     side_rt: side::SideRuntime,
+    /// MCP・Pluginsの管理操作の直列化と、認可の進行（`extensions.rs`）。
+    ext_rt: extensions::ExtensionsRuntime,
 }
 
 impl Host {
@@ -195,6 +198,7 @@ impl Host {
             changes_rt: changes::ChangesRuntime::default(),
             worktree_rt: worktree::WorktreeRuntime::default(),
             side_rt: side::SideRuntime::default(),
+            ext_rt: extensions::ExtensionsRuntime::default(),
         }
     }
 
@@ -270,6 +274,8 @@ impl Host {
         });
         // side相談の発言の記録・切断による終了（状態の判定には使わない）。
         self.side_observe(&env.event);
+        // ツールサーバー（MCP）の認可の完了・起動状態の通知（UIが取り直す合図）。
+        self.ext_observe(&env.event);
         if !matches!(env.event, BackendEvent::Activity { .. } | BackendEvent::ActivityDelta { .. } | BackendEvent::ArtifactObserved { .. } | BackendEvent::TurnChangesUpdated { .. } | BackendEvent::FileChangeObserved { .. }) {
             self.kick_queue();
         }

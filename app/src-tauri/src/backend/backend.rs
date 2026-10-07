@@ -19,7 +19,7 @@ use tokio::sync::mpsc;
 
 use super::changes::FileChange;
 use super::model::*;
-use super::parity::Goal;
+use super::parity::{Goal, ToolServerConnection};
 
 // ───────────────────────────── エラー ─────────────────────────────
 
@@ -88,6 +88,10 @@ pub enum BackendEvent {
     WorkModeAccepted { agent: AgentKey, mode: WorkMode },
     /// 目標（Goal）の更新・解除の通知。`goal=None` は解除。エージェント状態（§4.1）には流用しない。
     GoalUpdated { chat: ChatKey, goal: Option<Goal> },
+    /// ツールサーバー（MCP）の起動状態の通知。名前と状態だけを運ぶ（詳細文は運ばない）。会話への反映の確認ではない。
+    ToolServerStatusChanged { name: String, state: ToolServerConnection },
+    /// ツールサーバーの認可（ブラウザ側の操作）の完了通知。URL・トークン・エラー本文は運ばない。
+    ToolServerLoginCompleted { name: String, success: bool },
     /// 操作ごとの能力が実行時に変わった（experimentalの拒否による非対応への降格など）。
     OpCapabilitiesChanged { ops: Vec<OpCapability> },
     /// 未知のイベント・正規化できない内容。破棄せず警告として表示（M12）。

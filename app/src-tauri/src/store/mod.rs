@@ -356,6 +356,24 @@ impl Store {
         Ok(text.lines().filter_map(|l| serde_json::from_str::<ActivityLine>(l).ok()).collect())
     }
 
+    /// 拡張・ツールサーバーの管理操作の記録を1行追記する（ルートの `extension-ops.jsonl`。flushまで行う。空き確認つき）。
+    pub fn append_extension_op(&self, line: &crate::backend::ipc::ExtensionOpLine) -> Result<(), StoreError> {
+        let text = serde_json::to_string(line).map_err(|e| StoreError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, e)))?;
+        self.check_space(text.len() as u64 + 1)?;
+        atomic::append_line(&self.root.join(layout::EXTENSION_OPS_FILE), &text)?;
+        Ok(())
+    }
+
+    /// 管理操作の記録を古い順に読む。読めない行（途中で切れた最終行など）は飛ばす。
+    pub fn read_extension_ops(&self) -> Result<Vec<crate::backend::ipc::ExtensionOpLine>, StoreError> {
+        let text = match std::fs::read_to_string(self.root.join(layout::EXTENSION_OPS_FILE)) {
+            Ok(t) => t,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => return Err(StoreError::Io(e)),
+        };
+        Ok(text.lines().filter_map(|l| serde_json::from_str(l).ok()).collect())
+    }
+
     /// 変更の観測記録・戻しの記録を1行追記する（`changes.jsonl`。flushまで行う。空き確認つき）。
     pub fn append_change(&self, chat: &ChatKey, line: &ChangeLine) -> Result<(), StoreError> {
         let text = serde_json::to_string(line).map_err(|e| StoreError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, e)))?;

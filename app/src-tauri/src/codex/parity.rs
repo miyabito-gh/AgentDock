@@ -5,6 +5,7 @@
 //! 実装していない操作は、能力宣言も呼出しも `Unsupported`（成功を装わない）。
 
 use super::adapter::{CodexBackend, READ_TIMEOUT, WRITE_TIMEOUT};
+use super::cli::{config_toml_hash, summarize_output, CliCommand, CliError, OutputSummary};
 use super::convert::chat_key;
 use super::parity_table;
 use crate::backend::backend::*;
@@ -12,6 +13,7 @@ use crate::backend::model::*;
 use crate::backend::parity::*;
 use async_trait::async_trait;
 use serde_json::{json, Value};
+use std::collections::BTreeMap;
 use std::time::Duration;
 
 /// 状態表示の読取り1件あたりの待ち時間（取れなければその項目は未取得）。
@@ -53,8 +55,9 @@ const DECLARED: [Declared; 20] = [
     done(ParityOp::SideChat, OpRoute::BackendApi, Support::Supported),
     done(ParityOp::Skills, OpRoute::BackendApi, Support::Supported),
     done(ParityOp::InstructionFiles, OpRoute::BackendApi, Support::Supported),
-    d(ParityOp::ToolServers, OpRoute::BackendApi, Support::Supported),
-    d(ParityOp::Extensions, OpRoute::CliHelper, Support::Supported),
+    // P3-5: MCP（App Server）とPlugins（一覧は読取り、導入・削除はCLI補助）。確認状況は未確認のまま。
+    done(ParityOp::ToolServers, OpRoute::BackendApi, Support::Supported),
+    done(ParityOp::Extensions, OpRoute::CliHelper, Support::Supported),
     d(ParityOp::CloudDelegation, OpRoute::CliHelper, Support::Experimental),
     // P3-7: Git worktree（AgentDock管理）。確認状況は未確認のまま。
     done(ParityOp::Worktree, OpRoute::AppManaged, Support::Supported),
@@ -161,20 +164,96 @@ impl ParityOps for CodexBackend {
     }
 
     // ── ツールサーバー・拡張（P3-5） ──
+    /// 読取りのみ。接続状態は「いまのApp Server側の実行状態」で、既存の会話に反映済みという意味ではない。
     async fn list_tool_servers(&self) -> BackendResult<Vec<ToolServerView>> {
-        unsupported(ParityOp::ToolServers)
+        let mut out = Vec::new();
+        let mut cursor: Option<String> = None;
+        for _ in 0..MAX_STATUS_PAGES {
+            let mut params = json!({"detail": "toolsAndAuthOnly"});
+            if let Some(c) = &cursor {
+                params["cursor"] = json!(c);
+            }
+            let r = self.call("mcpServerStatus/list", params, READ_TIMEOUT).await?;
+            let data = r.get("data").and_then(Value::as_array).ok_or_else(|| BackendError::Protocol { message: "mcpServerStatus/list: unexpected response shape".into() })?;
+            for v in data {
+                out.push(tool_server_from_wire(v).ok_or_else(|| BackendError::Protocol { message: "mcpServerStatus/list: unexpected server shape".into() })?);
+            }
+            match r.get("nextCursor").and_then(Value::as_str) {
+                Some(c) => cursor = Some(c.to_string()),
+                None => return Ok(out),
+            }
+        }
+        // ページが多すぎて読み切れなかった。一部だけを全体として見せない。
+        Err(BackendError::Protocol { message: "mcpServerStatus/list: too many pages".into() })
     }
-    async fn login_tool_server(&self, _name: String, _confirmed: &UserConfirmed) -> BackendResult<String> {
-        unsupported(ParityOp::ToolServers)
+    /// 認可URLを返す。開くのはUIの明示クリックで、URLはログ・履歴に残さない。
+    async fn login_tool_server(&self, name: String, _confirmed: &UserConfirmed) -> BackendResult<String> {
+        let r = self.call("mcpServer/oauth/login", json!({"name": name}), WRITE_TIMEOUT).await?;
+        r.get("authorizationUrl")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .ok_or_else(|| BackendError::Protocol { message: "mcpServer/oauth/login: no authorization url".into() })
     }
+    /// ユーザーのボタンからだけ呼ぶ。受付は「設定を読み直す要求が受け付けられた」だけで、既存会話への反映は確認できない。
     async fn reload_tool_servers(&self, _confirmed: &UserConfirmed) -> BackendResult<OpAck> {
-        unsupported(ParityOp::ToolServers)
+        ack_of(self.call("config/mcpServer/reload", json!({}), WRITE_TIMEOUT).await)
     }
+    /// 読取りのみ（`plugin/installed`）。管理系のApp Server API（install・uninstall）は使わない。
     async fn list_extensions(&self) -> BackendResult<Vec<ExtensionView>> {
-        unsupported(ParityOp::Extensions)
+        let r = self.call("plugin/installed", json!({}), READ_TIMEOUT).await?;
+        extension_views_of(&r).ok_or_else(|| BackendError::Protocol { message: "plugin/installed: unexpected response shape".into() })
     }
-    async fn manage_extension(&self, _op: ExtensionOp, _confirmed: &UserConfirmed) -> BackendResult<ExtensionOpResult> {
-        unsupported(ParityOp::Extensions)
+    /// 導入・削除（CLI補助）。設定を前後で読み直して照合する。自動rollbackはしない。呼び出し側が確認済みで、アプリ内で直列化する。
+    /// CLIが終わらない・異常終了のときは `ResultUnconfirmed`（成功にも失敗にもしない）。
+    async fn manage_extension(&self, op: ExtensionOp, _confirmed: &UserConfirmed) -> BackendResult<ExtensionOpResult> {
+        let (command, scope) = cli_command_of(&op).map_err(|m| BackendError::Rejected { code: None, message: m })?;
+        self.client()?;
+        let Some(cli) = self.cli() else { return Err(BackendError::NotConnected) };
+        let _serial = self.ext_lock().await;
+        let hash_before = config_toml_hash();
+        let before = self.read_config().await;
+        let run = cli.run(&command, None).await;
+        if let Err(CliError::InvalidArgument(m)) = &run {
+            return Err(BackendError::Rejected { code: None, message: format!("引数が正しくありません: {m}") });
+        }
+        let hash_after = config_toml_hash();
+        let after = self.read_config().await;
+        let compare = if matches!(run, Err(CliError::Unavailable(_))) {
+            ConfigCompare::Unverified { reason: "CLIを実行していないため照合していません".into() }
+        } else {
+            judge_config(before.as_ref(), after.as_ref(), &hash_before, &hash_after, &scope)
+        };
+        let (status, exit_code, summary) = match run {
+            Ok(out) => {
+                let summary = summarize_output(&command, &String::from_utf8_lossy(&out.stdout), &String::from_utf8_lossy(&out.stderr));
+                match out.exit_code {
+                    Some(0) => (ExtensionOpStatus::ExitedZero, Known::direct(0), summary),
+                    Some(n) => (ExtensionOpStatus::ExitedNonZero, Known::direct(n), summary),
+                    None => (ExtensionOpStatus::ResultUnconfirmed { reason: "終了コードを取得できませんでした（異常終了）".into() }, Known::NotFetched, summary),
+                }
+            }
+            Err(CliError::Unavailable(m)) => {
+                let reason = format!("codex を起動できませんでした: {m}");
+                (ExtensionOpStatus::NotRun { reason: reason.clone() }, Known::NotFetched, OutputSummary { text: reason, is_raw: false })
+            }
+            Err(e) => {
+                let reason = match e {
+                    CliError::Timeout => "時間内に終わりませんでした".to_string(),
+                    CliError::OutputTooLarge(n) => format!("出力が {n} バイトを超えました"),
+                    other => format!("実行中に問題が起きました: {other}"),
+                };
+                (ExtensionOpStatus::ResultUnconfirmed { reason: reason.clone() }, Known::NotFetched, OutputSummary { text: reason, is_raw: false })
+            }
+        };
+        Ok(ExtensionOpResult {
+            status,
+            exit_code,
+            config_compare: compare,
+            config_hash_before: hash_before,
+            config_hash_after: hash_after,
+            output_summary: summary.text,
+            summary_is_raw: summary.is_raw,
+        })
     }
 
     // ── クラウド委任（P3-6） ──
@@ -236,6 +315,12 @@ impl ParityOps for CodexBackend {
 }
 
 impl CodexBackend {
+    /// `config/read` の `config`（読めなければ None。照合は「照合できなかった」になる）。
+    async fn read_config(&self) -> Option<Value> {
+        let r = self.call("config/read", json!({}), READ_TIMEOUT).await.ok()?;
+        r.get("config").filter(|c| c.is_object()).cloned()
+    }
+
     /// experimental API の呼出し。無効なら送らず非対応。拒否されたら能力を非対応へ降格して出し直す。
     async fn call_experimental(&self, op: ParityOp, method: &str, params: Value, timeout: Duration) -> BackendResult<Value> {
         if !self.experimental_enabled()? || !self.op_supported(op) {
@@ -522,6 +607,190 @@ pub fn memory_summary(v: &Value) -> Known<String> {
     }
 }
 
+// ───────────────────────────── ツールサーバー・拡張の変換（純粋、P3-5） ─────────────────────────────
+
+const MAX_STATUS_PAGES: usize = 20;
+/// 照合結果に載せる項目名の上限（超えた分は件数で示す）。
+const MAX_COMPARE_KEYS: usize = 20;
+
+pub fn tool_connection_from_wire(v: Option<&str>) -> ToolServerConnection {
+    match v {
+        Some("notStarted") => ToolServerConnection::NotStarted,
+        Some("starting") => ToolServerConnection::Starting,
+        Some("connected") => ToolServerConnection::Connected,
+        Some("authenticationRequired") => ToolServerConnection::AuthRequired,
+        Some("failed") => ToolServerConnection::Failed,
+        Some("cancelled") => ToolServerConnection::Cancelled,
+        Some("disabled") => ToolServerConnection::Disabled,
+        _ => ToolServerConnection::Unknown,
+    }
+}
+
+/// 起動状態の通知（`mcpServer/startupStatus/updated.status`）の写像。
+pub fn tool_startup_state_from_wire(v: &str) -> ToolServerConnection {
+    match v {
+        "starting" => ToolServerConnection::Starting,
+        "ready" => ToolServerConnection::Connected,
+        "failed" => ToolServerConnection::Failed,
+        "cancelled" => ToolServerConnection::Cancelled,
+        _ => ToolServerConnection::Unknown,
+    }
+}
+
+fn tool_auth_from_wire(v: Option<&str>) -> ToolServerAuth {
+    match v {
+        Some("notLoggedIn") => ToolServerAuth::NotLoggedIn,
+        Some("bearerToken") => ToolServerAuth::Bearer,
+        Some("oAuth") => ToolServerAuth::OAuth,
+        Some("unsupported") => ToolServerAuth::Unsupported,
+        _ => ToolServerAuth::Unknown,
+    }
+}
+
+/// `McpServerStatus` 1件。名前がなければ None。ツール数は、一覧の取得に失敗していない（`toolsError` なし）ときだけ値にする。
+pub fn tool_server_from_wire(v: &Value) -> Option<ToolServerView> {
+    let name = v.get("name").and_then(Value::as_str)?.to_string();
+    let tools_error = v.get("toolsError").and_then(Value::as_str).map(str::to_string);
+    let tool_count = match (&tools_error, v.get("tools").and_then(Value::as_object)) {
+        (None, Some(t)) => Known::direct(t.len() as u32),
+        _ => Known::NotFetched,
+    };
+    Some(ToolServerView {
+        name,
+        connection: tool_connection_from_wire(v.get("runtimeStatus").and_then(Value::as_str)),
+        auth: tool_auth_from_wire(v.get("authStatus").and_then(Value::as_str)),
+        tool_count,
+        tools_error,
+    })
+}
+
+/// `plugin/installed` の応答。形が違えば None。cache・会話への提示は取る手段がないので未取得のまま。
+pub fn extension_views_of(r: &Value) -> Option<Vec<ExtensionView>> {
+    let mut out = Vec::new();
+    for m in r.get("marketplaces")?.as_array()? {
+        for p in m.get("plugins")?.as_array()? {
+            let id = p.get("id").and_then(Value::as_str)?;
+            let name = p.get("name").and_then(Value::as_str).unwrap_or(id);
+            out.push(ExtensionView {
+                id: id.to_string(),
+                name: name.to_string(),
+                installed: p.get("installed").and_then(Value::as_bool).map(Known::direct).unwrap_or(Known::NotFetched),
+                enabled_in_config: p.get("enabled").and_then(Value::as_bool).map(Known::direct).unwrap_or(Known::NotFetched),
+                cache_present: Known::NotFetched,
+                advertised_in_chat: Known::NotFetched,
+            });
+        }
+    }
+    Some(out)
+}
+
+/// 管理操作が変えてよい設定の範囲（`top` の直下の `name`。pluginは `name@提供元` も含む）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExpectedScope {
+    pub top: &'static str,
+    pub name: String,
+}
+
+impl ExpectedScope {
+    fn contains(&self, path: &[String]) -> bool {
+        if path.first().map(String::as_str) != Some(self.top) {
+            return false;
+        }
+        match path.get(1) {
+            // 親の表そのものの出現・消滅（`plugins` が空になる等）。
+            None => true,
+            Some(seg) => seg == &self.name || (self.top == "plugins" && seg.starts_with(&format!("{}@", self.name))),
+        }
+    }
+}
+
+/// 操作を許可済みのCLIコマンドと期待範囲へ。
+pub fn cli_command_of(op: &ExtensionOp) -> Result<(CliCommand, ExpectedScope), String> {
+    let plugin_name = |id: &str| id.split('@').next().unwrap_or(id).to_string();
+    Ok(match op {
+        ExtensionOp::Install { id } => (CliCommand::PluginAdd { plugin: id.clone() }, ExpectedScope { top: "plugins", name: plugin_name(id) }),
+        ExtensionOp::Remove { id } => (CliCommand::PluginRemove { plugin: id.clone() }, ExpectedScope { top: "plugins", name: plugin_name(id) }),
+        ExtensionOp::AddToolServer { name, command } => {
+            (CliCommand::McpAddStdio { name: name.clone(), command: command.clone() }, ExpectedScope { top: "mcp_servers", name: name.clone() })
+        }
+        ExtensionOp::RemoveToolServer { name } => (CliCommand::McpRemove { name: name.clone() }, ExpectedScope { top: "mcp_servers", name: name.clone() }),
+    })
+}
+
+fn flatten(v: &Value, path: &mut Vec<String>, out: &mut BTreeMap<Vec<String>, Value>) {
+    match v {
+        Value::Object(m) if !m.is_empty() => {
+            for (k, x) in m {
+                path.push(k.clone());
+                flatten(x, path, out);
+                path.pop();
+            }
+        }
+        // 空の設定そのもの（根が空の表）は項目ではない。
+        Value::Object(_) if path.is_empty() => {}
+        leaf => {
+            out.insert(path.clone(), leaf.clone());
+        }
+    }
+}
+
+/// 前後の設定で値が違う（片方にしかない）項目のパス。値は返さない。
+pub fn config_diff_paths(before: &Value, after: &Value) -> Vec<Vec<String>> {
+    let (mut b, mut a) = (BTreeMap::new(), BTreeMap::new());
+    flatten(before, &mut Vec::new(), &mut b);
+    flatten(after, &mut Vec::new(), &mut a);
+    let mut keys: Vec<&Vec<String>> = b.keys().chain(a.keys()).collect();
+    keys.sort();
+    keys.dedup();
+    keys.into_iter().filter(|k| b.get(*k) != a.get(*k)).cloned().collect()
+}
+
+fn hash_changed(a: &Known<String>, b: &Known<String>) -> Option<bool> {
+    match (a, b) {
+        (Known::Value { value: x, .. }, Known::Value { value: y, .. }) => Some(x != y),
+        (Known::Missing, Known::Missing) => Some(false),
+        (Known::Missing, Known::Value { .. }) | (Known::Value { .. }, Known::Missing) => Some(true),
+        _ => None,
+    }
+}
+
+fn join_keys(paths: &[Vec<String>]) -> Vec<String> {
+    let mut keys: Vec<String> = paths.iter().take(MAX_COMPARE_KEYS).map(|p| p.join(".")).collect();
+    if paths.len() > MAX_COMPARE_KEYS {
+        keys.push(format!("ほか{}件", paths.len() - MAX_COMPARE_KEYS));
+    }
+    keys
+}
+
+/// 管理操作の前後の設定の照合（純粋）。読めなかったときは一致と扱わない。値は比べるだけで、結果には項目名しか入れない。
+/// - 読み取った設定が同じで、設定ファイルのハッシュも同じ（または比べられない）→ 変化なし。
+/// - 読み取った設定が同じなのにファイルのハッシュが違う → 想定外（読み取りに現れない変更）。
+/// - 設定の読取りだけ変わり、ファイルのハッシュが変わっていない → 想定外（操作の範囲でも）。
+/// - 変化がすべて対象の範囲の下 → 想定どおり。範囲の外が混じれば想定外（その項目名を示す）。
+pub fn judge_config(before: Option<&Value>, after: Option<&Value>, hash_before: &Known<String>, hash_after: &Known<String>, scope: &ExpectedScope) -> ConfigCompare {
+    let (Some(b), Some(a)) = (before, after) else {
+        return ConfigCompare::Unverified { reason: "設定（config/read）を前後で読み取れなかったため、変更内容を照合できません".into() };
+    };
+    let paths = config_diff_paths(b, a);
+    let file_changed = hash_changed(hash_before, hash_after);
+    if paths.is_empty() {
+        return if file_changed == Some(true) {
+            ConfigCompare::Unexpected { keys: vec!["config.toml（読み取った設定には現れない変更）".into()] }
+        } else {
+            ConfigCompare::Unchanged
+        };
+    }
+    if file_changed == Some(false) {
+        return ConfigCompare::Unexpected { keys: join_keys(&paths) };
+    }
+    let outside: Vec<Vec<String>> = paths.into_iter().filter(|p| !scope.contains(p)).collect();
+    if outside.is_empty() {
+        ConfigCompare::ChangedAsExpected
+    } else {
+        ConfigCompare::Unexpected { keys: join_keys(&outside) }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -530,7 +799,7 @@ mod tests {
     fn unimplemented_operations_are_unsupported_never_supported() {
         let caps = op_capabilities(Some("0.160.0"), true);
         assert_eq!(caps.len(), ParityOp::ALL.len());
-        // 実装済みの操作（P3-1: 変更の一覧・戻す、P3-2: レビュー・分岐・圧縮、P3-3: 計画／実行・Goal・状態・速度・memories、P3-4: 参考指定・side・Skills・指示ファイル）だけが対応。
+        // 実装済みの操作（P3-1: 変更の一覧・戻す、P3-2: レビュー・分岐・圧縮、P3-3: 計画／実行・Goal・状態・速度・memories、P3-4: 参考指定・side・Skills・指示ファイル、P3-5: MCP・Plugins）だけが対応。
         // 確認状況は未確認のまま（Skillsの明示呼出しだけ実測済み）。
         let implemented = [
             ParityOp::Worktree,
@@ -538,6 +807,8 @@ mod tests {
             ParityOp::SideChat,
             ParityOp::Skills,
             ParityOp::InstructionFiles,
+            ParityOp::ToolServers,
+            ParityOp::Extensions,
             ParityOp::ChangeList,
             ParityOp::RevertChanges,
             ParityOp::CodeReview,
@@ -703,5 +974,70 @@ mod tests {
         let r = json!({"data": [{"name": "Plan", "mode": "plan"}, {"name": "x", "mode": null}, {"name": "Default", "mode": "default"}, {"name": "Plan2", "mode": "plan"}, {"name": "?", "mode": "future"}]});
         let v = work_modes_of(&r);
         assert_eq!(v.iter().map(|m| (m.mode, m.label.as_str())).collect::<Vec<_>>(), vec![(WorkMode::Plan, "Plan"), (WorkMode::Default, "Default")]);
+    }
+
+    fn scope_mcp(n: &str) -> ExpectedScope {
+        ExpectedScope { top: "mcp_servers", name: n.into() }
+    }
+    fn hv(x: &str) -> Known<String> {
+        Known::direct(x.to_string())
+    }
+
+    #[test]
+    fn config_compare_distinguishes_unchanged_expected_unexpected_and_unverified() {
+        let base = json!({"model": "m", "mcp_servers": {"a": {"command": "x"}}});
+        let added = json!({"model": "m", "mcp_servers": {"a": {"command": "x"}, "srv": {"command": "npx", "args": ["y"]}}});
+        let other = json!({"model": "n", "mcp_servers": {"a": {"command": "x"}, "srv": {"command": "npx"}}});
+        let s = scope_mcp("srv");
+        assert_eq!(judge_config(Some(&base), Some(&base), &hv("1"), &hv("1"), &s), ConfigCompare::Unchanged);
+        assert_eq!(judge_config(Some(&base), Some(&added), &hv("1"), &hv("2"), &s), ConfigCompare::ChangedAsExpected);
+        assert_eq!(judge_config(Some(&base), Some(&other), &hv("1"), &hv("2"), &s), ConfigCompare::Unexpected { keys: vec!["model".into()] });
+        // 別のサーバーの変更は対象外。
+        let touched_a = json!({"model": "m", "mcp_servers": {"a": {"command": "z"}, "srv": {"command": "npx"}}});
+        assert_eq!(judge_config(Some(&base), Some(&touched_a), &hv("1"), &hv("2"), &s), ConfigCompare::Unexpected { keys: vec!["mcp_servers.a.command".into()] });
+        // 読めなければ一致とは言わない。
+        assert!(matches!(judge_config(None, Some(&base), &hv("1"), &hv("1"), &s), ConfigCompare::Unverified { .. }));
+        assert!(matches!(judge_config(Some(&base), None, &hv("1"), &hv("1"), &s), ConfigCompare::Unverified { .. }));
+    }
+
+    #[test]
+    fn config_compare_uses_the_file_hash_as_a_cross_check() {
+        let base = json!({"model": "m"});
+        let s = scope_mcp("srv");
+        // 読み取りは同じでもファイルが変わっていれば想定外。
+        assert!(matches!(judge_config(Some(&base), Some(&base), &hv("1"), &hv("2"), &s), ConfigCompare::Unexpected { .. }));
+        // ハッシュを取れなかったときは、読み取りの結果だけで判断する。
+        assert_eq!(judge_config(Some(&base), Some(&base), &Known::NotFetched, &hv("2"), &s), ConfigCompare::Unchanged);
+        // ファイルが変わっていないのに読み取りだけ変わった場合は想定外（対象の範囲でも）。
+        let added = json!({"model": "m", "mcp_servers": {"srv": {"command": "x"}}});
+        assert!(matches!(judge_config(Some(&base), Some(&added), &hv("1"), &hv("1"), &s), ConfigCompare::Unexpected { .. }));
+        // ファイルが新規作成された場合（前は無い）。
+        assert_eq!(judge_config(Some(&json!({"model": "m"})), Some(&added), &Known::Missing, &hv("2"), &s), ConfigCompare::ChangedAsExpected);
+    }
+
+    #[test]
+    fn plugin_scope_covers_name_at_marketplace() {
+        let (cmd, scope) = cli_command_of(&ExtensionOp::Install { id: "sample@debug".into() }).unwrap();
+        assert_eq!(cmd, CliCommand::PluginAdd { plugin: "sample@debug".into() });
+        let base = json!({"plugins": {}});
+        let after = json!({"plugins": {"sample@debug": {"enabled": true}}});
+        assert_eq!(judge_config(Some(&base), Some(&after), &hv("1"), &hv("2"), &scope), ConfigCompare::ChangedAsExpected);
+        let other = json!({"plugins": {"zzz@debug": {"enabled": true}}});
+        assert!(matches!(judge_config(Some(&base), Some(&other), &hv("1"), &hv("2"), &scope), ConfigCompare::Unexpected { .. }));
+    }
+
+    #[test]
+    fn tool_server_and_extension_conversion_keep_unknowns_unknown() {
+        let v = json!({"name": "srv", "runtimeStatus": null, "authStatus": "oAuth", "tools": {"a": {}, "b": {}}, "toolsError": null});
+        let t = tool_server_from_wire(&v).unwrap();
+        assert_eq!((t.connection, t.auth, t.tool_count), (ToolServerConnection::Unknown, ToolServerAuth::OAuth, Known::direct(2)));
+        let failed = json!({"name": "s2", "runtimeStatus": "authenticationRequired", "authStatus": "weird", "tools": {}, "toolsError": "boom"});
+        let t = tool_server_from_wire(&failed).unwrap();
+        assert_eq!((t.connection, t.auth, t.tool_count, t.tools_error.as_deref()), (ToolServerConnection::AuthRequired, ToolServerAuth::Unknown, Known::NotFetched, Some("boom")));
+        assert!(tool_server_from_wire(&json!({"x": 1})).is_none());
+        let r = json!({"marketplaces": [{"name": "m", "plugins": [{"id": "p@m", "name": "p", "installed": true, "enabled": false}]}]});
+        let e = extension_views_of(&r).unwrap();
+        assert_eq!((e[0].installed.clone(), e[0].enabled_in_config.clone(), e[0].cache_present.clone()), (Known::direct(true), Known::direct(false), Known::NotFetched));
+        assert!(extension_views_of(&json!({"x": 1})).is_none());
     }
 }

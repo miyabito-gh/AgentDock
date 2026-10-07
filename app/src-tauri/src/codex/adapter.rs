@@ -224,6 +224,10 @@ struct Shared {
     config_warnings: StdMutex<Vec<String>>,
     /// 会話ごとの、読み込まれた指示ファイルのパス（start・resume・forkの応答が示した最後の値。この接続の間だけ持つ）。
     instruction_sources: StdMutex<HashMap<ChatKey, Vec<String>>>,
+    /// CLI補助の実行口（接続した実行ファイルごとに1つ。実行はこの中で直列化される）。
+    cli: StdMutex<Option<(String, Arc<super::cli::CodexCli>)>>,
+    /// 拡張・ツールサーバーの管理操作（設定の前後の読取りを含む一連）を直列化する。
+    ext_lock: Mutex<()>,
 }
 
 #[derive(Default)]
@@ -448,11 +452,31 @@ impl CodexBackend {
                 launched: StdMutex::new(Launched::default()),
                 config_warnings: StdMutex::new(Vec::new()),
                 instruction_sources: StdMutex::new(HashMap::new()),
+                cli: StdMutex::new(None),
+                ext_lock: Mutex::new(()),
             }),
         }
     }
 
-    fn client(&self) -> BackendResult<(RpcClient, bool)> {
+    /// CLI補助の実行口。接続した実行ファイルが分からなければ None。
+    pub(super) fn cli(&self) -> Option<Arc<super::cli::CodexCli>> {
+        let exe = self.shared.launched.lock().unwrap().executable.clone()?;
+        let mut g = self.shared.cli.lock().unwrap();
+        if let Some((e, c)) = g.as_ref() {
+            if *e == exe {
+                return Some(c.clone());
+            }
+        }
+        let c = Arc::new(super::cli::CodexCli::new(exe.clone()));
+        *g = Some((exe, c.clone()));
+        Some(c)
+    }
+
+    pub(super) async fn ext_lock(&self) -> tokio::sync::MutexGuard<'_, ()> {
+        self.shared.ext_lock.lock().await
+    }
+
+    pub(super) fn client(&self) -> BackendResult<(RpcClient, bool)> {
         let g = self.shared.conn.lock().unwrap();
         match g.as_ref() {
             Some(c) if !c.client.is_closed() => Ok((c.client.clone(), c.experimental)),

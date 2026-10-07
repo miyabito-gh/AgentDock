@@ -258,6 +258,14 @@ fn convert_known(method: &str, p: &Value, ctx: &EventCtx, live: &dyn Fn(Option<U
             let Some(tid) = s(p, "threadId") else { return missing("threadId") };
             vec![BackendEvent::GoalUpdated { chat: chat_key(tid), goal: None }]
         }
+        "mcpServer/startupStatus/updated" => {
+            let (Some(name), Some(status)) = (s(p, "name"), s(p, "status")) else { return missing("name/status") };
+            vec![BackendEvent::ToolServerStatusChanged { name: name.to_string(), state: super::parity::tool_startup_state_from_wire(status) }]
+        }
+        "mcpServer/oauthLogin/completed" => {
+            let (Some(name), Some(success)) = (s(p, "name"), p.get("success").and_then(Value::as_bool)) else { return missing("name/success") };
+            vec![BackendEvent::ToolServerLoginCompleted { name: name.to_string(), success }]
+        }
         "model/rerouted" => {
             let (Some(tid), Some(to)) = (s(p, "threadId"), s(p, "toModel")) else { return missing("threadId/toModel") };
             vec![BackendEvent::ModelRerouted {

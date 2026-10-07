@@ -16,6 +16,7 @@ import {
   type BackendStatus, type Goal, type GoalUpdate, type Known, type MemoryStatus, type OpAck, type ResetMemoryResult, type WorkMode, type WorkModeInfo,
   type GitInfo, type WorktreeRecord, type WorktreeRemoveOutcome, type WorktreeRemovePreview,
   type HandoffText, type InstructionFiles, type InstructionTemplateResult, type OpenSideResult, type ReferenceBlock, type ReferenceTurns, type SideSessionMeta, type SideTranscript, type SkillList,
+  type ExtensionOp, type ExtensionOpRecord, type ExtensionView, type ToolServerList, type ToolServerLoginStart,
   type CompactChatResult, type CompactionSnapshot, type ForkReconcile, type ForkResult, type OpReconcile, type ParityOp, type ReviewChoices, type ReviewDelivery, type ReviewOutcome, type ReviewTarget,
 } from "./types";
 
@@ -229,3 +230,15 @@ export const closeSide = (side: LocalId, interrupt: boolean): Promise<SideSessio
 export const readSide = (side: LocalId): Promise<SideTranscript> => invokeCmd("read_side", { side });
 /** 選んだ発言を主会話へ渡す引用ブロック（入力欄へ入れるだけで、自動送信しない）。entries は SideTranscript.entries の添字。 */
 export const handoffSide = (side: LocalId, entries: number[]): Promise<HandoffText> => invokeCmd("handoff_side", { side, entries });
+
+// ── MCP・Plugins（段階③ P3-5）。一覧・履歴は読取りのみ。認可URL・導入・削除・再読込みはユーザーの明示操作だけ。 ──
+export const listToolServers = (): Promise<ToolServerList> => invokeCmd("list_tool_servers", {});
+/** 認可を始め、認可URLを返す。開くのは `openAuthorizationUrl`（明示クリックのときだけ）。URLは表示・記録しない。 */
+export const loginToolServer = (name: string): Promise<ToolServerLoginStart> => invokeCmd("login_tool_server", { name });
+export const openAuthorizationUrl = (url: string): Promise<null> => invokeCmd("open_authorization_url", { url });
+/** 設定の再読込みの要求（ボタンのときだけ）。受付は既存会話への反映を意味しない。 */
+export const reloadToolServers = (): Promise<OpAck> => invokeCmd("reload_tool_servers", {});
+export const listExtensions = (): Promise<ExtensionView[]> => invokeCmd("list_extensions", {});
+/** 管理操作（確認画面の後だけ）。結果は終了コード・設定の前後照合つきで返る。 */
+export const manageExtension = (op: ExtensionOp): Promise<ExtensionOpRecord> => invokeCmd("manage_extension", { op });
+export const listExtensionOps = (): Promise<ExtensionOpRecord[]> => invokeCmd("list_extension_ops", {});
