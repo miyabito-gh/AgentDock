@@ -59,6 +59,8 @@ pub struct HostData {
     pub settings: AppSettings,
     /// worktree台帳（AgentDockが作ったもの。保存は `host::worktree` が `worktrees.json` へ書く）。
     pub worktrees: Vec<WorktreeRecord>,
+    /// クラウド委任の記録（保存は `host::cloud` が `cloud-tasks.json` へ書く）。
+    pub cloud_tasks: Vec<CloudTaskRecord>,
     /// 起動時に読めなかった保存ファイルなどの警告。
     pub startup_warnings: Vec<StartupWarning>,
     /// side相談の一時の会話 → 主会話（P3-4）。一覧に出さず、キュー・子孫の条件に入れない。停止対象には入れる（`stop_scope`）。
@@ -110,6 +112,7 @@ impl Default for HostData {
             save_status: HashMap::new(),
             settings: AppSettings::default(),
             worktrees: Vec::new(),
+            cloud_tasks: Vec::new(),
             startup_warnings: Vec::new(),
             side_threads: HashMap::new(),
             assignments: HashMap::new(),
@@ -197,7 +200,7 @@ impl HostData {
                 .collect(),
             side_sessions: self.locals.values().flat_map(|f| f.side_sessions.iter().cloned()).collect(),
             worktrees: self.worktrees.clone(),
-            cloud_tasks: Vec::new(),
+            cloud_tasks: self.cloud_tasks.clone(),
         }
     }
 

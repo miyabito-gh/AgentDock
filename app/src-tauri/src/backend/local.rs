@@ -498,6 +498,9 @@ pub struct AppSettings {
     /// バックエンドではない外部ツールの場所（段階③）。`executables` には入れない。
     #[serde(default)]
     pub tools: ToolSettings,
+    /// クラウド委任の環境IDをリポジトリ（ルートのパス）ごとに記憶したもの。委任を送ったときだけ更新する。
+    #[serde(default)]
+    pub cloud_env_by_repo: std::collections::BTreeMap<String, String>,
 }
 
 /// 外部ツールの場所。None＝PATH。
@@ -550,6 +553,7 @@ impl Default for AppSettings {
             send_key: SendKey::CtrlEnter,
             acknowledged_warnings: Vec::new(),
             tools: ToolSettings::default(),
+            cloud_env_by_repo: Default::default(),
         }
     }
 }

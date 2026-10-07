@@ -60,6 +60,8 @@ pub struct Restored {
     pub windows: Option<WindowsFile>,
     /// worktree台帳（P3-7）。
     pub worktrees: Vec<WorktreeRecord>,
+    /// クラウド委任の記録（P3-6）。
+    pub cloud_tasks: Vec<CloudTaskRecord>,
     pub chats: Vec<RestoredChat>,
     /// 読めなかったファイル（警告表示用）。
     pub problems: Vec<StoreError>,
@@ -182,6 +184,10 @@ impl Store {
             Ok(v) => r.worktrees = v.map(|f| f.worktrees).unwrap_or_default(),
             Err(e) => r.problems.push(e),
         }
+        match self.read_file::<CloudTasksFile>(&self.root.join(layout::CLOUD_TASKS_FILE)) {
+            Ok(v) => r.cloud_tasks = v.map(|f| f.tasks).unwrap_or_default(),
+            Err(e) => r.problems.push(e),
+        }
         let Ok(rd) = std::fs::read_dir(self.root.join(layout::CHATS_DIR)) else { return r };
         let mut dirs: Vec<PathBuf> = rd.filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.is_dir()).collect();
         dirs.sort();
@@ -275,6 +281,11 @@ impl Store {
     /// worktree台帳を書く（空き確認つき。読めなかった・新しい版のファイルは上書きしない）。
     pub fn save_worktrees(&self, file: &WorktreesFile) -> Result<UnixMillis, StoreError> {
         self.write_json(&self.root.join(layout::WORKTREES_FILE), file)
+    }
+
+    /// クラウド委任の記録を書く（空き確認つき。読めなかった・新しい版のファイルは上書きしない）。
+    pub fn save_cloud_tasks(&self, file: &CloudTasksFile) -> Result<UnixMillis, StoreError> {
+        self.write_json(&self.root.join(layout::CLOUD_TASKS_FILE), file)
     }
 
     /// worktreeの置き場所（`<root>\worktrees`）。フォルダは作らない。

@@ -10,7 +10,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   executables: {}, autostart: false,
   notifications: { enabled: true, approvalAndQuestion: true, completed: true, failed: true, sound: true, showChatName: true },
   mainWindow: { alwaysOnTop: false, bounds: null }, monitorWindow: { alwaysOnTop: false, bounds: null },
-  monitorScope: "selectedChat", defaultModel: null, sendKey: "ctrlEnter", acknowledgedWarnings: [], tools: { git: null },
+  monitorScope: "selectedChat", defaultModel: null, sendKey: "ctrlEnter", acknowledgedWarnings: [], tools: { git: null }, cloudEnvByRepo: {},
 };
 
 const emptySnapshot = (): HostSnapshot => ({
@@ -151,6 +151,8 @@ export function applyHostEvent(b: Bundle, e: HostEvent): Bundle {
       return set({ sideSessions: upsert(s.sideSessions, e.side, (x) => x.id === e.side.id) });
     case "worktreeUpdated": // worktree台帳の1件（record=null は記録を外した）
       return set({ worktrees: e.record ? upsert(s.worktrees, e.record, (w) => w.id === e.id) : s.worktrees.filter((w) => w.id !== e.id) });
+    case "cloudTaskUpdated": // クラウド委任の記録の1件（状態語は原文のまま。AgentDockの状態へ写像しない）
+      return set({ cloudTasks: upsert(s.cloudTasks, e.record, (t) => t.id === e.record.id) });
     case "settingsUpdated":
       return set({ settings: e.settings });
     case "opCapabilitiesUpdated": // experimental の拒否などによる降格。能力を出し直す

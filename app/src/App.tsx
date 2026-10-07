@@ -874,6 +874,7 @@ export default function App() {
       case "newChat": setDialog({ type: "newChat" }); break;
       case "newChatWorktree": setDialog({ type: "newChat", dev: true }); break;
       case "worktrees": setDialog({ type: "worktrees" }); break;
+      case "cloud": setDialog({ type: "cloud", chatId: chat?.key.id ?? null }); break;
       case "parity": setDialog({ type: "parity" }); break;
       case "goal": if (chat) setDialog({ type: "goal", chatId: chat.key.id }); else say("チャットを選んでください。"); break;
       case "review": if (chat) setDialog({ type: "review", chatId: chat.key.id }); else say("チャットを選んでください。"); break;
@@ -1003,6 +1004,7 @@ export default function App() {
             settings: dialog.type === "status" && dialog.chatId ? bundle.modelSettings[dialog.chatId] : undefined,
             local: dialog.type === "status" && dialog.chatId ? snap.chatLocals.find((l) => l.chat.id === dialog.chatId) : undefined }}
           worktree={{ records: snap.worktrees, cwd: chat?.cwd.kind === "value" ? chat.cwd.value : null }}
+          cloudTasks={snap.cloudTasks}
           compose={{
             chat: chat ?? undefined, live, insertText: insertIntoDraft, pickSkill,
             sides: chat ? snap.sideSessions.filter((x) => x.main.id === chat.key.id).slice().sort((a, b) => (b.openedAt ?? 0) - (a.openedAt ?? 0)) : [],

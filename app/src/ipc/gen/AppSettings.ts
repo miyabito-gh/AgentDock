@@ -30,4 +30,8 @@ acknowledgedWarnings: Array<string>,
 /**
  * バックエンドではない外部ツールの場所（段階③）。`executables` には入れない。
  */
-tools: ToolSettings, };
+tools: ToolSettings, 
+/**
+ * クラウド委任の環境IDをリポジトリ（ルートのパス）ごとに記憶したもの。委任を送ったときだけ更新する。
+ */
+cloudEnvByRepo: { [key in string]: string }, };

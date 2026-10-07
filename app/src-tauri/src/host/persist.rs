@@ -268,6 +268,8 @@ impl HostData {
             self.save_status.insert(SaveScope::AppSettings, saved(SaveScope::AppSettings));
         }
         self.worktrees = r.worktrees;
+        // 保存時に送信中だったものは、異常終了で結果を確認できていない。成功にも失敗にもせず「受理不明」として残す（再送しない）。
+        self.cloud_tasks = super::cloud::restored_tasks(r.cloud_tasks);
         for c in r.chats {
             let Some(key) = c.local.chat.clone() else { continue };
             if c.local.pinned {
@@ -576,6 +578,8 @@ impl Host {
         self.mutate(|d| {
             // 確認済みの警告は専用の操作（acknowledge_warnings）だけが変える。設定画面の古い写しで上書きしない。
             settings.acknowledged_warnings = d.settings.acknowledged_warnings.clone();
+            // 環境IDの記憶はクラウド委任を送ったときだけ更新する（古い写しで上書きしない）。
+            settings.cloud_env_by_repo = d.settings.cloud_env_by_repo.clone();
             d.settings = settings.clone();
             ((), vec![HostEvent::SettingsUpdated { settings: settings.clone() }])
         });
@@ -674,7 +678,7 @@ mod tests {
         settings.autostart = true;
         let restored = Restored {
             settings: Some(AppSettingsFile::new(settings.clone())),
-            windows: None, worktrees: vec![],
+            windows: None, worktrees: vec![], cloud_tasks: vec![],
             chats: vec![crate::store::RestoredChat { dir: "x".into(), local, queue: None }],
             problems: vec![StoreError::Corrupt { path: "p".into(), moved_to: Some("q".into()) }],
         };
@@ -700,7 +704,7 @@ mod tests {
         other.pinned = true;
         let restored = Restored {
             settings: None,
-            windows: None, worktrees: vec![],
+            windows: None, worktrees: vec![], cloud_tasks: vec![],
             chats: vec![
                 crate::store::RestoredChat { dir: "x".into(), local, queue: None },
                 crate::store::RestoredChat { dir: "y".into(), local: other, queue: None },
@@ -728,7 +732,7 @@ mod tests {
         // 外部会話をユーザー確認のうえ再開しても、永続する印（hosted）は付かない。再起動（新しい読込み）後の一覧は外部のまま。
         let local = ChatLocalFile::new(LocalId("dir-1".into()), Some(key("ext")));
         assert!(!local.hosted);
-        let restored = Restored { settings: None, windows: None, worktrees: vec![], chats: vec![crate::store::RestoredChat { dir: "x".into(), local, queue: None }], problems: vec![] };
+        let restored = Restored { settings: None, windows: None, worktrees: vec![], cloud_tasks: vec![], chats: vec![crate::store::RestoredChat { dir: "x".into(), local, queue: None }], problems: vec![] };
         let mut d = HostData::default();
         d.restore(restored, UnixMillis(7));
         assert!(!d.hosted.contains(&key("ext")));

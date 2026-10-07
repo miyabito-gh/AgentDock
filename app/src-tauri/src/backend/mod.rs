@@ -17,3 +17,5 @@ pub mod model;
 pub mod parity;
 /// 段階③ P3-7: Git worktree（`app/DESIGN_P3.md` §1 #14）のIPC型。`WorktreeRecord` は `model`。
 pub mod worktree;
+/// 段階③ P3-6: クラウド委任（`app/DESIGN_P3.md` §1 #13）のIPC型。`CloudTaskRecord` は `model`、CLIの出力型は `parity`。
+pub mod cloud;

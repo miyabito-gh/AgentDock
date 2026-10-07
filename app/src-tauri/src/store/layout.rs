@@ -5,6 +5,7 @@
 //!   settings.json                 アプリ設定（AppSettingsFile）
 //!   windows.json                  窓の位置・サイズ（WindowsFile）
 //!   worktrees.json                AgentDockが作ったworktreeの台帳（WorktreesFile。DESIGN_P3 #14）
+//!   cloud-tasks.json              クラウド委任の記録（CloudTasksFile。DESIGN_P3 #13）
 //!   extension-ops.jsonl           拡張・ツールサーバーの管理操作の記録（追記。認証情報・起動コマンドを含めない。DESIGN_P3 #12）
 //!   worktrees\<リポジトリ名>-<短いID>\   worktreeの作業ツリー本体（チャット領域の外。自動では削除しない）
 //!   diag\                         診断ログ
@@ -32,6 +33,7 @@ use crate::backend::model::{ChatKey, LocalId};
 pub const SETTINGS_FILE: &str = "settings.json";
 pub const WINDOWS_FILE: &str = "windows.json";
 pub const WORKTREES_FILE: &str = "worktrees.json";
+pub const CLOUD_TASKS_FILE: &str = "cloud-tasks.json";
 pub const EXTENSION_OPS_FILE: &str = "extension-ops.jsonl";
 pub const WORKTREES_DIR: &str = "worktrees";
 pub const CHATS_DIR: &str = "chats";

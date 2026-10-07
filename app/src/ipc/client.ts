@@ -17,6 +17,7 @@ import {
   type GitInfo, type WorktreeRecord, type WorktreeRemoveOutcome, type WorktreeRemovePreview,
   type HandoffText, type InstructionFiles, type InstructionTemplateResult, type OpenSideResult, type ReferenceBlock, type ReferenceTurns, type SideSessionMeta, type SideTranscript, type SkillList,
   type ExtensionOp, type ExtensionOpRecord, type ExtensionView, type ToolServerList, type ToolServerLoginStart,
+  type CloudApplyResult, type CloudCommandOutput, type CloudEnvHint, type CloudTaskList, type CloudTaskRecord,
   type CompactChatResult, type CompactionSnapshot, type ForkReconcile, type ForkResult, type OpReconcile, type ParityOp, type ReviewChoices, type ReviewDelivery, type ReviewOutcome, type ReviewTarget,
 } from "./types";
 
@@ -242,3 +243,16 @@ export const listExtensions = (): Promise<ExtensionView[]> => invokeCmd("list_ex
 /** 管理操作（確認画面の後だけ）。結果は終了コード・設定の前後照合つきで返る。 */
 export const manageExtension = (op: ExtensionOp): Promise<ExtensionOpRecord> => invokeCmd("manage_extension", { op });
 export const listExtensionOps = (): Promise<ExtensionOpRecord[]> => invokeCmd("list_extension_ops", {});
+
+// ── クラウド委任（段階③ #13）。CLI補助（codex cloud、experimental）。状態の取得は開いたときと「更新」だけ（定期取得しない）。 ──
+/** 作業フォルダに対する委任の既定値（記憶した環境ID・現在のブランチ。読取りのみ）。 */
+export const cloudEnvHint = (folder: string): Promise<CloudEnvHint> => invokeCmd("cloud_env_hint", { folder });
+/** 委任を送る（確認画面の後だけ）。送る前に記録を保存し、受理不明でも再送しない。 */
+export const submitCloudTask = (prompt: string, envId: string, branch: string | null, folder: string | null, originChat: ChatKey | null): Promise<CloudTaskRecord> =>
+  invokeCmd("submit_cloud_task", { prompt, envId, branch, folder, originChat });
+/** クラウド側のタスク一覧（読取り）。想定形式でなければ raw に原文の先頭が入る。 */
+export const listCloudTasks = (): Promise<CloudTaskList> => invokeCmd("list_cloud_tasks", {});
+export const cloudTaskStatus = (taskId: string): Promise<CloudCommandOutput> => invokeCmd("cloud_task_status", { taskId });
+export const cloudTaskDiff = (taskId: string): Promise<CloudCommandOutput> => invokeCmd("cloud_task_diff", { taskId });
+/** 差分の取込み（作業フォルダを変える。確認画面の後だけ）。 */
+export const applyCloudTask = (taskId: string, folder: string): Promise<CloudApplyResult> => invokeCmd("apply_cloud_task", { taskId, folder });

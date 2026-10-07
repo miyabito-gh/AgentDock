@@ -9,6 +9,8 @@
 use std::time::Duration;
 
 use crate::exec::{run_bounded, RunError, RunSpec};
+use crate::backend::model::Known;
+use crate::backend::parity::{CloudRunStatus, CloudSubmitOutcome, CloudTaskInfo};
 
 pub const OUTPUT_LIMIT: usize = 4 * 1024 * 1024;
 /// 管理系（plugin・mcp・cloud）の既定のタイムアウト。
@@ -181,7 +183,7 @@ pub struct OutputSummary {
     pub is_raw: bool,
 }
 
-fn raw_head(stdout: &str, stderr: &str) -> OutputSummary {
+pub fn raw_head(stdout: &str, stderr: &str) -> OutputSummary {
     let mut all = stdout.trim().to_string();
     if !stderr.trim().is_empty() {
         if !all.is_empty() {
@@ -240,6 +242,107 @@ pub fn config_toml_hash() -> crate::backend::model::Known<String> {
     }
 }
 
+
+// ───────────────────────────── クラウド委任の出力の解析（P3-6） ─────────────────────────────
+//
+// `codex cloud` は experimental で、出力形式を実機で確認していない（exec/apply は実行していない）。
+// ここの解析は想定形式のときだけ値を取り、当てはまらなければ要約せず原文の先頭を見せる（推測で成功・失敗を言わない）。
+
+/// タスクIDとして安全な文字だけか（英数・`_`・`-`）。
+fn is_task_id(s: &str) -> bool {
+    !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+}
+
+/// `cloud exec` の標準出力からタスクIDを取る。タスクのURL（`…/tasks/<id>`）か `task_…` 形式の語だけを受け付ける。
+pub fn parse_cloud_task_id(stdout: &str) -> Option<String> {
+    for raw in stdout.split_whitespace() {
+        let tok = raw.trim_matches(|c: char| matches!(c, '"' | '\'' | '(' | ')' | '<' | '>' | ',' | ';' | '.'));
+        if let Some(pos) = tok.find("/tasks/") {
+            let rest = &tok[pos + "/tasks/".len()..];
+            let id = rest.split(['?', '#', '/']).next().unwrap_or("");
+            if is_task_id(id) {
+                return Some(id.to_string());
+            }
+        } else if tok.starts_with("task_") && is_task_id(tok) {
+            return Some(tok.to_string());
+        }
+    }
+    None
+}
+
+/// `cloud list --json` の出力。`{"tasks":[…]}` か配列で、各項目に文字列の `id` があるときだけ解釈する。
+/// 状態語（`status`）・題名・更新時刻は原文のまま持つ（無ければ未取得）。形が違えば None（呼び出し側が原文を見せる）。
+pub fn parse_cloud_list(stdout: &str) -> Option<Vec<CloudTaskInfo>> {
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).ok()?;
+    let items = match &v {
+        serde_json::Value::Array(a) => a,
+        serde_json::Value::Object(o) => o.get("tasks")?.as_array()?,
+        _ => return None,
+    };
+    let text = |item: &serde_json::Value, keys: &[&str]| -> Known<String> {
+        keys.iter()
+            .find_map(|k| item.get(*k).and_then(|x| x.as_str()))
+            .map(|s| Known::direct(s.to_string()))
+            .unwrap_or(Known::NotFetched)
+    };
+    items
+        .iter()
+        .map(|item| {
+            let id = item.get("id")?.as_str()?;
+            Some(CloudTaskInfo {
+                task_id: id.to_string(),
+                state_text: text(item, &["status", "state"]),
+                title: text(item, &["title"]),
+                updated_text: text(item, &["updated_at", "updatedAt"]),
+            })
+        })
+        .collect()
+}
+
+/// サブコマンド自体がない版（clapの「unrecognized subcommand」）か。
+pub fn is_missing_subcommand(stderr: &str) -> bool {
+    stderr.to_ascii_lowercase().contains("unrecognized subcommand")
+}
+
+/// `cloud exec` の実行結果を、送信の結果へ分類する（純粋）。
+/// - 起動できない・引数不正: 送られていない（Rejected）。
+/// - 時間切れ・異常終了・出力過大: 送られたか分からない（Unknown。再送せず一覧で照合）。
+/// - 終了コード0でタスクIDあり: Submitted。0でもIDなしは Unknown（原文の先頭を添える）。非0: Rejected。
+pub fn classify_cloud_exec(run: &Result<CliOutput, CliError>) -> CloudSubmitOutcome {
+    match run {
+        Err(CliError::Unavailable(m)) => CloudSubmitOutcome::Rejected { message: format!("codex を起動できなかったため、送っていません（{m}）") },
+        Err(CliError::InvalidArgument(m)) => CloudSubmitOutcome::Rejected { message: format!("引数が正しくないため、送っていません（{m}）") },
+        Err(CliError::Timeout) => CloudSubmitOutcome::Unknown { message: "時間内に終わらず、送られたか分かりません".into() },
+        Err(CliError::OutputTooLarge(n)) => CloudSubmitOutcome::Unknown { message: format!("出力が {n} バイトを超え、送られたか分かりません") },
+        Err(CliError::Io(m)) => CloudSubmitOutcome::Unknown { message: format!("実行中に問題が起き、送られたか分かりません（{m}）") },
+        Ok(out) => {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            match out.exit_code {
+                Some(0) => match parse_cloud_task_id(&stdout) {
+                    Some(task_id) => CloudSubmitOutcome::Submitted { task_id },
+                    None => CloudSubmitOutcome::Unknown { message: format!("終了コード0でしたが、出力からタスクIDを取れませんでした。出力の先頭: {}", raw_head(&stdout, &stderr).text) },
+                },
+                Some(n) => CloudSubmitOutcome::Rejected { message: format!("終了コード {n}: {}", raw_head(&stdout, &stderr).text) },
+                None => CloudSubmitOutcome::Unknown { message: "終了コードを取得できず（異常終了）、送られたか分かりません".into() },
+            }
+        }
+    }
+}
+
+/// status・diff・apply の出力を、終了の観測と表示用の文にする（純粋）。`full` は標準出力の全文（diff用）、でなければ原文の先頭。
+pub fn cloud_text_output(out: &CliOutput, full: bool) -> (CloudRunStatus, String) {
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let status = match out.exit_code {
+        Some(0) => CloudRunStatus::ExitedZero,
+        Some(code) => CloudRunStatus::ExitedNonZero { code },
+        None => CloudRunStatus::Unconfirmed { reason: "終了コードを取得できませんでした（異常終了）".into() },
+    };
+    let text = if full && out.exit_code == Some(0) && !stdout.trim().is_empty() { stdout.trim_end().to_string() } else { raw_head(&stdout, &stderr).text };
+    (status, text)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -279,5 +382,50 @@ mod tests {
         let s = summarize_output(&mcp_add(), &long, "");
         assert!(s.is_raw);
         assert_eq!(s.text.chars().count(), RAW_HEAD_CHARS + 1);
+    }
+
+    fn out(code: Option<i32>, stdout: &str, stderr: &str) -> Result<CliOutput, CliError> {
+        Ok(CliOutput { exit_code: code, stdout: stdout.as_bytes().to_vec(), stderr: stderr.as_bytes().to_vec() })
+    }
+
+    #[test]
+    fn cloud_task_id_is_taken_only_from_a_task_url_or_task_word() {
+        assert_eq!(parse_cloud_task_id("https://chatgpt.com/codex/tasks/task_e_abc123?x=1\n").as_deref(), Some("task_e_abc123"));
+        assert_eq!(parse_cloud_task_id("Submitted task_e_9f.").as_deref(), Some("task_e_9f"));
+        assert_eq!(parse_cloud_task_id("done\nok"), None);
+        assert_eq!(parse_cloud_task_id("https://example.com/tasks/"), None);
+    }
+
+    #[test]
+    fn cloud_exec_is_classified_into_submitted_rejected_or_unknown() {
+        assert_eq!(classify_cloud_exec(&out(Some(0), "https://x/tasks/task_1\n", "")), CloudSubmitOutcome::Submitted { task_id: "task_1".into() });
+        assert!(matches!(classify_cloud_exec(&out(Some(0), "ok\n", "")), CloudSubmitOutcome::Unknown { .. }));
+        assert!(matches!(classify_cloud_exec(&out(Some(1), "", "bad env")), CloudSubmitOutcome::Rejected { .. }));
+        assert!(matches!(classify_cloud_exec(&out(None, "", "")), CloudSubmitOutcome::Unknown { .. }));
+        assert!(matches!(classify_cloud_exec(&Err(CliError::Timeout)), CloudSubmitOutcome::Unknown { .. }));
+        assert!(matches!(classify_cloud_exec(&Err(CliError::Io("x".into()))), CloudSubmitOutcome::Unknown { .. }));
+        assert!(matches!(classify_cloud_exec(&Err(CliError::Unavailable("x".into()))), CloudSubmitOutcome::Rejected { .. }));
+    }
+
+    #[test]
+    fn cloud_list_json_is_parsed_only_when_the_shape_is_expected() {
+        let l = parse_cloud_list(r#"{"tasks":[{"id":"task_a","status":"READY","title":"Fix"},{"id":"task_b"}],"cursor":null}"#).unwrap();
+        assert_eq!(l.len(), 2);
+        assert_eq!(l[0].state_text, Known::direct("READY".to_string()));
+        assert_eq!(l[1].state_text, Known::NotFetched);
+        assert!(parse_cloud_list(r#"[{"id":"t"}]"#).is_some());
+        assert!(parse_cloud_list(r#"{"tasks":[{"title":"no id"}]}"#).is_none());
+        assert!(parse_cloud_list("not json").is_none());
+        assert!(parse_cloud_list("{}").is_none());
+    }
+
+    #[test]
+    fn missing_cloud_subcommand_and_text_output() {
+        assert!(is_missing_subcommand("error: unrecognized subcommand 'cloud'"));
+        assert!(!is_missing_subcommand("error: env not found"));
+        let o = CliOutput { exit_code: Some(0), stdout: b"diff --git a b\n".to_vec(), stderr: vec![] };
+        assert_eq!(cloud_text_output(&o, true), (CloudRunStatus::ExitedZero, "diff --git a b".to_string()));
+        let bad = CliOutput { exit_code: Some(2), stdout: vec![], stderr: b"nope".to_vec() };
+        assert_eq!(cloud_text_output(&bad, true), (CloudRunStatus::ExitedNonZero { code: 2 }, "[stderr] nope".to_string()));
     }
 }

@@ -10,6 +10,7 @@
 pub mod attachments;
 pub mod changes;
 pub mod chat_prefs;
+pub mod cloud;
 pub mod compose;
 pub mod extensions;
 pub mod lifecycle;
@@ -175,6 +176,8 @@ pub struct Host {
     side_rt: side::SideRuntime,
     /// MCP・Pluginsの管理操作の直列化と、認可の進行（`extensions.rs`）。
     ext_rt: extensions::ExtensionsRuntime,
+    /// クラウド委任・取込みの直列化（`cloud.rs`）。
+    cloud_rt: cloud::CloudRuntime,
 }
 
 impl Host {
@@ -199,6 +202,7 @@ impl Host {
             worktree_rt: worktree::WorktreeRuntime::default(),
             side_rt: side::SideRuntime::default(),
             ext_rt: extensions::ExtensionsRuntime::default(),
+            cloud_rt: cloud::CloudRuntime::default(),
         }
     }
 

@@ -244,7 +244,7 @@ pub struct HostSnapshot {
     pub side_sessions: Vec<SideSessionMeta>,
     /// worktree台帳（`worktrees.json`。AgentDockが作ったもの）。
     pub worktrees: Vec<WorktreeRecord>,
-    /// クラウド委任の記録。P3-6が読み込むまで常に空（記録の保存先がまだない）。
+    /// クラウド委任の記録（`cloud-tasks.json`）。
     pub cloud_tasks: Vec<CloudTaskRecord>,
 }
 
@@ -1005,6 +1005,8 @@ pub enum HostEvent {
     SettingsUpdated { settings: AppSettings },
     /// worktree台帳の1件の追加・更新（`record=None` は記録を外した）。UIは一覧のこの項目だけ置き換える。
     WorktreeUpdated { id: LocalId, record: Option<WorktreeRecord> },
+    /// クラウド委任の記録の追加・更新（1件分で置き換える）。状態語はAgentDockの状態へ写像しない。
+    CloudTaskUpdated { record: CloudTaskRecord },
     /// 目標（Goal）の更新・解除（`goal=None` は解除）。UIが表示している分だけ置き換える。エージェント状態には使わない。
     GoalUpdated { chat: ChatKey, goal: Option<Goal> },
     /// ツールサーバー（MCP）の起動状態が変わった通知（UIは表示中の一覧を取り直す。会話への反映の確認ではない）。

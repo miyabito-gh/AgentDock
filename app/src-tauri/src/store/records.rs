@@ -33,6 +33,14 @@ pub struct WorktreesFile {
     pub worktrees: Vec<WorktreeRecord>,
 }
 
+/// クラウド委任の記録（ルートの `cloud-tasks.json`、P3-6）。チャットに属さない操作なので、起点チャットは参照として持つ。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudTasksFile {
+    pub schema_version: u32,
+    pub tasks: Vec<CloudTaskRecord>,
+}
+
 /// チャット別の補足情報（`chats\<dirId>\chat.json`）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

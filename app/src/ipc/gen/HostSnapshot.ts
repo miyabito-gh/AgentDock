@@ -77,6 +77,6 @@ sideSessions: Array<SideSessionMeta>,
  */
 worktrees: Array<WorktreeRecord>, 
 /**
- * クラウド委任の記録。P3-6が読み込むまで常に空（記録の保存先がまだない）。
+ * クラウド委任の記録（`cloud-tasks.json`）。
  */
 cloudTasks: Array<CloudTaskRecord>, };

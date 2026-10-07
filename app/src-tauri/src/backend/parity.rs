@@ -247,12 +247,60 @@ pub struct CloudSubmit {
     pub branch: Option<String>,
 }
 
+/// 委任の送信結果（バックエンドが観測した事実。再送しない）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum CloudSubmitOutcome {
+    /// 出力からタスクIDを取れた（不透明な文字列）。
+    Submitted { task_id: String },
+    /// 送られなかったと分かる（起動できない・引数不正・非0終了・サブコマンドなし）。
+    Rejected { message: String },
+    /// 送られたか分からない（時間切れ・異常終了・IDを取れない）。再送せず、一覧で照合する。
+    Unknown { message: String },
+}
+
 /// クラウド側のタスク1件。状態語は原文のまま表示し、AgentDockの状態（§4.1）へ写像しない。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct CloudTaskInfo {
     pub task_id: String,
     pub state_text: Known<String>,
+    pub title: Known<String>,
+    pub updated_text: Known<String>,
+}
+
+/// 一覧の取得結果。想定形式なら `tasks`、そうでなければ要約せず原文の先頭（`raw`）。鮮度は取得時刻で示す。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct CloudTaskList {
+    pub observed_at: UnixMillis,
+    pub tasks: Vec<CloudTaskInfo>,
+    pub raw: Option<String>,
+}
+
+/// CLIの終了の観測。成功・失敗を推測しない。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum CloudRunStatus {
+    ExitedZero,
+    ExitedNonZero { code: i32 },
+    Unconfirmed { reason: String },
+}
+
+/// status・diff・apply の出力。diff は全文（上限あり）、それ以外は原文の先頭。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct CloudCommandOutput {
+    pub status: CloudRunStatus,
+    pub text: String,
     pub observed_at: UnixMillis,
 }
 
@@ -384,16 +432,24 @@ pub trait ParityOps: AiBackend {
     }
 
     // ── クラウド委任（P3-6） ──
-    async fn cloud_submit(&self, _request: CloudSubmit, _confirmed: &UserConfirmed) -> BackendResult<OpAck> {
+    /// 委任の送信（再送しない）。呼び出し側が送る前に記録を保存する。
+    async fn cloud_submit(&self, _request: CloudSubmit, _confirmed: &UserConfirmed) -> BackendResult<CloudSubmitOutcome> {
         unsupported(ParityOp::CloudDelegation)
     }
-    async fn cloud_list(&self) -> BackendResult<Vec<CloudTaskInfo>> {
+    /// 読取り。ユーザーの操作（パネルを開く・更新）でだけ呼ぶ（定期取得しない）。
+    async fn cloud_list(&self) -> BackendResult<CloudTaskList> {
         unsupported(ParityOp::CloudDelegation)
     }
-    async fn cloud_diff(&self, _task_id: String) -> BackendResult<String> {
+    /// 読取り。出力は原文（先頭）で、状態語をAgentDockの状態へ写像しない。
+    async fn cloud_status(&self, _task_id: String) -> BackendResult<CloudCommandOutput> {
         unsupported(ParityOp::CloudDelegation)
     }
-    async fn cloud_apply(&self, _task_id: String, _cwd: String, _confirmed: &UserConfirmed) -> BackendResult<OpAck> {
+    /// 読取り。差分は表示するだけ（ローカルを変えない）。
+    async fn cloud_diff(&self, _task_id: String) -> BackendResult<CloudCommandOutput> {
+        unsupported(ParityOp::CloudDelegation)
+    }
+    /// ローカルの作業フォルダを変える操作。呼び出し側が作業中のチャットがないことと確認を済ませている。
+    async fn cloud_apply(&self, _task_id: String, _cwd: String, _confirmed: &UserConfirmed) -> BackendResult<CloudCommandOutput> {
         unsupported(ParityOp::CloudDelegation)
     }
 

@@ -691,3 +691,41 @@ pub async fn read_side(host: Hs<'_>, args: SideIdArgs) -> R<SideTranscript> {
 pub async fn handoff_side(host: Hs<'_>, args: HandoffSideArgs) -> R<HandoffText> {
     host.inner().clone().handoff_side(args).await
 }
+
+/// 作業フォルダに対する委任の既定値（記憶した環境ID・現在のブランチ。読取りのみ）。
+#[tauri::command]
+pub async fn cloud_env_hint(host: Hs<'_>, args: crate::backend::cloud::CloudEnvArgs) -> R<crate::backend::cloud::CloudEnvHint> {
+    host.inner().clone().cloud_env_hint(args).await
+}
+
+/// クラウドへ委任する。確認画面の後のユーザー操作だけが呼ぶ（送る前に記録を保存し、受理不明でも再送しない）。
+#[tauri::command]
+pub async fn submit_cloud_task(host: Hs<'_>, args: crate::backend::cloud::CloudSubmitArgs) -> R<CloudTaskRecord> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().submit_cloud_task(args, &confirmed).await
+}
+
+/// クラウド側のタスク一覧（読取り。開いたときとユーザーの「更新」だけ）。
+#[tauri::command]
+pub async fn list_cloud_tasks(host: Hs<'_>) -> R<crate::backend::parity::CloudTaskList> {
+    host.inner().clone().list_cloud_tasks().await
+}
+
+/// タスク1件の状態（読取り。原文の先頭）。
+#[tauri::command]
+pub async fn cloud_task_status(host: Hs<'_>, args: crate::backend::cloud::CloudTaskIdArgs) -> R<crate::backend::parity::CloudCommandOutput> {
+    host.inner().clone().cloud_task_status(args).await
+}
+
+/// タスクの差分（読取り。表示するだけでローカルは変えない）。
+#[tauri::command]
+pub async fn cloud_task_diff(host: Hs<'_>, args: crate::backend::cloud::CloudTaskIdArgs) -> R<crate::backend::parity::CloudCommandOutput> {
+    host.inner().clone().cloud_task_diff(args).await
+}
+
+/// 差分の取込み。作業フォルダのファイルを変えるため、確認画面の後のユーザー操作だけが呼ぶ。
+#[tauri::command]
+pub async fn apply_cloud_task(host: Hs<'_>, args: crate::backend::cloud::CloudApplyArgs) -> R<crate::backend::cloud::CloudApplyResult> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().apply_cloud_task(args, &confirmed).await
+}

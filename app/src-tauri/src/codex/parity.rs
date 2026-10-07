@@ -5,7 +5,7 @@
 //! 実装していない操作は、能力宣言も呼出しも `Unsupported`（成功を装わない）。
 
 use super::adapter::{CodexBackend, READ_TIMEOUT, WRITE_TIMEOUT};
-use super::cli::{config_toml_hash, summarize_output, CliCommand, CliError, OutputSummary};
+use super::cli::{classify_cloud_exec, cloud_text_output, config_toml_hash, is_missing_subcommand, parse_cloud_list, raw_head, summarize_output, CliCommand, CliError, CliOutput, OutputSummary};
 use super::convert::chat_key;
 use super::parity_table;
 use crate::backend::backend::*;
@@ -58,7 +58,8 @@ const DECLARED: [Declared; 20] = [
     // P3-5: MCP（App Server）とPlugins（一覧は読取り、導入・削除はCLI補助）。確認状況は未確認のまま。
     done(ParityOp::ToolServers, OpRoute::BackendApi, Support::Supported),
     done(ParityOp::Extensions, OpRoute::CliHelper, Support::Supported),
-    d(ParityOp::CloudDelegation, OpRoute::CliHelper, Support::Experimental),
+    // P3-6: クラウド委任（CLI補助 `codex cloud`。CLI自体が experimental。App Serverの experimental API には依存しない）。確認状況は未確認のまま。
+    done(ParityOp::CloudDelegation, OpRoute::CliHelper, Support::Supported),
     // P3-7: Git worktree（AgentDock管理）。確認状況は未確認のまま。
     done(ParityOp::Worktree, OpRoute::AppManaged, Support::Supported),
     done(ParityOp::BackendStatus, OpRoute::BackendApi, Support::Supported),
@@ -88,9 +89,35 @@ pub fn op_capabilities(version: Option<&str>, experimental: bool) -> Vec<OpCapab
             } else {
                 (x.schema_support, None)
             };
+            // クラウド委任は experimental のCLI。成功を断定せず、実機の出力形式も未確認であることを能力の注記に出す。
+            let note = if x.op == ParityOp::CloudDelegation && note.is_none() { Some("codex cloud は experimental のCLIです。出力形式は未確認のため、結果は原文で表示します".to_string()) } else { note };
             OpCapability { op: x.op, support, route: x.route, verification: parity_table::verification(version, x.op), deprecated: x.deprecated, note }
         })
         .collect()
+}
+
+fn now_unix_ms() -> UnixMillis {
+    UnixMillis(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0))
+}
+
+impl CodexBackend {
+    /// 読取り系の `codex cloud` を実行する。起動できない・時間切れは読めなかったこと（空の結果にしない）。
+    /// サブコマンドがない版は `Unsupported`。
+    async fn run_cloud(&self, command: CliCommand, cwd: Option<&std::path::Path>) -> BackendResult<CliOutput> {
+        let Some(cli) = self.cli() else { return Err(BackendError::NotConnected) };
+        match cli.run(&command, cwd).await {
+            Ok(out) => {
+                if out.exit_code != Some(0) && is_missing_subcommand(&String::from_utf8_lossy(&out.stderr)) {
+                    return unsupported(ParityOp::CloudDelegation);
+                }
+                Ok(out)
+            }
+            Err(CliError::InvalidArgument(m)) => Err(BackendError::Rejected { code: None, message: format!("引数が正しくありません: {m}") }),
+            Err(CliError::Unavailable(m)) => Err(BackendError::Io { message: format!("codex を起動できませんでした: {m}") }),
+            Err(CliError::Timeout) => Err(BackendError::OutcomeUnknown { message: "時間内に終わりませんでした".into() }),
+            Err(e) => Err(BackendError::Io { message: e.to_string() }),
+        }
+    }
 }
 
 #[async_trait]
@@ -256,18 +283,70 @@ impl ParityOps for CodexBackend {
         })
     }
 
-    // ── クラウド委任（P3-6） ──
-    async fn cloud_submit(&self, _request: CloudSubmit, _confirmed: &UserConfirmed) -> BackendResult<OpAck> {
-        unsupported(ParityOp::CloudDelegation)
+    // ── クラウド委任（P3-6。CLI補助 `codex cloud`、experimental） ──
+    /// 送信（再送しない）。呼び出し側が送る前に記録を保存し、確認を済ませている。結果は出力の観測だけで分類する。
+    async fn cloud_submit(&self, request: CloudSubmit, _confirmed: &UserConfirmed) -> BackendResult<CloudSubmitOutcome> {
+        let command = CliCommand::CloudExec { env_id: request.env_id, branch: request.branch, prompt: request.prompt };
+        let Some(cli) = self.cli() else { return Err(BackendError::NotConnected) };
+        let run = cli.run(&command, None).await;
+        if let Ok(out) = &run {
+            if out.exit_code != Some(0) && is_missing_subcommand(&String::from_utf8_lossy(&out.stderr)) {
+                return unsupported(ParityOp::CloudDelegation);
+            }
+        }
+        Ok(classify_cloud_exec(&run))
     }
-    async fn cloud_list(&self) -> BackendResult<Vec<CloudTaskInfo>> {
-        unsupported(ParityOp::CloudDelegation)
+    /// 読取り（`cloud list --json`）。想定形式でなければ要約せず原文の先頭を返す。
+    async fn cloud_list(&self) -> BackendResult<CloudTaskList> {
+        let out = self.run_cloud(CliCommand::CloudList, None).await?;
+        let observed_at = now_unix_ms();
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        if out.exit_code == Some(0) {
+            if let Some(tasks) = parse_cloud_list(&stdout) {
+                return Ok(CloudTaskList { observed_at, tasks, raw: None });
+            }
+        }
+        let prefix = match out.exit_code {
+            Some(0) => String::new(),
+            Some(n) => format!("終了コード {n}\n"),
+            None => "終了コードを取得できませんでした\n".to_string(),
+        };
+        Ok(CloudTaskList { observed_at, tasks: vec![], raw: Some(format!("{prefix}{}", raw_head(&stdout, &stderr).text)) })
     }
-    async fn cloud_diff(&self, _task_id: String) -> BackendResult<String> {
-        unsupported(ParityOp::CloudDelegation)
+    async fn cloud_status(&self, task_id: String) -> BackendResult<CloudCommandOutput> {
+        let out = self.run_cloud(CliCommand::CloudStatus { task_id }, None).await?;
+        let (status, text) = cloud_text_output(&out, false);
+        Ok(CloudCommandOutput { status, text, observed_at: now_unix_ms() })
     }
-    async fn cloud_apply(&self, _task_id: String, _cwd: String, _confirmed: &UserConfirmed) -> BackendResult<OpAck> {
-        unsupported(ParityOp::CloudDelegation)
+    async fn cloud_diff(&self, task_id: String) -> BackendResult<CloudCommandOutput> {
+        let out = self.run_cloud(CliCommand::CloudDiff { task_id }, None).await?;
+        let (status, text) = cloud_text_output(&out, true);
+        Ok(CloudCommandOutput { status, text, observed_at: now_unix_ms() })
+    }
+    /// ローカルの作業フォルダを変える。時間切れ・異常終了は結果未確認（`Unconfirmed`）として返し、再実行しない。
+    async fn cloud_apply(&self, task_id: String, cwd: String, _confirmed: &UserConfirmed) -> BackendResult<CloudCommandOutput> {
+        let command = CliCommand::CloudApply { task_id };
+        let Some(cli) = self.cli() else { return Err(BackendError::NotConnected) };
+        match cli.run(&command, Some(std::path::Path::new(&cwd))).await {
+            Ok(out) => {
+                if out.exit_code != Some(0) && is_missing_subcommand(&String::from_utf8_lossy(&out.stderr)) {
+                    return unsupported(ParityOp::CloudDelegation);
+                }
+                let (status, text) = cloud_text_output(&out, false);
+                Ok(CloudCommandOutput { status, text, observed_at: now_unix_ms() })
+            }
+            Err(CliError::InvalidArgument(m)) => Err(BackendError::Rejected { code: None, message: format!("引数が正しくありません: {m}") }),
+            Err(CliError::Unavailable(m)) => Err(BackendError::Io { message: format!("codex を起動できませんでした（実行していません）: {m}") }),
+            Err(e) => {
+                let reason = match e {
+                    CliError::Timeout => "時間内に終わりませんでした".to_string(),
+                    CliError::OutputTooLarge(n) => format!("出力が {n} バイトを超えました"),
+                    other => format!("実行中に問題が起きました: {other}"),
+                };
+                Ok(CloudCommandOutput { status: CloudRunStatus::Unconfirmed { reason: reason.clone() }, text: reason, observed_at: now_unix_ms() })
+            }
+        }
     }
 
     // ── 状態・速度・memories（P3-3） ──
@@ -820,13 +899,15 @@ mod tests {
             ParityOp::BackendStatus,
             ParityOp::SpeedTier,
             ParityOp::Memory,
+            ParityOp::CloudDelegation,
         ];
         for c in &caps {
             if implemented.contains(&c.op) {
                 assert_eq!(c.support, Support::Supported, "{:?}", c.op);
                 let expected = if c.op == ParityOp::Skills { Verification::Verified } else { Verification::Unverified };
                 assert_eq!(c.verification, expected, "{:?}", c.op);
-                assert!(c.note.is_none());
+                // クラウド委任は experimental のCLIである旨の注記を持つ。
+                assert_eq!(c.note.is_some(), c.op == ParityOp::CloudDelegation, "{:?}", c.op);
             } else {
                 assert_eq!(c.support, Support::Unsupported, "{:?}", c.op);
                 assert!(c.note.is_some());

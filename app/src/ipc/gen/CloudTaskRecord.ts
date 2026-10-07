@@ -7,4 +7,16 @@ import type { UnixMillis } from "./UnixMillis";
 /**
  * クラウド委任の記録（ルートの `cloud-tasks.json`。P3-6）。状態語はAgentDockの状態（§4.1）へ写像しない。
  */
-export type CloudTaskRecord = { id: LocalId, state: CloudTaskState, since: UnixMillis, originChat: ChatKey | null, };
+export type CloudTaskRecord = { id: LocalId, state: CloudTaskState, since: UnixMillis, originChat: ChatKey | null, 
+/**
+ * 委任先の環境ID（ユーザーが手入力した値）。
+ */
+envId: string, branch: string | null, 
+/**
+ * 依頼文の先頭（一覧での見分け用。全文は保存しない）。
+ */
+promptHead: string, 
+/**
+ * 作業フォルダ（取込み先の既定。入力されたまま）。
+ */
+folder: string | null, };

@@ -35,7 +35,7 @@ pub struct WorktreeRuntime {
     lock: tokio::sync::Mutex<()>,
 }
 
-fn git_run_err(e: GitError) -> IpcError {
+pub(super) fn git_run_err(e: GitError) -> IpcError {
     match e {
         GitError::Unavailable(_) => blocked(BlockedReason::GitUnavailable, "Gitを実行できません（未導入、または設定のGitの場所が違います）"),
         GitError::Timeout => err(IpcErrorCode::OutcomeUnknown, "Gitが時間内に終わらず、結果が分かりません。状態を確認してください"),
@@ -92,7 +92,7 @@ fn blocked_message(b: RemoveBlock, detail: Option<&str>) -> String {
 }
 
 impl Host {
-    fn git_for_worktree(&self) -> Git {
+    pub(super) fn git_for_worktree(&self) -> Git {
         let tool = self.read(|d| d.settings.tools.git.clone());
         Git::new(tool.as_deref())
     }

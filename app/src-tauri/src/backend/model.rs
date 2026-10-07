@@ -636,6 +636,13 @@ pub struct CloudTaskRecord {
     pub state: CloudTaskState,
     pub since: UnixMillis,
     pub origin_chat: Option<ChatKey>,
+    /// 委任先の環境ID（ユーザーが手入力した値）。
+    pub env_id: String,
+    pub branch: Option<String>,
+    /// 依頼文の先頭（一覧での見分け用。全文は保存しない）。
+    pub prompt_head: String,
+    /// 作業フォルダ（取込み先の既定。入力されたまま）。
+    pub folder: Option<String>,
 }
 
 // ───────────────────────────── 論理データ（§5） ─────────────────────────────

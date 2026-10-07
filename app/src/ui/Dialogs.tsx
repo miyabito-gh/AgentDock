@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import type { Chat, ChatKey, ChatLocalView, ChatPendingOp, ChatQueue, ChatModelSettings, ForceKillPreview, Goal, GoalUpdate, Known, ModelInfo, NotificationSettings, OpCapability, QuitDecision, QuitPhase, RevertResult, SaveStatus, SideSessionMeta, SourceInfo, StopRecord, StopSummary, WorktreeRecord } from "../ipc/types";
+import type { Chat, ChatKey, ChatLocalView, ChatPendingOp, ChatQueue, ChatModelSettings, ForceKillPreview, Goal, GoalUpdate, Known, ModelInfo, NotificationSettings, OpCapability, QuitDecision, QuitPhase, RevertResult, SaveStatus, SideSessionMeta, SourceInfo, StopRecord, StopSummary, WorktreeRecord, CloudTaskRecord } from "../ipc/types";
 import { chatName } from "./derive";
 import { SCOPE_TEXT } from "./Chrome";
 import { Icon } from "./Icon";
@@ -11,11 +11,13 @@ import { CompactBody, ForkBody, ReviewBody } from "./ThreadOpsDialogs";
 import { ExtensionsBody } from "./ExtensionsDialogs";
 import { InstructionBody, ReferenceBody, SkillsBody, type ComposeProps } from "./ComposeDialogs";
 import { WorkspaceChoice, WorktreesBody } from "./WorktreeDialogs";
+import { CloudBody } from "./CloudDialogs";
 
 export type DialogState =
   | { type: "settings"; tab: string }
   | { type: "newChat"; dev?: boolean }
   | { type: "worktrees" }
+  | { type: "cloud"; chatId: string | null }
   | { type: "quit" }
   | { type: "force" }
   | { type: "delete"; chatId: string }
@@ -279,11 +281,13 @@ function RenameDialog({ chat, onClose, run }: { chat: Chat | undefined; onClose:
 /** isolate は「分離」（worktreeを作成してから開始）。worktree は既存のAgentDock作成worktreeの記録ID（チャットに結び付ける）。 */
 export interface NewChatInput { cwd: string | null; model: string; firstMessage: string | null; isolate: boolean; worktree: string | null }
 
-export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnterMode, top, setTab, onAct, exe, onCreateChat, notify, autostart, quit, force, manage, onRename, opCaps, live, changesTick, onRevertDone, prefs, threadOps, worktree, compose }: {
+export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnterMode, top, setTab, onAct, exe, onCreateChat, notify, autostart, quit, force, manage, onRename, opCaps, live, changesTick, onRevertDone, prefs, threadOps, worktree, cloudTasks, compose }: {
   compose: ComposeDialogProps;
   opCaps: OpCapability[];
   /** worktreeの台帳と、選択中のチャットの作業フォルダ（リポジトリの一覧用）。 */
   worktree: { records: WorktreeRecord[]; cwd: string | null };
+  /** クラウド委任の記録（`cloud-tasks.json`）。 */
+  cloudTasks: CloudTaskRecord[];
   /** レビュー・分岐・圧縮に使う、結果が未確認の操作・送信待ち・別の会話を開く操作。 */
   threadOps: { pendingOps: ChatPendingOp[]; queues: ChatQueue[]; onOpenChat: (chat: ChatKey) => void };
   prefs: PrefsProps;
@@ -389,6 +393,10 @@ export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnter
     case "worktrees": return (
       <Shell title="worktree の管理" wide onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>
         <WorktreesBody live={live} records={worktree.records} cwd={worktree.cwd} chats={chats} />
+      </Shell>);
+    case "cloud": return (
+      <Shell title="クラウドに委任" wide onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>
+        <CloudBody live={live} cap={opCaps.find((c) => c.op === "cloudDelegation")} chat={d.chatId ? chats.find((x) => x.key.id === d.chatId) : undefined} records={cloudTasks} />
       </Shell>);
     case "parity": return (
       <Shell title="同等性の確認状況" wide onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>
