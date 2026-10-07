@@ -6,6 +6,7 @@
 //! - [`window`]: 窓位置の画面外補正（M37）
 //! - [`export`]: Markdownエクスポートの組立て（M41）
 //! - [`diff`]・[`revert`]: 統一diffの分割・逆適用と、変更を戻す計画（段階③ P3-1）
+//! - [`thread_ops`]: レビュー対象の可否・分岐の照合・受理不明の操作の照合（段階③ P3-2）
 
 pub mod diff;
 pub mod export;
@@ -13,4 +14,5 @@ pub mod manage;
 pub mod notify;
 pub mod queue;
 pub mod revert;
+pub mod thread_ops;
 pub mod window;

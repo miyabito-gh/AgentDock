@@ -33,6 +33,8 @@ pub enum GitOp {
     DiffHead { path: Option<String> },
     /// ローカルブランチの一覧。
     Branches,
+    /// 直近のコミット（`<sha>`と`<件名>`をタブ区切りで1行ずつ。読取りのみ）。コードレビューの対象選択用。
+    RecentCommits,
     /// worktreeの一覧（`--porcelain`）。
     WorktreeList,
     /// worktreeの追加（新しいブランチを作る）。
@@ -138,6 +140,7 @@ impl GitOp {
                 a
             }
             GitOp::Branches => strings(&["for-each-ref", "--format=%(refname:short)", "refs/heads"]),
+            GitOp::RecentCommits => strings(&["--no-optional-locks", "log", "-n", "30", "--no-color", "--format=%H%x09%s"]),
             GitOp::WorktreeList => strings(&["worktree", "list", "--porcelain"]),
             GitOp::WorktreeAdd { path, branch, base } => {
                 check(valid_path(path), "path")?;

@@ -372,6 +372,42 @@ impl Store {
         layout::chat_dir(&self.root, &self.ensure_dir_id(chat)).join(layout::REVERT_BACKUP_DIR).join(at.0.to_string())
     }
 
+    /// 圧縮前の控えを保存する（`chats/<dirId>/compactions/<ms>.json`）。空き確認つき。同じ時刻のファイルがあれば上書きせず失敗にする。
+    pub fn write_compaction(&self, file: &CompactionFile) -> Result<PathBuf, StoreError> {
+        let bytes = to_bytes(file).map_err(|e| StoreError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, e)))?;
+        self.check_space(bytes.len() as u64 + 64 * 1024)?;
+        let dir = layout::chat_dir(&self.root, &self.ensure_dir_id(&file.chat)).join(layout::COMPACTIONS_DIR);
+        let path = dir.join(format!("{}.json", file.created_at.0));
+        if path.exists() {
+            return Err(StoreError::Io(std::io::Error::new(std::io::ErrorKind::AlreadyExists, "同じ時刻の控えがすでにあります")));
+        }
+        atomic::write_atomic(&path, &bytes)?;
+        Ok(path)
+    }
+
+    /// 圧縮前の控えの一覧（作成時刻の新しい順）。ファイル名（数値のミリ秒）から導き、中身は読まない。
+    pub fn list_compactions(&self, chat: &ChatKey) -> Result<Vec<UnixMillis>, StoreError> {
+        let dir = layout::chat_dir(&self.root, &self.ensure_dir_id(chat)).join(layout::COMPACTIONS_DIR);
+        let rd = match std::fs::read_dir(&dir) {
+            Ok(rd) => rd,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => return Err(StoreError::Io(e)),
+        };
+        let mut at: Vec<i64> = rd
+            .filter_map(|e| e.ok())
+            .filter_map(|e| e.file_name().to_str().and_then(|n| n.strip_suffix(".json")).and_then(|n| n.parse::<i64>().ok()))
+            .collect();
+        at.sort_unstable_by(|a, b| b.cmp(a));
+        Ok(at.into_iter().map(UnixMillis).collect())
+    }
+
+    /// 圧縮前の控えを1件読む。壊れている・新しい版のファイルは `Err`（推測で補わない）。
+    pub fn read_compaction(&self, chat: &ChatKey, at: UnixMillis) -> Result<CompactionFile, StoreError> {
+        let path = layout::chat_dir(&self.root, &self.ensure_dir_id(chat)).join(layout::COMPACTIONS_DIR).join(format!("{}.json", at.0));
+        let bytes = std::fs::read(&path)?;
+        parse_versioned::<CompactionFile>(&bytes).map_err(|e| StoreError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("控えを読めません: {e:?}"))))
+    }
+
     /// 書込み前の空き確認。`needed` に [`FREE_SPACE_MARGIN_BYTES`] を足して比べる。
     /// 空きを取得できないときは止めない（書込み自体が失敗すればその結果を報告する）。
     pub fn check_space(&self, needed: u64) -> Result<(), StoreError> {

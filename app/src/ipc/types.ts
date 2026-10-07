@@ -54,6 +54,21 @@ export type { SetWorkModeArgs } from "./gen/SetWorkModeArgs";
 export type { SpeedTierOption } from "./gen/SpeedTierOption";
 export type { UsageSummary } from "./gen/UsageSummary";
 export type { WorkModeInfo } from "./gen/WorkModeInfo";
+export type { CommitChoice } from "./gen/CommitChoice";
+export type { CompactChatResult } from "./gen/CompactChatResult";
+export type { CompactionSnapshot } from "./gen/CompactionSnapshot";
+export type { ForkChatArgs } from "./gen/ForkChatArgs";
+export type { ForkReconcile } from "./gen/ForkReconcile";
+export type { ForkResult } from "./gen/ForkResult";
+export type { OpReconcile } from "./gen/OpReconcile";
+export type { ReadCompactionArgs } from "./gen/ReadCompactionArgs";
+export type { ReconcileForkArgs } from "./gen/ReconcileForkArgs";
+export type { ReconcileOpArgs } from "./gen/ReconcileOpArgs";
+export type { ReviewChoices } from "./gen/ReviewChoices";
+export type { ReviewDelivery } from "./gen/ReviewDelivery";
+export type { ReviewOutcome } from "./gen/ReviewOutcome";
+export type { ReviewTarget } from "./gen/ReviewTarget";
+export type { StartReviewArgs } from "./gen/StartReviewArgs";
 export type { Activity } from "./gen/Activity";
 export type { ActivityKind } from "./gen/ActivityKind";
 export type { ActivityPhase } from "./gen/ActivityPhase";
@@ -305,6 +320,18 @@ import type { SetGoalArgs } from "./gen/SetGoalArgs";
 import type { SetMemoryModeArgs } from "./gen/SetMemoryModeArgs";
 import type { SetWorkModeArgs } from "./gen/SetWorkModeArgs";
 import type { WorkModeInfo } from "./gen/WorkModeInfo";
+import type { CompactChatResult } from "./gen/CompactChatResult";
+import type { CompactionSnapshot } from "./gen/CompactionSnapshot";
+import type { ForkChatArgs } from "./gen/ForkChatArgs";
+import type { ForkReconcile } from "./gen/ForkReconcile";
+import type { ForkResult } from "./gen/ForkResult";
+import type { OpReconcile } from "./gen/OpReconcile";
+import type { ReadCompactionArgs } from "./gen/ReadCompactionArgs";
+import type { ReconcileForkArgs } from "./gen/ReconcileForkArgs";
+import type { ReconcileOpArgs } from "./gen/ReconcileOpArgs";
+import type { ReviewChoices } from "./gen/ReviewChoices";
+import type { ReviewOutcome } from "./gen/ReviewOutcome";
+import type { StartReviewArgs } from "./gen/StartReviewArgs";
 
 export const HOST_EVENT_CHANNEL = "agentdock://host-event";
 
@@ -379,6 +406,14 @@ export interface CommandMap {
   get_memory_status: { args: Record<string, never>; result: MemoryStatus };
   set_memory_mode: { args: SetMemoryModeArgs; result: OpAck };
   reset_memory: { args: ResetMemoryArgs; result: ResetMemoryResult };
+  get_review_choices: { args: ChatArgs; result: ReviewChoices };
+  start_review: { args: StartReviewArgs; result: ReviewOutcome };
+  fork_chat: { args: ForkChatArgs; result: ForkResult };
+  reconcile_fork: { args: ReconcileForkArgs; result: ForkReconcile };
+  compact_chat: { args: ChatArgs; result: CompactChatResult };
+  reconcile_op: { args: ReconcileOpArgs; result: OpReconcile };
+  list_compaction_snapshots: { args: ChatArgs; result: number[] };
+  read_compaction_snapshot: { args: ReadCompactionArgs; result: CompactionSnapshot };
 }
 export type CommandName = keyof CommandMap;
 

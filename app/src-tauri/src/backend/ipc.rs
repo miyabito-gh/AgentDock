@@ -16,7 +16,8 @@ use super::backend::{
 };
 use super::local::{AppSettings, ArtifactEntry, AttachmentEntry, ChatLocalView, ChatQueue, QuitPhase, SaveScope, SaveStatus};
 use super::model::*;
-use super::parity::{Goal, GoalUpdate, MemoryStatus};
+use super::changes::ListStatus;
+use super::parity::{Goal, GoalUpdate, MemoryStatus, ReviewTarget};
 
 /// ホスト→UIのイベント名（Tauri `emit` のチャネル）。
 pub const HOST_EVENT_CHANNEL: &str = "agentdock://host-event";
@@ -91,6 +92,14 @@ pub mod command_names {
     pub const GET_MEMORY_STATUS: &str = "get_memory_status";
     pub const SET_MEMORY_MODE: &str = "set_memory_mode";
     pub const RESET_MEMORY: &str = "reset_memory";
+    pub const GET_REVIEW_CHOICES: &str = "get_review_choices";
+    pub const START_REVIEW: &str = "start_review";
+    pub const FORK_CHAT: &str = "fork_chat";
+    pub const RECONCILE_FORK: &str = "reconcile_fork";
+    pub const COMPACT_CHAT: &str = "compact_chat";
+    pub const RECONCILE_OP: &str = "reconcile_op";
+    pub const LIST_COMPACTION_SNAPSHOTS: &str = "list_compaction_snapshots";
+    pub const READ_COMPACTION_SNAPSHOT: &str = "read_compaction_snapshot";
 }
 
 // ───────────────────────────── エラー ─────────────────────────────
@@ -518,6 +527,163 @@ pub struct ResetMemoryArgs {
 pub struct ResetMemoryResult {
     pub ack: OpAck,
     pub status_after: Option<MemoryStatus>,
+}
+
+// ───────────────────────────── レビュー・分岐・圧縮（段階③ P3-2） ─────────────────────────────
+
+/// レビュー結果の置き場所。`NewChat` は新しい会話を作ってそこで実行する（元の会話は変えない）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub enum ReviewDelivery {
+    CurrentChat,
+    NewChat,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct StartReviewArgs {
+    pub chat: ChatKey,
+    pub target: ReviewTarget,
+    pub delivery: ReviewDelivery,
+}
+
+/// レビューの結果。`Started` は受付の結果で、レビュー結果そのものは会話の記録（レビュー結果）を観測したときだけ表示する。
+/// 新しい会話を作ってからレビューを始められなかったときは `NewChatCreatedReviewFailed`（会話は残る。自動では再試行しない）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum ReviewOutcome {
+    /// `chat` はレビューを実行する会話（新しい会話ならその会話）。
+    Started { chat: ChatKey, created_chat: bool, ack: OpAck },
+    NewChatCreatedReviewFailed { chat: ChatKey, message: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct CommitChoice {
+    pub sha: String,
+    pub title: String,
+}
+
+/// レビュー対象の候補（読取りのみ）。`git` が `Ready` でなければ、基準ブランチ・コミット・未コミットは選べない（理由は status）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewChoices {
+    pub git: ListStatus,
+    pub branches: Vec<String>,
+    pub commits: Vec<CommitChoice>,
+}
+
+/// 分岐。`through_turn` が None なら最新の終端turnまで（実行中のチャットでは必ずturnを指定する）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct ForkChatArgs {
+    pub chat: ChatKey,
+    pub through_turn: Option<ExternalId>,
+}
+
+/// 分岐の結果。`Unknown` のときは `attempted_at` を「分岐先を確認」（`reconcile_fork`）に渡す。再送はしない。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct ForkResult {
+    pub ack: OpAck,
+    /// 分岐先（受理されたときだけ）。
+    pub chat: Option<Chat>,
+    pub attempted_at: UnixMillis,
+    /// 分岐先を一覧に反映できなかったなどの補足。
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct ReconcileForkArgs {
+    pub chat: ChatKey,
+    pub attempted_at: UnixMillis,
+}
+
+/// 分岐の照合（読取りのみ）。`Adopted` は、分岐元が一致し開始以降に作られた会話がちょうど1件だったとき。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum ForkReconcile {
+    Adopted { chat: Chat },
+    /// 該当する会話が見えない（「分岐されなかった」とは断定しない）。一覧の更新を案内する。
+    NotFound,
+    /// 複数件、または時刻を確認できない候補があり、分岐先を確認できない。
+    Ambiguous { count: u32 },
+    Unreadable { message: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct CompactChatResult {
+    pub ack: OpAck,
+    /// 送る前に保存した、圧縮前の控えの時刻（ID）。
+    pub snapshot: UnixMillis,
+    /// 控えの保存先（表示用）。
+    pub snapshot_path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct ReconcileOpArgs {
+    pub chat: ChatKey,
+    pub op: ParityOp,
+}
+
+/// 受理不明の操作（レビュー・圧縮）の照合結果（読取りのみ）。`resolved` が真なら未確認の記録を消した（キューの保留が解ける）。
+/// どの結果でも、操作は再送しない。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum OpReconcile {
+    /// 痕跡を観測した（操作は受け付けられていた）。
+    Observed { resolved: bool },
+    /// 痕跡がない（履歴が完全で、十分な時間が経っている）。再実行するかはユーザーが決める。
+    NotObserved { resolved: bool },
+    Undetermined { reason: String },
+    /// 読めなかった。
+    Unreadable { message: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct ReadCompactionArgs {
+    pub chat: ChatKey,
+    pub snapshot: UnixMillis,
+}
+
+/// 圧縮前の控え（AgentDockが圧縮の前に保存した本文。表示専用）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct CompactionSnapshot {
+    pub snapshot: UnixMillis,
+    pub turns: Vec<TurnRecord>,
 }
 
 // ───────────────────────────── ホスト→UIイベント ─────────────────────────────

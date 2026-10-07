@@ -809,6 +809,7 @@ export default function App() {
 
   const act = (a: string) => {
     if (a.startsWith("unv:")) { setDialog({ type: "unv", why: a.slice(4) }); return; }
+    if (a.startsWith("fork:")) { if (chat) setDialog({ type: "fork", chatId: chat.key.id, throughTurn: a.slice(5) }); return; }
     if (a.startsWith("settings:")) { setDialog({ type: "settings", tab: a.split(":")[1] }); return; }
     switch (a) {
       case "noop": break;
@@ -819,6 +820,9 @@ export default function App() {
       case "newChat": setDialog({ type: "newChat" }); break;
       case "parity": setDialog({ type: "parity" }); break;
       case "goal": if (chat) setDialog({ type: "goal", chatId: chat.key.id }); else say("チャットを選んでください。"); break;
+      case "review": if (chat) setDialog({ type: "review", chatId: chat.key.id }); else say("チャットを選んでください。"); break;
+      case "fork": if (chat) setDialog({ type: "fork", chatId: chat.key.id, throughTurn: null }); else say("チャットを選んでください。"); break;
+      case "compact": if (chat) setDialog({ type: "compact", chatId: chat.key.id }); else say("チャットを選んでください。"); break;
       case "status": setDialog({ type: "status", chatId: chat?.key.id ?? null }); break;
       case "workMode":
         if (!chat) { say("チャットを選んでください。"); break; }
@@ -934,6 +938,7 @@ export default function App() {
           prefs={{ goal: dialog.type === "goal" ? goals[dialog.chatId] : undefined, saveGoal,
             settings: dialog.type === "status" && dialog.chatId ? bundle.modelSettings[dialog.chatId] : undefined,
             local: dialog.type === "status" && dialog.chatId ? snap.chatLocals.find((l) => l.chat.id === dialog.chatId) : undefined }}
+          threadOps={{ pendingOps: snap.pendingOps, queues: snap.queues, onOpenChat: (k) => { selectChat(k.id); } }}
           live={live} changesTick={changesTick} onRevertDone={(r) => say(r.failed.length > 0 ? `一部のみ戻しました（失敗 ${r.failed.length} 件）。` : `${r.reverted.length} 件のファイルを書き換えました。`)}
           enterMode={enterMode} setEnterMode={setEnterMode}
           notify={{ value: snap.settings.notifications, set: onNotifySettings }}

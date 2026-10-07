@@ -18,6 +18,7 @@ pub mod persist;
 pub mod queue_driver;
 pub mod state;
 pub mod stop;
+pub mod thread_ops;
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;

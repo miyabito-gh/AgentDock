@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import type {
-  AgentKey, ArtifactEntry, AttachmentEntry, Chat, ChatLocalView, ChatModelSettings, ChatQueue, DecisionOption, FileRef, Goal, HostSnapshot, Known, ModelInfo, PendingRequest,
+  AgentKey, ArtifactEntry, AttachmentEntry, Chat, ChatKey, ChatLocalView, ChatModelSettings, ChatQueue, DecisionOption, FileRef, Goal, HostSnapshot, Known, ModelInfo, PendingRequest,
   PermissionPreset, QueueEntry, RequestAnswer, ActivityKind, SaveState, StopRecord, TurnRecord, WorkMode, WorkModeInfo,
 } from "../ipc/types";
 import { Icon } from "./Icon";
@@ -103,6 +103,12 @@ const cwdLockReason = (chat: Chat, running: boolean, stopped: boolean): string |
     : running ? "作業中は変更できません。完了・停止後に変更してください"
     : stopped ? "停止を確認できるまで変更できません" : null;
 
+/** 元の会話の名前（一覧にないときはID）。 */
+const origName = (snap: HostSnapshot, k: ChatKey): string => {
+  const c = snap.chats.find((x) => x.key.id === k.id);
+  return c ? chatName(c) : k.id;
+};
+
 function Header({ snap, chat, onAct, running, local, onCwdToggle, cwdLock }: {
   snap: HostSnapshot; chat: Chat; onAct: (a: string) => void; running: boolean; local: ChatLocalView | undefined;
   onCwdToggle: () => void; cwdLock: string | null;
@@ -119,6 +125,8 @@ function Header({ snap, chat, onAct, running, local, onCwdToggle, cwdLock }: {
           <span className="tag ai" title="この会話のAI">Codex</span>
           {cwd ? <span className="mono" title="作業フォルダ">{cwd}</span> : <span>一般チャット（作業フォルダなし）</span>}
           {local?.nextCwd ? <span className="mono" title="次の送信から使う作業フォルダ（まだ適用していません）">次のturnから: {local.nextCwd}</span> : null}
+          {local?.reviewOf ? <span className="tag" title="このチャットはレビュー用に作られました">レビュー元: {origName(snap, local.reviewOf)}</span> : null}
+          {local?.forkOf ? <span className="tag" title="このチャットは分岐で作られました（AgentDockの記録）">分岐元: {origName(snap, local.forkOf.chat)}{local.forkOf.throughTurn ? `（turn ${local.forkOf.throughTurn} まで）` : ""}</span> : null}
           {chat.kind === "development" ? <button className="small" disabled={!!cwdLock} title={cwdLock ?? "次の送信から使う作業フォルダを変更します"} onClick={onCwdToggle}>フォルダ変更</button> : null}
           {/* 鮮度と状態は別表示。片方から他方を導かない */}
           <span className={`fresh ${fresh.c}`} title="収集の鮮度。エージェントの状態とは別">{fresh.t}</span>
@@ -308,6 +316,7 @@ function FilesBlock({ sent, artifacts, files }: { sent: AttachmentEntry[]; artif
 const KIND_LABEL: Record<string, string> = {
   command: "コマンド", fileChange: "ファイル変更", toolCall: "ツール", webSearch: "Web検索", subAgent: "サブエージェント",
   reasoning: "推論", plan: "計画", agentMessage: "応答", userMessage: "依頼",
+  reviewStarted: "レビュー開始", reviewResult: "レビュー結果", contextCompaction: "文脈の圧縮",
 };
 const kindLabel = (k: ActivityKind): string => (k.kind === "other" ? k.raw : KIND_LABEL[k.kind] ?? k.kind);
 /** 作業の記録1件の表示。値が本当に無いときだけ「記載なし」とする（取得できた属性はホストが文にして渡す）。 */
@@ -348,7 +357,7 @@ function Messages({ turns, reqs, running, onRespond, onAct, extra }: {
                 <div className="msg ai" key={e.key.itemId}>
                   <div className="who">Codex</div>
                   <div className="bubble">{text.split("\n\n").map((para, i) => para.startsWith("reconnect()") ? <pre key={i}>{para}</pre> : <p key={i}>{para}</p>)}</div>
-                  <div className="acts"><button onClick={() => onAct("stub")}><Icon name="copy" />コピー</button><button onClick={() => onAct("stub")}><Icon name="branch" />ここから分岐</button></div>
+                  <div className="acts"><button onClick={() => onAct("stub")}><Icon name="copy" />コピー</button><button onClick={() => onAct(`fork:${t.key.turnId}`)}><Icon name="branch" />ここから分岐</button></div>
                 </div>
               );
             })}

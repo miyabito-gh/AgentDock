@@ -14,6 +14,7 @@ import {
   type ChatLocalView, type DeleteOutcome, type DeletePreview, type UsageReport, type ManageOutcome,
   type ChangeList, type ChangeScope, type ChangeSource, type ExternalId, type RevertPlan, type RevertResult, type UnifiedDiff,
   type BackendStatus, type Goal, type GoalUpdate, type Known, type MemoryStatus, type OpAck, type ResetMemoryResult, type WorkMode, type WorkModeInfo,
+  type CompactChatResult, type CompactionSnapshot, type ForkReconcile, type ForkResult, type OpReconcile, type ParityOp, type ReviewChoices, type ReviewDelivery, type ReviewOutcome, type ReviewTarget,
 } from "./types";
 
 /** 型付きinvoke。引数は `args` 1個で渡す（types.ts CommandMap の規約）。 */
@@ -170,3 +171,20 @@ export const getMemoryStatus = (): Promise<MemoryStatus> => invokeCmd("get_memor
 export const setMemoryMode = (chat: ChatKey, mode: string): Promise<OpAck> => invokeCmd("set_memory_mode", { chat, mode });
 /** memoriesのリセット（記憶データを消す）。影響を表示して確認した後だけ confirmed=true で呼ぶ。 */
 export const resetMemory = (confirmed: boolean): Promise<ResetMemoryResult> => invokeCmd("reset_memory", { confirmed });
+
+// ── レビュー・分岐・圧縮（段階③ P3-2）。すべて確認画面の後のユーザー操作。結果は「受け付けた」までで、完了は会話の記録の観測で示す。 ──
+/** レビュー対象の候補（読取りのみ）。Gitのリポジトリでなければ理由つきで空（指示だけ選べる）。 */
+export const getReviewChoices = (chat: ChatKey): Promise<ReviewChoices> => invokeCmd("get_review_choices", { chat });
+/** コードレビュー。newChat は新しい会話を作って実行する（作成後に始められなければ newChatCreatedReviewFailed）。 */
+export const startReview = (chat: ChatKey, target: ReviewTarget, delivery: ReviewDelivery): Promise<ReviewOutcome> => invokeCmd("start_review", { chat, target, delivery });
+/** 会話の分岐。throughTurn=null は最新の終端turnまで（実行中のチャットはturnの指定が必要）。unknown は再送せず reconcileFork で確認する。 */
+export const forkChat = (chat: ChatKey, throughTurn: ExternalId | null): Promise<ForkResult> => invokeCmd("fork_chat", { chat, throughTurn });
+/** 受理不明の分岐の照合（読取りのみ）。ちょうど1件に絞れたときだけ分岐先を採用する。 */
+export const reconcileFork = (chat: ChatKey, attemptedAt: number): Promise<ForkReconcile> => invokeCmd("reconcile_fork", { chat, attemptedAt });
+/** 文脈の圧縮。圧縮前の本文を控えに保存してから送る（保存できなければ送らない）。 */
+export const compactChat = (chat: ChatKey): Promise<CompactChatResult> => invokeCmd("compact_chat", { chat });
+/** 結果が未確認の操作（レビュー・圧縮）の照合（読取りのみ。再送しない）。 */
+export const reconcileOp = (chat: ChatKey, op: ParityOp): Promise<OpReconcile> => invokeCmd("reconcile_op", { chat, op });
+/** 圧縮前の控えの一覧（作成時刻。新しい順）と本文。AgentDockが保存した表示専用の控え。 */
+export const listCompactionSnapshots = (chat: ChatKey): Promise<number[]> => invokeCmd("list_compaction_snapshots", { chat });
+export const readCompactionSnapshot = (chat: ChatKey, snapshot: number): Promise<CompactionSnapshot> => invokeCmd("read_compaction_snapshot", { chat, snapshot });

@@ -33,7 +33,7 @@ pub fn should_refresh_after(ack: &OpAck) -> bool {
 
 impl Host {
     /// 操作の対象にできるチャットか（削除保留中・外部で実行中は不可）。
-    fn check_op_target(&self, chat: &ChatKey) -> Result<(), IpcError> {
+    pub(super) fn check_op_target(&self, chat: &ChatKey) -> Result<(), IpcError> {
         if self.read(|d| d.chat(chat).is_none()) {
             return Err(err(IpcErrorCode::NotFound, "チャットが見つかりません"));
         }

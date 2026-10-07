@@ -61,6 +61,9 @@ fn kind_label(k: &ActivityKind) -> String {
         ActivityKind::ToolCall => "ツール呼び出し".into(),
         ActivityKind::WebSearch => "Web検索".into(),
         ActivityKind::SubAgent => "子エージェント".into(),
+        ActivityKind::ReviewStarted => "レビュー開始".into(),
+        ActivityKind::ReviewResult => "レビュー結果".into(),
+        ActivityKind::ContextCompaction => "文脈の圧縮".into(),
         ActivityKind::Other { raw } => format!("その他（{raw}）"),
     }
 }

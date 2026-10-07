@@ -19,7 +19,6 @@ pub fn unresolved_same_op(pending: &[PendingOp], op: ParityOp) -> Option<&Pendin
     pending.iter().find(|p| p.op == op)
 }
 
-#[allow(dead_code)] // P3-2（レビュー・圧縮）が使い始める
 impl Host {
     /// 操作を送る前に記録を保存する。保存に失敗したら記録を戻して `Err`（操作は送らない）。
     /// 同じ操作が未解決なら `Blocked{OperationUnconfirmed}`（重複実行しない）。

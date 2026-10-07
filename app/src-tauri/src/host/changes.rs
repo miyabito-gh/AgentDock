@@ -195,7 +195,7 @@ fn group_records(chat: &ChatKey, turn: Option<&ExternalId>, records: &[ChangeRec
         .collect()
 }
 
-enum GitCtx {
+pub(super) enum GitCtx {
     Ready { root: PathBuf, git: Git },
     NotSupported(String),
     NotFetched(String),
@@ -299,7 +299,7 @@ impl Host {
 
     // ───────────── 一覧・差分（読取りのみ） ─────────────
 
-    fn require_chat(&self, chat: &ChatKey) -> Result<(), IpcError> {
+    pub(super) fn require_chat(&self, chat: &ChatKey) -> Result<(), IpcError> {
         if self.read(|d| d.chat(chat).is_none() && !d.locals.contains_key(chat)) {
             return Err(err(IpcErrorCode::NotFound, "チャットが見つかりません"));
         }
@@ -350,7 +350,7 @@ impl Host {
         (files, ListStatus::Ready)
     }
 
-    async fn git_context(self: &Arc<Self>, chat: &ChatKey) -> GitCtx {
+    pub(super) async fn git_context(self: &Arc<Self>, chat: &ChatKey) -> GitCtx {
         let Some(cwd) = self.read(|d| d.chat(chat).and_then(|c| c.cwd.value().cloned())) else {
             return GitCtx::NotSupported("作業フォルダが分からないため、Gitの差分を取得できません".into());
         };

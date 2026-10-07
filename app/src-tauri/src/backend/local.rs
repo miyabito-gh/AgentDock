@@ -143,6 +143,12 @@ pub struct ChatLocalView {
     pub next_cwd: Option<String>,
     /// memoriesのチャット別設定として要求した値（バックエンドが示す不透明な値。受け付けられたときだけ入る）。
     pub memory_mode: Option<String>,
+    /// このチャットがレビュー用に作られたときの、レビュー元（P3-2）。
+    #[serde(default)]
+    pub review_of: Option<ChatKey>,
+    /// このチャットが分岐で作られたときの、分岐元（AgentDockの記録。バックエンドの記録が読めない場合の表示用、P3-2）。
+    #[serde(default)]
+    pub fork_of: Option<ForkOrigin>,
     pub draft: Draft,
     pub visibility: ListVisibility,
     pub delete_pending: Option<DeletePending>,

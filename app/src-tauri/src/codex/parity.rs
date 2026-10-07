@@ -5,6 +5,7 @@
 //! 実装していない操作は、能力宣言も呼出しも `Unsupported`（成功を装わない）。
 
 use super::adapter::{CodexBackend, READ_TIMEOUT, WRITE_TIMEOUT};
+use super::convert::chat_key;
 use super::parity_table;
 use crate::backend::backend::*;
 use crate::backend::model::*;
@@ -39,12 +40,13 @@ const DECLARED: [Declared; 20] = [
     // P3-1: 変更の報告（turn集約diff・fileChange item）の観測と、AgentDock管理の差分表示・戻す操作。確認状況は未確認のまま。
     done(ParityOp::ChangeList, OpRoute::BackendApi, Support::Supported),
     done(ParityOp::RevertChanges, OpRoute::AppManaged, Support::Supported),
-    d(ParityOp::CodeReview, OpRoute::BackendApi, Support::Supported),
-    d(ParityOp::ReviewToNewChat, OpRoute::BackendApi, Support::Supported),
+    // P3-2: レビュー（inline。別チャットは thread/start＋inline）・分岐・圧縮。確認状況は未確認のまま。
+    done(ParityOp::CodeReview, OpRoute::BackendApi, Support::Supported),
+    done(ParityOp::ReviewToNewChat, OpRoute::BackendApi, Support::Supported),
     // P3-3: 計画／実行（experimental）・Goal・状態表示・速度・memories（experimental）。確認状況は未確認のまま。
     done(ParityOp::WorkMode, OpRoute::BackendApi, Support::Experimental),
-    d(ParityOp::Fork, OpRoute::BackendApi, Support::Supported),
-    d(ParityOp::Compact, OpRoute::BackendApi, Support::Supported),
+    done(ParityOp::Fork, OpRoute::BackendApi, Support::Supported),
+    done(ParityOp::Compact, OpRoute::BackendApi, Support::Supported),
     d(ParityOp::ReferenceChat, OpRoute::AppManaged, Support::Supported),
     done(ParityOp::Goal, OpRoute::BackendApi, Support::Supported),
     d(ParityOp::SideChat, OpRoute::BackendApi, Support::Supported),
@@ -89,16 +91,28 @@ pub fn op_capabilities(version: Option<&str>, experimental: bool) -> Vec<OpCapab
 #[async_trait]
 impl ParityOps for CodexBackend {
     // ── 分岐・side相談（P3-2・P3-4） ──
-    async fn fork_chat(&self, _chat: ChatKey, _params: ForkParams, _confirmed: &UserConfirmed) -> BackendResult<ForkOutcome> {
-        unsupported(ParityOp::Fork)
+    /// 履歴は取り寄せない（`excludeTurns`）。応答の新しい会話のIDだけを返し、内容の反映は呼び出し側が読取りで行う。
+    /// 応答はあったが新しい会話を特定できないときは、受理不明として返す（再送しない）。
+    async fn fork_chat(&self, chat: ChatKey, params: ForkParams, _confirmed: &UserConfirmed) -> BackendResult<ForkOutcome> {
+        match self.call("thread/fork", fork_params_json(&chat.id.0, &params), WRITE_TIMEOUT).await {
+            Ok(r) => Ok(match forked_thread_id(&r) {
+                Some(id) => ForkOutcome { ack: OpAck::Accepted, chat: Some(chat_key(id)) },
+                None => ForkOutcome { ack: OpAck::Unknown { message: "分岐の応答から、新しい会話を特定できませんでした".into() }, chat: None },
+            }),
+            Err(BackendError::Rejected { message, .. }) => Ok(ForkOutcome { ack: OpAck::Rejected { message }, chat: None }),
+            Err(BackendError::OutcomeUnknown { message }) => Ok(ForkOutcome { ack: OpAck::Unknown { message }, chat: None }),
+            Err(e) => Err(e),
+        }
     }
 
     // ── レビュー・圧縮（P3-2） ──
-    async fn start_review(&self, _chat: ChatKey, _target: ReviewTarget, _confirmed: &UserConfirmed) -> BackendResult<OpAck> {
-        unsupported(ParityOp::CodeReview)
+    /// 常に現在の会話で実行する（`delivery: inline`）。`detached` は非推奨なので使わない（別チャットは呼び出し側が thread/start してから呼ぶ）。
+    async fn start_review(&self, chat: ChatKey, target: ReviewTarget, _confirmed: &UserConfirmed) -> BackendResult<OpAck> {
+        ack_of(self.call("review/start", review_params_json(&chat.id.0, &target), WRITE_TIMEOUT).await)
     }
-    async fn compact(&self, _chat: ChatKey, _confirmed: &UserConfirmed) -> BackendResult<OpAck> {
-        unsupported(ParityOp::Compact)
+    /// 応答は空（受付のみ）。圧縮の完了は、圧縮の記録（item）を観測したときだけ表示する。
+    async fn compact(&self, chat: ChatKey, _confirmed: &UserConfirmed) -> BackendResult<OpAck> {
+        ack_of(self.call("thread/compact/start", json!({"threadId": chat.id.0}), WRITE_TIMEOUT).await)
     }
 
     // ── Goal（P3-3） ──
@@ -225,6 +239,38 @@ impl CodexBackend {
 }
 
 // ───────────────────────────── 変換（純粋） ─────────────────────────────
+
+/// `review/start.target`。
+pub fn review_target_json(t: &ReviewTarget) -> Value {
+    match t {
+        ReviewTarget::UncommittedChanges => json!({"type": "uncommittedChanges"}),
+        ReviewTarget::BaseBranch { branch } => json!({"type": "baseBranch", "branch": branch}),
+        ReviewTarget::Commit { sha, title } => json!({"type": "commit", "sha": sha, "title": title}),
+        ReviewTarget::Custom { instructions } => json!({"type": "custom", "instructions": instructions}),
+    }
+}
+
+/// `review/start` の引数。`delivery` は常に inline（`detached` は非推奨）。
+pub fn review_params_json(thread_id: &str, t: &ReviewTarget) -> Value {
+    json!({"threadId": thread_id, "target": review_target_json(t), "delivery": "inline"})
+}
+
+/// `thread/fork` の引数。履歴の取り寄せはしない（`excludeTurns`）。読取り専用の指定は sandbox で表す。
+pub fn fork_params_json(thread_id: &str, p: &ForkParams) -> Value {
+    let mut v = json!({"threadId": thread_id, "excludeTurns": true, "ephemeral": p.ephemeral});
+    if let Some(t) = &p.through_turn {
+        v["lastTurnId"] = json!(t.0);
+    }
+    if p.read_only {
+        v["sandbox"] = json!("read-only");
+    }
+    v
+}
+
+/// `thread/fork` の応答の、新しい会話のID。
+pub fn forked_thread_id(r: &Value) -> Option<&str> {
+    r.get("thread")?.get("id")?.as_str().filter(|s| !s.is_empty())
+}
 
 /// 状態を変える要求の結果を `OpAck` にする。明示拒否は `Rejected`、応答なしは `Unknown`（再送しない）。接続・非対応はエラーのまま。
 pub fn ack_of(r: BackendResult<Value>) -> BackendResult<OpAck> {
@@ -438,10 +484,14 @@ mod tests {
     fn unimplemented_operations_are_unsupported_never_supported() {
         let caps = op_capabilities(Some("0.160.0"), true);
         assert_eq!(caps.len(), ParityOp::ALL.len());
-        // 実装済みの操作（P3-1: 変更の一覧・戻す、P3-3: 計画／実行・Goal・状態・速度・memories）だけが対応。確認状況は未確認のまま。
+        // 実装済みの操作（P3-1: 変更の一覧・戻す、P3-2: レビュー・分岐・圧縮、P3-3: 計画／実行・Goal・状態・速度・memories）だけが対応。確認状況は未確認のまま。
         let implemented = [
             ParityOp::ChangeList,
             ParityOp::RevertChanges,
+            ParityOp::CodeReview,
+            ParityOp::ReviewToNewChat,
+            ParityOp::Fork,
+            ParityOp::Compact,
             ParityOp::WorkMode,
             ParityOp::Goal,
             ParityOp::BackendStatus,
@@ -549,6 +599,28 @@ mod tests {
         assert_eq!(usage_of(&json!({})), Known::Missing);
         assert_eq!(memory_summary(&json!({})), Known::Missing);
         assert_eq!(memory_summary(&json!({"v2ConsolidatedThreads": 3, "v2Ready": true})), Known::direct("統合済みスレッド 3 件／準備完了".to_string()));
+    }
+
+    #[test]
+    fn review_params_are_always_inline_and_never_detached() {
+        let ids = |t: ReviewTarget| review_params_json("th", &t);
+        let v = ids(ReviewTarget::UncommittedChanges);
+        assert_eq!(v, json!({"threadId": "th", "target": {"type": "uncommittedChanges"}, "delivery": "inline"}));
+        assert_eq!(ids(ReviewTarget::BaseBranch { branch: "main".into() })["target"], json!({"type": "baseBranch", "branch": "main"}));
+        assert_eq!(ids(ReviewTarget::Commit { sha: "abc1234".into(), title: None })["target"], json!({"type": "commit", "sha": "abc1234", "title": null}));
+        assert_eq!(ids(ReviewTarget::Custom { instructions: "x".into() })["target"], json!({"type": "custom", "instructions": "x"}));
+        assert!(!v.to_string().contains("detached"));
+    }
+
+    #[test]
+    fn fork_params_exclude_turns_and_carry_the_terminal_turn_and_read_only() {
+        let plain = fork_params_json("th", &ForkParams { through_turn: None, ephemeral: false, read_only: false });
+        assert_eq!(plain, json!({"threadId": "th", "excludeTurns": true, "ephemeral": false}));
+        let full = fork_params_json("th", &ForkParams { through_turn: Some(ExternalId("t9".into())), ephemeral: true, read_only: true });
+        assert_eq!(full, json!({"threadId": "th", "excludeTurns": true, "ephemeral": true, "lastTurnId": "t9", "sandbox": "read-only"}));
+        assert_eq!(forked_thread_id(&json!({"thread": {"id": "n1"}})), Some("n1"));
+        assert_eq!(forked_thread_id(&json!({"thread": {"id": ""}})), None);
+        assert_eq!(forked_thread_id(&json!({})), None);
     }
 
     #[test]

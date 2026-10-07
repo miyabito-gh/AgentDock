@@ -476,6 +476,55 @@ pub async fn reset_memory(host: Hs<'_>, args: ResetMemoryArgs) -> R<ResetMemoryR
     host.inner().clone().reset_memory(args, &confirmed).await
 }
 
+/// レビュー対象の候補（読取りのみ。Gitのリポジトリでなければ理由つきで空）。
+#[tauri::command]
+pub async fn get_review_choices(host: Hs<'_>, args: ChatArgs) -> R<ReviewChoices> {
+    host.inner().clone().get_review_choices(args).await
+}
+
+/// コードレビュー。確認画面の後のユーザー操作だけが呼ぶ。受付の結果だけを返す（結果は会話の記録の観測で示す）。
+#[tauri::command]
+pub async fn start_review(host: Hs<'_>, args: StartReviewArgs) -> R<ReviewOutcome> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().start_review(args, &confirmed).await
+}
+
+/// 会話の分岐。確認画面の後のユーザー操作だけが呼ぶ。
+#[tauri::command]
+pub async fn fork_chat(host: Hs<'_>, args: ForkChatArgs) -> R<ForkResult> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().fork_chat(args, &confirmed).await
+}
+
+/// 受理不明の分岐の照合（読取りのみ。再送しない）。
+#[tauri::command]
+pub async fn reconcile_fork(host: Hs<'_>, args: ReconcileForkArgs) -> R<ForkReconcile> {
+    host.inner().clone().reconcile_fork(args).await
+}
+
+/// 文脈の圧縮。確認画面の後のユーザー操作だけが呼ぶ（圧縮前の控えを保存してから送る）。
+#[tauri::command]
+pub async fn compact_chat(host: Hs<'_>, args: ChatArgs) -> R<CompactChatResult> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().compact_chat(args, &confirmed).await
+}
+
+/// 受理不明の操作（レビュー・圧縮）の照合（読取りのみ。再送しない）。
+#[tauri::command]
+pub async fn reconcile_op(host: Hs<'_>, args: ReconcileOpArgs) -> R<OpReconcile> {
+    host.inner().clone().reconcile_op(args).await
+}
+
+#[tauri::command]
+pub async fn list_compaction_snapshots(host: Hs<'_>, args: ChatArgs) -> R<Vec<UnixMillis>> {
+    host.inner().clone().list_compaction_snapshots(args).await
+}
+
+#[tauri::command]
+pub async fn read_compaction_snapshot(host: Hs<'_>, args: ReadCompactionArgs) -> R<CompactionSnapshot> {
+    host.inner().clone().read_compaction_snapshot(args).await
+}
+
 /// 変更を戻す。確認画面の後のユーザー操作だけが呼ぶ（`UserConfirmed` はここでだけ発行する）。
 #[tauri::command]
 pub async fn revert_changes(host: Hs<'_>, args: RevertChangesArgs) -> R<RevertResult> {

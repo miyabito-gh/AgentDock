@@ -243,6 +243,8 @@ impl HostData {
             permission: f.permission,
             next_cwd: f.next_cwd.clone(),
             memory_mode: f.memory_mode.clone(),
+            review_of: f.review_of.clone(),
+            fork_of: f.fork_of.clone(),
             draft: f.draft.clone(),
             visibility: f.visibility.clone(),
             delete_pending: f.delete_pending.clone(),

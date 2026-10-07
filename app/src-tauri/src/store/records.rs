@@ -75,6 +75,17 @@ pub struct ChatLocalFile {
     pub pending_ops: Vec<PendingOp>,
 }
 
+/// 文脈の圧縮前の控え（`chats\<dirId>\compactions\<ms>.json`）。AgentDock保存・表示専用で、バックエンドへは戻さない。
+/// `turns` は圧縮を送る前に読んだ履歴（読めた範囲。部分取得は各turnの `complete` で分かる）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompactionFile {
+    pub schema_version: u32,
+    pub chat: ChatKey,
+    pub created_at: UnixMillis,
+    pub turns: Vec<TurnRecord>,
+}
+
 /// 接続前の一覧表示用。鮮度は常に「切断」として扱い、状態の根拠にしない。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

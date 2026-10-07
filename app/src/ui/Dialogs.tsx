@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import type { Chat, ChatKey, ChatLocalView, ChatModelSettings, ForceKillPreview, Goal, GoalUpdate, Known, ModelInfo, NotificationSettings, OpCapability, QuitDecision, QuitPhase, RevertResult, SaveStatus, SourceInfo, StopRecord, StopSummary } from "../ipc/types";
+import type { Chat, ChatKey, ChatLocalView, ChatPendingOp, ChatQueue, ChatModelSettings, ForceKillPreview, Goal, GoalUpdate, Known, ModelInfo, NotificationSettings, OpCapability, QuitDecision, QuitPhase, RevertResult, SaveStatus, SourceInfo, StopRecord, StopSummary } from "../ipc/types";
 import { chatName } from "./derive";
 import { SCOPE_TEXT } from "./Chrome";
 import { Icon } from "./Icon";
@@ -7,6 +7,7 @@ import { DeleteBody, ExportBody, StorageBody, type DeleteProps, type ExportProps
 import { ParityBody } from "./ParityDialog";
 import { ChangesBody, RevertBody } from "./ChangesDialog";
 import { GoalBody, StatusBody } from "./PrefsDialogs";
+import { CompactBody, ForkBody, ReviewBody } from "./ThreadOpsDialogs";
 
 export type DialogState =
   | { type: "settings"; tab: string }
@@ -19,6 +20,9 @@ export type DialogState =
   | { type: "parity" }
   | { type: "changes"; chatId: string }
   | { type: "revert"; chatId: string }
+  | { type: "review"; chatId: string }
+  | { type: "fork"; chatId: string; throughTurn: string | null }
+  | { type: "compact"; chatId: string }
   | { type: "goal"; chatId: string }
   | { type: "status"; chatId: string | null }
   | { type: "attach" }
@@ -247,8 +251,10 @@ function RenameDialog({ chat, onClose, run }: { chat: Chat | undefined; onClose:
 
 export interface NewChatInput { cwd: string | null; model: string; firstMessage: string | null }
 
-export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnterMode, top, setTab, onAct, exe, onCreateChat, notify, autostart, quit, force, manage, onRename, opCaps, live, changesTick, onRevertDone, prefs }: {
+export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnterMode, top, setTab, onAct, exe, onCreateChat, notify, autostart, quit, force, manage, onRename, opCaps, live, changesTick, onRevertDone, prefs, threadOps }: {
   opCaps: OpCapability[];
+  /** レビュー・分岐・圧縮に使う、結果が未確認の操作・送信待ち・別の会話を開く操作。 */
+  threadOps: { pendingOps: ChatPendingOp[]; queues: ChatQueue[]; onOpenChat: (chat: ChatKey) => void };
   prefs: PrefsProps;
   /** 実接続か（差分・戻すはモックでは動かない）。 */
   live: boolean;
@@ -320,6 +326,24 @@ export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnter
       <Shell title="変更を戻す" wide onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>
         <RevertBody chat={chats.find((x) => x.key.id === d.chatId)} live={live} cap={opCaps.find((c) => c.op === "revertChanges")} onDone={onRevertDone} />
       </Shell>);
+    case "review": case "compact": case "fork": {
+      const c = chats.find((x) => x.key.id === d.chatId);
+      const pending = threadOps.pendingOps.filter((p) => p.chat.id === d.chatId).map((p) => p.pending);
+      const waiting = threadOps.queues.find((q) => q.chat.id === d.chatId)?.entries.filter((e) => e.state.kind === "waiting").length ?? 0;
+      const common = { chat: c, live, pending, waiting, onOpenChat: (k: ChatKey) => { onClose(); threadOps.onOpenChat(k); } };
+      if (d.type === "review") return (
+        <Shell title="コードレビュー" wide onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>
+          <ReviewBody {...common} cap={opCaps.find((x) => x.op === "codeReview")} />
+        </Shell>);
+      if (d.type === "fork") return (
+        <Shell title="会話を分岐" onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>
+          <ForkBody chat={c} live={live} cap={opCaps.find((x) => x.op === "fork")} throughTurn={d.throughTurn} onOpenChat={common.onOpenChat} />
+        </Shell>);
+      return (
+        <Shell title="文脈を圧縮" wide onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>
+          <CompactBody {...common} cap={opCaps.find((x) => x.op === "compact")} />
+        </Shell>);
+    }
     case "goal": return (
       <Shell title="Goal" onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>
         <GoalBody key={d.chatId} chat={chats.find((x) => x.key.id === d.chatId)} current={prefs.goal} live={live} cap={opCaps.find((c) => c.op === "goal")} save={(u) => prefs.saveGoal(d.chatId, u)} />

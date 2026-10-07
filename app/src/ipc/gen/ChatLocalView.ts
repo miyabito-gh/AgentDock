@@ -3,6 +3,7 @@ import type { ChatKey } from "./ChatKey";
 import type { ChatMarks } from "./ChatMarks";
 import type { DeletePending } from "./DeletePending";
 import type { Draft } from "./Draft";
+import type { ForkOrigin } from "./ForkOrigin";
 import type { ListVisibility } from "./ListVisibility";
 import type { ModelChoice } from "./ModelChoice";
 import type { PermissionPreset } from "./PermissionPreset";
@@ -33,7 +34,15 @@ nextCwd: string | null,
 /**
  * memoriesのチャット別設定として要求した値（バックエンドが示す不透明な値。受け付けられたときだけ入る）。
  */
-memoryMode: string | null, draft: Draft, visibility: ListVisibility, deletePending: DeletePending | null, marks: ChatMarks, 
+memoryMode: string | null, 
+/**
+ * このチャットがレビュー用に作られたときの、レビュー元（P3-2）。
+ */
+reviewOf: ChatKey | null, 
+/**
+ * このチャットが分岐で作られたときの、分岐元（AgentDockの記録。バックエンドの記録が読めない場合の表示用、P3-2）。
+ */
+forkOf: ForkOrigin | null, draft: Draft, visibility: ListVisibility, deletePending: DeletePending | null, marks: ChatMarks, 
 /**
  * 「確認済み」にした失敗（agent＋turn）。UIが現在の失敗との一致で確認済みを判定する（M42）。
  */

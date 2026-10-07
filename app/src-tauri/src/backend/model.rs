@@ -738,6 +738,12 @@ pub enum ActivityKind {
     WebSearch,
     /// 子エージェントの生成・送受信・待機（spawn/send/wait）。
     SubAgent,
+    /// レビューの開始（レビューモードに入った記録）。
+    ReviewStarted,
+    /// レビューの結果（レビューモードの終了時にバックエンドが示した本文）。観測したときだけ出す。
+    ReviewResult,
+    /// 文脈の圧縮（バックエンドが圧縮した記録）。観測したときだけ出す。
+    ContextCompaction,
     /// 未知・未正規化のitem。原文の種別名を保持して表示する（M12）。
     Other { raw: String },
 }
