@@ -8,6 +8,7 @@ use tauri_plugin_autostart::ManagerExt;
 
 use crate::attach;
 use crate::backend::backend::{ManageOutcome, Page, ResumeOutcome, RespondOutcome, UserConfirmed, ChatSummary, AgentHistory};
+use crate::backend::changes::*;
 use crate::backend::ipc::*;
 use crate::backend::local::{
     AddAttachmentFileArgs, AttachmentArgs, AttachmentEntry, OpenFileArgs, SaveFileAsArgs,
@@ -407,4 +408,26 @@ pub async fn pick_save_file(app: tauri::AppHandle, args: PickSaveFileArgs) -> R<
     .await
     .map_err(|e| io_err(format!("ダイアログが異常終了しました: {e}")))?;
     picked_path(picked)
+}
+
+#[tauri::command]
+pub async fn get_change_list(host: Hs<'_>, args: GetChangeListArgs) -> R<ChangeList> {
+    host.inner().clone().get_change_list(args).await
+}
+
+#[tauri::command]
+pub async fn get_file_diff(host: Hs<'_>, args: GetFileDiffArgs) -> R<UnifiedDiff> {
+    host.inner().clone().get_file_diff(args).await
+}
+
+#[tauri::command]
+pub async fn preview_revert(host: Hs<'_>, args: PreviewRevertArgs) -> R<RevertPlan> {
+    host.inner().clone().preview_revert(args).await
+}
+
+/// 変更を戻す。確認画面の後のユーザー操作だけが呼ぶ（`UserConfirmed` はここでだけ発行する）。
+#[tauri::command]
+pub async fn revert_changes(host: Hs<'_>, args: RevertChangesArgs) -> R<RevertResult> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().revert_changes(args, &confirmed).await
 }

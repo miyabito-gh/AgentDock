@@ -10,6 +10,7 @@ use std::collections::{HashMap, HashSet};
 
 use super::stop;
 use crate::backend::backend::*;
+use crate::backend::changes::FileChange;
 use crate::backend::ipc::*;
 use crate::backend::local::{AppSettings, ChatMarks, SaveScope, SaveStatus};
 use crate::backend::model::*;
@@ -23,6 +24,8 @@ pub enum Followup {
     ScanDescendants(AgentKey),
     /// 会話で作られたファイルの候補。実在を確認できたものだけ成果物にする（ファイルを読むので別taskで行う）。
     ObserveArtifact { agent: AgentKey, item: ItemKey, path: String },
+    /// 完了したファイル変更の報告。ファイルを読んで観測記録（`changes.jsonl`）に追記する（別taskで行う）。
+    ObserveChanges { agent: AgentKey, item: ItemKey, changes: Vec<FileChange> },
 }
 
 /// 履歴の読取りで確認した、最新turnの末尾の様子（状態が不明のエージェントを未完了と数えるかの根拠）。
@@ -76,7 +79,13 @@ pub struct HostData {
     wake_reconciled: HashMap<AgentKey, UnixMillis>,
     /// 監視活動履歴（`activity.jsonl`）へ追記する行（ホストが `mutate` の直後に取り出す）。
     pub activity_outbox: Vec<(ChatKey, ActivityLine)>,
+    /// turn単位の集約diffの最新値（描画・差分表示用。再起動後は持たない）。古いものから `TURN_DIFF_KEEP` 件まで。
+    turn_diffs: HashMap<TurnKey, String>,
+    turn_diff_order: Vec<TurnKey>,
 }
+
+/// 保持するturn集約diffの件数（超えたら古いturnから捨てる）。
+const TURN_DIFF_KEEP: usize = 64;
 
 impl Default for HostData {
     fn default() -> Self {
@@ -106,6 +115,8 @@ impl Default for HostData {
             history_terminal: HashMap::new(),
             wake_reconciled: HashMap::new(),
             activity_outbox: Vec::new(),
+            turn_diffs: HashMap::new(),
+            turn_diff_order: Vec::new(),
         }
     }
 }
@@ -653,6 +664,32 @@ impl HostData {
         self.notify_inbox.push(NotifyInput::Ended { chat, agent: agent.clone(), is_root, turn, end, was_nonterminal });
     }
 
+    // ── turn集約diff ──
+
+    fn note_turn_diff(&mut self, turn: &TurnKey, diff: &str) {
+        if self.turn_diffs.insert(turn.clone(), diff.to_string()).is_none() {
+            self.turn_diff_order.push(turn.clone());
+            while self.turn_diff_order.len() > TURN_DIFF_KEEP {
+                let old = self.turn_diff_order.remove(0);
+                self.turn_diffs.remove(&old);
+            }
+        }
+    }
+
+    /// turnの集約diff（このセッションでliveに受け取った最新値）。
+    pub fn turn_diff(&self, turn: &TurnKey) -> Option<&String> {
+        self.turn_diffs.get(turn)
+    }
+
+    /// チャット内（親・子孫）の集約diffを、受け取った順に返す。
+    pub fn turn_diffs_of_chat(&self, chat: &ChatKey) -> Vec<(TurnKey, String)> {
+        self.turn_diff_order
+            .iter()
+            .filter(|t| self.view(&t.agent).is_some_and(|v| &v.agent.chat == chat))
+            .filter_map(|t| self.turn_diffs.get(t).map(|d| (t.clone(), d.clone())))
+            .collect()
+    }
+
     // ── バックエンドイベント ──
 
     pub fn apply_event(&mut self, env: &EventEnvelope, caps: &Capabilities) -> (Vec<HostEvent>, Vec<Followup>) {
@@ -859,6 +896,15 @@ impl HostData {
             }
             BackendEvent::ArtifactObserved { agent, item, path } => {
                 follow.push(Followup::ObserveArtifact { agent: agent.clone(), item: item.clone(), path: path.clone() });
+            }
+            BackendEvent::TurnChangesUpdated { turn, diff } => {
+                self.note_turn_diff(turn, diff);
+                if let Some(v) = self.view(&turn.agent) {
+                    out.push(HostEvent::ChangesUpdated { chat: v.agent.chat.clone(), turn: Some(turn.turn_id.clone()) });
+                }
+            }
+            BackendEvent::FileChangeObserved { agent, item, changes } => {
+                follow.push(Followup::ObserveChanges { agent: agent.clone(), item: item.clone(), changes: changes.clone() });
             }
             BackendEvent::RequestOpened { request } => {
                 match self.requests.iter_mut().find(|r| r.key == request.key) {

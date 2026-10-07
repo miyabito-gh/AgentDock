@@ -183,6 +183,10 @@ fn convert_known(method: &str, p: &Value, ctx: &EventCtx, live: &dyn Fn(Option<U
                         for path in file_change_paths(item) {
                             out.push(BackendEvent::ArtifactObserved { agent: activity.key.agent.clone(), item: activity.key.clone(), path });
                         }
+                        let changes = file_changes(item);
+                        if !changes.is_empty() {
+                            out.push(BackendEvent::FileChangeObserved { agent: activity.key.agent.clone(), item: activity.key.clone(), changes });
+                        }
                     }
                     if let Some((agent, assignment)) = super::convert::spawn_assignment(item) {
                         out.push(BackendEvent::AgentAssignment { agent, assignment });
@@ -191,6 +195,10 @@ fn convert_known(method: &str, p: &Value, ctx: &EventCtx, live: &dyn Fn(Option<U
                 }
                 None => vec![unrecognized(method, "item without id")],
             }
+        }
+        "turn/diff/updated" => {
+            let (Some(tid), Some(turn), Some(diff)) = (s(p, "threadId"), s(p, "turnId"), s(p, "diff")) else { return missing("threadId/turnId/diff") };
+            vec![BackendEvent::TurnChangesUpdated { turn: turn_key(tid, turn), diff: diff.to_string() }]
         }
         "item/agentMessage/delta" => {
             let (Some(tid), Some(turn), Some(item), Some(delta)) = (s(p, "threadId"), s(p, "turnId"), s(p, "itemId"), s(p, "delta")) else {
@@ -576,6 +584,21 @@ mod tests {
     fn unknown_method_is_kept_as_unrecognized() {
         let ev = run("future/thing", json!({"a": 1}));
         assert!(matches!(&ev[0], BackendEvent::Unrecognized { raw_label, .. } if raw_label == "future/thing"));
+    }
+
+    #[test]
+    fn turn_diff_and_completed_file_changes_become_change_events() {
+        let ev = run("turn/diff/updated", json!({"threadId": "a", "turnId": "t1", "diff": "diff --git a/x b/x
+"}));
+        assert!(matches!(&ev[0], BackendEvent::TurnChangesUpdated { turn, diff } if turn.turn_id.0 == "t1" && diff.starts_with("diff --git")));
+        assert!(matches!(&run("turn/diff/updated", json!({"threadId": "a"}))[0], BackendEvent::Unrecognized { .. }));
+        let item = json!({"type": "fileChange", "id": "i1", "status": "completed", "changes": [{"path": "x.rs", "kind": {"type": "add"}, "diff": "fn x() {}
+"}]});
+        let ev = run("item/completed", json!({"threadId": "a", "turnId": "t1", "item": item}));
+        assert!(ev.iter().any(|e| matches!(e, BackendEvent::FileChangeObserved { changes, item, .. } if changes.len() == 1 && item.item_id.0 == "i1")));
+        // 開始時（未完了）は観測にしない。
+        let started = json!({"type": "fileChange", "id": "i2", "status": "inProgress", "changes": [{"path": "x.rs", "kind": {"type": "add"}, "diff": ""}]});
+        assert!(!run("item/started", json!({"threadId": "a", "turnId": "t1", "item": started})).iter().any(|e| matches!(e, BackendEvent::FileChangeObserved { .. })));
     }
 
     #[test]

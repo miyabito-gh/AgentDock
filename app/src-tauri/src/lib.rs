@@ -200,6 +200,10 @@ pub fn run() {
             commands::unarchive_chat,
             commands::export_markdown,
             commands::get_usage,
+            commands::get_change_list,
+            commands::get_file_diff,
+            commands::preview_revert,
+            commands::revert_changes,
             commands::pick_codex_executable,
             commands::pick_save_file,
         ])

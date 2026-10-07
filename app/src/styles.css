@@ -287,3 +287,13 @@ textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;paddin
 .quit-list .sub{display:block;font-size:12px;color:var(--ink3)}
 .parity-table{width:100%;border-collapse:collapse;font-size:12.5px}
 .parity-table th,.parity-table td{text-align:left;padding:3px 6px;border-bottom:1px solid var(--line);vertical-align:top}
+
+.diffview{font:12px/1.5 var(--mono);background:var(--paper);border:1px solid var(--line);border-radius:var(--r-s);padding:6px 0;max-height:320px;overflow:auto;white-space:pre}
+.diffview .ln{padding:0 10px;min-width:max-content}
+.diffview .add{background:#E7F4EA;color:#1B5E2B}
+.diffview .del{background:var(--fail-bg);color:#7A1A14}
+.diffview .hunk{color:var(--ink3);background:var(--rail)}
+.diffview .meta{color:var(--ink2);font-weight:700;background:var(--harbor-weak)}
+.change-table tbody tr{cursor:pointer}
+.change-table tbody tr.sel{background:var(--harbor-weak)}
+.change-table .linkish{height:auto;padding:0;border:0;background:transparent;text-align:left;white-space:normal;word-break:break-all;color:inherit}

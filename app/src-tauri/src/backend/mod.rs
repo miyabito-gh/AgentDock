@@ -7,6 +7,8 @@
 //! 設計メモは `app/DESIGN_T1.md`。
 
 pub mod backend;
+/// 段階③ P3-1: 変更ファイルの一覧・差分・変更を戻す（`app/DESIGN_P3.md` §1 #1・#2）。
+pub mod changes;
 pub mod ipc;
 /// 段階②のアプリ側データとIPC追加分（`app/DESIGN_P2.md`）。
 pub mod local;

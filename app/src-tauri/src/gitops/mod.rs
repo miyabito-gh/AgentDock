@@ -29,6 +29,8 @@ pub enum GitOp {
     Status,
     /// 作業ツリーの差分（読取りのみ）。`path` があればそのファイルだけ。
     Diff { path: Option<String> },
+    /// 作業ツリーとHEADの差分（索引・作業ツリーの変更をまとめて。読取りのみ）。`path` があればそのファイルだけ。
+    DiffHead { path: Option<String> },
     /// ローカルブランチの一覧。
     Branches,
     /// worktreeの一覧（`--porcelain`）。
@@ -126,6 +128,15 @@ impl GitOp {
                 }
                 a
             }
+            GitOp::DiffHead { path } => {
+                let mut a = strings(&["--no-optional-locks", "-c", "core.quotepath=false", "diff", "HEAD", "--no-ext-diff", "--no-textconv", "--no-color"]);
+                if let Some(p) = path {
+                    check(valid_path(p), "path")?;
+                    a.push("--".into());
+                    a.push(p.clone());
+                }
+                a
+            }
             GitOp::Branches => strings(&["for-each-ref", "--format=%(refname:short)", "refs/heads"]),
             GitOp::WorktreeList => strings(&["worktree", "list", "--porcelain"]),
             GitOp::WorktreeAdd { path, branch, base } => {
@@ -200,6 +211,15 @@ mod tests {
         let a = GitOp::Diff { path: Some("src/a.rs".into()) }.args().unwrap();
         assert_eq!(&a[a.len() - 2..], ["--", "src/a.rs"]);
         assert!(GitOp::Status.args().unwrap().contains(&"--no-optional-locks".to_string()));
+    }
+
+    #[test]
+    fn diff_head_is_read_only_and_paths_follow_double_dash() {
+        let a = GitOp::DiffHead { path: Some("a b.rs".into()) }.args().unwrap();
+        assert!(a.contains(&"HEAD".to_string()) && a.contains(&"--no-optional-locks".to_string()));
+        assert_eq!(&a[a.len() - 2..], ["--", "a b.rs"]);
+        assert!(GitOp::DiffHead { path: Some("a
+b".into()) }.args().is_err());
     }
 
     #[test]

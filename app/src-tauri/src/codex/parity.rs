@@ -24,10 +24,16 @@ const fn d(op: ParityOp, route: OpRoute, schema_support: Support) -> Declared {
     Declared { op, route, schema_support, deprecated: false, implemented: false }
 }
 
+/// 実装済みの宣言（`implemented` が真）。
+const fn done(op: ParityOp, route: OpRoute, schema_support: Support) -> Declared {
+    Declared { op, route, schema_support, deprecated: false, implemented: true }
+}
+
 /// 0.160.0 のschemaと `DESIGN_P3.md` §1 に基づく宣言。実装したタスクが `implemented` を真にする。
 const DECLARED: [Declared; 20] = [
-    d(ParityOp::ChangeList, OpRoute::BackendApi, Support::Supported),
-    d(ParityOp::RevertChanges, OpRoute::AppManaged, Support::Supported),
+    // P3-1: 変更の報告（turn集約diff・fileChange item）の観測と、AgentDock管理の差分表示・戻す操作。確認状況は未確認のまま。
+    done(ParityOp::ChangeList, OpRoute::BackendApi, Support::Supported),
+    done(ParityOp::RevertChanges, OpRoute::AppManaged, Support::Supported),
     d(ParityOp::CodeReview, OpRoute::BackendApi, Support::Supported),
     d(ParityOp::ReviewToNewChat, OpRoute::BackendApi, Support::Supported),
     d(ParityOp::WorkMode, OpRoute::BackendApi, Support::Experimental),
@@ -160,9 +166,17 @@ mod tests {
     fn unimplemented_operations_are_unsupported_never_supported() {
         let caps = op_capabilities(Some("0.160.0"));
         assert_eq!(caps.len(), ParityOp::ALL.len());
+        // 実装済みの操作（P3-1: 変更の一覧・戻す）だけが対応。確認状況は未確認のまま。
+        let implemented = [ParityOp::ChangeList, ParityOp::RevertChanges];
         for c in &caps {
-            assert_eq!(c.support, Support::Unsupported, "{:?}", c.op);
-            assert!(c.note.is_some());
+            if implemented.contains(&c.op) {
+                assert_eq!(c.support, Support::Supported, "{:?}", c.op);
+                assert_eq!(c.verification, Verification::Unverified, "{:?}", c.op);
+                assert!(c.note.is_none());
+            } else {
+                assert_eq!(c.support, Support::Unsupported, "{:?}", c.op);
+                assert!(c.note.is_some());
+            }
         }
         let personality = caps.iter().find(|c| c.op == ParityOp::Personality).unwrap();
         assert!(personality.deprecated);

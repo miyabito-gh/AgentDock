@@ -12,6 +12,7 @@ import {
   type AttachmentEntry, type FileRef,
   type ForceKillPreview, type MonitorWindowScope, type QuitDecision, type QuitPhase, type StopRecord, type WindowKind,
   type ChatLocalView, type DeleteOutcome, type DeletePreview, type UsageReport, type ManageOutcome,
+  type ChangeList, type ChangeScope, type ChangeSource, type ExternalId, type RevertPlan, type RevertResult, type UnifiedDiff,
 } from "./types";
 
 /** 型付きinvoke。引数は `args` 1個で渡す（types.ts CommandMap の規約）。 */
@@ -142,3 +143,13 @@ export const saveFileAs = (target: FileRef, dest: string, overwriteConfirmed: bo
   invokeCmd("save_file_as", { target, dest, overwriteConfirmed });
 /** 画像のアプリ内プレビュー用のバイト列（画像だけ。大きいものはエラー）。 */
 export const readFilePreview = (target: FileRef): Promise<ArrayBuffer> => invoke("read_file_preview", { args: { target } });
+
+// ── 変更ファイルと差分・変更を戻す（段階③ #1・#2）。一覧と差分は読取りのみ。 ──
+/** 変更ファイルの一覧。scope が workingTree ならGit上の現在の差分、それ以外はCodexが報告した変更（出所は混ぜない）。 */
+export const getChangeList = (chat: ChatKey, scope: ChangeScope): Promise<ChangeList> => invokeCmd("get_change_list", { chat, scope });
+export const getFileDiff = (chat: ChatKey, path: string, source: ChangeSource, turn: ExternalId | null): Promise<UnifiedDiff> =>
+  invokeCmd("get_file_diff", { chat, path, source, turn });
+/** 戻す計画の作成（ファイルは変更しない）。ファイルごとに戻せるか・戻せない理由が返る。 */
+export const previewRevert = (chat: ChatKey, turn: ExternalId | null, paths: string[] | null): Promise<RevertPlan> => invokeCmd("preview_revert", { chat, turn, paths });
+/** 変更を戻す（確認画面の後だけ）。控えを保存できなければ何も変えない。部分成功は failed に出る。 */
+export const revertChanges = (chat: ChatKey, planId: LocalId, paths: string[]): Promise<RevertResult> => invokeCmd("revert_changes", { chat, planId, paths });

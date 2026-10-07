@@ -94,6 +94,7 @@ export default function App() {
   const [listStatus, setListStatus] = useState<{ ok: boolean; text: string } | null>(null);
   const [steerOf, setSteerOf] = useState<Record<string, { attemptId: string; text: string; attachments: string[] }>>({});
   const [dragging, setDragging] = useState(false);
+  const [changesTick, setChangesTick] = useState(0);
   const toastTimer = useRef<number | undefined>(undefined);
   const selRef = useRef<string | null>(null);
   const quitKindRef = useRef<QuitPhase["kind"]>("idle");
@@ -181,6 +182,7 @@ export default function App() {
     const effects = (e: HostEvent) => {
       if (e.kind === "turnUpdated" && e.end !== null && e.turn.agent.id === selRef.current) void loadChat(e.turn.agent.id);
       else if (e.kind === "sendUpdated") noteAttempt(e.chat.id, e.attempt);
+      else if (e.kind === "changesUpdated") setChangesTick((n) => n + 1); // 開いている差分表示が取り直す（読取りのみ）
       else if (e.kind === "navigateToChat") { setSelId(e.chat.id); void loadChat(e.chat.id); } // 通知を開いた操作。表示だけで、回答・再実行はしない
       else if (e.kind === "quitPrompt") { quitKindRef.current = e.phase.kind; setQuit(e.phase); setDialog((d) => (d?.type === "force" ? d : { type: "quit" })); } // もう一度「終了」が要求された。確認画面を開き直す
       else if (e.kind === "quitUpdated") {
@@ -771,6 +773,8 @@ export default function App() {
         break;
       case "newChat": setDialog({ type: "newChat" }); break;
       case "parity": setDialog({ type: "parity" }); break;
+      case "diff": if (chat) setDialog({ type: "changes", chatId: chat.key.id }); else say("チャットを選んでください。"); break;
+      case "revert": if (chat) setDialog({ type: "revert", chatId: chat.key.id }); else say("チャットを選んでください。"); break;
       case "quit":
         if (!live) { setDialog({ type: "quit" }); break; }
         host.requestQuit().then((p) => { setQuit(p); setDialog({ type: "quit" }); }).catch((e) => sayErr("終了を要求できませんでした", e));
@@ -875,6 +879,7 @@ export default function App() {
       {mini && !live ? <MiniWindow {...dockProps} top={miniTop} /> : null}
       {dialog ? (
         <Dialogs d={dialog} onClose={closeDialog} opCaps={snap.opCapabilities} chats={snap.chats} source={src} models={models}
+          live={live} changesTick={changesTick} onRevertDone={(r) => say(r.failed.length > 0 ? `一部のみ戻しました（失敗 ${r.failed.length} 件）。` : `${r.reverted.length} 件のファイルを書き換えました。`)}
           enterMode={enterMode} setEnterMode={setEnterMode}
           notify={{ value: snap.settings.notifications, set: onNotifySettings }}
           top={{ main: mainTop, mini: miniTop, setMain: (b) => setTop("main", b), setMini: (b) => setTop("monitor", b) }}

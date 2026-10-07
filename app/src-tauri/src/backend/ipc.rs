@@ -77,6 +77,10 @@ pub mod command_names {
     pub const GET_USAGE: &str = "get_usage";
     pub const PICK_CODEX_EXECUTABLE: &str = "pick_codex_executable";
     pub const PICK_SAVE_FILE: &str = "pick_save_file";
+    pub const GET_CHANGE_LIST: &str = "get_change_list";
+    pub const GET_FILE_DIFF: &str = "get_file_diff";
+    pub const PREVIEW_REVERT: &str = "preview_revert";
+    pub const REVERT_CHANGES: &str = "revert_changes";
 }
 
 // ───────────────────────────── エラー ─────────────────────────────
@@ -484,6 +488,8 @@ pub enum HostEvent {
     SaveStatusUpdated { status: SaveStatus },
     /// チャット1件分の、結果が未確認の操作（レビュー・圧縮）。一覧全体で置き換える。
     PendingOpsUpdated { chat: ChatKey, pending_ops: Vec<PendingOp> },
+    /// 変更の報告（turn集約diff・観測記録）が更新された。中身は送らず、開いている差分表示が取り直す。
+    ChangesUpdated { chat: ChatKey, turn: Option<ExternalId> },
     SettingsUpdated { settings: AppSettings },
     /// 添付の追加・コピーの進行・失敗・欠損の更新（1件分で置き換える）。
     AttachmentUpdated { entry: AttachmentEntry },

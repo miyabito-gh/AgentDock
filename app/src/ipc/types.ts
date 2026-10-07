@@ -21,6 +21,23 @@ export type { Verification } from "./gen/Verification";
 export type { WorkMode } from "./gen/WorkMode";
 export type { WorktreeRecord } from "./gen/WorktreeRecord";
 export type { WorktreeState } from "./gen/WorktreeState";
+export type { ChangeKind } from "./gen/ChangeKind";
+export type { ChangeList } from "./gen/ChangeList";
+export type { ChangeScope } from "./gen/ChangeScope";
+export type { ChangeSource } from "./gen/ChangeSource";
+export type { ChangedFile } from "./gen/ChangedFile";
+export type { GetChangeListArgs } from "./gen/GetChangeListArgs";
+export type { GetFileDiffArgs } from "./gen/GetFileDiffArgs";
+export type { ListStatus } from "./gen/ListStatus";
+export type { PreviewRevertArgs } from "./gen/PreviewRevertArgs";
+export type { RevertBlockCode } from "./gen/RevertBlockCode";
+export type { RevertChangesArgs } from "./gen/RevertChangesArgs";
+export type { RevertFailure } from "./gen/RevertFailure";
+export type { RevertItem } from "./gen/RevertItem";
+export type { RevertPlan } from "./gen/RevertPlan";
+export type { RevertResult } from "./gen/RevertResult";
+export type { RevertVerdict } from "./gen/RevertVerdict";
+export type { UnifiedDiff } from "./gen/UnifiedDiff";
 export type { Activity } from "./gen/Activity";
 export type { ActivityKind } from "./gen/ActivityKind";
 export type { ActivityPhase } from "./gen/ActivityPhase";
@@ -253,6 +270,14 @@ import type { ShowMainWindowArgs } from "./gen/ShowMainWindowArgs";
 import type { StopRecord } from "./gen/StopRecord";
 import type { UsageReport } from "./gen/UsageReport";
 import type { PickSaveFileArgs } from "./gen/PickSaveFileArgs";
+import type { ChangeList } from "./gen/ChangeList";
+import type { GetChangeListArgs } from "./gen/GetChangeListArgs";
+import type { GetFileDiffArgs } from "./gen/GetFileDiffArgs";
+import type { PreviewRevertArgs } from "./gen/PreviewRevertArgs";
+import type { RevertChangesArgs } from "./gen/RevertChangesArgs";
+import type { RevertPlan } from "./gen/RevertPlan";
+import type { RevertResult } from "./gen/RevertResult";
+import type { UnifiedDiff } from "./gen/UnifiedDiff";
 
 export const HOST_EVENT_CHANNEL = "agentdock://host-event";
 
@@ -314,6 +339,10 @@ export interface CommandMap {
   remove_attachment: { args: AttachmentArgs; result: null };
   open_file: { args: OpenFileArgs; result: null };
   save_file_as: { args: SaveFileAsArgs; result: null };
+  get_change_list: { args: GetChangeListArgs; result: ChangeList };
+  get_file_diff: { args: GetFileDiffArgs; result: UnifiedDiff };
+  preview_revert: { args: PreviewRevertArgs; result: RevertPlan };
+  revert_changes: { args: RevertChangesArgs; result: RevertResult };
 }
 export type CommandName = keyof CommandMap;
 

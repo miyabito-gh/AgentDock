@@ -1,10 +1,11 @@
 import { useState, type ReactNode } from "react";
-import type { Chat, ChatKey, ForceKillPreview, ModelInfo, NotificationSettings, OpCapability, QuitDecision, QuitPhase, SaveStatus, SourceInfo, StopRecord, StopSummary } from "../ipc/types";
+import type { Chat, ChatKey, ForceKillPreview, ModelInfo, NotificationSettings, OpCapability, QuitDecision, QuitPhase, RevertResult, SaveStatus, SourceInfo, StopRecord, StopSummary } from "../ipc/types";
 import { chatName } from "./derive";
 import { SCOPE_TEXT } from "./Chrome";
 import { Icon } from "./Icon";
 import { DeleteBody, ExportBody, StorageBody, type DeleteProps, type ExportProps, type UsageProps } from "./ManageDialogs";
 import { ParityBody } from "./ParityDialog";
+import { ChangesBody, RevertBody } from "./ChangesDialog";
 
 export type DialogState =
   | { type: "settings"; tab: string }
@@ -15,6 +16,8 @@ export type DialogState =
   | { type: "export"; chatId: string }
   | { type: "unv"; why: string }
   | { type: "parity" }
+  | { type: "changes"; chatId: string }
+  | { type: "revert"; chatId: string }
   | { type: "attach" }
   | { type: "resumeExternal"; chatId: string }
   | { type: "rename"; chatId: string };
@@ -232,8 +235,13 @@ function RenameDialog({ chat, onClose, run }: { chat: Chat | undefined; onClose:
 
 export interface NewChatInput { cwd: string | null; model: string; firstMessage: string | null }
 
-export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnterMode, top, setTab, onAct, exe, onCreateChat, notify, autostart, quit, force, manage, onRename, opCaps }: {
+export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnterMode, top, setTab, onAct, exe, onCreateChat, notify, autostart, quit, force, manage, onRename, opCaps, live, changesTick, onRevertDone }: {
   opCaps: OpCapability[];
+  /** 実接続か（差分・戻すはモックでは動かない）。 */
+  live: boolean;
+  /** 変更の報告が更新されるたびに増える。 */
+  changesTick: number;
+  onRevertDone: (r: RevertResult) => void;
   onRename: (chatId: string, name: string) => Promise<string | null>;
   autostart: AutostartProps; quit: QuitProps; force: ForceProps; manage: ManageProps;
   notify: NotifyProps;
@@ -290,6 +298,14 @@ export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnter
     case "unv": return (
       <Shell title="この操作はまだ使えません" onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>
         <div className="content"><p>{d.why}。</p><p className="small muted">Codex 側の経路と動作を確認できるまで、成功したように見せることはしません。</p></div>
+      </Shell>);
+    case "changes": return (
+      <Shell title="変更ファイルと差分" wide onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>
+        <ChangesBody chat={chats.find((x) => x.key.id === d.chatId)} live={live} tick={changesTick} cap={opCaps.find((c) => c.op === "changeList")} onRevert={() => onAct("revert")} />
+      </Shell>);
+    case "revert": return (
+      <Shell title="変更を戻す" wide onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>
+        <RevertBody chat={chats.find((x) => x.key.id === d.chatId)} live={live} cap={opCaps.find((c) => c.op === "revertChanges")} onDone={onRevertDone} />
       </Shell>);
     case "parity": return (
       <Shell title="同等性の確認状況" wide onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>

@@ -8,6 +8,7 @@
 //! - 監視のためにresume・承認・停止をしない。resumeはユーザーの送信・再開操作の中でだけ行う。
 
 pub mod attachments;
+pub mod changes;
 pub mod lifecycle;
 pub mod manage;
 pub mod notifier;
@@ -160,6 +161,8 @@ pub struct Host {
     queue_rt: queue_driver::QueueRuntime,
     /// アーカイブ・削除の作業状態（`manage.rs`）。
     manage_rt: manage::ManageRuntime,
+    /// 変更の観測・戻す計画（`changes.rs`）。
+    changes_rt: changes::ChangesRuntime,
 }
 
 impl Host {
@@ -180,6 +183,7 @@ impl Host {
             scanning: Mutex::new(HashSet::new()),
             queue_rt: queue_driver::QueueRuntime::default(),
             manage_rt: manage::ManageRuntime::default(),
+            changes_rt: changes::ChangesRuntime::default(),
         }
     }
 
@@ -234,6 +238,7 @@ impl Host {
     /// バックエンドのイベントを常にdrainする専用task。ここでは要求をawaitしない。
     pub fn start_event_pump(self: &Arc<Self>) {
         self.start_activity_writer();
+        self.start_changes_observer();
         self.start_queue_driver();
         self.start_manage_watch();
         self.spawn_recheck_files(None);
@@ -252,7 +257,7 @@ impl Host {
             let (events, follow) = d.apply_event(env, &caps);
             (follow, events)
         });
-        if !matches!(env.event, BackendEvent::Activity { .. } | BackendEvent::ActivityDelta { .. } | BackendEvent::ArtifactObserved { .. }) {
+        if !matches!(env.event, BackendEvent::Activity { .. } | BackendEvent::ActivityDelta { .. } | BackendEvent::ArtifactObserved { .. } | BackendEvent::TurnChangesUpdated { .. } | BackendEvent::FileChangeObserved { .. }) {
             self.kick_queue();
         }
         for f in follow {
@@ -262,6 +267,7 @@ impl Host {
                     host.start_scan(root);
                 }
                 Followup::ObserveArtifact { agent, item, path } => self.observe_artifact(agent, item, path),
+                Followup::ObserveChanges { agent, item, changes } => self.observe_changes(agent, item, changes),
             }
         }
     }

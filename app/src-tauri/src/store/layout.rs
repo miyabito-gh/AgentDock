@@ -9,6 +9,8 @@
 //!     chat.json                   補足情報（ChatLocalFile）
 //!     queue.json                  キューと受理不明の送信記録（QueueFile）
 //!     activity.jsonl              取得した監視活動履歴（追記）
+//!     changes.jsonl               観測したファイル変更の記録と「戻し」の記録（追記。DESIGN_P3 #1・#2）
+//!     revert-backup\<ms>\         変更を戻す前の控え（ファイル実体と manifest.json。自動では削除しない）
 //!     attachments\<attId>\<name>  添付のコピー（添付ごとに別フォルダ。同名・再添付でも衝突しない）
 //!     attachments\<attId>\<name>.partial   コピー途中（完了まで利用不可）
 //!     workspace\                  一般チャットの作業フォルダ（開発チャットは使わない）
@@ -28,6 +30,8 @@ pub const CHATS_DIR: &str = "chats";
 pub const CHAT_FILE: &str = "chat.json";
 pub const QUEUE_FILE: &str = "queue.json";
 pub const ACTIVITY_FILE: &str = "activity.jsonl";
+pub const CHANGES_FILE: &str = "changes.jsonl";
+pub const REVERT_BACKUP_DIR: &str = "revert-backup";
 pub const ATTACHMENTS_DIR: &str = "attachments";
 pub const WORKSPACE_DIR: &str = "workspace";
 pub const PARTIAL_SUFFIX: &str = ".partial";

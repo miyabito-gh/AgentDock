@@ -149,6 +149,7 @@ export function applyHostEvent(b: Bundle, e: HostEvent): Bundle {
       return set({ artifacts: upsert(s.artifacts, e.entry, (a) => a.id === e.entry.id) });
     case "settingsUpdated":
       return set({ settings: e.settings });
+    case "changesUpdated": // 開いている差分表示が画面側で取り直す（状態は変えない）
     case "sendUpdated":
     case "quitPrompt":
     case "quitUpdated": // 終了手順の進行は画面側（App）が保持する（表示用の一時状態）
