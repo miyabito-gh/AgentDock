@@ -51,6 +51,7 @@ export type { DecisionScope } from "./gen/DecisionScope";
 export type { DeleteOutcome } from "./gen/DeleteOutcome";
 export type { DeletePending } from "./gen/DeletePending";
 export type { DeletePendingReason } from "./gen/DeletePendingReason";
+export type { DeleteStep } from "./gen/DeleteStep";
 export type { DeletePreview } from "./gen/DeletePreview";
 export type { Draft } from "./gen/Draft";
 export type { EditQueueEntryArgs } from "./gen/EditQueueEntryArgs";

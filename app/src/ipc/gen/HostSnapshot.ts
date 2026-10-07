@@ -9,6 +9,7 @@ import type { ChatModelEntry } from "./ChatModelEntry";
 import type { ChatQueue } from "./ChatQueue";
 import type { MonitorScope } from "./MonitorScope";
 import type { PendingRequest } from "./PendingRequest";
+import type { QuitPhase } from "./QuitPhase";
 import type { SaveStatus } from "./SaveStatus";
 import type { SourceInfo } from "./SourceInfo";
 import type { StartupWarning } from "./StartupWarning";
@@ -49,4 +50,8 @@ attachments: Array<AttachmentEntry>,
 /**
  * 実在を確認した成果物。
  */
-artifacts: Array<ArtifactEntry>, };
+artifacts: Array<ArtifactEntry>, 
+/**
+ * 完全終了の手順の状態（renderer再読込み・再接続後も確認画面を復元するため）。
+ */
+quit: QuitPhase, };

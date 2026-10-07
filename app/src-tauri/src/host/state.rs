@@ -170,6 +170,7 @@ impl HostData {
             startup_warnings: crate::host::persist::pending_warnings(&self.startup_warnings, &self.settings.acknowledged_warnings),
             attachments: self.locals.values().flat_map(|f| f.attachments.iter().cloned()).collect(),
             artifacts: self.locals.values().flat_map(|f| f.artifacts.iter().cloned()).collect(),
+            quit: crate::backend::local::QuitPhase::Idle, // 手順の状態は `Host::snapshot` が重ねる
         }
     }
 

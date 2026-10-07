@@ -159,6 +159,14 @@ export default function App() {
     let resyncing = false;
     const pending: HostEventEnvelope[] = [];
 
+    /** スナップショットの終了手順の状態を反映する（再読込み後の復元）。段階が変わった／初回で手順の途中なら確認画面を開く。 */
+    const restoreQuit = (s: HostSnapshot, initial: boolean) => {
+      const prev = quitKindRef.current;
+      quitKindRef.current = s.quit.kind;
+      setQuit(s.quit);
+      if (s.quit.kind === "idle") { if (prev !== "idle") setDialog((d) => (d?.type === "quit" ? null : d)); }
+      else if (initial || prev !== s.quit.kind) setDialog((d) => (d?.type === "force" ? d : { type: "quit" }));
+    };
     const resync = async () => {
       if (resyncing) return;
       resyncing = true;
@@ -167,12 +175,14 @@ export default function App() {
         if (!alive) return;
         last = snap.seq;
         setBundle((b) => replaceSnapshot(b, snap));
+        restoreQuit(snap, false);
       } catch (e) { sayErr("状態を取り直せませんでした", e); } finally { resyncing = false; }
     };
     const effects = (e: HostEvent) => {
       if (e.kind === "turnUpdated" && e.end !== null && e.turn.agent.id === selRef.current) void loadChat(e.turn.agent.id);
       else if (e.kind === "sendUpdated") noteAttempt(e.chat.id, e.attempt);
       else if (e.kind === "navigateToChat") { setSelId(e.chat.id); void loadChat(e.chat.id); } // 通知を開いた操作。表示だけで、回答・再実行はしない
+      else if (e.kind === "quitPrompt") { quitKindRef.current = e.phase.kind; setQuit(e.phase); setDialog((d) => (d?.type === "force" ? d : { type: "quit" })); } // もう一度「終了」が要求された。確認画面を開き直す
       else if (e.kind === "quitUpdated") {
         // 終了手順の進行（確認・停止照合・保存）。段階が変わったときだけ確認画面を開く（「待つ」で閉じた後に開き直さない）。
         const prev = quitKindRef.current;
@@ -219,6 +229,7 @@ export default function App() {
         last = snap.seq;
         setBundle((b) => replaceSnapshot(b, snap));
         setScope(snap.monitorScope);
+        restoreQuit(snap, true);
         ready = true;
         for (const env of pending.splice(0)) handle(env);
       } catch (e) {
@@ -531,7 +542,19 @@ export default function App() {
   const files: FileActions = {
     open: (t) => {
       if (!live) { say("この操作はモックでは動きません。"); return; }
-      host.openFile(t).catch((e) => sayErr("開けませんでした", e));
+      void (async () => {
+        try { await host.openFile(t); return; } catch (e) {
+          const er = host.asIpcError(e);
+          const b = er.blocked;
+          if (b?.kind !== "openNeedsConfirm") { sayErr("開けませんでした", e); return; }
+          const why = [
+            b.executable ? "実行形式のファイルです。開くとプログラムが実行されることがあります。" : "",
+            b.outsideProject ? "このチャットのプロジェクト（作業フォルダ）の外にあるファイルです。" : "",
+          ].filter(Boolean).join("\n");
+          if (!window.confirm(`${why}\n${b.path}\n\n内容を確認したうえで、開きますか？`)) { say("開くのをやめました。"); return; }
+          try { await host.openFile(t, true); } catch (e2) { sayErr("開けませんでした", e2); }
+        }
+      })();
     },
     save: (t, name) => {
       if (!live) { say("この操作はモックでは動きません。"); return; }
@@ -684,7 +707,7 @@ export default function App() {
     host.pickCodexExecutable().then((p) => {
       if (!p) return;
       setExePath(p); writeExe(p);
-      host.setAppSettings({ ...snap.settings, codexExecutable: p }).catch((e) => sayErr("codex.exe の場所を保存できませんでした", e));
+      host.setAppSettings({ ...snap.settings, executables: { ...snap.settings.executables, codex: p } }).catch((e) => sayErr("codex.exe の場所を保存できませんでした", e));
     }).catch((e) => sayErr("ファイルを選択できませんでした", e));
   };
 

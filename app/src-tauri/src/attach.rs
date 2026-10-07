@@ -203,6 +203,49 @@ pub fn check_exists(path: &Path) -> Known<bool> {
     }
 }
 
+/// 実行形式（関連アプリで開くと実行されうる拡張子）。確認なしでは開かない。
+const EXECUTABLE_EXTS: &[&str] = &[
+    "exe", "bat", "cmd", "ps1", "vbs", "vbe", "js", "jse", "wsf", "wsh", "msi", "msp", "lnk", "com", "scr", "pif", "cpl", "hta", "reg", "jar", "psm1", "appx", "msix", "url", "chm", "msc", "wsf",
+];
+
+pub fn is_executable_path(path: &Path) -> bool {
+    // Windows は末尾の「.」と空白を無視して開くので、拡張子を取る前に除く（`a.exe.` `a.exe ` も実行形式）。
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let name = name.trim_end_matches(['.', ' ']);
+    Path::new(name).extension().and_then(|e| e.to_str()).is_some_and(|e| EXECUTABLE_EXTS.contains(&e.to_ascii_lowercase().as_str()))
+}
+
+/// 実体のパスで判定する（シンボリックリンク・ジャンクション・8.3短縮名で外を指すものを「外」にする）。解決できなければ外。
+pub fn is_inside_project_resolved(path: &Path, root: &str) -> bool {
+    let (Ok(p), Ok(r)) = (std::fs::canonicalize(path), std::fs::canonicalize(root)) else { return false };
+    is_inside_project(&p.to_string_lossy(), &r.to_string_lossy())
+}
+
+fn norm_path(s: &str) -> String {
+    let s = s.replace('/', "\\");
+    let s = s.strip_prefix("\\\\?\\").unwrap_or(&s);
+    s.trim_end_matches('\\').to_lowercase()
+}
+
+/// `path` が `root`（プロジェクト＝チャットの作業フォルダ）の中か。`..` を含むものは外とみなす。大文字小文字・区切りは区別しない。
+pub fn is_inside_project(path: &str, root: &str) -> bool {
+    let (p, r) = (norm_path(path), norm_path(root));
+    if r.is_empty() || p.split('\\').any(|c| c == "..") {
+        return false;
+    }
+    p == r || p.starts_with(&format!("{r}\\"))
+}
+
+/// 画像貼付けの生バイトの上限（受け側）。
+pub const MAX_IMAGE_BYTES: usize = 25 * 1024 * 1024;
+
+pub fn check_image_size(len: usize) -> Result<(), String> {
+    if len > MAX_IMAGE_BYTES {
+        return Err(format!("画像が大きすぎます（{} MiB。上限は {} MiB）", len / (1024 * 1024), MAX_IMAGE_BYTES / (1024 * 1024)));
+    }
+    Ok(())
+}
+
 /// 名前を付けて保存。`dest` が存在し `overwrite_confirmed=false` なら `Ok(false)` を返し、書かない（無断上書きしない）。
 /// 書くときは `dest` と同じフォルダの一時ファイルへコピーしてから置換する。
 pub fn save_copy_as(src: &Path, dest: &Path, overwrite_confirmed: bool) -> std::io::Result<bool> {
@@ -239,6 +282,56 @@ pub fn save_copy_as(src: &Path, dest: &Path, overwrite_confirmed: bool) -> std::
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU64, Ordering};
+
+    #[test]
+    fn executable_and_project_checks() {
+        assert!(is_executable_path(Path::new("C:\\x\\Run.BAT")));
+        assert!(is_executable_path(Path::new("a.ps1")));
+        assert!(!is_executable_path(Path::new("a.png")));
+        assert!(!is_executable_path(Path::new("noext")));
+        assert!(is_inside_project("C:/Work/Proj/out/a.txt", "c:\\work\\proj\\"));
+        assert!(is_inside_project("C:\\Work\\Proj", "C:\\Work\\Proj"));
+        assert!(!is_inside_project("C:\\Work\\Proj2\\a.txt", "C:\\Work\\Proj"));
+        assert!(!is_inside_project("C:\\Work\\Proj\\..\\x.txt", "C:\\Work\\Proj"));
+        assert!(!is_inside_project("C:\\a.txt", ""));
+    }
+
+    #[test]
+    fn executable_check_ignores_trailing_dots_and_spaces() {
+        assert!(is_executable_path(Path::new("a.exe.")));
+        assert!(is_executable_path(Path::new("a.exe ")));
+        assert!(is_executable_path(Path::new("a.url")));
+        assert!(!is_executable_path(Path::new("a.txt.")));
+    }
+
+    #[test]
+    fn project_check_resolves_real_paths_and_junctions() {
+        let base = temp_dir("proj");
+        let root = base.join("root");
+        let outside = base.join("outside");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(root.join("in.txt"), b"x").unwrap();
+        std::fs::write(outside.join("out.txt"), b"x").unwrap();
+        let rs = root.to_string_lossy().into_owned();
+        assert!(is_inside_project_resolved(&root.join("in.txt"), &rs));
+        assert!(!is_inside_project_resolved(&outside.join("out.txt"), &rs));
+        assert!(!is_inside_project_resolved(&root.join("missing.txt"), &rs));
+        // root 内のジャンクションが外を指す場合は「外」。作成できない環境では確認しない。
+        let link = root.join("link");
+        let made = std::process::Command::new("cmd").args(["/C", "mklink", "/J"]).arg(&link).arg(&outside).output().map(|o| o.status.success()).unwrap_or(false);
+        if made {
+            assert!(!is_inside_project_resolved(&link.join("out.txt"), &rs));
+        }
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn image_size_limit() {
+        assert!(check_image_size(MAX_IMAGE_BYTES).is_ok());
+        assert!(check_image_size(MAX_IMAGE_BYTES + 1).is_err());
+    }
+
 
     fn temp_dir(name: &str) -> std::path::PathBuf {
         static N: AtomicU64 = AtomicU64::new(0);

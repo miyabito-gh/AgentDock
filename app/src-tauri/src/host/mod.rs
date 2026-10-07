@@ -222,7 +222,9 @@ impl Host {
     }
 
     pub fn snapshot(&self) -> HostSnapshot {
-        self.read(|d| d.snapshot())
+        let mut s = self.read(|d| d.snapshot());
+        s.quit = self.quit_phase();
+        s
     }
 
     // ── イベント処理 ──
@@ -761,9 +763,20 @@ impl Host {
         let mut attempt = SendAttempt { attempt_id: attempt_id.clone(), client_message_id: request.client_message_id.clone(), at: now_ms(), state: SendState::Sending };
         self.emit_send(&chat, &attempt);
         let sent_cwd = if matches!(request.mode, SendMode::NewTurn) { request.cwd.clone() } else { None };
+        // 送信前に記録を保存してから送る（送信中に落ちても、再起動後に受理不明として照合し、送信を抑止するため）。保存できなければ送らない。
+        if let Err(message) = self.record_presend(&chat, &attempt_id, &request, attempt.at).await {
+            self.rejected.lock().unwrap().insert(attempt_id.clone(), NotAccepted::new(request));
+            attempt.state = SendState::Rejected { message };
+            self.emit_send(&chat, &attempt);
+            return attempt;
+        }
         let state = match self.backend.send(request).await {
-            SendOutcome::Accepted { turn, .. } => SendState::Accepted { turn },
+            SendOutcome::Accepted { turn, .. } => {
+                self.drop_unresolved_record(&chat, &attempt_id);
+                SendState::Accepted { turn }
+            }
             SendOutcome::Rejected { error, request } => {
+                self.drop_unresolved_record(&chat, &attempt_id);
                 self.rejected.lock().unwrap().insert(attempt_id.clone(), request);
                 SendState::Rejected { message: error.to_string() }
             }
@@ -917,7 +930,7 @@ impl Host {
             ManageOp::Delete => {
                 return match self.delete_chat(ChatArgs { chat: args.chat }, &confirmed).await? {
                     DeleteOutcome::Deleted => Ok(ManageOutcome::Done),
-                    DeleteOutcome::Partial { done, failed } => Ok(ManageOutcome::Partial { done, failed }),
+                    DeleteOutcome::Partial { done, failed } => Ok(ManageOutcome::Partial { done: done.iter().map(crate::backend::local::DeleteStep::fallback_text).collect(), failed }),
                     DeleteOutcome::Pending { .. } => Err(blocked(BlockedReason::DeletePending, "停止を確認できないため、削除を保留しました")),
                 };
             }

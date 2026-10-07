@@ -26,12 +26,6 @@ use crate::rules::manage::{archive_ready, backend_delete_target_missing,delete_d
 use crate::store::records::ChatLocalFile;
 use crate::store::{atomic, layout, legacy_area_usage, StoreError};
 
-/// 削除の途中結果に残す、完了した工程の名前（再実行で Codex の削除を繰り返さないための印でもある）。
-pub const BACKEND_DONE: &str = "Codexの履歴の削除";
-/// Codex に履歴が無く、削除する対象がなかった場合（完了扱い。再実行でも繰り返さない）。
-pub const BACKEND_NONE: &str = "Codexの履歴の削除（Codexに履歴がなく、対象なし）";
-pub const AREA_DONE: &str = "このチャット専用領域（添付・成果物・作業領域・監視活動の記録）の削除";
-
 /// 管理操作の作業状態（保存しない）。
 #[derive(Default)]
 pub struct ManageRuntime {
@@ -422,7 +416,7 @@ impl Host {
 
     async fn execute_delete(self: &Arc<Self>, chat: &ChatKey, origin: ChatOrigin, prior: Option<DeletePending>, confirmed: &UserConfirmed) -> Result<DeleteOutcome, IpcError> {
         let external = origin == ChatOrigin::External;
-        let mut done: Vec<String> = Vec::new();
+        let mut done: Vec<DeleteStep> = Vec::new();
         let mut failed: Vec<String> = Vec::new();
         match prior.as_ref().map(|p| &p.reason) {
             Some(DeletePendingReason::PartialFailure { done: d, .. }) => done = d.clone(),
@@ -431,16 +425,16 @@ impl Host {
                 self.set_delete_pending(chat, DeletePendingReason::ReadyForUserRetry, None).await;
             }
         }
-        if !external && !done.iter().any(|s| s == BACKEND_DONE || s == BACKEND_NONE) {
+        if !external && !done.iter().any(DeleteStep::backend_settled) {
             match self.backend.manage_chat(chat.clone(), ManageOp::Delete, confirmed).await {
-                Ok(ManageOutcome::Done) => done.push(BACKEND_DONE.to_string()),
+                Ok(ManageOutcome::Done) => done.push(DeleteStep::BackendHistory),
                 Ok(ManageOutcome::Partial { done: d, failed: f }) => {
-                    done.extend(d);
+                    done.extend(d.into_iter().map(|label| DeleteStep::BackendItem { label }));
                     failed.extend(f);
                 }
                 // Codex に履歴が無い（発話前のチャットなど）。消す対象がないので、Codex 側は完了扱いにして領域の削除へ進む。
-                Err(e) if backend_delete_target_missing(&e) => done.push(BACKEND_NONE.to_string()),
-                Err(e) => failed.push(format!("{BACKEND_DONE}に失敗しました（{e}）")),
+                Err(e) if backend_delete_target_missing(&e) => done.push(DeleteStep::BackendHistoryNone),
+                Err(e) => failed.push(format!("履歴の削除に失敗しました（{e}）")),
             }
         }
         if failed.is_empty() {
@@ -448,9 +442,9 @@ impl Host {
             let c = chat.clone();
             let r = tokio::task::spawn_blocking(move || host.remove_area(&c, external)).await.unwrap_or_else(|e| Err((Vec::new(), vec![format!("削除処理が異常終了しました: {e}")])));
             match r {
-                Ok(()) => done.push(AREA_DONE.to_string()),
+                Ok(()) => done.push(DeleteStep::ChatArea),
                 Err((d, f)) => {
-                    done.extend(d.into_iter().map(|n| format!("領域内の {n}")));
+                    done.extend(d.into_iter().map(|name| DeleteStep::AreaItem { name }));
                     failed.extend(f);
                 }
             }

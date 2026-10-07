@@ -275,6 +275,7 @@ impl Host {
     pub fn request_quit(self: &Arc<Self>) -> QuitPhase {
         let current = self.quit_phase();
         if current != QuitPhase::Idle {
+            self.mutate(|_| ((), vec![HostEvent::QuitPrompt { phase: current.clone() }]));
             return current;
         }
         let busy = busy_for_quit(&self.chat_works());

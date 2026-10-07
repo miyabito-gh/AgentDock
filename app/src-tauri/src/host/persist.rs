@@ -296,7 +296,7 @@ impl Host {
     /// 保存層から復元した状態でホストを作る。
     pub fn with_store(app_data_dir: std::path::PathBuf, store: Arc<Store>) -> Self {
         let restored = store.load_all();
-        let exe = restored.settings.as_ref().and_then(|s| s.settings.codex_executable.clone()).filter(|e| !e.trim().is_empty());
+        let exe = restored.settings.as_ref().and_then(|s| s.settings.executable_for("codex").map(str::to_string));
         let mut host = Host::new(app_data_dir);
         host.persist = Persist::new(Some(store));
         host.restore_windows(restored.windows.clone());
@@ -575,7 +575,7 @@ impl Host {
             d.settings = settings.clone();
             ((), vec![HostEvent::SettingsUpdated { settings: settings.clone() }])
         });
-        if let Some(p) = settings.codex_executable.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
+        if let Some(p) = settings.executable_for("codex") {
             // 次回の接続から使う（接続済みのApp Serverは変えない）。
             *self.executable.lock().unwrap() = p.to_string();
         }

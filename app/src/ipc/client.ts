@@ -135,7 +135,8 @@ export const addAttachmentImageBytes = (chat: ChatKey, name: string, bytes: Arra
   invoke("add_attachment_image_bytes", bytes, { headers: { "x-chat-backend": chat.backend, "x-chat-id": chat.id, "x-file-name": name } });
 export const removeAttachment = (chat: ChatKey, attachment: LocalId): Promise<null> => invokeCmd("remove_attachment", { chat, attachment });
 /** 関連アプリで開く（ユーザー操作のときだけ）。実体がなければ欠損として止まる。 */
-export const openFile = (target: FileRef): Promise<null> => invokeCmd("open_file", { target });
+/** プロジェクト外・実行形式は `blocked.openNeedsConfirm`。確認のうえ `riskConfirmed=true` で再実行する。 */
+export const openFile = (target: FileRef, riskConfirmed = false): Promise<null> => invokeCmd("open_file", { target, riskConfirmed });
 /** 名前を付けて保存。同名があれば `blocked.targetExists`。確認のうえ `overwriteConfirmed=true` で再実行する。 */
 export const saveFileAs = (target: FileRef, dest: string, overwriteConfirmed: boolean): Promise<null> =>
   invokeCmd("save_file_as", { target, dest, overwriteConfirmed });

@@ -106,4 +106,31 @@ AgentDockプロジェクトのClaude Code向け作業指示。毎ターン読み
 - キューが子孫の状態不明で保留のときは「状態を再確認」（readのみ）と「確認して今すぐ送る」（不明対象を列挙して確認後、先頭1件だけ）を出す（2026-10-06）。
 - chat.jsonを失った開発チャットと段階①のRoaming領域の会話は外部扱いのまま（2026-10-07了承）。
 
+### 段階③のタスク（2026-10-07分解。設計は `app/DESIGN_P3.md`。正本§3.14）
+
+|#|内容|担当|依存|
+|---|---|---|---|
+|修正バッチ|段階②持ち越し（R2-L6、成果物「開く」確認、quit、画像上限、`executables`化）|implementer|—|
+|P3-0|境界（`ParityOps`）・能力表・`OpAck`/`PendingOp`・git/CLI部品・保存フィールド|implementer|修正バッチ|
+|P3-1|#1 差分、#2 変更を戻す（差分の逆適用）|implementer|P3-0|
+|P3-2|#3 #4 レビュー、#6 分岐、#7 圧縮|implementer|P3-0|
+|P3-3|#5 Plan、#9 Goal、#15 status・Fast等|implementer|P3-0|
+|P3-4|#8 参考指定、#10 side相談、#11 Skills・AGENTS.md|implementer|P3-2|
+|P3-5|#12 MCP・Plugins（CLI補助＋config.toml前後照合）|implementer|P3-0|
+|P3-6|#13 クラウド委任（CLI補助で一通り）|implementer|P3-5|
+|P3-7|#14 worktree|implementer|P3-0|
+|P3-8|#16 コマンドメニュー、#17 狭い画面|implementer|P3-1〜4|
+|P3-9|#18 負荷|implementer|P3-8|
+|R3|P3-1・4・5・7の差分レビュー→`app/REVIEW_R3.md`|designer|P3-7|
+|P3-10|R3の指摘の修正|implementer|R3|
+|S3|NSIS作り直しと実機確認手順書|司令塔|全部|
+
+順序: 修正バッチ → P3-0 → P3-1∥P3-3 → P3-2∥P3-7 → P3-4∥P3-5 → P3-6 → P3-8 → P3-9 → R3 → P3-10 → S3。
+
+段階③で合意した判断（2026-10-07）:
+- #2 変更を戻す: Codex報告の差分の逆適用＋ハッシュ照合。観測できない変更は止めて案内。
+- #13 クラウド委任: CLI補助で委任・状態一覧・差分・取込みまで。
+- #14 worktree: 置き場所は `%LOCALAPPDATA%\com.agentdock.app\worktrees\`、ブランチ接頭辞 `agentdock/`。**worktreeを指定しないチャットは従来どおり通常の作業場所で動く（チャット作成のたびにフォルダを作らない）**。
+- #12 Plugins管理はCLI補助、一覧はApp Server読取り、前後照合あり、自動rollbackなし（設計裁量）。
+
 **現状（2026-10-07）: 段階②は実装完了、実機確認は途中。残りの実機確認は後でまとめて行い、実装を先に進める。引き継ぎは `app/HANDOFF.md` を最初に読む。** 次は段階②持ち越しの修正バッチ → 段階③（18操作）の分解・実装。

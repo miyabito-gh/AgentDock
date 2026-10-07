@@ -142,6 +142,8 @@ pub enum BlockedReason {
     FolderIsWorkspace { path: String },
     /// 保存先に同名のファイルがある。UIで上書きを確認したら `overwriteConfirmed` で再実行する。
     TargetExists { path: String },
+    /// 開く前にユーザーの確認が要る（プロジェクト外のファイル、または実行形式）。了承したら `riskConfirmed` で再実行する。
+    OpenNeedsConfirm { path: String, outside_project: bool, executable: bool },
     /// 送信に使えない添付（コピー中・失敗・欠損）がある。
     AttachmentNotReady { attachment: LocalId },
     /// 選択中のモデルが画像入力に対応していない（表示できることと、モデルが読めることは別）。
@@ -189,6 +191,8 @@ pub struct HostSnapshot {
     pub attachments: Vec<AttachmentEntry>,
     /// 実在を確認した成果物。
     pub artifacts: Vec<ArtifactEntry>,
+    /// 完全終了の手順の状態（renderer再読込み・再接続後も確認画面を復元するため）。
+    pub quit: QuitPhase,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -461,6 +465,8 @@ pub enum HostEvent {
     NavigateToChat { chat: ChatKey },
     /// 完全終了の進行（確認・停止照合・保存・保存失敗）。閉じる操作（トレイ格納）では出ない。
     QuitUpdated { phase: QuitPhase },
+    /// 終了をもう一度要求された（トレイ「終了」など）。手順が途中なら、UIは確認画面を開き直す。
+    QuitPrompt { phase: QuitPhase },
     /// sleepからの復帰を検出した。鮮度は要照合になり、送信は保留される。UIは表示中の履歴を取り直す。
     SystemResumed { at: UnixMillis },
     /// 未知イベント・版違い・取得不能項目の警告（M12）。

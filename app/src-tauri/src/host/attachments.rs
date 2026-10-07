@@ -326,6 +326,27 @@ impl Host {
         }
     }
 
+    /// 開く前の確認（ユーザー操作のときだけ呼ぶ）。プロジェクト外の成果物、または実行形式は、`confirmed` でなければ止める。
+    /// プロジェクトはチャットの作業フォルダ。不明なら外とみなす。添付のコピー（アプリの領域）はプロジェクト判定の対象外。
+    pub fn check_open_risk(&self, target: &FileRef, path: &Path, confirmed: bool) -> Result<(), IpcError> {
+        if confirmed {
+            return Ok(());
+        }
+        let executable = attach::is_executable_path(path);
+        let outside_project = match target {
+            FileRef::Artifact { chat, .. } => {
+                let cwd = self.read(|d| d.chats.iter().find(|c| &c.key == chat).and_then(|c| c.cwd.value().cloned()));
+                !cwd.is_some_and(|root| attach::is_inside_project_resolved(path, &root))
+            }
+            FileRef::Attachment { .. } => false,
+        };
+        if !executable && !outside_project {
+            return Ok(());
+        }
+        let path = path.to_string_lossy().into_owned();
+        Err(blocked(BlockedReason::OpenNeedsConfirm { path, outside_project, executable }, "開く前に確認が必要です"))
+    }
+
     fn mark_file_missing(self: &Arc<Self>, chat: &ChatKey, target: &FileRef) {
         let now = now_ms();
         self.edit_local(chat, |f| {

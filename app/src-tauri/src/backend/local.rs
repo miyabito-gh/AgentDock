@@ -109,7 +109,7 @@ pub enum DeletePendingReason {
     StopUnconfirmed,
     OwnershipUnknown,
     /// 一部の削除に失敗した。完了と偽らない（§3.6）。
-    PartialFailure { done: Vec<String>, failed: Vec<String> },
+    PartialFailure { done: Vec<DeleteStep>, failed: Vec<String> },
     /// 停止は確認できた。ユーザーの再操作を待っている（自動削除しない）。
     ReadyForUserRetry,
 }
@@ -459,8 +459,13 @@ pub enum SendKey {
 #[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
-    /// codex.exe のパス。None＝PATH（§11の推奨）。
-    pub codex_executable: Option<String>,
+    /// バックエンド別の実行ファイルのパス（キーはバックエンドID。例 "codex"）。未指定＝PATH（§11の推奨）。
+    #[serde(default)]
+    pub executables: std::collections::BTreeMap<String, String>,
+    /// 旧形式（`codexExecutable`）の読込み専用。保存しない。読込み後に `migrate_legacy` で `executables` へ移す。
+    #[serde(default, rename = "codexExecutable", skip_serializing)]
+    #[cfg_attr(test, ts(skip))]
+    legacy_codex_executable: Option<String>,
     /// Windowsログイン時に起動（初期値オフ）。オンならトレイ格納で起動する。
     pub autostart: bool,
     pub notifications: NotificationSettings,
@@ -476,11 +481,37 @@ pub struct AppSettings {
     pub acknowledged_warnings: Vec<String>,
 }
 
+impl AppSettings {
+    /// バックエンドの実行ファイルのパス（空白だけは未指定）。
+    pub fn executable_for(&self, backend: &str) -> Option<&str> {
+        self.executables.get(backend).map(|s| s.trim()).filter(|s| !s.is_empty())
+    }
+
+    pub fn set_executable(&mut self, backend: &str, path: Option<String>) {
+        match path.map(|p| p.trim().to_string()).filter(|p| !p.is_empty()) {
+            Some(p) => {
+                self.executables.insert(backend.to_string(), p);
+            }
+            None => {
+                self.executables.remove(backend);
+            }
+        }
+    }
+
+    /// 旧形式の `codexExecutable` を `executables["codex"]` へ移す（新形式が既にあれば新形式を優先）。
+    pub fn migrate_legacy(&mut self) {
+        if let Some(p) = self.legacy_codex_executable.take().map(|p| p.trim().to_string()).filter(|p| !p.is_empty()) {
+            self.executables.entry("codex".to_string()).or_insert(p);
+        }
+    }
+}
+
 impl Default for AppSettings {
     /// 初期値（通知はすべてオン・自動起動オフ・最前面オフ・Ctrl+Enterで送信）。
     fn default() -> Self {
         AppSettings {
-            codex_executable: None,
+            executables: Default::default(),
+            legacy_codex_executable: None,
             autostart: false,
             notifications: NotificationSettings::default(),
             main_window: WindowPrefs::default(),
@@ -603,7 +634,77 @@ pub enum DeleteOutcome {
     Deleted,
     /// 停止未確認などで保留した。
     Pending { pending: DeletePending },
-    Partial { done: Vec<String>, failed: Vec<String> },
+    Partial { done: Vec<DeleteStep>, failed: Vec<String> },
+}
+
+/// 削除の途中結果に残す、完了した工程の印（保存される。表示文はUI側で作る）。再実行でバックエンドの削除を繰り返さないための印でもある。
+/// 旧形式（表示文の文字列）も読める。
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum DeleteStep {
+    /// バックエンド側の履歴の削除。
+    BackendHistory,
+    /// バックエンドに履歴がなく、削除する対象がなかった（完了扱い）。
+    BackendHistoryNone,
+    /// このチャット専用領域の削除。
+    ChatArea,
+    /// 専用領域内の個別の項目。
+    AreaItem { name: String },
+    /// バックエンドが返した工程名。
+    BackendItem { label: String },
+}
+
+impl DeleteStep {
+    /// バックエンドの削除が済んでいるか（再実行で繰り返さない）。
+    pub fn backend_settled(&self) -> bool {
+        matches!(self, DeleteStep::BackendHistory | DeleteStep::BackendHistoryNone)
+    }
+
+    /// 旧形式（表示文）からの読込み。
+    pub fn from_legacy(s: &str) -> DeleteStep {
+        match s {
+            "Codexの履歴の削除" => DeleteStep::BackendHistory,
+            "Codexの履歴の削除（Codexに履歴がなく、対象なし）" => DeleteStep::BackendHistoryNone,
+            "このチャット専用領域（添付・成果物・作業領域・監視活動の記録）の削除" => DeleteStep::ChatArea,
+            other => match other.strip_prefix("領域内の ") {
+                Some(name) => DeleteStep::AreaItem { name: name.to_string() },
+                None => DeleteStep::BackendItem { label: other.to_string() },
+            },
+        }
+    }
+
+    /// UIを通らない旧経路（`manage_chat`）向けの代替表示文。
+    pub fn fallback_text(&self) -> String {
+        match self {
+            DeleteStep::BackendHistory => "履歴の削除".into(),
+            DeleteStep::BackendHistoryNone => "履歴の削除（履歴がなく、対象なし）".into(),
+            DeleteStep::ChatArea => "このチャット専用領域の削除".into(),
+            DeleteStep::AreaItem { name } => format!("領域内の {name}"),
+            DeleteStep::BackendItem { label } => label.clone(),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for DeleteStep {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        use serde::de::Error;
+        let v = serde_json::Value::deserialize(d)?;
+        if let Some(s) = v.as_str() {
+            return Ok(DeleteStep::from_legacy(s));
+        }
+        let kind = v.get("kind").and_then(|k| k.as_str()).ok_or_else(|| D::Error::custom("DeleteStep: kind がありません"))?;
+        let text = |key: &str| v.get(key).and_then(|x| x.as_str()).map(str::to_string).ok_or_else(|| D::Error::custom(format!("DeleteStep: {key} がありません")));
+        match kind {
+            "backendHistory" => Ok(DeleteStep::BackendHistory),
+            "backendHistoryNone" => Ok(DeleteStep::BackendHistoryNone),
+            "chatArea" => Ok(DeleteStep::ChatArea),
+            "areaItem" => Ok(DeleteStep::AreaItem { name: text("name")? }),
+            "backendItem" => Ok(DeleteStep::BackendItem { label: text("label")? }),
+            other => Err(D::Error::custom(format!("DeleteStep: 未知の kind {other}"))),
+        }
+    }
 }
 
 // ───────────────────────────── IPC（P2〜P7で追加するコマンド） ─────────────────────────────
@@ -672,6 +773,9 @@ pub struct AttachmentArgs {
 #[serde(rename_all = "camelCase")]
 pub struct OpenFileArgs {
     pub target: FileRef,
+    /// 開く前の確認（プロジェクト外・実行形式）をユーザーが了承したとき true。
+    #[serde(default)]
+    pub risk_confirmed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -869,4 +973,65 @@ pub enum LocalHostEvent {
     /// トレイ・通知のクリックで、通常画面にこのチャットを表示する（回答・再実行はしない）。
     NavigateToChat { chat: ChatKey },
     UsageUpdated { report: UsageReport },
+}
+
+#[cfg(test)]
+mod settings_tests {
+    use super::*;
+
+    fn old_settings_json(exe: serde_json::Value) -> serde_json::Value {
+        let mut v = serde_json::to_value(AppSettings::default()).unwrap();
+        let o = v.as_object_mut().unwrap();
+        o.remove("executables");
+        o.insert("codexExecutable".into(), exe);
+        v
+    }
+
+    #[test]
+    fn legacy_codex_executable_migrates_to_executables() {
+        let mut s: AppSettings = serde_json::from_value(old_settings_json(serde_json::json!(" C:/x/codex.exe "))).unwrap();
+        s.migrate_legacy();
+        assert_eq!(s.executable_for("codex"), Some("C:/x/codex.exe"));
+        // 保存形式には旧フィールドを出さない。
+        let out = serde_json::to_value(&s).unwrap();
+        assert!(out.get("codexExecutable").is_none());
+        assert_eq!(out["executables"]["codex"], "C:/x/codex.exe");
+    }
+
+    #[test]
+    fn legacy_null_or_empty_executable_stays_unset_and_new_form_wins() {
+        let mut s: AppSettings = serde_json::from_value(old_settings_json(serde_json::Value::Null)).unwrap();
+        s.migrate_legacy();
+        assert_eq!(s.executable_for("codex"), None);
+        let mut s: AppSettings = serde_json::from_value(old_settings_json(serde_json::json!("old.exe"))).unwrap();
+        s.executables.insert("codex".into(), "new.exe".into());
+        s.migrate_legacy();
+        assert_eq!(s.executable_for("codex"), Some("new.exe"));
+    }
+
+    #[test]
+    fn delete_step_reads_legacy_strings_and_new_form() {
+        let legacy: Vec<DeleteStep> = serde_json::from_value(serde_json::json!([
+            "Codexの履歴の削除",
+            "Codexの履歴の削除（Codexに履歴がなく、対象なし）",
+            "このチャット専用領域（添付・成果物・作業領域・監視活動の記録）の削除",
+            "領域内の attachments",
+            "something"
+        ]))
+        .unwrap();
+        assert_eq!(
+            legacy,
+            vec![
+                DeleteStep::BackendHistory,
+                DeleteStep::BackendHistoryNone,
+                DeleteStep::ChatArea,
+                DeleteStep::AreaItem { name: "attachments".into() },
+                DeleteStep::BackendItem { label: "something".into() },
+            ]
+        );
+        let json = serde_json::to_value(&legacy).unwrap();
+        assert_eq!(json[0]["kind"], "backendHistory");
+        let back: Vec<DeleteStep> = serde_json::from_value(json).unwrap();
+        assert_eq!(back, legacy);
+    }
 }

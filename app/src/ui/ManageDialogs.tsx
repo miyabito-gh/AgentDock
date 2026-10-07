@@ -1,8 +1,19 @@
 // 削除確認・Markdownエクスポート・「保存と容量」の本体（P7）。外枠（Shell）と下部ボタンは Dialogs.tsx 側。
 // 規則: 取得できていない値は「未確認」と書き、0で代用しない。保存・削除の成功は、ホストの結果を確認できたときだけ言う。
-import type { Chat, ChatLocalView, DeleteOutcome, DeletePendingReason, DeletePreview, UsageBreakdown, UsageReport } from "../ipc/types";
+import type { Chat, ChatLocalView, DeleteOutcome, DeletePendingReason, DeletePreview, DeleteStep, UsageBreakdown, UsageReport } from "../ipc/types";
 import { chatName } from "./derive";
 import { showKnown } from "./format";
+
+/** 削除の完了した工程の表示文（ホストは列挙値だけを持つ）。 */
+export function stepText(s: DeleteStep): string {
+  switch (s.kind) {
+    case "backendHistory": return "会話履歴（AI側）の削除";
+    case "backendHistoryNone": return "会話履歴（AI側）の削除（履歴がなく、対象なし）";
+    case "chatArea": return "このチャット専用領域（添付・成果物・作業領域・監視活動の記録）の削除";
+    case "areaItem": return `領域内の ${s.name}`;
+    case "backendItem": return s.label;
+  }
+}
 
 export function fmtBytes(n: number): string {
   if (n < 1024) return `${n} B`;
@@ -69,7 +80,7 @@ export function DeleteBody({ chat, d }: { chat: Chat | undefined; d: DeleteProps
       {pending && !out ? <p className="small" style={{ color: "var(--wait-ink)" }}>{PENDING_TEXT(pending.reason)}</p> : null}
       {pending && !out && pending.reason.kind === "partialFailure" ? (
         <ul className="quit-list">
-          {pending.reason.done.map((s, i) => <li key={`d${i}`}>完了: {s}</li>)}
+          {pending.reason.done.map((s, i) => <li key={`d${i}`}>完了: {stepText(s)}</li>)}
           {pending.reason.failed.map((s, i) => <li key={`f${i}`} style={{ color: "var(--fail)" }}>失敗: {s}</li>)}
         </ul>
       ) : null}
@@ -78,7 +89,7 @@ export function DeleteBody({ chat, d }: { chat: Chat | undefined; d: DeleteProps
         <>
           <p style={{ color: "var(--fail)" }}><b>削除は完了していません。</b>一部だけ実行できました。</p>
           <ul className="quit-list">
-            {out.done.map((s, i) => <li key={`d${i}`}>完了: {s}</li>)}
+            {out.done.map((s, i) => <li key={`d${i}`}>完了: {stepText(s)}</li>)}
             {out.failed.map((s, i) => <li key={`f${i}`} style={{ color: "var(--fail)" }}>失敗: {s}</li>)}
           </ul>
         </>

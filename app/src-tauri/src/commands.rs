@@ -6,6 +6,7 @@ use std::sync::Arc;
 use tauri::{Manager, State};
 use tauri_plugin_autostart::ManagerExt;
 
+use crate::attach;
 use crate::backend::backend::{ManageOutcome, Page, ResumeOutcome, RespondOutcome, UserConfirmed, ChatSummary, AgentHistory};
 use crate::backend::ipc::*;
 use crate::backend::local::{
@@ -219,6 +220,7 @@ pub async fn add_attachment_file(host: Hs<'_>, args: AddAttachmentFileArgs) -> R
 pub async fn add_attachment_image_bytes(host: Hs<'_>, request: tauri::ipc::Request<'_>) -> R<AttachmentEntry> {
     let bad = |m: &str| IpcError { code: IpcErrorCode::InvalidArgs, message: m.to_string(), blocked: None };
     let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else { return Err(bad("画像のデータを受け取れませんでした")) };
+    attach::check_image_size(bytes.len()).map_err(|m| bad(&m))?;
     let header = |name: &str| request.headers().get(name).and_then(|v| v.to_str().ok()).map(str::to_string);
     let backend: BackendKind = header("x-chat-backend")
         .and_then(|b| serde_json::from_value(serde_json::Value::String(b)).ok())
@@ -239,6 +241,7 @@ pub async fn remove_attachment(host: Hs<'_>, args: AttachmentArgs) -> R<()> {
 pub async fn open_file(app: tauri::AppHandle, host: Hs<'_>, args: OpenFileArgs) -> R<()> {
     use tauri_plugin_opener::OpenerExt;
     let path = host.inner().clone().resolve_file(&args.target).await?;
+    host.check_open_risk(&args.target, &path, args.risk_confirmed)?;
     app.opener()
         .open_path(path.to_string_lossy(), None::<&str>)
         .map_err(|e| IpcError { code: IpcErrorCode::Io, message: format!("開けませんでした: {e}"), blocked: None })

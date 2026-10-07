@@ -81,7 +81,7 @@ pub fn refresh_delete_pending(pending: &mut DeletePending, work: &ChatWork) -> b
 }
 
 /// 削除の途中結果から結果を決める。失敗が1つでもあれば完了と偽らず `Partial`（保留を残す）。
-pub fn delete_result(done: Vec<String>, failed: Vec<String>) -> DeleteOutcome {
+pub fn delete_result(done: Vec<DeleteStep>, failed: Vec<String>) -> DeleteOutcome {
     if failed.is_empty() {
         DeleteOutcome::Deleted
     } else {
@@ -291,7 +291,7 @@ mod tests {
 
     #[test]
     fn partial_failure_can_be_retried_and_is_not_changed_by_stop_refresh() {
-        let mut p = pending(DeletePendingReason::PartialFailure { done: vec!["a".into()], failed: vec!["b".into()] });
+        let mut p = pending(DeletePendingReason::PartialFailure { done: vec![DeleteStep::BackendHistory], failed: vec!["b".into()] });
         let mut busy = work("a");
         busy.stop_unconfirmed = Some(lid("s"));
         assert!(!refresh_delete_pending(&mut p, &busy));
@@ -322,8 +322,8 @@ mod tests {
 
     #[test]
     fn partial_failure_is_never_reported_as_deleted() {
-        assert_eq!(delete_result(vec!["x".into()], vec![]), DeleteOutcome::Deleted);
-        assert_eq!(delete_result(vec!["x".into()], vec!["y".into()]), DeleteOutcome::Partial { done: vec!["x".into()], failed: vec!["y".into()] });
+        assert_eq!(delete_result(vec![DeleteStep::ChatArea], vec![]), DeleteOutcome::Deleted);
+        assert_eq!(delete_result(vec![DeleteStep::ChatArea], vec!["y".into()]), DeleteOutcome::Partial { done: vec![DeleteStep::ChatArea], failed: vec!["y".into()] });
     }
 
     #[test]

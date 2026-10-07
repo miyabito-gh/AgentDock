@@ -657,14 +657,43 @@ impl Host {
         self.unresolved.lock().unwrap().add(attempt.clone(), chat.clone());
         self.unconfirmed.lock().unwrap().insert(attempt.clone(), u);
         self.mutate(|d| {
-            d.queues.entry(chat.clone()).or_insert_with(|| new_file(chat)).unresolved_sends.push(record);
+            let f = d.queues.entry(chat.clone()).or_insert_with(|| new_file(chat));
+            // 送信前の記録（手動送信）があれば置き換える。
+            f.unresolved_sends.retain(|r| &r.attempt != attempt);
+            f.unresolved_sends.push(record);
             ((), vec![])
         });
         self.schedule_save(SaveScope::Queue { chat: chat.clone() }, Duration::ZERO);
         self.start_reconcile(attempt.clone());
     }
 
-    fn drop_unresolved_record(self: &Arc<Self>, chat: &ChatKey, attempt: &LocalId) {
+    /// 手動送信の送信前記録を保存する（受理不明と同じ形。受理・拒否が確定したら消す）。保存に失敗したら Err（送らない）。
+    pub(super) async fn record_presend(self: &Arc<Self>, chat: &ChatKey, attempt: &LocalId, request: &SendRequest, since: UnixMillis) -> Result<(), String> {
+        let record = UnresolvedSendRecord {
+            attempt: attempt.clone(),
+            chat: chat.clone(),
+            client_message_id: request.client_message_id.clone(),
+            since,
+            entry: None,
+            text: request.text.clone(),
+            attachments: Vec::new(),
+            applied: None,
+        };
+        self.mutate(|d| {
+            d.queues.entry(chat.clone()).or_insert_with(|| new_file(chat)).unresolved_sends.push(record);
+            ((), vec![])
+        });
+        if let Some(st) = self.save_now(SaveScope::Queue { chat: chat.clone() }).await {
+            if !matches!(st.state, SaveState::Saved { .. }) {
+                self.drop_unresolved_record(chat, attempt);
+                self.queue_rt.save_blocked.lock().unwrap().insert(chat.clone());
+                return Err("送信前の保存に失敗したため送っていません".into());
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn drop_unresolved_record(self: &Arc<Self>, chat: &ChatKey, attempt: &LocalId) {
         let changed = self.mutate(|d| {
             let Some(f) = d.queues.get_mut(chat) else { return (false, vec![]) };
             let n = f.unresolved_sends.len();

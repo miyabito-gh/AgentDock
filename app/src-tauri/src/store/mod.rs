@@ -163,7 +163,12 @@ impl Store {
     pub fn load_all(&self) -> Restored {
         let mut r = Restored::default();
         match self.read_file::<AppSettingsFile>(&self.root.join(layout::SETTINGS_FILE)) {
-            Ok(v) => r.settings = v,
+            Ok(v) => {
+                r.settings = v.map(|mut f| {
+                    f.settings.migrate_legacy();
+                    f
+                })
+            }
             Err(e) => r.problems.push(e),
         }
         match self.read_file::<WindowsFile>(&self.root.join(layout::WINDOWS_FILE)) {

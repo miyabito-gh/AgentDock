@@ -10,9 +10,9 @@ import type { WindowPrefs } from "./WindowPrefs";
  */
 export type AppSettings = { 
 /**
- * codex.exe のパス。None＝PATH（§11の推奨）。
+ * バックエンド別の実行ファイルのパス（キーはバックエンドID。例 "codex"）。未指定＝PATH（§11の推奨）。
  */
-codexExecutable: string | null, 
+executables: { [key in string]: string }, 
 /**
  * Windowsログイン時に起動（初期値オフ）。オンならトレイ格納で起動する。
  */

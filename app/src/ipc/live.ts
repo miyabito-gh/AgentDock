@@ -7,7 +7,7 @@ import type {
 
 /** ホスト（`AppSettings::default`）と同じ初期値。接続前の表示用で、保存済みの値ではない。 */
 export const DEFAULT_SETTINGS: AppSettings = {
-  codexExecutable: null, autostart: false,
+  executables: {}, autostart: false,
   notifications: { enabled: true, approvalAndQuestion: true, completed: true, failed: true, sound: true, showChatName: true },
   mainWindow: { alwaysOnTop: false, bounds: null }, monitorWindow: { alwaysOnTop: false, bounds: null },
   monitorScope: "selectedChat", defaultModel: null, sendKey: "ctrlEnter", acknowledgedWarnings: [],
@@ -15,7 +15,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
 
 const emptySnapshot = (): HostSnapshot => ({
   seq: 0, sources: [], chats: [], agents: [], requests: [], stops: [], queues: [], monitorScope: { kind: "selectedChat", chat: null },
-  chatLocals: [], saveStatus: [], settings: DEFAULT_SETTINGS, modelSettings: [], startupWarnings: [], attachments: [], artifacts: [],
+  chatLocals: [], saveStatus: [], settings: DEFAULT_SETTINGS, modelSettings: [], startupWarnings: [], attachments: [], artifacts: [], quit: { kind: "idle" },
 });
 
 export const emptyBundle = (): Bundle => ({
@@ -146,6 +146,7 @@ export function applyHostEvent(b: Bundle, e: HostEvent): Bundle {
     case "settingsUpdated":
       return set({ settings: e.settings });
     case "sendUpdated":
+    case "quitPrompt":
     case "quitUpdated": // 終了手順の進行は画面側（App）が保持する（表示用の一時状態）
     case "systemResumed": // 画面側で履歴を取り直す（状態は変えない。復帰の通知・再送はしない）
     case "navigateToChat": // 画面側で該当チャットを開く（状態は変えない）
