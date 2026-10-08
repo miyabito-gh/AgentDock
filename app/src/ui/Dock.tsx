@@ -1,7 +1,9 @@
+import { useState } from "react";
 import type { AgentView, Chat, HostSnapshot, MonitorScope } from "../ipc/types";
 import { Flag, Icon } from "./Icon";
 import type { Known } from "../ipc/types";
-import { chatAgents, chatName, isDoneLike, previewTitle } from "./derive";
+import { chatAgents, chatDisplay, chatName, isDoneLike, isWorkingForDock, previewTitle } from "./derive";
+import { CHAT_DISPLAY_TEXT } from "./chatState";
 import { FRESH, SOURCE_LABEL, STATE, hms, keyStr, showKnown } from "./format";
 import { TitleBar } from "./Chrome";
 
@@ -22,8 +24,8 @@ function activityText(k: Known<string>): string {
   return k.kind === "notFetched" ? "未確認" : k.kind === "unsupported" ? "このAIでは非対応" : "活動なし";
 }
 
-function Berth({ a, depth, orphan, mini, confirmed, onConfirmFail, rootName }: {
-  rootName?: string; a: AgentView; depth: number; orphan: boolean; mini: boolean; confirmed: boolean; onConfirmFail: (key: string) => void;
+function Berth({ a, depth, orphan, mini, confirmed, onConfirmFail, rootName, childNote }: {
+  rootName?: string; childNote?: string; a: AgentView; depth: number; orphan: boolean; mini: boolean; confirmed: boolean; onConfirmFail: (key: string) => void;
 }) {
   const m = STATE[a.status.state];
   const rel = orphan ? "親不明" : ["メイン", "子", "孫", "ひ孫"][depth] ?? `${depth}階層下`;
@@ -36,6 +38,7 @@ function Berth({ a, depth, orphan, mini, confirmed, onConfirmFail, rootName }: {
         <span className="nm" title={a.agent.parent.kind === "root" ? undefined : "Codexが付けた呼び名です（役割ではありません）"}>{a.agent.parent.kind === "root" ? (rootName ?? showKnown(a.agent.displayName)) : showKnown(a.agent.displayName)}</span><span className="rel">{rel}</span>
         {a.agent.parent.kind !== "root" && a.agent.agentPath.kind === "value" ? <span className="path mono" title="Codexが返したエージェントの経路（呼び名とは別）">{a.agent.agentPath.value}</span> : null}
         <span className={`st ${m.c}`}><Flag c={m.c} />{m.t}</span>
+        {childNote ? <span className="small" title="親のみ表示のため、子孫を含めたチャットの状態を示します">{childNote}</span> : null}
       </div>
       {mini ? null : <div className="l2">{a.agent.parent.kind === "root" ? "役割: メイン（会話の本体）" : <>役割: {a.agent.role.kind === "missing" ? "未提供（Codexが返していません）" : showKnown(a.agent.role)}　担当: {showKnown(a.agent.assignment)}</>}</div>}
       <div className="l3" title={act}>{act}</div>
@@ -57,8 +60,14 @@ function Berth({ a, depth, orphan, mini, confirmed, onConfirmFail, rootName }: {
   );
 }
 
-function RootBlock({ snap, c, views, showHead, selected, mini, confirmed, onOpen, onConfirmFail }: {
-  snap: HostSnapshot; c: Chat; views: AgentView[]; showHead: boolean; selected: boolean; mini: boolean;
+/** 親のみ表示のときに、子孫込みの状態を親カードへ添える（子孫の状態が親と同じ扱いなら添えない）。 */
+function parentNote(snap: HostSnapshot, c: Chat): string | undefined {
+  const d = chatDisplay(snap, c);
+  return d === "root" ? undefined : CHAT_DISPLAY_TEXT[d];
+}
+
+function RootBlock({ snap, c, views, showHead, selected, mini, parentOnly, confirmed, onOpen, onConfirmFail }: {
+  snap: HostSnapshot; c: Chat; views: AgentView[]; showHead: boolean; selected: boolean; mini: boolean; parentOnly: boolean;
   confirmed: Set<string>; onOpen: (id: string) => void; onConfirmFail: (key: string) => void;
 }) {
   const inList = new Set(views.map((v) => keyStr(v.agent.key)));
@@ -78,10 +87,10 @@ function RootBlock({ snap, c, views, showHead, selected, mini, confirmed, onOpen
   };
   const node = (v: AgentView) => {
     const k = keyStr(v.agent.key);
-    const ch = kids(k);
+    const ch = parentOnly ? [] : kids(k);
     return (
       <li key={k}>
-        <Berth a={v} depth={depthOf(v)} orphan={false} mini={mini} confirmed={confirmed.has(k)} onConfirmFail={onConfirmFail} rootName={v.agent.parent.kind === "root" ? (v.agent.displayName.kind === "value" ? v.agent.displayName.value : previewTitle(c) ?? "メイン") : undefined} />
+        <Berth a={v} depth={depthOf(v)} orphan={false} mini={mini} confirmed={confirmed.has(k)} onConfirmFail={onConfirmFail} childNote={parentOnly && v.agent.parent.kind === "root" ? parentNote(snap, c) : undefined} rootName={v.agent.parent.kind === "root" ? (v.agent.displayName.kind === "value" ? v.agent.displayName.value : previewTitle(c) ?? "メイン") : undefined} />
         {ch.length ? <ul className="tree">{ch.map(node)}</ul> : null}
       </li>
     );
@@ -113,14 +122,21 @@ export function DockPane({ snap, scope, selId, mini, confirmed, onScope, onOpen,
   snap: HostSnapshot; scope: MonitorScope; selId: string | null; mini?: boolean; confirmed: Set<string>;
   onScope: (s: MonitorScope) => void; onOpen: (id: string) => void; onConfirmFail: (key: string) => void; onAct: (a: string) => void;
 }) {
-  const isSel = scope.kind === "selectedChat";
+  // 「実行中」表示と「親のみ」はウィンドウ内の記憶（ホストへは保存しない）。表示範囲の変更だけで送信先・中断・承認を変えない。
+  const [runningView, setRunningView] = useState(false);
+  const [parentOnly, setParentOnly] = useState(false);
+  const isSel = !runningView && scope.kind === "selectedChat";
   const showFinished = scope.kind === "allChats" && scope.showFinished;
-  const chats = isSel ? snap.chats.filter((c) => c.key.id === selId) : snap.chats;
+  const chats = isSel ? snap.chats.filter((c) => c.key.id === selId) : runningView ? snap.chats.filter((c) => isWorkingForDock(snap, c)) : snap.chats;
   const visibleOf = (c: Chat) => chatAgents(snap, c).filter((v) => {
-    if (isSel) return true; // 選択中: 完了済みも常に表示
+    if (parentOnly) {
+      if (v.agent.parent.kind !== "root") return false;
+      if (isSel || runningView || isWorkingForDock(snap, c)) return true; // 子孫が作業中の親は、親自身が完了でも出す
+    } else if (isSel) return true; // 選択中: 完了済みも常に表示
+    if (runningView && v.agent.parent.kind === "root") return true; // 実行中表示: 子孫が作業中なら親（完了済みでも）を文脈として出す
     const st = v.status.state;
     if (st === "failed") return confirmed.has(keyStr(v.agent.key)) ? showFinished : true;
-    if (isDoneLike(st) || st === "idle") return showFinished;
+    if (isDoneLike(st) || st === "idle") return showFinished && !runningView;
     return true;
   });
   const blocks = chats.map((c) => ({ c, views: visibleOf(c) })).filter((b) => isSel || b.views.length);
@@ -134,16 +150,18 @@ export function DockPane({ snap, scope, selId, mini, confirmed, onScope, onOpen,
           </div>
         )}
         <span className="seg" role="group" aria-label="表示範囲">
-          <button aria-pressed={isSel} onClick={() => onScope({ kind: "selectedChat", chat: selId ? { backend: "codex", id: selId } : null })}>選択中のチャット</button>
-          <button aria-pressed={!isSel} onClick={() => onScope({ kind: "allChats", showFinished })}>全チャット</button>
+          <button aria-pressed={isSel} onClick={() => { setRunningView(false); onScope({ kind: "selectedChat", chat: selId ? { backend: "codex", id: selId } : null }); }}>選択中のチャット</button>
+          <button aria-pressed={!isSel && !runningView} onClick={() => { setRunningView(false); onScope({ kind: "allChats", showFinished }); }}>全チャット</button>
+          <button aria-pressed={runningView} title="全チャットの作業中・対応待ち（子孫が作業中のものを含む、アーカイブ済みも）" onClick={() => setRunningView(true)}>実行中</button>
         </span>
-        {!isSel ? (
+        <label className="small"><input type="checkbox" checked={parentOnly} onChange={(e) => setParentOnly(e.target.checked)} />親のみ表示（子・孫を隠す）</label>
+        {runningView ? <span className="small muted">作業中・対応待ちのチャットを全て表示しています</span> : !isSel ? (
           <label className="small"><input type="checkbox" checked={showFinished} onChange={(e) => onScope({ kind: "allChats", showFinished: e.target.checked })} />終了済みも表示（完了・停止・確認済みの失敗）</label>
         ) : <span className="small muted">完了したエージェントも表示しています</span>}
       </div>
       <div className="dock-scroll">
         {blocks.length ? blocks.map(({ c, views }) => (
-          <RootBlock key={keyStr(c.key)} snap={snap} c={c} views={views} showHead={!isSel || !!mini} selected={c.key.id === selId} mini={!!mini}
+          <RootBlock key={keyStr(c.key)} snap={snap} c={c} views={views} showHead={!isSel || !!mini} selected={c.key.id === selId} mini={!!mini} parentOnly={parentOnly}
             confirmed={confirmed} onOpen={onOpen} onConfirmFail={onConfirmFail} />
         )) : <div className="empty-note">{snap.chats.length ? "作業中・対応待ちのエージェントはありません" : "チャットを始めると、ここにエージェントが表示されます"}</div>}
       </div>

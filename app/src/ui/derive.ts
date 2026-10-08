@@ -1,6 +1,7 @@
 // スナップショットからの表示用導出。状態判定そのものはホストの責務で、ここは並べ替えと文言だけ。
 import type { AgentView, Chat, HostSnapshot, PendingRequest, StopRecord } from "../ipc/types";
 import { STATE, keyStr, knownValue } from "./format";
+import { CHAT_DISPLAY_TEXT, chatDisplayKind, isActiveState, type ChatDisplayKind } from "./chatState";
 
 /** 最初の依頼の先頭30字（仮表示用）。 */
 export const previewTitle = (c: Chat): string | null => {
@@ -39,14 +40,32 @@ export const isRunning = (s: HostSnapshot, c: Chat): boolean => {
 /** 停止未確認・所有不明を含む記録があるか（ホストが判定した summary をそのまま見る） */
 export const stopOpen = (r: StopRecord): boolean => r.targets.some((t) => t.summary === "unconfirmed" || t.summary === "interruptRequested" || t.summary === "ownershipUnknown");
 
+/** 親以外（子・孫など）の状態。表示用の導出にだけ使う（送信条件・通知・停止確認の判定には使わない）。 */
+export const descendantStates = (s: HostSnapshot, c: Chat) =>
+  chatAgents(s, c).filter((a) => a.agent.parent.kind !== "root").map((a) => a.status.state);
+/** チャット単位の表示種別（子孫込み）。 */
+export const chatDisplay = (s: HostSnapshot, c: Chat): ChatDisplayKind => {
+  const st = rootView(s, c)?.status.state;
+  return st ? chatDisplayKind(st, descendantStates(s, c)) : "root";
+};
+/** 「実行中」表示の対象: 対応待ち、親が作業中、親が完了・待機で子孫が作業中または状態不明。アーカイブの有無は見ない。 */
+export const isWorkingForDock = (s: HostSnapshot, c: Chat): boolean => {
+  if (chatRequests(s, c).length) return true;
+  const st = rootView(s, c)?.status.state;
+  if (!st) return false;
+  const d = chatDisplay(s, c);
+  return isActiveState(st) || d === "childWorking" || d === "childUnknown";
+};
+
 export function chatStatusText(s: HostSnapshot, c: Chat): string {
   if (chatRequests(s, c).length) return "対応待ち";
   const root = rootView(s, c);
   if (c.noHistory) return "履歴なし（Codex に記録なし）";
   if (!root) return "状態不明";
-  const childFail = chatAgents(s, c).some((a) => a.agent.parent.kind !== "root" && a.status.state === "failed");
-  if (root.status.state === "running" && childFail) return "作業中・子の失敗あり";
+  const kind = chatDisplayKind(root.status.state, descendantStates(s, c));
+  if (kind === "childFail") return CHAT_DISPLAY_TEXT.childFail;
   if (c.origin === "external") return "外部・状態不明";
+  if (kind !== "root") return CHAT_DISPLAY_TEXT[kind];
   return STATE[root.status.state].t;
 }
 
