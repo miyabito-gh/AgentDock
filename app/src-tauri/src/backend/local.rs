@@ -661,6 +661,9 @@ pub struct DeletePreview {
     /// このチャットがAgentDockが作ったworktreeに結び付いているとき、その場所。チャットを削除してもworktreeとブランチは残る（P3-7）。
     #[serde(default)]
     pub worktree_path: Option<String>,
+    /// worktreeに結び付いていたが、台帳に記録がない（すでに削除された）。ブランチは残る。
+    #[serde(default)]
+    pub worktree_removed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

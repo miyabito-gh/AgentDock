@@ -144,10 +144,15 @@ impl Host {
     }
 
     /// チャットに結び付いたworktreeの場所（削除確認の「worktreeは残る」表示用）。記録を外した後は None。
-    pub(super) fn chat_worktree_path(&self, chat: &ChatKey) -> Option<String> {
+    /// 戻り値は（場所, 削除済みか）。結び付きがなければ None。台帳に記録がなければ削除済み（場所は不明）。
+    pub(super) fn chat_worktree_path(&self, chat: &ChatKey) -> Option<(Option<String>, bool)> {
         self.read(|d| {
-            let id = d.locals.get(chat)?.worktree.as_ref()?;
-            d.worktrees.iter().find(|r| &r.id == id).map(|r| r.path.clone())
+            let recs: Vec<(String, String)> = d.worktrees.iter().map(|r| (r.id.0.clone(), r.path.clone())).collect();
+            let bound = d.locals.get(chat).and_then(|l| l.worktree.as_ref()).map(|i| i.0.as_str());
+            rw::bound_worktree(bound, &recs).map(|b| match b {
+                rw::BoundWorktree::Present { path } => (Some(path), false),
+                rw::BoundWorktree::Removed => (None, true),
+            })
         })
     }
 

@@ -209,9 +209,33 @@ pub fn chat_uses_worktree(bound: Option<&str>, chat_cwd: Option<&str>, worktree_
     !w.is_empty() && (c.trim_end_matches('\\') == w || c.starts_with(&format!("{w}\\")))
 }
 
+/// チャットに結び付いたworktreeの、削除確認での見え方。`Present` は台帳にある（場所つき）、`Removed` は結び付きはあるが台帳に記録がない
+/// （削除済み）。結び付きがなければ None。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BoundWorktree {
+    Present { path: String },
+    Removed,
+}
+
+pub fn bound_worktree(bound: Option<&str>, records: &[(String, String)]) -> Option<BoundWorktree> {
+    let id = bound?;
+    Some(match records.iter().find(|(rid, _)| rid == id) {
+        Some((_, path)) => BoundWorktree::Present { path: path.clone() },
+        None => BoundWorktree::Removed,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bound_worktree_distinguishes_present_removed_and_unbound() {
+        let recs = vec![("w1".to_string(), r"C:\wt\a".to_string())];
+        assert_eq!(bound_worktree(Some("w1"), &recs), Some(BoundWorktree::Present { path: r"C:\wt\a".into() }));
+        assert_eq!(bound_worktree(Some("w2"), &recs), Some(BoundWorktree::Removed));
+        assert_eq!(bound_worktree(None, &recs), None);
+    }
 
     #[test]
     fn parses_porcelain_blocks() {

@@ -71,6 +71,7 @@ export function DeleteBody({ chat, d }: { chat: Chat | undefined; d: DeleteProps
             <li>添付の元のファイル、別の場所に保存したファイル</li>
             <li>作業フォルダ・プロジェクト内のファイル</li>
             <li>他のチャットのファイル</li>
+            {pv.worktreeRemoved ? <li>このチャットが使っていた worktree は既に削除されています（ブランチは残ります）</li> : null}
             {pv.worktreePath ? <li>このチャットが使っている worktree（<span className="mono">{pv.worktreePath}</span>）とそのブランチ（worktree は残ります。メニュー「作業 → worktree を管理」から削除できます）</li> : null}
           </ul>
           {pv.requiresStop ? (

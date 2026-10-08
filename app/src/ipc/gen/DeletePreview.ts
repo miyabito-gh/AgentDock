@@ -17,4 +17,8 @@ requiresStop: boolean,
 /**
  * このチャットがAgentDockが作ったworktreeに結び付いているとき、その場所。チャットを削除してもworktreeとブランチは残る（P3-7）。
  */
-worktreePath: string | null, };
+worktreePath: string | null, 
+/**
+ * worktreeに結び付いていたが、台帳に記録がない（すでに削除された）。ブランチは残る。
+ */
+worktreeRemoved: boolean, };

@@ -352,7 +352,6 @@ export default function App() {
 
   const selectChat = (id: string | null) => {
     setSelId(id);
-    if (live && id) void host.touchChatUsed({ backend: "codex", id }).catch(() => undefined);
     // 履歴のないチャット（記録だけの表示）は、読み込みを試みない。
     if (live && id && !snap.chats.find((c) => c.key.id === id)?.noHistory) void loadChat(id);
   };

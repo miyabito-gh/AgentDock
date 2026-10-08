@@ -313,7 +313,7 @@ impl Host {
             }
             None => Known::NotFetched,
         };
-        let worktree_path = self.chat_worktree_path(&chat);
+        let (worktree_path, worktree_removed) = self.chat_worktree_path(&chat).unwrap_or((None, false));
         Ok(DeletePreview {
             chat,
             deletes_backend_history: origin != ChatOrigin::External,
@@ -323,6 +323,7 @@ impl Host {
             chat_area_bytes,
             requires_stop: delete_decision(&work, pending.as_ref()) != DeleteDecision::Proceed,
             worktree_path,
+            worktree_removed,
         })
     }
 
