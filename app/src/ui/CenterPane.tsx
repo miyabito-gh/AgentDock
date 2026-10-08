@@ -628,8 +628,9 @@ function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock
           <select aria-label="速度" value={speed} disabled={tiers.length === 0}
             title={tiers.length === 0 ? "このモデルが示す速度の選択肢はありません（Codex から取得した一覧）" : "次の送信から適用。実際に適用されたかは、受理済みの表示で確認します"}
             onChange={(e) => pickSpeed(e.target.value)}>
-            <option value="">速度: 指定なし</option>
-            {tiers.map((t) => <option key={t.id} value={t.id} title={t.description ?? undefined}>{t.name}</option>)}
+            <option value="">速度: 指定なし（変更しない）</option>
+            <option value="default" title="標準の速度へ戻す指定を送ります（schemaが標準速度の値として示す default）。結果は受理済みの表示で確認してください">速度: 標準（default）</option>
+            {tiers.filter((t) => t.id !== "default").map((t) => <option key={t.id} value={t.id} title={t.description ?? undefined}>{t.name}</option>)}
           </select>
           <select aria-label="計画／実行" value={wmSelected ?? ""} disabled={!wmUsable && wmSelected === null}
             title={wmUsable ? "次の送信から適用。実際に適用されたかは、受理済みの表示で確認します（experimental）" : (wmCap?.note ?? "この Codex 接続では使えません")}
@@ -664,6 +665,8 @@ function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock
             {wmSelected && wmAccepted !== wmSelected ? "（未受理。次のターンから適用）" : ""} <UnverifiedTag cap={wmCap} />
           </span>
         ) : null}
+        {accepted?.speedTier && !speed ? <span className="why">速度は「指定なし」ですが、Codex 側は速度 {accepted.speedTier} のままです。標準へ戻すには「標準（default）」を選んで送信し、受理済みの表示で確認してください。</span> : null}
+        {speed === "default" ? <span className="small muted">標準へ戻す指定を送ります。戻ったかは、送信後の受理済みの表示で確認してください（未確認）。</span> : null}
         {stCap?.verification === "unverified" && speed ? <span><UnverifiedTag cap={stCap} /> 速度</span> : null}
       </div>
     </div>

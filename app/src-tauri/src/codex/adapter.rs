@@ -1003,6 +1003,16 @@ mod tests {
     }
 
     #[test]
+    fn explicit_default_speed_is_sent_as_service_tier_and_no_selection_omits_it() {
+        let mut r = req(SendMode::NewTurn);
+        let (_, p) = build_send_call(&r).unwrap();
+        assert!(p.get("serviceTier").is_none(), "no selection means no override");
+        r.speed_tier = Some("default".into());
+        let (_, p) = build_send_call(&r).unwrap();
+        assert_eq!(p["serviceTier"], "default");
+    }
+
+    #[test]
     fn steer_requires_same_thread_and_sends_expected_turn() {
         let ok = req(SendMode::Steer { turn: turn_key("th", "t9") });
         let (m, p) = build_send_call(&ok).unwrap();
