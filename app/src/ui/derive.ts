@@ -26,7 +26,8 @@ export const sortChats = (chats: Chat[]): Chat[] => {
     || a.i - b.i).map((x) => x.c);
 };
 export const chatName = (c: Chat) => chatTitle(c).text;
-export const TENTATIVE_STYLE = { opacity: 0.65, fontStyle: "italic" } as const;
+/** 仮名は斜体・不透明度なしの淡色文字で示す（日本語の合成斜体と不透明度によるコントラスト低下を避ける）。 */
+export const TENTATIVE_STYLE = { color: "var(--ink3)" } as const;
 export const TENTATIVE_HINT = "確認済みの名前ではありません（最初の依頼から仮表示）";
 export const chatAgents = (s: HostSnapshot, c: Chat): AgentView[] => s.agents.filter((a) => keyStr(a.agent.chat) === keyStr(c.key));
 export const rootView = (s: HostSnapshot, c: Chat): AgentView | undefined => chatAgents(s, c).find((a) => a.agent.parent.kind === "root");

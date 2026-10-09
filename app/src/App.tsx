@@ -1000,7 +1000,7 @@ export default function App() {
   return (
     <>
       <svg width="0" height="0" style={{ position: "absolute" }} aria-hidden="true">
-        <defs><pattern id="hatch" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="2" height="4" fill="#8A979C" /></pattern></defs>
+        <defs><pattern id="hatch" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="2" height="4" style={{ fill: "var(--unk)" }} /></pattern></defs>
       </svg>
       <div className="window" role="application" aria-label="AgentDock" onClick={() => { if (menu) setMenu(null); if (mockOpen) setMockOpen(false); }}>
         <TitleBar title="AgentDock" tag={modeTag} top={mainTop} onAct={act} />

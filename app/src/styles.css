@@ -1,66 +1,173 @@
+/* ==== tokens ==== */
+/* 案A（DESIGN_UI §3）。値の正本は app/design/gen-mocks.mjs の V.a.css。ダークは OS 設定に従う（アプリ内の切替は作らない）。
+   色の直書きはこの節のトークン定義だけに置く。他の節・TSX は var(--…) を使う。 */
 :root{
-  --paper:#F3F5F4; --surface:#FFFFFF; --rail:#E7ECEB; --ink:#1B2A31; --ink2:#4C5E66; --ink3:#73848B;
-  --line:#D3DBDA; --line2:#E3E9E8; --harbor:#1E4D6B; --harbor-ink:#FFFFFF; --harbor-weak:#E2ECF2;
-  --run:#2462A8; --run-bg:#E6EEF8; --wait:#E2B12F; --wait-ink:#5B4300; --wait-bg:#FFF6DA;
-  --fail:#B3261E; --fail-bg:#FBEAE8; --int:#6E56A0; --int-bg:#EFEBF6; --done:#5E6E75; --done-bg:#EEF1F1;
-  --unk:#8A979C; --stale:#9A6A00;
-  --r-s:4px; --r-m:7px; --r-l:10px;
-  --font:"BIZ UDPGothic","Yu Gothic UI","Meiryo",system-ui,sans-serif;
-  --mono:"Cascadia Mono","Consolas",monospace;
+  color-scheme:light dark;
+  --font:"Segoe UI Variable Text","Segoe UI","Yu Gothic UI","Meiryo UI",sans-serif;
+  --mono:"Cascadia Mono","Consolas","BIZ UDGothic",monospace;
+  --fs:13px; --fs-s:12px; --fs-xs:11px; --lh:1.55;
+  --ctl:28px; --bpad:10px; --r1:4px; --r2:6px; --r3:8px; --chip-px:6px; --chip-r:10px;
+  --bg:#F3F3F3; --surface:#FFFFFF; --surface2:#F5F5F5; --rail:#F0F0F0; --dock-bg:#F6F6F6; --card-line:#E0E0E0;
+  --ink:#1B1B1B; --ink2:#545454; --ink3:#686868; --line:#E3E3E3; --line2:#E8E8E8; --line-strong:#C2C2C2;
+  --hover:rgba(0,0,0,.045); --hover-solid:#F2F2F2; --sel-bg:#FFFFFF;
+  --accent:#005FB8; --accent-hover:#0A5299; --accent-ink:#FFFFFF; --accent-weak:#E7F0FA; --accent-line:#B3CFEA; --accent-text:#005FB8; --focus:#1B1B1B;
+  --user-bg:#EFF4FA; --user-line:#D9E4F0; --tree-line:#C6C6C6;
+  --disabled-bg:#F2F2F2; --disabled-ink:#8A8A8A; --disabled-line:#E0E0E0;
+  --scrim:rgba(0,0,0,.32); --scrim-light:rgba(0,0,0,.14); --scrim-strong:rgba(0,0,0,.82); --on-scrim:#FFFFFF;
+  --dropzone-bg:rgba(231,240,250,.88);
+  --sh-1:0 1px 2px rgba(0,0,0,.05); --sh-3:0 10px 32px rgba(0,0,0,.22);
+  --run:#0F5FAF; --run-bg:#E7F0FA;
+  --wait-ink:#7A4800; --wait-bg:#FFF4D4; --wait-line:#EDD08A; --wait-solid:#F2B600; --wait-on:#2B1D00;
+  --fail:#C42B1C; --fail-ink:#A6261A; --fail-bg:#FDECEA; --fail-line:#EDB7B1; --fail-on:#FFFFFF;
+  --int:#6A4BA6; --int-bg:#F1ECFA; --done:#2B7440; --done-bg:#E8F4EB; --idle:#545454; --idle-bg:#EFEFEF;
+  --unk:#646464; --live:#2B7440; --stale:#8A5300; --unv-ink:#545454; --unv-line:#8C8C8C;
+  --info:#005FB8; --info-bg:#EEF4FB; --info-line:#C5D9EE;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --bg:#202020; --surface:#2B2B2B; --surface2:#323232; --rail:#1C1C1C; --dock-bg:#232323; --card-line:#3D3D3D;
+    --ink:#F2F2F2; --ink2:#C9C9C9; --ink3:#A8A8A8; --line:#3A3A3A; --line2:#3A3A3A; --line-strong:#575757;
+    --hover:rgba(255,255,255,.06); --hover-solid:#333333; --sel-bg:#2E2E2E;
+    --accent:#4CC2FF; --accent-hover:#6CCDFF; --accent-ink:#00243A; --accent-weak:#15303F; --accent-line:#2B5A75; --accent-text:#7FD3FF; --focus:#FFFFFF;
+    --user-bg:#2F3640; --user-line:#3D4753; --tree-line:#4D4D4D;
+    --disabled-bg:#2A2A2A; --disabled-ink:#7C7C7C; --disabled-line:#3A3A3A;
+    --scrim:rgba(0,0,0,.55); --scrim-light:rgba(0,0,0,.3); --scrim-strong:rgba(0,0,0,.86); --on-scrim:#FFFFFF;
+    --dropzone-bg:rgba(21,48,63,.88);
+    --sh-1:none; --sh-3:0 10px 32px rgba(0,0,0,.6);
+    --run:#7CC4FF; --run-bg:#123047;
+    --wait-ink:#FFD877; --wait-bg:#3A2E10; --wait-line:#6B5414; --wait-solid:#FFC83D; --wait-on:#2B1D00;
+    --fail:#FF8A80; --fail-ink:#FFA59D; --fail-bg:#3D1F1C; --fail-line:#7A3530; --fail-on:#2B0A07;
+    --int:#C4A9FF; --int-bg:#2E2546; --done:#7DD58A; --done-bg:#1D3523; --idle:#C9C9C9; --idle-bg:#333333;
+    --unk:#A8A8A8; --live:#7DD58A; --stale:#E8B04A; --unv-ink:#C9C9C9; --unv-line:#8A8A8A;
+    --info:#7FD3FF; --info-bg:#15303F; --info-line:#2B5A75;
+  }
 }
 *{box-sizing:border-box}
 html,body{margin:0;height:100%}
-body{font:13px/1.6 var(--font);color:var(--ink);background:#C9D3D2;}
+body{font:var(--fs)/var(--lh) var(--font);color:var(--ink);background:var(--bg);}
 button,input,select,textarea{font:inherit;color:inherit}
-button{cursor:pointer;border:1px solid transparent;background:transparent;border-radius:var(--r-s);height:28px;padding:0 9px;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
-button:hover{background:var(--harbor-weak)}
+button{cursor:pointer;border:1px solid transparent;background:transparent;border-radius:var(--r1);height:var(--ctl);padding:0 9px;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+button:hover{background:var(--hover)}
 button:disabled{opacity:.45;cursor:not-allowed;background:transparent}
-:focus-visible{outline:2px solid var(--run);outline-offset:2px}
-.btn-line{border-color:var(--line);background:var(--surface)}
-.btn-line:hover{border-color:#B9C5C4;background:var(--surface)}
-.btn-main{background:var(--harbor);color:var(--harbor-ink)}
-.btn-main:hover{background:#163C55}
-.btn-main:disabled{background:var(--harbor);color:var(--harbor-ink);opacity:.5}
-.btn-line:disabled,.btn-danger:disabled{background:var(--surface);border-color:var(--line)}
-.btn-danger{border-color:#E3B9B5;color:var(--fail);background:var(--surface)}
-.btn-danger:hover{background:var(--fail-bg)}
+:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
 svg.i{width:14px;height:14px;flex:none;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
-input[type=text],input[type=search],select,textarea{border:1px solid var(--line);border-radius:var(--r-s);background:var(--surface);padding:4px 8px}
-input[type=text],input[type=search],select{height:28px}
+input[type=text],input[type=search],select,textarea{border:1px solid var(--line-strong);border-radius:var(--r1);background:var(--surface);padding:4px 8px}
+input[type=text],input[type=search],select{height:var(--ctl)}
 label{display:inline-flex;align-items:center;gap:6px}
-.mono{font-family:var(--mono);font-size:12px}
+.mono{font-family:var(--mono);font-size:var(--fs-s)}
 .muted{color:var(--ink3)}
-.small{font-size:11.5px}
+.small{font-size:var(--fs-s)}
 [hidden]{display:none!important}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 
-/* window frame */
-.window{position:fixed;inset:0;display:flex;flex-direction:column;background:var(--paper);border:0;border-radius:0;overflow:hidden}
+/* ボタン（旧 .btn-line／.btn-main／.btn-danger は新しい見た目の別名）。無効は塗らず灰色表示。 */
+.btn,.btn-line{border-color:var(--line-strong);background:var(--surface)}
+.btn{justify-content:center}
+.btn:hover,.btn-line:hover{background:var(--hover-solid)}
+.btn.primary,.btn-main{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+.btn.primary:hover,.btn-main:hover{background:var(--accent-hover)}
+.btn.danger{background:var(--fail);border-color:var(--fail);color:var(--fail-on);font-weight:600}
+.btn.danger:hover{background:var(--fail);filter:brightness(.92)}
+.btn.danger-line,.btn-danger{color:var(--fail-ink);border-color:var(--fail-line);background:var(--surface)}
+.btn.danger-line:hover,.btn-danger:hover{background:var(--fail-bg)}
+.btn.subtle{border-color:transparent;background:transparent}
+.btn.subtle:hover{background:var(--hover)}
+.btn.icon{width:var(--ctl);padding:0;justify-content:center}
+.btn.sm{height:24px;padding:0 8px;font-size:var(--fs-s)}
+.btn:disabled,.btn.primary:disabled,.btn.danger:disabled,.btn.danger-line:disabled,.btn-line:disabled,.btn-main:disabled,.btn-danger:disabled,
+.btn:disabled:hover,.btn.primary:disabled:hover,.btn.danger:disabled:hover,.btn-main:disabled:hover{background:var(--disabled-bg);color:var(--disabled-ink);border-color:var(--disabled-line);opacity:1;filter:none;font-weight:400;cursor:not-allowed}
+
+/* 状態チップ（§2.2）: 形＋文字＋色。色クラスの付いたものだけチップにする（色なしの .st は控えめな文字）。 */
+.st{display:inline-flex;align-items:center;gap:4px;font-size:var(--fs-xs);font-weight:600;margin-left:auto;white-space:nowrap}
+.st svg{width:11px;height:11px}
+.st i{width:8px;height:8px;border-radius:50%;background:currentColor;flex:none}
+.st.run,.st.wait,.st.fail,.st.int,.st.done,.st.idle,.st.unk{color:var(--c);background:var(--cbg);border:1px solid transparent;border-radius:var(--chip-r);padding:0 var(--chip-px);line-height:1.5}
+.st.run{--c:var(--run);--cbg:var(--run-bg)} .st.wait{--c:var(--wait-ink);--cbg:var(--wait-bg)} .st.fail{--c:var(--fail-ink);--cbg:var(--fail-bg)}
+.st.int{--c:var(--int);--cbg:var(--int-bg)} .st.done{--c:var(--done);--cbg:var(--done-bg)} .st.idle{--c:var(--idle);--cbg:var(--idle-bg)}
+.st.unk{--c:var(--unk);--cbg:transparent;border-color:var(--line-strong);border-style:dashed}
+.st.wait i{border-radius:1px;transform:rotate(45deg);width:7px;height:7px}
+.st.fail i{border-radius:1px}
+.st.int i{border-radius:0;background:linear-gradient(90deg,currentColor 0 3px,transparent 3px 5px,currentColor 5px)}
+.st.done i{background:none;border-radius:0;width:4px;height:8px;border:solid currentColor;border-width:0 2px 2px 0;transform:rotate(45deg) translate(-1px,-1px);margin:0 2px}
+.st.idle i{background:none;border:1.5px solid currentColor}
+.st.unk i{background:none;border:1.5px dashed currentColor}
+.st.hist{background:transparent;border:1px dashed currentColor}
+.flag{fill:currentColor;stroke:none}
+.flag.unk{fill:url(#hatch)}
+
+/* 鮮度（§4.2）: 塗りなし・控えめの文字色＋小さな印。状態チップとは別の見た目。 */
+.fr,.fresh{display:inline-flex;align-items:center;gap:5px;font-size:var(--fs-s);color:var(--ink2);white-space:nowrap;line-height:18px}
+.fr i,.fresh:before{content:"";width:9px;height:9px;border-radius:50%;border:1.5px solid var(--live);background:radial-gradient(circle,var(--live) 0 2px,transparent 2.5px);flex:none}
+.fr.stale,.fr.check,.fresh.stale,.fresh.check{color:var(--stale)}
+.fr.stale i,.fr.check i,.fresh.stale:before,.fresh.check:before{border:1.5px dashed currentColor;background:none}
+.fr.off,.fresh.off{color:var(--fail-ink)}
+.fr.off i,.fresh.off:before{border-color:currentColor;background:linear-gradient(45deg,transparent 43%,currentColor 43% 57%,transparent 57%)}
+
+/* 確認状況「未確認」（無彩色・破線枠・塗りなし。黄は使わない）／タグ／印 */
+.unv,.tag.unv{display:inline-flex;align-items:center;font-size:var(--fs-xs);font-weight:500;line-height:1.45;padding:0 4px;border:1px dashed var(--unv-line);border-radius:var(--r1);color:var(--unv-ink);background:transparent;white-space:nowrap}
+.tag{display:inline-flex;align-items:center;gap:3px;font-size:var(--fs-xs);line-height:1.6;padding:0 6px;border-radius:var(--r1);border:1px solid var(--line);color:var(--ink2);background:var(--surface2);white-space:nowrap}
+.tag.ai{border-color:var(--accent-line);background:var(--accent-weak);color:var(--accent-text)}
+.tag.reverted{font-size:var(--fs-s);font-weight:600;color:var(--done);border-color:currentColor;background:var(--done-bg)}
+.tag.reverted svg{width:13px;height:13px}
+.marks{display:flex;gap:4px}
+.mark{font-size:var(--fs-xs);line-height:1.6;padding:0 6px;border-radius:var(--r1);font-weight:700;white-space:nowrap;flex:none}
+.mark.wait{background:var(--wait-solid);color:var(--wait-on)}
+.mark.fail{background:var(--fail);color:var(--fail-on)}
+.mark.hold{background:var(--int-bg);color:var(--int);border:1px solid currentColor}
+.mark.pend{border:1px solid var(--line-strong);color:var(--ink2);font-weight:500}
+
+/* 帯（1つの原因につき1本）。警告＝黄、エラー＝赤、情報＝アクセントの薄い面。旧 .gbanner／.cbanner も同じ配色。 */
+.banner{display:flex;gap:8px;align-items:flex-start;padding:8px 10px;margin:0 0 8px;border-radius:var(--r2);border:1px solid var(--b-line);background:var(--b-bg);font-size:var(--fs-s)}
+.banner>svg{color:var(--b-ic);margin-top:2px}
+.banner>div{flex:1;min-width:0}
+.banner.warn,.gbanner.warn,.cbanner.warn{--b-bg:var(--wait-bg);--b-line:var(--wait-line);--b-ic:var(--wait-ink);--b-ink:var(--wait-ink)}
+.banner.err,.gbanner.err,.cbanner.err{--b-bg:var(--fail-bg);--b-line:var(--fail-line);--b-ic:var(--fail-ink);--b-ink:var(--fail-ink)}
+.banner.info,.cbanner.info{--b-bg:var(--info-bg);--b-line:var(--info-line);--b-ic:var(--info);--b-ink:var(--ink)}
+
+/* 表（数値列は右寄せ・tabular-nums、0は淡色、見出し固定）。旧 .parity-table／.change-table も同じ見た目。 */
+.tbl,.parity-table,.change-table{width:100%;border-collapse:collapse;font-size:var(--fs-s)}
+.tbl th,.tbl td,.parity-table th,.parity-table td{padding:4px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}
+.parity-table td{vertical-align:top}
+.tbl th,.parity-table th{color:var(--ink2);font-weight:600;background:var(--surface);position:sticky;top:0;white-space:nowrap}
+.tbl .n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.tbl td.z{color:var(--ink3)}
+.tbl td.nm{max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tbl tbody tr:hover{background:var(--hover)}
+.tbl tr.sel{background:var(--accent-weak)}
+
+/* 「?」（説明の移し先）とポップオーバーの面。ポップオーバーの挙動は ui/Popover.tsx。 */
+.help{width:18px;height:18px;padding:0;justify-content:center;border-radius:50%;border:1px solid var(--line-strong);color:var(--ink2);font-size:var(--fs-xs);font-weight:700;line-height:1;flex:none}
+.help:hover{background:var(--hover)}
+.dropdown,.pop{background:var(--surface);border:1px solid var(--line);border-radius:var(--r2);padding:4px;box-shadow:var(--sh-3)}
+.pop-wrap{position:relative;display:inline-flex}
+.pop{position:absolute;top:calc(100% + 4px);left:0;z-index:30;min-width:200px;max-width:min(360px,86vw);white-space:normal}
+.pop.right{left:auto;right:0}
+.pop.text{padding:8px 10px;font-size:var(--fs-s)}
+.pop[role=menu] button{width:100%;justify-content:space-between;height:30px}
+
+/* ==== chrome-center ==== */
+/* 窓まわり・メニューバー・全体の帯・3領域の配置・会話ヘッダー・会話本文・入力欄（UI-1 が書き換える節） */
+.window{position:fixed;inset:0;display:flex;flex-direction:column;background:var(--bg);border:0;border-radius:0;overflow:hidden}
 .titlebar{height:34px;display:flex;align-items:center;gap:10px;padding-left:12px;background:var(--surface);border-bottom:1px solid var(--line2);-webkit-user-select:none;user-select:none}
-.app-mark{width:16px;height:16px;border-radius:3px;background:var(--harbor);position:relative;flex:none}
-.app-mark:after{content:"";position:absolute;left:3px;right:3px;bottom:3px;height:3px;background:#fff;border-radius:1px}
+.app-mark{width:16px;height:16px;border-radius:3px;background:var(--accent);position:relative;flex:none}
+.app-mark:after{content:"";position:absolute;left:3px;right:3px;bottom:3px;height:3px;background:var(--accent-ink);border-radius:1px}
 .titlebar .title{font-weight:700}
-.mock-tag{font-size:11px;color:var(--ink2);border:1px solid var(--line);border-radius:var(--r-s);padding:0 8px;height:22px;background:var(--paper)}
+.mock-tag{font-size:var(--fs-xs);color:var(--ink2);border:1px solid var(--line);border-radius:var(--r1);padding:0 8px;height:22px;background:var(--bg)}
 .titlebar .grow{flex:1}
 .winbtn{width:46px;height:34px;border-radius:0;justify-content:center;padding:0}
 .winbtn:hover{background:var(--rail)}
-.winbtn.close:hover{background:#C42B1C;color:#fff}
+.winbtn.close:hover{background:var(--fail);color:var(--fail-on)}
 .menubar{display:flex;gap:2px;padding:2px 8px;background:var(--surface);border-bottom:1px solid var(--line)}
 .menu{position:relative}
 .menu > button{height:26px}
-.menu > button[aria-expanded=true]{background:var(--harbor-weak)}
-.dropdown{position:absolute;left:0;top:28px;z-index:30;min-width:250px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);padding:4px;box-shadow:0 8px 24px rgba(27,42,49,.14)}
+.menu > button[aria-expanded=true]{background:var(--accent-weak)}
+.dropdown{position:absolute;left:0;top:28px;z-index:30;min-width:250px}
 .dropdown button{width:100%;justify-content:space-between;height:30px}
-.dropdown .kbd{color:var(--ink3);font-size:11px}
+.dropdown .kbd{color:var(--ink3);font-size:var(--fs-xs)}
 .dropdown hr{border:0;border-top:1px solid var(--line2);margin:4px 2px}
-.tag{font-size:10.5px;line-height:16px;padding:0 5px;border-radius:3px;border:1px solid var(--line);color:var(--ink2);background:var(--paper)}
-.tag.unv{border-color:#E4CF92;background:var(--wait-bg);color:var(--wait-ink)}
-.tag.ai{border-color:#B9CDDA;background:var(--harbor-weak);color:var(--harbor)}
 
 /* global banner */
-.gbanner{display:flex;align-items:center;gap:10px;padding:6px 12px;border-bottom:1px solid;font-size:12.5px}
-.gbanner.warn{background:var(--wait-bg);border-color:#EBD596;color:var(--wait-ink)}
-.gbanner.err{background:var(--fail-bg);border-color:#EBC2BE;color:#7A1A14}
+.gbanner{display:flex;align-items:center;gap:10px;padding:6px 12px;border-bottom:1px solid var(--b-line);background:var(--b-bg);color:var(--b-ink);font-size:var(--fs-s)}
 .gbanner .grow{flex:1;min-width:0}
 
 /* layout */
@@ -73,190 +180,97 @@ label{display:inline-flex;align-items:center;gap:6px}
 .left{grid-column:1}.center{grid-column:2}.right{grid-column:3}
 .center{min-width:0;display:flex;flex-direction:column;min-height:0;background:var(--surface)}
 
-/* left list */
-.left-top{padding:10px;display:flex;flex-direction:column;gap:8px;border-bottom:1px solid var(--line)}
-.left-top .btn-line{justify-content:flex-start}
-.left-scroll{overflow:auto;flex:1;padding:6px 6px 12px}
-.list-h{font-size:11.5px;color:var(--ink3);margin:10px 6px 4px;display:flex;justify-content:space-between}
-.row-chat{width:100%;height:auto;min-height:44px;display:grid;grid-template-columns:1fr auto;align-items:center;text-align:left;padding:6px 8px;border-radius:var(--r-m);gap:2px 6px}
-.row-chat.fixed{height:52px;min-height:52px;overflow:hidden;box-sizing:border-box}
-.row-chat:hover{background:#DCE4E3}
-.row-chat.sel{background:var(--surface);border-color:var(--line)}
-.row-chat .nm{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.row-chat .sub{grid-column:1/-1;font-size:11.5px;color:var(--ink2);display:flex;gap:6px;align-items:center;overflow:hidden;white-space:nowrap}
-.marks{display:flex;gap:4px}
-.mark{font-size:10.5px;line-height:16px;padding:0 5px;border-radius:3px;font-weight:700}
-.mark.wait{background:var(--wait);color:#3A2B00}
-.mark.fail{background:var(--fail);color:#fff}
-.mark.hold{background:var(--int);color:#fff}
-.left-foot{border-top:1px solid var(--line);padding:6px 10px;font-size:11.5px;color:var(--ink2);display:flex;justify-content:space-between}
-
 /* center */
 .chead{display:flex;align-items:center;gap:10px;padding:8px 16px;border-bottom:1px solid var(--line2);min-height:48px}
 .chead .ttl{font-size:15px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.chead .meta{display:flex;gap:8px;align-items:center;color:var(--ink2);font-size:11.5px;flex-wrap:wrap;min-width:0}
+.chead .meta{display:flex;gap:8px;align-items:center;color:var(--ink2);font-size:var(--fs-s);flex-wrap:wrap;min-width:0}
 .chead .meta .mono{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%;min-width:0}
 .chead .grow{flex:1;min-width:0}
-.fresh{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;padding:0 6px;border-radius:3px;line-height:18px}
-.fresh:before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
-.fresh.live{color:#1F6B45;background:#E5F3EB}
-.fresh.stale{color:var(--stale);background:var(--wait-bg)}
-.fresh.stale:before{background:transparent;border:1.5px dashed currentColor}
-.fresh.check{color:var(--wait-ink);background:var(--wait-bg)}
-.fresh.off{color:var(--fail);background:var(--fail-bg)}
-.goal{display:flex;gap:8px;align-items:center;padding:5px 16px;border-bottom:1px solid var(--line2);background:#F7F9F8;font-size:12px}
-.goal b{color:var(--harbor)}
-.cbanner{margin:10px 16px 0;border:1px solid;border-radius:var(--r-m);padding:10px 12px;font-size:12.5px}
-.cbanner h4{margin:0 0 4px;font-size:13px}
-.cbanner.warn{background:var(--wait-bg);border-color:#EBD596}
-.cbanner.err{background:var(--fail-bg);border-color:#EBC2BE}
-.cbanner.info{background:var(--harbor-weak);border-color:#C3D5E1}
+.goal{display:flex;gap:8px;align-items:center;padding:5px 16px;border-bottom:1px solid var(--line2);background:var(--surface2);font-size:var(--fs-s)}
+.goal b{color:var(--accent-text)}
+.cbanner{margin:10px 16px 0;border:1px solid var(--b-line);background:var(--b-bg);border-radius:var(--r2);padding:10px 12px;font-size:var(--fs-s)}
+.cbanner h4{margin:0 0 4px;font-size:var(--fs)}
 .cbanner .acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
 .targets{margin:6px 0 0;padding:0;list-style:none;display:grid;gap:3px}
 .targets li{display:grid;grid-template-columns:150px 1fr;gap:8px}
 .msgs{flex:1;overflow:auto;padding:16px 16px 8px}
 .msg{max-width:760px;margin:0 auto 16px}
-.msg .who{font-size:11.5px;color:var(--ink3);margin-bottom:3px;display:flex;gap:8px}
-.msg.user .bubble{background:var(--paper);border:1px solid var(--line2);border-radius:var(--r-l);padding:8px 12px;margin-left:60px}
+.msg .who{font-size:var(--fs-s);color:var(--ink3);margin-bottom:3px;display:flex;gap:8px}
+.msg.user .bubble{background:var(--user-bg);border:1px solid var(--user-line);border-radius:var(--r3);padding:8px 12px;margin-left:60px}
 .msg.ai .bubble p{margin:0 0 8px}
-.msg pre{background:#F6F8F8;border:1px solid var(--line2);border-radius:var(--r-s);padding:8px 10px;overflow:auto;font:12px/1.5 var(--mono);margin:6px 0}
+.msg pre{background:var(--surface2);border:1px solid var(--line2);border-radius:var(--r1);padding:8px 10px;overflow:auto;font:var(--fs-s)/1.5 var(--mono);margin:6px 0}
 .msg .acts{display:flex;gap:2px;margin-top:2px;color:var(--ink3)}
-.msg .acts button{height:24px;font-size:11.5px}
-.activity{font-size:12px;color:var(--ink2);border-left:2px solid var(--line);padding:2px 0 2px 10px;margin:6px 0}
+.msg .acts button{height:24px;font-size:var(--fs-s)}
+.activity{font-size:var(--fs-s);color:var(--ink2);border-left:2px solid var(--line-strong);padding:2px 0 2px 10px;margin:6px 0}
 .activity summary{cursor:pointer}
 .files{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
-.file{display:inline-flex;gap:6px;align-items:center;border:1px solid var(--line);border-radius:var(--r-s);padding:2px 4px 2px 8px;font-size:12px;background:var(--surface)}
+.file{display:inline-flex;gap:6px;align-items:center;border:1px solid var(--line);border-radius:var(--r1);padding:2px 4px 2px 8px;font-size:var(--fs-s);background:var(--surface)}
 .file.missing{border-style:dashed;color:var(--ink3)}
-.req{max-width:760px;margin:0 auto 16px;border:1px solid #EBD596;background:var(--wait-bg);border-radius:var(--r-m);padding:10px 12px}
+.req{max-width:760px;margin:0 auto 16px;border:1px solid var(--wait-line);background:var(--wait-bg);border-radius:var(--r2);padding:10px 12px}
 .req .h{display:flex;gap:8px;align-items:center;font-weight:700;color:var(--wait-ink)}
-.req .t{margin:6px 0;font-size:12.5px}
-.req code{display:block;background:#FFFDF4;border:1px solid #EFE2B6;border-radius:var(--r-s);padding:6px 8px;font:12px/1.5 var(--mono);overflow-wrap:anywhere}
+.req .t{margin:6px 0;font-size:var(--fs-s)}
+.req code{display:block;background:var(--surface);border:1px solid var(--wait-line);border-radius:var(--r1);padding:6px 8px;font:var(--fs-s)/1.5 var(--mono);overflow-wrap:anywhere}
 .req .opts{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
-.req .scope{font-size:11.5px;color:var(--wait-ink);margin-top:6px}
+.req .scope{font-size:var(--fs-s);color:var(--wait-ink);margin-top:6px}
 
 /* composer */
 .queue{max-width:792px;width:100%;margin:0 auto;padding:0 16px}
-.queue details{border:1px solid var(--line);border-radius:var(--r-m);margin-bottom:6px;background:#FAFBFB}
-.queue summary{cursor:pointer;padding:5px 10px;font-size:12px;display:flex;gap:8px;align-items:center}
+.queue details{border:1px solid var(--line);border-radius:var(--r2);margin-bottom:6px;background:var(--surface2)}
+.queue summary{cursor:pointer;padding:5px 10px;font-size:var(--fs-s);display:flex;gap:8px;align-items:center}
 .queue summary::-webkit-details-marker{display:none}
-.qitem{display:grid;grid-template-columns:22px 1fr auto;gap:8px;align-items:center;padding:5px 10px;border-top:1px solid var(--line2);font-size:12px}
-.qitem .why{font-size:11.5px;color:var(--wait-ink)}
-.qitem .why.err{color:var(--fail)}
+.qitem{display:grid;grid-template-columns:22px 1fr auto;gap:8px;align-items:center;padding:5px 10px;border-top:1px solid var(--line2);font-size:var(--fs-s)}
+.qitem .why{font-size:var(--fs-s);color:var(--wait-ink)}
+.qitem .why.err{color:var(--fail-ink)}
 .qnum{font-family:var(--mono);color:var(--ink3)}
 .composer{max-width:792px;width:100%;margin:0 auto;padding:4px 16px 12px}
-.shell{border:1px solid #BCC8C7;border-radius:var(--r-l);background:var(--surface);padding:6px 8px}
-.shell:focus-within{border-color:var(--harbor)}
-.shell.locked{background:#F6F7F7}
+.shell{border:1px solid var(--line-strong);border-radius:var(--r3);background:var(--surface);padding:6px 8px}
+.shell:focus-within{border-color:var(--accent)}
+.shell.locked{background:var(--disabled-bg)}
 .chips{display:flex;flex-wrap:wrap;gap:6px;padding:2px 0 4px}
-.chip{display:inline-flex;flex-wrap:wrap;align-items:center;gap:2px 6px;border:1px solid var(--line);border-radius:var(--r-s);padding:1px 2px 1px 6px;font-size:11.5px;background:var(--paper);max-width:100%}
+.chip{display:inline-flex;flex-wrap:wrap;align-items:center;gap:2px 6px;border:1px solid var(--line);border-radius:var(--r1);padding:1px 2px 1px 6px;font-size:var(--fs-s);background:var(--bg);max-width:100%}
 .chip .st{color:var(--ink3)}
-.chip.bad{border-color:#EBC2BE;background:var(--fail-bg)}
-.chip.bad .st{color:var(--fail)}
+.chip.bad{border-color:var(--fail-line);background:var(--fail-bg)}
+.chip.bad .st{color:var(--fail-ink)}
 .chip button{height:20px;padding:0 4px}
-.thumb{width:22px;height:22px;border-radius:3px;background:linear-gradient(135deg,#9FC2D8,#476E86);flex:none}
+.thumb{width:22px;height:22px;border-radius:3px;background:linear-gradient(135deg,var(--accent-line),var(--accent));flex:none}
 .thumbbtn{padding:0;height:22px;width:22px;border:0;background:none;flex:none}
 .thumbimg{width:22px;height:22px;border-radius:3px;object-fit:cover;display:block}
-.lightbox{position:fixed;inset:0;z-index:60;background:rgba(20,28,32,.82);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:#fff;cursor:zoom-out}
-.lightbox img{max-width:90vw;max-height:80vh;border-radius:4px;background:#fff}
+.lightbox{position:fixed;inset:0;z-index:60;background:var(--scrim-strong);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--on-scrim);cursor:zoom-out}
+.lightbox img{max-width:90vw;max-height:80vh;border-radius:var(--r1);background:var(--surface)}
 .files .frow{display:flex;align-items:center;gap:8px;padding:3px 0;border-top:1px solid var(--line)}
-.files .frow .st{color:var(--ink3);font-size:11.5px}
-.files .frow .st.bad{color:var(--fail)}
-.dropzone{position:fixed;inset:12px;z-index:55;border:2px dashed var(--accent,#2F6F8F);border-radius:8px;background:rgba(220,236,244,.78);display:flex;align-items:center;justify-content:center;text-align:center;padding:24px;font-size:14px;pointer-events:none}
+.files .frow .st{color:var(--ink3);font-size:var(--fs-s)}
+.files .frow .st.bad{color:var(--fail-ink)}
+.dropzone{position:fixed;inset:12px;z-index:55;border:2px dashed var(--accent);border-radius:var(--r3);background:var(--dropzone-bg);display:flex;align-items:center;justify-content:center;text-align:center;padding:24px;font-size:14px;pointer-events:none}
 textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;padding:4px;outline:none;background:transparent;line-height:1.6}
-/* ダイアログ・サイドパネルの textarea は、入力欄として枠・背景を持つ（上の既定は入力欄用の枠なし） */
-.dialog textarea,.sidepanel textarea{border:1px solid var(--line);background:var(--surface);padding:4px 8px;resize:vertical}
 .ctrl{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
 .ctrl .grow{flex:1}
-.ctrl select{border:0;background:transparent;height:26px;padding:0 4px;font-size:12px}
-.seg{display:inline-flex;border:1px solid var(--line);border-radius:var(--r-s);overflow:hidden}
-.seg button{border-radius:0;height:24px;font-size:11.5px}
-.seg button[aria-pressed=true]{background:var(--harbor);color:#fff}
-.send{width:32px;height:32px;justify-content:center;padding:0;border-radius:var(--r-m)}
+.ctrl select{border:0;background:transparent;height:26px;padding:0 4px;font-size:var(--fs-s)}
+.seg{display:inline-flex;border:1px solid var(--line-strong);border-radius:var(--r1);overflow:hidden}
+.seg button{border-radius:0;height:24px;font-size:var(--fs-s)}
+.seg button[aria-pressed=true]{background:var(--accent);color:var(--accent-ink)}
+.send{width:32px;height:32px;justify-content:center;padding:0;border-radius:var(--r2)}
 .send svg.i{width:17px;height:17px}
-.hint{font-size:11.5px;color:var(--ink3);margin-top:4px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
-.lockmsg{font-size:12px;color:var(--fail);padding:4px}
+.hint{font-size:var(--fs-s);color:var(--ink3);margin-top:4px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.lockmsg{font-size:var(--fs-s);color:var(--fail-ink);padding:4px}
 
-/* right dock */
-.dock-top{padding:8px 10px;border-bottom:1px solid var(--line2);display:flex;flex-direction:column;gap:6px}
-.dock-top .seg{align-self:flex-start}
-.dock-scroll{flex:1;overflow:auto;padding:8px 10px 14px}
-.root-h{display:flex;align-items:center;gap:6px;margin:10px 0 4px;font-size:12px;font-weight:700}
-.root-h button{height:22px;font-size:11.5px;font-weight:400}
-.tree{list-style:none;margin:0;padding:0}
-.tree .tree{margin-left:13px;padding-left:12px;border-left:1.5px solid #B8C6C5}
-.tree li{position:relative}
-.tree .tree > li:before{content:"";position:absolute;left:-12px;top:19px;width:11px;border-top:1.5px solid #B8C6C5}
-.tree .tree > li:last-child:after{content:"";position:absolute;left:-13.5px;top:20px;bottom:0;border-left:3px solid var(--surface)}
-.berth{border:1px solid var(--line);border-left:4px solid var(--done);border-radius:var(--r-s);padding:5px 8px;margin:4px 0;background:var(--surface)}
-.berth.run{border-left-color:var(--run)} .berth.wait{border-left-color:var(--wait);background:#FFFCF1}
-.berth.fail{border-left-color:var(--fail);background:#FFF8F7} .berth.int{border-left-color:var(--int)}
-.berth.unk{border-left-color:var(--unk);border-left-style:dashed}
-.berth.stale{border-style:dashed}
-.berth{min-width:0;overflow-wrap:anywhere}
-.berth .l1{display:flex;align-items:center;gap:2px 6px;flex-wrap:wrap;min-width:0}
-.grp-h{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
-.grp-h button{white-space:normal;height:auto;min-height:26px;text-align:left}
-.grp-h button.attn{border-color:var(--fail);color:var(--fail);font-weight:700}
-.dock-scroll{overflow-x:hidden}
-.berth .nm{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.berth .rel{font-size:10.5px;color:var(--ink3)}
-.berth .path{max-width:100%;font-size:11px;color:var(--ink2);background:var(--bg2,#F1F3F5);border-radius:3px;padding:0 5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
-.berth .l2{font-size:11.5px;color:var(--ink2);margin-top:1px;min-width:0}
-.berth .l3{font-size:11.5px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.berth .l4{font-size:10.5px;color:var(--ink3);display:flex;gap:8px;margin-top:1px}
-.berth .acts{display:flex;gap:4px;margin-top:4px}
-.berth .acts button{height:24px;font-size:11.5px}
-.st{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;margin-left:auto;white-space:nowrap}
-.st svg{width:11px;height:11px}
-.st.run{color:var(--run)} .st.wait{color:var(--wait-ink)} .st.fail{color:var(--fail)} .st.int{color:var(--int)}
-.st.done{color:var(--done)} .st.unk{color:var(--unk)} .st.idle{color:var(--ink2)}
-.flag{fill:currentColor;stroke:none}
-.flag.unk{fill:url(#hatch)}
-.empty-note{font-size:12px;color:var(--ink3);padding:14px 4px;text-align:center}
-.dock-foot{border-top:1px solid var(--line2);padding:6px 10px;font-size:11px;color:var(--ink3)}
+.msgs-wrap{position:relative;flex:1;min-height:0;display:flex;flex-direction:column}
+.msgs-wrap .msgs{min-height:0}
+.jump{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);background:var(--ink);color:var(--bg);border-radius:999px;padding:0 14px;height:28px;box-shadow:var(--sh-3);z-index:5}
+.msgs .bubble,.msgs .activity,.msgs .req,.msgs li{overflow-wrap:anywhere}
+.msgs pre,.msgs code{overflow-x:auto;max-width:100%;overflow-wrap:normal}
 
-/* overlays */
-.scrim{position:fixed;inset:0;background:rgba(20,32,38,.32);z-index:40;display:flex;align-items:center;justify-content:center;padding:16px}
-.dialog{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);width:min(620px,100%);max-width:100%;min-width:0;max-height:calc(100vh - 32px);display:flex;flex-direction:column;box-shadow:0 16px 48px rgba(20,32,38,.25);overflow-wrap:anywhere}
-.dialog>*{min-width:0}
-.dialog .content{overflow-x:hidden}
-.dialog .content select,.dialog .content input:not([type=checkbox]):not([type=radio]),.dialog .content textarea{max-width:100%;min-width:0}
-.dialog .content .gbanner,.dialog .content .acts{flex-wrap:wrap}
-.dialog .content .gbanner .grow{flex-basis:12em}
-.dialog .content ul,.dialog .content li{min-width:0}
-.dialog .content pre{max-width:100%;white-space:pre-wrap;overflow-wrap:anywhere}
-.dialog.wide{width:min(860px,100%)}
-.dialog header{display:flex;align-items:center;padding:10px 14px;border-bottom:1px solid var(--line2)}
-.dialog header h3{margin:0;font-size:14px;flex:1}
-.dialog .content{padding:12px 14px;overflow:auto}
-.dialog footer{display:flex;justify-content:flex-end;gap:6px;padding:10px 14px;border-top:1px solid var(--line2)}
-.dialog p{margin:0 0 8px}
-.field{display:grid;grid-template-columns:minmax(0,150px) minmax(0,1fr);gap:6px 12px;align-items:center;margin-bottom:10px}
-.field .note{grid-column:2;font-size:11.5px;color:var(--ink3)}
-.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line2);padding:0 10px;overflow-x:auto;flex:none}
-.tabs button{border-radius:0;height:32px;border-bottom:2px solid transparent}
-.tabs button[aria-selected=true]{border-bottom-color:var(--harbor);font-weight:700}
-.diff{display:grid;grid-template-columns:200px 1fr;gap:10px}
-.diff pre{margin:0;font:12px/1.55 var(--mono);background:#F7F9F9;border:1px solid var(--line2);border-radius:var(--r-s);padding:6px 0;overflow:auto}
-.diff pre span{display:block;padding:0 10px}
-.diff .add{background:#E6F4EA}.diff .del{background:#FCE9E7}
-.check-list{margin:6px 0;padding-left:18px}
-.toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:var(--ink);color:#fff;border-radius:var(--r-m);padding:8px 14px;z-index:60;font-size:12.5px;max-width:calc(100% - 32px)}
-
-/* compact monitor window */
-.mini{position:fixed;right:34px;bottom:34px;width:300px;max-height:420px;background:var(--surface);border:1px solid #9FB0AF;border-radius:var(--r-m);z-index:35;display:flex;flex-direction:column;box-shadow:0 10px 30px rgba(20,32,38,.22)}
+/* compact monitor window（モック用の窓内表示）と mock control。959px の @media より前に置く（同じ詳細度で後勝ちにしない） */
+.mini{position:fixed;right:34px;bottom:34px;width:300px;max-height:420px;background:var(--surface);border:1px solid var(--line-strong);border-radius:var(--r2);z-index:35;display:flex;flex-direction:column;box-shadow:var(--sh-3)}
 .mini .titlebar{height:30px;gap:6px;padding-left:8px}
-.mini .titlebar .title,.mini .titlebar label{white-space:nowrap;font-size:12px}
+.mini .titlebar .title,.mini .titlebar label{white-space:nowrap;font-size:var(--fs-s)}
 .mini .winbtn{width:38px;height:30px}
 .mini .dock-scroll{padding:4px 8px 10px}
 .mini .berth{padding:3px 6px}
-
-/* mock control */
 .mockctl{position:fixed;left:110px;top:30px;z-index:50}
-.mockctl .panel{position:absolute;left:0;top:0;width:280px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);padding:6px;box-shadow:0 10px 30px rgba(20,32,38,.2)}
-.mockctl .panel p{margin:4px 6px 6px;font-size:11.5px;color:var(--ink3)}
+.mockctl .panel{position:absolute;left:0;top:0;width:280px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r2);padding:6px;box-shadow:var(--sh-3)}
+.mockctl .panel p{margin:4px 6px 6px;font-size:var(--fs-s);color:var(--ink3)}
 .mockctl .panel button{width:100%;justify-content:flex-start;height:28px}
-.mockctl .panel button[aria-current=true]{background:var(--harbor-weak);font-weight:700}
+.mockctl .panel button[aria-current=true]{background:var(--accent-weak);font-weight:700}
 
 /* 画面幅の区分（D07、App.tsx の leftTemp／rightTemp と同じ境界）。
    >=1280px: 3領域。960〜1279px: 右（ドック）を一時パネル。<960px: 左右とも一時パネル。中央を優先する。 */
@@ -265,28 +279,19 @@ textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;paddin
 .chead-ops{display:flex;gap:4px;align-items:center;flex-wrap:wrap}
 .chead-ops .tag{margin-left:4px}
 .dropdown button.has-why{height:auto;min-height:30px;flex-wrap:wrap;padding-top:4px;padding-bottom:4px}
-.dropdown .why,.palette-list .why{flex-basis:100%;font-size:11px;color:var(--ink3);text-align:left;white-space:normal}
+.dropdown .why{flex-basis:100%;font-size:var(--fs-xs);color:var(--ink3);text-align:left;white-space:normal}
 .dropdown button:disabled{color:var(--ink3);cursor:default}
-.palette{width:min(560px,100%);align-self:flex-start;margin-top:12vh}
-.palette header{padding:8px 10px}
-.palette-q{width:100%;height:30px}
-.palette-list{list-style:none;margin:0;padding:4px;overflow:auto;max-height:50vh}
-.palette-list li{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:5px 8px;border-radius:var(--r-s);cursor:pointer}
-.palette-list li.cur{background:var(--harbor-weak)}
-.palette-list li.off{color:var(--ink3);cursor:default}
-.palette-list .kbd{color:var(--ink3);font-size:11px}
-.palette-none{padding:8px}
 @media (max-width:1279px){
   .body{grid-template-columns:var(--lw,232px) minmax(0,1fr)!important}
-  .right{position:fixed;top:0;bottom:0;right:0;z-index:25;width:min(300px,86vw);display:none;box-shadow:0 0 30px rgba(20,32,38,.25)}
+  .right{position:fixed;top:0;bottom:0;right:0;z-index:25;width:min(300px,86vw);display:none;box-shadow:var(--sh-3)}
   .body.n-r .right{display:flex}
-  .body.n-l .panel-scrim,.body.n-r .panel-scrim{display:block;position:fixed;inset:0;z-index:24;background:rgba(20,32,38,.18)}
+  .body.n-l .panel-scrim,.body.n-r .panel-scrim{display:block;position:fixed;inset:0;z-index:24;background:var(--scrim-light)}
   .only-narrow-r{display:inline-flex!important}
 }
 @media (max-width:959px){
   .window{inset:0;border-radius:0;border:0}
   .body{grid-template-columns:minmax(0,1fr)!important}
-  .left{position:fixed;top:0;bottom:0;left:0;z-index:25;width:min(300px,86vw);display:none;box-shadow:0 0 30px rgba(20,32,38,.25)}
+  .left{position:fixed;top:0;bottom:0;left:0;z-index:25;width:min(300px,86vw);display:none;box-shadow:var(--sh-3)}
   .center{grid-column:1}
   .body.n-l .left{display:flex}
   .only-narrow-l{display:inline-flex!important}
@@ -300,21 +305,57 @@ textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;paddin
   .msgs{padding:12px 10px}
   .msg.user .bubble{margin-left:20px}
   .composer,.queue{padding-left:10px;padding-right:10px}
-  .field{grid-template-columns:1fr}
-  .field .note{grid-column:1}
-  .diff{grid-template-columns:1fr}
   .targets li{grid-template-columns:1fr}
   .mini{right:8px;left:8px;width:auto;bottom:70px}
   .mockctl{left:8px;top:32px}
   .mockctl .panel{max-height:70vh;overflow:auto}
 }
 
-.msgs-wrap{position:relative;flex:1;min-height:0;display:flex;flex-direction:column}
-.msgs-wrap .msgs{min-height:0}
-.jump{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);background:var(--ink);color:#fff;border-radius:999px;padding:0 14px;height:28px;box-shadow:0 4px 14px rgba(20,32,38,.25);z-index:5}
+/* ==== side ==== */
+/* 左一覧・右ドック・コンパクト監視窓（UI-2 が書き換える節） */
+.left-top{padding:10px;display:flex;flex-direction:column;gap:8px;border-bottom:1px solid var(--line)}
+.left-top .btn-line{justify-content:flex-start}
+.left-scroll{overflow:auto;flex:1;padding:6px 6px 12px}
+.list-h{font-size:var(--fs-s);color:var(--ink3);margin:10px 6px 4px;display:flex;justify-content:space-between}
+.row-chat{width:100%;height:auto;min-height:44px;display:grid;grid-template-columns:1fr auto;align-items:center;text-align:left;padding:6px 8px;border-radius:var(--r2);gap:2px 6px}
+.row-chat.fixed{height:52px;min-height:52px;overflow:hidden;box-sizing:border-box}
+.row-chat:hover{background:var(--hover)}
+.row-chat.sel{background:var(--sel-bg);border-color:var(--line);box-shadow:inset 3px 0 0 var(--accent)}
+.row-chat .nm{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row-chat .sub{grid-column:1/-1;font-size:var(--fs-s);color:var(--ink2);display:flex;gap:6px;align-items:center;overflow:hidden;white-space:nowrap}
+.left-foot{border-top:1px solid var(--line);padding:6px 10px;font-size:var(--fs-s);color:var(--ink2);display:flex;justify-content:space-between}
 
-.msgs .bubble,.msgs .activity,.msgs .req,.msgs li{overflow-wrap:anywhere}
-.msgs pre,.msgs code{overflow-x:auto;max-width:100%;overflow-wrap:normal}
+.dock-top{padding:8px 10px;border-bottom:1px solid var(--line2);display:flex;flex-direction:column;gap:6px}
+.dock-top .seg{align-self:flex-start}
+.dock-scroll{flex:1;overflow:auto;padding:8px 10px 14px}
+.root-h{display:flex;align-items:center;gap:6px;margin:10px 0 4px;font-size:var(--fs-s);font-weight:700}
+.root-h button{height:22px;font-size:var(--fs-s);font-weight:400}
+.tree{list-style:none;margin:0;padding:0}
+.tree .tree{margin-left:13px;padding-left:12px;border-left:1.5px solid var(--tree-line)}
+.tree li{position:relative}
+.tree .tree > li:before{content:"";position:absolute;left:-12px;top:19px;width:11px;border-top:1.5px solid var(--tree-line)}
+.tree .tree > li:last-child:after{content:"";position:absolute;left:-13.5px;top:20px;bottom:0;border-left:3px solid var(--surface)}
+.berth{border:1px solid var(--card-line);border-left:3px solid var(--done);border-radius:var(--r1);padding:5px 8px;margin:4px 0;background:var(--surface)}
+.berth.run{border-left-color:var(--run)} .berth.wait{border-left-color:var(--wait-solid);background:var(--wait-bg)}
+.berth.fail{border-left-color:var(--fail);background:var(--fail-bg)} .berth.int{border-left-color:var(--int)}
+.berth.unk{border-left-color:var(--unk);border-left-style:dashed}
+.berth.stale{border-style:dashed}
+.berth{min-width:0;overflow-wrap:anywhere}
+.berth .l1{display:flex;align-items:center;gap:2px 6px;flex-wrap:wrap;min-width:0}
+.grp-h{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.grp-h button{white-space:normal;height:auto;min-height:26px;text-align:left}
+.grp-h button.attn{border-color:var(--fail);color:var(--fail-ink);font-weight:700}
+.dock-scroll{overflow-x:hidden}
+.berth .nm{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.berth .rel{font-size:var(--fs-xs);color:var(--ink3)}
+.berth .path{max-width:100%;font-size:var(--fs-xs);color:var(--ink2);background:var(--surface2);border-radius:3px;padding:0 5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.berth .l2{font-size:var(--fs-s);color:var(--ink2);margin-top:1px;min-width:0}
+.berth .l3{font-size:var(--fs-s);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.berth .l4{font-size:var(--fs-xs);color:var(--ink3);display:flex;gap:8px;margin-top:1px}
+.berth .acts{display:flex;gap:4px;margin-top:4px}
+.berth .acts button{height:24px;font-size:var(--fs-s)}
+.empty-note{font-size:var(--fs-s);color:var(--ink3);padding:14px 4px;text-align:center}
+.dock-foot{border-top:1px solid var(--line2);padding:6px 10px;font-size:var(--fs-xs);color:var(--ink3)}
 
 /* コンパクト監視窓（別窓）。右パネルと同じ DockPane を、窓いっぱいに表示する */
 .monitor-win{position:fixed;inset:0;display:flex;flex-direction:column;background:var(--surface);overflow:hidden}
@@ -322,37 +363,77 @@ textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;paddin
 .monitor-head .grow{flex:1}
 .monitor-win .dock-scroll{padding:4px 8px 10px}
 .monitor-win .berth{padding:3px 6px}
+
+/* ==== dialogs ==== */
+/* ダイアログ・コマンドパレット・差分・side相談パネル・トースト（UI-3 が書き換える節） */
+.scrim{position:fixed;inset:0;background:var(--scrim);z-index:40;display:flex;align-items:center;justify-content:center;padding:16px}
+.dialog{background:var(--surface);border:1px solid var(--line);border-radius:var(--r3);width:min(620px,100%);max-width:100%;min-width:0;max-height:calc(100vh - 32px);display:flex;flex-direction:column;box-shadow:var(--sh-3);overflow-wrap:anywhere}
+.dialog>*{min-width:0}
+.dialog .content{overflow-x:hidden}
+.dialog .content select,.dialog .content input:not([type=checkbox]):not([type=radio]),.dialog .content textarea{max-width:100%;min-width:0}
+.dialog .content .gbanner,.dialog .content .acts{flex-wrap:wrap}
+.dialog .content .gbanner .grow{flex-basis:12em}
+.dialog .content ul,.dialog .content li{min-width:0}
+.dialog .content pre{max-width:100%;white-space:pre-wrap;overflow-wrap:anywhere}
+.dialog.wide{width:min(860px,100%)}
+.dialog header{display:flex;align-items:center;padding:10px 14px;border-bottom:1px solid var(--line2)}
+.dialog header h3{margin:0;font-size:15px;flex:1}
+.dialog .content{padding:12px 14px;overflow:auto}
+.dialog footer{display:flex;justify-content:flex-end;gap:6px;padding:10px 14px;border-top:1px solid var(--line2);background:var(--surface2)}
+.dialog p{margin:0 0 8px}
+/* ダイアログ・サイドパネルの textarea は、入力欄として枠・背景を持つ（既定は入力欄用の枠なし） */
+.dialog textarea,.sidepanel textarea{border:1px solid var(--line-strong);background:var(--surface);padding:4px 8px;resize:vertical}
+.field{display:grid;grid-template-columns:minmax(0,150px) minmax(0,1fr);gap:6px 12px;align-items:center;margin-bottom:10px}
+.field .note{grid-column:2;font-size:var(--fs-s);color:var(--ink3)}
+.diff{display:grid;grid-template-columns:200px 1fr;gap:10px}
+.diff pre{margin:0;font:var(--fs-s)/1.55 var(--mono);background:var(--surface2);border:1px solid var(--line2);border-radius:var(--r1);padding:6px 0;overflow:auto}
+.diff pre span{display:block;padding:0 10px}
+.diff .add{background:var(--done-bg)}.diff .del{background:var(--fail-bg)}
+.check-list{margin:6px 0;padding-left:18px}
+.toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:var(--ink);color:var(--bg);border-radius:var(--r2);padding:8px 14px;z-index:60;font-size:var(--fs-s);max-width:calc(100% - 32px)}
+.palette{width:min(560px,100%);align-self:flex-start;margin-top:12vh}
+.palette header{padding:8px 10px}
+.palette-q{width:100%;height:30px}
+.palette-list{list-style:none;margin:0;padding:4px;overflow:auto;max-height:50vh}
+.palette-list li{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:5px 8px;border-radius:var(--r1);cursor:pointer}
+.palette-list li.cur{background:var(--accent-weak)}
+.palette-list li.off{color:var(--ink3);cursor:default}
+.palette-list .kbd{color:var(--ink3);font-size:var(--fs-xs)}
+.palette-list .why{flex-basis:100%;font-size:var(--fs-xs);color:var(--ink3);text-align:left;white-space:normal}
+.palette-none{padding:8px}
 .quit-list{margin:6px 0;padding-left:18px}
 .quit-list li{margin:2px 0}
-.quit-list .sub{display:block;font-size:12px;color:var(--ink3)}
-.parity-table{width:100%;border-collapse:collapse;font-size:12.5px}
-.parity-table th,.parity-table td{text-align:left;padding:3px 6px;border-bottom:1px solid var(--line);vertical-align:top}
-
-.diffview{font:12px/1.5 var(--mono);background:var(--paper);border:1px solid var(--line);border-radius:var(--r-s);padding:6px 0;max-height:320px;overflow:auto;white-space:pre}
+.quit-list .sub{display:block;font-size:var(--fs-s);color:var(--ink3)}
+.diffview{font:var(--fs-s)/1.5 var(--mono);background:var(--bg);border:1px solid var(--line);border-radius:var(--r1);padding:6px 0;max-height:320px;overflow:auto;white-space:pre}
 .diffview .ln{padding:0 10px;min-width:max-content}
-.diffview .add{background:#E7F4EA;color:#1B5E2B}
-.diffview .del{background:var(--fail-bg);color:#7A1A14}
+.diffview .add{background:var(--done-bg);color:var(--done)}
+.diffview .del{background:var(--fail-bg);color:var(--fail-ink)}
 .diffview .hunk{color:var(--ink3);background:var(--rail)}
-.diffview .meta{color:var(--ink2);font-weight:700;background:var(--harbor-weak)}
+.diffview .meta{color:var(--ink2);font-weight:700;background:var(--accent-weak)}
 .change-table tbody tr{cursor:pointer}
-.change-table tbody tr.sel{background:var(--harbor-weak)}
+.change-table tbody tr.sel{background:var(--accent-weak)}
 .change-table .linkish{height:auto;padding:0;border:0;background:transparent;text-align:left;white-space:normal;word-break:break-all;color:inherit}
 
 /* side相談のパネル（P3-4）。主会話を見ながら使う、右側の浮かぶパネル。狭い画面では幅を縮める。 */
-.sidepanel{position:fixed;right:12px;top:92px;bottom:12px;width:min(380px,92vw);z-index:22;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);box-shadow:0 12px 36px rgba(20,32,38,.25);display:flex;flex-direction:column;min-height:0}
+.sidepanel{position:fixed;right:12px;top:92px;bottom:12px;width:min(380px,92vw);z-index:22;background:var(--surface);border:1px solid var(--line);border-radius:var(--r3);box-shadow:var(--sh-3);display:flex;flex-direction:column;min-height:0}
 .sidepanel header{display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid var(--line2)}
 .sidepanel .sp-note{padding:6px 10px}
 .sidepanel .sp-state{padding:0 10px 4px}
 .sidepanel .sp-body{flex:1;min-height:0;overflow:auto;padding:6px 10px}
-.sidepanel .sp-msg{margin:0 0 8px;padding:6px 8px;border:1px solid var(--line2);border-radius:var(--r-s);background:var(--paper)}
+.sidepanel .sp-msg{margin:0 0 8px;padding:6px 8px;border:1px solid var(--line2);border-radius:var(--r1);background:var(--bg)}
 .sidepanel .sp-msg.u{background:var(--surface)}
-.sidepanel .sp-text{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px}
+.sidepanel .sp-text{white-space:pre-wrap;overflow-wrap:anywhere;font-size:var(--fs)}
 .sidepanel .sp-act{padding:4px 10px}
 .sidepanel .sp-in{padding:6px 10px;border-top:1px solid var(--line2)}
 .sidepanel .sp-in textarea{width:100%;resize:vertical}
 .sidepanel .sp-btn{display:flex;align-items:center;gap:6px;margin-top:4px}
 .sidepanel .req{margin:0 0 8px}
 
+@media (max-width:959px){
+  .field{grid-template-columns:1fr}
+  .field .note{grid-column:1}
+  .diff{grid-template-columns:1fr}
+}
 /* side相談・差分・レビュー結果は、1280px未満では全面オーバーレイ（閉じると会話へ戻る）。
    基本規則（.sidepanel／.dialog）より後ろに置き、詳細度も上げて必ず勝たせる。 */
 @media (max-width:1279px){
@@ -360,3 +441,12 @@ textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;paddin
   .dialog.wide.full-narrow{width:100%;max-width:none;height:100%;max-height:none;border-radius:0;border:0}
   .scrim:has(> .dialog.full-narrow){padding:0;align-items:stretch;justify-content:stretch}
 }
+
+/* ==== settings ==== */
+/* 設定画面（左に縦の分類、容量タブ）。UI-4 が書き換える節 */
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line2);padding:0 10px;overflow-x:auto;flex:none}
+.tabs button{border-radius:0;height:32px;border-bottom:2px solid transparent}
+.tabs button[aria-selected=true]{border-bottom-color:var(--accent);font-weight:700}
+
+/* ==== resize ==== */
+/* 左一覧・ドックの幅のドラッグ変更（UI-7 が書き換える節） */

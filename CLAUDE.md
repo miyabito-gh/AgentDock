@@ -133,6 +133,23 @@ AgentDockプロジェクトのClaude Code向け作業指示。毎ターン読み
 - #14 worktree: 置き場所は `%LOCALAPPDATA%\com.agentdock.app\worktrees\`、ブランチ接頭辞 `agentdock/`。**worktreeを指定しないチャットは従来どおり通常の作業場所で動く（チャット作成のたびにフォルダを作らない）**。
 - #12 Plugins管理はCLI補助、一覧はApp Server読取り、前後照合あり、自動rollbackなし（設計裁量）。
 
+### 段階④-UIのタスク（2026-10-10。設計は `app/DESIGN_UI.md` v0.2。見た目だけ・会話領域の最大化）
+
+決定: 案Aベース（Opus裁量）、疑似タイトルバー除去、ヘッダー1行＋「…」メニュー、毎回出る情報帯の削除・移動（§7の一覧にあるものだけ）、左右ペインのドラッグ幅変更（UI-7、`AppSettings.layout`）。
+
+|#|内容|担当|依存|
+|---|---|---|---|
+|UI-0|トークン・共通部品・Popover|implementer|—|
+|UI-1|主画面（ヘッダー・入力欄・帯）|implementer|UI-0|
+|UI-2|左一覧・ドック|implementer|UI-0|
+|UI-3|ダイアログ群|implementer|UI-0|
+|UI-7|ペイン幅変更|implementer|UI-1|
+|UI-4|設定・容量|implementer|UI-0・3|
+|UI-5|狭い画面・ダーク仕上げ|implementer|UI-1〜4・7|
+|UI-6|実機確認手順書＋NSIS|司令塔|UI-5|
+
+順序: UI-0 → UI-1∥2∥3 → UI-7∥4 → UI-5 → UI-6。
+
 **現状（2026-10-10）: 段階③＋Git基準の戻す完了、GUIデザイン案の選択待ち。引き継ぎは `app/HANDOFF.md` 冒頭を最初に読む。** 以下は2026-10-07時点の記述。
 
 **旧現状（2026-10-07）: 段階③まで実装完了（修正バッチ・P3-0〜P3-10・R3、NSIS作成済み）。実機確認は `app/LIVE_CHECK_P3.md` と段階②の残り。段階②: 実装完了、実機確認は途中。残りの実機確認は後でまとめて行い、実装を先に進める。引き継ぎは `app/HANDOFF.md` を最初に読む。** 次は段階②持ち越しの修正バッチ → 段階③（18操作）の分解・実装。
