@@ -1,5 +1,6 @@
 // 削除確認・Markdownエクスポート・「保存と容量」の本体（P7）。外枠（Shell）と下部ボタンは Dialogs.tsx 側。
 // 規則: 取得できていない値は「未確認」と書き、0で代用しない。保存・削除の成功は、ホストの結果を確認できたときだけ言う。
+import { useState } from "react";
 import type { Chat, ChatLocalView, DeleteOutcome, DeletePendingReason, DeletePreview, DeleteStep, UsageBreakdown, UsageReport } from "../ipc/types";
 import { chatName } from "./derive";
 import { showKnown } from "./format";
@@ -123,7 +124,19 @@ const LINES: Array<[keyof UsageBreakdown, string]> = [
 const breakdownText = (b: UsageBreakdown): string => LINES.map(([k, t]) => `${t} ${fmtBytes(b[k])}`).join("／");
 
 /** 設定の「保存と容量」。全体とチャット別の使用量・内訳・空き容量・旧領域。 */
-export function StorageBody({ u, chats, selected, acked }: { u: UsageProps; chats: Chat[]; selected: string | null; acked: { list: string[]; reset: () => void } }) {
+/** 変更の控え（Git基準）の設定と、選択中チャットの控えの削除。 */
+export interface BaselineProps {
+  enabled: boolean;
+  setEnabled: (on: boolean) => void;
+  /** 選択中チャットの控えを削除する（確認の後だけ呼ぶ）。 */
+  deleteForSelected: () => Promise<void>;
+  /** 削除できない理由（チャット未選択・作業中・モックなど）。null なら削除できる。 */
+  deleteBlocked: string | null;
+}
+
+export function StorageBody({ u, chats, selected, acked, bl }: { u: UsageProps; chats: Chat[]; selected: string | null; acked: { list: string[]; reset: () => void }; bl: BaselineProps }) {
+  const [confirmDel, setConfirmDel] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const r = u.report;
   const nameOf = (id: string) => { const c = chats.find((x) => x.key.id === id); return c ? chatName(c) : "（名前を確認できないチャット）"; };
   const mine = r?.chats.find((c) => c.chat.id === selected);
@@ -138,6 +151,21 @@ export function StorageBody({ u, chats, selected, acked }: { u: UsageProps; chat
       </div>
       <div className="field"><span>このチャット</span>
         {!r ? <span className="muted">未集計</span> : mine ? <span><b>{fmtBytes(breakdownTotal(mine.breakdown))}</b>（{breakdownText(mine.breakdown)}）</span> : <span className="muted">専用領域はまだありません（保存したものがありません）</span>}
+      </div>
+      <div className="field"><span>変更の控え</span>
+        <label><input type="checkbox" checked={bl.enabled} onChange={(e) => bl.setEnabled(e.target.checked)} />turnの開始時に変更の控えを取る（Gitリポジトリのみ）</label>
+        <span className="note">オフにすると以後のturnは控えを取らず、「変更を戻す」の対象になりません。すでに取った控えは消えません（自動では削除しません）。</span></div>
+      <div className="field"><span>このチャットの控え</span>
+        {!mine ? <span className="muted">{r ? "控えはありません" : "未集計"}</span> : (
+          <span>変更の控え {fmtBytes(mine.breakdown.baselines)}／戻す前の控え {fmtBytes(mine.breakdown.revertBackups)}</span>)}
+        {confirmDel ? (
+          <div className="gbanner warn" role="alertdialog" aria-label="控えを削除する確認" style={{ gridColumn: 2 }}>
+            <span className="grow">このチャットのturnは、以後「変更を戻す」の対象になりません（{mine ? fmtBytes(mine.breakdown.baselines) : "容量未確認"}を削除します）。削除した控えは元に戻せません。「戻す前の控え」とチャット本体は削除しません。</span>
+            <button className="btn-danger" disabled={deleting} onClick={() => { setDeleting(true); bl.deleteForSelected().finally(() => { setDeleting(false); setConfirmDel(false); }); }}>{deleting ? "削除しています…" : "控えを削除"}</button>
+            <button className="btn-line" disabled={deleting} onClick={() => setConfirmDel(false)}>やめる</button>
+          </div>
+        ) : (
+          <span className="note"><button className="btn-line" disabled={!!bl.deleteBlocked || !mine} title={bl.deleteBlocked ?? undefined} onClick={() => setConfirmDel(true)}>控えを削除…</button>　{bl.deleteBlocked ?? "明示的に削除したときだけ消えます。"}</span>)}
       </div>
       {r && sorted.length ? (
         <div className="field"><span>チャット別</span>

@@ -22,7 +22,7 @@ import { CommandPalette } from "./ui/CommandPalette";
 import { Dialogs, type DialogState, type NewChatInput } from "./ui/Dialogs";
 import { ackText } from "./ui/PrefsDialogs";
 import { SidePanel } from "./ui/SidePanel";
-import { chatName, isRunning, stopOpen } from "./ui/derive";
+import { chatName, isRunning, isWorkingForDock, stopOpen } from "./ui/derive";
 import { hms, keyStr } from "./ui/format";
 
 type Mode = "live" | "mock";
@@ -839,6 +839,17 @@ export default function App() {
     host.setPinned(chat.key, on).then(() => say(on ? "ピン留めしました。" : "ピン留めを外しました。")).catch((e) => sayErr("ピン留めを変更できませんでした", e));
   };
 
+  /** 変更の控えの記録のオン／オフ（設定へ保存。すでに取った控えは消えない）。 */
+  const setBaselinesEnabled = (on: boolean) => {
+    if (!live) { updateSnap((s) => ({ ...s, settings: { ...s.settings, baselines: { ...s.settings.baselines, enabled: on } } })); return; }
+    host.setAppSettings({ ...snap.settings, baselines: { ...snap.settings.baselines, enabled: on } }).catch((e) => sayErr("控えの記録の設定を変更できませんでした", e));
+  };
+  /** 選択中チャットの控えを削除する（確認ダイアログの後だけ呼ばれる。ホストが作業中なら拒否する）。 */
+  const deleteChatBaselines = async () => {
+    if (!live || !chat) return;
+    try { await host.deleteBaselines(chat.key); say("このチャットの控えを削除しました。"); loadUsage(); } catch (e) { sayErr("控えを削除できませんでした", e); }
+  };
+
   /** 起動時の保存データ警告を閉じる。確認済みとして設定へ保存し、以後は（状況が変わるまで）出さない。保存できなければ次回また出る。 */
   const dismissWarnings = () => {
     setWarnHidden(true);
@@ -1067,6 +1078,12 @@ export default function App() {
             del: { ...del, local: snap.chatLocals.find((l) => l.chat.id === (dialog.type === "delete" ? dialog.chatId : "")), run: () => void runDelete() },
             exp: { ...exp, setInclude: (b) => setExp((s) => ({ ...s, include: b })), run: () => void runExport() },
             usage: { ...usage, reload: loadUsage },
+            baselines: {
+              enabled: snap.settings.baselines.enabled,
+              setEnabled: setBaselinesEnabled,
+              deleteForSelected: deleteChatBaselines,
+              deleteBlocked: !live ? "モックでは動きません。" : !chat ? "チャットを選ぶと削除できます。" : isWorkingForDock(snap, chat) ? "作業中のチャットの控えは削除できません。" : null,
+            },
           }}
           exe={{ path: exePath, setPath: setExePath, placeholder: DEFAULT_EXE, connect: retryLaunch, browse: browseExe, openDiag: () => { host.openDiagDir().then((p) => say(`診断ログの場所: ${p}`)).catch((e) => sayErr("診断ログの場所を開けませんでした", e)); }, live: live && snap.sources.every((s) => s.connection.kind !== "connected") }}
           onCreateChat={(i) => void createChat(i)} onRename={renameChat}

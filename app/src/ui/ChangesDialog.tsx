@@ -3,12 +3,16 @@
 //       戻す操作は確認の後だけ。戻せない理由はそのまま出し、部分的にしか戻せなかったときは完了と書かない。
 import { useEffect, useState } from "react";
 import * as host from "../ipc/client";
-import type { Chat, ChangeKind, ChangeList, ChangedFile, ChangeSource, ListStatus, OpCapability, RevertPlan, RevertResult, UnifiedDiff } from "../ipc/types";
+import type { Chat, ChangeKind, ChangeList, ChangedFile, ChangeSource, ListStatus, OpCapability, RevertPlan, RevertResult, SegmentStatus, UnifiedDiff } from "../ipc/types";
 import { chatName } from "./derive";
 import { showKnown } from "./format";
+import { forcedPaths, groupOf, initialChosen, noBaselineReason, pickedPaths, reasonLines, resultKind, sortedItems, turnOptions } from "./revertView";
 
 const KIND_TEXT: Record<ChangeKind, string> = { added: "追加", deleted: "削除", modified: "変更" };
 const SOURCE_TEXT: Record<ChangeSource, string> = { baseline: "turnの変更（控え基準）", git: "Git上の現在の差分（HEAD比較）" };
+
+const NOTE_BASELINE = "turnの開始時と終了時にAgentDockがGitで控えた内容の差です。Codexがコマンドで編集した変更も含みます（Codexの報告には依存しません）。Gitリポジトリのみで、.gitignore 対象・サブモジュール・作業フォルダ外は含みません。turnの最中に別のツールで変えた内容も含まれます。コミット・ブランチ切替の後は控えへ戻せません。控えは自動削除されません。";
+const NOTE_GIT = "Gitの作業ツリーとHEADの現在の差分です（turnの区切りはありません）。Gitリポジトリのみ。";
 
 const fileKey = (f: ChangedFile) => `${f.path}|${f.moveTo ?? ""}`;
 const errText = (e: unknown) => host.asIpcError(e).message;
@@ -52,7 +56,7 @@ export interface ChangesProps {
 export function ChangesBody({ chat, live, tick, cap, onRevert }: ChangesProps) {
   const [tab, setTab] = useState<ChangeSource>("baseline");
   const [turn, setTurn] = useState("");
-  const [turns, setTurns] = useState<string[]>([]);
+  const [segs, setSegs] = useState<SegmentStatus[] | null>(null);
   const [list, setList] = useState<ChangeList | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [sel, setSel] = useState<string | null>(null);
@@ -69,11 +73,17 @@ export function ChangesBody({ chat, live, tick, cap, onRevert }: ChangesProps) {
     host.getChangeList(chatKey, scope, tab).then((l) => {
       if (!alive) return;
       setList(l);
-      if (tab === "baseline" && !turn) setTurns([...new Set(l.files.map((f) => f.turn).filter((t): t is string => !!t))]);
       setSel((s) => (s && l.files.some((f) => fileKey(f) === s) ? s : null));
     }).catch((e) => { if (alive) { setList(null); setErr(errText(e)); } });
     return () => { alive = false; };
   }, [live, chatId, tab, turn, tick]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!live || !chatKey) return;
+    let alive = true;
+    host.getBaselineStatus(chatKey).then((s) => { if (alive) setSegs(s); }).catch(() => { if (alive) setSegs(null); });
+    return () => { alive = false; };
+  }, [live, chatId, tick]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const file = list?.files.find((f) => fileKey(f) === sel) ?? null;
   useEffect(() => {
@@ -88,6 +98,8 @@ export function ChangesBody({ chat, live, tick, cap, onRevert }: ChangesProps) {
   if (!chat) return <div className="content"><p>チャットを選んでください。</p></div>;
   if (!live) return <div className="content"><p>モックでは動きません（実接続で使えます）。</p></div>;
   const st = list ? statusText(list.status) : null;
+  const turns = segs ? turnOptions(segs) : [];
+  const noBase = noBaselineReason(segs);
   return (
     <>
       <div className="tabs" role="tablist">
@@ -96,17 +108,19 @@ export function ChangesBody({ chat, live, tick, cap, onRevert }: ChangesProps) {
       <div className="content">
         <p className="small muted">{chatName(chat)}</p>
         <UnverifiedNote cap={cap} />
+        <p className="small muted">{tab === "baseline" ? NOTE_BASELINE : NOTE_GIT}</p>
+        {tab === "baseline" && noBase ? <p className="gbanner warn" role="status">{noBase}</p> : null}
         {tab === "baseline" && turns.length > 0 ? (
           <div className="field"><span>対象</span>
             <select value={turn} onChange={(e) => setTurn(e.target.value)} aria-label="対象のturn">
-              <option value="">このチャットで観測した変更すべて</option>
-              {turns.map((t) => <option key={t} value={t}>turn {t}</option>)}
+              <option value="">このチャットの控えのある変更すべて</option>
+              {turns.map((t) => <option key={t.turn} value={t.turn}>{t.label}</option>)}
             </select></div>) : null}
         {err ? <p style={{ color: "var(--fail)" }}>{err}</p> : !list ? <p>取得しています…</p> : (
           <>
             {st ? <p className="gbanner warn" role="status">{st}</p> : null}
             {list.notes.map((n, i) => <p key={i} className="small muted">{n}</p>)}
-            {list.status.kind === "ready" && list.files.length === 0 ? <p>{tab === "git" ? "Git上の変更はありません（取得済み）。" : "観測した変更はありません。"}</p> : null}
+            {list.status.kind === "ready" && list.files.length === 0 ? <p>{tab === "git" ? "Git上の変更はありません（取得済み）。" : noBase ? "控えがないため、表示できる変更はありません。" : "控え基準の変更はありません。"}</p> : null}
             {list.files.length > 0 ? (
               <table className="parity-table change-table">
                 <thead><tr><th>種類</th><th>ファイル</th><th>追加</th><th>削除</th><th>{tab === "git" ? "" : "turn"}</th></tr></thead>
@@ -130,7 +144,7 @@ export function ChangesBody({ chat, live, tick, cap, onRevert }: ChangesProps) {
                     : diff.text.trim() === "" ? <p>差分の本文はありません（空）。</p> : <DiffText text={diff.text} />}
               </div>) : list.files.length > 0 ? <p className="small muted">ファイルを選ぶと差分を表示します。</p> : null}
           </>)}
-        {tab === "baseline" ? <div className="acts" style={{ marginTop: 10 }}><button className="btn-line" onClick={onRevert}>変更を戻す…</button></div> : null}
+        {tab === "baseline" ? <div className="acts" style={{ marginTop: 10 }}><button className="btn-line" disabled={!!noBase} onClick={onRevert}>変更を戻す…</button>{noBase ? <span className="small muted">控えがないため戻せません。</span> : null}</div> : null}
       </div>
     </>
   );
@@ -146,19 +160,16 @@ export interface RevertProps {
   onDone: (r: RevertResult) => void;
 }
 
-const BLOCK_LABEL: Record<string, string> = {
-  gitBusy: "Gitの操作の途中", notARepository: "Gitリポジトリではない", gitUnavailable: "Gitを実行できない", noBaseline: "控えがない", outsideWorkFolder: "作業フォルダの外",
-  notSnapshotted: "控えの対象外", headMoved: "HEADが変わった", alreadyReverted: "戻し済み", endUnknown: "終了時の控えがない", changedBetween: "turnの間に別の変更",
-  changedAfter: "turnの後に別の変更", concurrentChange: "同時作業の可能性", pathOutside: "作業フォルダの外", readFailed: "読み取れない",
-};
+const GROUP_TAG = { revertible: "戻せる", needsOverride: "要確認", blocked: "止める" } as const;
 
 export function RevertBody({ chat, live, cap, onDone }: RevertProps) {
-  const [turns, setTurns] = useState<string[]>([]);
+  const [segs, setSegs] = useState<SegmentStatus[] | null>(null);
   const [from, setFrom] = useState("");
   const [plan, setPlan] = useState<RevertPlan | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [chosen, setChosen] = useState<Record<string, boolean>>({});
-  const [confirming, setConfirming] = useState(false);
+  /** 0: 確認なし、1: 1段目（書き換える件数）、2: 2段目（強制するファイルの確認）。 */
+  const [stage, setStage] = useState<0 | 1 | 2>(0);
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<RevertResult | null>(null);
   const [nonce, setNonce] = useState(0);
@@ -168,78 +179,107 @@ export function RevertBody({ chat, live, cap, onDone }: RevertProps) {
   useEffect(() => {
     if (!live || !chatKey) return;
     let alive = true;
-    host.getChangeList(chatKey, { kind: "chat" }, "baseline").then((l) => { if (alive) setTurns([...new Set(l.files.map((f) => f.turn).filter((t): t is string => !!t))]); }).catch(() => {});
+    host.getBaselineStatus(chatKey).then((s) => { if (alive) setSegs(s); }).catch(() => { if (alive) setSegs(null); });
     return () => { alive = false; };
   }, [live, chatId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!live || !chatKey) return;
     let alive = true;
-    setPlan(null); setErr(null); setConfirming(false); setResult(null);
+    setPlan(null); setErr(null); setStage(0); setResult(null);
     host.previewRevert(chatKey, from || null, null).then((p) => {
       if (!alive) return;
       setPlan(p);
-      setChosen(Object.fromEntries(p.items.filter((i) => i.verdict.kind === "revertible").map((i) => [i.path, true])));
+      setChosen(initialChosen(p.items)); // 要確認は初期オフ
     }).catch((e) => { if (alive) setErr(errText(e)); });
     return () => { alive = false; };
   }, [live, chatId, from, nonce]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!chat) return <div className="content"><p>チャットを選んでください。</p></div>;
   if (!live) return <div className="content"><p>モックでは動きません（実接続で使えます）。</p></div>;
-  const picked = plan ? plan.items.filter((i) => i.verdict.kind === "revertible" && chosen[i.path]).map((i) => i.path) : [];
+  const items = plan ? sortedItems(plan.items) : [];
+  const picked = plan ? pickedPaths(plan.items, chosen) : [];
+  const forced = plan ? forcedPaths(plan.items, chosen) : [];
+  const total = picked.length + forced.length;
+  const forcedItems = items.filter((i) => forced.includes(i.path));
+  const turns = segs ? turnOptions(segs) : [];
+  const noBase = noBaselineReason(segs);
+  const busy = running || stage !== 0;
   const run = async () => {
     if (!chatKey || !plan) return;
     setRunning(true); setErr(null);
     try {
-      const r = await host.revertChanges(chatKey, plan.id, picked);
-      setResult(r); setConfirming(false); onDone(r);
-    } catch (e) { setErr(errText(e)); setConfirming(false); } finally { setRunning(false); }
+      const r = await host.revertChanges(chatKey, plan.id, [...picked, ...forced], forced);
+      setResult(r); setStage(0); onDone(r);
+    } catch (e) { setErr(errText(e)); setStage(0); } finally { setRunning(false); }
   };
+  const kind = result ? resultKind(result) : null;
   return (
     <div className="content">
-      <p><b>{chatName(chat)}</b> の、AgentDockが観測した変更を戻します。</p>
+      <p><b>{chatName(chat)}</b> の変更を、turnの開始時の控えへ戻します。</p>
       <UnverifiedNote cap={cap} />
-      <p className="small muted">戻せるのは、Codexが報告して AgentDock が観測した変更で、現在の内容が観測直後と一致するファイルだけです。コマンドの実行による変更、別の会話やエディタで後から変えられたファイルは戻せません（理由を表示して止めます）。戻す前の内容は、このチャット用の領域に控えとして保存します（自動では削除しません）。</p>
+      <p className="small muted">turnの開始時にAgentDockがGitで控えた内容へ、ファイルを書き戻します。現在の内容がこのチャットのturnによる変更だけのファイルはそのまま戻せます。turnの後や間に別の変更がある・終了時の控えがない・別の会話と同時に作業していたファイルは、理由を表示して止めます。内容を確認したうえで、ファイルごとに「別の変更も含めて戻す」を選べます。コミットなどでHEADが変わった後のファイルは戻せません。戻す前の内容は、このチャット用の領域に控えとして保存します（自動では削除しません）。</p>
+      {noBase ? <p className="gbanner warn" role="status">{noBase}</p> : null}
       {turns.length > 0 && !result ? (
         <div className="field"><span>戻す範囲</span>
-          <select value={from} onChange={(e) => setFrom(e.target.value)} aria-label="戻す範囲">
-            <option value="">このチャットで観測した変更すべて</option>
-            {turns.map((t) => <option key={t} value={t}>turn {t} の変更（同じファイルの、より後の変更も一緒に戻ります）</option>)}
+          <select value={from} onChange={(e) => setFrom(e.target.value)} disabled={busy} aria-label="戻す範囲">
+            <option value="">このチャットの控えのある変更すべて</option>
+            {turns.map((t) => <option key={t.turn} value={t.turn}>{t.label} 以降の変更（同じファイルの、より後の変更も一緒に戻ります）</option>)}
           </select></div>) : null}
       {err ? <p className="gbanner err" role="alert">{err}</p> : null}
       {!plan && !err ? <p>戻せるか確認しています…（ファイルは変更しません）</p> : null}
       {plan && !result ? (
-        plan.items.length === 0 ? <p>戻す対象の変更はありません（観測した変更がない、または戻し済みです）。</p> : (
+        plan.items.length === 0 ? <p>戻す対象の変更はありません（控えのある変更がない、または戻し済みです）。</p> : (
           <>
             <ul className="check-list" style={{ listStyle: "none", paddingLeft: 0 }}>
-              {plan.items.map((i) => (
-                <li key={i.path} style={{ marginBottom: 6 }}>
-                  {i.verdict.kind === "revertible" ? (
-                    <label><input type="checkbox" checked={!!chosen[i.path]} disabled={running || confirming} onChange={(e) => setChosen((c) => ({ ...c, [i.path]: e.target.checked }))} /> <span className="mono">{i.path}</span>
-                      <span className="small muted"> — {i.verdict.summary}</span></label>
-                  ) : (
-                    <div><span className="mono">{i.path}</span> <span className="tag unv">戻せません: {i.verdict.kind === "blocked" ? (BLOCK_LABEL[i.verdict.code] ?? i.verdict.code) : "要確認"}</span>
-                      <div className="small muted">{i.verdict.kind === "blocked" ? i.verdict.message : i.verdict.reasons.map((r) => r.message).join(" / ")}</div></div>
-                  )}
-                  {i.includesTurns.length > 0 ? <div className="small muted">一緒に戻る後続の変更: turn {i.includesTurns.join(", ")}</div> : null}
-                </li>))}
+              {items.map((i) => {
+                const g = groupOf(i.verdict);
+                const reasons = reasonLines(i.verdict);
+                return (
+                  <li key={i.path} style={{ marginBottom: 8 }}>
+                    <div><span className={`tag${g === "revertible" ? "" : " unv"}`}>{GROUP_TAG[g]}</span> <span className="mono">{i.path}</span></div>
+                    {i.verdict.kind === "revertible" ? (
+                      <label className="small"><input type="checkbox" checked={!!chosen[i.path]} disabled={busy} onChange={(e) => setChosen((c) => ({ ...c, [i.path]: e.target.checked }))} /> 戻す
+                        <span className="muted"> — {i.verdict.summary}</span></label>
+                    ) : null}
+                    {g === "needsOverride" ? (
+                      <label className="small"><input type="checkbox" checked={!!chosen[i.path]} disabled={busy} onChange={(e) => setChosen((c) => ({ ...c, [i.path]: e.target.checked }))} /> 別の変更も含めて控えの内容に戻す（確認が必要）</label>
+                    ) : null}
+                    {reasons.map((r, k) => <div key={k} className="small muted">・{r.label}: {r.message}</div>)}
+                    {g === "blocked" ? <div className="small muted">強制しても戻せません。</div> : null}
+                    {i.includesTurns.length > 0 ? <div className="small muted">一緒に戻る後続の変更: turn {i.includesTurns.join(", ")}</div> : null}
+                  </li>);
+              })}
             </ul>
-            {confirming ? (
+            {stage === 1 ? (
               <div className="gbanner warn" role="alertdialog" aria-label="戻す確認">
-                <span className="grow">{picked.length} 件のファイルを書き換えます（戻す前の内容は控えに保存します）。よろしいですか？</span>
-                <button className="btn-danger" disabled={running} onClick={() => void run()}>{running ? "戻しています…" : "戻す"}</button>
-                <button className="btn-line" disabled={running} onClick={() => setConfirming(false)}>やめる</button>
+                <span className="grow">{total} 件のファイルを書き換えます（戻す前の内容は控えに保存します）。{forced.length > 0 ? `うち ${forced.length} 件は「別の変更も含めて戻す」で、次の画面でもう一度確認します。` : ""}よろしいですか？</span>
+                <button className="btn-danger" disabled={running} onClick={() => (forced.length > 0 ? setStage(2) : void run())}>{running ? "戻しています…" : forced.length > 0 ? "次へ" : "戻す"}</button>
+                <button className="btn-line" disabled={running} onClick={() => setStage(0)}>やめる</button>
+              </div>
+            ) : stage === 2 ? (
+              <div className="gbanner err" role="alertdialog" aria-label="別の変更も含めて戻す確認" style={{ display: "block" }}>
+                <p><b>別の変更も含めて、{forcedItems.length} 件を控えの内容に戻します。</b></p>
+                <ul className="check-list">{forcedItems.map((i) => (
+                  <li key={i.path}><span className="mono">{i.path}</span>{reasonLines(i.verdict).map((r, k) => <div key={k} className="small">・{r.label}: {r.message}</div>)}</li>))}</ul>
+                <p className="small">これらのファイルでは、別の会話・エディタによる変更や時期の分からない変更も消えます。ファイルは、選んだ区間の開始時の控えの内容になります。書き換える前の内容は控えに保存します（戻した後も控えから確認できます）。</p>
+                <div className="acts">
+                  <button className="btn-danger" disabled={running} onClick={() => void run()}>{running ? "戻しています…" : "別の変更も含めて戻す"}</button>
+                  <button className="btn-line" disabled={running} onClick={() => setStage(0)}>やめる（何も変えません）</button>
+                </div>
               </div>
             ) : (
-              <div className="acts"><button className="btn-main" disabled={picked.length === 0 || running} onClick={() => setConfirming(true)}>選んだ {picked.length} 件を戻す…</button>
+              <div className="acts"><button className="btn-main" disabled={total === 0 || running} onClick={() => setStage(1)}>選んだ {total} 件を戻す…</button>
                 <button className="btn-line" onClick={() => setNonce((n) => n + 1)}>計画を作り直す</button></div>)}
           </>)) : null}
       {result ? (
         <div role="status">
-          {result.failed.length > 0
+          {kind === "partial"
             ? <p className="gbanner err">一部のみ戻しました（戻せたもの {result.reverted.length} 件、戻せなかったもの {result.failed.length} 件）。完了ではありません。</p>
-            : <p className="gbanner warn">{result.reverted.length} 件のファイルを書き換えました。</p>}
+            : kind === "allReverted" ? <p className="gbanner warn">{result.reverted.length} 件のファイルを書き換えました。</p>
+              : <p className="gbanner warn">書き換えたファイルはありません。</p>}
           {result.reverted.length > 0 ? <><p className="small">戻したファイル:</p><ul className="check-list">{result.reverted.map((p) => <li key={p} className="mono">{p}</li>)}</ul></> : null}
+          {result.forced.length > 0 ? <><p className="small">うち、別の変更も含めて（強制で）戻したファイル:</p><ul className="check-list">{result.forced.map((p) => <li key={p} className="mono">{p}</li>)}</ul></> : null}
           {result.failed.length > 0 ? <><p className="small">戻せなかったファイル:</p><ul className="check-list">{result.failed.map((f) => <li key={f.path}><span className="mono">{f.path}</span><div className="small muted">{f.reason}</div></li>)}</ul></> : null}
           {result.backupDir ? <p className="small muted">戻す前の内容の控え: <span className="mono">{result.backupDir}</span></p> : null}
           <div className="acts"><button className="btn-line" onClick={() => setNonce((n) => n + 1)}>もう一度確認する</button></div>

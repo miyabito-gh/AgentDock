@@ -374,6 +374,7 @@ import type { PreviewRevertArgs } from "./gen/PreviewRevertArgs";
 import type { RevertChangesArgs } from "./gen/RevertChangesArgs";
 import type { RevertPlan } from "./gen/RevertPlan";
 import type { RevertResult } from "./gen/RevertResult";
+import type { SegmentStatus } from "./gen/SegmentStatus";
 import type { UnifiedDiff } from "./gen/UnifiedDiff";
 import type { BackendStatus } from "./gen/BackendStatus";
 import type { Goal } from "./gen/Goal";
@@ -503,6 +504,8 @@ export interface CommandMap {
   get_file_diff: { args: GetFileDiffArgs; result: UnifiedDiff };
   preview_revert: { args: PreviewRevertArgs; result: RevertPlan };
   revert_changes: { args: RevertChangesArgs; result: RevertResult };
+  get_baseline_status: { args: ChatArgs; result: SegmentStatus[] };
+  delete_baselines: { args: ChatArgs; result: null };
   set_work_mode: { args: SetWorkModeArgs; result: SettingsImpact };
   list_work_modes: { args: Record<string, never>; result: WorkModeInfo[] };
   get_goal: { args: ChatArgs; result: Known<Goal> };

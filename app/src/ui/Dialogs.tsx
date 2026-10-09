@@ -3,7 +3,7 @@ import type { Chat, ChatKey, ChatLocalView, ChatPendingOp, ChatQueue, ChatModelS
 import { chatName } from "./derive";
 import { SCOPE_TEXT } from "./Chrome";
 import { Icon } from "./Icon";
-import { DeleteBody, ExportBody, StorageBody, type DeleteProps, type ExportProps, type UsageProps } from "./ManageDialogs";
+import { DeleteBody, ExportBody, StorageBody, type BaselineProps, type DeleteProps, type ExportProps, type UsageProps } from "./ManageDialogs";
 import { ParityBody } from "./ParityDialog";
 import { ChangesBody, RevertBody } from "./ChangesDialog";
 import { GoalBody, StatusBody } from "./PrefsDialogs";
@@ -55,7 +55,7 @@ const TABS: Array<[string, string]> = [["general", "全般"], ["notify", "通知
 export interface CodexExe { path: string; setPath: (p: string) => void; placeholder: string; connect: (p: string) => void; openDiag: () => void; browse: () => void; live: boolean }
 
 /** 削除・エクスポート・使用量（P7）。 */
-export interface ManageProps { del: DeleteProps; exp: ExportProps; usage: UsageProps; selectedId: string | null; ackedWarnings: { list: string[]; reset: () => void } }
+export interface ManageProps { del: DeleteProps; exp: ExportProps; usage: UsageProps; baselines: BaselineProps; selectedId: string | null; ackedWarnings: { list: string[]; reset: () => void } }
 
 /** Goal・Codex の状態の表示に使う、選択中チャットの値（ホストが持つ値のコピー）。 */
 export interface PrefsProps {
@@ -148,7 +148,7 @@ function SettingsBody({ tab, enterMode, setEnterMode, top, source, models, exe, 
           <InstructionBody chat={c} live={compose.live} cap={opCaps.find((x) => x.op === "instructionFiles")} insertText={compose.insertText} openFile={compose.openPath} />
         </>);
     }
-    default: return <StorageBody u={manage.usage} chats={chats} selected={manage.selectedId} acked={manage.ackedWarnings} />;
+    default: return <StorageBody u={manage.usage} chats={chats} selected={manage.selectedId} acked={manage.ackedWarnings} bl={manage.baselines} />;
   }
 }
 
