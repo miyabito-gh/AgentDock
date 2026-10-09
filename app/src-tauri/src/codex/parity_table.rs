@@ -1,13 +1,37 @@
 //! 同等性の操作の確認状況の表（版別、`app/DESIGN_P3.md` §0.3）。
 //!
-//! `(Codex版, ParityOp) → Verification`。初期値はすべて `Unverified`。実測で成立を確認したものだけを
+//! `(Codex版, ParityOp) → Verification`。表にない組は `Unverified`。実測で成立を確認したものだけを
 //! 版ごとに `Verified` として足す。実機確認の結果は司令塔がこの表を更新する。
 //! 宣言（Support）とは別の軸で、`Unverified` の操作は「未確認」と表示し、結果は観測事実だけを書く。
 
 use crate::backend::model::{ParityOp, Verification};
 
-/// 0.160.0 で実測により成立を確認した操作。明示Skillの呼出し（`UserInput.skill`）だけ（DESIGN_P3 §0.3、#11）。
-const VERIFIED_0_160_0: &[ParityOp] = &[ParityOp::Skills];
+/// 0.160.0 で実測により成立を確認した操作（2026-10-10、実機確認 `app/LIVE_CHECK_P3.md` に基づく）。
+///
+/// 備考（確認の範囲）:
+/// - ChangeList: `apply_patch` の fileChange 観測のみ。Codexがシェルコマンドで編集した変更は観測できない。
+/// - ToolServers: 一覧・追加・削除。接続状態は通知でしか取得できない。
+/// - Skills: 明示Skillの呼出し（`UserInput.skill`）。
+///
+/// 未確認のまま: CloudDelegation、Extensions（Plugins導入・削除は未実施）、Memory、Personality（非推奨）、
+/// RevertChanges（戻す操作の成功は見たが、Git基準の方式へ作り直す予定のため確認済みにしない＝実装予定の方式変更あり）。
+const VERIFIED_0_160_0: &[ParityOp] = &[
+    ParityOp::ChangeList,
+    ParityOp::CodeReview,
+    ParityOp::ReviewToNewChat,
+    ParityOp::Fork,
+    ParityOp::Compact,
+    ParityOp::WorkMode,
+    ParityOp::Goal,
+    ParityOp::BackendStatus,
+    ParityOp::SpeedTier,
+    ParityOp::ReferenceChat,
+    ParityOp::SideChat,
+    ParityOp::Skills,
+    ParityOp::InstructionFiles,
+    ParityOp::ToolServers,
+    ParityOp::Worktree,
+];
 
 /// 版ごとの確認済みの操作。表にない版・版が不明なときは空（すべて未確認）。
 fn verified_ops(version: Option<&str>) -> &'static [ParityOp] {
@@ -30,9 +54,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn everything_is_unverified_except_explicit_skill_on_the_target_version() {
+    fn only_live_checked_ops_are_verified_on_the_target_version() {
+        const UNVERIFIED: [ParityOp; 5] = [
+            ParityOp::CloudDelegation,
+            ParityOp::Extensions,
+            ParityOp::Memory,
+            ParityOp::Personality,
+            ParityOp::RevertChanges,
+        ];
         for op in ParityOp::ALL {
-            let expected = if op == ParityOp::Skills { Verification::Verified } else { Verification::Unverified };
+            let expected = if UNVERIFIED.contains(&op) { Verification::Unverified } else { Verification::Verified };
             assert_eq!(verification(Some("0.160.0"), op), expected, "{op:?}");
         }
     }
