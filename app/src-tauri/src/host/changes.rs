@@ -1147,7 +1147,12 @@ impl Host {
         let rel = |v: &[String]| v.iter().map(|p| to_rel(&s.root, p)).collect::<Vec<_>>();
         let (paths, forced) = (rel(&args.paths), rel(&args.forced));
         let segs: Vec<SegRec> = loaded.segs.iter().filter(|g| rb::norm_path(&g.repo_root) == rb::norm_path(&s.root)).cloned().collect();
-        let requested: Vec<String> = paths.iter().chain(forced.iter()).cloned().collect();
+        let mut requested: Vec<String> = Vec::new();
+        for p in paths.iter().chain(forced.iter()) {
+            if !requested.iter().any(|r| r == p) {
+                requested.push(p.clone());
+            }
+        }
         let (fresh, start_seg) = s.plan(&segs, &loaded.marks, stored.from_turn.as_ref(), Some(requested), Some(cwd.clone())).await?;
         let adm = rb::admit(&stored.planned, &fresh, &paths, &forced);
         if adm.stale.is_some() || start_seg != stored.start_seg {
@@ -1779,6 +1784,57 @@ mod tests {
         s.align_current_with_filtered(&mut st, &["a.txt".to_string()], 0, 0, "", Some(&cwd)).await;
         assert_eq!(st[&(StateAt::Current, "a.txt".to_string())], raw);
         f.done();
+    }
+
+    /// 同じファイルを2つのturnで変更し、最初のturn以降を戻す（paths と forced の両方に同じパスを渡す）。
+    async fn one_file_changed_over_two_turns_is_reverted(autocrlf: &str, eol: &[u8]) {
+        let Some(mut f) = fx_cfg("twoturns", autocrlf) else { return };
+        let (one, two, three, other) = ([b"v1".as_slice(), eol].concat(), [b"v2".as_slice(), eol].concat(), [b"v3".as_slice(), eol].concat(), [b"edited elsewhere".as_slice(), eol].concat());
+        let before = f.read("a.txt");
+        let Some(()) = f.turn("t1", |r| std::fs::write(r.join("a.txt"), &one).unwrap()).await else {
+            f.done();
+            return;
+        };
+        let Some(()) = f.turn("t2", |r| std::fs::write(r.join("a.txt"), &two).unwrap()).await else {
+            f.done();
+            return;
+        };
+        // 非強制: 2つのturnにまたがっても、現在がE_nのままなら戻せる（後続のturnも一緒に戻る）。
+        let plan = f.preview("t1").await;
+        assert!(is_revertible(verdict(&plan, "a.txt")), "{:?}", verdict(&plan, "a.txt"));
+        assert_eq!(plan.items.iter().find(|i| i.path.ends_with("a.txt")).unwrap().includes_turns, vec![eid("t2")]);
+        let res = f.revert(&plan, &["a.txt"], &[]).await.unwrap();
+        assert!(res.failed.is_empty() && res.reverted.len() == 1, "{res:?}");
+        assert_eq!(f.read("a.txt"), before);
+        // もう一度変更してから、さらに別の変更が入った状態で、強制で戻す（同じパスが paths と forced の両方に入る）。
+        let Some(()) = f.turn("t3", |r| std::fs::write(r.join("a.txt"), &three).unwrap()).await else {
+            f.done();
+            return;
+        };
+        std::fs::write(f.repo.join("a.txt"), &other).unwrap();
+        let plan = f.preview("t3").await;
+        assert!(matches!(verdict(&plan, "a.txt"), RevertVerdict::NeedsOverride { .. }), "{:?}", verdict(&plan, "a.txt"));
+        let res = f.revert(&plan, &["a.txt"], &["a.txt"]).await.unwrap();
+        assert!(res.failed.is_empty() && res.reverted.len() == 1 && res.forced.len() == 1, "{res:?}");
+        assert_eq!(f.read("a.txt"), before, "the baseline of the chosen turn");
+        assert_eq!(backup_contents(&res.backup_dir.unwrap()), vec![other.clone()], "the overwritten content stays in the backup");
+        let rec = f.lines().into_iter().filter_map(|l| match l {
+            BaselineLine::Reverted { items, .. } => Some(items),
+            _ => None,
+        });
+        let last = rec.last().expect("a reverted record");
+        assert!(last.len() == 1 && last[0].forced && last[0].backup_file.is_some());
+        f.done();
+    }
+
+    #[tokio::test]
+    async fn one_file_changed_over_two_turns_can_be_reverted_plain_and_forced() {
+        one_file_changed_over_two_turns_is_reverted("false", b"\n").await;
+    }
+
+    #[tokio::test]
+    async fn one_file_changed_over_two_turns_can_be_reverted_with_autocrlf() {
+        one_file_changed_over_two_turns_is_reverted("true", b"\r\n").await;
     }
 
     #[tokio::test]

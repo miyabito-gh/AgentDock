@@ -439,6 +439,16 @@ fn plan_path(input: &PlanInput, k: usize, head_moved: bool, latest_at: UnixMilli
     PathPlan { path: p.to_string(), judgement, includes_turns, write }
 }
 
+/// パスの綴り（大文字小文字は区別する）。区切りを `/` にし、 `\\?\` を除き、ドライブ文字だけ大文字にそろえる。
+fn spelling(p: &str) -> String {
+    let t = p.strip_prefix(r"\\?\").unwrap_or(p).replace('\\', "/");
+    let mut c = t.chars();
+    match (c.next(), c.next()) {
+        (Some(d), Some(':')) if d.is_ascii_alphabetic() => format!("{}{}", d.to_ascii_uppercase(), &t[1..]),
+        _ => t,
+    }
+}
+
 /// 対象パスごとの判定と書込み計画を作る。全体を止める条件（Git操作途中・リポジトリなし・控えなし）は全パスが `Blocked` になる。
 pub fn plan(input: &PlanInput) -> Vec<PathPlan> {
     let start = start_index(input);
@@ -456,8 +466,11 @@ pub fn plan(input: &PlanInput) -> Vec<PathPlan> {
         SegEnd::Snapshot { at, .. } if *at > last.base_at => *at,
         _ => last.base_at,
     };
-    let mut plans: Vec<PathPlan> = input.paths.iter().map(|p| plan_path(input, k, moved, latest_at, p)).collect();
-    // 大文字小文字だけが違う名前（Windowsでは同じ実体）が2つ以上あると、書込みの順序で片方が他方の結果を消す（改名の取り違え）。どちらも戻さない。
+    // 綴りが同じパス（区切り・`\\?\`・ドライブ文字の大文字小文字を揃えた上で）は1件に畳む（同じファイルが paths と forced の両方に入る等）。
+    let mut seen_spelling: HashSet<String> = HashSet::new();
+    let unique: Vec<&String> = input.paths.iter().filter(|p| seen_spelling.insert(spelling(p))).collect();
+    let mut plans: Vec<PathPlan> = unique.iter().map(|p| plan_path(input, k, moved, latest_at, p)).collect();
+    // 大文字小文字を無視すると同一だが綴りが異なるパス（Windowsでは同じ実体）が2つ以上あると、書込みの順序で片方が他方の結果を消す（改名の取り違え）。どれも戻さない。
     let mut count: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     for p in &plans {
         *count.entry(norm_path(&p.path)).or_default() += 1;
@@ -1086,6 +1099,22 @@ mod tests {
         // 要確認だったが強制の指定なしのファイルは、再計画で戻せるようになっても実行しない
         let r = admit(&old, &fresh, &s(&["a"]), &[]);
         assert!(r.execute.is_empty() && r.failed.len() == 1);
+    }
+
+    #[test]
+    fn the_same_path_listed_twice_is_one_plan_and_still_revertable_across_several_segments() {
+        // 同じファイルを2つの区間で変更し、paths と forced の両方に同じパスが入る（強制で戻すとき）。
+        let mut f = Fx::new(vec![seg("t1", 10, snap_end(20)), seg("t2", 30, snap_end(40))]);
+        f.set(StateAt::Base(0), "a.txt", ent("1")).set(StateAt::End(0), "a.txt", ent("2")).set(StateAt::Base(1), "a.txt", ent("2")).set(StateAt::End(1), "a.txt", ent("3")).cur("a.txt", "9");
+        let r = f.run(&["a.txt", "a.txt"]);
+        assert_eq!(r.len(), 1);
+        assert!(matches!(&r[0].judgement, Judgement::NeedsOverride(_)) && r[0].write.is_some(), "{r:?}");
+        assert_eq!(r[0].includes_turns, vec![ExternalId("t2".into())]);
+        // 区切りやドライブ文字の違いだけの綴りも同じパスとして畳む。
+        let r = f.run(&["a.txt", "a.txt"]);
+        assert!(r.iter().all(|p| p.write.is_some()));
+        assert_eq!(spelling(r"c:\x\A.txt"), "C:/x/A.txt");
+        assert_eq!(spelling(r"\\?\C:\x"), "C:/x");
     }
 
     #[test]
