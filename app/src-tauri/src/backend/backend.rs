@@ -81,7 +81,9 @@ pub enum BackendEvent {
     RequestResolved { request: RequestKey, evidence: Evidence },
     ChatMetaChanged { chat: ChatKey, change: ChatMetaChange },
     /// バックエンドが会話に設定されているモデル・推論の強さを通知した（設定の更新通知、§3.9）。受理した設定の根拠になる。
-    ModelAccepted { agent: AgentKey, choice: ModelChoice },
+    /// `speed_unspecified` が真なら、通知が速度を示していない（欠落）ので、受理済みの速度は更新しない。
+    /// 示されていて標準（null・default）なら `choice.speed_tier=None` で、古い速度を消す。
+    ModelAccepted { agent: AgentKey, choice: ModelChoice, speed_unspecified: bool },
     /// モデルの実効値が変わった（reroute等、§3.9）。
     ModelRerouted { agent: AgentKey, turn: Option<ExternalId>, effective: ModelChoice },
     /// 会話の計画／実行の設定をバックエンドが通知した（設定の更新通知、§3.9と同じ「受理した設定」の根拠）。

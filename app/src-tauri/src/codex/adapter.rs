@@ -343,7 +343,7 @@ fn accepted_model_of(resp: &Value) -> Known<ModelChoice> {
         Some(m) => Known::direct(ModelChoice {
             model: m.to_string(),
             effort: resp.get("reasoningEffort").and_then(Value::as_str).map(str::to_string),
-            speed_tier: resp.get("serviceTier").and_then(Value::as_str).map(str::to_string),
+            speed_tier: super::events::accepted_speed(resp.get("serviceTier")).flatten(),
         }),
         None => Known::NotFetched,
     }
@@ -359,6 +359,13 @@ async fn pump(shared: Arc<Shared>, source: SourceId, mut rx: mpsc::Receiver<RpcE
     while let Some(ev) = rx.recv().await {
         match ev {
             RpcEvent::Notification { method, params, .. } => {
+                if method == "thread/settings/updated" {
+                    // 速度の受理値の取り込みを調べるための記録（値の種類だけ。null/欠落/default/その他）。
+                    let kind = match params.get("threadSettings").and_then(|t| t.get("serviceTier")) {
+                        None => "absent", Some(Value::Null) => "null", Some(Value::String(s)) if s == "default" => "default", Some(_) => "other",
+                    };
+                    crate::diag::log("settings-updated", &format!("serviceTier={kind}"));
+                }
                 if method == "configWarning" {
                     shared.note_config_warning(&params);
                 }

@@ -85,6 +85,16 @@ fn s<'a>(v: &'a Value, k: &str) -> Option<&'a str> {
     v.get(k).and_then(Value::as_str)
 }
 
+/// 通知が示した速度（serviceTier）の受理値。欠落＝None（更新しない）、null・"default"＝Some(None)（標準）、その他の文字列＝Some(Some(id))。
+pub fn accepted_speed(v: Option<&Value>) -> Option<Option<String>> {
+    match v? {
+        Value::Null => Some(None),
+        Value::String(s) if s == "default" => Some(None),
+        Value::String(s) => Some(Some(s.clone())),
+        _ => None,
+    }
+}
+
 pub fn notification_to_events(method: &str, params: &Value, ctx: &EventCtx) -> Vec<BackendEvent> {
     let live = |src_time: Option<UnixMillis>| evidence(EvidenceSource::LiveEvent, method, src_time, ctx.now);
     let Some(events) = convert_known(method, params, ctx, &live) else {
@@ -239,7 +249,8 @@ fn convert_known(method: &str, p: &Value, ctx: &EventCtx, live: &dyn Fn(Option<U
             let mut out = vec![BackendEvent::ModelAccepted {
                 agent: agent.clone(),
                 // 速度は設定に示された値（null＝指定なし）。示されていない項目は選択値と食い違って見えるだけで、受理済みと偽らない。
-                choice: ModelChoice { model: model.to_string(), effort: s(settings, "effort").map(str::to_string), speed_tier: s(settings, "serviceTier").map(str::to_string) },
+                choice: ModelChoice { model: model.to_string(), effort: s(settings, "effort").map(str::to_string), speed_tier: accepted_speed(settings.get("serviceTier")).flatten() },
+                speed_unspecified: accepted_speed(settings.get("serviceTier")).is_none(),
             }];
             // 計画／実行の設定（示されていて、知っている値のときだけ受理値にする）。
             if let Some(mode) = settings.get("collaborationMode").and_then(|c| s(c, "mode")).and_then(super::parity::work_mode_from_wire) {
@@ -589,6 +600,17 @@ pub fn build_response(stored: &StoredRequest, answer: &RequestAnswer) -> Result<
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn accepted_speed_distinguishes_absent_standard_and_named() {
+        use super::accepted_speed;
+        use serde_json::json;
+        assert_eq!(accepted_speed(None), None);
+        assert_eq!(accepted_speed(Some(&json!(null))), Some(None));
+        assert_eq!(accepted_speed(Some(&json!("default"))), Some(None));
+        assert_eq!(accepted_speed(Some(&json!("priority"))), Some(Some("priority".to_string())));
+        assert_eq!(accepted_speed(Some(&json!(3))), None);
+    }
+
     use super::*;
 
     fn run(method: &str, params: Value) -> Vec<BackendEvent> {

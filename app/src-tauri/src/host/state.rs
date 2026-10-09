@@ -982,9 +982,14 @@ impl HostData {
                 }
                 ChatMetaChange::Deleted => out.extend(self.remove_chat(chat)),
             },
-            BackendEvent::ModelAccepted { agent, choice } => {
+            BackendEvent::ModelAccepted { agent, choice, speed_unspecified } => {
                 if let Some(chat) = self.view(agent).filter(|_| self.is_root(agent)).map(|v| v.agent.chat.clone()) {
-                    out.extend(self.note_accepted_model(&chat, choice.clone()));
+                    let mut choice = choice.clone();
+                    if *speed_unspecified {
+                        // 速度が示されていない通知では、受理済みの速度を変えない（欠落を標準とも古い値の失効とも解釈しない）。
+                        choice.speed_tier = self.model_settings.get(&chat).and_then(|s| s.accepted.value()).and_then(|a| a.speed_tier.clone());
+                    }
+                    out.extend(self.note_accepted_model(&chat, choice));
                 }
             }
             BackendEvent::WorkModeAccepted { agent, mode } => {
@@ -1288,13 +1293,13 @@ mod tests {
         let choice = ModelChoice { model: "m".into(), effort: Some("low".into()), speed_tier: None };
         // 選択値と受理値は別。通知前は未取得のまま。
         assert!(d.model_settings.get(&ck("root")).is_none());
-        let (ev, _) = d.apply_event(&env(1, 1, BackendEvent::ModelAccepted { agent: ak("root"), choice: choice.clone() }), &caps());
+        let (ev, _) = d.apply_event(&env(1, 1, BackendEvent::ModelAccepted { agent: ak("root"), choice: choice.clone(), speed_unspecified: false }), &caps());
         assert!(matches!(ev[0], HostEvent::ModelSettingsUpdated { .. }));
         assert_eq!(d.model_settings.get(&ck("root")).unwrap().accepted, Known::direct(choice.clone()));
         // 同じ値の再通知ではイベントを出さない。子の設定はチャットのモデル設定にしない。
-        let (ev, _) = d.apply_event(&env(2, 2, BackendEvent::ModelAccepted { agent: ak("root"), choice: choice.clone() }), &caps());
+        let (ev, _) = d.apply_event(&env(2, 2, BackendEvent::ModelAccepted { agent: ak("root"), choice: choice.clone(), speed_unspecified: false }), &caps());
         assert!(ev.is_empty());
-        d.apply_event(&env(3, 3, BackendEvent::ModelAccepted { agent: ak("child"), choice: ModelChoice { model: "x".into(), effort: None, speed_tier: None } }), &caps());
+        d.apply_event(&env(3, 3, BackendEvent::ModelAccepted { agent: ak("child"), choice: ModelChoice { model: "x".into(), effort: None, speed_tier: None }, speed_unspecified: false }), &caps());
         assert_eq!(d.model_settings.get(&ck("root")).unwrap().accepted, Known::direct(choice));
     }
 
@@ -1319,6 +1324,24 @@ mod tests {
         assert!(ev.is_empty());
         d.apply_event(&env(3, 3, BackendEvent::WorkModeAccepted { agent: ak("child"), mode: WorkMode::Plan }), &caps());
         assert_eq!(d.model_settings.get(&ck("root")).unwrap().accepted_work_mode, Known::direct(WorkMode::Default));
+    }
+
+    #[test]
+    fn standard_speed_clears_the_old_accepted_speed_but_an_absent_one_keeps_it() {
+        let mut d = HostData::default();
+        live_root(&mut d, AgentState::Idle);
+        let ch = |tier: Option<&str>| ModelChoice { model: "m".into(), effort: None, speed_tier: tier.map(str::to_string) };
+        let send = |d: &mut HostData, n: u64, c: ModelChoice, unspecified: bool| {
+            d.apply_event(&env(n, n as i64, BackendEvent::ModelAccepted { agent: ak("root"), choice: c, speed_unspecified: unspecified }), &caps());
+        };
+        send(&mut d, 1, ch(Some("priority")), false);
+        assert_eq!(d.model_settings.get(&ck("root")).unwrap().accepted, Known::direct(ch(Some("priority"))));
+        // 欠落は更新しない。
+        send(&mut d, 2, ch(None), true);
+        assert_eq!(d.model_settings.get(&ck("root")).unwrap().accepted, Known::direct(ch(Some("priority"))));
+        // 標準（null・default）が示されたら古い値を消す。
+        send(&mut d, 3, ch(None), false);
+        assert_eq!(d.model_settings.get(&ck("root")).unwrap().accepted, Known::direct(ch(None)));
     }
 
     #[test]

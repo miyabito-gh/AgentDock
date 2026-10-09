@@ -559,7 +559,7 @@ function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock
   const [speed, setSpeed] = useState(settings?.selected?.speedTier ?? "");
   const [steer, setSteer] = useState(false);
   const accepted = settings?.accepted.kind === "value" ? settings.accepted.value : null;
-  const changed = !!accepted && (accepted.model !== model || (accepted.effort ?? "") !== effort || (accepted.speedTier ?? "") !== speed);
+  const changed = !!accepted && (accepted.model !== model || (accepted.effort ?? "") !== effort || (accepted.speedTier ?? "") !== (speed === "default" ? "" : speed));
   const efforts = models.find((m) => m.id === model)?.efforts ?? [];
   const tiers = models.find((m) => m.id === model)?.speedTiers ?? [];
   const caps = p.snap.opCapabilities;

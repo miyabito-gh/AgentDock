@@ -1,7 +1,7 @@
 // スナップショットからの表示用導出。状態判定そのものはホストの責務で、ここは並べ替えと文言だけ。
 import type { AgentView, Chat, HostSnapshot, PendingRequest, StopRecord } from "../ipc/types";
 import { STATE, keyStr, knownValue } from "./format";
-import { CHAT_DISPLAY_TEXT, chatDisplayKind, isActiveState, type ChatDisplayKind } from "./chatState";
+import { CHAT_DISPLAY_TEXT, chatDisplayKind, isActiveState, unknownCount, unknownNote, type ChatDisplayKind } from "./chatState";
 
 /** 最初の依頼の先頭30字（仮表示用）。 */
 export const previewTitle = (c: Chat): string | null => {
@@ -48,13 +48,13 @@ export const chatDisplay = (s: HostSnapshot, c: Chat): ChatDisplayKind => {
   const st = rootView(s, c)?.status.state;
   return st ? chatDisplayKind(st, descendantStates(s, c)) : "root";
 };
-/** 「実行中」表示の対象: 対応待ち、親が作業中、親が完了・待機で子孫が作業中または状態不明。アーカイブの有無は見ない。 */
+/** 「実行中」表示の対象: 対応待ち、親が作業中、親が完了・待機で子孫が作業中。状態不明の子孫だけでは出さない。アーカイブの有無は見ない。 */
 export const isWorkingForDock = (s: HostSnapshot, c: Chat): boolean => {
   if (chatRequests(s, c).length) return true;
   const st = rootView(s, c)?.status.state;
   if (!st) return false;
   const d = chatDisplay(s, c);
-  return isActiveState(st) || d === "childWorking" || d === "childUnknown";
+  return isActiveState(st) || d === "childWorking";
 };
 
 export function chatStatusText(s: HostSnapshot, c: Chat): string {
@@ -66,7 +66,9 @@ export function chatStatusText(s: HostSnapshot, c: Chat): string {
   if (kind === "childFail") return CHAT_DISPLAY_TEXT.childFail;
   if (c.origin === "external") return "外部・状態不明";
   if (kind !== "root") return CHAT_DISPLAY_TEXT[kind];
-  return STATE[root.status.state].t;
+  // 状態不明の子孫は親の状態に注記を添えるだけ（表示のみ。通知・キュー・停止確認の判定には使わない）
+  const n = unknownCount(descendantStates(s, c));
+  return n > 0 ? `${STATE[root.status.state].t}（${unknownNote(n)}）` : STATE[root.status.state].t;
 }
 
 export const isDoneLike = (st: AgentView["status"]["state"]) => st === "done" || st === "closed" || st === "interrupted";

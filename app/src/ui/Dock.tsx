@@ -2,8 +2,8 @@ import { useState } from "react";
 import type { AgentView, Chat, HostSnapshot, MonitorScope } from "../ipc/types";
 import { Flag, Icon } from "./Icon";
 import type { Known } from "../ipc/types";
-import { chatAgents, chatDisplay, chatName, isDoneLike, isWorkingForDock, previewTitle } from "./derive";
-import { CHAT_DISPLAY_TEXT } from "./chatState";
+import { chatAgents, chatDisplay, descendantStates, chatName, isDoneLike, isWorkingForDock, previewTitle } from "./derive";
+import { CHAT_DISPLAY_TEXT, sortByDockRank, unknownCount, unknownNote, unknownSignature } from "./chatState";
 import { FRESH, SOURCE_LABEL, STATE, hms, keyStr, showKnown } from "./format";
 import { TitleBar } from "./Chrome";
 
@@ -24,8 +24,12 @@ function activityText(k: Known<string>): string {
   return k.kind === "notFetched" ? "未確認" : k.kind === "unsupported" ? "このAIでは非対応" : "活動なし";
 }
 
-function Berth({ a, depth, orphan, mini, confirmed, onConfirmFail, rootName, childNote }: {
+/** 状態不明カードの「確認済みにして隠す」の署名（新しい活動・turnが届けば変わる）。 */
+const sigOf = (v: AgentView): string => unknownSignature(v.status.raw.label, v.agent.latestTurn, v.currentActivity ? v.currentActivity.evidence.observedAt : null);
+
+function Berth({ a, depth, orphan, mini, confirmed, onConfirmFail, rootName, childNote, onDismiss }: {
   rootName?: string; childNote?: string; a: AgentView; depth: number; orphan: boolean; mini: boolean; confirmed: boolean; onConfirmFail: (key: string) => void;
+  onDismiss?: () => void;
 }) {
   const m = STATE[a.status.state];
   const rel = orphan ? "親不明" : ["メイン", "子", "孫", "ひ孫"][depth] ?? `${depth}階層下`;
@@ -53,6 +57,9 @@ function Berth({ a, depth, orphan, mini, confirmed, onConfirmFail, rootName, chi
           ) : null}
         </div>
       )}
+      {onDismiss && !mini ? (
+        <div className="acts"><button className="btn-line" title="この画面の表示だけを隠します。Codexやホストの状態・判定は変わりません。新しい活動が届くと再表示します" onClick={onDismiss}><Icon name="check" />確認済みにして隠す</button></div>
+      ) : null}
       {failUnconfirmed && !mini ? (
         <div className="acts"><button className="btn-line" onClick={() => onConfirmFail(keyStr(a.agent.key))}><Icon name="check" />失敗を確認済みにする</button></div>
       ) : null}
@@ -63,17 +70,29 @@ function Berth({ a, depth, orphan, mini, confirmed, onConfirmFail, rootName, chi
 /** 親のみ表示のときに、子孫込みの状態を親カードへ添える（子孫の状態が親と同じ扱いなら添えない）。 */
 function parentNote(snap: HostSnapshot, c: Chat): string | undefined {
   const d = chatDisplay(snap, c);
-  return d === "root" ? undefined : CHAT_DISPLAY_TEXT[d];
+  const n = unknownCount(descendantStates(snap, c));
+  const base = d === "root" ? undefined : CHAT_DISPLAY_TEXT[d];
+  return n > 0 ? [base, unknownNote(n)].filter(Boolean).join("／") : base;
 }
 
-function RootBlock({ snap, c, views, showHead, selected, mini, parentOnly, confirmed, onOpen, onConfirmFail }: {
+function RootBlock({ snap, c, views, showHead, selected, mini, parentOnly, confirmed, dismissed, onDismiss, onOpen, onConfirmFail }: {
   snap: HostSnapshot; c: Chat; views: AgentView[]; showHead: boolean; selected: boolean; mini: boolean; parentOnly: boolean;
-  confirmed: Set<string>; onOpen: (id: string) => void; onConfirmFail: (key: string) => void;
+  confirmed: Set<string>; dismissed: Map<string, string>; onDismiss: (items: AgentView[]) => void; onOpen: (id: string) => void; onConfirmFail: (key: string) => void;
 }) {
+  const [openUnknown, setOpenUnknown] = useState(false);
   const inList = new Set(views.map((v) => keyStr(v.agent.key)));
-  const kids = (k: string) => views.filter((v) => v.agent.parent.kind === "explicit" && keyStr(v.agent.parent.parent) === k);
-  const roots = views.filter((v) => v.agent.parent.kind === "root" || (v.agent.parent.kind === "explicit" && !inList.has(keyStr(v.agent.parent.parent))));
-  const orphans = views.filter((v) => v.agent.parent.kind === "unknown");
+  const st = (v: AgentView) => v.status.state;
+  const childrenOf = (k: string) => views.filter((v) => v.agent.parent.kind === "explicit" && keyStr(v.agent.parent.parent) === k);
+  const subtreeAllUnknown = (v: AgentView): boolean => st(v) === "unknown" && childrenOf(keyStr(v.agent.key)).every(subtreeAllUnknown);
+  // 状態不明の子孫（自分以下も全て不明）は末尾の折りたたみへ。親（メイン）は対象外。確認済みにして隠したものは、新しい活動が届くまで出さない。
+  const parked = (v: AgentView) => v.agent.parent.kind !== "root" && subtreeAllUnknown(v);
+  const isDismissed = (v: AgentView) => dismissed.get(keyStr(v.agent.key)) === sigOf(v);
+  const parkedAll = views.filter(parked);
+  const parkedShown = parkedAll.filter((v) => !isDismissed(v));
+  const parkedHidden = parkedAll.length - parkedShown.length;
+  const kids = (k: string) => sortByDockRank(childrenOf(k).filter((v) => !parked(v)), st);
+  const roots = sortByDockRank(views.filter((v) => (v.agent.parent.kind === "root" || (v.agent.parent.kind === "explicit" && !inList.has(keyStr(v.agent.parent.parent)))) && !parked(v)), st);
+  const orphans = sortByDockRank(views.filter((v) => v.agent.parent.kind === "unknown" && !parked(v)), st);
   const depthOf = (v: AgentView): number => {
     let d = 0; let p = v.agent.parent;
     while (p.kind === "explicit") {
@@ -104,6 +123,21 @@ function RootBlock({ snap, c, views, showHead, selected, mini, parentOnly, confi
         </div>
       ) : null}
       <ul className="tree">{roots.map(node)}</ul>
+      {parkedAll.length ? (
+        <div style={{ margin: "6px 0 0" }}>
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <button className="btn-line small" aria-expanded={openUnknown} onClick={() => setOpenUnknown(!openUnknown)}>{openUnknown ? "▼" : "▶"} 状態不明の子 {parkedShown.length}件{parkedHidden ? `（確認済み${parkedHidden}件は非表示）` : ""}</button>
+            {openUnknown && parkedShown.length && !mini ? <button className="btn-line small" title="この画面の表示だけを隠します。ホストの状態・判定は変わりません" onClick={() => onDismiss(parkedShown)}>まとめて確認済みにして隠す</button> : null}
+          </div>
+          {openUnknown ? (
+            <ul className="tree">{parkedShown.map((v) => (
+              <li key={keyStr(v.agent.key)}>
+                <Berth a={v} depth={depthOf(v)} orphan={v.agent.parent.kind === "unknown"} mini={mini} confirmed={false} onConfirmFail={onConfirmFail} onDismiss={() => onDismiss([v])} />
+              </li>
+            ))}</ul>
+          ) : null}
+        </div>
+      ) : null}
       {orphans.length ? (
         <>
           <div className="small muted" style={{ margin: "6px 0 0" }}>直接の親が分からないエージェント</div>
@@ -125,6 +159,9 @@ export function DockPane({ snap, scope, selId, mini, confirmed, onScope, onOpen,
   // 「実行中」表示と「親のみ」はウィンドウ内の記憶（ホストへは保存しない）。表示範囲の変更だけで送信先・中断・承認を変えない。
   const [runningView, setRunningView] = useState(false);
   const [parentOnly, setParentOnly] = useState(false);
+  // 状態不明の子の「確認済みにして隠す」: 画面内の記憶（ホスト・永続化なし）。署名が変われば再表示。
+  const [dismissed, setDismissed] = useState<Map<string, string>>(new Map());
+  const onDismiss = (items: AgentView[]) => setDismissed((m) => { const n = new Map(m); items.forEach((v) => n.set(keyStr(v.agent.key), sigOf(v))); return n; });
   const isSel = !runningView && scope.kind === "selectedChat";
   const showFinished = scope.kind === "allChats" && scope.showFinished;
   const chats = isSel ? snap.chats.filter((c) => c.key.id === selId) : runningView ? snap.chats.filter((c) => isWorkingForDock(snap, c)) : snap.chats;
@@ -162,7 +199,7 @@ export function DockPane({ snap, scope, selId, mini, confirmed, onScope, onOpen,
       <div className="dock-scroll">
         {blocks.length ? blocks.map(({ c, views }) => (
           <RootBlock key={keyStr(c.key)} snap={snap} c={c} views={views} showHead={!isSel || !!mini} selected={c.key.id === selId} mini={!!mini} parentOnly={parentOnly}
-            confirmed={confirmed} onOpen={onOpen} onConfirmFail={onConfirmFail} />
+            confirmed={confirmed} dismissed={dismissed} onDismiss={onDismiss} onOpen={onOpen} onConfirmFail={onConfirmFail} />
         )) : <div className="empty-note">{snap.chats.length ? "作業中・対応待ちのエージェントはありません" : "チャットを始めると、ここにエージェントが表示されます"}</div>}
       </div>
       {mini ? null : <div className="dock-foot">状態は Codex から取得した情報です。取得できない項目は「未確認」と表示します。</div>}

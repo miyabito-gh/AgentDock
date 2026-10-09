@@ -20,6 +20,8 @@ button:disabled{opacity:.45;cursor:not-allowed;background:transparent}
 .btn-line:hover{border-color:#B9C5C4;background:var(--surface)}
 .btn-main{background:var(--harbor);color:var(--harbor-ink)}
 .btn-main:hover{background:#163C55}
+.btn-main:disabled{background:var(--harbor);color:var(--harbor-ink);opacity:.5}
+.btn-line:disabled,.btn-danger:disabled{background:var(--surface);border-color:var(--line)}
 .btn-danger{border-color:#E3B9B5;color:var(--fail);background:var(--surface)}
 .btn-danger:hover{background:var(--fail-bg)}
 svg.i{width:14px;height:14px;flex:none;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
@@ -161,6 +163,8 @@ label{display:inline-flex;align-items:center;gap:6px}
 .files .frow .st.bad{color:var(--fail)}
 .dropzone{position:fixed;inset:12px;z-index:55;border:2px dashed var(--accent,#2F6F8F);border-radius:8px;background:rgba(220,236,244,.78);display:flex;align-items:center;justify-content:center;text-align:center;padding:24px;font-size:14px;pointer-events:none}
 textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;padding:4px;outline:none;background:transparent;line-height:1.6}
+/* ダイアログ・サイドパネルの textarea は、入力欄として枠・背景を持つ（上の既定は入力欄用の枠なし） */
+.dialog textarea,.sidepanel textarea{border:1px solid var(--line);background:var(--surface);padding:4px 8px;resize:vertical}
 .ctrl{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
 .ctrl .grow{flex:1}
 .ctrl select{border:0;background:transparent;height:26px;padding:0 4px;font-size:12px}
