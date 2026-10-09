@@ -156,8 +156,8 @@ export interface RevertProps {
   chat: Chat | undefined;
   live: boolean;
   cap: OpCapability | undefined;
-  /** 実行の結果を親（ダイアログの外）へ伝える（トースト用。結果の本文はこのダイアログに残す）。 */
-  onDone: (r: RevertResult) => void;
+  /** 実行の完了を親へ伝える（トースト用。結果の本文はこのダイアログに残す）。結果が得られなければ null。呼ぶたびに親が差分表示の再取得を促す。 */
+  onDone: (r: RevertResult | null) => void;
 }
 
 const GROUP_TAG = { revertible: "戻せる", needsOverride: "要確認", blocked: "止める" } as const;
@@ -208,10 +208,16 @@ export function RevertBody({ chat, live, cap, onDone }: RevertProps) {
   const run = async () => {
     if (!chatKey || !plan) return;
     setRunning(true); setErr(null);
+    let r: RevertResult | null = null;
     try {
-      const r = await host.revertChanges(chatKey, plan.id, [...picked, ...forced], forced);
-      setResult(r); setStage(0); onDone(r);
-    } catch (e) { setErr(errText(e)); setStage(0); } finally { setRunning(false); }
+      r = await host.revertChanges(chatKey, plan.id, [...picked, ...forced], forced);
+      setResult(r); setStage(0);
+    } catch (e) { setErr(errText(e)); setStage(0); } finally {
+      // 成功・失敗・一部のみのどれでも、実際の状態を取り直す（差分一覧の「戻し済み」・turn選択を古いまま残さない）。
+      host.getBaselineStatus(chatKey).then(setSegs).catch(() => setSegs(null));
+      onDone(r);
+      setRunning(false);
+    }
   };
   const kind = result ? resultKind(result) : null;
   return (

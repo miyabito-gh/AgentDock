@@ -1059,7 +1059,7 @@ export default function App() {
             openPath: (p) => { if (chat) host.openInstructionFile(chat.key, p).catch((e) => sayErr("開けませんでした", e)); },
           }}
           threadOps={{ pendingOps: snap.pendingOps, queues: snap.queues, onOpenChat: (k) => { selectChat(k.id); } }}
-          live={live} changesTick={changesTick} onRevertDone={(r) => say(r.failed.length > 0 ? `一部のみ戻しました（失敗 ${r.failed.length} 件）。` : `${r.reverted.length} 件のファイルを書き換えました。`)}
+          live={live} changesTick={changesTick} onRevertDone={(r) => { setChangesTick((n) => n + 1); if (r) say(r.failed.length > 0 ? `一部のみ戻しました（失敗 ${r.failed.length} 件）。` : `${r.reverted.length} 件のファイルを書き換えました。`); }}
           enterMode={enterMode} setEnterMode={setEnterMode}
           notify={{ value: snap.settings.notifications, set: onNotifySettings }}
           top={{ main: mainTop, mini: miniTop, setMain: (b) => setTop("main", b), setMini: (b) => setTop("monitor", b) }}

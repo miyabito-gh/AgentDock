@@ -295,7 +295,7 @@ export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnter
   live: boolean;
   /** 変更の報告が更新されるたびに増える。 */
   changesTick: number;
-  onRevertDone: (r: RevertResult) => void;
+  onRevertDone: (r: RevertResult | null) => void;
   onRename: (chatId: string, name: string) => Promise<string | null>;
   autostart: AutostartProps; quit: QuitProps; force: ForceProps; manage: ManageProps;
   notify: NotifyProps;
