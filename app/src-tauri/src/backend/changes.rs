@@ -104,13 +104,15 @@ pub enum ChangeScope {
     WorkingTree,
 }
 
-/// 出所。混ぜずに表示する。
+/// 出所。混ぜずに表示する。`BackendReported` は旧方式（P3B-4で削除。新規には使わない）。
+/// `Baseline`＝turnの開始時・終了時にAgentDockがGitで控えた内容の差、`Git`＝Git上の現在の差分（HEAD比較）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub enum ChangeSource {
     BackendReported,
+    Baseline,
     Git,
 }
 
@@ -167,6 +169,10 @@ pub struct ChangeList {
 pub struct GetChangeListArgs {
     pub chat: ChatKey,
     pub scope: ChangeScope,
+    /// 出所。省略時は従来どおり（`scope` で決める）。P3B-4で必須にし、`ChangeScope::WorkingTree` を廃止する。
+    #[serde(default)]
+    #[cfg_attr(test, ts(optional))]
+    pub source: Option<ChangeSource>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -221,6 +227,42 @@ pub enum RevertBlockCode {
     /// 作業フォルダの外（`..`・リンク越え・別ドライブを含む）、または作業フォルダを確認できない。
     PathOutside,
     ReadFailed,
+
+    // ── Git基準の控え（P3B。DESIGN_P3B §4.3）。上の旧方式のコードはP3B-4で削除する ──
+    // 止める（強制不可）
+    /// rebase・merge・cherry-pick 等の途中。
+    GitBusy,
+    NotARepository,
+    GitUnavailable,
+    /// 範囲に控えのある区間がない（控え導入前のturn・控えの失敗）。
+    NoBaseline,
+    /// 作業フォルダの外のファイル。
+    OutsideWorkFolder,
+    /// 控えていないパス（リンク・サブモジュール・64MiB超・合計上限・読めない）。
+    NotSnapshotted,
+    /// turnの後にGitのHEAD・ブランチが変わった。
+    HeadMoved,
+    /// すでに控えの内容へ戻してある。
+    AlreadyReverted,
+    // 要確認（強制可。2段目の確認でファイル単位に選ぶ）
+    /// turnの終了時の控えがない（切断・再起動など）。
+    EndUnknown,
+    /// 区間の間に別の変更がある。
+    ChangedBetween,
+    /// turnの後に別の変更がある。
+    ChangedAfter,
+    /// 同じリポジトリで同時に作業していた別の会話も変更した可能性がある。
+    ConcurrentChange,
+}
+
+/// 要確認の理由1件（`code` は要確認の4種のどれか）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OverrideReason {
+    pub code: RevertBlockCode,
+    pub message: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -229,6 +271,8 @@ pub enum RevertBlockCode {
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum RevertVerdict {
     Revertible { summary: String },
+    /// 帰属を判別できないため止めた。理由を表示したうえで、ユーザーが2段目の確認で選んだときだけ戻せる。
+    NeedsOverride { summary: String, reasons: Vec<OverrideReason> },
     Blocked { code: RevertBlockCode, message: String },
 }
 
@@ -279,9 +323,12 @@ pub struct RevertChangesArgs {
     pub plan_id: LocalId,
     /// 計画のうち実行するファイル（戻せると判定したものだけ有効）。
     pub paths: Vec<String>,
+    /// 2段目の確認で選んだ要確認のファイル（`NeedsOverride` で、理由が計画時と同じものだけ有効）。既定は空。
+    #[serde(default)]
+    pub forced: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
@@ -297,6 +344,9 @@ pub struct RevertFailure {
 #[serde(rename_all = "camelCase")]
 pub struct RevertResult {
     pub reverted: Vec<String>,
+    /// `reverted` のうち、2段目の確認で強制して戻したファイル。
+    #[serde(default)]
+    pub forced: Vec<String>,
     pub failed: Vec<RevertFailure>,
     /// 戻す前の控えの場所。
     pub backup_dir: Option<String>,

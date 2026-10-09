@@ -159,7 +159,7 @@ export const getFileDiff = (chat: ChatKey, path: string, source: ChangeSource, t
 /** 戻す計画の作成（ファイルは変更しない）。ファイルごとに戻せるか・戻せない理由が返る。 */
 export const previewRevert = (chat: ChatKey, turn: ExternalId | null, paths: string[] | null): Promise<RevertPlan> => invokeCmd("preview_revert", { chat, turn, paths });
 /** 変更を戻す（確認画面の後だけ）。控えを保存できなければ何も変えない。部分成功は failed に出る。 */
-export const revertChanges = (chat: ChatKey, planId: LocalId, paths: string[]): Promise<RevertResult> => invokeCmd("revert_changes", { chat, planId, paths });
+export const revertChanges = (chat: ChatKey, planId: LocalId, paths: string[]): Promise<RevertResult> => invokeCmd("revert_changes", { chat, planId, paths, forced: [] });
 
 // ── 計画／実行・Goal・状態・memories（段階③ P3-3） ──
 /** 計画／実行の選択（次のturnから適用）。null＝選択を外す。受理されたかは、設定の更新通知を受けたときだけ「受理済み」に出る。 */

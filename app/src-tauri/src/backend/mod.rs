@@ -7,6 +7,8 @@
 //! 設計メモは `app/DESIGN_T1.md`。
 
 pub mod backend;
+/// 段階③ P3B-1: 変更の控え（Git基準）の中立型（`app/DESIGN_P3B.md` §2）。
+pub mod baseline;
 /// 段階③ P3-1: 変更ファイルの一覧・差分・変更を戻す（`app/DESIGN_P3.md` §1 #1・#2）。
 pub mod changes;
 pub mod ipc;

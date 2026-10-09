@@ -4,7 +4,11 @@ import type { RevertFailure } from "./RevertFailure";
 /**
  * 戻した結果。部分成功を完了と表示しない（`failed` が空でないときは一部のみ）。
  */
-export type RevertResult = { reverted: Array<string>, failed: Array<RevertFailure>, 
+export type RevertResult = { reverted: Array<string>, 
+/**
+ * `reverted` のうち、2段目の確認で強制して戻したファイル。
+ */
+forced: Array<string>, failed: Array<RevertFailure>, 
 /**
  * 戻す前の控えの場所。
  */

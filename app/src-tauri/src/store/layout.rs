@@ -13,8 +13,12 @@
 //!     chat.json                   補足情報（ChatLocalFile）
 //!     queue.json                  キューと受理不明の送信記録（QueueFile）
 //!     activity.jsonl              取得した監視活動履歴（追記）
-//!     changes.jsonl               観測したファイル変更の記録と「戻し」の記録（追記。DESIGN_P3 #1・#2）
-//!     revert-backup\<ms>\         変更を戻す前の控え（ファイル実体と manifest.json。自動では削除しない）
+//!     changes.jsonl               旧方式（Codex報告の差分の逆適用）の観測記録。P3B以降は新規に書かず、読まない。消さない（チャット削除で一緒に消える）
+//!     baselines\                  変更の控え（Git基準。DESIGN_P3B §2。自動では削除しない。「控えを削除」とチャット削除でだけ消える）
+//!       objects\                  専用のgitオブジェクト置き場（loose）
+//!       segments.jsonl            区間（turn）ごとの控えと「戻し」の記録（追記）
+//!       tmp\                      一時インデックス（作業ごとに作って消す）
+//!     revert-backup\<ms>\         変更を戻す前の控え（ファイル実体と manifest.json。自動では削除しない。旧方式の分も同じ場所）
 //!     compactions\<ms>.json       文脈の圧縮前の控え（AgentDock保存・表示専用。自動では削除しない。DESIGN_P3 #7）
 //!     side\<id>.json              side相談の確定した発言の記録（AgentDock保存・表示専用。主会話の削除まで残す。DESIGN_P3 #10）
 //!     attachments\<attId>\<name>  添付のコピー（添付ごとに別フォルダ。同名・再添付でも衝突しない）
@@ -42,6 +46,10 @@ pub const QUEUE_FILE: &str = "queue.json";
 pub const ACTIVITY_FILE: &str = "activity.jsonl";
 pub const CHANGES_FILE: &str = "changes.jsonl";
 pub const REVERT_BACKUP_DIR: &str = "revert-backup";
+pub const BASELINES_DIR: &str = "baselines";
+pub const BASELINE_OBJECTS_DIR: &str = "objects";
+pub const BASELINE_SEGMENTS_FILE: &str = "segments.jsonl";
+pub const BASELINE_TMP_DIR: &str = "tmp";
 pub const COMPACTIONS_DIR: &str = "compactions";
 pub const SIDE_DIR: &str = "side";
 pub const ATTACHMENTS_DIR: &str = "attachments";
@@ -55,6 +63,25 @@ pub fn chat_dir(root: &Path, dir_id: &LocalId) -> PathBuf {
 
 pub fn workspace_dir(chat_dir: &Path) -> PathBuf {
     chat_dir.join(WORKSPACE_DIR)
+}
+
+/// 変更の控えの領域（`chats\<dirId>\baselines`）。
+pub fn baselines_dir(chat_dir: &Path) -> PathBuf {
+    chat_dir.join(BASELINES_DIR)
+}
+
+/// 控え専用のgitオブジェクト置き場。
+pub fn baseline_objects_dir(chat_dir: &Path) -> PathBuf {
+    baselines_dir(chat_dir).join(BASELINE_OBJECTS_DIR)
+}
+
+pub fn baseline_segments_file(chat_dir: &Path) -> PathBuf {
+    baselines_dir(chat_dir).join(BASELINE_SEGMENTS_FILE)
+}
+
+/// 一時インデックスの置き場。
+pub fn baseline_tmp_dir(chat_dir: &Path) -> PathBuf {
+    baselines_dir(chat_dir).join(BASELINE_TMP_DIR)
 }
 
 /// 添付コピーの最終パスと、コピー途中のパス。
@@ -248,6 +275,16 @@ mod tests {
         assert!(!is_chat_workspace(app, Path::new(r"C:\Data\App\chats\x\workspace\..\..\..\diag")));
         assert!(!is_chat_workspace(app, Path::new(r"C:\Data\AppOther\chats\x\workspace")));
         assert!(!is_chat_workspace(app, Path::new(r"relative\chats\x\workspace")));
+    }
+
+    #[test]
+    fn baseline_paths_are_under_the_chat_area_baselines_dir() {
+        let d = chat_dir(Path::new(r"C:\data\app"), &LocalId("dir-1".into()));
+        assert_eq!(baselines_dir(&d), Path::new(r"C:\data\app\chats\dir-1\baselines"));
+        assert_eq!(baseline_objects_dir(&d), Path::new(r"C:\data\app\chats\dir-1\baselines\objects"));
+        assert_eq!(baseline_segments_file(&d), Path::new(r"C:\data\app\chats\dir-1\baselines\segments.jsonl"));
+        assert_eq!(baseline_tmp_dir(&d), Path::new(r"C:\data\app\chats\dir-1\baselines\tmp"));
+        assert!(is_inside(&d, &baseline_objects_dir(&d)));
     }
 
     #[test]

@@ -21,6 +21,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 
+use crate::backend::baseline::{BaselineEntry, BaselineLine, BASELINE_SCHEMA_VERSION};
 use crate::backend::changes::ChangeLine;
 use crate::backend::local::*;
 use crate::backend::model::*;
@@ -416,6 +417,62 @@ impl Store {
         Ok(all)
     }
 
+    /// 変更の控えの記録を1行追記する（`baselines\segments.jsonl`。flushまで行う。空き確認つき）。
+    pub fn append_baseline(&self, chat: &ChatKey, line: &BaselineLine) -> Result<(), StoreError> {
+        let text = serde_json::to_string(&BaselineEntry::new(line.clone())).map_err(|e| StoreError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, e)))?;
+        self.check_space(text.len() as u64 + 1)?;
+        let dir = layout::chat_dir(&self.root, &self.ensure_dir_id(chat));
+        atomic::append_line(&layout::baseline_segments_file(&dir), &text)?;
+        Ok(())
+    }
+
+    /// このチャットの控えの記録を古い順に読む。読めない行（途中で切れた最終行など）と、新しい版の行は飛ばす（推測で解釈しない）。
+    /// 旧方式の `changes.jsonl`・`revert-backup` は読まない。
+    pub fn read_baselines(&self, chat: &ChatKey) -> Result<Vec<BaselineLine>, StoreError> {
+        let dir = layout::chat_dir(&self.root, &self.ensure_dir_id(chat));
+        let text = match std::fs::read_to_string(layout::baseline_segments_file(&dir)) {
+            Ok(t) => t,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => return Err(StoreError::Io(e)),
+        };
+        Ok(text
+            .lines()
+            .filter_map(|l| serde_json::from_str::<BaselineEntry>(l).ok())
+            .filter(|e| e.schema_version <= BASELINE_SCHEMA_VERSION)
+            .map(|e| e.line)
+            .collect())
+    }
+
+    /// 控え専用のgitオブジェクト置き場（`chats\<dirId>\baselines\objects`）。フォルダは作らない。
+    pub fn baseline_objects_dir(&self, chat: &ChatKey) -> PathBuf {
+        layout::baseline_objects_dir(&layout::chat_dir(&self.root, &self.ensure_dir_id(chat)))
+    }
+
+    /// 一時インデックスの置き場（`chats\<dirId>\baselines\tmp`）。フォルダは作らない。
+    pub fn baseline_tmp_dir(&self, chat: &ChatKey) -> PathBuf {
+        layout::baseline_tmp_dir(&layout::chat_dir(&self.root, &self.ensure_dir_id(chat)))
+    }
+
+    /// 控えの置き場（objects・tmp）を作る。
+    pub fn ensure_baseline_dirs(&self, chat: &ChatKey) -> Result<(PathBuf, PathBuf), StoreError> {
+        let (objects, tmp) = (self.baseline_objects_dir(chat), self.baseline_tmp_dir(chat));
+        std::fs::create_dir_all(&objects)?;
+        std::fs::create_dir_all(&tmp)?;
+        Ok((objects, tmp))
+    }
+
+    /// このチャットの控え（`baselines\`）をすべて消す。ユーザーの明示操作（確認済み）と、作業中でないことの確認は呼出し側が行う。
+    /// 読み取り専用のgitオブジェクトも消す。部分失敗は消せなかったものを返す。`revert-backup`・`changes.jsonl` には触れない。
+    pub fn delete_baselines(&self, chat: &ChatKey) -> Result<(), Vec<String>> {
+        let Some(dir_id) = self.index.lock().unwrap().get(chat).cloned() else { return Ok(()) };
+        let dir = layout::baselines_dir(&layout::chat_dir(&self.root, &dir_id));
+        match remove_tree(&dir) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(vec![format!("{}: {e}", shown(&dir))]),
+        }
+    }
+
     /// 戻す前の控えの置き場所（`chats/<dirId>/revert-backup/<ms>`）。フォルダは作らない。
     pub fn revert_backup_dir(&self, chat: &ChatKey, at: UnixMillis) -> PathBuf {
         layout::chat_dir(&self.root, &self.ensure_dir_id(chat)).join(layout::REVERT_BACKUP_DIR).join(at.0.to_string())
@@ -617,6 +674,8 @@ fn add_breakdown(total: &mut UsageBreakdown, b: &UsageBreakdown) {
     total.workspace = total.workspace.saturating_add(b.workspace);
     total.activity = total.activity.saturating_add(b.activity);
     total.metadata = total.metadata.saturating_add(b.metadata);
+    total.baselines = total.baselines.saturating_add(b.baselines);
+    total.revert_backups = total.revert_backups.saturating_add(b.revert_backups);
 }
 
 /// チャット領域1件の内訳。添付・作業領域・監視活動はそれぞれの場所、残り（chat.json・queue.json・その他）はメタデータ。
@@ -627,9 +686,13 @@ fn chat_area_usage(dir: &Path, local: Option<&ChatLocalFile>) -> (UsageBreakdown
     let workspace_dir = layout::workspace_dir(dir);
     let (workspace_all, mut b2) = atomic::dir_size(&workspace_dir);
     let (activity, mut b3) = atomic::dir_size(&dir.join(layout::ACTIVITY_FILE));
+    let (baselines, mut b4) = atomic::dir_size(&layout::baselines_dir(dir));
+    let (revert_backups, mut b5) = atomic::dir_size(&dir.join(layout::REVERT_BACKUP_DIR));
     bad.append(&mut b1);
     bad.append(&mut b2);
     bad.append(&mut b3);
+    bad.append(&mut b4);
+    bad.append(&mut b5);
     bad.sort();
     bad.dedup();
     let mut artifacts = 0u64;
@@ -649,8 +712,14 @@ fn chat_area_usage(dir: &Path, local: Option<&ChatLocalFile>) -> (UsageBreakdown
     }
     let artifacts = artifacts.min(workspace_all);
     let workspace = workspace_all - artifacts;
-    let metadata = all.saturating_sub(attachments).saturating_sub(workspace_all).saturating_sub(activity);
-    (UsageBreakdown { attachments, artifacts, workspace, activity, metadata }, bad)
+    // 変更の控え・戻す前の控えは独立に計上し、メタデータから差し引く（二重に数えない）。旧 `changes.jsonl` などは従来どおりメタデータ。
+    let metadata = all
+        .saturating_sub(attachments)
+        .saturating_sub(workspace_all)
+        .saturating_sub(activity)
+        .saturating_sub(baselines)
+        .saturating_sub(revert_backups);
+    (UsageBreakdown { attachments, artifacts, workspace, activity, metadata, baselines, revert_backups }, bad)
 }
 
 /// ファイル・フォルダを消す。リンク（シンボリックリンク・ジャンクション）は辿らずリンクだけ消す。読み取り専用は解除して1回だけやり直す。
@@ -969,6 +1038,64 @@ mod tests {
     }
 
     #[test]
+    fn baselines_append_read_usage_and_delete() {
+        use crate::backend::baseline::*;
+        let (root, store, a, b) = two_areas("baselines");
+        let seg = LocalId("seg-1".into());
+        store.append_baseline(&key("ta"), &BaselineLine::Bound { seg: seg.clone(), turn: ExternalId("t1".into()) }).unwrap();
+        store.append_baseline(&key("ta"), &BaselineLine::Abandoned { seg: seg.clone(), reason: "r".into() }).unwrap();
+        // 途中で切れた最終行と、新しい版の行は読み飛ばす。
+        let file = layout::baseline_segments_file(&a);
+        let mut text = std::fs::read_to_string(&file).unwrap();
+        text.push_str("{\"schemaVersion\":2,\"kind\":\"bound\",\"seg\":\"x\",\"turn\":\"y\"}\n{\"schemaVersion\":1,\"kind\":\"bou");
+        std::fs::write(&file, text).unwrap();
+        let lines = store.read_baselines(&key("ta")).unwrap();
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0], BaselineLine::Bound { seg: seg.clone(), turn: ExternalId("t1".into()) });
+        assert!(store.read_baselines(&key("tb")).unwrap().is_empty(), "chats are separate");
+
+        // 旧方式のファイル（changes.jsonl・revert-backup）は読まず、消さない。使用量には別枠で数える。
+        std::fs::write(a.join(layout::CHANGES_FILE), vec![0u8; 13]).unwrap();
+        std::fs::create_dir_all(a.join(layout::REVERT_BACKUP_DIR).join("1")).unwrap();
+        std::fs::write(a.join(layout::REVERT_BACKUP_DIR).join("1").join("f.bin"), vec![0u8; 7]).unwrap();
+        let (objects, tmp) = store.ensure_baseline_dirs(&key("ta")).unwrap();
+        assert_eq!(objects, layout::baseline_objects_dir(&a));
+        assert_eq!(tmp, layout::baseline_tmp_dir(&a));
+        let obj = objects.join("ab").join("cdef");
+        std::fs::create_dir_all(obj.parent().unwrap()).unwrap();
+        std::fs::write(&obj, vec![0u8; 100]).unwrap();
+        let mut perm = std::fs::metadata(&obj).unwrap().permissions();
+        perm.set_readonly(true);
+        std::fs::set_permissions(&obj, perm).unwrap();
+
+        let u = store.usage(Some(&key("ta"))).chats[0].breakdown;
+        assert_eq!(u.revert_backups, 7);
+        assert_eq!(u.baselines, std::fs::metadata(&file).unwrap().len() + 100);
+        let chat_json = std::fs::metadata(a.join(layout::CHAT_FILE)).unwrap().len();
+        let queue_json = std::fs::metadata(a.join(layout::QUEUE_FILE)).map(|m| m.len()).unwrap_or(0);
+        assert_eq!(u.metadata, chat_json + queue_json + 13, "the old changes.jsonl stays in metadata and nothing is counted twice");
+
+        // 明示の削除で baselines だけが消える（読み取り専用のオブジェクトも）。
+        store.delete_baselines(&key("ta")).unwrap();
+        assert!(!layout::baselines_dir(&a).exists());
+        assert!(a.join(layout::CHANGES_FILE).exists() && a.join(layout::REVERT_BACKUP_DIR).exists());
+        assert!(store.read_baselines(&key("ta")).unwrap().is_empty());
+        store.delete_baselines(&key("ta")).unwrap();
+
+        // チャット削除は baselines（読み取り専用のオブジェクトを含む）も一緒に消す。
+        let (objects_b, _) = store.ensure_baseline_dirs(&key("tb")).unwrap();
+        let obj_b = objects_b.join("12").join("3456");
+        std::fs::create_dir_all(obj_b.parent().unwrap()).unwrap();
+        std::fs::write(&obj_b, b"x").unwrap();
+        let mut perm = std::fs::metadata(&obj_b).unwrap().permissions();
+        perm.set_readonly(true);
+        std::fs::set_permissions(&obj_b, perm).unwrap();
+        store.remove_chat_dir(&key("tb")).unwrap();
+        assert!(!b.exists());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn usage_counts_each_part_once_and_chat_scope_excludes_other_chats_and_settings() {
         let (root, store, a, _b) = two_areas("usage");
         std::fs::write(root.join("settings.json"), vec![0u8; 7]).unwrap();
@@ -993,7 +1120,7 @@ mod tests {
         assert_eq!((ua.attachments, ua.artifacts, ua.workspace, ua.activity), (5, 3, 0, 11));
         let ub = all.chats.iter().find(|c| c.chat == key("tb")).unwrap().breakdown;
         assert_eq!((ub.attachments, ub.artifacts, ub.workspace, ub.activity), (5, 0, 3, 0));
-        let sum = |b: &UsageBreakdown| b.attachments + b.artifacts + b.workspace + b.activity + b.metadata;
+        let sum = |b: &UsageBreakdown| b.attachments + b.artifacts + b.workspace + b.activity + b.metadata + b.baselines + b.revert_backups;
         // 合計 = 各チャットの合計 + チャット領域の外（settings.json の7バイト）。
         assert_eq!(sum(&all.total), sum(&ua) + sum(&ub) + 7);
         let one = store.usage(Some(&key("ta")));

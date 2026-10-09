@@ -8,7 +8,7 @@ import { chatName } from "./derive";
 import { showKnown } from "./format";
 
 const KIND_TEXT: Record<ChangeKind, string> = { added: "追加", deleted: "削除", modified: "変更" };
-const SOURCE_TEXT: Record<ChangeSource, string> = { backendReported: "Codex報告", git: "Git上の現在の差分" };
+const SOURCE_TEXT: Record<ChangeSource, string> = { backendReported: "Codex報告", baseline: "turnの変更（控え基準）", git: "Git上の現在の差分" };
 
 const fileKey = (f: ChangedFile) => `${f.path}|${f.moveTo ?? ""}`;
 const errText = (e: unknown) => host.asIpcError(e).message;
@@ -218,8 +218,8 @@ export function RevertBody({ chat, live, cap, onDone }: RevertProps) {
                     <label><input type="checkbox" checked={!!chosen[i.path]} disabled={running || confirming} onChange={(e) => setChosen((c) => ({ ...c, [i.path]: e.target.checked }))} /> <span className="mono">{i.path}</span>
                       <span className="small muted"> — {i.verdict.summary}</span></label>
                   ) : (
-                    <div><span className="mono">{i.path}</span> <span className="tag unv">戻せません: {BLOCK_LABEL[i.verdict.code] ?? i.verdict.code}</span>
-                      <div className="small muted">{i.verdict.message}</div></div>
+                    <div><span className="mono">{i.path}</span> <span className="tag unv">戻せません: {i.verdict.kind === "blocked" ? (BLOCK_LABEL[i.verdict.code] ?? i.verdict.code) : "要確認"}</span>
+                      <div className="small muted">{i.verdict.kind === "blocked" ? i.verdict.message : i.verdict.reasons.map((r) => r.message).join(" / ")}</div></div>
                   )}
                   {i.includesTurns.length > 0 ? <div className="small muted">一緒に戻る後続の変更: turn {i.includesTurns.join(", ")}</div> : null}
                 </li>))}

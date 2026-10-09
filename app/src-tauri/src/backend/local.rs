@@ -501,6 +501,31 @@ pub struct AppSettings {
     /// クラウド委任の環境IDをリポジトリ（ルートのパス）ごとに記憶したもの。委任を送ったときだけ更新する。
     #[serde(default)]
     pub cloud_env_by_repo: std::collections::BTreeMap<String, String>,
+    /// 変更の控え（Git基準。DESIGN_P3B）。古い `settings.json`（この項目なし）は既定値で読む。
+    #[serde(default)]
+    pub baselines: BaselineSettings,
+}
+
+/// 変更の控えの設定。取得の時間の上限は固定（10秒、`backend::baseline::BASELINE_TIME_LIMIT_MS`）。
+/// 控えに失敗しても送信は止めない。失敗の警告は理由ごとにチャット1回出す（無効のときは出さない）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct BaselineSettings {
+    /// turnの開始時に変更の控えを取る（Gitリポジトリのみ）。オフなら取らず、「変更を戻す」の対象になりません。
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl Default for BaselineSettings {
+    fn default() -> Self {
+        BaselineSettings { enabled: true }
+    }
 }
 
 /// 外部ツールの場所。None＝PATH。
@@ -554,6 +579,7 @@ impl Default for AppSettings {
             acknowledged_warnings: Vec::new(),
             tools: ToolSettings::default(),
             cloud_env_by_repo: Default::default(),
+            baselines: BaselineSettings::default(),
         }
     }
 }
@@ -611,6 +637,14 @@ pub struct UsageBreakdown {
     /// 設定・台帳などのJSON。
     #[cfg_attr(test, ts(type = "number"))]
     pub metadata: u64,
+    /// 変更の控え（`baselines\`。Git基準）。
+    #[serde(default)]
+    #[cfg_attr(test, ts(type = "number"))]
+    pub baselines: u64,
+    /// 戻す前の控え（`revert-backup\`）。
+    #[serde(default)]
+    #[cfg_attr(test, ts(type = "number"))]
+    pub revert_backups: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

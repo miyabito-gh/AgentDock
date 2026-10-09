@@ -422,6 +422,11 @@ impl Host {
     /// 変更ファイルの一覧。`WorkingTree` はGit上の現在の差分、他はバックエンドの報告。読取りだけで、resumeしない。
     pub async fn get_change_list(self: &Arc<Self>, args: GetChangeListArgs) -> Result<ChangeList, IpcError> {
         self.require_chat(&args.chat)?;
+        if args.source == Some(ChangeSource::Baseline) {
+            // 控え基準の一覧はP3B-4で実装する（それまでは既存の挙動を変えない）。
+            let status = ListStatus::NotSupported { message: "控え基準の差分はまだ使えません".into() };
+            return Ok(ChangeList { scope: args.scope, source: ChangeSource::Baseline, status, files: vec![], notes: vec![] });
+        }
         if args.scope == ChangeScope::WorkingTree {
             return Ok(self.git_list(&args.chat, args.scope).await);
         }
@@ -448,6 +453,7 @@ impl Host {
                     None => out(ListStatus::NotFetched { message: "このファイルの報告を受け取っていません".into() }, String::new()),
                 })
             }
+            ChangeSource::Baseline => Ok(out(ListStatus::NotSupported { message: "控え基準の差分はまだ使えません".into() }, String::new())),
             ChangeSource::Git => {
                 let (root, git) = match self.git_context(&args.chat).await {
                     GitCtx::Ready { root, git } => (root, git),
@@ -564,7 +570,7 @@ impl Host {
             }
         }
         if run.is_empty() {
-            return Ok(RevertResult { reverted: vec![], failed, backup_dir: None });
+            return Ok(RevertResult { reverted: vec![], forced: vec![], failed, backup_dir: None });
         }
         let Some(store) = self.persist.store().cloned() else { return Err(err(IpcErrorCode::Io, "保存先が使えないため、戻す前の控えを保存できません。何も変更していません")) };
         let at = now_ms();
@@ -599,7 +605,7 @@ impl Host {
             }
         }
         self.mutate(|_| ((), vec![HostEvent::ChangesUpdated { chat: args.chat.clone(), turn: None }]));
-        Ok(RevertResult { reverted: done.reverted, failed, backup_dir: Some(done.backup_dir) })
+        Ok(RevertResult { reverted: done.reverted, forced: vec![], failed, backup_dir: Some(done.backup_dir) })
     }
 }
 

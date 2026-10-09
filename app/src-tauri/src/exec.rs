@@ -7,7 +7,7 @@ use std::path::Path;
 use std::process::Stdio;
 use std::time::Duration;
 
-use tokio::io::{AsyncRead, AsyncReadExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
 
 #[cfg(windows)]
@@ -45,6 +45,8 @@ pub struct RunSpec<'a> {
     pub env: &'a [(&'a str, &'a str)],
     pub timeout: Duration,
     pub stdout_limit: usize,
+    /// 標準入力へ渡す内容（None＝標準入力なし）。書き終えたら閉じる。タイムアウト内に書き終わらなければ他と同じく打ち切る。
+    pub stdin: Option<&'a [u8]>,
 }
 
 /// 読取りの失敗。EOFとは区別する（途中で切れた出力を完全な結果として扱わない）。
@@ -92,10 +94,23 @@ pub async fn run_bounded(spec: RunSpec<'_>) -> Result<RunOutput, RunError> {
     for (k, v) in spec.env {
         cmd.env(k, v);
     }
-    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
+    cmd.stdin(if spec.stdin.is_some() { Stdio::piped() } else { Stdio::null() }).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
     #[cfg(windows)]
     cmd.creation_flags(CREATE_NO_WINDOW);
     let mut child = cmd.spawn().map_err(|e| RunError::Spawn(e.to_string()))?;
+    // 標準入力は別タスクで書く（出力の読取りと同時に進めないと、双方が詰まる）。
+    let stdin_task = match spec.stdin {
+        Some(bytes) => {
+            let mut sin = child.stdin.take().ok_or_else(|| RunError::Io("no stdin".into()))?;
+            let data = bytes.to_vec();
+            Some(tokio::spawn(async move {
+                let r = sin.write_all(&data).await;
+                drop(sin);
+                r
+            }))
+        }
+        None => None,
+    };
     let stdout = child.stdout.take().ok_or_else(|| RunError::Io("no stdout".into()))?;
     let stderr = child.stderr.take().ok_or_else(|| RunError::Io("no stderr".into()))?;
     let limit = spec.stdout_limit;
@@ -115,6 +130,15 @@ pub async fn run_bounded(spec: RunSpec<'_>) -> Result<RunOutput, RunError> {
             Ok(out) => {
                 let status = child.wait().await.map_err(|e| RunError::Io(e.to_string()))?;
                 let err = err_task.await.map_err(|e| RunError::Io(e.to_string()))?.map_err(RunError::Io)?;
+                // 相手が入力を読まずに終了した（BrokenPipe）ときは終了コードで判断する。それ以外の書込み失敗は結果を信用しない。
+                if let Some(t) = stdin_task {
+                    match t.await {
+                        Ok(Ok(())) => {}
+                        Ok(Err(e)) if e.kind() == std::io::ErrorKind::BrokenPipe => {}
+                        Ok(Err(e)) => return Err(RunError::Io(format!("stdin: {e}"))),
+                        Err(e) => return Err(RunError::Io(e.to_string())),
+                    }
+                }
                 Ok(RunOutput { exit_code: status.code(), stdout: out, stderr: err })
             }
         }
@@ -144,7 +168,7 @@ mod tests {
     #[tokio::test]
     async fn runs_with_args_array_and_captures_output() {
         let (program, args) = shell_echo("hello");
-        let out = run_bounded(RunSpec { program: &program, args: &args, cwd: None, env: &[], timeout: Duration::from_secs(10), stdout_limit: 1024 }).await.unwrap();
+        let out = run_bounded(RunSpec { program: &program, args: &args, cwd: None, env: &[], timeout: Duration::from_secs(10), stdout_limit: 1024, stdin: None }).await.unwrap();
         assert_eq!(out.exit_code, Some(0));
         assert!(String::from_utf8_lossy(&out.stdout).contains("hello"));
     }
@@ -153,13 +177,41 @@ mod tests {
     #[tokio::test]
     async fn output_over_limit_is_an_error_not_truncation() {
         let (program, args) = shell_echo("0123456789");
-        let r = run_bounded(RunSpec { program: &program, args: &args, cwd: None, env: &[], timeout: Duration::from_secs(10), stdout_limit: 4 }).await;
+        let r = run_bounded(RunSpec { program: &program, args: &args, cwd: None, env: &[], timeout: Duration::from_secs(10), stdout_limit: 4, stdin: None }).await;
         assert_eq!(r, Err(RunError::OutputTooLarge(4)));
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn stdin_is_written_and_closed() {
+        // `findstr "^"` は標準入力の全行をそのまま出力して、入力が閉じられたら終わる。
+        let args = vec!["^".to_string()];
+        let out = run_bounded(RunSpec { program: "findstr", args: &args, cwd: None, env: &[], timeout: Duration::from_secs(10), stdout_limit: 1024, stdin: Some(b"alpha\r\nbeta\r\n") })
+            .await
+            .unwrap();
+        assert_eq!(out.exit_code, Some(0));
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "alpha\r\nbeta\r\n");
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn stdin_larger_than_the_pipe_buffer_does_not_deadlock() {
+        let big = vec![b'x'; 300 * 1024];
+        let mut input = Vec::new();
+        for _ in 0..30 {
+            input.extend_from_slice(&big[..10 * 1024]);
+            input.extend_from_slice(b"\r\n");
+        }
+        let args = vec!["^".to_string()];
+        let out = run_bounded(RunSpec { program: "findstr", args: &args, cwd: None, env: &[], timeout: Duration::from_secs(20), stdout_limit: 1024 * 1024, stdin: Some(&input) })
+            .await
+            .unwrap();
+        assert_eq!(out.stdout.len(), input.len());
     }
 
     #[tokio::test]
     async fn missing_program_is_a_spawn_error() {
-        let r = run_bounded(RunSpec { program: "agentdock-no-such-program", args: &[], cwd: None, env: &[], timeout: Duration::from_secs(5), stdout_limit: 16 }).await;
+        let r = run_bounded(RunSpec { program: "agentdock-no-such-program", args: &[], cwd: None, env: &[], timeout: Duration::from_secs(5), stdout_limit: 16, stdin: None }).await;
         assert!(matches!(r, Err(RunError::Spawn(_))));
     }
 }

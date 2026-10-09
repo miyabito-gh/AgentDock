@@ -164,7 +164,7 @@ impl CodexCli {
     pub async fn run(&self, command: &CliCommand, cwd: Option<&std::path::Path>) -> Result<CliOutput, CliError> {
         let args = command.args()?;
         let _serial = self.lock.lock().await;
-        let out = run_bounded(RunSpec { program: &self.exe, args: &args, cwd, env: &[], timeout: TIMEOUT, stdout_limit: OUTPUT_LIMIT }).await?;
+        let out = run_bounded(RunSpec { program: &self.exe, args: &args, cwd, env: &[], timeout: TIMEOUT, stdout_limit: OUTPUT_LIMIT, stdin: None }).await?;
         Ok(CliOutput { exit_code: out.exit_code, stdout: out.stdout, stderr: out.stderr })
     }
 }

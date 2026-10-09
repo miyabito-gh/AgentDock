@@ -6,4 +6,8 @@ export type RevertChangesArgs = { chat: ChatKey, planId: LocalId,
 /**
  * 計画のうち実行するファイル（戻せると判定したものだけ有効）。
  */
-paths: Array<string>, };
+paths: Array<string>, 
+/**
+ * 2段目の確認で選んだ要確認のファイル（`NeedsOverride` で、理由が計画時と同じものだけ有効）。既定は空。
+ */
+forced: Array<string>, };

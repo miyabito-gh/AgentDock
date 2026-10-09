@@ -24,7 +24,7 @@ export function fmtBytes(n: number): string {
   return `${v >= 100 ? v.toFixed(0) : v.toFixed(1)} ${units[i]}`;
 }
 
-const breakdownTotal = (b: UsageBreakdown): number => b.attachments + b.artifacts + b.workspace + b.activity + b.metadata;
+const breakdownTotal = (b: UsageBreakdown): number => b.attachments + b.artifacts + b.workspace + b.activity + b.metadata + b.baselines + b.revertBackups;
 
 /** 削除確認の状態。preview が null の間は取得中（error があれば取得失敗）。 */
 export interface DeleteProps {
@@ -117,7 +117,7 @@ export function ExportBody({ e }: { e: ExportProps }) {
 export interface UsageProps { report: UsageReport | null; error: string | null; loading: boolean; reload: () => void }
 
 const LINES: Array<[keyof UsageBreakdown, string]> = [
-  ["attachments", "添付"], ["artifacts", "成果物"], ["workspace", "作業領域"], ["activity", "監視活動"], ["metadata", "メタデータ"],
+  ["attachments", "添付"], ["artifacts", "成果物"], ["workspace", "作業領域"], ["activity", "監視活動"], ["metadata", "メタデータ"], ["baselines", "変更の控え"], ["revertBackups", "戻す前の控え"],
 ];
 
 const breakdownText = (b: UsageBreakdown): string => LINES.map(([k, t]) => `${t} ${fmtBytes(b[k])}`).join("／");

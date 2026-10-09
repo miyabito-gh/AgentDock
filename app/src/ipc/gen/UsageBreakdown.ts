@@ -8,4 +8,12 @@ workspace: number, activity: number,
 /**
  * 設定・台帳などのJSON。
  */
-metadata: number, };
+metadata: number, 
+/**
+ * 変更の控え（`baselines\`。Git基準）。
+ */
+baselines: number, 
+/**
+ * 戻す前の控え（`revert-backup\`）。
+ */
+revertBackups: number, };

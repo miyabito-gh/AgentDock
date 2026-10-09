@@ -4,7 +4,12 @@
 //! worktree操作（追加・削除・マージ済みブランチの削除）に限る。引数は配列（シェルなし）、コンソール窓なし、
 //! タイムアウトと出力上限（16MiB）あり、実行は直列化する。`git` の場所は設定 `tools.git`（なければPATH）。
 //! 強制系（`--force`）は削除操作の2段目の確認後にだけ呼出し側が指定する。`branch -D` は提供しない。
+//!
+//! 「変更の控え」用の操作（[`snapshot::SnapshotOp`]）は別の列挙型で、必ず [`snapshot::SnapshotEnv`] を要求する。
+//! 控え用の操作はAgentDock領域（チャット領域内の専用objects置き場と一時インデックス）にだけ書き、
+//! ユーザーの作業ツリー・インデックス・stash・ブランチ・refs・リポジトリの `objects` には書かない（DESIGN_P3B §1.1）。
 
+pub mod snapshot;
 pub mod worktree;
 
 use std::path::Path;
@@ -210,6 +215,7 @@ impl Git {
             env: &[("GIT_TERMINAL_PROMPT", "0"), ("GIT_OPTIONAL_LOCKS", "0")],
             timeout: op.timeout(),
             stdout_limit: OUTPUT_LIMIT,
+            stdin: None,
         })
         .await?;
         Ok(GitOutput { exit_code: out.exit_code, stdout: out.stdout, stderr: out.stderr })
