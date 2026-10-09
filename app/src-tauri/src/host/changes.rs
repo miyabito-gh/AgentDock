@@ -635,6 +635,40 @@ impl Session {
         rb::ConcurrentRec::Chat { other_changed: changed.into_iter().collect(), other_end_known: known }
     }
 
+    /// 現在のファイルがstatusに「変更あり（生形）」と出ていても、その内容が、HEAD形の控え（BまたはE）をcheckoutと同じ変換
+    /// （改行・smudge・LFS。`cat-file --filters`）に通した内容と同じなら、現在の状態をその控えのエントリとみなす。
+    /// autocrlfなどでLFとCRLFが違うだけの内容を「別の変更」にしない。生形の控えは生バイトのまま比べる（ここでは扱わない）。
+    async fn align_current_with_filtered(&self, states: &mut HashMap<(StateAt, String), EntryState>, paths: &[String], k: usize, n: usize, prefix: &str, cwd: Option<&str>) {
+        for p in paths {
+            if !matches!(states.get(&(StateAt::Current, p.clone())), Some(EntryState::Present(EntryRef { form: EntryForm::Raw, .. }))) {
+                continue;
+            }
+            // 作業フォルダの外のパスは読まない。
+            let confine = |q: &str| confine_to(cwd, &self.top.join(q).to_string_lossy());
+            if rb::check_inside(p, prefix, &confine).is_err() {
+                continue;
+            }
+            let abs = self.top.join(p);
+            let Ok(info) = tokio::task::spawn_blocking(move || file_info(&abs)).await else { continue };
+            let CurrentFile::File { sha } = info.file else { continue };
+            let mut order = vec![StateAt::Base(k)];
+            if matches!(states.get(&(StateAt::End(n), p.clone())), Some(EntryState::Present(_))) {
+                order.push(StateAt::End(n));
+            }
+            for at in order {
+                let Some(EntryState::Present(e)) = states.get(&(at, p.clone())).cloned() else { continue };
+                if e.form != EntryForm::Head {
+                    continue;
+                }
+                let Ok(out) = self.run(&SnapshotOp::CatFileFiltered { path: p.clone(), oid: e.oid.clone() }).await else { continue };
+                if rb::sha256_hex(&out.stdout) == sha {
+                    states.insert((StateAt::Current, p.clone()), EntryState::Present(e));
+                    break;
+                }
+            }
+        }
+    }
+
     /// 戻す計画を作る（読取りのみ）。`req` が None なら、選んだ区間以降で変わったすべてのパスが対象。
     /// 戻り値は判定と、選んだ区間（見つからなければ None）。
     async fn plan(&mut self, segs: &[SegRec], marks: &[RevertMark], from_turn: Option<&ExternalId>, req: Option<Vec<String>>, cwd: Option<String>) -> Result<(Vec<PathPlan>, Option<LocalId>), IpcError> {
@@ -689,6 +723,7 @@ impl Session {
                         states.insert((*at, p.clone()), entry_state(pt, ls, p));
                     }
                 }
+                self.align_current_with_filtered(&mut states, &paths, k, n, &prefix, cwd.as_deref()).await;
             }
         }
         let data = PlanData {
@@ -1507,6 +1542,10 @@ mod tests {
 
     /// a.txt（LF）・h.txt（.gitattributes で eol=crlf、作業ツリーはCRLF）・b.txt をコミット済みのリポジトリと、そのチャット。
     fn fx(tag: &str) -> Option<Fx> {
+        fx_cfg(tag, "false")
+    }
+
+    fn fx_cfg(tag: &str, autocrlf: &str) -> Option<Fx> {
         if !git_ok() {
             return None;
         }
@@ -1514,7 +1553,7 @@ mod tests {
         let repo = base.join("repo");
         std::fs::create_dir_all(&repo).unwrap();
         sh(&repo, &["init", "-q"]);
-        for (k, v) in [("user.email", "t@example.com"), ("user.name", "t"), ("core.autocrlf", "false")] {
+        for (k, v) in [("user.email", "t@example.com"), ("user.name", "t"), ("core.autocrlf", autocrlf)] {
             sh(&repo, &["config", k, v]);
         }
         std::fs::write(repo.join(".gitattributes"), b"h.txt text eol=crlf\n").unwrap();
@@ -1527,6 +1566,12 @@ mod tests {
         std::fs::remove_file(repo.join("h.txt")).unwrap();
         sh(&repo, &["checkout", "--", "h.txt"]);
         assert_eq!(std::fs::read(repo.join("h.txt")).unwrap(), b"hello\r\nworld\r\n", "the attribute makes the worktree CRLF");
+        if autocrlf == "true" {
+            // Windows既定: チェックアウトでCRLFになる。
+            std::fs::remove_file(repo.join("a.txt")).unwrap();
+            sh(&repo, &["checkout", "--", "a.txt"]);
+            assert_eq!(std::fs::read(repo.join("a.txt")).unwrap(), b"one\r\n");
+        }
         let store = Arc::new(Store::open(base.join("data")).unwrap());
         let host = Arc::new(Host::with_store(base.join("data"), store));
         host.set_emitter(Arc::new(|_| {}));
@@ -1671,6 +1716,68 @@ mod tests {
         assert!(items.iter().any(|i| i.restored == Restored::Absent && i.path == "new.txt"));
         let again = f.preview("t1").await;
         assert!(again.items.iter().all(|i| matches!(&i.verdict, RevertVerdict::Blocked { code: RevertBlockCode::AlreadyReverted, .. })), "{again:?}");
+        f.done();
+    }
+
+    #[tokio::test]
+    async fn with_autocrlf_a_reverted_file_is_already_reverted_and_a_later_edit_needs_confirmation() {
+        let Some(mut f) = fx_cfg("autocrlf", "true") else { return };
+        let Some(()) = f.turn("t1", |r| std::fs::write(r.join("a.txt"), b"HELLO\r\n").unwrap()).await else {
+            f.done();
+            return;
+        };
+        let plan = f.preview("t1").await;
+        assert!(is_revertible(verdict(&plan, "a.txt")), "{:?}", verdict(&plan, "a.txt"));
+        let res = f.revert(&plan, &["a.txt"], &[]).await.unwrap();
+        assert!(res.failed.is_empty(), "{res:?}");
+        assert_eq!(f.read("a.txt"), b"one\r\n", "restored through the checkout conversion");
+        assert_eq!(sh(&f.repo, &["status", "--porcelain"]).trim(), "");
+        // 戻した直後に開き直すと「戻し済み」（強制できない）。
+        let again = f.preview("t1").await;
+        assert!(matches!(verdict(&again, "a.txt"), RevertVerdict::Blocked { code: RevertBlockCode::AlreadyReverted, .. }), "{:?}", verdict(&again, "a.txt"));
+        // 戻した後に次のturn（変更なし）を送っても同じ。
+        let Some(()) = f.turn("t2", |_| {}).await else {
+            f.done();
+            return;
+        };
+        let after_next = f.preview("t1").await;
+        assert!(matches!(verdict(&after_next, "a.txt"), RevertVerdict::Blocked { code: RevertBlockCode::AlreadyReverted, .. }), "{:?}", verdict(&after_next, "a.txt"));
+        // その後に利用者が編集したら、従来どおり要確認。
+        std::fs::write(f.repo.join("a.txt"), b"one\r\nmore\r\n").unwrap();
+        let later = f.preview("t1").await;
+        let RevertVerdict::NeedsOverride { reasons, .. } = verdict(&later, "a.txt") else { panic!("{:?}", verdict(&later, "a.txt")) };
+        assert!(reasons.iter().any(|r| r.code == RevertBlockCode::ChangedAfter), "{reasons:?}");
+        f.done();
+    }
+
+    #[tokio::test]
+    async fn a_current_file_equal_to_the_filtered_head_entry_is_treated_as_that_entry() {
+        let Some(f) = fx_cfg("align", "true") else { return };
+        let cwd = f.repo.to_string_lossy().into_owned();
+        let oid = sh(&f.repo, &["rev-parse", "HEAD:a.txt"]).trim().to_string();
+        let session = Session::open(&f.host, &f.chat, &cwd).await;
+        let Ok(s) = session else {
+            f.done();
+            return;
+        };
+        let head = EntryState::Present(EntryRef { oid: oid.clone(), form: EntryForm::Head });
+        let raw = EntryState::Present(EntryRef { oid: "deadbeef".into(), form: EntryForm::Raw });
+        let mk = || {
+            let mut m: HashMap<(StateAt, String), EntryState> = HashMap::new();
+            m.insert((StateAt::Base(0), "a.txt".into()), head.clone());
+            m.insert((StateAt::Current, "a.txt".into()), raw.clone());
+            m
+        };
+        // 作業ツリーはCRLF（checkoutの変換後）。HEAD形のBを同じ変換に通した内容と同じなので、Bのエントリとみなす。
+        assert_eq!(f.read("a.txt"), b"one\r\n");
+        let mut st = mk();
+        s.align_current_with_filtered(&mut st, &["a.txt".to_string()], 0, 0, "", Some(&cwd)).await;
+        assert_eq!(st[&(StateAt::Current, "a.txt".to_string())], head);
+        // 内容が違えば（利用者の編集）そのまま。生形の控えとは生バイトで比べるので、ここでは何もしない。
+        std::fs::write(f.repo.join("a.txt"), b"one\r\nmore\r\n").unwrap();
+        let mut st = mk();
+        s.align_current_with_filtered(&mut st, &["a.txt".to_string()], 0, 0, "", Some(&cwd)).await;
+        assert_eq!(st[&(StateAt::Current, "a.txt".to_string())], raw);
         f.done();
     }
 
