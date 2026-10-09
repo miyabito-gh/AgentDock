@@ -103,6 +103,8 @@ pub enum SnapshotOp {
     DiffTreeNames { a: String, b: String },
     /// 2つの木の統一diff（表示専用）。
     DiffTrees { a: String, b: String, path: String },
+    /// 2つの木の全体の統一diff（一覧の行数集計用の読取り。表示専用）。
+    DiffTreesAll { a: String, b: String },
     /// blobの生バイト（生形の取り出し）。
     CatFileBlob { oid: String },
     /// checkoutと同じ変換（改行・smudge・LFS）をかけたバイト列（HEAD形の取り出し）。
@@ -132,6 +134,7 @@ impl SnapshotOp {
             | SnapshotOp::LsTree { .. }
             | SnapshotOp::DiffTreeNames { .. }
             | SnapshotOp::DiffTrees { .. }
+            | SnapshotOp::DiffTreesAll { .. }
             | SnapshotOp::CatFileBlob { .. }
             | SnapshotOp::CatFileFiltered { .. } => EnvKind::Objects,
         }
@@ -184,6 +187,12 @@ impl SnapshotOp {
                 check(valid_path(path), "path")?;
                 let mut v = strings(&["--no-optional-locks", "--literal-pathspecs", "-c", "core.quotepath=false", "diff", "--no-ext-diff", "--no-textconv", "--no-color"]);
                 v.extend([a.clone(), b.clone(), "--".into(), path.clone()]);
+                v
+            }
+            SnapshotOp::DiffTreesAll { a, b } => {
+                check(valid_oid(a) && valid_oid(b), "tree")?;
+                let mut v = strings(&["--no-optional-locks", "-c", "core.quotepath=false", "diff", "--no-ext-diff", "--no-textconv", "--no-color", "--no-renames"]);
+                v.extend([a.clone(), b.clone()]);
                 v
             }
             SnapshotOp::CatFileBlob { oid } => {
@@ -444,6 +453,9 @@ mod tests {
         for f in ["--no-optional-locks", "--no-ext-diff", "--no-textconv", "--no-color"] {
             assert!(d.contains(&f.to_string()), "{f}");
         }
+        let all = SnapshotOp::DiffTreesAll { a: OID.into(), b: OID.into() }.args().unwrap();
+        assert!(all.contains(&"--no-renames".to_string()) && all.contains(&"--no-ext-diff".to_string()) && !all.contains(&"--".to_string()));
+        assert_eq!(SnapshotOp::DiffTreesAll { a: OID.into(), b: OID.into() }.env_kind(), EnvKind::Objects);
         let n = SnapshotOp::DiffTreeNames { a: OID.into(), b: OID.into() }.args().unwrap();
         assert!(n.contains(&"--no-renames".to_string()) && n.contains(&"-z".to_string()) && n.contains(&"--name-only".to_string()));
     }

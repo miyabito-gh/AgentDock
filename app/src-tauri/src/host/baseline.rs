@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::Notify;
 
-use super::baseline_snap::{capture, probe_repo};
+use super::baseline_snap::{capture, probe_repo, RepoProbe};
 use super::cloud::paths_overlap;
 use super::state::{agent_key_of, HostData};
 use super::{blocked, err, now_ms, Host};
@@ -386,7 +386,7 @@ impl Host {
     // ───────────── 記録 ─────────────
 
     /// 控えの記録を1行追記する。削除中・保存先なしは書かない。書けたら `ChangesUpdated` を出す。
-    fn baseline_append(&self, chat: &ChatKey, line: BaselineLine) -> bool {
+    pub(super) fn baseline_append(&self, chat: &ChatKey, line: BaselineLine) -> bool {
         let Some(store) = self.persist.store() else { return false };
         let result = {
             let _g = self.persist.io_guard();
@@ -517,6 +517,14 @@ impl Host {
         // 戻す操作の実行中はその終了を待つ（待ち時間は取得の時間に数えない）。
         let lock = self.baseline_rt.repo_lock(&repo.root);
         let _read = lock.read().await;
+        let snapshot = self.baseline_capture_locked(chat, store, &git, &probe, t0).await?;
+        Ok((repo, snapshot))
+    }
+
+    /// リポジトリロック（読取りか書込み）を持った状態で、調べ済みのリポジトリの控えを取る（P3B-4: 戻す処理の現在状態 C もこれで取る）。
+    /// 専用objects置き場にだけ書き、ユーザーのリポジトリは変えない。`t0` は調査を始めた時刻（総時間の上限の起点）。
+    pub(super) async fn baseline_capture_locked(self: &Arc<Self>, chat: &ChatKey, store: &Arc<Store>, git: &Git, probe: &RepoProbe, t0: Instant) -> Result<Snapshot, BaselineFailure> {
+        let limit = Duration::from_millis(BASELINE_TIME_LIMIT_MS);
         if self.manage_rt.is_deleting(chat) {
             return Err(BaselineFailure::Git { message: "chat is being deleted".into() });
         }
@@ -525,8 +533,7 @@ impl Host {
         let exclude = store.root().to_path_buf();
         let remaining = limit.saturating_sub(t0.elapsed()).max(Duration::from_millis(MIN_CAPTURE_MS));
         let space = |need: u64| store.check_space(need).map_err(store_failure);
-        let snapshot = tokio::time::timeout(remaining, capture(&git, &probe, &objects, &tmp, &exclude, &space)).await.map_err(|_| BaselineFailure::Timeout)??;
-        Ok((repo, snapshot))
+        tokio::time::timeout(remaining, capture(git, probe, &objects, &tmp, &exclude, &space)).await.map_err(|_| BaselineFailure::Timeout)?
     }
 
     // ───────────── 受理・受理なしの確定 ─────────────
@@ -605,7 +612,7 @@ impl Host {
     }
 
     /// Eを取る時機の区間を見つけて、作業キューへ積む。
-    fn baseline_poll(self: &Arc<Self>) {
+    pub(super) fn baseline_poll(self: &Arc<Self>) {
         let chats: Vec<ChatKey> = self.baseline_rt.chats.lock().unwrap().iter().filter(|(_, c)| c.open.as_ref().is_some_and(|o| o.root_ended && !o.end_in_flight)).map(|(k, _)| k.clone()).collect();
         for chat in chats {
             let quiescent = self.read(|d| chat_quiescent(d, &chat));

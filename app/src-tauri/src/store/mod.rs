@@ -22,7 +22,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::Serialize;
 
 use crate::backend::baseline::{BaselineEntry, BaselineLine, BASELINE_SCHEMA_VERSION};
-use crate::backend::changes::ChangeLine;
 use crate::backend::local::*;
 use crate::backend::model::*;
 
@@ -384,37 +383,6 @@ impl Store {
             Err(e) => return Err(StoreError::Io(e)),
         };
         Ok(text.lines().filter_map(|l| serde_json::from_str(l).ok()).collect())
-    }
-
-    /// 変更の観測記録・戻しの記録を1行追記する（`changes.jsonl`。flushまで行う。空き確認つき）。
-    pub fn append_change(&self, chat: &ChatKey, line: &ChangeLine) -> Result<(), StoreError> {
-        let text = serde_json::to_string(line).map_err(|e| StoreError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, e)))?;
-        self.check_space(text.len() as u64 + 1)?;
-        let dir = layout::chat_dir(&self.root, &self.ensure_dir_id(chat));
-        atomic::append_line(&dir.join(layout::CHANGES_FILE), &text)?;
-        Ok(())
-    }
-
-    /// 全チャットの変更記録を、時刻順（同時刻はファイル内の順）で読む。読めない行（途中で切れた最終行など）は飛ばす。
-    /// 他チャットの後続の変更を見つけるために全領域を走査する。読めない領域があれば `Err`（欠けた状態で判定しない）。
-    pub fn read_all_changes(&self) -> Result<Vec<ChangeLine>, StoreError> {
-        let rd = std::fs::read_dir(self.root.join(layout::CHATS_DIR))?;
-        let mut dirs: Vec<PathBuf> = rd.filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.is_dir()).collect();
-        dirs.sort();
-        let mut all: Vec<ChangeLine> = Vec::new();
-        for dir in dirs {
-            let text = match std::fs::read_to_string(dir.join(layout::CHANGES_FILE)) {
-                Ok(t) => t,
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
-                Err(e) => return Err(StoreError::Io(e)),
-            };
-            all.extend(text.lines().filter_map(|l| serde_json::from_str::<ChangeLine>(l).ok()));
-        }
-        all.sort_by_key(|l| match l {
-            ChangeLine::Observed { record } => record.observed_at,
-            ChangeLine::Reverted { at, .. } => *at,
-        });
-        Ok(all)
     }
 
     /// 変更の控えの記録を1行追記する（`baselines\segments.jsonl`。flushまで行う。空き確認つき）。

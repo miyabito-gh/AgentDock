@@ -236,7 +236,7 @@ pub fn config_toml_hash() -> crate::backend::model::Known<String> {
     use crate::backend::model::Known;
     let Some(path) = config_toml_path() else { return Known::NotFetched };
     match std::fs::read(&path) {
-        Ok(bytes) => Known::direct(crate::rules::revert::sha256_hex(&bytes)),
+        Ok(bytes) => Known::direct(crate::rules::baseline::sha256_hex(&bytes)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Known::Missing,
         Err(_) => Known::NotFetched,
     }

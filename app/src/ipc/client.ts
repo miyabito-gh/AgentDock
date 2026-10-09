@@ -152,14 +152,14 @@ export const saveFileAs = (target: FileRef, dest: string, overwriteConfirmed: bo
 export const readFilePreview = (target: FileRef): Promise<ArrayBuffer> => invoke("read_file_preview", { args: { target } });
 
 // ── 変更ファイルと差分・変更を戻す（段階③ #1・#2）。一覧と差分は読取りのみ。 ──
-/** 変更ファイルの一覧。scope が workingTree ならGit上の現在の差分、それ以外はCodexが報告した変更（出所は混ぜない）。 */
-export const getChangeList = (chat: ChatKey, scope: ChangeScope): Promise<ChangeList> => invokeCmd("get_change_list", { chat, scope });
+/** 変更ファイルの一覧。source が baseline なら控え基準（scope で範囲）、git ならGit上の現在の差分（scope は無視）。出所は混ぜない。 */
+export const getChangeList = (chat: ChatKey, scope: ChangeScope, source: ChangeSource): Promise<ChangeList> => invokeCmd("get_change_list", { chat, scope, source });
 export const getFileDiff = (chat: ChatKey, path: string, source: ChangeSource, turn: ExternalId | null): Promise<UnifiedDiff> =>
   invokeCmd("get_file_diff", { chat, path, source, turn });
 /** 戻す計画の作成（ファイルは変更しない）。ファイルごとに戻せるか・戻せない理由が返る。 */
 export const previewRevert = (chat: ChatKey, turn: ExternalId | null, paths: string[] | null): Promise<RevertPlan> => invokeCmd("preview_revert", { chat, turn, paths });
 /** 変更を戻す（確認画面の後だけ）。控えを保存できなければ何も変えない。部分成功は failed に出る。 */
-export const revertChanges = (chat: ChatKey, planId: LocalId, paths: string[]): Promise<RevertResult> => invokeCmd("revert_changes", { chat, planId, paths, forced: [] });
+export const revertChanges = (chat: ChatKey, planId: LocalId, paths: string[], forced: string[] = []): Promise<RevertResult> => invokeCmd("revert_changes", { chat, planId, paths, forced });
 
 // ── 計画／実行・Goal・状態・memories（段階③ P3-3） ──
 /** 計画／実行の選択（次のturnから適用）。null＝選択を外す。受理されたかは、設定の更新通知を受けたときだけ「受理済み」に出る。 */

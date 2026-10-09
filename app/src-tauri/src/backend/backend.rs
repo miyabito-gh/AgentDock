@@ -17,7 +17,6 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 
-use super::changes::FileChange;
 use super::model::*;
 use super::parity::{Goal, ToolServerConnection};
 
@@ -71,10 +70,6 @@ pub enum BackendEvent {
     ActivityDelta { item: ItemKey, delta: String },
     /// 会話で作られた（変更された）ファイルの候補。ファイル変更itemの確定時に出す。実在の確認はホストが行う（§3.8）。
     ArtifactObserved { agent: AgentKey, item: ItemKey, path: String },
-    /// turn単位の集約diffの更新（描画用。turnごとに最新値で上書きされ、状態判定には使わない）。
-    TurnChangesUpdated { turn: TurnKey, diff: String },
-    /// 完了したファイル変更itemの報告（差分つき）。ホストが観測記録として保存する（戻す操作の根拠、DESIGN_P3 #2）。
-    FileChangeObserved { agent: AgentKey, item: ItemKey, changes: Vec<FileChange> },
     /// 承認・質問の到着。自動回答しない。
     RequestOpened { request: PendingRequest },
     /// 要求がバックエンド側で解決済み（他経路の回答・取消・turn終了）。

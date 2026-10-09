@@ -10,7 +10,7 @@ export type ChangedFile = { path: string, kind: ChangeKind, moveTo: string | nul
  */
 additions: Known<number>, deletions: Known<number>, 
 /**
- * 報告されたturn（Gitの差分では None）。
+ * そのファイルを最後に変えた区間のturn（Gitの差分では None）。
  */
 turn: ExternalId | null, 
 /**

@@ -4,7 +4,7 @@
 //! - 置き場所のパス・ブランチ名の組立て（チャット名の安全化、短いID）と、置き場所配下の確認（字句）
 //! - 削除の可否判定（AgentDockが作った記録のあるものだけ。使用中・未コミット変更・Git上の実在で止める）
 
-use super::revert::norm_path;
+use super::baseline::norm_path;
 
 /// `git worktree list --porcelain` の1件。
 #[derive(Debug, Clone, PartialEq, Eq)]

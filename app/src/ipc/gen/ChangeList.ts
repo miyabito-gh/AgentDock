@@ -6,6 +6,6 @@ import type { ListStatus } from "./ListStatus";
 
 export type ChangeList = { scope: ChangeScope, source: ChangeSource, status: ListStatus, files: Array<ChangedFile>, 
 /**
- * 表示上の注記（観測の範囲・コマンドによる変更は含まれない場合がある等）。
+ * 表示上の注記（控えの範囲・途中の状態を含む等）。
  */
 notes: Array<string>, };

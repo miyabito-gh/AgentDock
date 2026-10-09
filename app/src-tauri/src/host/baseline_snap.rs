@@ -115,6 +115,15 @@ impl RepoProbe {
 
 /// 作業フォルダのGitリポジトリを調べる（読取りのみ）。Gitの有無と版・リポジトリか・rebase等の途中かを確かめる。
 pub async fn probe_repo(git: &Git, cwd: &Path) -> Result<RepoProbe, BaselineFailure> {
+    let probe = probe_repo_info(git, cwd).await?;
+    if !probe.info.busy_markers().is_empty() {
+        return Err(BaselineFailure::GitBusy);
+    }
+    Ok(probe)
+}
+
+/// `probe_repo` から「Git操作の途中」の判定を除いたもの（途中でもリポジトリの場所は分かる。戻す処理が理由つきで止めるのに使う）。
+pub async fn probe_repo_info(git: &Git, cwd: &Path) -> Result<RepoProbe, BaselineFailure> {
     if !cwd.is_dir() {
         return Err(BaselineFailure::WorkFolderUnknown);
     }
@@ -126,9 +135,6 @@ pub async fn probe_repo(git: &Git, cwd: &Path) -> Result<RepoProbe, BaselineFail
         return Err(if msg.to_lowercase().contains("not a git repository") { BaselineFailure::NotARepository } else { BaselineFailure::Git { message: msg } });
     }
     let info = GitPathsInfo::parse(&out.stdout_text()).ok_or_else(|| BaselineFailure::Git { message: "unexpected output from git rev-parse".into() })?;
-    if !info.busy_markers().is_empty() {
-        return Err(BaselineFailure::GitBusy);
-    }
     Ok(RepoProbe { info })
 }
 

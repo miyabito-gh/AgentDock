@@ -9,14 +9,12 @@ use crate::backend::model::{ParityOp, Verification};
 /// 0.160.0 で実測により成立を確認した操作（2026-10-10、実機確認 `app/LIVE_CHECK_P3.md` に基づく）。
 ///
 /// 備考（確認の範囲）:
-/// - ChangeList: `apply_patch` の fileChange 観測のみ。Codexがシェルコマンドで編集した変更は観測できない。
 /// - ToolServers: 一覧・追加・削除。接続状態は通知でしか取得できない。
 /// - Skills: 明示Skillの呼出し（`UserInput.skill`）。
 ///
 /// 未確認のまま: CloudDelegation、Extensions（Plugins導入・削除は未実施）、Memory、Personality（非推奨）、
-/// RevertChanges（戻す操作の成功は見たが、Git基準の方式へ作り直す予定のため確認済みにしない＝実装予定の方式変更あり）。
+/// ChangeList・RevertChanges（P3Bで方式をGit基準の控えへ置き換えたため、実機確認をやり直すまで確認済みにしない）。
 const VERIFIED_0_160_0: &[ParityOp] = &[
-    ParityOp::ChangeList,
     ParityOp::CodeReview,
     ParityOp::ReviewToNewChat,
     ParityOp::Fork,
@@ -55,7 +53,8 @@ mod tests {
 
     #[test]
     fn only_live_checked_ops_are_verified_on_the_target_version() {
-        const UNVERIFIED: [ParityOp; 5] = [
+        const UNVERIFIED: [ParityOp; 6] = [
+            ParityOp::ChangeList,
             ParityOp::CloudDelegation,
             ParityOp::Extensions,
             ParityOp::Memory,

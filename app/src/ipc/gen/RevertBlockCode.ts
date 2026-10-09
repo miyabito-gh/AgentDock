@@ -3,4 +3,4 @@
 /**
  * 戻せない理由の分類（UIの出し分け用。文面は `message`）。
  */
-export type RevertBlockCode = "notObserved" | "otherChatLater" | "hashMismatch" | "hashUnknown" | "missingNow" | "contextMismatch" | "notText" | "diffUnreadable" | "unsupported" | "targetExists" | "pathUnresolved" | "pathOutside" | "readFailed" | "gitBusy" | "notARepository" | "gitUnavailable" | "noBaseline" | "outsideWorkFolder" | "notSnapshotted" | "headMoved" | "alreadyReverted" | "endUnknown" | "changedBetween" | "changedAfter" | "concurrentChange";
+export type RevertBlockCode = "gitBusy" | "notARepository" | "gitUnavailable" | "noBaseline" | "outsideWorkFolder" | "notSnapshotted" | "headMoved" | "alreadyReverted" | "endUnknown" | "changedBetween" | "changedAfter" | "concurrentChange" | "pathOutside" | "readFailed";

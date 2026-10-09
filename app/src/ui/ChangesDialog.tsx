@@ -1,5 +1,5 @@
 // 変更ファイルと差分の表示（#1）と「変更を戻す」（#2）の本体（段階③ P3-1）。外枠（Shell）と下部ボタンは Dialogs.tsx 側。
-// 規則: 「Codexが報告した変更」と「Git上の現在の差分」は出所を分けて表示する。取れていない値は「未確認」と書き、0や空で代用しない。
+// 規則: 「turnの変更（控え基準）」と「Git上の現在の差分」は出所を分けて表示する。取れていない値は「未確認」と書き、0や空で代用しない。
 //       戻す操作は確認の後だけ。戻せない理由はそのまま出し、部分的にしか戻せなかったときは完了と書かない。
 import { useEffect, useState } from "react";
 import * as host from "../ipc/client";
@@ -8,7 +8,7 @@ import { chatName } from "./derive";
 import { showKnown } from "./format";
 
 const KIND_TEXT: Record<ChangeKind, string> = { added: "追加", deleted: "削除", modified: "変更" };
-const SOURCE_TEXT: Record<ChangeSource, string> = { backendReported: "Codex報告", baseline: "turnの変更（控え基準）", git: "Git上の現在の差分" };
+const SOURCE_TEXT: Record<ChangeSource, string> = { baseline: "turnの変更（控え基準）", git: "Git上の現在の差分（HEAD比較）" };
 
 const fileKey = (f: ChangedFile) => `${f.path}|${f.moveTo ?? ""}`;
 const errText = (e: unknown) => host.asIpcError(e).message;
@@ -50,7 +50,7 @@ export interface ChangesProps {
 }
 
 export function ChangesBody({ chat, live, tick, cap, onRevert }: ChangesProps) {
-  const [tab, setTab] = useState<ChangeSource>("backendReported");
+  const [tab, setTab] = useState<ChangeSource>("baseline");
   const [turn, setTurn] = useState("");
   const [turns, setTurns] = useState<string[]>([]);
   const [list, setList] = useState<ChangeList | null>(null);
@@ -64,12 +64,12 @@ export function ChangesBody({ chat, live, tick, cap, onRevert }: ChangesProps) {
   useEffect(() => {
     if (!live || !chatKey) return;
     let alive = true;
-    const scope = tab === "git" ? { kind: "workingTree" as const } : turn ? { kind: "turn" as const, turn } : { kind: "chat" as const };
+    const scope = tab === "baseline" && turn ? { kind: "turn" as const, turn } : { kind: "chat" as const };
     setErr(null);
-    host.getChangeList(chatKey, scope).then((l) => {
+    host.getChangeList(chatKey, scope, tab).then((l) => {
       if (!alive) return;
       setList(l);
-      if (tab === "backendReported" && !turn) setTurns([...new Set(l.files.map((f) => f.turn).filter((t): t is string => !!t))]);
+      if (tab === "baseline" && !turn) setTurns([...new Set(l.files.map((f) => f.turn).filter((t): t is string => !!t))]);
       setSel((s) => (s && l.files.some((f) => fileKey(f) === s) ? s : null));
     }).catch((e) => { if (alive) { setList(null); setErr(errText(e)); } });
     return () => { alive = false; };
@@ -81,7 +81,7 @@ export function ChangesBody({ chat, live, tick, cap, onRevert }: ChangesProps) {
     if (!live || !chatKey || !file) return;
     let alive = true;
     const path = tab === "git" ? file.moveTo ?? file.path : file.path;
-    host.getFileDiff(chatKey, path, tab, tab === "backendReported" && turn ? turn : null).then((d) => { if (alive) setDiff(d); }).catch((e) => { if (alive) setDiffErr(errText(e)); });
+    host.getFileDiff(chatKey, path, tab, tab === "baseline" && turn ? turn : null).then((d) => { if (alive) setDiff(d); }).catch((e) => { if (alive) setDiffErr(errText(e)); });
     return () => { alive = false; };
   }, [live, chatId, tab, turn, sel, tick]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -91,12 +91,12 @@ export function ChangesBody({ chat, live, tick, cap, onRevert }: ChangesProps) {
   return (
     <>
       <div className="tabs" role="tablist">
-        {(["backendReported", "git"] as ChangeSource[]).map((s) => <button key={s} role="tab" aria-selected={tab === s} onClick={() => { setTab(s); setSel(null); }}>{SOURCE_TEXT[s]}</button>)}
+        {(["baseline", "git"] as ChangeSource[]).map((s) => <button key={s} role="tab" aria-selected={tab === s} onClick={() => { setTab(s); setSel(null); }}>{SOURCE_TEXT[s]}</button>)}
       </div>
       <div className="content">
         <p className="small muted">{chatName(chat)}</p>
         <UnverifiedNote cap={cap} />
-        {tab === "backendReported" && turns.length > 0 ? (
+        {tab === "baseline" && turns.length > 0 ? (
           <div className="field"><span>対象</span>
             <select value={turn} onChange={(e) => setTurn(e.target.value)} aria-label="対象のturn">
               <option value="">このチャットで観測した変更すべて</option>
@@ -130,7 +130,7 @@ export function ChangesBody({ chat, live, tick, cap, onRevert }: ChangesProps) {
                     : diff.text.trim() === "" ? <p>差分の本文はありません（空）。</p> : <DiffText text={diff.text} />}
               </div>) : list.files.length > 0 ? <p className="small muted">ファイルを選ぶと差分を表示します。</p> : null}
           </>)}
-        {tab === "backendReported" ? <div className="acts" style={{ marginTop: 10 }}><button className="btn-line" onClick={onRevert}>変更を戻す…</button></div> : null}
+        {tab === "baseline" ? <div className="acts" style={{ marginTop: 10 }}><button className="btn-line" onClick={onRevert}>変更を戻す…</button></div> : null}
       </div>
     </>
   );
@@ -147,9 +147,9 @@ export interface RevertProps {
 }
 
 const BLOCK_LABEL: Record<string, string> = {
-  notObserved: "観測していない", otherChatLater: "別の会話が後で変更", hashMismatch: "内容が観測直後と違う", hashUnknown: "観測直後の内容が未確認",
-  missingNow: "ファイルがない", contextMismatch: "差分が当たらない", notText: "テキストではない", diffUnreadable: "差分を読めない",
-  unsupported: "対象外", targetExists: "戻し先に別のファイル", pathUnresolved: "場所を特定できない", readFailed: "読み取れない",
+  gitBusy: "Gitの操作の途中", notARepository: "Gitリポジトリではない", gitUnavailable: "Gitを実行できない", noBaseline: "控えがない", outsideWorkFolder: "作業フォルダの外",
+  notSnapshotted: "控えの対象外", headMoved: "HEADが変わった", alreadyReverted: "戻し済み", endUnknown: "終了時の控えがない", changedBetween: "turnの間に別の変更",
+  changedAfter: "turnの後に別の変更", concurrentChange: "同時作業の可能性", pathOutside: "作業フォルダの外", readFailed: "読み取れない",
 };
 
 export function RevertBody({ chat, live, cap, onDone }: RevertProps) {
@@ -168,7 +168,7 @@ export function RevertBody({ chat, live, cap, onDone }: RevertProps) {
   useEffect(() => {
     if (!live || !chatKey) return;
     let alive = true;
-    host.getChangeList(chatKey, { kind: "chat" }).then((l) => { if (alive) setTurns([...new Set(l.files.map((f) => f.turn).filter((t): t is string => !!t))]); }).catch(() => {});
+    host.getChangeList(chatKey, { kind: "chat" }, "baseline").then((l) => { if (alive) setTurns([...new Set(l.files.map((f) => f.turn).filter((t): t is string => !!t))]); }).catch(() => {});
     return () => { alive = false; };
   }, [live, chatId]); // eslint-disable-line react-hooks/exhaustive-deps
 

@@ -39,8 +39,8 @@ const fn done(op: ParityOp, route: OpRoute, schema_support: Support) -> Declared
 
 /// 0.160.0 のschemaと `DESIGN_P3.md` §1 に基づく宣言。実装したタスクが `implemented` を真にする。
 const DECLARED: [Declared; 20] = [
-    // P3-1: 変更の報告（turn集約diff・fileChange item）の観測と、AgentDock管理の差分表示・戻す操作。確認状況は未確認のまま。
-    done(ParityOp::ChangeList, OpRoute::BackendApi, Support::Supported),
+    // P3-1 → P3B: 変更の一覧・戻す操作はAgentDock管理（Git基準の控え。バックエンドの報告は使わない）。確認状況は未確認（方式を変えたため）。
+    done(ParityOp::ChangeList, OpRoute::AppManaged, Support::Supported),
     done(ParityOp::RevertChanges, OpRoute::AppManaged, Support::Supported),
     // P3-2: レビュー（inline。別チャットは thread/start＋inline）・分岐・圧縮。確認状況は未確認のまま。
     done(ParityOp::CodeReview, OpRoute::BackendApi, Support::Supported),
@@ -904,8 +904,11 @@ mod tests {
         for c in &caps {
             if implemented.contains(&c.op) {
                 assert_eq!(c.support, Support::Supported, "{:?}", c.op);
-                let expected = if c.op == ParityOp::Skills { Verification::Verified } else { Verification::Unverified };
-                assert_eq!(c.verification, expected, "{:?}", c.op);
+                // 確認状況は版別の表（parity_table）どおり。方式を変えた変更の一覧・戻す操作（ChangeList・RevertChanges）は未確認のまま。
+                assert_eq!(c.verification, parity_table::verification(Some("0.160.0"), c.op), "{:?}", c.op);
+                if matches!(c.op, ParityOp::ChangeList | ParityOp::RevertChanges) {
+                    assert_eq!(c.verification, Verification::Unverified, "{:?}", c.op);
+                }
                 // クラウド委任は experimental のCLIである旨の注記を持つ。
                 assert_eq!(c.note.is_some(), c.op == ParityOp::CloudDelegation, "{:?}", c.op);
             } else {

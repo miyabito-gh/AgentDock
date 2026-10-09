@@ -24,7 +24,7 @@ use crate::backend::model::*;
 use crate::backend::worktree::*;
 use crate::gitops::worktree::{self as gw, WtError};
 use crate::gitops::{Git, GitError, GitOp};
-use crate::rules::revert::norm_path;
+use crate::rules::baseline::norm_path;
 use crate::rules::worktree::{self as rw, ChatUse, Listed, RemoveBlock, RemoveInput, RemoveVerdict};
 use crate::store::layout;
 use crate::store::records::{WorktreesFile, SCHEMA_VERSION};

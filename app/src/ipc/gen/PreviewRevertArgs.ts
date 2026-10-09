@@ -4,7 +4,7 @@ import type { ExternalId } from "./ExternalId";
 
 export type PreviewRevertArgs = { chat: ChatKey, 
 /**
- * そのturnの変更から戻す（None＝このチャットの観測した変更すべて）。
+ * そのturn以降の変更を戻す（None＝このチャットの控えのある変更すべて＝最初の区間から）。
  */
 turn: ExternalId | null, 
 /**

@@ -1,17 +1,12 @@
-//! 変更ファイルの一覧・差分・「変更を戻す」の中立型（段階③ P3-1、`app/DESIGN_P3.md` §1 #1・#2）。
+//! 変更ファイルの一覧・差分・「変更を戻す」の中立型（段階③ P3-1、Git基準の控えへ置換: P3B、`app/DESIGN_P3B.md`）。
 //!
-//! - バックエンドが報告した変更（[`FileChange`]）は `BackendEvent` で流れ、ホストが観測記録（[`ChangeRecord`]）として
-//!   `chats\<dirId>\changes.jsonl` に追記する。記録は「観測した事実」だけで、観測していない変更は含まない。
-//! - 戻す操作は、記録した差分の逆適用と、観測直後の内容のハッシュ照合だけで行う（推定で戻さない）。
+//! - 出所は「控え基準」（turnの開始時・終了時にAgentDockがGitで控えた内容の差）と「Git」（HEAD比較）の2つだけ。バックエンドの報告は使わない。
+//! - 戻す操作は、選んだ区間の基準 B の内容へファイルを書き戻す（判定は `rules::baseline`、控えの型は `baseline`）。推定で戻さない。
 //! - Codex固有の型・メソッド名を含めない。
 
 use serde::{Deserialize, Serialize};
 
 use super::model::*;
-
-fn one() -> u32 {
-    1
-}
 
 /// 変更の種類。移動は `move_to` を持つ `Modified` で表す。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -24,76 +19,9 @@ pub enum ChangeKind {
     Modified,
 }
 
-/// バックエンドが報告したファイル変更1件（`BackendEvent` の中身。保存・UIには `ChangeRecord` を使う）。
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FileChange {
-    /// 変更前のパス（追加なら対象のパス）。
-    pub path: String,
-    pub kind: ChangeKind,
-    /// 移動先（移動を伴う変更のとき）。
-    pub move_to: Option<String>,
-    /// 報告された差分。更新は統一diff。追加・削除はバックエンドによっては本文そのもの（`rules::diff` で扱う）。
-    pub diff: String,
-}
-
-/// 観測直後のファイルの状態（戻す前の照合の根拠）。読めなかったものは `Unknown`（推定しない）。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
-pub enum PostState {
-    Unknown,
-    Absent,
-    Hash { sha256: String },
-}
-
-/// 観測した変更1件の記録（`changes.jsonl`）。`path` は観測時に作業フォルダ基準で絶対パスにしたもの
-/// （作業フォルダが分からず相対のままの記録は、戻す対象にできない）。
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChangeRecord {
-    #[serde(default = "one")]
-    pub schema_version: u32,
-    pub chat: ChatKey,
-    pub agent: AgentKey,
-    pub turn: Option<ExternalId>,
-    pub item: ExternalId,
-    pub path: String,
-    pub kind: ChangeKind,
-    pub move_to: Option<String>,
-    pub diff: String,
-    pub post: PostState,
-    pub observed_at: UnixMillis,
-}
-
-impl ChangeRecord {
-    /// 変更後にファイルがある（あった）場所。
-    pub fn post_path(&self) -> &str {
-        self.move_to.as_deref().unwrap_or(&self.path)
-    }
-}
-
-/// `changes.jsonl` の1行。末尾の欠けた行は読込み時に無視する。
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
-pub enum ChangeLine {
-    Observed { record: ChangeRecord },
-    /// 「戻す」で元に戻したファイル。以前の記録はこの時点で消化済み（以後の判定に使わない）。
-    /// `records` は戻した記録の識別子。旧形式の行（`None`）は、時刻とパスだけで消化を判定する（従来どおり）。
-    Reverted { at: UnixMillis, chat: ChatKey, paths: Vec<String>, backup_dir: String, #[serde(default)] records: Option<Vec<RecordId>> },
-}
-
-/// 観測した記録1件の識別子（チャット・項目・観測時のパス）。「戻し」が消化した記録を特定する。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RecordId {
-    pub chat: ChatKey,
-    pub item: ExternalId,
-    pub path: String,
-}
-
 // ───────────────────────────── 一覧・差分（IPC） ─────────────────────────────
 
-/// 一覧の対象。`WorkingTree` はGit上の現在の差分（読取りのみ）、他はバックエンドが報告した変更。
+/// 一覧の対象（控え基準）。`Git` 出所では無視する。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
@@ -101,17 +29,15 @@ pub struct RecordId {
 pub enum ChangeScope {
     Turn { turn: ExternalId },
     Chat,
-    WorkingTree,
 }
 
-/// 出所。混ぜずに表示する。`BackendReported` は旧方式（P3B-4で削除。新規には使わない）。
+/// 出所。混ぜずに表示する。
 /// `Baseline`＝turnの開始時・終了時にAgentDockがGitで控えた内容の差、`Git`＝Git上の現在の差分（HEAD比較）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub enum ChangeSource {
-    BackendReported,
     Baseline,
     Git,
 }
@@ -140,7 +66,7 @@ pub struct ChangedFile {
     /// 追加・削除の行数。数えられないもの（未追跡・バイナリ）は `NotFetched`（0で代用しない）。
     pub additions: Known<u32>,
     pub deletions: Known<u32>,
-    /// 報告されたturn（Gitの差分では None）。
+    /// そのファイルを最後に変えた区間のturn（Gitの差分では None）。
     pub turn: Option<ExternalId>,
     /// 「戻す」で戻し済み（以後の判定に使わない）。
     pub reverted: bool,
@@ -158,7 +84,7 @@ pub struct ChangeList {
     pub source: ChangeSource,
     pub status: ListStatus,
     pub files: Vec<ChangedFile>,
-    /// 表示上の注記（観測の範囲・コマンドによる変更は含まれない場合がある等）。
+    /// 表示上の注記（控えの範囲・途中の状態を含む等）。
     pub notes: Vec<String>,
 }
 
@@ -168,11 +94,9 @@ pub struct ChangeList {
 #[serde(rename_all = "camelCase")]
 pub struct GetChangeListArgs {
     pub chat: ChatKey,
+    /// 控え基準での範囲（`source` が `Git` のときは無視する）。
     pub scope: ChangeScope,
-    /// 出所。省略時は従来どおり（`scope` で決める）。P3B-4で必須にし、`ChangeScope::WorkingTree` を廃止する。
-    #[serde(default)]
-    #[cfg_attr(test, ts(optional))]
-    pub source: Option<ChangeSource>,
+    pub source: ChangeSource,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -205,30 +129,7 @@ pub struct UnifiedDiff {
 #[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub enum RevertBlockCode {
-    /// AgentDockが観測した記録がない（再起動中・外部・コマンドによる変更）。
-    NotObserved,
-    /// 別の会話の、より新しい変更記録がある。
-    OtherChatLater,
-    /// 現在の内容が観測直後と一致しない（別の変更の可能性）。
-    HashMismatch,
-    /// 観測直後の内容を確認できていない。
-    HashUnknown,
-    /// 記録ではファイルがあるはずだが、現在は無い。
-    MissingNow,
-    /// 差分の文脈が現在の内容と一致しない。
-    ContextMismatch,
-    NotText,
-    /// 記録した差分を読み取れない。
-    DiffUnreadable,
-    Unsupported,
-    /// 戻し先に別のファイルがある（上書きしない）。
-    TargetExists,
-    PathUnresolved,
-    /// 作業フォルダの外（`..`・リンク越え・別ドライブを含む）、または作業フォルダを確認できない。
-    PathOutside,
-    ReadFailed,
-
-    // ── Git基準の控え（P3B。DESIGN_P3B §4.3）。上の旧方式のコードはP3B-4で削除する ──
+    // ── Git基準の控え（P3B。DESIGN_P3B §4.3） ──
     // 止める（強制不可）
     /// rebase・merge・cherry-pick 等の途中。
     GitBusy,
@@ -253,6 +154,10 @@ pub enum RevertBlockCode {
     ChangedAfter,
     /// 同じリポジトリで同時に作業していた別の会話も変更した可能性がある。
     ConcurrentChange,
+    /// 作業フォルダの外、または解決後の位置を確認できないパス。
+    PathOutside,
+    /// 書き戻す内容を取り出せなかった。
+    ReadFailed,
 }
 
 /// 要確認の理由1件（`code` は要確認の4種のどれか）。
@@ -308,7 +213,7 @@ pub struct RevertPlan {
 #[serde(rename_all = "camelCase")]
 pub struct PreviewRevertArgs {
     pub chat: ChatKey,
-    /// そのturnの変更から戻す（None＝このチャットの観測した変更すべて）。
+    /// そのturn以降の変更を戻す（None＝このチャットの控えのある変更すべて＝最初の区間から）。
     pub turn: Option<ExternalId>,
     /// 対象のファイル（None＝該当するすべて）。
     pub paths: Option<Vec<String>>,

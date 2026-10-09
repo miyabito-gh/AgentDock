@@ -2,6 +2,6 @@
 import type { ExternalId } from "./ExternalId";
 
 /**
- * 一覧の対象。`WorkingTree` はGit上の現在の差分（読取りのみ）、他はバックエンドが報告した変更。
+ * 一覧の対象（控え基準）。`Git` 出所では無視する。
  */
-export type ChangeScope = { "kind": "turn", turn: ExternalId, } | { "kind": "chat" } | { "kind": "workingTree" };
+export type ChangeScope = { "kind": "turn", turn: ExternalId, } | { "kind": "chat" };

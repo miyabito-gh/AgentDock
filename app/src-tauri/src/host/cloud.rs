@@ -24,7 +24,7 @@ use crate::backend::parity::*;
 use crate::gitops::worktree as gw;
 use crate::gitops::GitOp;
 use crate::rules::diff::{parse_status_v2, StatusEntry};
-use crate::rules::revert::norm_path;
+use crate::rules::baseline::norm_path;
 use crate::store::records::{CloudTasksFile, SCHEMA_VERSION};
 
 /// 依頼文の先頭として保存する文字数。

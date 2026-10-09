@@ -6,7 +6,6 @@
 //! - 不明値は `Known` の NotFetched / Missing で表し、0や空文字で代用しない。
 
 use super::wire::{WireStatus, WireThread, WireTurn, WireTurnStatus};
-use crate::backend::changes::{ChangeKind, FileChange};
 use crate::backend::backend::PermissionPreset;
 use crate::backend::model::*;
 use serde_json::Value;
@@ -374,29 +373,6 @@ pub fn file_change_paths(item: &Value) -> Vec<String> {
         .collect()
 }
 
-/// 完了した `fileChange` item の変更（差分つき）。完了していない変更・種類を読めない変更は含めない
-/// （戻す操作の根拠にしないため、推定で補わない）。
-pub fn file_changes(item: &Value) -> Vec<FileChange> {
-    if str_of(item, "type") != Some("fileChange") || str_of(item, "status") != Some("completed") {
-        return Vec::new();
-    }
-    let Some(changes) = item.get("changes").and_then(Value::as_array) else { return Vec::new() };
-    changes
-        .iter()
-        .filter_map(|c| {
-            let path = str_of(c, "path").filter(|p| !p.is_empty())?.to_string();
-            let kind = c.get("kind");
-            let (kind, move_to) = match kind.and_then(|k| k.get("type")).and_then(Value::as_str)? {
-                "add" => (ChangeKind::Added, None),
-                "delete" => (ChangeKind::Deleted, None),
-                "update" => (ChangeKind::Modified, kind.and_then(|k| k.get("move_path")).and_then(Value::as_str).filter(|m| !m.is_empty()).map(str::to_string)),
-                _ => return None,
-            };
-            Some(FileChange { path, kind, move_to, diff: str_of(c, "diff").unwrap_or_default().to_string() })
-        })
-        .collect()
-}
-
 /// 親の `collabAgentToolCall`（spawnAgent）から、生成された子の担当（依頼文の先頭）を取り出す。
 /// 受信側が1件に確定できるときだけ（複数なら、どの子の依頼か決められないので割り当てない）。
 pub fn spawn_assignment(item: &Value) -> Option<(AgentKey, String)> {
@@ -706,33 +682,6 @@ mod tests {
         assert_eq!(file_change_paths(&item), vec!["a.rs", "d.rs", "e.rs"]);
         assert!(file_change_paths(&json!({"type": "fileChange", "status": "failed", "changes": [{"path": "a"}]})).is_empty());
         assert!(file_change_paths(&json!({"type": "commandExecution", "status": "completed"})).is_empty());
-    }
-
-    #[test]
-    fn file_changes_carry_diff_kind_and_move_only_when_completed_and_readable() {
-        let item = json!({"type": "fileChange", "status": "completed", "changes": [
-            {"path": "a.rs", "kind": {"type": "add"}, "diff": "fn a() {}
-"},
-            {"path": "b.rs", "kind": {"type": "delete"}, "diff": "x
-"},
-            {"path": "c.rs", "kind": {"type": "update", "move_path": "d.rs"}, "diff": "@@ -1 +1 @@
--a
-+b
-"},
-            {"path": "e.rs", "kind": {"type": "update", "move_path": null}, "diff": "@@ -1 +1 @@
--a
-+b
-"},
-            {"path": "f.rs", "kind": {"type": "mystery"}, "diff": ""},
-            {"kind": {"type": "add"}, "diff": ""},
-        ]});
-        let v = file_changes(&item);
-        assert_eq!(v.iter().map(|c| (c.path.as_str(), c.kind, c.move_to.as_deref())).collect::<Vec<_>>(), vec![
-            ("a.rs", ChangeKind::Added, None), ("b.rs", ChangeKind::Deleted, None), ("c.rs", ChangeKind::Modified, Some("d.rs")), ("e.rs", ChangeKind::Modified, None),
-        ]);
-        assert_eq!(v[0].diff, "fn a() {}
-");
-        assert!(file_changes(&json!({"type": "fileChange", "status": "inProgress", "changes": [{"path": "a", "kind": {"type": "add"}}]})).is_empty());
     }
 
     #[test]

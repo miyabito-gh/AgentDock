@@ -177,7 +177,7 @@ pub struct Host {
     models_cache: Mutex<Vec<ModelInfo>>,
     /// 変更の控えの取得・区間の管理（`baseline.rs`）。
     baseline_rt: baseline::BaselineRuntime,
-    /// 変更の観測・戻す計画（`changes.rs`）。
+    /// 変更を戻す計画（`changes.rs`）。
     changes_rt: changes::ChangesRuntime,
     /// worktreeの作成・削除（`worktree.rs`）。
     worktree_rt: worktree::WorktreeRuntime,
@@ -276,7 +276,6 @@ impl Host {
     /// バックエンドのイベントを常にdrainする専用task。ここでは要求をawaitしない。
     pub fn start_event_pump(self: &Arc<Self>) {
         self.start_activity_writer();
-        self.start_changes_observer();
         self.start_baseline_driver();
         self.start_queue_driver();
         self.start_manage_watch();
@@ -302,7 +301,7 @@ impl Host {
         self.ext_observe(&env.event);
         // 変更の控え: ルートのturn終端の記録・切断での終了未確認（待たない）。
         self.baseline_observe(&env.event);
-        if !matches!(env.event, BackendEvent::Activity { .. } | BackendEvent::ActivityDelta { .. } | BackendEvent::ArtifactObserved { .. } | BackendEvent::TurnChangesUpdated { .. } | BackendEvent::FileChangeObserved { .. }) {
+        if !matches!(env.event, BackendEvent::Activity { .. } | BackendEvent::ActivityDelta { .. } | BackendEvent::ArtifactObserved { .. }) {
             self.kick_queue();
         }
         for f in follow {
@@ -312,7 +311,6 @@ impl Host {
                     host.start_scan(root);
                 }
                 Followup::ObserveArtifact { agent, item, path } => self.observe_artifact(agent, item, path),
-                Followup::ObserveChanges { agent, item, changes } => self.observe_changes(agent, item, changes),
             }
         }
     }

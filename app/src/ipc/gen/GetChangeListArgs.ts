@@ -3,8 +3,8 @@ import type { ChangeScope } from "./ChangeScope";
 import type { ChangeSource } from "./ChangeSource";
 import type { ChatKey } from "./ChatKey";
 
-export type GetChangeListArgs = { chat: ChatKey, scope: ChangeScope, 
+export type GetChangeListArgs = { chat: ChatKey, 
 /**
- * 出所。省略時は従来どおり（`scope` で決める）。P3B-4で必須にし、`ChangeScope::WorkingTree` を廃止する。
+ * 控え基準での範囲（`source` が `Git` のときは無視する）。
  */
-source?: ChangeSource, };
+scope: ChangeScope, source: ChangeSource, };
