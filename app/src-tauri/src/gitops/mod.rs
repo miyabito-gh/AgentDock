@@ -19,6 +19,30 @@ use crate::exec::{run_bounded, RunError, RunSpec};
 
 /// 出力の上限。超えたら途中までを返さず失敗にする。
 pub const OUTPUT_LIMIT: usize = 16 * 1024 * 1024;
+/// 継承した環境変数のうち、gitの対象リポジトリ・オブジェクト置き場・索引・設定を別の場所へ向けうるもの。
+/// すべてのgit実行の前に取り除き、必要な分だけ明示的に設定し直す（ユーザー環境の変数がAgentDockのgit呼出しを別のリポジトリへ向けないため）。
+pub const INHERITED_GIT_VARS: &[&str] = &[
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_INDEX_FILE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_COMMON_DIR",
+    "GIT_NAMESPACE",
+    "GIT_PREFIX",
+    "GIT_CEILING_DIRECTORIES",
+    "GIT_CONFIG",
+    "GIT_CONFIG_COUNT",
+    "GIT_IMPLICIT_WORK_TREE",
+    "GIT_CONFIG_PARAMETERS",
+    "GIT_NO_REPLACE_OBJECTS",
+    "GIT_REPLACE_REF_BASE",
+    "GIT_GRAFT_FILE",
+    "GIT_SHALLOW_FILE",
+    "GIT_QUARANTINE_PATH",
+    "GIT_EXTERNAL_DIFF",
+];
+
 const READ_TIMEOUT: Duration = Duration::from_secs(30);
 const WRITE_TIMEOUT: Duration = Duration::from_secs(120);
 
@@ -213,6 +237,7 @@ impl Git {
             args: &args,
             cwd: Some(cwd),
             env: &[("GIT_TERMINAL_PROMPT", "0"), ("GIT_OPTIONAL_LOCKS", "0")],
+            env_remove: INHERITED_GIT_VARS,
             timeout: op.timeout(),
             stdout_limit: OUTPUT_LIMIT,
             stdin: None,

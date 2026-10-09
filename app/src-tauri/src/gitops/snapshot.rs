@@ -10,7 +10,7 @@
 
 use std::path::{Path, PathBuf};
 
-use super::{check, strings, valid_path, Git, GitError, GitOp, GitOutput, OUTPUT_LIMIT, READ_TIMEOUT, WRITE_TIMEOUT};
+use super::{check, strings, valid_path, Git, GitError, GitOp, GitOutput, INHERITED_GIT_VARS, OUTPUT_LIMIT, READ_TIMEOUT, WRITE_TIMEOUT};
 use crate::exec::{run_bounded, RunSpec};
 use crate::store::layout::is_inside;
 
@@ -265,9 +265,21 @@ impl SnapshotOp {
 impl Git {
     /// 控え用の操作を実行する。`env` は必須（無い呼出しは型で書けない）。実行は他のGit操作と同じく直列化する。
     pub async fn run_snapshot(&self, cwd: &Path, env: &SnapshotEnv, op: &SnapshotOp) -> Result<GitOutput, GitError> {
+        let vars = env.vars(op.env_kind())?;
+        self.exec_snapshot(cwd, vars, op).await
+    }
+
+    /// リポジトリを読むだけの操作（`EnvKind::Repo`: `StatusSnapshot`・`GitPaths`）を、環境なしで実行する。
+    /// 専用置き場や一時インデックスが決まる前（リポジトリの場所を調べる段階）に使う。書込みを伴う操作は受け付けない。
+    pub async fn run_repo_probe(&self, cwd: &Path, op: &SnapshotOp) -> Result<GitOutput, GitError> {
+        check(op.env_kind() == EnvKind::Repo, "repo probe takes read-only operations only")?;
+        let vars = vec![("GIT_TERMINAL_PROMPT".to_string(), "0".to_string()), ("GIT_OPTIONAL_LOCKS".to_string(), "0".to_string())];
+        self.exec_snapshot(cwd, vars, op).await
+    }
+
+    async fn exec_snapshot(&self, cwd: &Path, vars: Vec<(String, String)>, op: &SnapshotOp) -> Result<GitOutput, GitError> {
         let args = op.args()?;
         let stdin = op.stdin()?;
-        let vars = env.vars(op.env_kind())?;
         let pairs: Vec<(&str, &str)> = vars.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
         let _serial = self.lock.lock().await;
         let out = run_bounded(RunSpec {
@@ -275,6 +287,7 @@ impl Git {
             args: &args,
             cwd: Some(cwd),
             env: &pairs,
+            env_remove: INHERITED_GIT_VARS,
             timeout: op.timeout(),
             stdout_limit: op.stdout_limit(),
             stdin: stdin.as_deref(),

@@ -8,6 +8,8 @@
 //! - 監視のためにresume・承認・停止をしない。resumeはユーザーの送信・再開操作の中でだけ行う。
 
 pub mod attachments;
+pub mod baseline;
+pub mod baseline_snap;
 pub mod changes;
 pub mod chat_prefs;
 pub mod cloud;
@@ -173,6 +175,8 @@ pub struct Host {
     manage_rt: manage::ManageRuntime,
     /// 直近に取得したモデル一覧（隠しなし。画面の既定モデルの表示と同じ解決に使う）。
     models_cache: Mutex<Vec<ModelInfo>>,
+    /// 変更の控えの取得・区間の管理（`baseline.rs`）。
+    baseline_rt: baseline::BaselineRuntime,
     /// 変更の観測・戻す計画（`changes.rs`）。
     changes_rt: changes::ChangesRuntime,
     /// worktreeの作成・削除（`worktree.rs`）。
@@ -206,6 +210,7 @@ impl Host {
             queue_rt: queue_driver::QueueRuntime::default(),
             manage_rt: manage::ManageRuntime::default(),
             models_cache: Mutex::new(Vec::new()),
+            baseline_rt: baseline::BaselineRuntime::default(),
             changes_rt: changes::ChangesRuntime::default(),
             worktree_rt: worktree::WorktreeRuntime::default(),
             side_rt: side::SideRuntime::default(),
@@ -272,6 +277,7 @@ impl Host {
     pub fn start_event_pump(self: &Arc<Self>) {
         self.start_activity_writer();
         self.start_changes_observer();
+        self.start_baseline_driver();
         self.start_queue_driver();
         self.start_manage_watch();
         self.spawn_recheck_files(None);
@@ -294,6 +300,8 @@ impl Host {
         self.side_observe(&env.event);
         // ツールサーバー（MCP）の認可の完了・起動状態の通知（UIが取り直す合図）。
         self.ext_observe(&env.event);
+        // 変更の控え: ルートのturn終端の記録・切断での終了未確認（待たない）。
+        self.baseline_observe(&env.event);
         if !matches!(env.event, BackendEvent::Activity { .. } | BackendEvent::ActivityDelta { .. } | BackendEvent::ArtifactObserved { .. } | BackendEvent::TurnChangesUpdated { .. } | BackendEvent::FileChangeObserved { .. }) {
             self.kick_queue();
         }
@@ -822,13 +830,19 @@ impl Host {
             self.emit_send(&chat, &attempt);
             return attempt;
         }
+        // 変更の控え（基準B）は送信の直前に取る。失敗しても送信は止めない（理由は記録し、警告は理由ごとにチャット1回）。
+        if matches!(request.mode, SendMode::NewTurn) {
+            self.baseline_take_base(&chat, &attempt_id, request.cwd.clone()).await;
+        }
         let state = match self.backend.send(request).await {
             SendOutcome::Accepted { turn, .. } => {
                 self.drop_unresolved_record(&chat, &attempt_id);
+                self.baseline_bound(&chat, &attempt_id, &turn.turn_id);
                 SendState::Accepted { turn }
             }
             SendOutcome::Rejected { error, request } => {
                 self.drop_unresolved_record(&chat, &attempt_id);
+                self.baseline_abandoned(&chat, &attempt_id, "rejected");
                 self.rejected.lock().unwrap().insert(attempt_id.clone(), request);
                 SendState::Rejected { message: error.to_string() }
             }

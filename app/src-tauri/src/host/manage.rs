@@ -333,6 +333,9 @@ impl Host {
         if !self.manage_rt.deleting.lock().unwrap().insert(chat.clone()) {
             return Err(err(IpcErrorCode::Rejected, "このチャットの削除を実行中です"));
         }
+        // 控えの取得（B・E）と同じ作業キューで排他し、削除後に控えの領域が再作成されないようにする。
+        let queue = self.baseline_rt.queue_lock(&chat);
+        let _baseline_q = queue.lock().await;
         let res = self.delete_inner(&chat, confirmed).await;
         self.manage_rt.deleting.lock().unwrap().remove(&chat);
         res

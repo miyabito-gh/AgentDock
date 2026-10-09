@@ -415,6 +415,19 @@ pub async fn get_change_list(host: Hs<'_>, args: GetChangeListArgs) -> R<ChangeL
     host.inner().clone().get_change_list(args).await
 }
 
+/// 変更の控えの状況（区間ごとの状態。読取りのみ）。
+#[tauri::command]
+pub async fn get_baseline_status(host: Hs<'_>, args: ChatArgs) -> R<Vec<crate::backend::baseline::SegmentStatus>> {
+    host.inner().clone().get_baseline_status(args).await
+}
+
+/// このチャットの控えを削除する（確認画面を経たユーザー操作だけ。作業中は削除しない）。
+#[tauri::command]
+pub async fn delete_baselines(host: Hs<'_>, args: ChatArgs) -> R<()> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().delete_baselines(args, &confirmed).await
+}
+
 #[tauri::command]
 pub async fn get_file_diff(host: Hs<'_>, args: GetFileDiffArgs) -> R<UnifiedDiff> {
     host.inner().clone().get_file_diff(args).await

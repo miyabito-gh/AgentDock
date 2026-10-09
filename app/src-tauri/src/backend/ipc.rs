@@ -83,6 +83,8 @@ pub mod command_names {
     pub const GET_FILE_DIFF: &str = "get_file_diff";
     pub const PREVIEW_REVERT: &str = "preview_revert";
     pub const REVERT_CHANGES: &str = "revert_changes";
+    pub const GET_BASELINE_STATUS: &str = "get_baseline_status";
+    pub const DELETE_BASELINES: &str = "delete_baselines";
     pub const SET_WORK_MODE: &str = "set_work_mode";
     pub const LIST_WORK_MODES: &str = "list_work_modes";
     pub const GET_GOAL: &str = "get_goal";

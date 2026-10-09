@@ -650,17 +650,23 @@ impl Host {
             }
         }
         let sent_cwd = request.cwd.clone();
+        // 変更の控え（基準B）は送信の直前に取る。失敗しても送信は止めない。
+        if matches!(request.mode, SendMode::NewTurn) {
+            self.baseline_take_base(chat, &attempt.attempt_id, request.cwd.clone()).await;
+        }
         let outcome = self.backend.send(request).await;
         let now = now_ms();
         let mut done = attempt.clone();
         let result = match outcome {
             SendOutcome::Accepted { turn, .. } => {
+                self.baseline_bound(chat, &attempt.attempt_id, &turn.turn_id);
                 done.state = SendState::Accepted { turn: turn.clone() };
                 q::SendResult::Accepted { attempt: done.clone(), turn, turn_started_at: now }
             }
             SendOutcome::Rejected { error, request } => {
                 let message = error.to_string();
                 done.state = SendState::Rejected { message: message.clone() };
+                self.baseline_abandoned(chat, &attempt.attempt_id, "rejected");
                 self.rejected.lock().unwrap().insert(attempt.attempt_id.clone(), request);
                 q::SendResult::Rejected { attempt: done.clone(), message }
             }
@@ -863,6 +869,7 @@ impl Host {
             ReconcileOutcome::Accepted { turn } => {
                 self.unresolved.lock().unwrap().resolve(attempt_id);
                 self.drop_unresolved_record(&chat, attempt_id);
+                self.baseline_bound(&chat, attempt_id, &turn.turn_id);
                 self.apply_reconciled(&chat, attempt_id, |a| q::SendResult::ReconciledAccepted { attempt: a, turn: turn.clone() });
                 let a = make(SendState::Accepted { turn });
                 self.emit_send(&chat, &a);
@@ -872,6 +879,7 @@ impl Host {
                 self.unresolved.lock().unwrap().resolve(attempt_id);
                 self.rejected.lock().unwrap().insert(attempt_id.clone(), na);
                 self.drop_unresolved_record(&chat, attempt_id);
+                self.baseline_abandoned(&chat, attempt_id, "notFoundAfterReconcile");
                 self.apply_reconciled(&chat, attempt_id, |a| q::SendResult::ReconciledNotFound { attempt: a });
                 let a = make(SendState::NotFoundAfterReconcile);
                 self.emit_send(&chat, &a);

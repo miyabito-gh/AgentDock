@@ -258,7 +258,8 @@ pub fn check_inside(path: &str, work_prefix: &str, confine: Confine) -> Result<(
         || path.starts_with('/')
         || path.contains('\\')
         || path.split('/').any(|c| c == ".." || c.is_empty())
-        || path.split('/').next().is_some_and(|c| c.contains(':'))
+        // ドライブ文字・代替データストリーム（`f.txt:stream`）など、`:` はどの構成要素にも許さない。
+        || path.contains(':')
         || std::path::Path::new(path).is_absolute();
     if bad {
         return Err(reason(RevertBlockCode::PathOutside, format!("{path}: 絶対パス・`..`・別ドライブなどを含むため、戻せません")));
@@ -1110,5 +1111,14 @@ mod tests {
         assert_eq!(agg.items[1].restored, Restored::Absent);
         assert!(!agg.items[1].forced && agg.items[1].overridden.is_empty(), "overridden is kept only for forced items");
         assert!(aggregate(vec![], vec![]).is_complete());
+    }
+
+    #[test]
+    fn colons_anywhere_in_a_path_are_rejected_including_alternate_data_streams() {
+        let ok: Confine = &|_| Ok(());
+        for bad in ["dir/f.txt:stream", "f.txt:stream", "C:/x", "a:b/c.txt"] {
+            assert!(matches!(check_inside(bad, "", ok), Err(Reason { code: RevertBlockCode::PathOutside, .. })), "{bad}");
+        }
+        assert!(check_inside("dir/f.txt", "", ok).is_ok());
     }
 }

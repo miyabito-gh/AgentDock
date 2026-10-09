@@ -201,6 +201,8 @@ pub fn run() {
             commands::export_markdown,
             commands::get_usage,
             commands::get_change_list,
+            commands::get_baseline_status,
+            commands::delete_baselines,
             commands::get_file_diff,
             commands::preview_revert,
             commands::revert_changes,

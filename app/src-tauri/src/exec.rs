@@ -43,6 +43,8 @@ pub struct RunSpec<'a> {
     pub args: &'a [String],
     pub cwd: Option<&'a Path>,
     pub env: &'a [(&'a str, &'a str)],
+    /// 継承した環境変数のうち取り除くもの（`env` の設定より前に除去する）。
+    pub env_remove: &'a [&'a str],
     pub timeout: Duration,
     pub stdout_limit: usize,
     /// 標準入力へ渡す内容（None＝標準入力なし）。書き終えたら閉じる。タイムアウト内に書き終わらなければ他と同じく打ち切る。
@@ -90,6 +92,9 @@ pub async fn run_bounded(spec: RunSpec<'_>) -> Result<RunOutput, RunError> {
     cmd.args(spec.args);
     if let Some(cwd) = spec.cwd {
         cmd.current_dir(cwd);
+    }
+    for k in spec.env_remove {
+        cmd.env_remove(k);
     }
     for (k, v) in spec.env {
         cmd.env(k, v);
@@ -168,7 +173,7 @@ mod tests {
     #[tokio::test]
     async fn runs_with_args_array_and_captures_output() {
         let (program, args) = shell_echo("hello");
-        let out = run_bounded(RunSpec { program: &program, args: &args, cwd: None, env: &[], timeout: Duration::from_secs(10), stdout_limit: 1024, stdin: None }).await.unwrap();
+        let out = run_bounded(RunSpec { program: &program, args: &args, cwd: None, env: &[], env_remove: &[], timeout: Duration::from_secs(10), stdout_limit: 1024, stdin: None }).await.unwrap();
         assert_eq!(out.exit_code, Some(0));
         assert!(String::from_utf8_lossy(&out.stdout).contains("hello"));
     }
@@ -177,7 +182,7 @@ mod tests {
     #[tokio::test]
     async fn output_over_limit_is_an_error_not_truncation() {
         let (program, args) = shell_echo("0123456789");
-        let r = run_bounded(RunSpec { program: &program, args: &args, cwd: None, env: &[], timeout: Duration::from_secs(10), stdout_limit: 4, stdin: None }).await;
+        let r = run_bounded(RunSpec { program: &program, args: &args, cwd: None, env: &[], env_remove: &[], timeout: Duration::from_secs(10), stdout_limit: 4, stdin: None }).await;
         assert_eq!(r, Err(RunError::OutputTooLarge(4)));
     }
 
@@ -186,7 +191,7 @@ mod tests {
     async fn stdin_is_written_and_closed() {
         // `findstr "^"` は標準入力の全行をそのまま出力して、入力が閉じられたら終わる。
         let args = vec!["^".to_string()];
-        let out = run_bounded(RunSpec { program: "findstr", args: &args, cwd: None, env: &[], timeout: Duration::from_secs(10), stdout_limit: 1024, stdin: Some(b"alpha\r\nbeta\r\n") })
+        let out = run_bounded(RunSpec { program: "findstr", args: &args, cwd: None, env: &[], env_remove: &[], timeout: Duration::from_secs(10), stdout_limit: 1024, stdin: Some(b"alpha\r\nbeta\r\n") })
             .await
             .unwrap();
         assert_eq!(out.exit_code, Some(0));
@@ -203,7 +208,7 @@ mod tests {
             input.extend_from_slice(b"\r\n");
         }
         let args = vec!["^".to_string()];
-        let out = run_bounded(RunSpec { program: "findstr", args: &args, cwd: None, env: &[], timeout: Duration::from_secs(20), stdout_limit: 1024 * 1024, stdin: Some(&input) })
+        let out = run_bounded(RunSpec { program: "findstr", args: &args, cwd: None, env: &[], env_remove: &[], timeout: Duration::from_secs(20), stdout_limit: 1024 * 1024, stdin: Some(&input) })
             .await
             .unwrap();
         assert_eq!(out.stdout.len(), input.len());
@@ -211,7 +216,7 @@ mod tests {
 
     #[tokio::test]
     async fn missing_program_is_a_spawn_error() {
-        let r = run_bounded(RunSpec { program: "agentdock-no-such-program", args: &[], cwd: None, env: &[], timeout: Duration::from_secs(5), stdout_limit: 16, stdin: None }).await;
+        let r = run_bounded(RunSpec { program: "agentdock-no-such-program", args: &[], cwd: None, env: &[], env_remove: &[], timeout: Duration::from_secs(5), stdout_limit: 16, stdin: None }).await;
         assert!(matches!(r, Err(RunError::Spawn(_))));
     }
 }
