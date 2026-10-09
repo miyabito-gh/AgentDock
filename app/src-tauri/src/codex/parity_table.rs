@@ -9,12 +9,14 @@ use crate::backend::model::{ParityOp, Verification};
 /// 0.160.0 で実測により成立を確認した操作（2026-10-10、実機確認 `app/LIVE_CHECK_P3.md` に基づく）。
 ///
 /// 備考（確認の範囲）:
+/// - ChangeList・RevertChanges: Git基準の控え（2026-10-10 実機確認○）。同時作業時の扱い（B-7）は実機未確認。
 /// - ToolServers: 一覧・追加・削除。接続状態は通知でしか取得できない。
 /// - Skills: 明示Skillの呼出し（`UserInput.skill`）。
 ///
-/// 未確認のまま: CloudDelegation、Extensions（Plugins導入・削除は未実施）、Memory、Personality（非推奨）、
-/// ChangeList・RevertChanges（P3Bで方式をGit基準の控えへ置き換えたため、実機確認をやり直すまで確認済みにしない）。
+/// 未確認のまま: CloudDelegation、Extensions（Plugins導入・削除は未実施）、Memory、Personality（非推奨）。
 const VERIFIED_0_160_0: &[ParityOp] = &[
+    ParityOp::ChangeList,
+    ParityOp::RevertChanges,
     ParityOp::CodeReview,
     ParityOp::ReviewToNewChat,
     ParityOp::Fork,
@@ -53,13 +55,11 @@ mod tests {
 
     #[test]
     fn only_live_checked_ops_are_verified_on_the_target_version() {
-        const UNVERIFIED: [ParityOp; 6] = [
-            ParityOp::ChangeList,
+        const UNVERIFIED: [ParityOp; 4] = [
             ParityOp::CloudDelegation,
             ParityOp::Extensions,
             ParityOp::Memory,
             ParityOp::Personality,
-            ParityOp::RevertChanges,
         ];
         for op in ParityOp::ALL {
             let expected = if UNVERIFIED.contains(&op) { Verification::Unverified } else { Verification::Verified };
