@@ -1,12 +1,13 @@
-import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import type {
-  AgentKey, ArtifactEntry, AttachmentEntry, Chat, ChatKey, ChatLocalView, ChatModelSettings, ChatQueue, DecisionOption, FileRef, Goal, HostSnapshot, Known, ModelInfo, PendingRequest,
+  AgentKey, AgentView, ArtifactEntry, AttachmentEntry, Chat, ChatKey, ChatLocalView, ChatModelSettings, ChatQueue, DecisionOption, FileRef, Goal, HostSnapshot, Known, ModelInfo, PendingRequest,
   PermissionPreset, QueueEntry, RequestAnswer, ActivityKind, SaveState, StopRecord, TurnRecord, WorkMode, WorkModeInfo,
 } from "../ipc/types";
 import { Icon } from "./Icon";
+import { Popover } from "./Popover";
 import { PENDING_TEXT } from "./ManageDialogs";
-import { TENTATIVE_HINT, TENTATIVE_STYLE, chatAgents, chatName, chatRequests, chatTitle, chatStatusText, chatStops, isRunning, rootView, stopOpen } from "./derive";
-import { FRESH, STOP_LABEL, hms, holdText, keyStr, knownValue, showKnown, stopCauseText, targetList } from "./format";
+import { TENTATIVE_HINT, TENTATIVE_STYLE, chatAgents, chatDisplay, chatName, chatRequests, chatTitle, chatStatusText, chatStops, isRunning, rootView, stopOpen } from "./derive";
+import { FRESH, STATE, STOP_LABEL, hms, holdText, keyStr, knownValue, showKnown, stopCauseText, targetList } from "./format";
 import { baseName, clipboardImageName, mimeOf } from "./attach";
 import type { CommandView } from "./commands";
 import { GoalBar, UnverifiedTag, WORK_MODE_TEXT } from "./PrefsDialogs";
@@ -95,6 +96,12 @@ export interface QueueActions {
 export type CwdResult = { kind: "ok" } | { kind: "needsConfirm"; waiting: number } | { kind: "error"; message: string };
 
 const PERMISSION_LABEL: Record<PermissionPreset, string> = {
+  workspaceWriteOnRequest: "作業領域＋要確認",
+  readOnly: "読み取りのみ",
+  fullAccess: "フルアクセス",
+};
+/** 短い表示名の全文（title とポップアップの項目 title に使う）。 */
+const PERMISSION_FULL: Record<PermissionPreset, string> = {
   workspaceWriteOnRequest: "作業領域内の書込み＋必要時に確認（初期値）",
   readOnly: "読み取りのみ",
   fullAccess: "フルアクセス（確認なしで実行）",
@@ -112,45 +119,97 @@ const origName = (snap: HostSnapshot, k: ChatKey): string => {
   return c ? chatName(c) : k.id;
 };
 
-function Header({ snap, chat, onAct, commands, running, local, onCwdToggle, cwdLock }: {
-  snap: HostSnapshot; chat: Chat; onAct: (a: string) => void; commands: CommandView[]; running: boolean; local: ChatLocalView | undefined;
-  onCwdToggle: () => void; cwdLock: string | null;
+/** 「?」（説明の移し先）。押すと小さなポップオーバーで説明を読める（ホバーは title）。 */
+function Help({ text }: { text: string }) {
+  // summary の中に置いても、押して details を開閉しないようにする
+  return <span className="helpwrap" onClick={(e) => e.preventDefault()}><Popover trigger="?" label="説明" title={text} triggerClassName="help" textual>{text}</Popover></span>;
+}
+
+/** 会話ヘッダーの状態チップの色種別（表示だけ。判定はホストの状態から）。 */
+function chatChipClass(snap: HostSnapshot, chat: Chat): string {
+  if (chatRequests(snap, chat).length) return "wait";
+  const root = rootView(snap, chat);
+  if (chat.noHistory || !root || chat.origin === "external") return "unk";
+  if (chatDisplay(snap, chat) === "childFail") return "fail";
+  return STATE[root.status.state].c;
+}
+
+const NO_HISTORY_TEXT = "発話前のチャットなどは、Codex の一覧に載りません。このアプリの記録（ピン・下書き・モデル選択）だけを表示しています。履歴を作る送信は、再開できる状態になってから行えます。";
+const EXTERNAL_RESUMED_TEXT = "ユーザーの確認のうえで再開しました。続きを送れます。元の作業フォルダやファイルは参照のみで、削除の対象にしません。";
+const EXTERNAL_REF_TEXT = "元の作業フォルダやファイルは参照のみで、削除の対象にしません。";
+const STALE_TAIL = "実行中の途中経過は表示されません。送信待ちは照合が終わるまで保留します。";
+
+/** 鮮度の説明（live以外）。再起動後・接続回復後の文言は旧帯のものをそのまま使う。 */
+function freshnessText(root: AgentView | undefined, wasLive: boolean): string {
+  if (root?.freshness !== "historyOnly") return "収集の鮮度。エージェントの状態とは別";
+  const t = hms(root.status.evidence.observedAt);
+  return wasLive
+    ? `接続を回復しましたが、ライブ監視はまだ戻っていません。保存履歴から取得した状態です（${t}）。${STALE_TAIL}`
+    : `アプリの再起動後のため、保存履歴から表示しています。送信すると続きから再開します（再開するまでライブ監視はしません）。保存履歴から取得した状態です（${t}）。${STALE_TAIL}`;
+}
+
+function Header({ snap, chat, onAct, commands, local, onCwdToggle, cwdLock, wasLive, externalLabel }: {
+  snap: HostSnapshot; chat: Chat; onAct: (a: string) => void; commands: CommandView[]; local: ChatLocalView | undefined;
+  onCwdToggle: () => void; cwdLock: string | null; wasLive: boolean; externalLabel: string | undefined;
 }) {
   const root = rootView(snap, chat);
   const fresh = FRESH[root?.freshness ?? "needsReconcile"];
+  const isLive = root?.freshness === "live";
   const cwd = knownValue(chat.cwd);
+  const ttl = chatTitle(chat);
+  const dev = chat.kind === "development";
+  const freshTip = freshnessText(root, wasLive);
   return (
     <div className="chead">
       <button className="only-narrow-l" aria-label="チャット一覧を開く" onClick={() => onAct("toggleLeft")}><Icon name="list" /></button>
-      <div className="grow">
-        <div className="ttl" style={chatTitle(chat).confirmed ? undefined : TENTATIVE_STYLE} title={chatTitle(chat).confirmed ? undefined : TENTATIVE_HINT}>{chatName(chat)}</div>
-        <div className="meta">
-          <span className="tag ai" title="この会話のAI">Codex</span>
-          {cwd ? <span className="mono" title="作業フォルダ">{cwd}</span> : <span>一般チャット（作業フォルダなし）</span>}
-          {local?.nextCwd ? <span className="mono" title="次の送信から使う作業フォルダ（まだ適用していません）">次のturnから: {local.nextCwd}</span> : null}
-          {local?.reviewOf ? <span className="tag" title="このチャットはレビュー用に作られました">レビュー元: {origName(snap, local.reviewOf)}</span> : null}
-          {local?.forkOf ? <span className="tag" title="このチャットは分岐で作られました（AgentDockの記録）">分岐元: {origName(snap, local.forkOf.chat)}{local.forkOf.throughTurn ? `（turn ${local.forkOf.throughTurn} まで）` : ""}</span> : null}
-          {chat.kind === "development" ? <button className="small" disabled={!!cwdLock} title={cwdLock ?? "次の送信から使う作業フォルダを変更します"} onClick={onCwdToggle}>フォルダ変更</button> : null}
-          {/* 鮮度と状態は別表示。片方から他方を導かない */}
-          <span className={`fresh ${fresh.c}`} title="収集の鮮度。エージェントの状態とは別">{fresh.t}</span>
-          <span>{chatStatusText(snap, chat)}</span>
-        </div>
-      </div>
-      {running ? <button className="btn-line" title="Esc" onClick={() => onAct("interrupt")}><Icon name="stop" />中断</button> : null}
+      <span className="ttl" style={ttl.confirmed ? undefined : TENTATIVE_STYLE} title={`${ttl.text}（Codex）${ttl.confirmed ? "" : `\n${TENTATIVE_HINT}`}`}>{ttl.text}</span>
+      {/* 状態と鮮度は別表示。片方から他方を導かない */}
+      <span className={`st ${chatChipClass(snap, chat)}`}><i />{chatStatusText(snap, chat)}</span>
+      {isLive ? (
+        <span className={`fresh ${fresh.c}`} title="収集の鮮度。エージェントの状態とは別">{fresh.t}</span>
+      ) : (
+        <Popover trigger={fresh.t} title={freshTip} triggerClassName={`fresh ${fresh.c} fbtn`} textual>
+          {(close) => (
+            <>
+              <div>{freshTip}</div>
+              <div className="pop-acts"><button className="btn sm" title="保存履歴を読み直して状態を取り直します（読み取りのみ）" onClick={() => { close(); onAct("reloadHistory"); }}>状態を再照合</button></div>
+            </>
+          )}
+        </Popover>
+      )}
+      {cwd ? (
+        dev && !cwdLock
+          ? <button className="cwd mono" title={`作業フォルダ: ${cwd}\n押すと、次の送信から使う作業フォルダを変更します`} onClick={onCwdToggle}>{cwd}</button>
+          : <span className="cwd mono" title={`作業フォルダ: ${cwd}`}>{cwd}</span>
+      ) : <span className="cwd" title="一般チャット（作業フォルダなし）">一般</span>}
+      {local?.nextCwd ? <span className="tag mono" title={`次の送信から使う作業フォルダ（まだ適用していません）: ${local.nextCwd}`}>次: {baseName(local.nextCwd)}</span> : null}
+      {local?.reviewOf ? <span className="tag" title={`このチャットはレビュー用に作られました（レビュー元: ${origName(snap, local.reviewOf)}）`}>レビュー</span> : null}
+      {local?.forkOf ? <span className="tag" title={`このチャットは分岐で作られました（AgentDockの記録）。分岐元: ${origName(snap, local.forkOf.chat)}${local.forkOf.throughTurn ? `（turn ${local.forkOf.throughTurn} まで）` : ""}`}>分岐</span> : null}
+      {chat.noHistory ? <span className="tag" title={`Codex に、この会話の履歴がありません。${NO_HISTORY_TEXT}`}>履歴なし</span> : null}
+      {chat.origin === "external" && isLive ? <span className="tag" title={`${externalLabel ?? "外部"} で作成された会話を、このアプリで再開済みです。${EXTERNAL_RESUMED_TEXT}`}>{externalLabel ?? "外部"}で作成</span> : null}
+      <span className="grow" />
       {/* 主要操作は台帳から作る。無効のときは押せず、理由をツールチップで示す（文字のみ） */}
-      <div className="chead-ops" role="group" aria-label="主要な操作">
-        {commands.filter((v) => v.cmd.header).map((v) => {
-          const st = v.state;
-          return (
-            <button key={v.cmd.id} disabled={st.kind === "disabled"} aria-label={v.cmd.label.replace(/…$/, "")}
-              title={st.kind === "disabled" ? st.reason : st.unverified ? "未確認の操作です（結果は観測した事実だけを表示します）" : undefined}
-              onClick={() => onAct(v.cmd.act)}>
-              {v.cmd.header}{st.kind === "enabled" && st.unverified ? <span className="tag unv">未確認</span> : null}
-            </button>
-          );
-        })}
-        <button aria-label="コマンドメニューを開く" title="すべての操作を検索（Ctrl+K）" onClick={() => onAct("palette")}>操作…</button>
-      </div>
+      <Popover trigger={<Icon name="more" />} label="その他の操作" title="差分・戻す・レビュー・分岐・Goal・作業フォルダ・すべての操作" role="menu" align="right" triggerClassName="btn subtle icon">
+        {(close) => (
+          <>
+            {commands.filter((v) => v.cmd.header).map((v) => {
+              const st = v.state;
+              return (
+                <button key={v.cmd.id} role="menuitem" disabled={st.kind === "disabled"} aria-label={v.cmd.label.replace(/…$/, "")}
+                  title={st.kind === "disabled" ? st.reason : st.unverified ? "未確認の操作です（結果は観測した事実だけを表示します）" : undefined}
+                  onClick={() => { close(); onAct(v.cmd.act); }}>
+                  <span>{v.cmd.header}</span>{st.kind === "enabled" && st.unverified ? <span className="tag unv">未確認</span> : null}
+                </button>
+              );
+            })}
+            <hr />
+            {dev ? <button role="menuitem" disabled={!!cwdLock} title={cwdLock ?? "次の送信から使う作業フォルダを変更します"} onClick={() => { close(); onCwdToggle(); }}><span>作業フォルダを変更</span></button> : null}
+            {!isLive ? <button role="menuitem" title="保存履歴を読み直して状態を取り直します（読み取りのみ）" onClick={() => { close(); onAct("reloadHistory"); }}><span>状態を再照合</span></button> : null}
+            <hr />
+            <button role="menuitem" title="すべての操作を検索（Ctrl+K）" onClick={() => { close(); onAct("palette"); }}><span>すべての操作…</span><span className="kbd">Ctrl+K</span></button>
+          </>
+        )}
+      </Popover>
       <button className="only-narrow-r" aria-label="エージェントのドックを開く" onClick={() => onAct("toggleRight")}><Icon name="dock" /></button>
     </div>
   );
@@ -169,13 +228,12 @@ function targetName(snap: HostSnapshot, c: Chat, t: StopRecord["targets"][number
 function StopBanner({ snap, chat, rec, onAct }: { snap: HostSnapshot; chat: Chat; rec: StopRecord; onAct: (a: string) => void }) {
   return (
     <div className="cbanner warn" role="alert">
-      <h4>停止を確認できていない対象があります（中断要求後・ホストの判定）</h4>
+      <h4>停止を確認できていない対象があります（中断要求後・ホストの判定）<Help text="時間の経過だけで停止や失敗とは判断しません。停止が確認できるまで、削除と新しい送信は保留します。" /></h4>
       <ul className="targets">
         {rec.targets.map((t, i) => (
           <li key={i}><b>{targetName(snap, chat, t)}</b><span>{STOP_LABEL[t.summary]}</span></li>
         ))}
       </ul>
-      <div style={{ marginTop: 4 }}>時間の経過だけで停止や失敗とは判断しません。停止が確認できるまで、削除と新しい送信は保留します。</div>
       <div className="acts">
         <button className="btn-line" onClick={() => onAct("noop")}>待つ</button>
         <button className="btn-line" onClick={() => onAct("interrupt")}>中断を再試行</button>
@@ -203,39 +261,25 @@ function Banners({ p }: { p: CenterProps }) {
           ) : null}
         </div>
       ) : null}
-      {chat.noHistory ? (
-        <div className="cbanner info">
-          <h4>Codex に、この会話の履歴がありません</h4>
-          発話前のチャットなどは、Codex の一覧に載りません。このアプリの記録（ピン・下書き・モデル選択）だけを表示しています。履歴を作る送信は、再開できる状態になってから行えます。
-        </div>
-      ) : null}
-      {chat.origin === "external" && root?.freshness === "live" ? (
-        <div className="cbanner info">
-          <h4>{p.externalLabel ?? "外部"} で作成された会話を、このアプリで再開済みです</h4>
-          ユーザーの確認のうえで再開しました。続きを送れます。元の作業フォルダやファイルは参照のみで、削除の対象にしません。
-        </div>
-      ) : chat.origin === "external" ? (
+      {chat.origin === "external" && root?.freshness !== "live" ? (
         <div className="cbanner warn">
           <h4>{p.externalLabel ?? "外部"} で作成された会話です（閲覧のみ）</h4>
-          外部でまだ実行中かどうか、このアプリでは確認できません。外部での実行が終わったことを確認してから再開すると、このアプリで続きを送れます。元の作業フォルダやファイルは参照のみで、削除の対象にしません。
+          外部でまだ実行中かどうか、このアプリでは確認できません。外部での実行が終わったことを確認してから再開すると、このアプリで続きを送れます。<Help text={EXTERNAL_REF_TEXT} />
           {root && (root.status.state === "running" || root.status.state === "waiting") ? <div style={{ marginTop: 4 }}><b>最新のturnが実行中として記録されています。外部で実行中の可能性があります。</b></div> : null}
           <div className="acts"><button className="btn-main" onClick={() => onAct("resumeExternal")}>外部での実行は終わっています。この会話を再開する</button></div>
         </div>
       ) : null}
-      {root && root.freshness === "historyOnly" && chat.origin !== "external" ? (
-        <div className="cbanner info" role="alert">
-          <h4>{p.wasLive ? "接続を回復しましたが、ライブ監視はまだ戻っていません" : "アプリの再起動後のため、保存履歴から表示しています"}</h4>
-          {p.wasLive
-            ? "保存履歴から取得した状態です（"
-            : "送信すると続きから再開します（再開するまでライブ監視はしません）。保存履歴から取得した状態です（"}{hms(root.status.evidence.observedAt)}）。実行中の途中経過は表示されません。送信待ちは照合が終わるまで保留します。
-          <div className="acts"><button className="btn-line" title="保存履歴を読み直して状態を取り直します（読み取りのみ）" onClick={() => onAct("reloadHistory")}>状態を再照合</button><button className="btn-line" onClick={() => onAct("reloadHistory")}>保存履歴を再取得</button></div>
+      {root && root.freshness === "historyOnly" && chat.origin !== "external" && p.wasLive ? (
+        <div className="cbanner info slim" role="alert" title={freshnessText(root, true)}>
+          <span className="grow">ライブ監視は未復帰（履歴 {hms(root.status.evidence.observedAt)}）</span>
+          <button className="btn sm" title="保存履歴を読み直して状態を取り直します（読み取りのみ）" onClick={() => onAct("reloadHistory")}>状態を再照合</button>
         </div>
       ) : null}
       {stops.map((r) => <StopBanner key={r.id} snap={snap} chat={chat} rec={r} onAct={onAct} />)}
       {p.save && p.save.kind === "saveFailed" ? (
         <div className="cbanner err" role="alert">
           <h4>一部を保存できませんでした</h4>
-          保存済み: {p.save.savedPart ?? "なし"}。未保存: {p.save.unsavedPart ?? "不明"}（{p.save.message}）。保存できていない内容を保存済みとは表示しません。
+          <span title="保存できていない内容を保存済みとは表示しません。">保存済み: {p.save.savedPart ?? "なし"}。未保存: {p.save.unsavedPart ?? "不明"}（{p.save.message}）。</span>
           <div className="acts"><button className="btn-line" onClick={() => onAct("retrySave")}>保存を再試行</button><button className="btn-line" onClick={() => onAct("settings:storage")}>容量を確認</button></div>
         </div>
       ) : null}
@@ -298,8 +342,7 @@ function FilesBlock({ sent, artifacts, files }: { sent: AttachmentEntry[]; artif
   return (
     <div className="msg ai files">
       <details open>
-        <summary><Icon name="clip" /><b>ファイル（添付 {sent.length}件・成果物 {artifacts.length}件）</b></summary>
-        <div className="small muted" style={{ margin: "2px 0 4px" }}>ファイルを表示できることと、モデルが内容を読めることは別です。外部アプリでは、「開く」を押したときだけ開きます。</div>
+        <summary><Icon name="clip" /><b>ファイル（添付 {sent.length}件・成果物 {artifacts.length}件）</b><Help text="ファイルを表示できることと、モデルが内容を読めることは別です。外部アプリでは、「開く」を押したときだけ開きます。" /></summary>
         {sent.map((a) => {
           const st = attachmentStatus(a);
           const target: FileRef = { kind: "attachment", chat: a.chat, id: a.id };
@@ -322,7 +365,7 @@ function FilesBlock({ sent, artifacts, files }: { sent: AttachmentEntry[]; artif
               {isImageName(name) && !gone && !unsure ? <Thumb target={target} name={name} load={files.preview} /> : <Icon name="diff" />}
               <div className="grow">
                 <b>{name}</b>　<span className={`st ${gone ? "bad" : ""}`}>成果物・{gone ? "見つかりません（欠損）。移動または削除された可能性があります" : unsure ? "実在を確認できていません" : `実在を確認済み${a.checkedAt !== null ? `（${hms(a.checkedAt)}）` : ""}`}</span>
-                <div className="mono small muted">{a.path}{a.inChatArea ? "" : "　（作業フォルダ側のファイル。チャットを削除しても消しません）"}</div>
+                <div className="mono small muted">{a.path}{a.inChatArea ? "" : <>　<span className="tag" title="作業フォルダ側のファイル。チャットを削除しても消しません">作業フォルダ側</span></>}</div>
               </div>
               <button className="small" disabled={gone} onClick={() => files.open(target)}>開く</button>
               <button className="small" disabled={gone} onClick={() => files.save(target, name)}>名前を付けて保存…</button>
@@ -372,7 +415,7 @@ function Messages({ turns, reqs, running, onRespond, onAct, extra }: {
             {t.entries.filter((e) => e.kind.kind === "userMessage" || e.kind.kind === "agentMessage").map((e) => {
               const text = e.text.kind === "value" ? e.text.value : "…";
               if (e.kind.kind === "userMessage") {
-                return <div className="msg user" key={e.key.itemId}><div className="who" style={{ justifyContent: "flex-end" }}>あなた</div><div className="bubble">{text}</div></div>;
+                return <div className="msg user" key={e.key.itemId}><div className="sr">あなた</div><div className="bubble">{text}</div></div>;
               }
               return (
                 <div className="msg ai" key={e.key.itemId}>
@@ -394,7 +437,7 @@ function Messages({ turns, reqs, running, onRespond, onAct, extra }: {
       })}
       {extra}
       {reqs.map((r) => <RequestCard key={keyStr({ backend: r.key.backend, id: r.key.requestId })} r={r} onRespond={onRespond} />)}
-      {running && reqs.length === 0 ? <div className="msg ai"><div className="who">Codex</div><div className="activity">作業中です。右のドックで各エージェントの状況を確認できます。</div></div> : null}
+      {running && reqs.length === 0 ? <div className="msg ai"><div className="who">Codex</div><div className="activity">作業中…</div></div> : null}
     </div>
     {away ? <button className="jump" onClick={toBottom}>最新へ</button> : null}
     </div>
@@ -418,7 +461,7 @@ export function RequestCard({ r, onRespond }: { r: PendingRequest; onRespond: Ce
       {isQuestion ? d.questions.map((q) => (
         <div key={q.id}>
           <div className="t">{q.text}</div>
-          <div className="opts">
+          <div className="opts" title="選択肢と効力範囲は Codex が示したものを表示します。">
             {q.options.map((o, i) => (
               <button key={o.id} className={optClass(o, i === 0)} onClick={() => onRespond(r, { kind: "answers", answers: [{ questionId: q.id, optionId: o.id, text: null }] })}>{o.label}</button>
             ))}
@@ -431,7 +474,7 @@ export function RequestCard({ r, onRespond }: { r: PendingRequest; onRespond: Ce
           ))}
         </div>
       )}
-      <div className="scope">選択肢と効力範囲は Codex が示したものを表示します。{!isQuestion ? `（${r.options.map((o) => `${o.label}: ${SCOPE_TEXT[o.scope]}`).join("／")}）` : ""}</div>
+      {!isQuestion ? <div className="scope" title="選択肢と効力範囲は Codex が示したものを表示します。">効力範囲: {r.options.map((o) => `${o.label}=${SCOPE_TEXT[o.scope]}`).join("／")}</div> : null}
     </div>
   );
 }
@@ -450,7 +493,7 @@ function EntryRow({ n, e, qact }: { n: number; e: QueueEntry; qact: QueueActions
       <span className="qnum">{n}</span>
       <div>
         {editing ? <textarea aria-label="依頼を編集" value={text} onChange={(ev) => setText(ev.target.value)} style={{ width: "100%" }} /> : <div>{e.text}</div>}
-        {e.attachments.length ? <div className="small muted">添付 {e.attachments.length}件（このチャット用のコピーを送ります）</div> : null}
+        {e.attachments.length ? <div className="small muted" title="このチャット用のコピーを送ります">添付 {e.attachments.length}件</div> : null}
         {why ? <div className={`why ${s.kind === "waiting" ? "" : "err"}`}>{why}</div> : null}
       </div>
       <div style={{ display: "flex", gap: 2 }}>
@@ -509,20 +552,19 @@ function Queue({ q, nameOf, qact }: { q: ChatQueue | undefined; nameOf: (a: Agen
   return (
     <div className="queue">
       {stopped ? (
-        <div className="cbanner warn" role="alert" style={{ margin: "0 0 6px" }}>
-          <h4>{q.run.kind === "pausedAfterRestart" ? "再起動後のため、自動送信を止めています" : "自動送信を止めています"}</h4>
-          {q.run.kind === "stopped" ? stopCauseText(q.run.cause, nameOf) : "アプリを再起動したため、送信待ちの依頼は自動では送りません。内容を確認して再開してください。"}
-          <div style={{ marginTop: 4 }}>失敗した依頼そのものは再実行しません。「確認済み」にしてもキューは再開しません。</div>
-          <div className="acts">
-            <button className="btn-main" disabled={unknown} title={unknown ? "受理不明の依頼を照合で確定するまで再開できません" : undefined} onClick={qact.resume}>キューを再開</button>
+        <div className="cbanner warn row" role="alert" style={{ margin: "0 0 6px" }}>
+          <div className="grow" title="失敗した依頼そのものは再実行しません。「確認済み」にしてもキューは再開しません。">
+            <b>{q.run.kind === "pausedAfterRestart" ? "再起動後のため、自動送信を止めています" : "自動送信を止めています"}</b>
+            {q.run.kind === "stopped" ? stopCauseText(q.run.cause, nameOf) : "アプリを再起動したため、送信待ちの依頼は自動では送りません。内容を確認して再開してください。"}
           </div>
+          <button className="btn-main" disabled={unknown} title={unknown ? "受理不明の依頼を照合で確定するまで再開できません" : undefined} onClick={qact.resume}>キューを再開</button>
         </div>
       ) : null}
       <details open>
-        <summary><Icon name="list" /><b>完了後に送る依頼 {items.length}件</b>
-          <span className="muted">{stopped ? "停止中" : q.hold ? holdText(q.hold, nameOf) : "親と子孫の作業が終わると、登録順に1件ずつ送ります"}</span></summary>
+        <summary title={!stopped && !q.hold ? "親と子孫の作業が終わると、登録順に1件ずつ送ります" : undefined}><Icon name="list" /><b>完了後に送る依頼 {items.length}件</b>
+          <span className="muted">{stopped ? "停止中" : q.hold ? holdText(q.hold, nameOf) : ""}</span>
+          <span className="muted small qnote" title="送信待ちの依頼は、送信する時点のモデル・権限・作業フォルダで送ります。">送信時の設定で送信</span></summary>
         <HoldExit q={q} head={items[0]} nameOf={nameOf} qact={qact} />
-        <div className="muted small" style={{ padding: "2px 10px" }}>送信待ちの依頼は、送信する時点のモデル・権限・作業フォルダで送ります。</div>
         {items.map((e, i) => <EntryRow key={e.id + e.state.kind} n={i + 1} e={e} qact={qact} />)}
       </details>
     </div>
@@ -583,6 +625,24 @@ function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock
   };
   const pickEffort = (e: string) => { setEffort(e); p.onModel(model, e, speed); };
   const pickSpeed = (s: string) => { setSpeed(s); p.onModel(model, effort, s); };
+  // 入力欄は2行（44px）から160pxまで内容に合わせて伸びる（表示だけ）
+  useLayoutEffect(() => {
+    const el = p.inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+  }, [p.draft, p.inputRef]);
+  const enterHint = p.enterMode === "ctrl" ? "Ctrl＋Enter で送信、Enter で改行" : "Enter で送信、Shift＋Enter で改行";
+  // 受理の根拠。全文は title と「⋯」に常に置き、1行目には問題があるとき（未受理・受理未確認・不一致）だけ短く出す。
+  const acceptLine = `${changed ? `選択: ${model}／${effort}${speed ? `／速度 ${speed}` : ""}（未受理。次のターンから適用）　` : ""}受理済み: ${settings ? (accepted ? `${accepted.model}／${accepted.effort ?? "既定"}${accepted.speedTier ? `／速度 ${accepted.speedTier}` : ""}` : showKnown(settings.accepted)) : "未確認"}${!accepted ? "（受け取るまで確認不可）" : ""}`;
+  const acceptTip = !accepted ? "会話の再開・開始の応答か Codex の設定通知でモデルを受け取るまで、受理は確認できません。受け取っていない間は、選択値が使われたとは言えません。" : undefined;
+  const wmLine = wmSelected || wmAccepted
+    ? `計画／実行: 選択 ${wmSelected ? WORK_MODE_TEXT[wmSelected] : "未選択"}／受理済み ${wmAccepted ? WORK_MODE_TEXT[wmAccepted] : "未確認"}${wmSelected && wmAccepted !== wmSelected ? "（未受理。次のターンから適用）" : ""}`
+    : null;
+  const wmShort = (m: WorkMode) => (m === "plan" ? "計画" : "実行");
+  const speedKept = accepted?.speedTier && !speed ? accepted.speedTier : null;
+  const speedKeptLine = speedKept ? `速度は「指定なし」ですが、Codex 側は速度 ${speedKept} のままです。標準へ戻すには「標準（default）」を選んで送信し、受理済みの表示で確認してください。` : null;
+  const speedName = speed ? (speed === "default" ? "標準" : tiers.find((t) => t.id === speed)?.name ?? speed) : null;
   return (
     <div className="composer">
       <div className={`shell ${lock ? "locked" : ""}`}>
@@ -600,7 +660,7 @@ function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock
                 </span>
               );
             })}
-            <div className="small muted" style={{ width: "100%" }}>送信前に確認・取り外せます。このチャット用にコピーした分を送ります（元のファイルは変更しません）。画像は表示できますが、モデルが内容を読めるかは未確認です。</div>
+            <Help text="送信前に確認・取り外せます。このチャット用にコピーした分を送ります（元のファイルは変更しません）。画像は表示できますが、モデルが内容を読めるかは未確認です。" />
           </div>
         ) : null}
         {lock ? <div className="lockmsg">{lock}</div> : null}
@@ -609,7 +669,7 @@ function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock
           <div className="lockmsg">計画／実行（{WORK_MODE_TEXT[wmSelected]}）を選んだままですが、この Codex 接続では使えないため、送信は止まります。<button className="small" onClick={() => p.onWorkMode(null)}>選択を外す</button></div>
         ) : null}
         <textarea aria-label="メッセージ" disabled={!!lock} value={p.draft} onChange={(e) => p.setDraft(e.target.value)} ref={p.inputRef}
-          placeholder={running ? (steer ? "現在の作業への追加指示" : "完了後に送る次の依頼") : "メッセージを入力"}
+          placeholder={`${running ? (steer ? "現在の作業への追加指示" : "完了後に送る次の依頼") : "メッセージを入力"}（${enterHint}）`}
           onPaste={(e) => {
             // クリップボードの画像は添付にする（生バイトでホストへ）。文章だけの貼り付けは通常どおり。
             const img = Array.from(e.clipboardData.files).find((f) => f.type.startsWith("image/"));
@@ -625,49 +685,56 @@ function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock
           <button aria-label="ファイル・画像・参考情報を追加" disabled={!!lock} onClick={() => p.onAct("attach")}><Icon name="clip" /></button>
           <select aria-label="モデル" value={model} onChange={(e) => pickModel(e.target.value)}>{models.map((m) => <option key={m.id} value={m.id}>{m.displayName}</option>)}</select>
           <select aria-label="推論の強さ" value={effort} onChange={(e) => pickEffort(e.target.value)}>{efforts.map((x) => <option key={x.id} value={x.id}>{x.id}</option>)}</select>
-          <select aria-label="速度" value={speed} disabled={tiers.length === 0}
-            title={tiers.length === 0 ? "このモデルが示す速度の選択肢はありません（Codex から取得した一覧）" : "次の送信から適用。実際に適用されたかは、受理済みの表示で確認します"}
-            onChange={(e) => pickSpeed(e.target.value)}>
-            <option value="">速度: 指定なし（変更しない）</option>
-            <option value="default" title="標準の速度へ戻す指定を送ります（schemaが標準速度の値として示す default）。結果は受理済みの表示で確認してください">速度: 標準（default）</option>
-            {tiers.filter((t) => t.id !== "default").map((t) => <option key={t.id} value={t.id} title={t.description ?? undefined}>{t.name}</option>)}
+          <select aria-label="権限" className={p.local?.permission === "fullAccess" ? "danger" : undefined}
+            title={`次の送信から適用。送信待ちの依頼にも送信時に適用されます（現在: ${PERMISSION_FULL[p.local?.permission ?? "workspaceWriteOnRequest"]}）`}
+            value={p.local?.permission ?? "workspaceWriteOnRequest"} onChange={(e) => p.onPermission(e.target.value as PermissionPreset)}>
+            {(Object.keys(PERMISSION_LABEL) as PermissionPreset[]).map((k) => <option key={k} value={k} title={PERMISSION_FULL[k]}>{k === "fullAccess" ? "■ " : ""}{PERMISSION_LABEL[k]}</option>)}
           </select>
-          <select aria-label="計画／実行" value={wmSelected ?? ""} disabled={!wmUsable && wmSelected === null}
-            title={wmUsable ? "次の送信から適用。実際に適用されたかは、受理済みの表示で確認します（experimental）" : (wmCap?.note ?? "この Codex 接続では使えません")}
-            onChange={(e) => p.onWorkMode(e.target.value === "" ? null : (e.target.value as WorkMode))}>
-            <option value="">計画／実行: 指定なし</option>
-            {wmOptions.map((m) => <option key={m.mode} value={m.mode} disabled={!wmUsable}>{m.label}</option>)}
-          </select>
+          {/* まれな設定（速度・計画／実行）と受理の全文は「⋯」へ。指定中は値を1行目に添える */}
+          <Popover trigger={<Icon name="more" />} label="その他の設定" title="速度・計画／実行の設定と、受理の全文" triggerClassName="btn subtle icon">
+            <div className="moreset">
+              <label>
+                <span>速度 {stCap?.verification === "unverified" && speed ? <UnverifiedTag cap={stCap} /> : null}</span>
+                <select aria-label="速度" value={speed} disabled={tiers.length === 0}
+                  title={tiers.length === 0 ? "このモデルが示す速度の選択肢はありません（Codex から取得した一覧）" : "次の送信から適用。実際に適用されたかは、受理済みの表示で確認します"}
+                  onChange={(e) => pickSpeed(e.target.value)}>
+                  <option value="">速度: 指定なし（変更しない）</option>
+                  <option value="default" title="標準の速度へ戻す指定を送ります（schemaが標準速度の値として示す default）。結果は受理済みの表示で確認してください">速度: 標準（default）</option>
+                  {tiers.filter((t) => t.id !== "default").map((t) => <option key={t.id} value={t.id} title={t.description ?? undefined}>{t.name}</option>)}
+                </select>
+              </label>
+              {speed === "default" ? <div className="small muted">標準へ戻す指定を送ります。戻ったかは、送信後の受理済みの表示で確認してください（未確認）。</div> : null}
+              <label>
+                <span>計画／実行</span>
+                <select aria-label="計画／実行" value={wmSelected ?? ""} disabled={!wmUsable && wmSelected === null}
+                  title={wmUsable ? "次の送信から適用。実際に適用されたかは、受理済みの表示で確認します（experimental）" : (wmCap?.note ?? "この Codex 接続では使えません")}
+                  onChange={(e) => p.onWorkMode(e.target.value === "" ? null : (e.target.value as WorkMode))}>
+                  <option value="">計画／実行: 指定なし</option>
+                  {wmOptions.map((m) => <option key={m.mode} value={m.mode} disabled={!wmUsable}>{m.label}</option>)}
+                </select>
+              </label>
+              <div className="small accfull" title={acceptTip}>{acceptLine}</div>
+              {wmLine ? <div className="small accfull" title="計画／実行は experimental の設定で、設定の更新通知を受け取るまで受理は確認できません。">{wmLine} <UnverifiedTag cap={wmCap} /></div> : null}
+              {speedKeptLine ? <div className="small why">{speedKeptLine}</div> : null}
+            </div>
+          </Popover>
+          {speedName ? <span className="small muted" title="速度の指定（次の送信から適用）">速度 {speedName}</span> : null}
+          {wmSelected ? <span className="small muted" title={`計画／実行の指定: ${WORK_MODE_TEXT[wmSelected]}（次の送信から適用）`}>{wmShort(wmSelected)}</span> : null}
+          {/* 受理の根拠は、問題があるときだけ1行目に出す（全文は title と「⋯」） */}
+          {!accepted ? <span className="small acc" title={`${acceptLine}\n${acceptTip}`}>受理未確認</span> : changed ? <span className="small acc" title={acceptLine}>未受理</span> : null}
+          {wmSelected && wmAccepted !== wmSelected ? <span className="small acc" title={wmLine ?? undefined}>{wmShort(wmSelected)}: 未受理</span> : null}
+          {!wmSelected && wmAccepted ? <span className="small acc" title={wmLine ?? undefined}>計画／実行 {wmShort(wmAccepted)} のまま</span> : null}
+          {speedKept ? <span className="small why" title={speedKeptLine ?? undefined}>速度 {speedKept} のまま</span> : null}
+          <span className="grow" />
           {running ? (
             <span className="seg" role="group" aria-label="実行中の送信方法">
-              <button aria-pressed={steer} title="実行中のturnへ対象を照合して送ります。モデル・権限・フォルダの変更には使えません" onClick={() => setSteer(true)}>追加指示（現在のturnへ）</button>
-              <button aria-pressed={!steer} title="親と子孫の作業が終わってから、次の依頼として送ります" onClick={() => setSteer(false)}>完了後に送信（次の依頼）</button>
+              <button aria-pressed={steer} title="現在のturnへ。実行中のturnへ対象を照合して送ります。モデル・権限・フォルダの変更には使えません" onClick={() => setSteer(true)}>追加指示</button>
+              <button aria-pressed={!steer} title="次の依頼として。親と子孫の作業が終わってから送ります" onClick={() => setSteer(false)}>完了後に送信</button>
             </span>
           ) : null}
-          <select aria-label="権限" title="次の送信から適用。送信待ちの依頼にも送信時に適用されます" value={p.local?.permission ?? "workspaceWriteOnRequest"} onChange={(e) => p.onPermission(e.target.value as PermissionPreset)}>
-            {(Object.keys(PERMISSION_LABEL) as PermissionPreset[]).map((k) => <option key={k} value={k}>{PERMISSION_LABEL[k]}</option>)}
-          </select>
-          <span className="grow" />
           {running ? <button className="btn-line" aria-label="中断" title="実行中の作業に中断を要求します（停止の確認は別に行います）" onClick={() => p.onAct("interrupt")}><Icon name="stop" />中断</button> : null}
-          <button className="btn-main send" aria-label={running ? (steer ? "追加指示を送る" : "完了後に送る依頼として登録") : "送信"} disabled={!!lock || !!attachBlock} onClick={() => void send()}><Icon name="send" /></button>
+          <button className="btn-main send" aria-label={running ? (steer ? "追加指示を送る" : "完了後に送る依頼として登録") : "送信"} title={enterHint} disabled={!!lock || !!attachBlock} onClick={() => void send()}><Icon name="send" /></button>
         </div>
-      </div>
-      <div className="hint">
-        <span>{p.enterMode === "ctrl" ? "Ctrl＋Enter で送信、Enter で改行" : "Enter で送信、Shift＋Enter で改行"}</span>
-        <span title={!accepted ? "会話の再開・開始の応答か Codex の設定通知でモデルを受け取るまで、受理は確認できません。受け取っていない間は、選択値が使われたとは言えません。" : undefined}>
-          {changed ? `選択: ${model}／${effort}${speed ? `／速度 ${speed}` : ""}（未受理。次のターンから適用）　` : ""}
-          受理済み: {settings ? (accepted ? `${accepted.model}／${accepted.effort ?? "既定"}${accepted.speedTier ? `／速度 ${accepted.speedTier}` : ""}` : showKnown(settings.accepted)) : "未確認"}
-          {!accepted ? "（受け取るまで確認不可）" : ""}
-        </span>
-        {wmSelected || wmAccepted ? (
-          <span title="計画／実行は experimental の設定で、設定の更新通知を受け取るまで受理は確認できません。">
-            計画／実行: 選択 {wmSelected ? WORK_MODE_TEXT[wmSelected] : "未選択"}／受理済み {wmAccepted ? WORK_MODE_TEXT[wmAccepted] : "未確認"}
-            {wmSelected && wmAccepted !== wmSelected ? "（未受理。次のターンから適用）" : ""} <UnverifiedTag cap={wmCap} />
-          </span>
-        ) : null}
-        {accepted?.speedTier && !speed ? <span className="why">速度は「指定なし」ですが、Codex 側は速度 {accepted.speedTier} のままです。標準へ戻すには「標準（default）」を選んで送信し、受理済みの表示で確認してください。</span> : null}
-        {speed === "default" ? <span className="small muted">標準へ戻す指定を送ります。戻ったかは、送信後の受理済みの表示で確認してください（未確認）。</span> : null}
-        {stCap?.verification === "unverified" && speed ? <span><UnverifiedTag cap={stCap} /> 速度</span> : null}
       </div>
     </div>
   );
@@ -687,10 +754,10 @@ export function CenterPane(p: CenterProps) {
   const delPending = p.local?.deletePending ?? null;
   const lock = delPending ? `削除を保留中のため、送信できません。${PENDING_TEXT(delPending.reason)}`
     : hasOpenStop ? "停止を確認できるまで、このチャットへの新しい送信は止めています。"
-    : chat.origin === "external" && rootView(snap, chat)?.freshness !== "live" ? "外部で実行中かどうか確認できないため、再開するまでこの会話には送信できません。上のボタンから、外部側の終了を確認して再開してください。" : null;
+    : chat.origin === "external" && rootView(snap, chat)?.freshness !== "live" ? "再開するまで送信できません（上の案内から再開）" : null;
   return (
     <>
-      <Header snap={snap} chat={chat} onAct={p.onAct} commands={p.commands} running={running} local={p.local} onCwdToggle={() => setCwdOpen((o) => !o)} cwdLock={cwdLock} />
+      <Header snap={snap} chat={chat} onAct={p.onAct} commands={p.commands} local={p.local} onCwdToggle={() => setCwdOpen((o) => !o)} cwdLock={cwdLock} wasLive={p.wasLive} externalLabel={p.externalLabel} />
       {cwdOpen && !cwdLock ? <CwdPanel current={p.local?.nextCwd ?? knownValue(chat.cwd) ?? ""} onCwd={p.onCwd} onClose={() => setCwdOpen(false)} /> : null}
       <Banners p={p} />
       <Messages key={chat.key.id} turns={p.turns} reqs={reqs} running={running} onRespond={p.onRespond} onAct={p.onAct}
