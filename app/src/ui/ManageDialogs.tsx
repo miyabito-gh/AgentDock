@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { Chat, ChatLocalView, DeleteOutcome, DeletePendingReason, DeletePreview, DeleteStep, UsageBreakdown, UsageReport } from "../ipc/types";
 import { chatName } from "./derive";
 import { showKnown } from "./format";
+import { About } from "./DialogParts";
 
 /** 削除の完了した工程の表示文（ホストは列挙値だけを持つ）。 */
 export function stepText(s: DeleteStep): string {
@@ -108,7 +109,7 @@ export function ExportBody({ e }: { e: ExportProps }) {
     <div className="content">
       <p>会話本文と、添付・成果物のファイル名を書き出します。ファイルの中身は含めません。</p>
       <label><input type="checkbox" checked={e.include} onChange={(x) => e.setInclude(x.target.checked)} />監視活動の履歴も含める（子・孫を含む、取得済みの範囲）</label>
-      <p className="small muted">会話本文は Codex の保存履歴から取り直します。取得できなかった部分は「未取得」と書きます。書き込みに成功したことを確認できたときだけ、完了と表示します。</p>
+      <About><p>会話本文は Codex の保存履歴から取り直します。取得できなかった部分は「未取得」と書きます。書き込みに成功したことを確認できたときだけ、完了と表示します。</p></About>
       {e.error ? <p style={{ color: "var(--fail)" }}>{e.error}</p> : null}
     </div>
   );

@@ -12,8 +12,8 @@ export function ParityBody({ caps }: { caps: OpCapability[] }) {
   const by = new Map(caps.map((c) => [c.op, c]));
   return (
     <div className="content">
-      <p className="small muted">VS Code 拡張と同じ操作を、AgentDock から使えるかの一覧です。「未確認」は、実際の Codex で動作を確認していない操作で、結果は受け付けた事実と観測した内容だけを表示します。</p>
-      <table className="parity-table">
+      <p className="small">VS Code 拡張と同じ操作を、AgentDock から使えるかの一覧です。「未確認」は、実際の Codex で動作を確認していない操作で、結果は受け付けた事実と観測した内容だけを表示します。</p>
+      <table className="tbl parity-table">
         <thead><tr><th>操作</th><th>経路</th><th>対応</th><th>確認状況</th><th>備考</th></tr></thead>
         <tbody>
           {ORDER.map((op) => {
@@ -25,7 +25,7 @@ export function ParityBody({ caps }: { caps: OpCapability[] }) {
                   <>
                     <td>{ROUTE_TEXT[c.route]}</td>
                     <td>{SUPPORT_TEXT[c.support]}</td>
-                    <td>{c.verification === "unverified" ? <span className="tag unv">{VERIFY_TEXT[c.verification]}</span> : VERIFY_TEXT[c.verification]}</td>
+                    <td>{c.verification === "unverified" ? <span className="unv">{VERIFY_TEXT[c.verification]}</span> : VERIFY_TEXT[c.verification]}</td>
                     <td className="small">{c.deprecated ? "非推奨。" : ""}{c.note ?? ""}</td>
                   </>
                 ) : <td colSpan={4} className="small muted">未取得</td>}

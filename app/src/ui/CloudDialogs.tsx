@@ -9,6 +9,7 @@ import * as host from "../ipc/client";
 import type { Chat, CloudApplyResult, CloudCommandOutput, CloudRunStatus, CloudTaskInfo, CloudTaskList, CloudTaskRecord, CloudTaskState, OpCapability } from "../ipc/types";
 import { UnverifiedTag } from "./PrefsDialogs";
 import { showKnown } from "./format";
+import { About, FootActions } from "./DialogParts";
 
 const errText = (e: unknown) => host.asIpcError(e).message;
 
@@ -131,11 +132,10 @@ export function CloudBody({ live, cap, chat, records }: { live: boolean; cap: Op
   const sorted = records.slice().sort((a, b) => b.since - a.since);
   const canSubmit = !busy && prompt.trim() !== "" && envId.trim() !== "";
   return (
+    <>
     <div className="content">
-      <p className="small muted">
-        <UnverifiedTag cap={cap} /> codex cloud（experimental のCLI）で行います。出力の形式は実機で確認していないため、想定外の形式のときは要約せず原文の先頭を表示します。
-        状態は自動では更新しません（開いたときと「更新」だけ）。{cap?.note ? ` ${cap.note}` : ""}
-      </p>
+      <p className="small muted"><UnverifiedTag cap={cap} /> codex cloud（experimental のCLI）で行います。{cap?.note ? ` ${cap.note}` : ""}</p>
+      <About><p>出力の形式は実機で確認していないため、想定外の形式のときは要約せず原文の先頭を表示します。状態は自動では更新しません（開いたときと「更新」だけ）。</p></About>
       <h4 style={{ margin: "8px 0 4px" }}>委任する</h4>
       <div className="field"><span>依頼文</span><textarea rows={4} value={prompt} onChange={(e) => setPrompt(e.target.value)} aria-label="依頼文" /></div>
       <div className="field"><span>環境ID</span>
@@ -144,10 +144,6 @@ export function CloudBody({ live, cap, chat, records }: { live: boolean; cap: Op
       <div className="field"><span>ブランチ（任意）</span>
         <input type="text" className="mono" value={branch} onChange={(e) => setBranch(e.target.value)} aria-label="ブランチ" placeholder={hint?.branch ?? "空欄ならCLIの既定（現在のブランチ）"} /></div>
       <div className="field"><span>作業フォルダ</span><span className="mono small">{folder || "（チャットを選ぶと表示します）"}</span></div>
-      <div className="acts" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <button className="btn-main" disabled={!canSubmit} onClick={() => void submit()}>確認して送る…</button>
-        {canSubmit ? null : <span className="small muted">{busy ? "処理中です" : prompt.trim() === "" && envId.trim() === "" ? "依頼文と環境IDを入力してください" : prompt.trim() === "" ? "依頼文を入力してください" : "環境IDを入力してください"}</span>}
-      </div>
       {msg ? <p className="small" style={{ marginTop: 6, whiteSpace: "pre-wrap" }}>{msg}</p> : null}
       <hr />
       <h4 style={{ margin: "0 0 4px" }}>AgentDockから送った記録</h4>
@@ -206,5 +202,9 @@ export function CloudBody({ live, cap, chat, records }: { live: boolean; cap: Op
         </>
       ) : null}
     </div>
+    <FootActions
+      left={canSubmit ? null : <span className="small muted">{busy ? "処理中です" : prompt.trim() === "" && envId.trim() === "" ? "依頼文と環境IDを入力してください" : prompt.trim() === "" ? "依頼文を入力してください" : "環境IDを入力してください"}</span>}
+      main={<button className="btn primary" disabled={!canSubmit} onClick={() => void submit()}>確認して送る…</button>} />
+    </>
   );
 }

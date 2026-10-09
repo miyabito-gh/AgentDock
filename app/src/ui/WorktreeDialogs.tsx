@@ -6,6 +6,7 @@ import * as host from "../ipc/client";
 import type { Chat, GitInfo, WorktreeEntry, WorktreeRecord, WorktreeRemoveOutcome, WorktreeRemovePreview, WorktreeRemoveVerdict, RemoveBlockReason } from "../ipc/types";
 import { chatName } from "./derive";
 import { showKnown } from "./format";
+import { About } from "./DialogParts";
 
 const errText = (e: unknown) => host.asIpcError(e).message;
 
@@ -145,7 +146,7 @@ export function WorktreesBody({ live, records, cwd, chats }: { live: boolean; re
   const chatOf = (r: WorktreeRecord) => (r.createdForChat ? chats.find((c) => c.key.id === r.createdForChat!.id) : undefined);
   return (
     <div className="content">
-      <p className="small muted">AgentDockが作ったworktreeです。削除はここに記録があるものだけで、ブランチは残します。チャットを削除してもworktreeは消えません。</p>
+      <About><p>AgentDockが作ったworktreeです。削除はここに記録があるものだけで、ブランチは残します。チャットを削除してもworktreeは消えません。</p></About>
       {records.length === 0 ? <p>AgentDockが作ったworktreeはありません。</p> : (
         <ul className="check-list">
           {records.map((r) => (
@@ -158,7 +159,7 @@ export function WorktreesBody({ live, records, cwd, chats }: { live: boolean; re
         </ul>
       )}
       {target ? (
-        <div className="gbanner warn" role="alertdialog" aria-label="worktreeの削除の確認" style={{ display: "block" }}>
+        <div className="confirm" role="alertdialog" aria-label="worktreeの削除の確認">
           {busy && !pv && !outcome ? <p>削除の可否を確認しています…</p> : null}
           {pv ? (
             <>
@@ -167,19 +168,19 @@ export function WorktreesBody({ live, records, cwd, chats }: { live: boolean; re
               {v?.kind === "allowed" || v?.kind === "needsDiscard" ? (
                 <p><label><input type="checkbox" checked={deleteBranch} onChange={(e) => setDeleteBranch(e.target.checked)} />マージ済みならブランチ（{pv.record.branch}）も削除する（マージされていなければ残ります）</label></p>
               ) : null}
-              <div className="acts">
+              <div className="acts end">
+                <button className="btn" disabled={busy} onClick={() => { setTarget(null); setPv(null); }}>やめる</button>
                 {v?.kind === "blocked" ? null : (
-                  <button className={v?.kind === "needsDiscard" ? "btn-danger" : "btn-main"} disabled={!canRun} onClick={() => void run(v?.kind === "needsDiscard")}>
+                  <button className={v?.kind === "needsDiscard" ? "btn danger" : "btn primary"} disabled={!canRun} onClick={() => void run(v?.kind === "needsDiscard")}>
                     {busy ? "実行しています…" : v?.kind === "needsDiscard" ? "変更を破棄して削除" : v?.kind === "alreadyGone" ? "記録だけを外す" : "削除"}
                   </button>
                 )}
-                <button className="btn-line" disabled={busy} onClick={() => { setTarget(null); setPv(null); }}>やめる</button>
               </div>
             </>
           ) : null}
           {outcome ? <p role="status">{outcomeText(outcome)}</p> : null}
           {err ? <p style={{ color: "var(--fail)" }} role="alert">{err}</p> : null}
-          {outcome ? <div className="acts"><button className="btn-line" onClick={() => { setTarget(null); setOutcome(null); }}>閉じる</button></div> : null}
+          {outcome ? <div className="acts end"><button className="btn" onClick={() => { setTarget(null); setOutcome(null); }}>閉じる</button></div> : null}
         </div>
       ) : null}
       <hr />

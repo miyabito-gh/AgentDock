@@ -44,7 +44,7 @@ export function CommandPalette({ views, onRun, onClose }: { views: CommandView[]
               <li key={v.cmd.id} role="option" aria-selected={i === cur} aria-disabled={off} className={`${i === cur ? "cur" : ""} ${off ? "off" : ""}`}
                 title={off ? st.reason : undefined} onMouseEnter={() => setPos(i)} onClick={() => run(v)}>
                 <span className="grow">{v.cmd.label}</span>
-                {st.kind === "enabled" && st.unverified ? <span className="tag unv">未確認</span> : null}
+                {st.kind === "enabled" && st.unverified ? <span className="unv">未確認</span> : null}
                 {v.cmd.kbd ? <span className="kbd">{v.cmd.kbd}</span> : null}
                 {off ? <span className="why">{st.reason}</span> : null}
               </li>

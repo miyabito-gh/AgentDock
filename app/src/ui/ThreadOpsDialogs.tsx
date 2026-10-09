@@ -6,6 +6,7 @@ import * as host from "../ipc/client";
 import type { Chat, ChatKey, ExternalId, ForkReconcile, OpAck, OpCapability, OpReconcile, ParityOp, PendingOp, ReviewChoices, ReviewDelivery, ReviewOutcome, ReviewTarget, TurnRecord } from "../ipc/types";
 import { chatName } from "./derive";
 import { UnverifiedNote } from "./ChangesDialog";
+import { About, ConfirmBlock, FootActions, ShortId } from "./DialogParts";
 import { ackText } from "./PrefsDialogs";
 
 const errText = (e: unknown) => host.asIpcError(e).message;
@@ -127,6 +128,7 @@ export function ReviewBody({ chat, live, cap, pending, waiting, onOpenChat }: Th
     `${ackText(o.ack, "レビュー")}${o.ack.kind === "accepted" ? " レビュー結果は、会話に「レビュー結果」の記録が現れたときに表示されます。" : ""}`;
 
   return (
+    <>
     <div className="content">
       <p><b>{chatName(chat)}</b> の作業フォルダのコードをレビューします。</p>
       <UnverifiedNote cap={cap} />
@@ -158,17 +160,17 @@ export function ReviewBody({ chat, live, cap, pending, waiting, onOpenChat }: Th
                 {targetLabel(t)} のレビューを{delivery === "newChat" ? "新しい会話で" : "この会話で"}始めます。{delivery === "currentChat" ? "この会話にレビューの作業が加わります。" : "新しい会話を作ります。"}
                 {waiting > 0 ? `この操作の完了後に、送信待ち ${waiting} 件が送られます。` : null}
               </span>
-              <button className="btn-main" disabled={running} onClick={() => void run()}>{running ? "依頼しています…" : "レビューを始める"}</button>
-              <button className="btn-line" disabled={running} onClick={() => setConfirming(false)}>やめる</button>
+              <button className="btn" disabled={running} onClick={() => setConfirming(false)}>やめる</button>
+              <button className="btn primary" disabled={running} onClick={() => void run()}>{running ? "依頼しています…" : "レビューを始める"}</button>
             </div>
-          ) : <div className="acts"><button className="btn-main" disabled={!t || running || pending.some((p) => p.op === "codeReview")} onClick={() => setConfirming(true)}>確認へ…</button></div>}
+          ) : null}
         </>
       ) : null}
       {outcome ? (
         <div role="status">
           {outcome.o.kind === "started" ? (
             <>
-              <p className={outcome.o.ack.kind === "accepted" ? "gbanner warn" : "gbanner err"}>{ackLine(outcome.o)}</p>
+              <p className={outcome.o.ack.kind === "accepted" ? "banner info" : "banner err"}>{ackLine(outcome.o)}</p>
               {outcome.o.createdChat ? <p className="small">新しい会話を作りました（レビュー元として、この会話を記録しています）。</p> : null}
               {outcome.o.ack.kind === "unknown" ? <p className="small muted">受理を確認できないため、再送していません。上の「状態を確認」で履歴を読んで確かめてください。</p> : null}
               {outcome.o.createdChat && outcome.o.ack.kind !== "rejected" ? <div className="acts"><button className="btn-line" onClick={() => onOpenChat((outcome.o as Extract<ReviewOutcome, { kind: "started" }>).chat)}>新しい会話を開く</button></div> : null}
@@ -187,6 +189,8 @@ export function ReviewBody({ chat, live, cap, pending, waiting, onOpenChat }: Th
         </div>
       ) : null}
     </div>
+    {choices && !outcome ? <FootActions main={<button className="btn primary" disabled={!t || running || confirming || pending.some((p) => p.op === "codeReview")} onClick={() => setConfirming(true)}>確認へ…</button>} /> : null}
+    </>
   );
 }
 
@@ -224,31 +228,35 @@ export function ForkBody({ chat, live, cap, throughTurn, onOpenChat }: Pick<Thre
   };
   const adopted = result?.chat ?? (recon?.kind === "adopted" ? recon.chat : null);
   return (
+    <>
     <div className="content">
-      <p><b>{chatName(chat)}</b> を{throughTurn ? `「turn ${throughTurn}」まで` : "最新の終了したturnまで"}引き継いだ、新しい会話に分岐します。元の会話は変わりません。</p>
+      <p><b>{chatName(chat)}</b> を{throughTurn ? <>「turn <ShortId id={throughTurn} />」まで</> : "最新の終了したturnまで"}引き継いだ、新しい会話に分岐します。元の会話は変わりません。</p>
       <UnverifiedNote cap={cap} />
-      <p className="small muted">分岐先はAgentDockで管理する会話として一覧に加わります。分岐先の履歴は、元の会話の添付のコピーを参照します（元の会話を削除すると、その添付は欠損表示になります）。</p>
+      <p className="small">元の会話を削除すると、分岐先が参照する添付は欠損表示になります。</p>
+      <About><p>分岐先はAgentDockで管理する会話として一覧に加わります。分岐先の履歴は、元の会話の添付のコピーを参照します。</p></About>
       {err ? <p className="gbanner err" role="alert">{err}</p> : null}
       {!result ? (
         confirming ? (
           <div className="gbanner warn" role="alertdialog" aria-label="分岐の確認">
             <span className="grow">新しい会話を作って分岐します。よろしいですか？</span>
-            <button className="btn-main" disabled={running} onClick={() => void run()}>{running ? "分岐しています…" : "分岐する"}</button>
-            <button className="btn-line" disabled={running} onClick={() => setConfirming(false)}>やめる</button>
+            <button className="btn" disabled={running} onClick={() => setConfirming(false)}>やめる</button>
+            <button className="btn primary" disabled={running} onClick={() => void run()}>{running ? "分岐しています…" : "分岐する"}</button>
           </div>
-        ) : <div className="acts"><button className="btn-main" onClick={() => setConfirming(true)}>確認へ…</button></div>
+        ) : null
       ) : (
         <div role="status">
-          {result.ack.kind === "accepted" ? <p className="gbanner warn">分岐を要求し、Codex が受け付けました。{adopted ? `分岐先: ${chatName(adopted)}` : ""}</p> : null}
+          {result.ack.kind === "accepted" ? <p className="banner info">分岐を要求し、Codex が受け付けました。{adopted ? `分岐先: ${chatName(adopted)}` : ""}</p> : null}
           {result.ack.kind === "rejected" ? <p className="gbanner err">分岐は受け付けられませんでした（{result.ack.message}）。</p> : null}
           {result.ack.kind === "unknown" ? <p className="gbanner err">分岐の受理を確認できません（{result.ack.message}）。再送はしません。分岐先を確認（読取りのみ）できます。</p> : null}
           {result.note ? <p className="small muted">{result.note}</p> : null}
-          {result.ack.kind === "unknown" ? <div className="acts"><button className="btn-line" disabled={checking} onClick={() => void check()}>{checking ? "確認しています…" : "分岐先を確認"}</button></div> : null}
           {recon ? <p className="small">{forkText(recon)}</p> : null}
-          {adopted ? <div className="acts"><button className="btn-main" onClick={() => onOpenChat(adopted.key)}>分岐先を開く</button></div> : null}
         </div>
       )}
     </div>
+    <FootActions
+      left={result?.ack.kind === "unknown" ? <button className="btn" disabled={checking} onClick={() => void check()}>{checking ? "確認しています…" : "分岐先を確認"}</button> : null}
+      main={!result ? <button className="btn primary" disabled={confirming} onClick={() => setConfirming(true)}>確認へ…</button> : adopted ? <button className="btn primary" onClick={() => onOpenChat(adopted.key)}>分岐先を開く</button> : null} />
+    </>
   );
 }
 
@@ -280,7 +288,7 @@ function SnapshotView({ chat }: { chat: Chat }) {
   return (
     <div>
       <h4 style={{ margin: "10px 0 4px" }}>圧縮前の本文の控え</h4>
-      <p className="small muted">圧縮を送る前に AgentDock が保存した、表示専用の控えです（Codex には戻しません。自動では削除せず、チャットの削除と一緒に消えます）。Codex が自動で行った圧縮の前の本文は、控えがなく、Codex の履歴に残っていなければ取得できません。</p>
+      <About><p>圧縮を送る前に AgentDock が保存した、表示専用の控えです（Codex には戻しません。自動では削除せず、チャットの削除と一緒に消えます）。Codex が自動で行った圧縮の前の本文は、控えがなく、Codex の履歴に残っていなければ取得できません。</p></About>
       {err ? <p className="gbanner err" role="alert">{err}</p> : null}
       {ids === null && !err ? <p className="small">読み込んでいます…</p> : null}
       {ids && ids.length === 0 ? <p className="small">保存された控えはありません。</p> : null}
@@ -294,7 +302,7 @@ function SnapshotView({ chat }: { chat: Chat }) {
         <div className="diffview" role="region" aria-label="圧縮前の本文" tabIndex={0} style={{ whiteSpace: "pre-wrap" }}>
           {turns.length === 0 ? <div className="ln">（この控えに本文はありません）</div> : turns.map((t) => (
             <div key={t.key.turnId} className="ln" style={{ marginBottom: 6 }}>
-              <div className="meta">turn {t.key.turnId}{t.complete ? "" : "（部分的にしか読めていません）"}</div>
+              <div className="meta">turn <ShortId id={t.key.turnId} />{t.complete ? "" : "（部分的にしか読めていません）"}</div>
               {t.entries.map((e) => <div key={e.key.itemId}><b>{entryLabel(e.kind)}</b>　{e.text.kind === "value" ? e.text.value : "（内容の記載なし）"}</div>)}
             </div>))}
         </div>
@@ -315,31 +323,34 @@ export function CompactBody({ chat, live, cap, pending, waiting }: ThreadOpProps
     try { setResult(await host.compactChat(chat.key)); setConfirming(false); } catch (e) { setErr(errText(e)); setConfirming(false); } finally { setRunning(false); }
   };
   return (
+    <>
     <div className="content">
       <p><b>{chatName(chat)}</b> の文脈を圧縮します。</p>
       <UnverifiedNote cap={cap} />
-      <p className="small muted">圧縮の前に、現在の本文をこのチャット用の領域へ控えとして保存します。保存できないときは圧縮を送りません。圧縮が終わったかどうかは、会話に「文脈の圧縮」の記録が現れたときだけ表示されます。</p>
+      <About><p>圧縮の前に、現在の本文をこのチャット用の領域へ控えとして保存します。保存できないときは圧縮を送りません。圧縮が終わったかどうかは、会話に「文脈の圧縮」の記録が現れたときだけ表示されます。</p></About>
       <PendingNote chat={chat} pending={pending} ops={["compact"]} />
       {err ? <p className="gbanner err" role="alert">{err}</p> : null}
       {!result ? (
         confirming ? (
-          <div className="gbanner warn" role="alertdialog" aria-label="圧縮の確認">
-            <span className="grow">
+          <ConfirmBlock label="圧縮の確認" actions={<>
+            <button className="btn" disabled={running} onClick={() => setConfirming(false)}>やめる</button>
+            <button className="btn danger" disabled={running} onClick={() => void run()}>{running ? "控えを保存して依頼しています…" : "圧縮する"}</button></>}>
+            <p>
               文脈を圧縮します。元に戻せません（圧縮前の本文は控えとして残ります）。
               {waiting > 0 ? `この操作の完了後に、送信待ち ${waiting} 件が送られます。` : null}
-            </span>
-            <button className="btn-main" disabled={running} onClick={() => void run()}>{running ? "控えを保存して依頼しています…" : "圧縮する"}</button>
-            <button className="btn-line" disabled={running} onClick={() => setConfirming(false)}>やめる</button>
-          </div>
-        ) : <div className="acts"><button className="btn-main" disabled={pending.some((p) => p.op === "compact")} onClick={() => setConfirming(true)}>確認へ…</button></div>
+            </p>
+          </ConfirmBlock>
+        ) : null
       ) : (
         <div role="status">
-          <p className={result.ack.kind === "accepted" ? "gbanner warn" : "gbanner err"}>{ackText(result.ack, "文脈の圧縮")}</p>
+          <p className={result.ack.kind === "accepted" ? "banner info" : "banner err"}>{ackText(result.ack, "文脈の圧縮")}</p>
           {result.ack.kind === "unknown" ? <p className="small muted">受理を確認できないため、再送していません。上の「状態を確認」で履歴を読んで確かめてください。</p> : null}
           <p className="small muted">圧縮前の本文の控え: <span className="mono">{result.snapshotPath}</span></p>
         </div>
       )}
       <SnapshotView key={result?.snapshot ?? 0} chat={chat} />
     </div>
+    {!result ? <FootActions main={<button className="btn primary" disabled={confirming || pending.some((p) => p.op === "compact")} onClick={() => setConfirming(true)}>確認へ…</button>} /> : null}
+    </>
   );
 }

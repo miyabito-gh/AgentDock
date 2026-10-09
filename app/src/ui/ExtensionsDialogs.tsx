@@ -8,6 +8,7 @@ import * as host from "../ipc/client";
 import type { ConfigCompare, ExtensionOpRecord, ExtensionOpStatus, ExtensionView, OpCapability, ToolServerAuth, ToolServerConnection, ToolServerList, ToolServerLogin } from "../ipc/types";
 import { UnverifiedTag } from "./PrefsDialogs";
 import { showKnown } from "./format";
+import { About } from "./DialogParts";
 
 const errText = (e: unknown) => host.asIpcError(e).message;
 
@@ -199,7 +200,7 @@ export function ExtensionsBody({ live, toolCap, extCap }: { live: boolean; toolC
       {last ? <><h4 style={{ margin: "10px 0 4px" }}>実行結果</h4><ul style={{ margin: 0, paddingLeft: 18 }}><OpRecordView r={last} /></ul></> : null}
       <hr />
       <h4 style={{ margin: "0 0 4px" }}>管理操作の記録</h4>
-      <p className="small muted">操作の種類・対象の名前・終了コード・設定の照合だけを記録します（起動コマンド・認証情報は記録しません）。</p>
+      <About><p>操作の種類・対象の名前・終了コード・設定の照合だけを記録します（起動コマンド・認証情報は記録しません）。</p></About>
       {ops.length === 0 ? <p className="small">記録はありません。</p> : <ul style={{ margin: 0, paddingLeft: 18 }}>{ops.map((r) => <OpRecordView key={r.id} r={r} />)}</ul>}
     </>
   );

@@ -7,6 +7,7 @@ import type { Chat, ChatKey, ExternalId, InstructionFiles, Known, OpCapability, 
 import { UnverifiedTag } from "./PrefsDialogs";
 import { chatName } from "./derive";
 import { showKnown } from "./format";
+import { About, FootActions } from "./DialogParts";
 
 const errText = (e: unknown) => host.asIpcError(e).message;
 
@@ -59,9 +60,10 @@ export function ReferenceBody({ chat, chats, live, cap, insertText, onDone }: { 
   };
   const insert = () => { if (block) { insertText(block.text); onDone(); } };
   return (
+    <>
     <div className="content">
       <p>過去のやり取りの本文を、そのまま入力欄へ入れます。要約はしません。送信前に確認・編集できます。 <UnverifiedTag cap={cap} /></p>
-      <p className="small muted">履歴を読むだけで、参照先の会話の再開や変更はしません。アーカイブ・外部の会話も選べます。</p>
+      <About><p>履歴を読むだけで、参照先の会話の再開や変更はしません。アーカイブ・外部の会話も選べます。</p></About>
       <div className="field"><span>参考にする会話</span>
         <select value={src.key.id} onChange={(e) => setSrcId(e.target.value)} aria-label="参考にする会話">
           {chats.map((c) => <option key={c.key.id} value={c.key.id}>{chatName(c)}{c.key.id === chat?.key.id ? "（このチャット）" : ""}{c.noHistory ? "（履歴なし）" : ""}</option>)}
@@ -88,10 +90,11 @@ export function ReferenceBody({ chat, chats, live, cap, insertText, onDone }: { 
           <p className="small" style={{ marginTop: 8 }}>{block.chars.toLocaleString("ja-JP")} 文字{block.overLimit ? "（長いため、モデルの入力を圧迫するおそれがあります。必要なturnだけに絞ることをおすすめします。入れること自体は止めません）" : ""}</p>
           {block.missing.length > 0 ? <div className="why err">取得できなかったturnがあります（本文に「未取得」と書いてあります）: {block.missing.join("、")}</div> : null}
           <textarea readOnly value={block.text} rows={10} style={{ width: "100%" }} className="mono" aria-label="入力欄へ入れる抜粋" />
-          <div style={{ marginTop: 6 }}><button className="btn-main" onClick={insert}>入力欄へ入れる（送信はしません）</button></div>
         </>
       ) : null}
     </div>
+    <FootActions main={<button className="btn primary" disabled={!block} onClick={insert}>入力欄へ入れる（送信はしません）</button>} />
+    </>
   );
 }
 
@@ -143,7 +146,7 @@ export function SkillsBody({ chat, live, cap, pickSkill, onDone }: { chat: Chat 
   return (
     <div className="content">
       <p>作業フォルダのSkillです。{pickSkill ? "指定すると、入力欄のチップになり、送信時にそのSkillを明示的に呼び出します。" : ""} <UnverifiedTag cap={cap} /></p>
-      <p className="small muted">Skillの定義は読むだけで、変更や有効・無効の切替はしません（~/.codex 配下も同じです）。</p>
+      <About><p>Skillの定義は読むだけで、変更や有効・無効の切替はしません（~/.codex 配下も同じです）。</p></About>
       <div style={{ marginBottom: 6 }}><button className="btn-line" disabled={busy} onClick={() => load(true)}>{busy ? "読み込んでいます…" : "再読み込み（ディスクを再走査）"}</button></div>
       {err ? <div className="why err">Skillを取得できませんでした（未取得）: {err}</div> : null}
       {list ? <SkillRows skills={list.skills} pick={pick ? (s) => void pick(s) : undefined} /> : null}
@@ -190,7 +193,7 @@ export function InstructionBody({ chat, live, cap, insertText, openFile }: { cha
   return (
     <div className="content">
       <p>Codex が会話に読み込んでいる指示ファイル（AGENTS.md など）です。 <UnverifiedTag cap={cap} /></p>
-      <p className="small muted">一覧は、この接続で会話を開始・再開・分岐したときの応答に示されたものだけを表示します（表示のために会話を再開しません）。~/.codex 配下のファイルは読むだけです。</p>
+      <About><p>一覧は、この接続で会話を開始・再開・分岐したときの応答に示されたものだけを表示します（表示のために会話を再開しません）。~/.codex 配下のファイルは読むだけです。</p></About>
       {err ? <div className="why err">取得できませんでした（未取得）: {err}</div> : null}
       {info ? (
         <>

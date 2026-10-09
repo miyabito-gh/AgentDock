@@ -4,6 +4,7 @@ import { chatName } from "./derive";
 import { SCOPE_TEXT } from "./Chrome";
 import { Icon } from "./Icon";
 import { DeleteBody, ExportBody, StorageBody, type BaselineProps, type DeleteProps, type ExportProps, type UsageProps } from "./ManageDialogs";
+import { FootCtx, useFootSlots, About, ConfirmBlock } from "./DialogParts";
 import { ParityBody } from "./ParityDialog";
 import { ChangesBody, RevertBody } from "./ChangesDialog";
 import { GoalBody, StatusBody } from "./PrefsDialogs";
@@ -38,13 +39,22 @@ export type DialogState =
   | { type: "resumeExternal"; chatId: string }
   | { type: "rename"; chatId: string };
 
-function Shell({ title, children, foot, wide, full, onClose }: { title: string; children: ReactNode; foot?: ReactNode; wide?: boolean; full?: boolean; onClose: () => void }) {
+/** 外枠。フッターは左＝副操作、右＝閉じる（キャンセル）＋主操作（いちばん右）。
+ *  `close` を渡すと、閉じるボタン付きのフッターを作り、本文側が FootActions で副操作・主操作を差し込める。
+ *  `foot` は主操作・危険操作まで呼び出し側が組むとき（閉じる／キャンセルも含めて渡す）。`footLeft` は左の副操作。 */
+function Shell({ title, children, foot, footLeft, close, wide, full, onClose }: { title: string; children: ReactNode; foot?: ReactNode; footLeft?: ReactNode; close?: string; wide?: boolean; full?: boolean; onClose: () => void }) {
+  const fs = useFootSlots();
   return (
     <div className="scrim" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className={`dialog ${wide ? "wide" : ""} ${full ? "full-narrow" : ""}`} role="dialog" aria-modal="true" aria-label={title}>
-        <header><h3>{title}</h3><button aria-label="閉じる" onClick={onClose}><Icon name="x" /></button></header>
-        {children}
-        {foot ? <footer>{foot}</footer> : null}
+        <header><h3>{title}</h3><button className="btn subtle icon" aria-label="閉じる" onClick={onClose}><Icon name="x" /></button></header>
+        <FootCtx.Provider value={fs.slots}>{children}</FootCtx.Provider>
+        {close ? (
+          <footer>
+            <div className="foot-l" ref={fs.setLeft} />
+            <div className="foot-r"><button className="btn" onClick={onClose}>{close}</button><span className="foot-main" ref={fs.setMain} /></div>
+          </footer>
+        ) : foot ? <footer><div className="foot-l">{footLeft}</div><div className="foot-r">{foot}</div></footer> : null}
       </div>
     </div>
   );
@@ -176,34 +186,36 @@ function targetText(t: StopRecord["targets"][number]): string {
 /** 完全終了の確認・進行。閉じる操作（トレイ格納）ではここを出さない。停止は証拠で確認し、時間経過だけでは確認にしない。 */
 function QuitDialog({ q, chats, onClose, onAct }: { q: QuitProps; chats: Chat[]; onClose: () => void; onAct: (a: string) => void }) {
   const p = q.phase;
-  const cancel = <button className="btn-line" onClick={() => q.decide("cancel")}>終了を取り消す</button>;
+  const cancel = <button className="btn" onClick={() => q.decide("cancel")}>終了を取り消す</button>;
   if (!q.live) return (
-    <Shell title="AgentDock を終了" onClose={onClose} foot={<><button className="btn-line" onClick={onClose}>終了を取り消す</button><button className="btn-danger" onClick={() => onAct("quitStop")}>作業を中断して終了</button></>}>
+    <Shell title="AgentDock を終了" onClose={onClose} foot={<><button className="btn" onClick={onClose}>終了を取り消す</button><button className="btn danger" onClick={() => onAct("quitStop")}>作業を中断して終了</button></>}>
       <div className="content"><p>作業中のチャットがある場合、各対象の停止と保存を確認してから終了します。この操作はモックでは動きません。</p></div>
     </Shell>);
   switch (p.kind) {
     case "idle": return (
       <Shell title="AgentDock を終了" onClose={onClose}><div className="content"><p>作業の状況を確認しています…</p></div></Shell>);
     case "confirming": return (
-      <Shell title="AgentDock を終了" onClose={onClose} foot={<>{cancel}<button className="btn-danger" onClick={() => q.decide("stopAndQuit")}>作業を中断して終了</button></>}>
+      <Shell title="AgentDock を終了" onClose={onClose} foot={<>{cancel}<button className="btn danger" onClick={() => q.decide("stopAndQuit")}>作業を中断して終了</button></>}>
         <div className="content">
           <p>作業中のチャットがあります。</p>
           <ul className="quit-list">{p.busy.map((k) => <li key={k.id}>{nameOf(chats, k)}</li>)}</ul>
-          <p className="small muted">「作業を中断して終了」では、各チャットへ中断要求を送り、停止と保存を確認してから終了します。停止を確認できない対象があれば、その内容を表示して終了を止めます。</p>
+          <p className="small">停止を確認できない対象があれば、その内容を表示して終了を止めます。</p>
+          <About><p>「作業を中断して終了」では、各チャットへ中断要求を送り、停止と保存を確認してから終了します。</p></About>
         </div>
       </Shell>);
     case "stopping": return (
       <Shell title="停止と保存を確認しています" onClose={onClose} foot={cancel}>
         <div className="content">
           <p>中断を要求しました。停止と保存を確認してから終了します。</p>
-          <p className="small muted">約10秒で停止を確認できない対象があれば、ここに表示します。取り消しても、すでに送った中断要求は取り消せません。</p>
+          <p className="small">約10秒で停止を確認できない対象があれば、ここに表示します。取り消しても、すでに送った中断要求は取り消せません。</p>
         </div>
       </Shell>);
     case "stopUnconfirmed": {
       const recs = q.stops.filter((r) => p.records.includes(r.id));
       return (
         <Shell title="停止を確認できていない対象があります" wide onClose={onClose}
-          foot={<><button className="btn-line" onClick={() => q.decide("wait")}>待つ</button><button className="btn-line" onClick={() => q.decide("retryInterrupt")}>中断を再試行</button>{cancel}<button className="btn-danger" onClick={q.onForce}>強制終了…</button></>}>
+          footLeft={<><button className="btn" onClick={() => q.decide("wait")}>待つ</button><button className="btn" onClick={() => q.decide("retryInterrupt")}>中断を再試行</button></>}
+          foot={<>{cancel}<button className="btn danger-line" onClick={q.onForce}>強制終了…</button></>}>
           <div className="content">
             <p>中断要求から10秒たっても、停止を確認できていない対象があります。時間の経過だけで停止や失敗とは判断していません。</p>
             <ul className="quit-list">
@@ -215,14 +227,14 @@ function QuitDialog({ q, chats, onClose, onAct }: { q: QuitProps; chats: Chat[];
                 </li>
               ))}
             </ul>
-            <p className="small muted">「待つ」では終了せずに確認を続けます。確認できた時点で保存して終了します。強制終了は、同じ Codex 上の全チャットが止まります（確認画面で対象を示します）。</p>
+            <p className="small">「待つ」では終了せずに確認を続けます。確認できた時点で保存して終了します。強制終了は、同じ Codex 上の全チャットが止まります（確認画面で対象を示します）。</p>
           </div>
         </Shell>);
     }
     case "flushing": return (
       <Shell title="保存を確認しています" onClose={onClose}><div className="content"><p>保存を確認してから終了します。</p></div></Shell>);
     case "saveFailed": return (
-      <Shell title="保存できていない内容があります" wide onClose={onClose} foot={<><button className="btn-line" onClick={q.onRetrySave}>保存を再試行</button>{cancel}</>}>
+      <Shell title="保存できていない内容があります" wide onClose={onClose} foot={<>{cancel}<button className="btn primary" onClick={q.onRetrySave}>保存を再試行</button></>}>
         <div className="content">
           <p>保存に成功したことを確認できないため、終了していません。</p>
           <ul className="quit-list">
@@ -239,8 +251,7 @@ function QuitDialog({ q, chats, onClose, onAct }: { q: QuitProps; chats: Chat[];
 function ForceDialog({ f, chats, onClose }: { f: ForceProps; chats: Chat[]; onClose: () => void }) {
   const pv = f.preview;
   return (
-    <Shell title="強制終了" onClose={onClose}
-      foot={<><button className="btn-line" onClick={onClose}>やめる</button><button className="btn-danger" disabled={!pv || f.running} onClick={f.run}>{f.running ? "要求しています…" : "強制終了する"}</button></>}>
+    <Shell title="強制終了" onClose={onClose}>
       <div className="content">
         {f.error ? <p style={{ color: "var(--fail)" }}>{f.error}</p> : !pv ? <p>影響を受ける対象を確認しています…</p> : (
           <>
@@ -251,7 +262,11 @@ function ForceDialog({ f, chats, onClose }: { f: ForceProps; chats: Chat[]; onCl
             <p className="small muted">稼働中のプロセス数: {pv.activeProcesses.kind === "value" ? pv.activeProcesses.value : "未取得"}</p>
           </>
         )}
-        <p>保存されていない内容が失われたり、処理の一部が残ったりする可能性があります。このアプリが起動していない実行は対象にしません。強制終了の後も、停止を確認できるまでは「停止未確認」として扱います。</p>
+        <ConfirmBlock label="強制終了の確認" actions={<>
+          <button className="btn" onClick={onClose}>やめる</button>
+          <button className="btn danger" disabled={!pv || f.running} onClick={f.run}>{f.running ? "要求しています…" : "強制終了する"}</button></>}>
+          <p>保存されていない内容が失われたり、処理の一部が残ったりする可能性があります。このアプリが起動していない実行は対象にしません。強制終了の後も、停止を確認できるまでは「停止未確認」として扱います。</p>
+        </ConfirmBlock>
       </div>
     </Shell>);
 }
@@ -268,7 +283,7 @@ function RenameDialog({ chat, onClose, run }: { chat: Chat | undefined; onClose:
     if (e) setErr(e);
   };
   return (
-    <Shell title="名前を変更" onClose={onClose} foot={<><button className="btn-line" onClick={onClose}>キャンセル</button><button className="btn-main" disabled={busy || !name.trim()} onClick={() => void go()}>{busy ? "変更しています…" : "変更"}</button></>}>
+    <Shell title="名前を変更" onClose={onClose} foot={<><button className="btn" onClick={onClose}>キャンセル</button><button className="btn primary" disabled={busy || !name.trim()} onClick={() => void go()}>{busy ? "変更しています…" : "変更"}</button></>}>
       <div className="content">
         <input type="text" style={{ width: "100%" }} value={name} onChange={(e) => setName(e.target.value)} aria-label="チャットの名前" autoFocus />
         {err ? <div className="why err" style={{ marginTop: 4 }}>{err}</div> : null}
@@ -314,12 +329,12 @@ export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnter
   void chats;
   switch (d.type) {
     case "settings": return (
-      <Shell title="設定" wide onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>
+      <Shell title="設定" wide onClose={onClose} close="閉じる">
         <div className="tabs" role="tablist">{TABS.map(([k, t]) => <button key={k} role="tab" aria-selected={d.tab === k} onClick={() => setTab(k)}>{t}</button>)}</div>
         <div className="content"><SettingsBody tab={d.tab} enterMode={enterMode} setEnterMode={setEnterMode} top={top} source={source} models={models} exe={exe} notify={notify} autostart={autostart} manage={manage} chats={chats} compose={compose} opCaps={opCaps} /></div>
       </Shell>);
     case "newChat": return (
-      <Shell title="新しいチャット" onClose={onClose} foot={<><button className="btn-line" onClick={onClose}>キャンセル</button><button className="btn-main" disabled={kind === "dev" && !cwd.trim()} onClick={() => onCreateChat({ cwd: kind === "dev" ? cwd.trim() : null, model, firstMessage: first.trim() || null, isolate: kind === "dev" && isolate, worktree: kind === "dev" && !isolate ? wt : null })}>{kind === "dev" && isolate ? "worktreeを作って開始" : "作成"}</button></>}>
+      <Shell title="新しいチャット" onClose={onClose} foot={<><button className="btn" onClick={onClose}>キャンセル</button><button className="btn primary" disabled={kind === "dev" && !cwd.trim()} onClick={() => onCreateChat({ cwd: kind === "dev" ? cwd.trim() : null, model, firstMessage: first.trim() || null, isolate: kind === "dev" && isolate, worktree: kind === "dev" && !isolate ? wt : null })}>{kind === "dev" && isolate ? "worktreeを作って開始" : "作成"}</button></>}>
         <div className="content">
           <div className="field"><span>AI</span><div><label><input type="radio" defaultChecked />Codex</label><div className="small muted">他の AI は今後追加できるようにする予定です。</div></div></div>
           <div className="field"><span>作業フォルダ</span><div><label><input type="radio" name="k" checked={kind === "general"} onChange={() => setKind("general")} />指定しない（一般チャット）</label><br /><label><input type="radio" name="k" checked={kind === "dev"} onChange={() => setKind("dev")} />フォルダを指定する</label>
@@ -340,7 +355,7 @@ export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnter
       const label = m.running ? "削除しています…" : pv?.requiresStop ? "中断して削除" : "削除";
       return (
         <Shell title="チャットを削除" onClose={onClose}
-          foot={<><button className="btn-line" onClick={onClose}>{finished ? "閉じる" : "キャンセル"}</button>{finished && m.outcome?.kind !== "partial" ? null : <button className="btn-danger" disabled={!pv || m.running} onClick={m.run}>{label}</button>}</>}>
+          foot={<><button className="btn" onClick={onClose}>{finished ? "閉じる" : "キャンセル"}</button>{finished && m.outcome?.kind !== "partial" ? null : <button className="btn danger" disabled={!pv || m.running} onClick={m.run}>{label}</button>}</>}>
           <DeleteBody chat={c} d={m} />
         </Shell>);
     }
@@ -348,20 +363,20 @@ export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnter
       const m = manage.exp;
       return (
         <Shell title="Markdown にエクスポート" onClose={onClose}
-          foot={<><button className="btn-line" onClick={onClose}>キャンセル</button><button className="btn-main" disabled={m.running} onClick={m.run}>{m.running ? "書き出しています…" : "保存先を選ぶ…"}</button></>}>
+          foot={<><button className="btn" onClick={onClose}>キャンセル</button><button className="btn primary" disabled={m.running} onClick={m.run}>{m.running ? "書き出しています…" : "保存先を選ぶ…"}</button></>}>
           <ExportBody e={m} />
         </Shell>);
     }
     case "unv": return (
-      <Shell title="この操作はまだ使えません" onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>
+      <Shell title="この操作はまだ使えません" onClose={onClose} close="閉じる">
         <div className="content"><p>{d.why}。</p><p className="small muted">Codex 側の経路と動作を確認できるまで、成功したように見せることはしません。</p></div>
       </Shell>);
     case "changes": return (
-      <Shell title="変更ファイルと差分" wide full onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>
+      <Shell title="変更ファイルと差分" wide full onClose={onClose} close="閉じる">
         <ChangesBody chat={chats.find((x) => x.key.id === d.chatId)} live={live} tick={changesTick} cap={opCaps.find((c) => c.op === "changeList")} onRevert={() => onAct("revert")} />
       </Shell>);
     case "revert": return (
-      <Shell title="変更を戻す" wide full onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>
+      <Shell title="変更を戻す" wide full onClose={onClose} close="閉じる">
         <RevertBody chat={chats.find((x) => x.key.id === d.chatId)} live={live} cap={opCaps.find((c) => c.op === "revertChanges")} onDone={onRevertDone} />
       </Shell>);
     case "review": case "compact": case "fork": {
@@ -370,52 +385,52 @@ export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnter
       const waiting = threadOps.queues.find((q) => q.chat.id === d.chatId)?.entries.filter((e) => e.state.kind === "waiting").length ?? 0;
       const common = { chat: c, live, pending, waiting, onOpenChat: (k: ChatKey) => { onClose(); threadOps.onOpenChat(k); } };
       if (d.type === "review") return (
-        <Shell title="コードレビュー" wide full onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>
+        <Shell title="コードレビュー" wide full onClose={onClose} close="閉じる">
           <ReviewBody {...common} cap={opCaps.find((x) => x.op === "codeReview")} />
         </Shell>);
       if (d.type === "fork") return (
-        <Shell title="会話を分岐" onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>
+        <Shell title="会話を分岐" onClose={onClose} close="閉じる">
           <ForkBody chat={c} live={live} cap={opCaps.find((x) => x.op === "fork")} throughTurn={d.throughTurn} onOpenChat={common.onOpenChat} />
         </Shell>);
       return (
-        <Shell title="文脈を圧縮" wide onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>
+        <Shell title="文脈を圧縮" wide onClose={onClose} close="閉じる">
           <CompactBody {...common} cap={opCaps.find((x) => x.op === "compact")} />
         </Shell>);
     }
     case "goal": return (
-      <Shell title="Goal" onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>
+      <Shell title="Goal" onClose={onClose} close="閉じる">
         <GoalBody key={d.chatId} chat={chats.find((x) => x.key.id === d.chatId)} current={prefs.goal} live={live} cap={opCaps.find((c) => c.op === "goal")} save={(u) => prefs.saveGoal(d.chatId, u)} />
       </Shell>);
     case "status": return (
-      <Shell title="Codex の状態" wide onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>
+      <Shell title="Codex の状態" wide onClose={onClose} close="閉じる">
         <StatusBody live={live} chat={chats.find((x) => x.key.id === d.chatId)} settings={prefs.settings} local={prefs.local} caps={opCaps} />
       </Shell>);
     case "worktrees": return (
-      <Shell title="worktree の管理" wide onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>
+      <Shell title="worktree の管理" wide onClose={onClose} close="閉じる">
         <WorktreesBody live={live} records={worktree.records} cwd={worktree.cwd} chats={chats} />
       </Shell>);
     case "cloud": return (
-      <Shell title="クラウドに委任" wide onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>
+      <Shell title="クラウドに委任" wide onClose={onClose} close="閉じる">
         <CloudBody live={live} cap={opCaps.find((c) => c.op === "cloudDelegation")} chat={d.chatId ? chats.find((x) => x.key.id === d.chatId) : undefined} records={cloudTasks} />
       </Shell>);
     case "parity": return (
-      <Shell title="同等性の確認状況" wide onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>
+      <Shell title="同等性の確認状況" wide onClose={onClose} close="閉じる">
         <ParityBody caps={opCaps} />
       </Shell>);
     case "reference": return (
-      <Shell title="過去の会話を参考に" wide onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>
+      <Shell title="過去の会話を参考に" wide onClose={onClose} close="閉じる">
         <ReferenceBody key={d.chatId} chat={chats.find((x) => x.key.id === d.chatId)} chats={chats} live={live} cap={opCaps.find((c) => c.op === "referenceChat")} insertText={compose.insertText} onDone={onClose} />
       </Shell>);
     case "skills": return (
-      <Shell title="Skill を指定" wide onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>
+      <Shell title="Skill を指定" wide onClose={onClose} close="閉じる">
         <SkillsBody key={d.chatId} chat={chats.find((x) => x.key.id === d.chatId)} live={live} cap={opCaps.find((c) => c.op === "skills")} pickSkill={compose.pickSkill} onDone={onClose} />
       </Shell>);
     case "instructions": return (
-      <Shell title="指示ファイル（AGENTS.md）" wide onClose={onClose} foot={<button className="btn-main" onClick={onClose}>閉じる</button>}>
+      <Shell title="指示ファイル（AGENTS.md）" wide onClose={onClose} close="閉じる">
         <InstructionBody key={d.chatId} chat={chats.find((x) => x.key.id === d.chatId)} live={live} cap={opCaps.find((c) => c.op === "instructionFiles")} insertText={compose.insertText} openFile={compose.openPath} />
       </Shell>);
     case "resumeExternal": return (
-      <Shell title="外部の会話を再開" onClose={onClose} foot={<><button className="btn-line" onClick={onClose}>やめる</button><button className="btn-main" onClick={() => onAct("doResumeExternal")}>実行中ではないことを確認した。再開する</button></>}>
+      <Shell title="外部の会話を再開" onClose={onClose} foot={<><button className="btn" onClick={onClose}>やめる</button><button className="btn primary" onClick={() => onAct("doResumeExternal")}>実行中ではないことを確認した。再開する</button></>}>
         <div className="content"><p>外部（VS Code／CLI）側で実行中でないことを確認しましたか？</p><p>実行中の場合は再開しないでください。同じ会話を二つの場所で同時に動かすと、履歴や作業内容が食い違うおそれがあります。</p></div>
       </Shell>);
     case "attach": return (
