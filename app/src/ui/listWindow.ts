@@ -2,7 +2,7 @@
 /** これを超えたらウィンドウ表示にする。 */
 export const WINDOW_THRESHOLD = 200;
 /** 窓表示のときの1行の高さ（px。CSSの `.row-chat.fixed` と合わせる）。 */
-export const ROW_HEIGHT = 52;
+export const ROW_HEIGHT = 40;
 const OVERSCAN = 8;
 
 /**

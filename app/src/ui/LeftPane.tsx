@@ -2,9 +2,19 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import type { Chat, HostSnapshot } from "../ipc/types";
 import { Icon } from "./Icon";
 import { TENTATIVE_HINT, TENTATIVE_STYLE, chatAgents, chatName, chatRequests, chatStatusText, chatTitle, sortChats } from "./derive";
-import { keyStr, knownValue } from "./format";
+import { STATE, keyStr, knownValue } from "./format";
 import { PENDING_TEXT, archiveTag } from "./ManageDialogs";
 import { ROW_HEIGHT, WINDOW_THRESHOLD, scrollTopToReveal, windowRange } from "./listWindow";
+
+/** 一覧の状態文字（chatStatusText）から状態チップの色クラスを引く。対応が無い文言（履歴なし等）は色なしの控えめな文字。 */
+function statusClass(text: string): string {
+  const head = text.split("（")[0];
+  for (const s of Object.values(STATE)) if (s.t === head) return s.c;
+  if (text.startsWith("対応待ち")) return "wait";
+  if (text.startsWith("作業中")) return text.includes("失敗") ? "fail" : "run";
+  if (text.includes("状態不明")) return "unk";
+  return "";
+}
 
 export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, listStatus }: {
   snap: HostSnapshot; sel: string | null; onSelect: (id: string) => void; onAct: (a: string) => void; onAcknowledge: (c: Chat) => void;
@@ -85,7 +95,7 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, listStatus
     const unconfirmedFail = marks ? marks.unacknowledgedFailure : chatAgents(snap, c).some((a) => a.status.state === "failed");
     return (
       <button key={k} className={`row-chat ${k === sel ? "sel" : ""}${idx !== undefined ? " fixed" : ""}`} onClick={() => onSelect(c.key.id)} aria-current={k === sel}
-        {...(idx !== undefined ? { "data-idx": idx, "aria-posinset": idx + 1, "aria-setsize": rest.length } : {})}>
+        {...(idx !== undefined ? { style: { height: ROW_HEIGHT, minHeight: ROW_HEIGHT }, "data-idx": idx, "aria-posinset": idx + 1, "aria-setsize": rest.length } : {})}>
         <span className="nm" style={chatTitle(c).confirmed ? undefined : TENTATIVE_STYLE} title={chatTitle(c).confirmed ? undefined : TENTATIVE_HINT}>{chatName(c)}</span>
         <span className="marks">
           {localOf(c)?.deletePending ? <span className="tag unv" title={PENDING_TEXT(localOf(c)!.deletePending!.reason)}>削除保留</span> : null}
@@ -98,8 +108,8 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, listStatus
         </span>
         <span className="sub">
           {c.kind === "general" ? "一般" : <Icon name="folder" />}
-          <span>{chatStatusText(snap, c)}</span>
-          {archived(c) ? <span className="tag" title={archiveTag(localOf(c)).title || undefined}>{archiveTag(localOf(c)).text}</span> : null}
+          <span className={`st ${statusClass(chatStatusText(snap, c))}`} title={chatStatusText(snap, c)}><i aria-hidden="true" /><span>{chatStatusText(snap, c)}</span></span>
+          {archived(c) ?<span className="tag" title={archiveTag(localOf(c)).title || undefined}>{archiveTag(localOf(c)).text}</span> : null}
         </span>
       </button>
     );
@@ -108,13 +118,13 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, listStatus
   return (
     <>
       <div className="left-top">
-        <div style={{ display: "flex", gap: 4 }}>
+        <div className="lt-row">
           <button className="btn-line grow" onClick={() => onAct("newChat")}><Icon name="plus" />新しいチャット</button>
-          <button className="btn-line" title="チャット一覧を Codex から取り直します（読み取りのみ）" aria-label="一覧を更新" onClick={() => onAct("refreshList")}>更新</button>
+          <button className="btn icon" title={listStatus?.ok ? `チャット一覧を Codex から取り直します（読み取りのみ）。直近の結果: ${listStatus.text}` : "チャット一覧を Codex から取り直します（読み取りのみ）"} aria-label="一覧を更新" onClick={() => onAct("refreshList")}><Icon name="refresh" /></button>
         </div>
-        {listStatus ? <div className="small" role="status" style={{ color: listStatus.ok ? "var(--ink3)" : "var(--fail)" }}>{listStatus.text}</div> : null}
         <input type="search" placeholder="名前で検索" aria-label="チャットを名前で検索" value={query} onChange={(e) => setQuery(e.target.value)} />
-        <label className="small"><input type="checkbox" checked={inclArch} onChange={(e) => setInclArch(e.target.checked)} />アーカイブも含める</label>
+        {q ? <label className="small"><input type="checkbox" checked={inclArch} onChange={(e) => setInclArch(e.target.checked)} />アーカイブも含める</label> : null}
+        {listStatus && !listStatus.ok ? <div className="small lt-fail" role="status">{listStatus.text}</div> : null}
       </div>
       <div className="left-scroll" ref={scrollerRef} onScroll={windowed ? measure : undefined}>
         {showArch ? (
@@ -124,7 +134,7 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, listStatus
           </>
         ) : (
           <>
-            {pinned.length ? <><div className="list-h"><span>ピン留め</span></div>{pinned.map(row)}</> : null}
+            {pinned.length ? <><div className="list-h"><span>ピン留め</span></div>{pinned.map((c) => row(c))}</> : null}
             <div className="list-h"><span>最近使った順</span></div>
             {rest.length ? restRows() : <div className="empty-note">{q ? "一致するチャットはありません" : "まだチャットがありません"}</div>}
           </>

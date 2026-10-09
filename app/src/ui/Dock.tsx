@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { AgentView, Chat, HistoryOutcome, HostSnapshot, MonitorScope } from "../ipc/types";
-import { Flag, Icon } from "./Icon";
+import { Icon } from "./Icon";
+import { Popover } from "./Popover";
 import type { Known } from "../ipc/types";
 import { chatAgents, chatDisplay, descendantStates, historyOutcomeOf, chatName, isDoneLike, isWorkingForDock, previewTitle } from "./derive";
 import { CHAT_DISPLAY_TEXT, HISTORY_OUTCOME_TEXT, historyBreakdown, historyBreakdownText, parkGroup, sortByDockRank, unknownCount, unknownNote, unknownSignature } from "./chatState";
@@ -38,33 +39,47 @@ function Berth({ a, depth, orphan, mini, confirmed, onConfirmFail, rootName, chi
   const act = waitText(a) ?? (a.currentActivity ? activityText(a.currentActivity.summary) : a.status.state === "unknown" ? `原状態: ${a.status.raw.label}（根拠なし）` : "活動なし");
   const failUnconfirmed = a.status.state === "failed" && !confirmed;
   return (
-    <div className={`berth ${m.c} ${notLive ? "stale" : ""}`}>
-      <div className="l1">
-        <span className="nm" title={a.agent.parent.kind === "root" ? undefined : "Codexが付けた呼び名です（役割ではありません）"}>{a.agent.parent.kind === "root" ? (rootName ?? showKnown(a.agent.displayName)) : showKnown(a.agent.displayName)}</span><span className="rel">{rel}</span>
-        {a.agent.parent.kind !== "root" && a.agent.agentPath.kind === "value" ? <span className="path mono" title="Codexが返したエージェントの経路（呼び名とは別）">{a.agent.agentPath.value}</span> : null}
-        <span className={`st ${m.c}`}><Flag c={m.c} />{m.t}</span>
-        {childNote ? <span className="small" title="親のみ表示のため、子孫を含めたチャットの状態を示します">{childNote}</span> : null}
+    <div className={`card berth ${m.c} ${notLive ? "stale" : ""}`}>
+      <div className="c1">
+        <span className="nm" title={a.agent.parent.kind === "root" ? undefined : "Codexが付けた呼び名です（役割ではありません）"}>{a.agent.parent.kind === "root" ? (rootName ?? showKnown(a.agent.displayName)) : showKnown(a.agent.displayName)}</span>
+        <span className="rel" title={a.agent.parent.kind === "root" ? "役割: メイン（会話の本体）" : undefined}>{rel}</span>
+        <span className={`st ${m.c}${outcome ? " hist" : ""}`}><i aria-hidden="true" />{m.t}</span>
       </div>
-      {outcome ? <div className="l2">live未確認・取得{outcomeAt !== undefined ? hms(outcomeAt) : "時刻不明"}（履歴の読取りで確認）</div> : null}
-      {mini ? null : <div className="l2">{a.agent.parent.kind === "root" ? "役割: メイン（会話の本体）" : <>役割: {a.agent.role.kind === "missing" ? "未提供（Codexが返していません）" : showKnown(a.agent.role)}　担当: {showKnown(a.agent.assignment)}</>}</div>}
-      <div className="l3" title={act}>{act}</div>
-      {mini ? null : (
-        <div className="l4">
-          <span>{hms(a.status.evidence.observedAt)}</span>
-          <span>{SOURCE_LABEL[a.status.evidence.source]}</span>
-          {notLive ? (
+      {childNote || (a.agent.parent.kind !== "root" && a.agent.agentPath.kind === "value") || (!mini && a.agent.parent.kind !== "root") ? (
+        <div className="c2">
+          {childNote ? <span className="kvp" title="親のみ表示のため、子孫を含めたチャットの状態を示します">{childNote}</span> : null}
+          {a.agent.parent.kind !== "root" && a.agent.agentPath.kind === "value" ? <span className="path mono" title="Codexが返したエージェントの経路（呼び名とは別）">{a.agent.agentPath.value}</span> : null}
+          {mini || a.agent.parent.kind === "root" ? null : (
+            <>
+              <span className="kvp" title={a.agent.role.kind === "missing" ? "Codexが返していません" : undefined}>役割: {a.agent.role.kind === "missing" ? "未提供" : showKnown(a.agent.role)}</span>
+              <span className="kvp">担当: {showKnown(a.agent.assignment)}</span>
+            </>
+          )}
+        </div>
+      ) : null}
+      <div className="c3" title={act}>{act}</div>
+      {mini && !outcome ? null : (
+        <div className="c4">
+          {mini ? null : (
+            <>
+              <span>{hms(a.status.evidence.observedAt)}</span>
+              <span>{SOURCE_LABEL[a.status.evidence.source]}</span>
+            </>
+          )}
+          {outcome ? <span>live未確認・取得{outcomeAt !== undefined ? hms(outcomeAt) : "時刻不明"}（履歴の読取りで確認）</span> : null}
+          {notLive && !mini ? (
             a.agent.parent.kind !== "root" && a.freshness === "historyOnly"
-              ? <span style={{ color: "var(--stale)" }} title="子エージェントはライブ通知ではなく、走査（約3秒間隔の読み取り）で状態を更新しています">状態は走査で更新（約3秒間隔）</span>
-              : <span style={{ color: "var(--stale)" }}>{FRESH[a.freshness].t}</span>
+              ? <span className="stale-t" title="状態は走査で更新（約3秒間隔）。子エージェントはライブ通知ではなく、走査（約3秒間隔の読み取り）で状態を更新しています">走査で更新</span>
+              : <span className="stale-t">{FRESH[a.freshness].t}</span>
+          ) : null}
+          {onDismiss && !mini ? (
+            <button className="btn sm" aria-label="確認済みにして隠す" title="この画面の表示だけを隠します。Codexやホストの状態・判定は変わりません。新しい活動が届くと再表示します" onClick={onDismiss}><Icon name="check" />隠す</button>
+          ) : null}
+          {failUnconfirmed && !mini ? (
+            <button className="btn sm" aria-label="失敗を確認済みにする" title="失敗を確認済みにする" onClick={() => onConfirmFail(keyStr(a.agent.key))}><Icon name="check" />確認済みに</button>
           ) : null}
         </div>
       )}
-      {onDismiss && !mini ? (
-        <div className="acts"><button className="btn-line" title="この画面の表示だけを隠します。Codexやホストの状態・判定は変わりません。新しい活動が届くと再表示します" onClick={onDismiss}><Icon name="check" />確認済みにして隠す</button></div>
-      ) : null}
-      {failUnconfirmed && !mini ? (
-        <div className="acts"><button className="btn-line" onClick={() => onConfirmFail(keyStr(a.agent.key))}><Icon name="check" />失敗を確認済みにする</button></div>
-      ) : null}
     </div>
   );
 }
@@ -189,6 +204,11 @@ export function DockPane({ snap, scope, selId, mini, confirmed, onScope, onOpen,
   const onDismiss = (items: AgentView[]) => setDismissed((m) => { const n = new Map(m); items.forEach((v) => n.set(keyStr(v.agent.key), sigOf(v))); return n; });
   const isSel = !runningView && scope.kind === "selectedChat";
   const showFinished = scope.kind === "allChats" && scope.showFinished;
+  // 「終了済みも表示」は、選択中・実行中表示では選べない（今の条件のまま）。オンの項目はボタンの文字に出して、隠れた状態を見せる。
+  const showFinishedOpt = !runningView && !isSel;
+  const onItems = [parentOnly ? "親のみ" : null, showFinishedOpt && showFinished ? "終了済み" : null].filter((s): s is string => s !== null);
+  const viewLabel = onItems.length ? `表示: ${onItems.join("・")}` : "表示 ▾";
+  const viewTitle = onItems.length ? `表示の設定（${onItems.join("・")}がオン）` : "表示の設定（親のみ表示・終了済みも表示）";
   const chats = isSel ? snap.chats.filter((c) => c.key.id === selId) : runningView ? snap.chats.filter((c) => isWorkingForDock(snap, c)) : snap.chats;
   const visibleOf = (c: Chat) => chatAgents(snap, c).filter((v) => {
     if (parentOnly) {
@@ -205,21 +225,23 @@ export function DockPane({ snap, scope, selId, mini, confirmed, onScope, onOpen,
   return (
     <>
       <div className="dock-top">
-        {mini ? null : (
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <b style={{ flex: 1 }}>エージェントのドック</b>
-            <button className="only-narrow-r small" onClick={() => onAct("toggleRight")}>閉じる</button>
-          </div>
-        )}
         <span className="seg" role="group" aria-label="表示範囲">
-          <button aria-pressed={isSel} onClick={() => { setRunningView(false); onScope({ kind: "selectedChat", chat: selId ? { backend: "codex", id: selId } : null }); }}>選択中のチャット</button>
-          <button aria-pressed={!isSel && !runningView} onClick={() => { setRunningView(false); onScope({ kind: "allChats", showFinished }); }}>全チャット</button>
-          <button aria-pressed={runningView} title="全チャットの作業中・対応待ち（子孫が作業中のものを含む、アーカイブ済みも）" onClick={() => setRunningView(true)}>実行中</button>
+          <button aria-pressed={isSel} aria-label="選択中のチャット" title="選択中のチャット（完了したエージェントも表示しています）" onClick={() => { setRunningView(false); onScope({ kind: "selectedChat", chat: selId ? { backend: "codex", id: selId } : null }); }}>選択中</button>
+          <button aria-pressed={!isSel && !runningView} aria-label="全チャット" title="全チャット" onClick={() => { setRunningView(false); onScope({ kind: "allChats", showFinished }); }}>全</button>
+          <button aria-pressed={runningView} aria-label="実行中" title="全チャットの作業中・対応待ち（子孫が作業中のものを含む、アーカイブ済みも）。作業中・対応待ちのチャットを全て表示しています" onClick={() => setRunningView(true)}>実行中</button>
         </span>
-        <label className="small"><input type="checkbox" checked={parentOnly} onChange={(e) => setParentOnly(e.target.checked)} />親のみ表示（子・孫を隠す）</label>
-        {runningView ? <span className="small muted">作業中・対応待ちのチャットを全て表示しています</span> : !isSel ? (
-          <label className="small"><input type="checkbox" checked={showFinished} onChange={(e) => onScope({ kind: "allChats", showFinished: e.target.checked })} />終了済みも表示（完了・停止・確認済みの失敗）</label>
-        ) : <span className="small muted">完了したエージェントも表示しています</span>}
+        <Popover trigger={viewLabel} title={viewTitle} triggerClassName="btn subtle sm dock-view">
+          <label className="small"><input type="checkbox" checked={parentOnly} onChange={(e) => setParentOnly(e.target.checked)} />親のみ表示（子・孫を隠す）</label>
+          {showFinishedOpt ? (
+            <label className="small"><input type="checkbox" checked={showFinished} onChange={(e) => onScope({ kind: "allChats", showFinished: e.target.checked })} />終了済みも表示（完了・停止・確認済みの失敗）</label>
+          ) : null}
+        </Popover>
+        {mini ? null : (
+          <Popover trigger="?" label="説明" title="状態は Codex から取得した情報です。取得できない項目は「未確認」と表示します。" triggerClassName="help" textual align="right">
+            状態は Codex から取得した情報です。取得できない項目は「未確認」と表示します。
+          </Popover>
+        )}
+        {mini ? null : <button className="only-narrow-r small" onClick={() => onAct("toggleRight")}>閉じる</button>}
       </div>
       <div className="dock-scroll">
         {blocks.length ? blocks.map(({ c, views }) => (
@@ -227,7 +249,6 @@ export function DockPane({ snap, scope, selId, mini, confirmed, onScope, onOpen,
             confirmed={confirmed} dismissed={dismissed} onDismiss={onDismiss} onOpen={onOpen} onConfirmFail={onConfirmFail} />
         )) : <div className="empty-note">{snap.chats.length ? "作業中・対応待ちのエージェントはありません" : "チャットを始めると、ここにエージェントが表示されます"}</div>}
       </div>
-      {mini ? null : <div className="dock-foot">状態は Codex から取得した情報です。取得できない項目は「未確認」と表示します。</div>}
     </>
   );
 }
