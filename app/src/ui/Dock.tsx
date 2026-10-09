@@ -3,7 +3,7 @@ import type { AgentView, Chat, HistoryOutcome, HostSnapshot, MonitorScope } from
 import { Flag, Icon } from "./Icon";
 import type { Known } from "../ipc/types";
 import { chatAgents, chatDisplay, descendantStates, historyOutcomeOf, chatName, isDoneLike, isWorkingForDock, previewTitle } from "./derive";
-import { CHAT_DISPLAY_TEXT, HISTORY_OUTCOME_TEXT, sortByDockRank, unknownCount, unknownNote, unknownSignature } from "./chatState";
+import { CHAT_DISPLAY_TEXT, HISTORY_OUTCOME_TEXT, historyBreakdown, historyBreakdownText, parkGroup, sortByDockRank, unknownCount, unknownNote, unknownSignature } from "./chatState";
 import { FRESH, SOURCE_LABEL, STATE, hms, keyStr, showKnown } from "./format";
 import { TitleBar } from "./Chrome";
 
@@ -32,7 +32,7 @@ function Berth({ a, depth, orphan, mini, confirmed, onConfirmFail, rootName, chi
   onDismiss?: () => void;
 }) {
   // 状態不明でも履歴で終端を確認できたものは、別ラベルで出す(状態は書き換えない。live未確認)
-  const m = outcome ? { c: outcome === "failed" ? STATE.failed.c : outcome === "interrupted" ? STATE.interrupted.c : STATE.done.c, t: `${HISTORY_OUTCOME_TEXT[outcome]}（live未確認・取得${outcomeAt !== undefined ? hms(outcomeAt) : "時刻不明"}）` } : STATE[a.status.state];
+  const m = outcome ? { c: outcome === "failed" ? STATE.failed.c : outcome === "interrupted" ? STATE.interrupted.c : STATE.done.c, t: HISTORY_OUTCOME_TEXT[outcome] } : STATE[a.status.state];
   const rel = orphan ? "親不明" : ["メイン", "子", "孫", "ひ孫"][depth] ?? `${depth}階層下`;
   const notLive = a.freshness !== "live";
   const act = waitText(a) ?? (a.currentActivity ? activityText(a.currentActivity.summary) : a.status.state === "unknown" ? `原状態: ${a.status.raw.label}（根拠なし）` : "活動なし");
@@ -45,6 +45,7 @@ function Berth({ a, depth, orphan, mini, confirmed, onConfirmFail, rootName, chi
         <span className={`st ${m.c}`}><Flag c={m.c} />{m.t}</span>
         {childNote ? <span className="small" title="親のみ表示のため、子孫を含めたチャットの状態を示します">{childNote}</span> : null}
       </div>
+      {outcome ? <div className="l2">live未確認・取得{outcomeAt !== undefined ? hms(outcomeAt) : "時刻不明"}（履歴の読取りで確認）</div> : null}
       {mini ? null : <div className="l2">{a.agent.parent.kind === "root" ? "役割: メイン（会話の本体）" : <>役割: {a.agent.role.kind === "missing" ? "未提供（Codexが返していません）" : showKnown(a.agent.role)}　担当: {showKnown(a.agent.assignment)}</>}</div>}
       <div className="l3" title={act}>{act}</div>
       {mini ? null : (
@@ -81,21 +82,27 @@ function RootBlock({ snap, c, views, showHead, selected, mini, parentOnly, confi
   confirmed: Set<string>; dismissed: Map<string, string>; onDismiss: (items: AgentView[]) => void; onOpen: (id: string) => void; onConfirmFail: (key: string) => void;
 }) {
   const [openUnknown, setOpenUnknown] = useState(false);
+  const [openHistory, setOpenHistory] = useState(false);
   const inList = new Set(views.map((v) => keyStr(v.agent.key)));
   const st = (v: AgentView) => v.status.state;
   const childrenOf = (k: string) => views.filter((v) => v.agent.parent.kind === "explicit" && keyStr(v.agent.parent.parent) === k);
   const outcomeOf = (v: AgentView) => historyOutcomeOf(snap, v);
   const atOf = (v: AgentView) => snap.historyConfirmations.find((h) => h.agent.id === v.agent.key.id)?.confirmedAt;
-  const subtreeAllUnknown = (v: AgentView): boolean => st(v) === "unknown" && !outcomeOf(v) && childrenOf(keyStr(v.agent.key)).every(subtreeAllUnknown);
+  const subtreeAllUnknown = (v: AgentView): boolean => st(v) === "unknown" && childrenOf(keyStr(v.agent.key)).every(subtreeAllUnknown);
   // 状態不明の子孫（自分以下も全て不明）は末尾の折りたたみへ。親（メイン）は対象外。確認済みにして隠したものは、新しい活動が届くまで出さない。
   const parked = (v: AgentView) => v.agent.parent.kind !== "root" && subtreeAllUnknown(v);
   const isDismissed = (v: AgentView) => dismissed.get(keyStr(v.agent.key)) === sigOf(v);
-  const parkedAll = views.filter(parked);
+  const groupOf = (v: AgentView) => (parked(v) ? parkGroup(st(v), outcomeOf(v)) : "tree");
+  const parkedAll = views.filter((v) => groupOf(v) === "unknown");
   const parkedShown = parkedAll.filter((v) => !isDismissed(v));
   const parkedHidden = parkedAll.length - parkedShown.length;
-  const kids = (k: string) => sortByDockRank(childrenOf(k).filter((v) => !parked(v)), st, outcomeOf);
-  const roots = sortByDockRank(views.filter((v) => (v.agent.parent.kind === "root" || (v.agent.parent.kind === "explicit" && !inList.has(keyStr(v.agent.parent.parent)))) && !parked(v)), st, outcomeOf);
-  const orphans = sortByDockRank(views.filter((v) => v.agent.parent.kind === "unknown" && !parked(v)), st, outcomeOf);
+  const histAll = views.filter((v) => groupOf(v) === "history");
+  const histShown = histAll.filter((v) => !isDismissed(v));
+  const histHidden = histAll.length - histShown.length;
+  const histB = historyBreakdown(histShown.map((v) => outcomeOf(v)!));
+  const kids = (k: string) => sortByDockRank(childrenOf(k).filter((v) => groupOf(v) === "tree"), st, outcomeOf);
+  const roots = sortByDockRank(views.filter((v) => (v.agent.parent.kind === "root" || (v.agent.parent.kind === "explicit" && !inList.has(keyStr(v.agent.parent.parent)))) && groupOf(v) === "tree"), st, outcomeOf);
+  const orphans = sortByDockRank(views.filter((v) => v.agent.parent.kind === "unknown" && groupOf(v) === "tree"), st, outcomeOf);
   const depthOf = (v: AgentView): number => {
     let d = 0; let p = v.agent.parent;
     while (p.kind === "explicit") {
@@ -126,9 +133,24 @@ function RootBlock({ snap, c, views, showHead, selected, mini, parentOnly, confi
         </div>
       ) : null}
       <ul className="tree">{roots.map(node)}</ul>
+      {histAll.length ? (
+        <div style={{ margin: "6px 0 0" }}>
+          <div className="grp-h">
+            <button className={`btn-line small ${histB.attention ? "attn" : ""}`} aria-expanded={openHistory} title="履歴の読取りだけで終端を確認した子です(live確認ではありません)" onClick={() => setOpenHistory(!openHistory)}>{openHistory ? "▼" : "▶"} 履歴のみで確認した子 {histShown.length}件（{historyBreakdownText(histB)}）{histHidden ? `／確認済み${histHidden}件は非表示` : ""}</button>
+            {openHistory && histShown.length && !mini ? <button className="btn-line small" title="この画面の表示だけを隠します。ホストの状態・判定は変わりません" onClick={() => onDismiss(histShown)}>まとめて確認済みにして隠す</button> : null}
+          </div>
+          {openHistory ? (
+            <ul className="tree">{histShown.map((v) => (
+              <li key={keyStr(v.agent.key)}>
+                <Berth a={v} outcome={outcomeOf(v)} outcomeAt={atOf(v)} depth={depthOf(v)} orphan={v.agent.parent.kind === "unknown"} mini={mini} confirmed={false} onConfirmFail={onConfirmFail} onDismiss={() => onDismiss([v])} />
+              </li>
+            ))}</ul>
+          ) : null}
+        </div>
+      ) : null}
       {parkedAll.length ? (
         <div style={{ margin: "6px 0 0" }}>
-          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <div className="grp-h">
             <button className="btn-line small" aria-expanded={openUnknown} onClick={() => setOpenUnknown(!openUnknown)}>{openUnknown ? "▼" : "▶"} 状態不明の子 {parkedShown.length}件{parkedHidden ? `（確認済み${parkedHidden}件は非表示）` : ""}</button>
             {openUnknown && parkedShown.length && !mini ? <button className="btn-line small" title="この画面の表示だけを隠します。ホストの状態・判定は変わりません" onClick={() => onDismiss(parkedShown)}>まとめて確認済みにして隠す</button> : null}
           </div>

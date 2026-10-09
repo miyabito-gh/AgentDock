@@ -49,6 +49,20 @@ export function validOutcome(state: AgentState, latestTurn: string | null, conf:
   return latestTurn === null || latestTurn === conf.turn ? conf.outcome : null;
 }
 
+/** 折りたたみグループの振り分け。状態不明の子孫（自分以下も全て不明のもの）のうち、履歴で終端確認済みは "history"、未確認は "unknown"。それ以外は木に残す。 */
+export const parkGroup = (state: AgentState, outcome: HistoryOutcome | null): "tree" | "history" | "unknown" =>
+  state !== "unknown" ? "tree" : outcome ? "history" : "unknown";
+
+/** 履歴のみで確認した子の内訳。 */
+export function historyBreakdown(outcomes: HistoryOutcome[]): { completed: number; failed: number; interrupted: number; noTurns: number; attention: boolean } {
+  const n = (o: HistoryOutcome) => outcomes.filter((x) => x === o).length;
+  const failed = n("failed"); const interrupted = n("interrupted");
+  return { completed: n("completed"), failed, interrupted, noTurns: n("noTurns"), attention: failed + interrupted > 0 };
+}
+export function historyBreakdownText(b: ReturnType<typeof historyBreakdown>): string {
+  return [`完了${b.completed}`, `失敗${b.failed}`, `中断${b.interrupted}`, ...(b.noTurns ? [`turnなし${b.noTurns}`] : [])].join("／");
+}
+
 export const HISTORY_OUTCOME_TEXT: Record<HistoryOutcome, string> = {
   completed: "履歴で完了を確認",
   failed: "履歴で失敗を確認",

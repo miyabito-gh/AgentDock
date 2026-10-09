@@ -1,7 +1,7 @@
 // 実行: node --test src/ui/chatState.test.ts （tscの対象外）
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chatDisplayKind, dockRank, sortByDockRank, unknownCount, unknownSignature, validOutcome } from "./chatState.ts";
+import { chatDisplayKind, dockRank, sortByDockRank, unknownCount, unknownSignature, validOutcome, parkGroup, historyBreakdown, historyBreakdownText } from "./chatState.ts";
 
 test("親done＋子running→子が作業中", () => assert.equal(chatDisplayKind("done", ["running"]), "childWorking"));
 test("親done＋孫waiting→子が作業中", () => assert.equal(chatDisplayKind("done", ["done", "waiting"]), "childWorking"));
@@ -38,4 +38,17 @@ test("確認は状態不明のときだけ有効。新しいturnが来たら無�
   assert.equal(validOutcome("unknown", null, conf("noTurns", null)), "noTurns");
   assert.equal(validOutcome("unknown", "t1", conf("noTurns", null)), null);
   assert.equal(validOutcome("unknown", "t1", undefined), null);
+});
+
+test("グループ振り分け: 状態不明のうち履歴確認済みは履歴グループ、未確認は状態不明グループ", () => {
+  assert.equal(parkGroup("unknown", "completed"), "history");
+  assert.equal(parkGroup("unknown", "failed"), "history");
+  assert.equal(parkGroup("unknown", null), "unknown");
+  assert.equal(parkGroup("done", null), "tree");
+});
+test("履歴確認の内訳と注意表示", () => {
+  const b = historyBreakdown(["completed", "completed", "failed", "noTurns"]);
+  assert.equal(historyBreakdownText(b), "完了2／失敗1／中断0／turnなし1");
+  assert.equal(b.attention, true);
+  assert.equal(historyBreakdown(["completed"]).attention, false);
 });
