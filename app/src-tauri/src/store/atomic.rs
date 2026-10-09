@@ -61,9 +61,29 @@ pub fn append_line(path: &Path, line: &str) -> io::Result<()> {
     if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
         std::fs::create_dir_all(dir)?;
     }
+    // 前回の異常終了で最終行が途中で切れていたら、改行を補う（次の行と混ざって一緒に読めなくならないように）。
+    let needs_break = match std::fs::File::open(path) {
+        Ok(mut r) => {
+            use std::io::{Read, Seek, SeekFrom};
+            let len = r.metadata()?.len();
+            if len == 0 {
+                false
+            } else {
+                r.seek(SeekFrom::Start(len - 1))?;
+                let mut last = [0u8; 1];
+                r.read_exact(&mut last)?;
+                last[0] != b'\n'
+            }
+        }
+        Err(e) if e.kind() == io::ErrorKind::NotFound => false,
+        Err(e) => return Err(e),
+    };
     let mut f = std::fs::OpenOptions::new().create(true).append(true).open(path)?;
     // 1回の書込みにまとめ、行の途中だけが残る可能性を減らす。
-    let mut buf = String::with_capacity(line.len() + 1);
+    let mut buf = String::with_capacity(line.len() + 2);
+    if needs_break {
+        buf.push('\n');
+    }
     buf.push_str(line);
     buf.push('\n');
     f.write_all(buf.as_bytes())?;
@@ -144,6 +164,22 @@ pub fn dir_size(path: &Path) -> (u64, Vec<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn append_after_a_torn_last_line_starts_on_a_new_line() {
+        let d = std::env::temp_dir().join(format!("agentdock-append-torn-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        let p = d.join("x.jsonl");
+        append_line(&p, "{\"a\":1}").unwrap();
+        std::fs::write(&p, b"{\"a\":1}\n{\"torn\":").unwrap();
+        append_line(&p, "{\"b\":2}").unwrap();
+        let text = std::fs::read_to_string(&p).unwrap();
+        assert_eq!(text, "{\"a\":1}\n{\"torn\":\n{\"b\":2}\n");
+        append_line(&p, "{\"c\":3}").unwrap();
+        assert!(std::fs::read_to_string(&p).unwrap().ends_with("{\"b\":2}\n{\"c\":3}\n"), "a complete last line gets no extra blank line");
+        let _ = std::fs::remove_dir_all(&d);
+    }
 
     fn temp_dir(name: &str) -> std::path::PathBuf {
         let d = std::env::temp_dir().join(format!("agentdock-atomic-{name}-{}-{}", std::process::id(), TMP_COUNTER.fetch_add(1, Ordering::SeqCst)));

@@ -747,6 +747,10 @@ impl Host {
         let lock = self.queue_rt.send_lock(&args.chat);
         let _send_guard = lock.lock().await;
         self.check_sendable(&args.chat)?;
+        // 作業フォルダを書き換える操作（変更を戻す・取込み等）の実行中は、終わるまで送信しない（turnが書換え中のファイルを編集し始めないように）。
+        if self.folder_op_active(&args.chat) {
+            return Err(blocked(BlockedReason::ChatBusy, "作業フォルダを書き換える操作（変更を戻す等）の実行中です。完了してから送信してください"));
+        }
         // 使えない添付（コピー中・失敗・欠損）やモデルが受けない入力があれば、再開（resume）より前に止める。
         let attachments = self.prepare_attachments(&args.chat, &args.attachments).await?;
         self.ensure_live(&args.chat, confirmed).await?;

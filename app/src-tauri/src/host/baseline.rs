@@ -370,6 +370,11 @@ impl BaselineRuntime {
         self.chats.lock().unwrap().get(chat).and_then(|c| c.open.as_ref().map(|o| o.seg.clone())).into_iter().collect()
     }
 
+    /// 終端は観測したが、終了の控え（E）をまだ取っていない区間のあるチャットとリポジトリルート。
+    pub fn pending_end_roots(&self) -> Vec<(ChatKey, String)> {
+        self.chats.lock().unwrap().iter().filter_map(|(k, c)| c.open.as_ref().filter(|o| o.root_ended).map(|o| (k.clone(), o.repo_root.clone()))).collect()
+    }
+
     fn open_seg_of(&self, chat: &ChatKey) -> Option<(LocalId, String)> {
         self.chats.lock().unwrap().get(chat).and_then(|c| c.open.as_ref().map(|o| (o.seg.clone(), o.repo_root.clone())))
     }
@@ -428,9 +433,16 @@ impl Host {
             return;
         }
         let seg = self.local_id("seg");
-        // 送信前の処理全体（作業キュー待ち・前の区間のE・ロック待ち・取得）に総上限を設ける。超えたら諦めて送信へ進む。
+        // 作業キュー待ちと前の区間の整理（Eの取得）は総上限の外で行う。Eが途中で打ち切られて前の区間が開いたまま残ると、
+        // 次のturnの変更が前のturnのものに入ってしまうため（前の区間は必ずここで閉じる）。
+        let queue = self.baseline_rt.queue_lock(chat);
+        let _q = queue.lock().await;
+        let carry = self.baseline_close_previous(chat, &store).await;
+        // このturnの基準Bの取得（ロック待ち・調査・取得）に総上限を設ける。超えたら諦めて送信へ進む。
         let limit = Duration::from_millis(BASELINE_TIME_LIMIT_MS);
-        if tokio::time::timeout(limit, self.baseline_take_base_inner(chat, attempt, request_cwd, &store, &seg)).await.is_err() {
+        if tokio::time::timeout(limit, self.baseline_take_base_inner(chat, attempt, request_cwd, &store, &seg, carry)).await.is_err() {
+            // 打ち切られた取得の途中状態は残さない（開いた区間があれば終了未確認のまま閉じる）。
+            self.baseline_rt.with(chat, |c| c.open = None);
             let reason = BaselineFailure::Timeout;
             self.baseline_append(chat, BaselineLine::Failed { seg: Some(seg.clone()), at: now_ms(), attempt: attempt.clone(), phase: BaselinePhase::Base, reason: reason.clone() });
             self.baseline_rt.with(chat, |c| c.pending.insert(attempt.clone(), seg));
@@ -438,28 +450,38 @@ impl Host {
         }
     }
 
-    async fn baseline_take_base_inner(self: &Arc<Self>, chat: &ChatKey, attempt: &LocalId, request_cwd: Option<String>, store: &Arc<Store>, seg: &LocalId) {
-        let seg = seg.clone();
-        let queue = self.baseline_rt.queue_lock(chat);
-        let _q = queue.lock().await;
-        let at = now_ms();
-        // 前の区間: 終端観測済みで止まっていれば先にEを取る。子孫が動いたままなら、このBを前の区間のEとする。終端未観測は終了未確認。
+    /// 前の区間を閉じる（作業キューを持った状態で呼ぶ）。終端観測済みで止まっていれば先にEを取る。子孫が動いたままなら、次のBを前の区間のEにする
+    /// 候補として返す（ただし承認待ちの子孫がいるときは「途切れず作業中」とは言えないので終了未確認）。終端未観測は終了未確認。
+    async fn baseline_close_previous(self: &Arc<Self>, chat: &ChatKey, store: &Arc<Store>) -> Option<(LocalId, String)> {
         let quiescent = self.read(|d| chat_quiescent(d, chat));
-        let carry = match self.baseline_rt.with(chat, |c| c.prev_action(quiescent)) {
+        let waiting = self.read(|d| d.agents.iter().any(|v| &v.agent.chat == chat && matches!(v.status.state, AgentState::Waiting)));
+        let prev_root = self.baseline_rt.with(chat, |c| c.open.as_ref().map(|o| o.repo_root.clone()));
+        match self.baseline_rt.with(chat, |c| c.prev_action(quiescent)) {
             PrevAction::None => None,
             PrevAction::EndNow(prev) => {
                 self.baseline_end_inner(chat, &prev, store).await;
+                // 取得が終わっても開いたままなら（記録できなかった等）、終了未確認のまま閉じる。
+                self.baseline_rt.with(chat, |c| c.open = None);
                 None
             }
             PrevAction::EndIsNextBase(prev) => {
                 self.baseline_rt.with(chat, |c| c.open = None);
-                Some(prev)
+                if waiting {
+                    None
+                } else {
+                    prev_root.map(|r| (prev, r))
+                }
             }
             PrevAction::Unknown(_) => {
                 self.baseline_rt.with(chat, |c| c.open = None);
                 None
             }
-        };
+        }
+    }
+
+    async fn baseline_take_base_inner(self: &Arc<Self>, chat: &ChatKey, attempt: &LocalId, request_cwd: Option<String>, store: &Arc<Store>, seg: &LocalId, carry: Option<(LocalId, String)>) {
+        let seg = seg.clone();
+        let at = now_ms();
         let result = self.baseline_capture_base(chat, store, request_cwd).await;
         match result {
             Ok((repo, cwd, base)) => {
@@ -469,7 +491,8 @@ impl Host {
                     // 記録できなければ区間にしない（警告は記録の失敗として出ている）。
                     return;
                 }
-                if let Some(prev) = carry {
+                // 別のリポジトリのBは、前の区間のEにならない（終了未確認のまま）。
+                if let Some((prev, _)) = carry.filter(|(_, r)| norm_path(r) == norm_path(&root)) {
                     self.baseline_append(chat, BaselineLine::Ended { seg: prev, at, end: SegmentEnd::EndIsNextBase });
                 }
                 self.baseline_rt.with(chat, |c| {
@@ -490,6 +513,9 @@ impl Host {
                 self.baseline_append(chat, BaselineLine::Failed { seg: Some(seg.clone()), at, attempt: attempt.clone(), phase: BaselinePhase::Base, reason: reason.clone() });
                 self.baseline_rt.with(chat, |c| c.pending.insert(attempt.clone(), seg));
                 self.baseline_warn(chat, &reason, BaselinePhase::Base);
+                // Bを取れなくても、このturnは同じ場所で動く。開いている他の区間には同時作業として残す。
+                let cwd = self.read(|d| d.chat(chat).and_then(|c| c.cwd.value().cloned()));
+                self.baseline_note_foreign_start(chat, cwd);
             }
         }
     }
@@ -601,6 +627,12 @@ impl Host {
                 }
                 self.baseline_rt.notify.notify_one();
             }
+            BackendEvent::TurnStarted { turn, .. } => {
+                // どのチャットのturnでも（区間を作らないturn・外部の会話を含む）、同じ場所で開いている他の区間に同時作業として残す。
+                let chat = self.read(|d| d.view(&turn.agent).map(|v| v.agent.chat.clone())).unwrap_or(ChatKey { backend: turn.agent.backend, id: turn.agent.id.clone() });
+                let cwd = self.read(|d| d.chat(&chat).and_then(|c| c.cwd.value().cloned()));
+                self.baseline_note_foreign_start(&chat, cwd);
+            }
             BackendEvent::Connection { state: ConnectionState::Disconnected { .. } } => {
                 let chats: Vec<ChatKey> = self.baseline_rt.chats.lock().unwrap().keys().cloned().collect();
                 for c in chats {
@@ -639,12 +671,18 @@ impl Host {
         self.baseline_record_concurrency(chat, seg, &open.repo_root);
         match self.baseline_capture_at(chat, store, Path::new(&open.repo_root)).await {
             Ok((_, snapshot)) => {
-                // 取得中に切断・次の送信で区間が閉じられていたら書かない（終了未確認のまま）。確認と書込みは追跡のロック内で行う。
-                self.baseline_rt.with(chat, |c| {
-                    if c.open.as_ref().is_some_and(|o| &o.seg == seg) {
-                        self.baseline_append(chat, BaselineLine::Ended { seg: seg.clone(), at, end: SegmentEnd::Snapshot { snapshot } });
+                // 取得中に切断・次の送信で区間が閉じられていたら書かない（終了未確認のまま）。確認と区間を閉じる印付けだけを追跡のロック内で行い、
+                // ファイルへの追記はロックの外で行う（ロックを持ったままI/Oをしない）。
+                let claimed = self.baseline_rt.with(chat, |c| {
+                    let mine = c.open.as_ref().is_some_and(|o| &o.seg == seg);
+                    if mine {
+                        c.open = None;
                     }
+                    mine
                 });
+                if claimed {
+                    self.baseline_append(chat, BaselineLine::Ended { seg: seg.clone(), at, end: SegmentEnd::Snapshot { snapshot } });
+                }
             }
             Err(reason) => {
                 self.baseline_append(chat, BaselineLine::Failed { seg: Some(seg.clone()), at, attempt: open.attempt.clone(), phase: BaselinePhase::End, reason: reason.clone() });
@@ -679,6 +717,33 @@ impl Host {
                 OtherChat { busy: working || open_seg.is_some(), external_running: external, open_seg, chat: key, label, cwd }
             })
             .collect()
+    }
+
+    /// 別のチャット（外部の会話を含む）のturnが始まった: 同じ場所で開いている他の区間すべてに、同時作業として残す。
+    fn baseline_note_foreign_start(self: &Arc<Self>, started: &ChatKey, cwd: Option<String>) {
+        let Some(cwd) = cwd else { return };
+        let (external, label) = self.read(|d| match d.chat(started) {
+            Some(c) => (c.origin == ChatOrigin::External, c.name.value().cloned().unwrap_or_else(|| c.key.id.0.clone())),
+            None => (false, started.id.0.clone()),
+        });
+        let open: Vec<(ChatKey, LocalId, String)> = self
+            .baseline_rt
+            .chats
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(k, _)| *k != started)
+            .filter_map(|(k, c)| c.open.as_ref().map(|o| (k.clone(), o.seg.clone(), o.repo_root.clone())))
+            .collect();
+        for (chat, seg, root) in open {
+            if !paths_overlap(&cwd, &root) {
+                continue;
+            }
+            let (id, with) = if external { (format!("ext:{}", started.id.0), ConcurrentWith::External { label: label.clone() }) } else { (format!("chat:{}", started.id.0), ConcurrentWith::Chat { chat: started.clone() }) };
+            if self.baseline_rt.with(&chat, |c| c.note_concurrent(&id)) {
+                self.baseline_append(&chat, BaselineLine::Concurrent { seg, with });
+            }
+        }
     }
 
     /// 同じリポジトリで同時に作業している相手を、双方の区間に記録する。
@@ -1120,6 +1185,44 @@ mod tests {
         assert!(has_concurrent(&lines_of(&f, &c2), &c1));
         assert!(has_concurrent(&lines_of(&f, &c1), &c2));
         assert!(status_of(&f, &c1)[0].concurrent);
+        std::fs::remove_dir_all(&f.base).ok();
+    }
+
+    #[tokio::test]
+    async fn a_turn_that_starts_in_the_middle_of_a_segment_is_recorded_even_for_external_chats() {
+        if !git_ok() {
+            return;
+        }
+        let f = fixture("midstart");
+        let (c1, ext) = (key("c1"), key("ext"));
+        let repo_path = f.repo.to_string_lossy().into_owned();
+        f.host.baseline_take_base(&c1, &id("a1"), Some(repo_path.clone())).await;
+        if matches!(lines_of(&f, &c1).first(), Some(BaselineLine::Failed { .. })) {
+            std::fs::remove_dir_all(&f.base).ok();
+            return;
+        }
+        let mut external = chat_in(&ext, &repo_path);
+        external.origin = ChatOrigin::External;
+        f.host.data.lock().unwrap().chats.push(external);
+        let started = |chat: &ChatKey| BackendEvent::TurnStarted {
+            turn: TurnKey { agent: agent_key_of(chat), turn_id: eid("x1") },
+            evidence: Evidence { source: EvidenceSource::LiveEvent, raw_label: None, source_time: None, observed_at: UnixMillis(1) },
+        };
+        // 外部の会話のturnが、この区間の途中で始まる（区間は作られない）。
+        f.host.baseline_observe(&started(&ext));
+        // 同じturnの重複通知では二重に書かない。自分のturnの開始は同時作業ではない。
+        f.host.baseline_observe(&started(&ext));
+        f.host.baseline_observe(&started(&c1));
+        let n = lines_of(&f, &c1).iter().filter(|l| matches!(l, BaselineLine::Concurrent { with: ConcurrentWith::External { .. }, .. })).count();
+        assert_eq!(n, 1, "{:?}", lines_of(&f, &c1));
+        assert!(status_of(&f, &c1)[0].concurrent);
+        // 別のリポジトリの会話では記録しない。
+        let other = key("far");
+        let mut far = chat_in(&other, "C:/somewhere/else");
+        far.origin = ChatOrigin::External;
+        f.host.data.lock().unwrap().chats.push(far);
+        f.host.baseline_observe(&started(&other));
+        assert_eq!(lines_of(&f, &c1).iter().filter(|l| matches!(l, BaselineLine::Concurrent { .. })).count(), 1);
         std::fs::remove_dir_all(&f.base).ok();
     }
 }

@@ -262,7 +262,7 @@ impl Host {
         FolderOpGuard { host: self.clone(), folders }
     }
 
-    fn folder_op_active(&self, chat: &ChatKey) -> bool {
+    pub(super) fn folder_op_active(&self, chat: &ChatKey) -> bool {
         let active = self.queue_rt.folder_ops.lock().unwrap().clone();
         !active.is_empty() && folder_op_overlaps(&active, self.read(|d| d.chat(chat).and_then(|c| c.cwd.value().cloned())).as_deref())
     }

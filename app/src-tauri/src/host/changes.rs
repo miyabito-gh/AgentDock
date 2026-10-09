@@ -135,6 +135,16 @@ pub(super) fn build_segments(lines: &[BaselineLine]) -> (Vec<SegRec>, Vec<Revert
             BaselineLine::Failed { .. } => {}
         }
     }
+    // 「次の基準で終了とする」は記録上の直後の区間だけで解決する。その送信が受理なしで外れた・別のリポジトリだった場合は、
+    // さらに後の区間を使わず終了未確認にする（無関係な期間の変更を、このturnのものにしない）。
+    for i in 0..segs.len() {
+        if matches!(segs[i].end, EndRec::NextBase { .. }) {
+            let ok = segs.get(i + 1).is_some_and(|n| !abandoned.contains(&n.seg.0) && rb::norm_path(&n.repo_root) == rb::norm_path(&segs[i].repo_root));
+            if !ok && i + 1 < segs.len() {
+                segs[i].end = EndRec::Unknown;
+            }
+        }
+    }
     segs.retain(|s| !abandoned.contains(&s.seg.0));
     (segs, marks)
 }
@@ -841,8 +851,6 @@ impl Host {
             return done(ListStatus::NotSupported { message: no_baseline_text(&loaded) }, vec![], vec![]);
         }
         let Some(cwd) = self.baseline_cwd(chat, &loaded.segs) else { return done(OpenFail::WorkFolderUnknown.status(), vec![], vec![]) };
-        let queue = self.baseline_rt.queue_lock(chat);
-        let _q = queue.lock().await;
         let mut s = match Session::open(self, chat, &cwd).await {
             Ok(s) => s,
             Err(f) => return done(f.status(), vec![], vec![]),
@@ -954,8 +962,6 @@ impl Host {
                     return Ok(out(ListStatus::NotSupported { message: no_baseline_text(&loaded) }, String::new()));
                 }
                 let Some(cwd) = self.baseline_cwd(&args.chat, &loaded.segs) else { return Ok(out(OpenFail::WorkFolderUnknown.status(), String::new())) };
-                let queue = self.baseline_rt.queue_lock(&args.chat);
-                let _q = queue.lock().await;
                 let mut s = match Session::open(self, &args.chat, &cwd).await {
                     Ok(s) => s,
                     Err(f) => return Ok(out(f.status(), String::new())),
@@ -1009,7 +1015,8 @@ impl Host {
         }
         // 作業中・停止未確認、または受理不明の操作（レビュー・圧縮。turnが動いている可能性）がある。
         let busy = |d: &HostData, c: &ChatKey| {
-            d.agents.iter().any(|v| &v.agent.chat == c && d.running_turn.contains_key(&v.agent.key)) || d.open_stop(c).is_some() || d.locals.get(c).is_some_and(|l| !l.pending_ops.is_empty())
+            d.agents.iter().any(|v| &v.agent.chat == c && (d.running_turn.contains_key(&v.agent.key) || matches!(v.status.state, AgentState::Running | AgentState::Waiting | AgentState::Initializing)))
+                || d.open_stop(c).is_some() || d.locals.get(c).is_some_and(|l| !l.pending_ops.is_empty())
         };
         let (this_busy, ext, others_busy) = self.read(|d| {
             let ext = d.chat(chat).is_some_and(|c| external_send_locked(c.origin, d.root_view(chat).map(|v| v.freshness)));
@@ -1026,6 +1033,10 @@ impl Host {
         if others_busy {
             return Some(blocked(BlockedReason::ChatBusy, "同じリポジトリで作業中の別のチャットがあるため、変更は戻せません"));
         }
+        // 終端は観測したが、終了の控え（E）をまだ取っていない区間（このチャット・同じリポジトリの別チャット）。今戻すと、戻した書込みがEに入る。
+        if self.baseline_rt.pending_end_roots().iter().any(|(c, r)| c == chat || paths_overlap(r, repo_root)) {
+            return Some(blocked(BlockedReason::ChatBusy, "turnの終了時の控えを取っている最中のため、変更は戻せません。少し待ってから実行してください"));
+        }
         None
     }
 
@@ -1037,8 +1048,7 @@ impl Host {
             return Err(err(IpcErrorCode::NotFound, no_baseline_text(&loaded)));
         }
         let cwd = self.baseline_cwd(&args.chat, &loaded.segs).ok_or_else(|| OpenFail::WorkFolderUnknown.ipc())?;
-        let queue = self.baseline_rt.queue_lock(&args.chat);
-        let _q = queue.lock().await;
+        // 読取りだけ。作業キューは取らず、リポジトリの読取りロックだけで行う（送信前の控えを長く待たせない）。
         let mut s = Session::open(self, &args.chat, &cwd).await.map_err(|f| f.ipc())?;
         let segs: Vec<SegRec> = loaded.segs.iter().filter(|g| rb::norm_path(&g.repo_root) == rb::norm_path(&s.root)).cloned().collect();
         let lock = self.baseline_rt.repo_lock(&s.root);
@@ -1220,22 +1230,15 @@ fn prepare_backup(host: &Host, store: &Store, chat: &ChatKey, at: UnixMillis, ba
     for it in items {
         confine_to(Some(cwd), &top.join(&it.op.path).to_string_lossy()).map_err(|m| RevertStop::Outside(format!("{}: {m}", it.op.path)))?;
     }
-    // 現在の内容（なければ「元がなかった」）。
-    let mut contents: Vec<Option<Vec<u8>>> = Vec::new();
+    // 控えるサイズの合計を先に出し（空き確認のため）、内容は1ファイルずつ読んで書く（全ファイルを同時にメモリへ置かない）。
     let mut total: u64 = 0;
     for it in items {
         let p = top.join(&it.op.path);
         match std::fs::symlink_metadata(&p) {
-            Ok(m) if m.file_type().is_file() && m.len() <= BASELINE_FILE_LIMIT => match std::fs::read(&p) {
-                Ok(bytes) => {
-                    total += bytes.len() as u64;
-                    contents.push(Some(bytes));
-                }
-                Err(e) => return Err(RevertStop::Backup(format!("{}: {e}", it.op.path))),
-            },
+            Ok(m) if m.file_type().is_file() && m.len() <= BASELINE_FILE_LIMIT => total += m.len(),
             Ok(m) if m.file_type().is_file() => return Err(RevertStop::Backup(format!("{}: ファイルが大きすぎます", it.op.path))),
             Ok(_) => return Err(RevertStop::Backup(format!("{}: ファイルではありません", it.op.path))),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => contents.push(None),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => return Err(RevertStop::Backup(format!("{}: {e}", it.op.path))),
         }
     }
@@ -1246,9 +1249,14 @@ fn prepare_backup(host: &Host, store: &Store, chat: &ChatKey, at: UnixMillis, ba
     }
     let mut files: Vec<Option<String>> = Vec::new();
     let mut manifest_entries = Vec::new();
-    for (idx, (it, content)) in items.iter().zip(&contents).enumerate() {
+    for (idx, it) in items.iter().enumerate() {
         let original = top.join(&it.op.path).to_string_lossy().into_owned();
-        let file = match content {
+        let content = match std::fs::read(top.join(&it.op.path)) {
+            Ok(b) => Some(b),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+            Err(e) => return Err(RevertStop::Backup(format!("{}: {e}", it.op.path))),
+        };
+        let file = match &content {
             Some(bytes) => {
                 let name = Path::new(&it.op.path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "file".into());
                 let file = format!("{idx}-{}", layout::sanitize_file_name(&name));
@@ -1738,6 +1746,49 @@ mod tests {
         // 送信の受理が未確認（再送もしない状態）。
         f.host.unresolved.lock().unwrap().add(id("att-unknown"), f.chat.clone());
         let res = f.revert(&plan, &[], &["a.txt"]).await;
+        assert!(matches!(&res, Err(e) if e.blocked == Some(BlockedReason::ChatBusy)), "{res:?}");
+        assert_eq!(f.read("a.txt"), b"two\n");
+        f.done();
+    }
+
+    #[test]
+    fn next_base_is_resolved_only_by_the_record_that_follows_it() {
+        let ended = |seg: &str, at: i64| BaselineLine::Ended { seg: id(seg), at: UnixMillis(at), end: SegmentEnd::EndIsNextBase };
+        // 直後の区間が受理なしで外れた: さらに後の区間のBを終了として使わない（終了未確認）。
+        let lines = vec![started("s1", 1, "t1"), started("s2", 2, "t2"), ended("s1", 2), BaselineLine::Abandoned { seg: id("s2"), reason: "r".into() }, started("s3", 5, "t3")];
+        let (segs, _) = build_segments(&lines);
+        assert_eq!(segs.iter().map(|s| s.seg.0.as_str()).collect::<Vec<_>>(), ["s1", "s3"]);
+        assert_eq!(segs[0].end, EndRec::Unknown);
+        // 直後の区間が別のリポジトリ。
+        let mut other = started("s2", 2, "t2");
+        if let BaselineLine::Started { repo, .. } = &mut other {
+            repo.root = "D:/other".into();
+        }
+        let (segs, _) = build_segments(&[started("s1", 1, "t1"), other, ended("s1", 2)]);
+        assert_eq!(segs[0].end, EndRec::Unknown);
+        // 直後の区間が同じリポジトリで有効なら、そのまま。
+        let (segs, _) = build_segments(&[started("s1", 1, "t1"), started("s2", 2, "t2"), ended("s1", 2)]);
+        assert_eq!(segs[0].end, EndRec::NextBase { at: UnixMillis(2) });
+    }
+
+    #[tokio::test]
+    async fn revert_waits_while_a_finished_turn_still_has_its_end_baseline_pending() {
+        let Some(mut f) = fx("pendingend") else { return };
+        let Some(()) = f.turn("t1", |r| std::fs::write(r.join("a.txt"), b"two\n").unwrap()).await else {
+            f.done();
+            return;
+        };
+        let plan = f.preview("t1").await;
+        // 次のturnの終端を観測したが、終了の控え（E）はまだ取っていない。
+        f.host.baseline_take_base(&f.chat, &id("att-9"), Some(f.repo.to_string_lossy().into_owned())).await;
+        f.host.baseline_bound(&f.chat, &id("att-9"), &eid("t2"));
+        f.host.baseline_observe(&BackendEvent::TurnEnded {
+            turn: TurnKey { agent: agent_key_of(&f.chat), turn_id: eid("t2") },
+            end: TurnEnd::Completed,
+            error: None,
+            evidence: Evidence { source: EvidenceSource::LiveEvent, raw_label: None, source_time: None, observed_at: UnixMillis(1) },
+        });
+        let res = f.revert(&plan, &["a.txt"], &[]).await;
         assert!(matches!(&res, Err(e) if e.blocked == Some(BlockedReason::ChatBusy)), "{res:?}");
         assert_eq!(f.read("a.txt"), b"two\n");
         f.done();

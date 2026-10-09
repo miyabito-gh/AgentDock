@@ -456,7 +456,20 @@ pub fn plan(input: &PlanInput) -> Vec<PathPlan> {
         SegEnd::Snapshot { at, .. } if *at > last.base_at => *at,
         _ => last.base_at,
     };
-    input.paths.iter().map(|p| plan_path(input, k, moved, latest_at, p)).collect()
+    let mut plans: Vec<PathPlan> = input.paths.iter().map(|p| plan_path(input, k, moved, latest_at, p)).collect();
+    // 大文字小文字だけが違う名前（Windowsでは同じ実体）が2つ以上あると、書込みの順序で片方が他方の結果を消す（改名の取り違え）。どちらも戻さない。
+    let mut count: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for p in &plans {
+        *count.entry(norm_path(&p.path)).or_default() += 1;
+    }
+    for p in plans.iter_mut() {
+        if count[&norm_path(&p.path)] > 1 && !matches!(p.judgement, Judgement::Blocked(_)) {
+            p.judgement = Judgement::Blocked(reason(RevertBlockCode::NotSnapshotted, format!("{}: 大文字小文字だけが違う名前の変更は、同じファイルを指すため戻せません", p.path)));
+            p.write = None;
+            p.includes_turns.clear();
+        }
+    }
+    plans
 }
 
 // ───────────────────────────── 強制の受付判定 ─────────────────────────────
@@ -499,6 +512,15 @@ pub fn admit(old: &[PathPlan], fresh: &[PathPlan], paths: &[String], forced: &[S
             out.stale.get_or_insert_with(|| p.clone());
             continue;
         };
+        // 書込み直前の再照合の基準は、ユーザーが確認した計画の内容（expect）。再計画で読み直した内容が違えば、確認していない内容を上書きしないよう stale にする。
+        if !matches!(f.judgement, Judgement::Blocked(_)) {
+            if let (Some(ow), Some(fw)) = (&o.write, &f.write) {
+                if ow.expect != fw.expect || ow.kind != fw.kind || ow.target != fw.target {
+                    out.stale.get_or_insert_with(|| p.clone());
+                    continue;
+                }
+            }
+        }
         match (&f.judgement, &f.write) {
             (Judgement::Blocked(r), _) => out.failed.push(fail(p, r.message.clone())),
             (Judgement::Revertable, Some(op)) => {
@@ -1064,6 +1086,30 @@ mod tests {
         // 要確認だったが強制の指定なしのファイルは、再計画で戻せるようになっても実行しない
         let r = admit(&old, &fresh, &s(&["a"]), &[]);
         assert!(r.execute.is_empty() && r.failed.len() == 1);
+    }
+
+    #[test]
+    fn names_that_differ_only_by_case_are_never_planned_for_writing() {
+        // A.txt -> a.txt の改名（内容は同じ）: 復元と削除の順序で、戻したファイルが消えないように両方止める。
+        let mut f = Fx::new(vec![seg("t1", 10, snap_end(20))]);
+        f.set(StateAt::Base(0), "A.txt", ent("1")).set(StateAt::End(0), "a.txt", ent("1")).cur("a.txt", "1");
+        f.states.insert((StateAt::Current, "A.txt".into()), EntryState::Absent);
+        f.files.insert("A.txt".into(), CurrentFile::Missing);
+        let r = f.run(&["A.txt", "a.txt"]);
+        assert!(r.iter().all(|p| matches!(p.judgement, Judgement::Blocked(_)) && p.write.is_none()), "{r:?}");
+        // 別名のないパスは影響を受けない。
+        let r = f.run(&["a.txt"]);
+        assert!(!matches!(r[0].judgement, Judgement::Blocked(Reason { code: RevertBlockCode::NotSnapshotted, .. })) || r[0].write.is_none());
+    }
+
+    #[test]
+    fn admit_treats_a_forced_file_changed_after_the_preview_as_stale_even_with_the_same_reasons() {
+        let old = [pp("a", needs(&[RevertBlockCode::ChangedAfter]))];
+        let mut fresh = [pp("a", needs(&[RevertBlockCode::ChangedAfter]))];
+        fresh[0].write.as_mut().unwrap().expect = Some("edited-again".into());
+        let r = admit(&old, &fresh, &[], &s(&["a"]));
+        assert_eq!(r.stale.as_deref(), Some("a"));
+        assert!(r.execute.is_empty());
     }
 
     #[test]
