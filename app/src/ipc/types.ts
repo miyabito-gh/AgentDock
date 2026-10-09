@@ -83,6 +83,7 @@ export type { WorktreeRemoveVerdict } from "./gen/WorktreeRemoveVerdict";
 export type { ChangeKind } from "./gen/ChangeKind";
 export type { BaselineFailure } from "./gen/BaselineFailure";
 export type { BaselineSettings } from "./gen/BaselineSettings";
+export type { LayoutSettings } from "./gen/LayoutSettings";
 export type { OverrideReason } from "./gen/OverrideReason";
 export type { SegmentState } from "./gen/SegmentState";
 export type { SegmentStatus } from "./gen/SegmentStatus";
