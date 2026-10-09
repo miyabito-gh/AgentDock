@@ -504,6 +504,21 @@ pub struct AppSettings {
     /// 変更の控え（Git基準。DESIGN_P3B）。古い `settings.json`（この項目なし）は既定値で読む。
     #[serde(default)]
     pub baselines: BaselineSettings,
+    /// 左一覧・ドックの幅（UI-7）。None＝既定。古い `settings.json`（この項目なし）は既定値で読む。
+    #[serde(default)]
+    pub layout: LayoutSettings,
+}
+
+/// 左一覧・ドックの幅（px）。None＝既定。範囲への丸めは表示側（`ui/paneWidth.ts`）で行う。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct LayoutSettings {
+    #[serde(default)]
+    pub left_width: Option<u32>,
+    #[serde(default)]
+    pub dock_width: Option<u32>,
 }
 
 /// 変更の控えの設定。取得の時間の上限は固定（10秒、`backend::baseline::BASELINE_TIME_LIMIT_MS`）。
@@ -580,6 +595,7 @@ impl Default for AppSettings {
             tools: ToolSettings::default(),
             cloud_env_by_repo: Default::default(),
             baselines: BaselineSettings::default(),
+            layout: LayoutSettings::default(),
         }
     }
 }
@@ -1059,6 +1075,15 @@ mod settings_tests {
         o.remove("executables");
         o.insert("codexExecutable".into(), exe);
         v
+    }
+
+    #[test]
+    fn settings_without_layout_load_with_defaults() {
+        let mut v = serde_json::to_value(AppSettings::default()).unwrap();
+        v.as_object_mut().unwrap().remove("layout");
+        let s: AppSettings = serde_json::from_value(v).unwrap();
+        assert_eq!(s.layout, LayoutSettings::default());
+        assert_eq!(s.layout.left_width, None);
     }
 
     #[test]

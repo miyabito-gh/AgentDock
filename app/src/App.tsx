@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { readText } from "@tauri-apps/plugin-clipboard-manager";
@@ -22,6 +22,8 @@ import { CommandPalette } from "./ui/CommandPalette";
 import { Dialogs, type DialogState, type NewChatInput } from "./ui/Dialogs";
 import { ackText } from "./ui/PrefsDialogs";
 import { SidePanel } from "./ui/SidePanel";
+import { PaneSplitter } from "./ui/PaneSplitter";
+import { displayWidths, loadSaved, type PaneKind } from "./ui/paneWidth";
 import { chatName, isRunning, isWorkingForDock, stopOpen } from "./ui/derive";
 import { hms, keyStr } from "./ui/format";
 
@@ -320,6 +322,19 @@ export default function App() {
     return () => { alive = false; un?.(); };
   }, [live]);
   /** 通知設定の変更（ホストが保存する。モックでは画面内だけ）。 */
+  // 左一覧・ドックの幅（UI-7）。保存値は窓幅で変えず、表示幅だけを縮める。保存は離したとき・キー操作の最後から500ms後に1回。
+  const [layoutOv, setLayoutOv] = useState<{ leftWidth: number | null; dockWidth: number | null } | null>(null);
+  const savedLayout = layoutOv ?? snap.settings.layout;
+  const paneW = displayWidths({
+    winW, left: loadSaved("left", savedLayout.leftWidth), dock: loadSaved("dock", savedLayout.dockWidth),
+    leftShown: !leftTemp && leftOpen, dockShown: !rightTemp && rightOpen,
+  });
+  const onPaneCommit = (kind: PaneKind, w: number | null) => {
+    const layout = kind === "left" ? { ...savedLayout, leftWidth: w } : { ...savedLayout, dockWidth: w };
+    setLayoutOv(layout);
+    if (!live) { updateSnap((s) => ({ ...s, settings: { ...s.settings, layout } })); return; }
+    host.setAppSettings({ ...snap.settings, layout }).catch(() => say("パネルの幅を保存できませんでした"));
+  };
   const onNotifySettings = (n: HostSnapshot["settings"]["notifications"]) => {
     const next = { ...snap.settings, notifications: n };
     if (!live) { setBundle((b) => ({ ...b, snapshot: { ...b.snapshot, settings: next } })); return; }
@@ -1012,8 +1027,11 @@ export default function App() {
           </div>
         ) : null}
         <SaveBanner failed={failedSaves.filter((s) => !forChat(s))} warnings={warnHidden ? [] : snap.startupWarnings} onDismissWarnings={dismissWarnings} onAct={act} />
-        <div className={`body ${leftOpen ? "" : "l-off"} ${rightOpen ? "" : "r-off"} ${lNarrow ? "n-l" : ""} ${rNarrow ? "n-r" : ""}`}>
-          <aside className="left" aria-label="チャット一覧">
+        <div
+          className={`body ${leftOpen ? "" : "l-off"} ${rightOpen ? "" : "r-off"} ${lNarrow ? "n-l" : ""} ${rNarrow ? "n-r" : ""}`}
+          style={{ ...(!leftTemp && leftOpen ? { "--lw": `${paneW.left}px` } : {}), ...(!rightTemp && rightOpen ? { "--rw": `${paneW.dock}px` } : {}) } as CSSProperties}
+        >
+          <aside className="left" id="pane-left" aria-label="チャット一覧">
             <LeftPane snap={snap} sel={chat ? keyStr(chat.key) : null} onSelect={(id) => { selectChat(id); setLNarrow(false); }} onAct={act} onAcknowledge={(c) => onAcknowledge(c.key, null)} listStatus={listStatus} />
           </aside>
           <main className="center">
@@ -1033,7 +1051,9 @@ export default function App() {
               />
             ) : <EmptyCenter onAct={act} />}
           </main>
-          <aside className="right" aria-label="エージェントのドック"><DockPane {...dockProps} /></aside>
+          <aside className="right" id="pane-dock" aria-label="エージェントのドック"><DockPane {...dockProps} /></aside>
+          {!leftTemp && leftOpen ? <PaneSplitter kind="left" width={paneW.left} max={paneW.leftMax} onCommit={(w) => onPaneCommit("left", w)} /> : null}
+          {!rightTemp && rightOpen ? <PaneSplitter kind="dock" width={paneW.dock} max={paneW.dockMax} onCommit={(w) => onPaneCommit("dock", w)} /> : null}
           {lNarrow || rNarrow ? <div className="panel-scrim" aria-hidden="true" onClick={() => { setLNarrow(false); setRNarrow(false); }} /> : null}
         </div>
       </div>
