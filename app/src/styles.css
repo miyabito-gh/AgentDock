@@ -528,6 +528,26 @@ textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;paddin
 .tabs{display:flex;gap:2px;border-bottom:1px solid var(--line2);padding:0 10px;overflow-x:auto;flex:none}
 .tabs button{border-radius:0;height:32px;border-bottom:2px solid transparent}
 .tabs button[aria-selected=true]{border-bottom-color:var(--accent);font-weight:700}
+/* 設定: 分類を左の縦並びに（幅が足りないときは従来の横並び） */
+@media (min-width:700px){
+  .dialog:has(> .tabs.vt){display:grid;grid-template-columns:160px minmax(0,1fr);grid-template-rows:auto minmax(0,1fr) auto}
+  .dialog:has(> .tabs.vt) > header,.dialog:has(> .tabs.vt) > footer{grid-column:1 / -1}
+  .dialog:has(> .tabs.vt) > .content{grid-column:2;min-height:0}
+  .tabs.vt{grid-column:1;flex-direction:column;gap:2px;padding:8px;border-bottom:0;border-right:1px solid var(--line2);background:var(--surface2);overflow-x:visible;overflow-y:auto}
+  .tabs.vt button{height:var(--ctl);width:100%;justify-content:flex-start;border-bottom:0;border-left:3px solid transparent;border-radius:var(--r1)}
+  .tabs.vt button[aria-selected=true]{border-left-color:var(--accent);background:var(--accent-weak);font-weight:700}
+}
+/* 容量 */
+.nw{white-space:nowrap;font-variant-numeric:tabular-nums}
+.ubar-wrap{display:flex;flex-direction:column;gap:6px;margin-top:4px}
+.ubar{display:flex;height:10px;border-radius:var(--r1);overflow:hidden;background:var(--idle-bg);border:1px solid var(--line)}
+.ubar > span{min-width:2px;height:100%}
+.ulegend{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:2px 14px;font-size:var(--fs-s);color:var(--ink2)}
+.ulegend li{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+.ulegend i{width:10px;height:10px;border-radius:2px;flex:none}
+.ulegend .n{color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap}
+.tblwrap{overflow-x:auto;max-width:100%}
+.tblwrap .tbl td.nm{max-width:200px}
 
 /* ==== resize ==== */
 /* 左一覧・ドックの幅のドラッグ変更（UI-7 が書き換える節） */

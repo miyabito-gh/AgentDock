@@ -18,12 +18,12 @@ export function stepText(s: DeleteStep): string {
 }
 
 export function fmtBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
+  if (n < 1024) return `${n} B`;
   const units = ["KB", "MB", "GB", "TB"];
   let v = n / 1024;
   let i = 0;
   while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
-  return `${v >= 100 ? v.toFixed(0) : v.toFixed(1)} ${units[i]}`;
+  return `${v >= 100 ? v.toFixed(0) : v.toFixed(1)} ${units[i]}`;
 }
 
 const breakdownTotal = (b: UsageBreakdown): number => b.attachments + b.artifacts + b.workspace + b.activity + b.metadata + b.baselines + b.revertBackups;
@@ -122,7 +122,27 @@ const LINES: Array<[keyof UsageBreakdown, string]> = [
   ["attachments", "添付"], ["artifacts", "成果物"], ["workspace", "作業領域"], ["activity", "監視活動"], ["metadata", "メタデータ"], ["baselines", "変更の控え"], ["revertBackups", "戻す前の控え"],
 ];
 
+/** 内訳バーの色（トークン）。凡例の文字・値と対にして、色だけで区別させない。 */
+const SERIES: Record<keyof UsageBreakdown, string> = {
+  attachments: "var(--accent)", artifacts: "var(--done)", workspace: "var(--int)", activity: "var(--wait-solid)", metadata: "var(--unk)", baselines: "var(--run)", revertBackups: "var(--fail)",
+};
+
 const breakdownText = (b: UsageBreakdown): string => LINES.map(([k, t]) => `${t} ${fmtBytes(b[k])}`).join("／");
+
+/** 内訳バー＋凡例。取得できている集計値だけを並べる（0バイトの項目は凡例に値 0 として出し、バーの幅は 0）。 */
+function UsageBar({ b }: { b: UsageBreakdown }) {
+  const total = breakdownTotal(b);
+  return (
+    <div className="ubar-wrap">
+      <div className="ubar" role="img" aria-label={`内訳: ${breakdownText(b)}`}>
+        {total > 0 ? LINES.map(([k, t]) => b[k] > 0 ? <span key={k} title={`${t} ${fmtBytes(b[k])}`} style={{ flexGrow: b[k], background: SERIES[k] }} /> : null) : null}
+      </div>
+      <ul className="ulegend">
+        {LINES.map(([k, t]) => <li key={k}><i style={{ background: SERIES[k] }} aria-hidden="true" />{t}<span className="n">{fmtBytes(b[k])}</span></li>)}
+      </ul>
+    </div>
+  );
+}
 
 /** 設定の「保存と容量」。全体とチャット別の使用量・内訳・空き容量・旧領域。 */
 /** 変更の控え（Git基準）の設定と、選択中チャットの控えの削除。 */
@@ -146,19 +166,19 @@ export function StorageBody({ u, chats, selected, acked, bl }: { u: UsageProps; 
     <>
       <div className="field"><span>使用量（全体）</span>
         {u.error ? <span style={{ color: "var(--fail)" }}>{u.error}</span> : !r ? <span>{u.loading ? "集計しています…" : "未集計"}</span> : (
-          <span><b>{fmtBytes(breakdownTotal(r.total))}</b>（{breakdownText(r.total)}）</span>
+          <div><b className="nw">{fmtBytes(breakdownTotal(r.total))}</b><UsageBar b={r.total} /></div>
         )}
         <span className="note"><button className="btn-line" disabled={u.loading} onClick={u.reload}>{u.loading ? "集計中…" : "再集計"}</button>　AgentDock の専用領域だけを数えます。Codex の履歴（~/.codex）は含みません。</span>
       </div>
       <div className="field"><span>このチャット</span>
-        {!r ? <span className="muted">未集計</span> : mine ? <span><b>{fmtBytes(breakdownTotal(mine.breakdown))}</b>（{breakdownText(mine.breakdown)}）</span> : <span className="muted">専用領域はまだありません（保存したものがありません）</span>}
+        {!r ? <span className="muted">未集計</span> : mine ? <div><b className="nw">{fmtBytes(breakdownTotal(mine.breakdown))}</b><UsageBar b={mine.breakdown} /></div> : <span className="muted">専用領域はまだありません（保存したものがありません）</span>}
       </div>
       <div className="field"><span>変更の控え</span>
         <label><input type="checkbox" checked={bl.enabled} onChange={(e) => bl.setEnabled(e.target.checked)} />turnの開始時に変更の控えを取る（Gitリポジトリのみ）</label>
         <span className="note">オフにすると以後のturnは控えを取らず、「変更を戻す」の対象になりません。すでに取った控えは消えません（自動では削除しません）。</span></div>
       <div className="field"><span>このチャットの控え</span>
         {!mine ? <span className="muted">{r ? "控えはありません" : "未集計"}</span> : (
-          <span>変更の控え {fmtBytes(mine.breakdown.baselines)}／戻す前の控え {fmtBytes(mine.breakdown.revertBackups)}</span>)}
+          <span>変更の控え <span className="nw">{fmtBytes(mine.breakdown.baselines)}</span>／戻す前の控え <span className="nw">{fmtBytes(mine.breakdown.revertBackups)}</span></span>)}
         {confirmDel ? (
           <div className="gbanner warn" role="alertdialog" aria-label="控えを削除する確認" style={{ gridColumn: 2 }}>
             <span className="grow">このチャットのturnは、以後「変更を戻す」の対象になりません（{mine ? fmtBytes(mine.breakdown.baselines) : "容量未確認"}を削除します）。削除した控えは元に戻せません。「戻す前の控え」とチャット本体は削除しません。</span>
@@ -170,12 +190,17 @@ export function StorageBody({ u, chats, selected, acked, bl }: { u: UsageProps; 
       </div>
       {r && sorted.length ? (
         <div className="field"><span>チャット別</span>
-          <table className="small" style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead><tr style={{ textAlign: "left", color: "var(--ink3)" }}><th>チャット</th><th>合計</th><th>内訳</th></tr></thead>
-            <tbody>{sorted.map((c) => (
-              <tr key={c.chat.id}><td>{nameOf(c.chat.id)}</td><td>{fmtBytes(breakdownTotal(c.breakdown))}</td><td className="muted">{breakdownText(c.breakdown)}</td></tr>
-            ))}</tbody>
-          </table>
+          <div className="tblwrap"><table className="tbl">
+            <thead><tr><th>チャット</th><th className="n">合計</th><th className="n">監視活動</th><th className="n">メタデータ</th><th className="n">変更の控え</th><th className="n">戻す前の控え</th><th className="n">添付ほか</th></tr></thead>
+            <tbody>{sorted.map((c) => {
+              const b = c.breakdown;
+              const other = b.attachments + b.artifacts + b.workspace;
+              return (
+                <tr key={c.chat.id}><td className="nm" title={nameOf(c.chat.id)}>{nameOf(c.chat.id)}</td><td className="n">{fmtBytes(breakdownTotal(b))}</td><td className="n">{fmtBytes(b.activity)}</td><td className="n">{fmtBytes(b.metadata)}</td><td className="n">{fmtBytes(b.baselines)}</td><td className="n">{fmtBytes(b.revertBackups)}</td>
+                  <td className="n" title={`添付 ${fmtBytes(b.attachments)}／成果物 ${fmtBytes(b.artifacts)}／作業領域 ${fmtBytes(b.workspace)}`}>{fmtBytes(other)}</td></tr>
+              );
+            })}</tbody>
+          </table></div>
         </div>
       ) : null}
       <div className="field"><span>旧領域</span>
