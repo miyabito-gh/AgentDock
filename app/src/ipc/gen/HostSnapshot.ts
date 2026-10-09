@@ -9,6 +9,7 @@ import type { ChatModelEntry } from "./ChatModelEntry";
 import type { ChatPendingOp } from "./ChatPendingOp";
 import type { ChatQueue } from "./ChatQueue";
 import type { CloudTaskRecord } from "./CloudTaskRecord";
+import type { HistoryConfirmationEntry } from "./HistoryConfirmationEntry";
 import type { MonitorScope } from "./MonitorScope";
 import type { OpCapability } from "./OpCapability";
 import type { PendingRequest } from "./PendingRequest";
@@ -79,4 +80,8 @@ worktrees: Array<WorktreeRecord>,
 /**
  * クラウド委任の記録（`cloud-tasks.json`）。
  */
-cloudTasks: Array<CloudTaskRecord>, };
+cloudTasks: Array<CloudTaskRecord>, 
+/**
+ * 履歴の読取りで最新turnの終端（またはturnなし）を確認できた、状態不明のエージェント。状態は書き換えない（表示の別ラベル用）。
+ */
+historyConfirmations: Array<HistoryConfirmationEntry>, };

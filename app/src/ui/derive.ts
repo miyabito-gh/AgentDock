@@ -1,7 +1,7 @@
 // スナップショットからの表示用導出。状態判定そのものはホストの責務で、ここは並べ替えと文言だけ。
-import type { AgentView, Chat, HostSnapshot, PendingRequest, StopRecord } from "../ipc/types";
+import type { AgentView, Chat, HistoryOutcome, HostSnapshot, PendingRequest, StopRecord } from "../ipc/types";
 import { STATE, keyStr, knownValue } from "./format";
-import { CHAT_DISPLAY_TEXT, chatDisplayKind, isActiveState, unknownCount, unknownNote, type ChatDisplayKind } from "./chatState";
+import { CHAT_DISPLAY_TEXT, chatDisplayKind, isActiveState, unknownCount, unknownNote, validOutcome, type ChatDisplayKind } from "./chatState";
 
 /** 最初の依頼の先頭30字（仮表示用）。 */
 export const previewTitle = (c: Chat): string | null => {
@@ -40,9 +40,15 @@ export const isRunning = (s: HostSnapshot, c: Chat): boolean => {
 /** 停止未確認・所有不明を含む記録があるか（ホストが判定した summary をそのまま見る） */
 export const stopOpen = (r: StopRecord): boolean => r.targets.some((t) => t.summary === "unconfirmed" || t.summary === "interruptRequested" || t.summary === "ownershipUnknown");
 
+/** 状態不明のエージェントについて、履歴で終端を確認できた結果（無ければ null）。状態そのものは変えない。 */
+export const historyOutcomeOf = (s: HostSnapshot, v: AgentView): HistoryOutcome | null =>
+  validOutcome(v.status.state, v.agent.latestTurn, s.historyConfirmations.find((h) => h.agent.id === v.agent.key.id));
 /** 親以外（子・孫など）の状態。表示用の導出にだけ使う（送信条件・通知・停止確認の判定には使わない）。 */
 export const descendantStates = (s: HostSnapshot, c: Chat) =>
   chatAgents(s, c).filter((a) => a.agent.parent.kind !== "root").map((a) => a.status.state);
+/** 履歴で終端を確認できた子孫を除いた、子孫の状態（「子N件の状態不明」の件数用）。 */
+const unresolvedDescendantStates = (s: HostSnapshot, c: Chat) =>
+  chatAgents(s, c).filter((a) => a.agent.parent.kind !== "root" && !historyOutcomeOf(s, a)).map((a) => a.status.state);
 /** チャット単位の表示種別（子孫込み）。 */
 export const chatDisplay = (s: HostSnapshot, c: Chat): ChatDisplayKind => {
   const st = rootView(s, c)?.status.state;
@@ -67,7 +73,7 @@ export function chatStatusText(s: HostSnapshot, c: Chat): string {
   if (c.origin === "external") return "外部・状態不明";
   if (kind !== "root") return CHAT_DISPLAY_TEXT[kind];
   // 状態不明の子孫は親の状態に注記を添えるだけ（表示のみ。通知・キュー・停止確認の判定には使わない）
-  const n = unknownCount(descendantStates(s, c));
+  const n = unknownCount(unresolvedDescendantStates(s, c));
   return n > 0 ? `${STATE[root.status.state].t}（${unknownNote(n)}）` : STATE[root.status.state].t;
 }
 

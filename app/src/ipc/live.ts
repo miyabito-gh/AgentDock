@@ -17,7 +17,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
 const emptySnapshot = (): HostSnapshot => ({
   seq: 0, sources: [], chats: [], agents: [], requests: [], stops: [], queues: [], monitorScope: { kind: "selectedChat", chat: null },
   chatLocals: [], saveStatus: [], settings: DEFAULT_SETTINGS, modelSettings: [], startupWarnings: [], attachments: [], artifacts: [], quit: { kind: "idle" },
-  opCapabilities: [], pendingOps: [], sideSessions: [], worktrees: [], cloudTasks: [],
+  opCapabilities: [], pendingOps: [], sideSessions: [], worktrees: [], cloudTasks: [], historyConfirmations: [],
 });
 
 export const emptyBundle = (): Bundle => ({
@@ -105,6 +105,10 @@ export function applyHostEvent(b: Bundle, e: HostEvent): Bundle {
         }),
         turns,
       };
+    }
+    case "historyConfirmationUpdated": {
+      const rest = s.historyConfirmations.filter((h) => h.agent.id !== e.agent.id);
+      return set({ historyConfirmations: e.confirmation ? [...rest, e.confirmation] : rest });
     }
     case "agentUpdated":
       return set({ agents: upsert(s.agents, e.view, (a) => a.agent.key.id === e.view.agent.key.id) });

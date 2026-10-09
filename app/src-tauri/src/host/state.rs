@@ -39,6 +39,23 @@ pub enum HistoryTail {
     NotTerminal,
 }
 
+/// 履歴の末尾から、表示用の確認記録を作る(進行中・判別不能は出さない)。
+fn confirmation_of(agent: &AgentKey, tail: &HistoryTail, at: UnixMillis) -> Option<HistoryConfirmationEntry> {
+    let (outcome, turn) = match tail {
+        HistoryTail::NoTurns => (HistoryOutcome::NoTurns, None),
+        HistoryTail::Ended(t, e) => (
+            match e {
+                TurnEnd::Completed => HistoryOutcome::Completed,
+                TurnEnd::Failed => HistoryOutcome::Failed,
+                TurnEnd::Interrupted => HistoryOutcome::Interrupted,
+            },
+            Some(t.clone()),
+        ),
+        HistoryTail::NotTerminal => return None,
+    };
+    Some(HistoryConfirmationEntry { agent: agent.clone(), outcome, turn, confirmed_at: at })
+}
+
 pub struct HostData {
     pub seq: u64,
     pub sources: Vec<SourceInfo>,
@@ -201,6 +218,7 @@ impl HostData {
             side_sessions: self.locals.values().flat_map(|f| f.side_sessions.iter().cloned()).collect(),
             worktrees: self.worktrees.clone(),
             cloud_tasks: self.cloud_tasks.clone(),
+            history_confirmations: self.history_terminal.iter().filter_map(|(a, (t, at))| confirmation_of(a, t, *at)).collect(),
         }
     }
 
@@ -269,8 +287,15 @@ impl HostData {
     // ── 履歴で確認した末尾・監視活動の記録・wake後の復帰 ──
 
     /// 状態が不明のエージェントの最新turnの末尾を、履歴の読取り結果として記録する。
-    pub fn note_history_tail(&mut self, agent: &AgentKey, tail: HistoryTail, now: UnixMillis) {
+    pub fn note_history_tail(&mut self, agent: &AgentKey, tail: HistoryTail, now: UnixMillis) -> Vec<HostEvent> {
+        let conf = confirmation_of(agent, &tail, now);
+        let changed = conf != self.history_confirmation(agent);
         self.history_terminal.insert(agent.clone(), (tail, now));
+        if changed { vec![HostEvent::HistoryConfirmationUpdated { agent: agent.clone(), confirmation: conf }] } else { Vec::new() }
+    }
+
+    fn history_confirmation(&self, agent: &AgentKey) -> Option<HistoryConfirmationEntry> {
+        self.history_terminal.get(agent).and_then(|(t, at)| confirmation_of(agent, t, *at))
     }
 
     /// 状態が不明のエージェントのうち、履歴で終端（またはturnなし）を確認できたもの。未完了と数えない。

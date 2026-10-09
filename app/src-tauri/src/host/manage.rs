@@ -145,8 +145,8 @@ impl Host {
                 },
             };
             self.mutate(|d| {
-                d.note_history_tail(&agent, tail, now_ms());
-                ((), vec![])
+                let ev = d.note_history_tail(&agent, tail, now_ms());
+                ((), ev)
             });
         }
     }

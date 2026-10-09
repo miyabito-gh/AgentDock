@@ -1,9 +1,9 @@
 import { useState } from "react";
-import type { AgentView, Chat, HostSnapshot, MonitorScope } from "../ipc/types";
+import type { AgentView, Chat, HistoryOutcome, HostSnapshot, MonitorScope } from "../ipc/types";
 import { Flag, Icon } from "./Icon";
 import type { Known } from "../ipc/types";
-import { chatAgents, chatDisplay, descendantStates, chatName, isDoneLike, isWorkingForDock, previewTitle } from "./derive";
-import { CHAT_DISPLAY_TEXT, sortByDockRank, unknownCount, unknownNote, unknownSignature } from "./chatState";
+import { chatAgents, chatDisplay, descendantStates, historyOutcomeOf, chatName, isDoneLike, isWorkingForDock, previewTitle } from "./derive";
+import { CHAT_DISPLAY_TEXT, HISTORY_OUTCOME_TEXT, sortByDockRank, unknownCount, unknownNote, unknownSignature } from "./chatState";
 import { FRESH, SOURCE_LABEL, STATE, hms, keyStr, showKnown } from "./format";
 import { TitleBar } from "./Chrome";
 
@@ -27,11 +27,12 @@ function activityText(k: Known<string>): string {
 /** 状態不明カードの「確認済みにして隠す」の署名（新しい活動・turnが届けば変わる）。 */
 const sigOf = (v: AgentView): string => unknownSignature(v.status.raw.label, v.agent.latestTurn, v.currentActivity ? v.currentActivity.evidence.observedAt : null);
 
-function Berth({ a, depth, orphan, mini, confirmed, onConfirmFail, rootName, childNote, onDismiss }: {
-  rootName?: string; childNote?: string; a: AgentView; depth: number; orphan: boolean; mini: boolean; confirmed: boolean; onConfirmFail: (key: string) => void;
+function Berth({ a, depth, orphan, mini, confirmed, onConfirmFail, rootName, childNote, onDismiss, outcome, outcomeAt }: {
+  outcome?: HistoryOutcome | null; outcomeAt?: number; rootName?: string; childNote?: string; a: AgentView; depth: number; orphan: boolean; mini: boolean; confirmed: boolean; onConfirmFail: (key: string) => void;
   onDismiss?: () => void;
 }) {
-  const m = STATE[a.status.state];
+  // 状態不明でも履歴で終端を確認できたものは、別ラベルで出す(状態は書き換えない。live未確認)
+  const m = outcome ? { c: outcome === "failed" ? STATE.failed.c : outcome === "interrupted" ? STATE.interrupted.c : STATE.done.c, t: `${HISTORY_OUTCOME_TEXT[outcome]}（live未確認・取得${outcomeAt !== undefined ? hms(outcomeAt) : "時刻不明"}）` } : STATE[a.status.state];
   const rel = orphan ? "親不明" : ["メイン", "子", "孫", "ひ孫"][depth] ?? `${depth}階層下`;
   const notLive = a.freshness !== "live";
   const act = waitText(a) ?? (a.currentActivity ? activityText(a.currentActivity.summary) : a.status.state === "unknown" ? `原状態: ${a.status.raw.label}（根拠なし）` : "活動なし");
@@ -83,16 +84,18 @@ function RootBlock({ snap, c, views, showHead, selected, mini, parentOnly, confi
   const inList = new Set(views.map((v) => keyStr(v.agent.key)));
   const st = (v: AgentView) => v.status.state;
   const childrenOf = (k: string) => views.filter((v) => v.agent.parent.kind === "explicit" && keyStr(v.agent.parent.parent) === k);
-  const subtreeAllUnknown = (v: AgentView): boolean => st(v) === "unknown" && childrenOf(keyStr(v.agent.key)).every(subtreeAllUnknown);
+  const outcomeOf = (v: AgentView) => historyOutcomeOf(snap, v);
+  const atOf = (v: AgentView) => snap.historyConfirmations.find((h) => h.agent.id === v.agent.key.id)?.confirmedAt;
+  const subtreeAllUnknown = (v: AgentView): boolean => st(v) === "unknown" && !outcomeOf(v) && childrenOf(keyStr(v.agent.key)).every(subtreeAllUnknown);
   // 状態不明の子孫（自分以下も全て不明）は末尾の折りたたみへ。親（メイン）は対象外。確認済みにして隠したものは、新しい活動が届くまで出さない。
   const parked = (v: AgentView) => v.agent.parent.kind !== "root" && subtreeAllUnknown(v);
   const isDismissed = (v: AgentView) => dismissed.get(keyStr(v.agent.key)) === sigOf(v);
   const parkedAll = views.filter(parked);
   const parkedShown = parkedAll.filter((v) => !isDismissed(v));
   const parkedHidden = parkedAll.length - parkedShown.length;
-  const kids = (k: string) => sortByDockRank(childrenOf(k).filter((v) => !parked(v)), st);
-  const roots = sortByDockRank(views.filter((v) => (v.agent.parent.kind === "root" || (v.agent.parent.kind === "explicit" && !inList.has(keyStr(v.agent.parent.parent)))) && !parked(v)), st);
-  const orphans = sortByDockRank(views.filter((v) => v.agent.parent.kind === "unknown" && !parked(v)), st);
+  const kids = (k: string) => sortByDockRank(childrenOf(k).filter((v) => !parked(v)), st, outcomeOf);
+  const roots = sortByDockRank(views.filter((v) => (v.agent.parent.kind === "root" || (v.agent.parent.kind === "explicit" && !inList.has(keyStr(v.agent.parent.parent)))) && !parked(v)), st, outcomeOf);
+  const orphans = sortByDockRank(views.filter((v) => v.agent.parent.kind === "unknown" && !parked(v)), st, outcomeOf);
   const depthOf = (v: AgentView): number => {
     let d = 0; let p = v.agent.parent;
     while (p.kind === "explicit") {
@@ -109,7 +112,7 @@ function RootBlock({ snap, c, views, showHead, selected, mini, parentOnly, confi
     const ch = parentOnly ? [] : kids(k);
     return (
       <li key={k}>
-        <Berth a={v} depth={depthOf(v)} orphan={false} mini={mini} confirmed={confirmed.has(k)} onConfirmFail={onConfirmFail} childNote={parentOnly && v.agent.parent.kind === "root" ? parentNote(snap, c) : undefined} rootName={v.agent.parent.kind === "root" ? (v.agent.displayName.kind === "value" ? v.agent.displayName.value : previewTitle(c) ?? "メイン") : undefined} />
+        <Berth a={v} outcome={outcomeOf(v)} outcomeAt={atOf(v)} depth={depthOf(v)} orphan={false} mini={mini} confirmed={confirmed.has(k)} onConfirmFail={onConfirmFail} childNote={parentOnly && v.agent.parent.kind === "root" ? parentNote(snap, c) : undefined} rootName={v.agent.parent.kind === "root" ? (v.agent.displayName.kind === "value" ? v.agent.displayName.value : previewTitle(c) ?? "メイン") : undefined} />
         {ch.length ? <ul className="tree">{ch.map(node)}</ul> : null}
       </li>
     );
@@ -143,7 +146,7 @@ function RootBlock({ snap, c, views, showHead, selected, mini, parentOnly, confi
           <div className="small muted" style={{ margin: "6px 0 0" }}>直接の親が分からないエージェント</div>
           <ul className="tree">{orphans.map((v) => (
             <li key={keyStr(v.agent.key)}>
-              <Berth a={v} depth={0} orphan mini={mini} confirmed={false} onConfirmFail={onConfirmFail} />
+              <Berth a={v} outcome={outcomeOf(v)} outcomeAt={atOf(v)} depth={0} orphan mini={mini} confirmed={false} onConfirmFail={onConfirmFail} />
             </li>
           ))}</ul>
         </>

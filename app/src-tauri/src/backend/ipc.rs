@@ -246,6 +246,34 @@ pub struct HostSnapshot {
     pub worktrees: Vec<WorktreeRecord>,
     /// クラウド委任の記録（`cloud-tasks.json`）。
     pub cloud_tasks: Vec<CloudTaskRecord>,
+    /// 履歴の読取りで最新turnの終端（またはturnなし）を確認できた、状態不明のエージェント。状態は書き換えない（表示の別ラベル用）。
+    #[serde(default)]
+    pub history_confirmations: Vec<HistoryConfirmationEntry>,
+}
+
+/// 履歴で確認した結果の種類。エージェント状態（done等）ではない。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub enum HistoryOutcome {
+    Completed,
+    Failed,
+    Interrupted,
+    /// turnがまだない。
+    NoTurns,
+}
+
+/// 履歴で終端を確認した記録(live未確認)。`turn` は確認した最新turn(新しいturnが来たら無効)。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryConfirmationEntry {
+    pub agent: AgentKey,
+    pub outcome: HistoryOutcome,
+    pub turn: Option<ExternalId>,
+    pub confirmed_at: UnixMillis,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -981,6 +1009,8 @@ pub enum ExtensionOpLine {
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum HostEvent {
     SourceUpdated { source: SourceInfo },
+    /// 履歴での終端確認の更新(`confirmation=None` は確認なし・進行中と読めた・無効)。エージェント状態は変えない。
+    HistoryConfirmationUpdated { agent: AgentKey, confirmation: Option<HistoryConfirmationEntry> },
     ChatUpdated { chat: Chat },
     ChatRemoved { chat: ChatKey },
     AgentUpdated { view: AgentView },

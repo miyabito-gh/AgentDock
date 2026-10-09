@@ -193,6 +193,8 @@ export type { HoldTarget } from "./gen/HoldTarget";
 export type { HostEvent } from "./gen/HostEvent";
 export type { HostEventEnvelope } from "./gen/HostEventEnvelope";
 export type { HostSnapshot } from "./gen/HostSnapshot";
+export type { HistoryConfirmationEntry } from "./gen/HistoryConfirmationEntry";
+export type { HistoryOutcome } from "./gen/HistoryOutcome";
 export type { InterruptAck } from "./gen/InterruptAck";
 export type { InterruptChatArgs } from "./gen/InterruptChatArgs";
 export type { InterruptChatResult } from "./gen/InterruptChatResult";
