@@ -31,8 +31,10 @@ const MENUS: Record<string, MenuItem[]> = {
 /** 上部メニューの並び。「作業」は操作台帳（commands.ts）から作る。 */
 const ORDER = ["チャット", "作業", "表示", "設定", "ヘルプ"];
 
-export function MenuBar({ open, setOpen, checked, views, onAct }: {
+export function MenuBar({ open, setOpen, checked, views, onAct, tag }: {
   open: string | null; setOpen: (m: string | null) => void; checked: Record<string, boolean>; views: CommandView[]; onAct: (a: string) => void;
+  /** 接続先の版タグ（右端。押すと接続先の切替）。 */
+  tag?: string;
 }) {
   // Escで閉じる。外側クリックはウィンドウ側（App）で閉じる。
   useEffect(() => {
@@ -58,6 +60,8 @@ export function MenuBar({ open, setOpen, checked, views, onAct }: {
           ) : null}
         </div>
       ))}
+      <span className="grow" />
+      {tag ? <button className="mock-tag" title="接続先（実接続／モック）を切り替える" aria-haspopup="true" onClick={(e) => { e.stopPropagation(); onAct("modeMenu"); }}>{tag}</button> : null}
     </nav>
   );
 }

@@ -12,7 +12,7 @@ const loadMock = async () => {
   const [client, data] = await Promise.all([import("./mock/client"), import("./mock/data")]);
   return { client, scenarios: data.SCENARIOS };
 };
-import { GlobalBanner, MenuBar, SaveBanner, TitleBar } from "./ui/Chrome";
+import { GlobalBanner, MenuBar, SaveBanner } from "./ui/Chrome";
 import { LeftPane } from "./ui/LeftPane";
 import { CenterPane, EmptyCenter, type CwdResult, type FileActions, type SendNotice } from "./ui/CenterPane";
 import { fenceCode, insertBlock } from "./ui/attach";
@@ -1003,8 +1003,7 @@ export default function App() {
         <defs><pattern id="hatch" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="2" height="4" style={{ fill: "var(--unk)" }} /></pattern></defs>
       </svg>
       <div className="window" role="application" aria-label="AgentDock" onClick={() => { if (menu) setMenu(null); if (mockOpen) setMockOpen(false); }}>
-        <TitleBar title="AgentDock" tag={modeTag} top={mainTop} onAct={act} />
-        <MenuBar open={menu} setOpen={setMenu} checked={checked} views={cmdViews} onAct={act} />
+        <MenuBar open={menu} setOpen={setMenu} checked={checked} views={cmdViews} onAct={act} tag={modeTag} />
         <GlobalBanner source={src} onAct={act} />
         {live && quit.kind !== "idle" && dialog?.type !== "quit" && dialog?.type !== "force" ? (
           <div className="gbanner warn" role="status">

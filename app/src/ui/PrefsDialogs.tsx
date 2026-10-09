@@ -54,10 +54,7 @@ export function GoalBar({ goal, live, cap, busy, onEdit, onClear, onReload }: {
     return (
       <div className="goal" role="status" aria-label="Goal">
         <b>Goal</b><span className="tag">{goalStatusText(g.status)}</span>
-        <span style={{ flex: 1 }}>{g.objective}</span>
-        <span className="small muted" title="Codex が示した値のまま表示しています（換算しません）">
-          使用 {showKnown(g.tokensUsed)} トークン／予算 {showKnown(g.tokenBudget, String)}／{showKnown(g.timeUsedSecs, (n) => `${n}秒`)}
-        </span>
+        <span className="goal-obj" title={`${g.objective}\n使用 ${showKnown(g.tokensUsed)} トークン／予算 ${showKnown(g.tokenBudget, String)}／${showKnown(g.timeUsedSecs, (n) => `${n}秒`)}（Codex が示した値のまま表示しています。換算しません）`}>{g.objective}</span>
         <UnverifiedTag cap={cap} />
         <button className="small" style={{ height: 22 }} disabled={busy} onClick={onEdit}>変更</button>
         <button className="small" style={{ height: 22 }} disabled={busy} onClick={onClear}>解除</button>
