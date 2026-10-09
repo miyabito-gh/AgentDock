@@ -88,6 +88,9 @@ export function stateText(s: SegmentState): string {
   }
 }
 
+/** turn ID は先頭8文字＋「…」（全文は title・コピーで見せる）。 */
+export const shortId = (id: string): string => (id.length > 8 ? `${id.slice(0, 8)}…` : id);
+
 export interface TurnOption { turn: string; label: string }
 
 /** 「戻す範囲」「差分の対象」の選択肢。turn に対応づいた区間だけ（受理不明の区間は対応づくまで出さない）。控えを取れなかった・送信されなかった区間は選べない。 */
@@ -97,7 +100,7 @@ export function turnOptions(status: SegmentStatus[]): TurnOption[] {
     if (!s.turn || s.state.kind === "failed" || s.state.kind === "abandoned") continue;
     if (out.some((o) => o.turn === s.turn)) continue;
     const st = stateText(s.state);
-    out.push({ turn: s.turn, label: `turn ${s.turn}${st ? `（${st}）` : ""}${s.concurrent ? "［同時作業あり］" : ""}` });
+    out.push({ turn: s.turn, label: `turn ${shortId(s.turn)}${st ? `（${st}）` : ""}${s.concurrent ? "［同時作業あり］" : ""}` });
   }
   return out;
 }

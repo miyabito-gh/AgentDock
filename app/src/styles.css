@@ -379,8 +379,35 @@ textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;paddin
 .dialog header{display:flex;align-items:center;padding:10px 14px;border-bottom:1px solid var(--line2)}
 .dialog header h3{margin:0;font-size:15px;flex:1}
 .dialog .content{padding:12px 14px;overflow:auto}
-.dialog footer{display:flex;justify-content:flex-end;gap:6px;padding:10px 14px;border-top:1px solid var(--line2);background:var(--surface2)}
+.dialog footer{display:flex;align-items:center;gap:6px;padding:10px 14px;border-top:1px solid var(--line2);background:var(--surface2)}
+/* フッター: 左＝副操作、右＝閉じる（キャンセル）＋主操作（いちばん右・塗り）。幅が足りないときは折り返す */
+.dialog footer .foot-l,.dialog footer .foot-r{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.dialog footer .foot-l{flex:1;min-width:0}
+.dialog footer .foot-r{justify-content:flex-end;margin-left:auto}
+.dialog footer .foot-main{display:contents}
+.palette footer{justify-content:flex-start}
 .dialog p{margin:0 0 8px}
+/* 同じ原因の帯は1本。ダイアログ内の帯は枠付きの面にする（全幅の線ではない） */
+.dialog .content .gbanner{border:1px solid var(--b-line);border-radius:var(--r2);margin:0 0 8px;align-items:flex-start}
+.dialog .acts{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:8px 0}
+.dialog .acts.end{justify-content:flex-end}
+/* 「この操作について」: 長い説明を畳む淡い面（既定は閉じる） */
+.about{background:var(--surface2);border:1px solid var(--line2);border-radius:var(--r2);padding:2px 10px;margin:0 0 8px;font-size:var(--fs-s);color:var(--ink2)}
+.about summary{cursor:pointer;padding:3px 0;color:var(--ink2)}
+.about>div{padding:2px 0 4px}
+.about>div p:last-child{margin-bottom:0}
+/* 危険な確定（2段目）: 対象の近くの赤枠の確認ブロック。危険ボタン（塗り）＋やめる */
+.confirm{border:1px solid var(--fail-line);border-left:3px solid var(--fail);background:var(--fail-bg);border-radius:var(--r2);padding:8px 12px;margin:8px 0}
+.confirm p{margin:0 0 6px}
+.confirm .acts{margin:8px 0 0}
+/* 変更を戻す: ファイルごとのカード（要確認＝黄、止める＝赤） */
+.fcards{list-style:none;margin:0 0 8px;padding:0}
+.fcard{border:1px solid var(--line);border-radius:var(--r2);padding:8px 10px;margin:0 0 6px;background:var(--surface)}
+.fcard.need{border-color:var(--wait-line)}
+.fcard.block{border-color:var(--fail-line)}
+.fcard-h{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:2px}
+.tag.need{color:var(--wait-ink);background:var(--wait-bg);border-color:var(--wait-line);font-weight:600}
+.tag.block{color:var(--fail-ink);background:var(--fail-bg);border-color:var(--fail-line);font-weight:600}
 /* ダイアログ・サイドパネルの textarea は、入力欄として枠・背景を持つ（既定は入力欄用の枠なし） */
 .dialog textarea,.sidepanel textarea{border:1px solid var(--line-strong);background:var(--surface);padding:4px 8px;resize:vertical}
 .field{display:grid;grid-template-columns:minmax(0,150px) minmax(0,1fr);gap:6px 12px;align-items:center;margin-bottom:10px}
