@@ -42,6 +42,7 @@
 各項目: **経路** / **状態** / **IPC** / **保存** / **失敗・受理不明** / **合意**。IPC名はコマンド（snake）とイベント（camel）。
 
 ### #1 変更ファイル一覧と差分表示
+**置換**: 2026-10-10 に app/DESIGN_P3B.md の方式へ置き換え
 - **経路**: App Server（`turn/diff/updated` 安定＝turnの集約diff、`fileChange` item の `changes[]{path, kind, diff}` 安定）＋AgentDock管理（Git読取り）。
   - 「Codexが報告した変更」: live中は `turn/diff/updated` の最新値（turnごとに上書き）、履歴からは read した `fileChange` item を集める。どちらも統一diff文字列で、`rules::diff::split_files` でファイル別に分ける。
   - 「現在のファイル（Git）」: `git --no-optional-locks status --porcelain=v2 -z` と `git diff`（読取りのみ、索引を書かない）。Gitがない・リポジトリでなければこの区分を「非対応（Gitなし）」と表示。
@@ -53,6 +54,7 @@
 - **合意**: 読取りだけ。resumeしない（履歴は read）。
 
 ### #2 変更を戻す
+**置換**: 2026-10-10 に app/DESIGN_P3B.md の方式へ置き換え
 - **経路**: AgentDock管理。`thread/revert` は会話履歴の巻戻しでファイルを戻さない（schemaの注記どおり）ので**使わない**。方式は**要判断Q1**。以下は推奨案（Q1-1）で書く。
   - live中に `fileChange` item が完了したら、ホストが `ChangeRecord{chat, agent, turn, item, path, kind, moveTo, diff, postHash: Known<sha256>, observedAt}` を `changes.jsonl` に追記する。`postHash` は観測直後にファイルを読んで取る（読めなければ `notFetched`）。
   - 戻す単位はファイル（turn単位の「このturnの変更をすべて」はファイル別の一括）。`preview_revert` で計画を作り、各ファイルの判定を示す。

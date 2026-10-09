@@ -104,3 +104,127 @@ git init; "hello" > a.txt; "world" > b.txt; git add .; git commit -m init
 - 未実施: 6-1・6-3（Codex Cloudの環境なし。6-2は「タスクはありません」）、5-3（OAuth）、8-2（200件超）。
 - 要望として出て実装済み（実機○）: 一覧は選択だけでは並び順を変えない／子の完了誤表示の是正／ドックの「実行中」タブ・「親のみ表示」・状態不明の折りたたみ・履歴確認の別ラベル。
 - 方針変更の意向（未合意・未設計）: #2「変更を戻す」をGit基準の控えへ（正本§13.5）。
+
+## 段階③追補: Git基準の変更を戻す（実機確認手順）
+
+対象は #1（差分表示の2タブ）と #2（Git基準の控えで戻す）。方式変更後の初の実機確認。報告は各項目を ○／×／気づき で。コードの設計は `app/DESIGN_P3B.md`。
+
+### 準備: 使い捨てGitリポジトリ
+
+```powershell
+$d = "C:\Users\wmasa\agentdock-p3-test"
+Remove-Item -Recurse -Force $d -ErrorAction SilentlyContinue
+New-Item -ItemType Directory $d | Out-Null
+Set-Location $d
+git init
+git config user.email "test@example.com"
+git config user.name "test"
+"alpha`r`n" | Set-Content -NoNewline a.txt
+"beta`r`n" | Set-Content -NoNewline b.txt
+git add -A
+git commit -m "init"
+git status --short
+git stash list
+git log --oneline
+```
+
+- 最後の3行の出力（空・空・`init` の1件）を控えておく。B-9 で比べる。
+- AgentDock（NSIS版）で、新規チャット（フォルダ指定）に `C:\Users\wmasa\agentdock-p3-test` を指定して作る。設定画面（歯車）の「保存と容量」で、「turnの開始時に変更の控えを取る（Gitリポジトリのみ）」がオンになっていることを確かめておく。
+
+### B-1 シェルコマンドの編集が「差分」の控え基準タブに出る
+
+1. チャットに「PowerShellコマンドで a.txt の末尾に 1 行 `gamma` を追記し、c.txt を新規作成して `new` と書いて。apply_patch は使わないで」と送る。
+2. turn が完了したら、チャット上部（または右パネル）の「差分」を開く。
+3. 見るところ: タブは「turnの変更（控え基準）」（既定で選択）と「Git上の現在の差分（HEAD比較）」の2つだけ。「Codex報告」のタブがない。
+4. 期待: 控え基準タブの一覧に a.txt（変更）と c.txt（追加）が出る。ファイルをクリックすると差分が表示される。Gitタブにも同じファイルが出る。
+5. Codex がコマンドを使わず apply_patch で編集した場合も同じ表示になること（任意）。
+
+### B-2 直前のturnを戻す
+
+1. B-1 の後、差分ダイアログの控え基準タブで「変更を戻す…」を押す。
+2. 見るところ: 説明文（「turnの開始時にAgentDockがGitで控えた内容へ…」）、戻す範囲（直前のturn）、a.txt と c.txt がチェック付き（初期オン）で並ぶ。「要確認」は付かない。
+3. 「選んだ2件を戻す…」→確認で実行。
+4. 期待: 成功表示。a.txt は元の `alpha` のみ、c.txt は消える。確認:
+
+```powershell
+Set-Location C:\Users\wmasa\agentdock-p3-test
+Get-Content a.txt
+Test-Path c.txt
+git status --short
+Get-ChildItem "$env:LOCALAPPDATA\com.agentdock.app" -Recurse -Directory -Filter revert-backup
+```
+
+   `git status --short` は空（HEAD と同じ）。`revert-backup` はこのチャットの領域に作られ、書き換え前の a.txt・c.txt が保存されている（結果表示に控えの場所も出る）。
+5. もう一度「変更を戻す…」を開くと、その2件は「戻し済み」と表示され戻せない。
+
+### B-3 戻す前に自分で編集 -> 「要確認」
+
+1. B-1 と同様に Codex に a.txt へ `gamma` を追記させる（turn 完了まで待つ）。
+2. エディタ（メモ帳など）で a.txt の末尾に自分で `mine` を追記して保存する。
+3. 差分 -> 「変更を戻す…」を開く。
+4. 見るところ: a.txt が「要確認」の区分で理由が並ぶ（turnの後に別の変更がある旨）。チェック「別の変更も含めて控えの内容に戻す」が**初期オフ**。
+5. チェックを入れないまま実行すると、a.txt は戻らない（`Get-Content a.txt` に `gamma` と `mine` が残る）。実行ボタンが押せない、または何も変えない旨の表示でよい。
+6. 期待: 強制を選ばない限り戻らない。
+
+### B-4 強制を選ぶと2段目の確認
+
+1. B-3 の続きで、a.txt の「別の変更も含めて控えの内容に戻す」にチェックを入れ、「選んだN件を戻す…」を押す。
+2. 見るところ: 2段目の確認ダイアログ（`alertdialog`）に、強制するファイルの一覧と理由、「別の会話・エディタによる変更や時期の分からない変更も消えます。書き換える前の内容は控えに保存します」の文言。
+3. まず「やめる」を押す -> ファイルは何も変わらない（確認）。
+4. 再度同じ操作をして「別の変更も含めて戻す」を押す。
+5. 期待: a.txt が控えの内容（`alpha` のみ。`mine` も `gamma` も消える）になる。結果に「強制で戻したファイル」の行が出る。`revert-backup` に書き換え前の a.txt（`gamma` と `mine` を含む版）が残っている。
+
+```powershell
+Get-ChildItem "$env:LOCALAPPDATA\com.agentdock.app" -Recurse -Filter a.txt | Where-Object { $_.FullName -like "*revert-backup*" } | ForEach-Object { $_.FullName; Get-Content $_.FullName }
+```
+
+### B-5 コミットしてから戻す -> 止まる（HEAD変更）
+
+1. Codex に a.txt へ 1 行追記させ、turn 完了後に自分でコミットする。
+
+```powershell
+Set-Location C:\Users\wmasa\agentdock-p3-test
+git add -A
+git commit -m "after turn"
+```
+
+2. 差分 -> 「変更を戻す…」を開く。
+3. 期待: そのturnは「止める」区分で、理由「turnの後にGitのHEADが変わったため、控えへは戻せません。Gitの操作（git revert 等）で戻してください」。「別の変更も含めて…」のチェックは**出ない**（強制不可）。実行できず、ファイルも変わらない。
+
+### B-6 非Gitフォルダで理由つきに無効
+
+1. 設定の既定の作業フォルダのまま、一般チャット（Gitリポジトリでないフォルダ）を新規作成して何か送る（ファイル編集は不要）。
+2. 差分を開く。「変更を戻す…」を開く（または無効表示を確認する）。
+3. 期待: 「作業フォルダがGitリポジトリではないため、変更の控えを取っていません。戻せません」の理由が出て、戻す操作は実行できない。ボタンが無効の場合も、理由が画面のどこかに表示されている（理由なしの無効は×として報告）。
+
+### B-7 同じリポジトリで2チャットを同時に動かす
+
+1. `agentdock-p3-test` を作業フォルダにしたチャットを2つ作る（チャットA・B）。
+2. A に「a.txt の末尾に A と追記して。少し時間をかけて」、B に「a.txt の末尾に B と追記して」を、ほぼ同時に送る。両方の完了を待つ。
+3. A の差分 -> 「変更を戻す…」を開く。
+4. 見るところ: a.txt が「要確認」で、理由に「同じリポジトリで同時に作業していた別の会話も、このファイルを変更した可能性があります」（同時作業）。チェックは初期オフ。
+5. 期待: 強制しない限り戻らない。B でも同様。実行タイミングが重ならず同時作業にならなかった場合は、そう気づきとして報告（再現できなくても×ではない）。
+
+### B-8 設定「保存と容量」
+
+1. 設定画面 -> 「保存と容量」を開く。
+2. 見るところ: 使用量に「変更の控え」「戻す前の控え」の行（MB 表示）と、チャットごとの「控えを削除…」。B-1〜B-4 の後なので 0 ではない。
+3. 「turnの開始時に変更の控えを取る」をオフにして、チャットで新しい依頼を送る -> 差分の控え基準・戻すでは、そのturnは「控えを取る前のもの」相当で戻せない。オンに戻す。
+4. チャットが作業中（Codex が応答中）のとき、そのチャットの「控えを削除…」が無効になっている。
+5. 作業中でないチャットで「控えを削除…」を押す -> 確認文（以後『変更を戻す』の対象にならない・容量）-> 実行すると使用量が減り、そのチャットの過去turnは戻せなくなる。ユーザーのファイル（`agentdock-p3-test` の中身）は変わらない。
+
+### B-9 ユーザーのリポジトリが汚れていない
+
+控えを取る前後（準備直後と B-1〜B-8 の後）で、次を比べる。
+
+```powershell
+Set-Location C:\Users\wmasa\agentdock-p3-test
+git status --short
+git stash list
+git log --oneline
+git branch -a
+Get-ChildItem .git -Name
+```
+
+- 期待: `git stash list` は常に空。`git log` はあなたが自分で作ったコミット（init と B-5 の after turn）だけ。ブランチは増えていない。`.git` 直下に AgentDock 由来のファイル（`index.lock` の残り、見慣れない名前）がない。`git status --short` は、Codex の未戻しの編集やあなたの編集を除き、控えのせいで変わっていない。
+- 補足（既知の限界）: git が既存オブジェクトの更新時刻だけを変えることがある。内容は変わらない。
