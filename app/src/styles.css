@@ -457,7 +457,7 @@ textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;paddin
 .card .c2{display:flex;flex-wrap:wrap;gap:0 10px;align-items:baseline;font-size:var(--fs-s);color:var(--ink2);min-width:0}
 .card .kvp{white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}
 .card .path{max-width:100%;font-size:var(--fs-xs);color:var(--ink2);background:var(--surface2);border-radius:3px;padding:0 5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
-.card .c3{font-size:var(--fs-s);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.card .c3{font-size:var(--fs-s);white-space:normal;overflow-wrap:anywhere;word-break:break-word;min-width:0}
 .card .c4{font-size:var(--fs-xs);color:var(--ink3);display:flex;flex-wrap:wrap;gap:0 8px;align-items:center;min-width:0}
 .card .c4 .stale-t{color:var(--stale)}
 .card .c4 button{margin-left:auto}
