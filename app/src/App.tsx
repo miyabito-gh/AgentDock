@@ -1049,6 +1049,18 @@ export default function App() {
     return () => window.removeEventListener("keydown", h);
   }, [dialog]);
 
+  // Ctrl+F で会話内検索（capture で WebView 既定の検索より先に受ける）。会話画面の表示中だけ。実体は CenterPane。
+  const findable = !!chat && !dialog && !palette;
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if (!e.ctrlKey || e.shiftKey || e.altKey || e.metaKey || e.key.toLowerCase() !== "f" || e.isComposing) return;
+      e.preventDefault();
+      if (findable) window.dispatchEvent(new Event("agentdock:find"));
+    };
+    window.addEventListener("keydown", h, true);
+    return () => window.removeEventListener("keydown", h, true);
+  }, [findable]);
+
   const checked = {
     toggleLeft: leftTemp ? lNarrow : leftOpen, toggleRight: rightTemp ? rNarrow : rightOpen, toggleMini: mini,
     toggleDone: scope.kind === "allChats" && scope.showFinished, toggleMainTop: mainTop, toggleMiniTop: miniTop, togglePin: !!chat?.pinned,
