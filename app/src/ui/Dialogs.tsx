@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
 import type { Chat, ChatKey, ChatLocalView, ChatPendingOp, ChatQueue, ChatModelSettings, ForceKillPreview, Goal, GoalUpdate, Known, ModelInfo, NotificationSettings, OpCapability, QuitDecision, QuitPhase, RevertResult, SaveStatus, SideSessionMeta, SourceInfo, StopRecord, StopSummary, WorktreeRecord, CloudTaskRecord } from "../ipc/types";
+import type { AppearanceSettings, BodyTextSize, ChatListView, ThemePref, UiTextSize } from "../ipc/types";
 import { chatName } from "./derive";
 import { SCOPE_TEXT } from "./Chrome";
 import { Icon } from "./Icon";
@@ -60,7 +61,7 @@ function Shell({ title, children, foot, footLeft, close, wide, full, onClose }: 
   );
 }
 
-const TABS: Array<[string, string]> = [["general", "全般"], ["notify", "通知"], ["input", "入力"], ["model", "モデル"], ["codex", "Codex"], ["mcp", "MCP・Plugins"], ["skills", "Skills"], ["storage", "保存と容量"]];
+const TABS: Array<[string, string]> = [["general", "全般"], ["display", "表示"], ["notify", "通知"], ["input", "入力"], ["model", "モデル"], ["codex", "Codex"], ["mcp", "MCP・Plugins"], ["skills", "Skills"], ["storage", "保存と容量"]];
 
 export interface CodexExe { path: string; setPath: (p: string) => void; placeholder: string; connect: (p: string) => void; openDiag: () => void; browse: () => void; live: boolean }
 
@@ -89,6 +90,7 @@ export interface ComposeDialogProps extends ComposeProps {
 export interface NotifyProps { value: NotificationSettings; set: (n: NotificationSettings) => void }
 
 export interface AutostartProps { value: boolean; set: (on: boolean) => void }
+export interface AppearanceProps { value: AppearanceSettings; view: ChatListView; set: (a: AppearanceSettings) => void; setView: (v: ChatListView) => void }
 
 /** 完全終了の進行（ホストの `quitUpdated`）と、画面から出す選択。 */
 export interface QuitProps {
@@ -99,9 +101,15 @@ export interface QuitProps {
 /** 強制終了の確認（`preview_force_kill` の結果）。preview が null の間は取得中（error があれば取得失敗）。 */
 export interface ForceProps { preview: ForceKillPreview | null; error: string | null; running: boolean; run: () => void }
 
-function SettingsBody({ tab, enterMode, setEnterMode, top, source, models, exe, notify, autostart, manage, chats, compose, opCaps }: {
+const THEME_CHOICES: Array<[ThemePref, string]> = [["System", "OSに従う"], ["Light", "ライト"], ["Dark", "ダーク"]];
+const UI_SIZE_CHOICES: Array<[UiTextSize, string]> = [["Small", "小"], ["Normal", "標準"], ["Large", "大"]];
+const BODY_SIZE_CHOICES: Array<[BodyTextSize, string]> = [["Small", "小"], ["Normal", "標準"], ["Large", "大"], ["XLarge", "特大"]];
+const LIST_VIEW_CHOICES: Array<[ChatListView, string]> = [["Recent", "最近使った順"], ["ByFolder", "作業フォルダごと"]];
+
+function SettingsBody({ tab, enterMode, setEnterMode, top, source, models, exe, notify, autostart, appearance, manage, chats, compose, opCaps }: {
   manage: ManageProps; chats: Chat[]; compose: ComposeDialogProps; opCaps: OpCapability[];
   autostart: AutostartProps;
+  appearance: AppearanceProps;
   notify: NotifyProps;
   tab: string; enterMode: "ctrl" | "enter"; setEnterMode: (m: "ctrl" | "enter") => void; top: { main: boolean; mini: boolean; setMain: (b: boolean) => void; setMini: (b: boolean) => void };
   source: SourceInfo | undefined; models: ModelInfo[]; exe: CodexExe;
@@ -112,6 +120,19 @@ function SettingsBody({ tab, enterMode, setEnterMode, top, source, models, exe, 
         <div className="field"><span>ログイン時に起動</span><label><input type="checkbox" checked={autostart.value} onChange={(e) => autostart.set(e.target.checked)} />Windows にサインインしたら起動する</label><span className="note">オンにすると、通常画面は開かずトレイに入った状態で起動します。起動しただけで過去の依頼を再実行しません。</span></div>
         <div className="field"><span>最前面</span><div><label><input type="checkbox" checked={top.main} onChange={(e) => top.setMain(e.target.checked)} />通常画面</label>　<label><input type="checkbox" checked={top.mini} onChange={(e) => top.setMini(e.target.checked)} />監視窓</label></div><span className="note">最前面にしても入力フォーカスは奪いません。</span></div>
         <div className="field"><span>閉じるボタン</span><span>トレイに格納して作業を続ける（終了はメニューの「AgentDock を終了」）</span></div>
+      </>);
+    case "display": return (
+      <>
+        <div className="field"><span>テーマ</span><div role="radiogroup" aria-label="テーマ">
+          {THEME_CHOICES.map(([v, t]) => <label key={v}><input type="radio" name="ap-theme" checked={appearance.value.theme === v} onChange={() => appearance.set({ ...appearance.value, theme: v })} />{t}</label>)}</div></div>
+        <div className="field"><span>画面の文字</span><div role="radiogroup" aria-label="画面の文字の大きさ">
+          {UI_SIZE_CHOICES.map(([v, t]) => <label key={v}><input type="radio" name="ap-ui" checked={appearance.value.uiText === v} onChange={() => appearance.set({ ...appearance.value, uiText: v })} />{t}</label>)}</div>
+          <span className="note">一覧・ヘッダー・ドック・ダイアログなど、会話本文以外の文字の大きさです。</span></div>
+        <div className="field"><span>会話本文の文字</span><div role="radiogroup" aria-label="会話本文の文字の大きさ">
+          {BODY_SIZE_CHOICES.map(([v, t]) => <label key={v}><input type="radio" name="ap-body" checked={appearance.value.bodyText === v} onChange={() => appearance.set({ ...appearance.value, bodyText: v })} />{t}</label>)}</div></div>
+        <div className="field"><span>一覧の並び</span><div role="radiogroup" aria-label="チャット一覧の並び">
+          {LIST_VIEW_CHOICES.map(([v, t]) => <label key={v}><input type="radio" name="ap-view" checked={appearance.view === v} onChange={() => appearance.setView(v)} />{t}</label>)}</div></div>
+        <div className="note">変更はすぐ反映され、保存されます。保存できなかったときは、次に起動したときに保存されている値に戻ります。</div>
       </>);
     case "notify": return (
       <>
@@ -296,7 +317,7 @@ function RenameDialog({ chat, onClose, run }: { chat: Chat | undefined; onClose:
 /** isolate は「分離」（worktreeを作成してから開始）。worktree は既存のAgentDock作成worktreeの記録ID（チャットに結び付ける）。 */
 export interface NewChatInput { cwd: string | null; model: string; firstMessage: string | null; isolate: boolean; worktree: string | null }
 
-export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnterMode, top, setTab, onAct, exe, onCreateChat, notify, autostart, quit, force, manage, onRename, opCaps, live, changesTick, onRevertDone, prefs, threadOps, worktree, cloudTasks, compose }: {
+export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnterMode, top, setTab, onAct, exe, onCreateChat, notify, autostart, appearance, quit, force, manage, onRename, opCaps, live, changesTick, onRevertDone, prefs, threadOps, worktree, cloudTasks, compose }: {
   compose: ComposeDialogProps;
   opCaps: OpCapability[];
   /** worktreeの台帳と、選択中のチャットの作業フォルダ（リポジトリの一覧用）。 */
@@ -312,7 +333,7 @@ export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnter
   changesTick: number;
   onRevertDone: (r: RevertResult | null) => void;
   onRename: (chatId: string, name: string) => Promise<string | null>;
-  autostart: AutostartProps; quit: QuitProps; force: ForceProps; manage: ManageProps;
+  autostart: AutostartProps; appearance: AppearanceProps; quit: QuitProps; force: ForceProps; manage: ManageProps;
   notify: NotifyProps;
   d: DialogState; onClose: () => void; chats: Chat[]; source: SourceInfo | undefined; models: ModelInfo[];
   exe: CodexExe; onCreateChat: (i: NewChatInput) => void;
@@ -331,7 +352,7 @@ export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnter
     case "settings": return (
       <Shell title="設定" wide onClose={onClose} close="閉じる">
         <div className="tabs vt" role="tablist" aria-orientation="vertical">{TABS.map(([k, t]) => <button key={k} role="tab" aria-selected={d.tab === k} onClick={() => setTab(k)}>{t}</button>)}</div>
-        <div className="content"><SettingsBody tab={d.tab} enterMode={enterMode} setEnterMode={setEnterMode} top={top} source={source} models={models} exe={exe} notify={notify} autostart={autostart} manage={manage} chats={chats} compose={compose} opCaps={opCaps} /></div>
+        <div className="content"><SettingsBody tab={d.tab} enterMode={enterMode} setEnterMode={setEnterMode} top={top} source={source} models={models} exe={exe} notify={notify} autostart={autostart} appearance={appearance} manage={manage} chats={chats} compose={compose} opCaps={opCaps} /></div>
       </Shell>);
     case "newChat": return (
       <Shell title="新しいチャット" onClose={onClose} foot={<><button className="btn" onClick={onClose}>キャンセル</button><button className="btn primary" disabled={kind === "dev" && !cwd.trim()} onClick={() => onCreateChat({ cwd: kind === "dev" ? cwd.trim() : null, model, firstMessage: first.trim() || null, isolate: kind === "dev" && isolate, worktree: kind === "dev" && !isolate ? wt : null })}>{kind === "dev" && isolate ? "worktreeを作って開始" : "作成"}</button></>}>

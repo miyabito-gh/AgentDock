@@ -7,6 +7,7 @@ import { applyHostEvent, createEventPipeline, emptyBundle, replaceSnapshot, seqA
 import type { Bundle } from "./mock/data";
 import { DockPane } from "./ui/Dock";
 import { keyStr } from "./ui/format";
+import { applyAppearance, watchSystemTheme } from "./ui/appearance";
 
 export default function MonitorApp() {
   const [bundle, setBundle] = useState<Bundle>(() => emptyBundle());
@@ -70,6 +71,14 @@ export default function MonitorApp() {
   }, [sayErr]);
 
   const snap = bundle.snapshot;
+  // 表示設定（テーマ・文字サイズ）。ホストの設定を受け取るまでは写しを上書きしない。
+  const appearance = snap.settings.appearance;
+  const settingsReady = snap.seq > 0;
+  useEffect(() => {
+    if (!settingsReady) return;
+    applyAppearance(appearance);
+    return watchSystemTheme(appearance);
+  }, [settingsReady, appearance.theme, appearance.uiText, appearance.bodyText]); // eslint-disable-line react-hooks/exhaustive-deps
   const kind = snap.settings.monitorScope;
   const scope: MonitorScope = kind === "allChats"
     ? { kind: "allChats", showFinished }

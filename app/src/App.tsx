@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from "re
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { readText } from "@tauri-apps/plugin-clipboard-manager";
-import type { AttachmentEntry, Chat, ChatKey, Goal, GoalUpdate, Known, WorkMode, WorkModeInfo, DeleteOutcome, DeletePreview, UsageReport, ForceKillPreview, HostEvent, HostEventEnvelope, HostSnapshot, ModelInfo, MonitorScope, PendingRequest, PermissionPreset, QuitDecision, QuitPhase, RequestAnswer, SendAttempt, SettingsImpact, SourceInfo } from "./ipc/types";
+import type { AppSettings, AttachmentEntry, Chat, ChatKey, Goal, GoalUpdate, Known, WorkMode, WorkModeInfo, DeleteOutcome, DeletePreview, UsageReport, ForceKillPreview, HostEvent, HostEventEnvelope, HostSnapshot, ModelInfo, MonitorScope, PendingRequest, PermissionPreset, QuitDecision, QuitPhase, RequestAnswer, SendAttempt, SettingsImpact, SourceInfo } from "./ipc/types";
 import * as host from "./ipc/client";
 import { applyHostEvent, createEventPipeline, emptyBundle, replaceSnapshot, seqAction, UNKNOWN_CAPS } from "./ipc/live";
 import type { Bundle } from "./mock/data";
@@ -26,6 +26,7 @@ import { PaneSplitter } from "./ui/PaneSplitter";
 import { displayWidths, loadSaved, type PaneKind } from "./ui/paneWidth";
 import { chatName, isRunning, isWorkingForDock, stopOpen } from "./ui/derive";
 import { hms, keyStr } from "./ui/format";
+import { applyAppearance, watchSystemTheme } from "./ui/appearance";
 
 type Mode = "live" | "mock";
 const EXE_KEY = "agentdock.codexExe";
@@ -274,6 +275,11 @@ export default function App() {
   const snap: HostSnapshot = bundle.snapshot;
   // このアプリの起動中に一度でも live 監視になったエージェント（再起動後の保存履歴表示と、接続断からの回復を区別する）。
   const liveSeen = useRef<Set<string>>(new Set());
+  // 設定の直列更新（updateSettings）用。ref は最後に保存できた設定。保存中でなければホストの最新に追従する。
+  const settingsRef = useRef(snap.settings);
+  const settingsQueue = useRef<Promise<void>>(Promise.resolve());
+  const settingsPending = useRef(0);
+  useEffect(() => { if (settingsPending.current === 0) settingsRef.current = snap.settings; }, [snap.settings]);
   for (const v of snap.agents) if (v.freshness === "live") liveSeen.current.add(v.agent.key.id);
   const mainTop = live ? snap.settings.mainWindow.alwaysOnTop : mockMainTop;
   const miniTop = live ? snap.settings.monitorWindow.alwaysOnTop : mockMiniTop;
@@ -337,13 +343,10 @@ export default function App() {
   const onPaneCommit = (kind: PaneKind, w: number | null) => {
     const layout = kind === "left" ? { ...savedLayout, leftWidth: w } : { ...savedLayout, dockWidth: w };
     setLayoutOv(layout);
-    if (!live) { updateSnap((s) => ({ ...s, settings: { ...s.settings, layout } })); return; }
-    host.setAppSettings({ ...snap.settings, layout }).catch(() => say("パネルの幅を保存できませんでした"));
+    updateSettings((s) => ({ ...s, layout }), "パネルの幅を保存できませんでした");
   };
   const onNotifySettings = (n: HostSnapshot["settings"]["notifications"]) => {
-    const next = { ...snap.settings, notifications: n };
-    if (!live) { setBundle((b) => ({ ...b, snapshot: { ...b.snapshot, settings: next } })); return; }
-    host.setAppSettings(next).catch((e) => sayErr("通知設定を保存できませんでした", e));
+    updateSettings((s) => ({ ...s, notifications: n }), "通知設定を保存できませんでした");
   };
   /** 失敗を「確認済み」にする（印を外すだけ。再実行・成功化はしない）。 */
   const onAcknowledge = (c: Chat["key"], agent: Parameters<typeof host.acknowledgeFailure>[1]) => {
@@ -421,6 +424,30 @@ export default function App() {
   };
 
   const updateSnap = (f: (s: HostSnapshot) => HostSnapshot) => setBundle((b) => ({ ...b, snapshot: f(b.snapshot) }));
+
+  /** 設定の更新（直列化）。`setAppSettings` は全置換なので、前の保存の完了（結果）を待ってからその最新値に `f` を適用して送る。連続操作で古い値に戻らない。
+   *  失敗したらトースト（画面の表示は戻さない。保存されていないので次回起動で保存値に戻る）。モックは画面内だけ。 */
+  const updateSettings = (f: (s: AppSettings) => AppSettings, failText: string) => {
+    if (!live) { updateSnap((s) => ({ ...s, settings: f(s.settings) })); return; }
+    settingsPending.current++;
+    settingsQueue.current = settingsQueue.current.then(async () => {
+      try {
+        settingsRef.current = await host.setAppSettings(f(settingsRef.current));
+      } catch (e) {
+        sayErr(failText, e);
+      } finally {
+        settingsPending.current--;
+      }
+    });
+  };
+  // 表示設定（テーマ・文字サイズ）の反映。ホストの設定を受け取るまで（既定値のまま）は写しを上書きしない。
+  const appearance = snap.settings.appearance;
+  const appearanceReady = !live || snap.seq > 0;
+  useEffect(() => {
+    if (!appearanceReady) return;
+    applyAppearance(appearance);
+    return watchSystemTheme(appearance);
+  }, [appearanceReady, appearance.theme, appearance.uiText, appearance.bodyText]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onScope = (s: MonitorScope) => { setScope(s); void (live ? host.setMonitorScope(s) : loadMock().then((m) => m.client.setMonitorScope(s))); };
 
@@ -847,7 +874,7 @@ export default function App() {
     host.pickCodexExecutable().then((p) => {
       if (!p) return;
       setExePath(p); writeExe(p);
-      host.setAppSettings({ ...snap.settings, executables: { ...snap.settings.executables, codex: p } }).catch((e) => sayErr("codex.exe の場所を保存できませんでした", e));
+      updateSettings((s) => ({ ...s, executables: { ...s.executables, codex: p } }), "codex.exe の場所を保存できませんでした");
     }).catch((e) => sayErr("ファイルを選択できませんでした", e));
   };
 
@@ -861,8 +888,7 @@ export default function App() {
 
   /** 変更の控えの記録のオン／オフ（設定へ保存。すでに取った控えは消えない）。 */
   const setBaselinesEnabled = (on: boolean) => {
-    if (!live) { updateSnap((s) => ({ ...s, settings: { ...s.settings, baselines: { ...s.settings.baselines, enabled: on } } })); return; }
-    host.setAppSettings({ ...snap.settings, baselines: { ...snap.settings.baselines, enabled: on } }).catch((e) => sayErr("控えの記録の設定を変更できませんでした", e));
+    updateSettings((s) => ({ ...s, baselines: { ...s.baselines, enabled: on } }), "控えの記録の設定を変更できませんでした");
   };
   /** 選択中チャットの控えを削除する（確認ダイアログの後だけ呼ばれる。ホストが作業中なら拒否する）。 */
   const deleteChatBaselines = async () => {
@@ -1037,7 +1063,7 @@ export default function App() {
           style={{ ...(!leftTemp && leftOpen ? { "--lw": `${paneW.left}px` } : {}), ...(!rightTemp && rightOpen ? { "--rw": `${paneW.dock}px` } : {}) } as CSSProperties}
         >
           <aside className="left" id="pane-left" aria-label="チャット一覧">
-            <LeftPane snap={snap} sel={chat ? keyStr(chat.key) : null} onSelect={(id) => { selectChat(id); setLNarrow(false); }} onAct={act} onAcknowledge={(c) => onAcknowledge(c.key, null)} listStatus={listStatus} />
+            <LeftPane snap={snap} sel={chat ? keyStr(chat.key) : null} onSelect={(id) => { selectChat(id); setLNarrow(false); }} onAct={act} onAcknowledge={(c) => onAcknowledge(c.key, null)} listStatus={listStatus} uiSize={snap.settings.appearance.uiText} />
           </aside>
           <main className="center">
             {chat ? (
@@ -1089,10 +1115,12 @@ export default function App() {
           top={{ main: mainTop, mini: miniTop, setMain: (b) => setTop("main", b), setMini: (b) => setTop("monitor", b) }}
           autostart={{
             value: snap.settings.autostart,
-            set: (on) => {
-              if (!live) { updateSnap((s) => ({ ...s, settings: { ...s.settings, autostart: on } })); return; }
-              host.setAppSettings({ ...snap.settings, autostart: on }).catch((e) => sayErr("自動起動の設定を変更できませんでした", e));
-            },
+            set: (on) => updateSettings((s) => ({ ...s, autostart: on }), "自動起動の設定を変更できませんでした"),
+          }}
+          appearance={{
+            value: snap.settings.appearance, view: snap.settings.chatList.view,
+            set: (a) => updateSettings((s) => ({ ...s, appearance: a }), "表示の設定を保存できませんでした。次回の起動では保存されている値に戻ります"),
+            setView: (v) => updateSettings((s) => ({ ...s, chatList: { ...s.chatList, view: v } }), "一覧の並びを保存できませんでした。次回の起動では保存されている値に戻ります"),
           }}
           quit={{ phase: quit, stops: snap.stops, failedSaves, live, decide, onForce: openForce, onRetrySave: () => void retrySave() }}
           force={{ ...force, run: () => void runForce() }}
