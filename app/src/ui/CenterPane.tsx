@@ -4,6 +4,7 @@ import type {
   PermissionPreset, QueueEntry, RequestAnswer, ActivityKind, SaveState, StopRecord, TurnRecord, WorkMode, WorkModeInfo,
 } from "../ipc/types";
 import { Icon } from "./Icon";
+import { FindBar } from "./FindBar";
 import { Popover } from "./Popover";
 import { Markdown, COPY_LABEL, useCopy } from "./Markdown";
 import { PENDING_TEXT } from "./ManageDialogs";
@@ -394,8 +395,10 @@ function CopyAct({ text }: { text: string }) {
   return <button onClick={() => copy(text)} aria-live="polite"><Icon name="copy" />{state === "idle" ? COPY_LABEL.idle : COPY_LABEL[state]}</button>;
 }
 
-function Messages({ turns, reqs, running, onRespond, onAct, extra }: {
-  turns: TurnRecord[]; reqs: PendingRequest[]; running: boolean; onRespond: CenterProps["onRespond"]; onAct: (a: string) => void; extra?: ReactNode;
+interface FindState { open: boolean; query: string; setQuery: (q: string) => void; tick: number; partial: boolean; close: () => void }
+
+function Messages({ turns, reqs, running, onRespond, onAct, extra, find }: {
+  turns: TurnRecord[]; reqs: PendingRequest[]; running: boolean; onRespond: CenterProps["onRespond"]; onAct: (a: string) => void; extra?: ReactNode; find: FindState;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
@@ -414,6 +417,7 @@ function Messages({ turns, reqs, running, onRespond, onAct, extra }: {
   }, [turns, reqs.length, running]);
   return (
     <div className="msgs-wrap">
+    {find.open ? <FindBar root={ref} query={find.query} setQuery={find.setQuery} focusTick={find.tick} partial={find.partial} onClose={find.close} /> : null}
     <div className="msgs" id="msgs" aria-live="polite" ref={ref} onScroll={onScroll}>
       {turns.map((t) => {
         const others = t.entries.filter((e) => e.kind.kind !== "userMessage" && e.kind.kind !== "agentMessage");
@@ -423,12 +427,12 @@ function Messages({ turns, reqs, running, onRespond, onAct, extra }: {
               const text = e.text.kind === "value" ? e.text.value : "…";
               const lastAi = all.filter((x) => x.kind.kind === "agentMessage").pop();
               if (e.kind.kind === "userMessage") {
-                return <div className="msg user" key={e.key.itemId}><div className="sr">あなた</div><div className="bubble">{text}</div></div>;
+                return <div className="msg user" key={e.key.itemId}><div className="sr">あなた</div><div className="bubble" data-find="body">{text}</div></div>;
               }
               return (
                 <div className="msg ai" key={e.key.itemId}>
                   <div className="who">Codex</div>
-                  <div className="bubble"><Markdown text={text} streaming={t.end === null && e === lastAi} /></div>
+                  <div className="bubble" data-find="body"><Markdown text={text} streaming={t.end === null && e === lastAi} /></div>
                   <div className="acts"><CopyAct text={text} /><button onClick={() => onAct(`fork:${t.key.turnId}`)}><Icon name="branch" />ここから分岐</button></div>
                 </div>
               );
@@ -754,6 +758,30 @@ export function CenterPane(p: CenterProps) {
   const reqs = chatRequests(snap, chat);
   const hasOpenStop = chatStops(snap, chat).some(stopOpen);
   const [cwdOpen, setCwdOpen] = useState(false);
+  // 会話内検索（Ctrl+F。Appが "agentdock:find" を送る）。チャットを切り替えても開いたまま同じ語で検索し直す。
+  const [findOpen, setFindOpen] = useState(false);
+  const [findQuery, setFindQuery] = useState("");
+  const [findTick, setFindTick] = useState(0);
+  const findOpenRef = useRef(false);
+  const beforeFind = useRef<HTMLElement | null>(null);
+  findOpenRef.current = findOpen;
+  useEffect(() => {
+    const h = () => {
+      if (!findOpenRef.current) beforeFind.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      setFindOpen(true);
+      setFindTick((t) => t + 1);
+    };
+    window.addEventListener("agentdock:find", h);
+    return () => window.removeEventListener("agentdock:find", h);
+  }, []);
+  const closeFind = () => {
+    setFindOpen(false);
+    const back = beforeFind.current;
+    beforeFind.current = null;
+    // 開く前のフォーカスへ戻す。無ければ入力欄へ
+    if (back && back !== document.body && back.isConnected) back.focus(); else p.inputRef.current?.focus();
+  };
+  const find: FindState = { open: findOpen, query: findQuery, setQuery: setFindQuery, tick: findTick, partial: p.turns.some((t) => t.end !== null && !t.complete), close: closeFind };
   const cwdLock = cwdLockReason(chat, running, hasOpenStop);
   const nameOf = (a: AgentKey): string => {
     const v = chatAgents(snap, chat).find((x) => keyStr(x.agent.key) === keyStr(a));
@@ -768,7 +796,7 @@ export function CenterPane(p: CenterProps) {
       <Header snap={snap} chat={chat} onAct={p.onAct} commands={p.commands} local={p.local} onCwdToggle={() => setCwdOpen((o) => !o)} cwdLock={cwdLock} wasLive={p.wasLive} externalLabel={p.externalLabel} />
       {cwdOpen && !cwdLock ? <CwdPanel current={p.local?.nextCwd ?? knownValue(chat.cwd) ?? ""} onCwd={p.onCwd} onClose={() => setCwdOpen(false)} /> : null}
       <Banners p={p} />
-      <Messages key={chat.key.id} turns={p.turns} reqs={reqs} running={running} onRespond={p.onRespond} onAct={p.onAct}
+      <Messages key={chat.key.id} turns={p.turns} reqs={reqs} running={running} onRespond={p.onRespond} onAct={p.onAct} find={find}
         extra={<FilesBlock sent={snap.attachments.filter((a) => keyStr(a.chat) === keyStr(chat.key) && a.usedBy.length > 0)} artifacts={snap.artifacts.filter((a) => keyStr(a.chat) === keyStr(chat.key))} files={p.files} />} />
       <Queue q={snap.queues.find((q) => keyStr(q.chat) === keyStr(chat.key))} nameOf={nameOf} qact={p.qact} />
       <GoalBar goal={p.goal} live={rootView(snap, chat)?.freshness === "live"} cap={snap.opCapabilities.find((o) => o.op === "goal")} busy={p.goalBusy}

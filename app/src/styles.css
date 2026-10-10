@@ -655,6 +655,17 @@ textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;paddin
 
 /* ==== find ==== */
 /* P5-3 が書く節（会話内検索の帯・ハイライト）。 */
+.findbar{position:absolute;top:6px;right:18px;z-index:6;display:flex;align-items:center;gap:6px;max-width:calc(100% - 36px);padding:4px 6px;background:var(--surface,var(--bg));border:1px solid var(--line-strong);border-radius:var(--r2);box-shadow:var(--sh-3)}
+.findbar input{width:200px;min-width:80px;height:26px;padding:0 8px;border:1px solid var(--line-strong);border-radius:var(--r1);background:var(--bg);color:var(--ink)}
+.findbar input:focus-visible,.find-btn:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
+.find-count{min-width:64px;font-size:var(--fs-s);color:var(--ink2);white-space:nowrap}
+.find-count.none{color:var(--ink);font-weight:700}
+.find-note{font-size:var(--fs-s);color:var(--ink2);white-space:nowrap}
+.find-btn{height:26px;min-width:26px;padding:0 4px;border:1px solid transparent;border-radius:var(--r1);background:transparent;color:var(--ink)}
+.find-btn:hover:not(:disabled){background:var(--accent-weak)}
+.find-btn:disabled{opacity:.45}
+::highlight(find-hit){background-color:var(--accent-line);color:var(--ink)}
+::highlight(find-cur){background-color:var(--accent);color:var(--accent-ink);text-decoration:underline}
 
 /* ==== resend ==== */
 /* P5-4u が書く節（編集して再送・再生成のダイアログ）。 */
