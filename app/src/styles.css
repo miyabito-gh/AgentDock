@@ -632,6 +632,7 @@ textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;paddin
 .md blockquote{margin:0 0 8px;padding:2px 12px;border-left:3px solid var(--line-strong);color:var(--ink2)}
 .md hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 .md code{font-family:var(--mono);font-size:.92em;background:var(--surface2);border:1px solid var(--line2);border-radius:var(--r1);padding:0 4px}
+.md :not(pre)>code{overflow-wrap:anywhere;overflow-x:visible}
 .md .md-code{margin:6px 0 10px;border:1px solid var(--line2);border-radius:var(--r1);background:var(--surface2);overflow:hidden}
 .md .md-code-bar{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:2px 8px;border-bottom:1px solid var(--line2);font-size:var(--fs-xs);color:var(--ink2)}
 .md .md-code-acts{display:inline-flex;gap:4px}

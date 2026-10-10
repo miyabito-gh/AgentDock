@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Chat, ChatKey, ChatLocalView, ChatPendingOp, ChatQueue, ChatModelSettings, ForceKillPreview, Goal, GoalUpdate, Known, ModelInfo, NotificationSettings, OpCapability, QuitDecision, QuitPhase, RevertResult, SaveStatus, SideSessionMeta, SourceInfo, StopRecord, StopSummary, WorktreeRecord, CloudTaskRecord } from "../ipc/types";
 import type { AppearanceSettings, BodyTextSize, ChatListView, ThemePref, UiTextSize } from "../ipc/types";
 import { chatName } from "./derive";
@@ -52,6 +52,18 @@ export type DialogState =
 function Shell({ title, children, foot, footLeft, close, wide, full, onClose, locked }: { title: string; children: ReactNode; foot?: ReactNode; footLeft?: ReactNode; close?: string; wide?: boolean; full?: boolean; onClose: () => void; locked?: boolean }) {
   const fs = useFootSlots();
   // locked: 実行中の操作があり、結果を受け取るまで閉じさせない（閉じて開き直しての二重実行を防ぐ）。
+  // Esc＝閉じる／キャンセルと同じ（IME変換中・locked中は閉じない）。Popover等は捕捉段階で止めるので、最前面の1つだけが閉じる。
+  const esc = useRef({ onClose, locked });
+  esc.current = { onClose, locked };
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.isComposing || e.defaultPrevented || esc.current.locked) return;
+      e.preventDefault();
+      esc.current.onClose();
+    };
+    document.addEventListener("keydown", h);
+    return () => document.removeEventListener("keydown", h);
+  }, []);
   return (
     <div className="scrim" onMouseDown={(e) => { if (e.target === e.currentTarget && !locked) onClose(); }}>
       <div className={`dialog ${wide ? "wide" : ""} ${full ? "full-narrow" : ""}`} role="dialog" aria-modal="true" aria-label={title}>
