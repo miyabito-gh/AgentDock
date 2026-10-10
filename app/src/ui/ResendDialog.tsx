@@ -1,7 +1,7 @@
 // 編集して再送・再生成（M50、DESIGN_P5 §5）の本体。外枠（Shell）と下部ボタンの置き場所は Dialogs.tsx 側。
 // 規則: 押したときだけ1回送る（自動送信・自動再送なし）。分岐が受理不明なら送らず、読取りだけの「分岐を確認」を出す。
 //       送信の受理不明は再送しない（分岐先の「履歴と照合」に委ねる）。元の会話は変えない。結果は「受け付けた」までしか書かない。
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as host from "../ipc/client";
 import type { Chat, ChatKey, ForkPurpose, ForkReconcile, HostSnapshot, OpCapability, SendAttempt, TurnRecord } from "../ipc/types";
 import { availability, commandContext } from "./commands";
@@ -64,10 +64,14 @@ export function resendTargetOf(turns: TurnRecord[], turnId: string, purpose: Pur
 export interface ResendHandlers {
   /** 分岐先を選び、入力欄の文を反映する（text=null は入力欄を変えない。attempt は送信の受理の案内用）。 */
   forked: (key: ChatKey, text: string | null, attempt: SendAttempt | null) => void;
-  /** 最初のturn: 同じ種類・作業フォルダ・モデル・権限の新しいチャットを作り、文を入力欄に入れて選ぶ（送らない）。 */
-  startFirst: (text: string) => Promise<ChatKey>;
-  /** 分岐先の下書きへ文を保存し、入力欄に反映する（保存できなければ例外）。 */
-  saveDraft: (key: ChatKey, text: string) => Promise<void>;
+  /**
+   * 最初のturn: 同じ種類・作業フォルダ・モデル・権限の新しいチャットを作り、文を入力欄に入れて選ぶ（送らない）。
+   * チャットの作成に失敗したときだけ例外。作った後に下書きを保存できなかったときは例外にせず draftSaved=false で返す
+   * （押し直しで空のチャットが増えないように、同じダイアログでは作ったチャットを使い回す）。
+   */
+  startFirst: (text: string, existing: ChatKey | null) => Promise<{ key: ChatKey; draftSaved: boolean; message: string | null }>;
+  /** 分岐先の下書きへ文を保存し、入力欄に反映する（保存できなければ例外）。既に別の下書きがあれば上書きせず "kept"。 */
+  saveDraft: (key: ChatKey, text: string) => Promise<"saved" | "kept">;
 }
 
 export interface ResendState {
@@ -88,16 +92,17 @@ const reconText = (r: ForkReconcile): string => {
 };
 
 /** 分岐が受理された後の結果の文。送信は「受け付けた」までしか書かない。 */
-function forkedLines(draftSaved: boolean, send: SendAttempt | null, sent: boolean, note: string | null): string[] {
+export function forkedLines(draftSaved: boolean, send: SendAttempt | null, sent: boolean, note: string | null, sendError: string | null = null): string[] {
   const out: string[] = [];
   if (!draftSaved) out.push("分岐しましたが、入力欄への保存に失敗したため、送っていません。依頼の文は入力欄に表示しています。内容を確かめて、送信は入力欄から行ってください。");
   else if (!sent) out.push("分岐して、依頼の文を新しいチャットの入力欄に入れました。送信は入力欄から行ってください。");
+  else if (sendError) out.push(`分岐して入力欄に入れましたが、送れませんでした（${sendError}）。送信はしていません。送信は入力欄から行ってください。`);
   else if (!send) out.push("分岐しましたが、送信の結果を取得できませんでした。分岐先の会話を確認してください（再送はしません）。");
   else {
     switch (send.state.kind) {
       case "accepted": out.push("分岐して送信しました。Codex が受け付けました（完了は会話の表示で確認してください）。"); break;
       case "rejected": out.push(`分岐しましたが、送信は受け付けられませんでした（${send.state.message}）。依頼の文は入力欄に残っています。`); break;
-      case "acceptanceUnknown": out.push("分岐しましたが、送信の受理を確認できません。再送はしません。分岐先の「履歴と照合」で確認してください。依頼の文は入力欄に残っています。"); break;
+      case "acceptanceUnknown": out.push("分岐しましたが、送信の受理を確認できません。再送はしません。分岐先の「履歴と照合」で確認してください（通常の送信と同じく入力欄は空にしています）。"); break;
       default: out.push("分岐しましたが、送信の状態を確認できていません。分岐先の会話を確認してください（再送はしません）。"); break;
     }
   }
@@ -105,7 +110,7 @@ function forkedLines(draftSaved: boolean, send: SendAttempt | null, sent: boolea
   return out;
 }
 
-export function ResendBody({ chat, live, cap, s, h, onClose }: { chat: Chat | undefined; live: boolean; cap: OpCapability | undefined; s: ResendState; h: ResendHandlers; onClose: () => void }) {
+export function ResendBody({ chat, live, cap, s, h, onClose, onRunning }: { chat: Chat | undefined; live: boolean; cap: OpCapability | undefined; s: ResendState; h: ResendHandlers; onClose: () => void; onRunning?: (b: boolean) => void }) {
   // 開いた時点の判定を保つ（結果の表示中に、状態の変化で画面が差し替わらないようにする。最終判定はホスト）。
   const [plan] = useState(s.plan);
   const [text, setText] = useState(s.requestText ?? "");
@@ -113,6 +118,12 @@ export function ResendBody({ chat, live, cap, s, h, onClose }: { chat: Chat | un
   const [running, setRunning] = useState(false);
   const [checking, setChecking] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
+  // 最初のturnの経路で作ったチャット（下書きの保存に失敗した後の押し直しで、空のチャットを増やさない）。
+  const createdRef = useRef<ChatKey | null>(null);
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  // 実行中は外枠が閉じられないようにする（閉じて開き直しての二重実行を防ぐ。ホストも同じチャットの2本目を拒否する）。
+  useEffect(() => { onRunning?.(running || checking); return () => onRunning?.(false); }, [running, checking, onRunning]);
   if (!chat) return <div className="content"><p>チャットを選んでください。</p></div>;
   const name = chatName(chat);
   if (plan.kind === "blocked") {
@@ -150,10 +161,11 @@ export function ResendBody({ chat, live, cap, s, h, onClose }: { chat: Chat | un
       } else if (!r.fork.chat) {
         setResult({ tone: "err", lines: ["分岐を受け付けましたが、分岐先を特定できませんでした。一覧を更新して確認してください。送信はしていません。"], unknownAt: null, finished: true });
       } else {
-        const accepted = r.send?.state.kind === "accepted";
-        // 送信が受け付けられたときだけ、入力欄を空にしたまま（ホストが下書きを消している）。それ以外は文を入力欄に残す。
-        h.forked(r.fork.chat.key, accepted ? null : text, r.send);
-        setResult({ tone: "info", lines: forkedLines(r.draftSaved, r.send, send, r.fork.note), unknownAt: null, finished: true });
+        // 送信が受理（または受理不明）なら、ホストが下書きを消している（通常の送信と同じ。入力欄は空）。それ以外は文を入力欄に残す。
+        const state = r.send?.state.kind;
+        const cleared = state === "accepted" || state === "acceptanceUnknown";
+        if (mounted.current) h.forked(r.fork.chat.key, cleared ? null : text, r.send);
+        setResult({ tone: "info", lines: forkedLines(r.draftSaved, r.send, send, r.fork.note, r.sendError), unknownAt: null, finished: true });
       }
     } catch (e) {
       // 通信断などで結果が分からない。再送しない。
@@ -165,10 +177,17 @@ export function ResendBody({ chat, live, cap, s, h, onClose }: { chat: Chat | un
     if (cannot || !guard()) return;
     setRunning(true);
     try {
-      await h.startFirst(text);
-      setResult({ tone: "info", lines: ["新しいチャットを作り、依頼の文を入力欄に入れました。送信は入力欄から行ってください。"], unknownAt: null, finished: true });
+      const r = await h.startFirst(text, createdRef.current);
+      createdRef.current = r.key;
+      if (r.draftSaved) {
+        setResult({ tone: "info", lines: ["新しいチャットを作り、依頼の文を入力欄に入れました。送信は入力欄から行ってください。"], unknownAt: null, finished: true });
+      } else {
+        // チャットはできている。押し直しは同じチャットへ保存をやり直す（空のチャットを増やさない）ので、閉じない。
+        setResult({ tone: "err", lines: [`新しいチャットは作りましたが、入力欄への保存に失敗しました（${r.message ?? "原因不明"}）。依頼の文は入力欄に表示しています。もう一度押すと、保存だけをやり直します。`], unknownAt: null, finished: false });
+      }
     } catch (e) {
-      setResult({ tone: "err", lines: [`新しいチャットへ入れられませんでした: ${errText(e)}。送信はしていません。`], unknownAt: null, finished: false });
+      // チャットの作成の結果が分からない。押し直す前に一覧で確認してもらう。
+      setResult({ tone: "err", lines: [`新しいチャットを作れたか確認できませんでした: ${errText(e)}。送信はしていません。押し直す前に、一覧を更新して新しいチャットができていないか確認してください。`], unknownAt: null, finished: false });
     } finally { setRunning(false); }
   };
 
@@ -176,10 +195,16 @@ export function ResendBody({ chat, live, cap, s, h, onClose }: { chat: Chat | un
     if (unknownAt === null || !guard()) return;
     setChecking(true);
     try {
-      const r = await host.reconcileFork(chat.key, unknownAt);
+      const r = await host.reconcileFork(chat.key, unknownAt, purpose, plan.kind === "fork" ? plan.throughTurn : null);
       if (r.kind !== "adopted") { setResult({ tone: "err", lines: [reconText(r)], unknownAt, finished: false }); return; }
       try {
-        await h.saveDraft(r.chat.key, text);
+        const saved = await h.saveDraft(r.chat.key, text);
+        if (saved === "kept") {
+          // 利用者が別の経路で作った分岐の可能性がある。既存の下書きを確認なしで上書きしない。
+          h.forked(r.chat.key, null, null);
+          setResult({ tone: "info", lines: ["分岐先を確認しました。分岐先の入力欄にはすでに別の下書きがあるため、上書きしていません。依頼の文は下の欄に残しています。必要なら入力欄へ貼り付けてください。"], unknownAt: null, finished: true });
+          return;
+        }
         h.forked(r.chat.key, text, null);
         setResult({ tone: "info", lines: ["分岐先を確認しました。依頼を入力欄に入れました。送信は入力欄から行ってください。"], unknownAt: null, finished: true });
       } catch (e) {
@@ -205,7 +230,7 @@ export function ResendBody({ chat, live, cap, s, h, onClose }: { chat: Chat | un
           <span>依頼の文</span>
           <textarea className="resend-text" rows={6} value={text} disabled={running || finished} aria-label="依頼の文"
             onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => { if (e.ctrlKey && e.key === "Enter") { e.preventDefault(); primary(); } }} />
+            onKeyDown={(e) => { if (e.ctrlKey && e.key === "Enter" && !e.nativeEvent.isComposing) { e.preventDefault(); primary(); } }} />
         </label>
       ) : (
         <div className="resend-field">

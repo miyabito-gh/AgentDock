@@ -49,17 +49,18 @@ export type DialogState =
 /** 外枠。フッターは左＝副操作、右＝閉じる（キャンセル）＋主操作（いちばん右）。
  *  `close` を渡すと、閉じるボタン付きのフッターを作り、本文側が FootActions で副操作・主操作を差し込める。
  *  `foot` は主操作・危険操作まで呼び出し側が組むとき（閉じる／キャンセルも含めて渡す）。`footLeft` は左の副操作。 */
-function Shell({ title, children, foot, footLeft, close, wide, full, onClose }: { title: string; children: ReactNode; foot?: ReactNode; footLeft?: ReactNode; close?: string; wide?: boolean; full?: boolean; onClose: () => void }) {
+function Shell({ title, children, foot, footLeft, close, wide, full, onClose, locked }: { title: string; children: ReactNode; foot?: ReactNode; footLeft?: ReactNode; close?: string; wide?: boolean; full?: boolean; onClose: () => void; locked?: boolean }) {
   const fs = useFootSlots();
+  // locked: 実行中の操作があり、結果を受け取るまで閉じさせない（閉じて開き直しての二重実行を防ぐ）。
   return (
-    <div className="scrim" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="scrim" onMouseDown={(e) => { if (e.target === e.currentTarget && !locked) onClose(); }}>
       <div className={`dialog ${wide ? "wide" : ""} ${full ? "full-narrow" : ""}`} role="dialog" aria-modal="true" aria-label={title}>
-        <header><h3>{title}</h3><button className="btn subtle icon" aria-label="閉じる" onClick={onClose}><Icon name="x" /></button></header>
+        <header><h3>{title}</h3><button className="btn subtle icon" aria-label="閉じる" disabled={locked} onClick={onClose}><Icon name="x" /></button></header>
         <FootCtx.Provider value={fs.slots}>{children}</FootCtx.Provider>
         {close ? (
           <footer>
             <div className="foot-l" ref={fs.setLeft} />
-            <div className="foot-r"><button className="btn" onClick={onClose}>{close}</button><span className="foot-main" ref={fs.setMain} /></div>
+            <div className="foot-r"><button className="btn" disabled={locked} onClick={onClose}>{close}</button><span className="foot-main" ref={fs.setMain} /></div>
           </footer>
         ) : foot ? <footer><div className="foot-l">{footLeft}</div><div className="foot-r">{foot}</div></footer> : null}
       </div>
@@ -379,6 +380,7 @@ export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnter
   const [wt, setWt] = useState<string | null>(null);
   const [model, setModel] = useState(models.find((m) => m.isDefault)?.id ?? models[0]?.id ?? "");
   const [first, setFirst] = useState("");
+  const [resendRunning, setResendRunning] = useState(false);
   void chats;
   switch (d.type) {
     case "settings": return (
@@ -458,8 +460,8 @@ export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnter
       const st = resend.state;
       const blocked = !st || st.plan.kind === "blocked";
       return (
-        <Shell title={d.purpose === "regenerate" ? "もう一度（再生成）" : "編集して分岐"} onClose={onClose} close={blocked ? "閉じる" : "キャンセル"}>
-          {st ? <ResendBody key={`${d.chatId}:${d.turnId}:${d.itemId ?? ""}`} chat={chats.find((x) => x.key.id === d.chatId)} live={live} cap={opCaps.find((x) => x.op === "fork")} s={st} h={resend.handlers} onClose={onClose} />
+        <Shell title={d.purpose === "regenerate" ? "もう一度（再生成）" : "編集して分岐"} onClose={onClose} locked={resendRunning} close={blocked ? "閉じる" : "キャンセル"}>
+          {st ? <ResendBody key={`${d.chatId}:${d.turnId}:${d.itemId ?? ""}`} chat={chats.find((x) => x.key.id === d.chatId)} live={live} cap={opCaps.find((x) => x.op === "fork")} s={st} h={resend.handlers} onClose={onClose} onRunning={setResendRunning} />
             : <div className="content"><p>対象の会話を読み込めていません。</p></div>}
         </Shell>);
     }

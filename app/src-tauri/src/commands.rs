@@ -512,7 +512,9 @@ pub async fn fork_chat(host: Hs<'_>, args: ForkChatArgs) -> R<ForkResult> {
 /// 受理不明の分岐の照合（読取りのみ。再送しない）。
 #[tauri::command]
 pub async fn reconcile_fork(host: Hs<'_>, args: ReconcileForkArgs) -> R<ForkReconcile> {
-    host.inner().clone().reconcile_fork(args).await
+    // 採用した分岐先へ「（編集）」「（再生成）」の名前を付けるため（ユーザーが「分岐を確認」を押した操作の一部）。
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().reconcile_fork(args, &confirmed).await
 }
 
 /// 編集して再送・再生成（M50）。ダイアログの確認後のユーザー操作だけが呼ぶ。分岐→下書き保存→（求められたときだけ）1回送る。

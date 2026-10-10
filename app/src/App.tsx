@@ -815,21 +815,39 @@ export default function App() {
       if (attempt) noteAttempt(key.id, attempt);
     },
     // 最初のturn: 新しいチャットを作って下書きに入れるだけ（送らない）。
-    startFirst: async (text) => {
+    startFirst: async (text, existing) => {
       if (!live) throw new Error("モックでは新しいチャットを作りません");
-      const src = dialog?.type === "resend" ? snap.chats.find((c) => c.key.id === dialog.chatId) : undefined;
-      if (!src) throw new Error("元のチャットを確認できません");
-      if (src.cwd.kind !== "value" && src.kind === "development") throw new Error("元の作業フォルダを確認できないため、新しいチャットを作れません");
-      const local = snap.chatLocals.find((l) => l.chat.id === src.key.id);
-      const model = bundle.modelSettings[src.key.id]?.selected ?? local?.model ?? null;
-      const r = await host.startChat(src.cwd.kind === "value" ? src.cwd.value : null, model, null, local?.permission ?? null, null);
-      setSelId(r.chat.key.id);
-      setDrafts((d) => ({ ...d, [r.chat.key.id]: text }));
-      try { await host.setDraft(r.chat.key, text); } catch (e) { throw new Error(`新しいチャットは作りましたが、下書きの保存に失敗しました（${host.asIpcError(e).message}）。依頼の文は入力欄に表示しています`); }
-      return r.chat.key;
+      let key = existing;
+      if (!key) {
+        const src = dialog?.type === "resend" ? snap.chats.find((c) => c.key.id === dialog.chatId) : undefined;
+        if (!src) throw new Error("元のチャットを確認できません");
+        if (src.cwd.kind !== "value" && src.kind === "development") throw new Error("元の作業フォルダを確認できないため、新しいチャットを作れません");
+        const local = snap.chatLocals.find((l) => l.chat.id === src.key.id);
+        const model = bundle.modelSettings[src.key.id]?.selected ?? local?.model ?? null;
+        const cwd = src.cwd.kind === "value" ? src.cwd.value : null;
+        // AgentDock が作った worktree の場所なら、新しいチャットも同じ記録に結び付ける（削除確認に出るように）。
+        const norm = (p: string) => p.replace(/\//g, "\\").replace(/\\+$/, "").toLowerCase();
+        const wt = cwd ? snap.worktrees.find((w) => norm(w.path) === norm(cwd))?.id ?? null : null;
+        const r = await host.startChat(cwd, model, null, local?.permission ?? null, wt);
+        key = r.chat.key;
+      }
+      // 作った後の保存の失敗は例外にしない（押し直しで空のチャットが増えないよう、呼び出し側は作ったチャットを使い回す）。
+      setSelId(key.id);
+      setDrafts((d) => ({ ...d, [key.id]: text }));
+      try {
+        await host.setDraft(key, text);
+        return { key, draftSaved: true, message: null };
+      } catch (e) {
+        return { key, draftSaved: false, message: host.asIpcError(e).message };
+      }
     },
     saveDraft: async (key, text) => {
-      if (live) await host.setDraft(key, text);
+      if (!live) return "saved";
+      // 分岐先に利用者の別の下書きがあれば上書きしない。
+      const existing = snap.chatLocals.find((l) => l.chat.id === key.id)?.draft.text ?? "";
+      if (existing.trim() !== "" && existing !== text) return "kept";
+      await host.setDraft(key, text);
+      return "saved";
     },
   };
   let resendState: ResendState | null = null;

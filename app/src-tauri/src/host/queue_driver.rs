@@ -39,6 +39,16 @@ struct TerminalFact {
     checked_at: UnixMillis,
 }
 
+/// 再読（履歴の読取り）が要るか。記録がなければ要る。あれば、古く（stale）、かつ最後の確認・最後の読取り失敗のどちらからも
+/// `recheck_ms` 以上経っているときだけ。読めない間も間隔を守る（失敗時刻は確認時刻とは別に持つ）。
+fn terminal_reread_due(has_fact: bool, stale: bool, checked_at: UnixMillis, last_failed_at: Option<UnixMillis>, now: UnixMillis, recheck_ms: i64) -> bool {
+    if !has_fact {
+        return last_failed_at.is_none_or(|f| now.0 - f.0 >= recheck_ms);
+    }
+    let last = last_failed_at.map_or(checked_at.0, |f| f.0.max(checked_at.0));
+    stale && now.0 - last >= recheck_ms
+}
+
 /// 履歴で確認した終端を、このエージェントの最新turnの根拠として使えるか。
 /// 一覧・走査で作った子は最新turnを持たない（`thread/list` はturnを返さない）ので、その場合は履歴の最新turnを採る。
 /// 最新turnを持つのに履歴の最新turnと違うときは、新しいturnが始まっているので使わない。
@@ -63,6 +73,8 @@ pub struct QueueRuntime {
     /// 評価・送信中のチャット（同じチャットで同時に送らない）。
     busy: Mutex<HashSet<ChatKey>>,
     terminals: Mutex<HashMap<AgentKey, TerminalFact>>,
+    /// 履歴を読めなかった最後の時刻（確認時刻とは別。成功したら消す）。読めない間の再読の間隔を守る。
+    read_failed: Mutex<HashMap<AgentKey, UnixMillis>>,
     /// 照合を回している受理不明の送信。
     reconciling: Mutex<HashSet<LocalId>>,
     /// 子孫の走査が完了したか（ルート別。未走査はキーなし＝未完了）。
@@ -414,17 +426,22 @@ impl Host {
         let now = now_ms();
         let cands: Vec<AgentKey> = {
             let terminals = self.queue_rt.terminals.lock().unwrap().clone();
+            let failed = self.queue_rt.read_failed.lock().unwrap().clone();
             self.read(|d| {
                 let baseline = d.queues.get(chat).and_then(|f| f.queue.baseline_at);
                 let root = agent_key_of(chat);
                 d.agents
                     .iter()
                     .filter(|v| &v.agent.chat == chat && v.agent.key != root && v.freshness != Freshness::Live && !is_working(v.status.state))
-                    .filter(|v| match terminals.get(&v.agent.key) {
-                        None => true,
-                        Some(t) => {
-                            let stale = v.agent.latest_turn.as_ref().is_some_and(|l| t.turn.as_ref() != Some(l)) || baseline.is_some_and(|b| t.checked_at < b) || t.end.is_none();
-                            stale && now.0 - t.checked_at.0 >= TERMINAL_RECHECK.as_millis() as i64
+                    .filter(|v| {
+                        let failed_at = failed.get(&v.agent.key).copied();
+                        let recheck = TERMINAL_RECHECK.as_millis() as i64;
+                        match terminals.get(&v.agent.key) {
+                            None => terminal_reread_due(false, true, now, failed_at, now, recheck),
+                            Some(t) => {
+                                let stale = v.agent.latest_turn.as_ref().is_some_and(|l| t.turn.as_ref() != Some(l)) || baseline.is_some_and(|b| t.checked_at < b) || t.end.is_none();
+                                terminal_reread_due(true, stale, t.checked_at, failed_at, now, recheck)
+                            }
                         }
                     })
                     .map(|v| v.agent.key.clone())
@@ -456,8 +473,14 @@ impl Host {
                 (fact, Ok(history_tail_of(&h.turns)))
             }
             // 読めなかった: 確認できていないまま。次の間隔で再試行する（終端があったことにしない）。
-            Err(e) => (TerminalFact { turn: None, end: None, completed_at: None, checked_at: now_ms() }, Err(e.to_string())),
+            // 以前に確認できた記録があれば、空の事実で上書きしない（何も変えない）。
+            // 失敗時刻だけを別に記録し（確認時刻は新しく見せない）、再読の間隔を守る。
+            Err(e) => {
+                self.queue_rt.read_failed.lock().unwrap().insert(agent, now_ms());
+                return Err(e.to_string());
+            }
         };
+        self.queue_rt.read_failed.lock().unwrap().remove(&agent);
         self.queue_rt.terminals.lock().unwrap().insert(agent, fact);
         res
     }
@@ -1159,6 +1182,23 @@ impl Host {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn terminal_reread_keeps_the_interval_even_when_reads_fail() {
+        let t = |ms: i64| UnixMillis(ms);
+        let r = 10_000;
+        // 既存の記録あり・stale・確認から10秒以上: 失敗歴なしなら再読。
+        assert!(terminal_reread_due(true, true, t(0), None, t(10_000), r));
+        // 直前に読めなかった（3秒前）: 10秒未満は再読しない。
+        assert!(!terminal_reread_due(true, true, t(0), Some(t(27_000)), t(30_000), r));
+        // 失敗から10秒以上: 再読する。
+        assert!(terminal_reread_due(true, true, t(0), Some(t(20_000)), t(30_000), r));
+        // staleでなければ（成功後の通常条件）再読しない。
+        assert!(!terminal_reread_due(true, false, t(0), None, t(60_000), r));
+        // 記録なし: 初回は読む。読めなかった直後は間隔を空ける。
+        assert!(terminal_reread_due(false, true, t(0), None, t(0), r));
+        assert!(!terminal_reread_due(false, true, t(0), Some(t(5_000)), t(6_000), r));
+    }
 
     fn root() -> AgentKey {
         AgentKey { backend: BackendKind::Codex, id: ExternalId("r".into()) }

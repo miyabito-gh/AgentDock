@@ -22,7 +22,7 @@ use crate::backend::local::{ChatArgs, SaveScope, SaveStatus};
 use crate::backend::model::*;
 use crate::backend::parity::*;
 use crate::gitops::GitOp;
-use crate::rules::thread_ops::{clear_draft_after, judge_op_observation, match_fork, parse_branch_lines, parse_commit_lines, resend_blocker, resend_next, review_target_check, ForkCandidate, ForkMatch, OpObservation, ResendBlock, ResendBlockKind, ResendCtx, ResendNext};
+use crate::rules::thread_ops::{clear_draft_after, fork_name_suffix, judge_op_observation, match_fork, merge_fork_of, ForkInherit, parse_branch_lines, parse_commit_lines, resend_blocker, resend_next, review_target_check, ForkCandidate, ForkMatch, OpObservation, ResendBlock, ResendBlockKind, ResendCtx, ResendNext};
 use crate::store::records::CompactionFile;
 use crate::store::StoreError;
 
@@ -44,6 +44,33 @@ impl TurnOp {
             TurnOp::Review(_) => ParityOp::CodeReview,
             TurnOp::Compact => ParityOp::Compact,
         }
+    }
+}
+
+/// 実行中の「編集して再送・再生成」の印（チャットごと）。同じチャットの2本目は始められない。ガードを手放すと外れる。
+#[derive(Default)]
+pub(super) struct ResendInflight {
+    set: Arc<std::sync::Mutex<std::collections::HashSet<ChatKey>>>,
+}
+
+pub(super) struct ResendGuard {
+    set: Arc<std::sync::Mutex<std::collections::HashSet<ChatKey>>>,
+    chat: ChatKey,
+}
+
+impl ResendInflight {
+    /// 実行中でなければ印を付けてガードを返す。実行中なら None。
+    pub(super) fn try_begin(&self, chat: &ChatKey) -> Option<ResendGuard> {
+        if !self.set.lock().unwrap().insert(chat.clone()) {
+            return None;
+        }
+        Some(ResendGuard { set: self.set.clone(), chat: chat.clone() })
+    }
+}
+
+impl Drop for ResendGuard {
+    fn drop(&mut self) {
+        self.set.lock().unwrap().remove(&self.chat);
     }
 }
 
@@ -270,6 +297,10 @@ impl Host {
         self.require_chat(&args.chat)?;
         self.check_op_target(&args.chat)?;
         self.precheck_space()?;
+        // 同じチャットの実行中は、2本目を通さない（応答待ちにダイアログを閉じて開き直しても、二重に分岐・送信しない）。
+        let Some(_inflight) = self.resend_inflight.try_begin(&args.chat) else {
+            return Err(blocked(BlockedReason::ChatBusy, "このチャットの「編集して再送・再生成」を実行中です。結果が出るまでお待ちください"));
+        };
         // 履歴を読んで（読取りのみ）、無効の条件を検査する。ホストの判定を正とする。
         let history = match self.is_connected() {
             true => Some(self.read_history(agent_key_of(&args.chat), ReadOptions { include_turns: true }).await),
@@ -289,7 +320,7 @@ impl Host {
         let Some(new_chat) = fork.chat.as_ref().filter(|_| fork.ack == OpAck::Accepted).map(|c| c.key.clone()) else {
             // 受理されなかった（拒否・受理不明）。送らず、下書きも保存しない（受理不明は分岐先の確認＝照合を案内する）。
             debug_assert_eq!(resend_next(false, false, args.send), ResendNext::StopAfterFork);
-            return Ok(ResendAsForkResult { fork, draft_saved: false, send: None });
+            return Ok(ResendAsForkResult { fork, draft_saved: false, send: None, send_error: None });
         };
         // 分岐先の下書きへ保存し、書き終えるのを待つ。保存できなければ送らない。
         let text = args.text.clone();
@@ -299,18 +330,21 @@ impl Host {
         });
         let saved = matches!(self.save_now(SaveScope::ChatLocal { chat: new_chat.clone() }).await, Some(SaveStatus { state: SaveState::Saved { .. }, .. }));
         if resend_next(true, saved, args.send) != ResendNext::SendOnce {
-            return Ok(ResendAsForkResult { fork, draft_saved: saved, send: None });
+            return Ok(ResendAsForkResult { fork, draft_saved: saved, send: None, send_error: None });
         }
         // 通常の送信経路で1回だけ送る（送信ロック・clientUserMessageId・Sending保存・受理不明の扱い）。再送しない。
-        // 送る前に止まったとき（Err）は、下書きを残してエラーを返す（分岐は作られている）。
-        let send = self.send_message(SendMessageArgs { chat: new_chat.clone(), text: args.text, attachments: Vec::new(), intent: SendIntent::NewTurn }, confirmed).await?;
+        // 送る前に止まったとき（Err。送信は起きていない）は、分岐先ができていることを伝えるため Ok で理由を返す。下書きは残す。
+        let send = match self.send_message(SendMessageArgs { chat: new_chat.clone(), text: args.text, attachments: Vec::new(), intent: SendIntent::NewTurn }, confirmed).await {
+            Ok(s) => s,
+            Err(e) => return Ok(ResendAsForkResult { fork, draft_saved: true, send: None, send_error: Some(e.message) }),
+        };
         if clear_draft_after(&send.state) {
             self.update_local(&new_chat, true, std::time::Duration::ZERO, |f| {
                 f.draft.text.clear();
                 f.draft.updated_at = Some(now_ms());
             });
         }
-        Ok(ResendAsForkResult { fork, draft_saved: true, send: Some(send) })
+        Ok(ResendAsForkResult { fork, draft_saved: true, send: Some(send), send_error: None })
     }
 
     /// 無効の判断材料（`rules::thread_ops::resend_blocker` へ渡す）。
@@ -354,8 +388,10 @@ impl Host {
                 Some(record) => blocked(BlockedReason::StopUnconfirmed { record }, b.message),
                 None => err(IpcErrorCode::Blocked, b.message),
             },
+            // 受理不明の送信が原因のときは、理由をそう示す（実行中とは別。照合で解ける）。
+            ResendBlockKind::Busy if self.unknown_attempt(chat).is_some() => blocked(BlockedReason::ChatBusy, "前の送信の受理を確認できていません。「履歴と照合」で確認してから使えます"),
             ResendBlockKind::Busy => blocked(BlockedReason::ChatBusy, b.message),
-            ResendBlockKind::StateUnknown | ResendBlockKind::Stale | ResendBlockKind::MultipleRequests | ResendBlockKind::PreviousNotEnded => err(IpcErrorCode::InvalidArgs, b.message),
+            ResendBlockKind::StateUnknown | ResendBlockKind::Stale | ResendBlockKind::NoRequest | ResendBlockKind::MultipleRequests | ResendBlockKind::PreviousNotEnded => err(IpcErrorCode::InvalidArgs, b.message),
         }
     }
 
@@ -372,13 +408,19 @@ impl Host {
             d.hosted.insert(key.clone());
             ((), vec![])
         });
+        // 元の会話の権限・モデル・作業モード・worktreeを、分岐先の未設定の項目へ写す（送る前に。元より広い権限で走らせない）。
+        self.inherit_fork_settings(&origin.chat, key);
+        let mut conflict = false;
         self.update_local(key, true, std::time::Duration::ZERO, |f| {
             f.hosted = true;
-            f.fork_of = Some(origin);
+            let (o, c) = merge_fork_of(f.fork_of.take(), origin);
+            f.fork_of = Some(o);
+            conflict = c;
             if let Some(m) = meta {
                 f.cached_meta = Some(m);
             }
         });
+        let conflict_note = conflict.then(|| "この会話はすでに別の会話からの分岐として記録されています。記録は変えていません".to_string());
         let Some((chat, agent, status)) = found else {
             return (None, Some("分岐は受け付けられましたが、分岐先の内容を読めませんでした。一覧を更新して確認してください".into()));
         };
@@ -391,11 +433,34 @@ impl Host {
             ((), ev)
         });
         self.touch_chat_used(key);
-        (self.read(|d| d.chat(key).cloned()).or(chat), None)
+        (self.read(|d| d.chat(key).cloned()).or(chat), conflict_note)
+    }
+
+    /// 分岐先へ、元のチャットのローカル設定を写す（未設定の項目だけ）。メモリへ即時反映し、保存は呼び出し側が待つ。
+    fn inherit_fork_settings(self: &Arc<Self>, src: &ChatKey, dst: &ChatKey) {
+        let inherit = self.read(|d| {
+            let ms = d.model_settings.get(src);
+            ForkInherit::from_source(d.locals.get(src), ms.and_then(|s| s.selected.clone()), ms.and_then(|s| s.work_mode))
+        });
+        if inherit.model.is_some() || inherit.work_mode.is_some() {
+            self.mutate(|d| {
+                let s = d.model_settings.entry(dst.clone()).or_insert_with(|| ChatModelSettings::blank(ApplyTiming::NextTurn));
+                if s.selected.is_none() {
+                    s.selected = inherit.model.clone();
+                }
+                if s.work_mode.is_none() {
+                    s.work_mode = inherit.work_mode;
+                }
+                let s = s.clone();
+                ((), vec![HostEvent::ModelSettingsUpdated { chat: dst.clone(), settings: s }])
+            });
+        }
+        self.update_local(dst, true, std::time::Duration::ZERO, |f| inherit.apply_to_local(f));
     }
 
     /// 受理不明の分岐の照合（読取りのみ。再送しない）。ちょうど1件に絞れたときだけ分岐先として採用する。
-    pub async fn reconcile_fork(self: &Arc<Self>, args: ReconcileForkArgs) -> Result<ForkReconcile, IpcError> {
+    /// 採用したときだけ、目的つきの記録（まだなければ）と名前の接尾辞（編集・再生成のとき）を通常の経路と同じにする。
+    pub async fn reconcile_fork(self: &Arc<Self>, args: ReconcileForkArgs, confirmed: &UserConfirmed) -> Result<ForkReconcile, IpcError> {
         self.require_chat(&args.chat)?;
         let query = ListChatsQuery { limit: Some(50), include_external: true, ..Default::default() };
         let page = match self.backend.list_chats(query).await {
@@ -417,9 +482,16 @@ impl Host {
         match match_fork(&candidates, &args.chat.id.0, args.attempted_at) {
             ForkMatch::One(key) => {
                 let Some(s) = page.items.iter().find(|s| s.chat.key == key) else { return Ok(ForkReconcile::NotFound) };
-                let origin = ForkOrigin { chat: args.chat.clone(), through_turn: None, purpose: ForkPurpose::Fork };
+                // すでに記録済み（通常の経路が登録した）なら、目的・終点・名前は変えない。
+                let registered = self.read(|d| d.locals.get(&key).is_some_and(|l| l.fork_of.is_some()));
+                let title = self.chat_title(&args.chat);
+                let origin = ForkOrigin { chat: args.chat.clone(), through_turn: args.through_turn.clone(), purpose: args.purpose };
                 let (chat, _) = self.adopt_forked(&key, origin, Some((Some(s.chat.clone()), s.root.clone(), s.status.clone())));
-                Ok(ForkReconcile::Adopted { chat: chat.unwrap_or_else(|| s.chat.clone()) })
+                if !registered && args.purpose != ForkPurpose::Fork {
+                    self.rename_best_effort(&key, format!("{title}（{}）", fork_name_suffix(args.purpose)), confirmed).await;
+                }
+                let adopted = self.read(|d| d.chat(&key).cloned()).or(chat);
+                Ok(ForkReconcile::Adopted { chat: adopted.unwrap_or_else(|| s.chat.clone()) })
             }
             ForkMatch::None => Ok(ForkReconcile::NotFound),
             ForkMatch::Ambiguous(n) => Ok(ForkReconcile::Ambiguous { count: n as u32 }),
@@ -525,6 +597,18 @@ mod tests {
         assert!(!failed_before_dispatch(&BackendError::Protocol { message: "x".into() }));
         assert!(!failed_before_dispatch(&BackendError::Io { message: "x".into() }));
         assert!(!failed_before_dispatch(&BackendError::OutcomeUnknown { message: "x".into() }));
+    }
+
+    #[test]
+    fn a_second_resend_for_the_same_chat_is_refused_until_the_first_ends() {
+        let inflight = ResendInflight::default();
+        let key = |id: &str| ChatKey { backend: BackendKind::Codex, id: ExternalId(id.into()) };
+        let first = inflight.try_begin(&key("a")).expect("1本目は始められる");
+        assert!(inflight.try_begin(&key("a")).is_none());
+        // 別のチャットは妨げない。
+        assert!(inflight.try_begin(&key("b")).is_some());
+        drop(first);
+        assert!(inflight.try_begin(&key("a")).is_some());
     }
 
     #[test]

@@ -224,7 +224,7 @@ export function ForkBody({ chat, live, cap, throughTurn, onOpenChat }: Pick<Thre
   const check = async () => {
     if (!result) return;
     setChecking(true);
-    try { setRecon(await host.reconcileFork(chat.key, result.at)); } catch (e) { setErr(errText(e)); } finally { setChecking(false); }
+    try { setRecon(await host.reconcileFork(chat.key, result.at, "fork", throughTurn)); } catch (e) { setErr(errText(e)); } finally { setChecking(false); }
   };
   const adopted = result?.chat ?? (recon?.kind === "adopted" ? recon.chat : null);
   return (

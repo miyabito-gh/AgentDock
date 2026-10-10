@@ -5,8 +5,10 @@
 //! - 受理不明の操作（レビュー・圧縮）の照合: 開始後のturnに痕跡があれば観測、痕跡なしは十分な時間が経ち履歴が完全なときだけ。
 //!   どの結果でも再送の根拠にはしない（再実行はユーザーの新しい操作）。
 
+use crate::backend::backend::PermissionPreset;
 use crate::backend::model::*;
 use crate::backend::parity::ReviewTarget;
+use crate::store::records::ChatLocalFile;
 
 /// 候補の時刻照合の許容幅（ホストとバックエンドの時計・丸めのずれ）。
 const SINCE_SLACK_MS: i64 = 2_000;
@@ -145,6 +147,8 @@ pub enum ResendBlockKind {
     StateUnknown,
     /// 表示が古い（対象turnが終点の直後でない）。
     Stale,
+    /// 依頼の文がないturn（レビュー・圧縮など）。
+    NoRequest,
     MultipleRequests,
     PreviousNotEnded,
 }
@@ -183,6 +187,9 @@ pub fn resend_blocker(c: &ResendCtx) -> Option<ResendBlock> {
     if !c.target_follows_through {
         return b(ResendBlockKind::Stale, "表示が古いため、会話を読み直してからやり直してください");
     }
+    if c.target_request_count == 0 {
+        return b(ResendBlockKind::NoRequest, "このturnには依頼の文がないため、編集・再生成できません");
+    }
     if c.target_request_count >= 2 {
         return b(ResendBlockKind::MultipleRequests, "追加指示を含むturnは、編集・再生成できません");
     }
@@ -217,9 +224,72 @@ pub fn resend_next(fork_accepted: bool, draft_saved: bool, send_requested: bool)
     }
 }
 
-/// 送信後に下書きを消してよいか。受理が確認できたときだけ（拒否・受理不明は下書きを残す）。
+/// 送信後に下書きを消してよいか。受理が確認できたとき、または受理不明のとき（通常の送信と同じく入力欄を空にし、
+/// 文は送信記録・「履歴と照合」に委ねる。残すと、照合で受理が確定した後の二重送信につながる）。拒否・送信中は残す。
 pub fn clear_draft_after(state: &SendState) -> bool {
-    matches!(state, SendState::Accepted { .. })
+    matches!(state, SendState::Accepted { .. } | SendState::AcceptanceUnknown { .. })
+}
+
+/// 分岐先へ写す、元のチャットのローカル設定（権限・モデル・計画／実行・worktree・次のturnの作業フォルダ）。
+/// 分岐先の最初のturnが、元より広い権限・別のモデルで走らないように、送る前に写す。
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ForkInherit {
+    pub permission: Option<PermissionPreset>,
+    pub model: Option<ModelChoice>,
+    pub work_mode: Option<WorkMode>,
+    pub worktree: Option<LocalId>,
+    pub next_cwd: Option<String>,
+}
+
+impl ForkInherit {
+    /// `selected_model`・`work_mode` は実行中の選択値（なければ保存値）。
+    pub fn from_source(local: Option<&ChatLocalFile>, selected_model: Option<ModelChoice>, work_mode: Option<WorkMode>) -> Self {
+        ForkInherit {
+            permission: local.and_then(|l| l.permission),
+            model: selected_model.or_else(|| local.and_then(|l| l.model.clone())),
+            work_mode: work_mode.or_else(|| local.and_then(|l| l.work_mode)),
+            worktree: local.and_then(|l| l.worktree.clone()),
+            next_cwd: local.and_then(|l| l.next_cwd.clone()),
+        }
+    }
+
+    /// 分岐先の保存値へ、未設定の項目だけ写す（分岐先で選び直した値は上書きしない）。
+    pub fn apply_to_local(&self, f: &mut ChatLocalFile) {
+        if f.permission.is_none() {
+            f.permission = self.permission;
+        }
+        if f.model.is_none() {
+            f.model = self.model.clone();
+        }
+        if f.work_mode.is_none() {
+            f.work_mode = self.work_mode;
+        }
+        if f.worktree.is_none() {
+            f.worktree = self.worktree.clone();
+        }
+        if f.next_cwd.is_none() {
+            f.next_cwd = self.next_cwd.clone();
+        }
+    }
+}
+
+/// 分岐先の記録（`fork_of`）を決める。すでに同じ分岐元が記録されていれば変えない（通常の経路が記録した目的・終点を、照合が上書きしない）。
+/// 別の分岐元が記録されていれば、記録は変えず衝突として返す。
+pub fn merge_fork_of(existing: Option<ForkOrigin>, new: ForkOrigin) -> (ForkOrigin, bool) {
+    match existing {
+        None => (new, false),
+        Some(e) if e.chat == new.chat => (e, false),
+        Some(e) => (e, true),
+    }
+}
+
+/// 分岐先の名前の接尾辞（通常の経路と照合の経路でそろえる）。分岐（Fork）は「分岐」。
+pub fn fork_name_suffix(purpose: ForkPurpose) -> &'static str {
+    match purpose {
+        ForkPurpose::Fork => "分岐",
+        ForkPurpose::EditResend => "編集",
+        ForkPurpose::Regenerate => "再生成",
+    }
 }
 
 // ───────────────────────────── 受理不明の操作の照合 ─────────────────────────────
@@ -370,13 +440,75 @@ mod tests {
     }
 
     #[test]
-    fn draft_is_cleared_only_when_the_send_is_confirmed_accepted() {
+    fn draft_is_cleared_when_accepted_or_unknown_but_kept_when_rejected() {
         let turn = TurnKey { agent: AgentKey { backend: BackendKind::Codex, id: ExternalId("c".into()) }, turn_id: ExternalId("t".into()) };
         assert!(clear_draft_after(&SendState::Accepted { turn }));
-        assert!(!clear_draft_after(&SendState::AcceptanceUnknown { since: UnixMillis(1) }));
+        // 受理不明は入力欄を空にする（通常の送信と同じ。照合で受理が確定した後の二重送信を避ける）。
+        assert!(clear_draft_after(&SendState::AcceptanceUnknown { since: UnixMillis(1) }));
         assert!(!clear_draft_after(&SendState::Rejected { message: "x".into() }));
         assert!(!clear_draft_after(&SendState::Sending));
         assert!(!clear_draft_after(&SendState::NotFoundAfterReconcile));
+    }
+
+    #[test]
+    fn requestless_turn_is_not_resendable() {
+        let mut c = ok_ctx();
+        c.target_request_count = 0;
+        assert_eq!(resend_blocker(&c).unwrap().kind, ResendBlockKind::NoRequest);
+    }
+
+    fn local_with(permission: Option<PermissionPreset>, model: Option<&str>) -> ChatLocalFile {
+        let mut l = ChatLocalFile::new(LocalId("d".into()), Some(ck("src")));
+        l.permission = permission;
+        l.model = model.map(|m| ModelChoice { model: m.into(), effort: None, speed_tier: None });
+        l
+    }
+
+    #[test]
+    fn fork_inherits_permission_model_and_work_mode_from_the_source() {
+        let mut src = local_with(Some(PermissionPreset::ReadOnly), None);
+        src.worktree = Some(LocalId("wt".into()));
+        src.next_cwd = Some("C:\\work".into());
+        let sel = ModelChoice { model: "x".into(), effort: Some("high".into()), speed_tier: None };
+        let inh = ForkInherit::from_source(Some(&src), Some(sel.clone()), Some(WorkMode::Plan));
+        let mut dst = local_with(None, None);
+        inh.apply_to_local(&mut dst);
+        assert_eq!(dst.permission, Some(PermissionPreset::ReadOnly));
+        assert_eq!(dst.model, Some(sel));
+        assert_eq!(dst.work_mode, Some(WorkMode::Plan));
+        assert_eq!(dst.worktree, Some(LocalId("wt".into())));
+        assert_eq!(dst.next_cwd.as_deref(), Some("C:\\work"));
+    }
+
+    #[test]
+    fn fork_inherit_does_not_overwrite_what_the_fork_already_has_and_falls_back_to_saved_values() {
+        let src = local_with(Some(PermissionPreset::ReadOnly), Some("saved"));
+        // 実行中の選択がなければ保存値。
+        let inh = ForkInherit::from_source(Some(&src), None, None);
+        assert_eq!(inh.model.as_ref().map(|m| m.model.as_str()), Some("saved"));
+        let mut dst = local_with(Some(PermissionPreset::WorkspaceWriteOnRequest), None);
+        inh.apply_to_local(&mut dst);
+        assert_eq!(dst.permission, Some(PermissionPreset::WorkspaceWriteOnRequest));
+        // 元に何もなければ何も写さない。
+        assert_eq!(ForkInherit::from_source(None, None, None), ForkInherit::default());
+    }
+
+    #[test]
+    fn adopting_a_fork_keeps_the_recorded_purpose_and_reports_a_different_source() {
+        let o = |c: &str, p: ForkPurpose, t: Option<&str>| ForkOrigin { chat: ck(c), through_turn: t.map(|t| ExternalId(t.into())), purpose: p };
+        // 未記録: 新しい記録を採用。
+        assert_eq!(merge_fork_of(None, o("src", ForkPurpose::Regenerate, Some("t1"))), (o("src", ForkPurpose::Regenerate, Some("t1")), false));
+        // 同じ分岐元の記録: 目的・終点を上書きしない。
+        assert_eq!(merge_fork_of(Some(o("src", ForkPurpose::EditResend, Some("t1"))), o("src", ForkPurpose::Fork, None)), (o("src", ForkPurpose::EditResend, Some("t1")), false));
+        // 別の分岐元: 記録を変えず衝突。
+        assert_eq!(merge_fork_of(Some(o("a", ForkPurpose::Fork, None)), o("b", ForkPurpose::Fork, None)), (o("a", ForkPurpose::Fork, None), true));
+    }
+
+    #[test]
+    fn name_suffix_is_the_same_for_every_path() {
+        assert_eq!(fork_name_suffix(ForkPurpose::Fork), "分岐");
+        assert_eq!(fork_name_suffix(ForkPurpose::EditResend), "編集");
+        assert_eq!(fork_name_suffix(ForkPurpose::Regenerate), "再生成");
     }
 
     #[test]

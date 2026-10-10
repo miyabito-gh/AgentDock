@@ -190,7 +190,8 @@ export const startReview = (chat: ChatKey, target: ReviewTarget, delivery: Revie
 /** 会話の分岐。throughTurn=null は最新の終端turnまで（実行中のチャットはturnの指定が必要）。unknown は再送せず reconcileFork で確認する。 */
 export const forkChat = (chat: ChatKey, throughTurn: ExternalId | null): Promise<ForkResult> => invokeCmd("fork_chat", { chat, throughTurn });
 /** 受理不明の分岐の照合（読取りのみ）。ちょうど1件に絞れたときだけ分岐先を採用する。 */
-export const reconcileFork = (chat: ChatKey, attemptedAt: number): Promise<ForkReconcile> => invokeCmd("reconcile_fork", { chat, attemptedAt });
+export const reconcileFork = (chat: ChatKey, attemptedAt: number, purpose: ForkPurpose = "fork", throughTurn: ExternalId | null = null): Promise<ForkReconcile> =>
+  invokeCmd("reconcile_fork", { chat, attemptedAt, purpose, throughTurn });
 /**
  * 編集して再送・再生成（M50）。throughTurn=対象の1つ前の終端turn、targetTurn=対象turn。元の会話は変えない。
  * send=false は分岐して下書きに入れるだけ。fork.ack が unknown のときは送らず、reconcileFork で確認する。送信の受理不明は再送しない。

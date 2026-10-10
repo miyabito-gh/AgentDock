@@ -173,7 +173,7 @@ pub struct ResendAsForkResult {
   2. 分岐。`Accepted` 以外ならここで返す（送らない。`Unknown` は `attempted_at` を返し、UIは既存の「分岐先を確認」＝`reconcile_fork` を出す）。
   3. 分岐先の名前を「{元の名前}（編集）」「（再生成）」にする（既存の `rename_best_effort`）。
   4. 分岐先の下書きに `text` を保存（保存の完了を待つ）。保存できなければ送らない（`draft_saved: false`、`send: None`）。
-  5. `send` のときだけ、既存の送信経路（`send_message` と同じ内部関数。チャットの送信ロック・`clientUserMessageId`・Sending保存・受理不明の扱い）で1回送る。添付なし、意図は新しいturn。`Accepted` なら下書きを消す（既存の送信と同じ）。`Rejected`／`acceptanceUnknown` は下書きを残す。再送しない・ループしない。
+  5. `send` のときだけ、既存の送信経路（`send_message` と同じ内部関数。チャットの送信ロック・`clientUserMessageId`・Sending保存・受理不明の扱い）で1回送る。添付なし、意図は新しいturn。`Accepted`／`acceptanceUnknown` なら下書きを消す（通常の送信と同じ。受理不明の文は送信記録・「履歴と照合」に委ね、残して二重送信を招かない）。`Rejected` は下書きを残す。再送しない・ループしない。送る前の検査で止まったときは Err にせず、`sendError` つきで返す（分岐先はできている）。分岐先へは、送る前に元の権限・モデル・作業モード・worktree を写す（R5 H1）。
 - 分岐が受理不明→照合で採用できた場合: UI は採用されたチャットを選び、`set_draft` で文を入れて「分岐先を確認しました。依頼を入力欄に入れました。送信は入力欄から行ってください。」と出す（自動で送らない）。
 - 送信後は分岐先を選択して表示する（ユーザーの操作の結果なので選択を移してよい）。元の会話は一覧に残り、何も送られない。
 

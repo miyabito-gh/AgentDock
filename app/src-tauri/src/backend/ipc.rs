@@ -651,6 +651,12 @@ pub struct ForkResult {
 pub struct ReconcileForkArgs {
     pub chat: ChatKey,
     pub attempted_at: UnixMillis,
+    /// 分岐の目的（編集・再生成から呼ぶとき）。古い呼び出しでは `Fork`。
+    #[serde(default)]
+    pub purpose: ForkPurpose,
+    /// 分岐の終点（分かっているとき）。
+    #[serde(default)]
+    pub through_turn: Option<ExternalId>,
 }
 
 /// 分岐の照合（読取りのみ）。`Adopted` は、分岐元が一致し開始以降に作られた会話がちょうど1件だったとき。
@@ -695,6 +701,9 @@ pub struct ResendAsForkResult {
     pub draft_saved: bool,
     /// 送った場合だけ。`acceptanceUnknown` は再送しない。
     pub send: Option<SendAttempt>,
+    /// 分岐は受理されたが、送信の前の検査で止まったときの理由（送信は起きていない）。
+    #[serde(default)]
+    pub send_error: Option<String>,
 }
 
 /// 状態不明の子孫の履歴を読むだけ（再開・送信・停止をしない。キューの有無に依存しない）。

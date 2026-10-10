@@ -189,6 +189,8 @@ pub struct Host {
     cloud_rt: cloud::CloudRuntime,
     /// 履歴の読取りの同時実行数の上限（`read_limit.rs`）。
     read_limit: read_limit::ReadLimiter,
+    /// 実行中の「編集して再送・再生成」（チャットごとの二重実行防止。`thread_ops.rs`）。
+    resend_inflight: thread_ops::ResendInflight,
 }
 
 impl Host {
@@ -217,6 +219,7 @@ impl Host {
             ext_rt: extensions::ExtensionsRuntime::default(),
             cloud_rt: cloud::CloudRuntime::default(),
             read_limit: read_limit::ReadLimiter::default(),
+            resend_inflight: thread_ops::ResendInflight::default(),
         }
     }
 

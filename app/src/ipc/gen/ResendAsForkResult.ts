@@ -13,4 +13,8 @@ draftSaved: boolean,
 /**
  * 送った場合だけ。`acceptanceUnknown` は再送しない。
  */
-send: SendAttempt | null, };
+send: SendAttempt | null, 
+/**
+ * 分岐は受理されたが、送信の前の検査で止まったときの理由（送信は起きていない）。
+ */
+sendError: string | null, };
