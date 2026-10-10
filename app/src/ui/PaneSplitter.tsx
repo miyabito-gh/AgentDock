@@ -35,7 +35,15 @@ export function PaneSplitter({ kind, width, max, onCommit }: Props) {
   // 操作中でなければ表示幅へ追従する。
   if (!drag.current && keyTimer.current === undefined) cur.current = width;
 
-  useEffect(() => () => { window.clearTimeout(keyTimer.current); cancelAnimationFrame(raf.current); }, []);
+  // 外れる（パネルを閉じる・一時パネルへ切替）ときに、保留中のキー操作の保存を捨てない。
+  useEffect(() => () => {
+    cancelAnimationFrame(raf.current);
+    if (keyTimer.current !== undefined) {
+      window.clearTimeout(keyTimer.current);
+      keyTimer.current = undefined;
+      commitRef.current(cur.current);
+    }
+  }, []);
 
   const clamp = (w: number) => Math.min(maxRef.current, Math.max(spec.min, Math.round(w)));
   const body = () => ref.current?.closest(".body") as HTMLElement | null;

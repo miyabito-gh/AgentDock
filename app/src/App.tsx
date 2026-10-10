@@ -325,6 +325,11 @@ export default function App() {
   // 左一覧・ドックの幅（UI-7）。保存値は窓幅で変えず、表示幅だけを縮める。保存は離したとき・キー操作の最後から500ms後に1回。
   const [layoutOv, setLayoutOv] = useState<{ leftWidth: number | null; dockWidth: number | null } | null>(null);
   const savedLayout = layoutOv ?? snap.settings.layout;
+  // ホストの保存値が追いついたら一時値を捨てる（以後はホストの値に従う。他の経路で更新されても反映される）。保存に失敗している間だけ一時値が残る。
+  useEffect(() => {
+    const l = snap.settings.layout;
+    setLayoutOv((o) => (o && o.leftWidth === l.leftWidth && o.dockWidth === l.dockWidth ? null : o));
+  }, [snap.settings.layout.leftWidth, snap.settings.layout.dockWidth]); // eslint-disable-line react-hooks/exhaustive-deps
   const paneW = displayWidths({
     winW, left: loadSaved("left", savedLayout.leftWidth), dock: loadSaved("dock", savedLayout.dockWidth),
     leftShown: !leftTemp && leftOpen, dockShown: !rightTemp && rightOpen,

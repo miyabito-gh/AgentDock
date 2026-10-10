@@ -124,7 +124,7 @@ const LINES: Array<[keyof UsageBreakdown, string]> = [
 
 /** 内訳バーの色（トークン）。凡例の文字・値と対にして、色だけで区別させない。 */
 const SERIES: Record<keyof UsageBreakdown, string> = {
-  attachments: "var(--accent)", artifacts: "var(--done)", workspace: "var(--int)", activity: "var(--wait-solid)", metadata: "var(--unk)", baselines: "var(--run)", revertBackups: "var(--fail)",
+  attachments: "var(--ser1)", artifacts: "var(--ser2)", workspace: "var(--ser3)", activity: "var(--ser4)", metadata: "var(--ser5)", baselines: "var(--ser6)", revertBackups: "var(--ser7)",
 };
 
 const breakdownText = (b: UsageBreakdown): string => LINES.map(([k, t]) => `${t} ${fmtBytes(b[k])}`).join("／");

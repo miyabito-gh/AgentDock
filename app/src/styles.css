@@ -22,6 +22,7 @@
   --int:#6A4BA6; --int-bg:#F1ECFA; --done:#2B7440; --done-bg:#E8F4EB; --idle:#545454; --idle-bg:#EFEFEF;
   --unk:#646464; --live:#2B7440; --stale:#8A5300; --unv-ink:#545454; --unv-line:#8C8C8C;
   --info:#005FB8; --info-bg:#EEF4FB; --info-line:#C5D9EE;
+  --ser1:#005FB8; --ser2:#2B7440; --ser3:#6A4BA6; --ser4:#B07800; --ser5:#6B6B6B; --ser6:#0A7F8F; --ser7:#C42B1C;
 }
 @media (prefers-color-scheme:dark){
   :root{
@@ -40,6 +41,7 @@
     --int:#C4A9FF; --int-bg:#2E2546; --done:#7DD58A; --done-bg:#1D3523; --idle:#C9C9C9; --idle-bg:#333333;
     --unk:#A8A8A8; --live:#7DD58A; --stale:#E8B04A; --unv-ink:#C9C9C9; --unv-line:#8A8A8A;
     --info:#7FD3FF; --info-bg:#15303F; --info-line:#2B5A75;
+    --ser1:#4CC2FF; --ser2:#7DD58A; --ser3:#C4A9FF; --ser4:#FFC83D; --ser5:#A8A8A8; --ser6:#4DD0E1; --ser7:#FF8A80;
   }
 }
 *{box-sizing:border-box}
@@ -54,6 +56,7 @@ svg.i{width:14px;height:14px;flex:none;stroke:currentColor;fill:none;stroke-widt
 input[type=text],input[type=search],select,textarea{border:1px solid var(--line-strong);border-radius:var(--r1);background:var(--surface);padding:4px 8px}
 input[type=text],input[type=search],select{height:var(--ctl)}
 label{display:inline-flex;align-items:center;gap:6px}
+::placeholder{color:var(--ink3);opacity:1}
 .mono{font-family:var(--mono);font-size:var(--fs-s)}
 .muted{color:var(--ink3)}
 .small{font-size:var(--fs-s)}
@@ -210,6 +213,7 @@ label{display:inline-flex;align-items:center;gap:6px}
 .cbanner.slim .grow,.cbanner.row .grow{flex:1;min-width:0}
 .cbanner.row{display:flex;align-items:center;gap:8px;padding:6px 10px}
 .cbanner .acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.cbanner.row .grow>b{margin-right:.6em}
 .targets{margin:6px 0 0;padding:0;list-style:none;display:grid;gap:3px}
 .targets li{display:grid;grid-template-columns:150px 1fr;gap:8px}
 .msgs{flex:1;overflow:auto;padding:16px 16px 8px}
@@ -432,7 +436,7 @@ textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;paddin
 .dialog.wide{width:min(860px,100%)}
 .dialog header{display:flex;align-items:center;padding:10px 14px;border-bottom:1px solid var(--line2)}
 .dialog header h3{margin:0;font-size:15px;flex:1}
-.dialog .content{padding:12px 14px;overflow:auto}
+.dialog .content{padding:12px 14px;overflow:auto;flex:1 1 auto;min-height:0}
 .dialog footer{display:flex;align-items:center;gap:6px;padding:10px 14px;border-top:1px solid var(--line2);background:var(--surface2)}
 /* フッター: 左＝副操作、右＝閉じる（キャンセル）＋主操作（いちばん右・塗り）。幅が足りないときは折り返す */
 .dialog footer .foot-l,.dialog footer .foot-r{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
@@ -464,7 +468,7 @@ textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;paddin
 .tag.block{color:var(--fail-ink);background:var(--fail-bg);border-color:var(--fail-line);font-weight:600}
 /* ダイアログ・サイドパネルの textarea は、入力欄として枠・背景を持つ（既定は入力欄用の枠なし） */
 .dialog textarea,.sidepanel textarea{border:1px solid var(--line-strong);background:var(--surface);padding:4px 8px;resize:vertical}
-.field{display:grid;grid-template-columns:minmax(0,150px) minmax(0,1fr);gap:6px 12px;align-items:center;margin-bottom:10px}
+.field{display:grid;grid-template-columns:minmax(0,150px) minmax(0,1fr);gap:6px 12px;align-items:baseline;margin-bottom:10px}
 .field .note{grid-column:2;font-size:var(--fs-s);color:var(--ink3)}
 .diff{display:grid;grid-template-columns:200px 1fr;gap:10px}
 .diff pre{margin:0;font:var(--fs-s)/1.55 var(--mono);background:var(--surface2);border:1px solid var(--line2);border-radius:var(--r1);padding:6px 0;overflow:auto}
@@ -492,11 +496,12 @@ textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;paddin
 .diffview .hunk{color:var(--ink3);background:var(--rail)}
 .diffview .meta{color:var(--ink2);font-weight:700;background:var(--accent-weak)}
 .change-table tbody tr{cursor:pointer}
+.change-table td:last-child,.change-table td.small.muted{white-space:nowrap}
 .change-table tbody tr.sel{background:var(--accent-weak)}
 .change-table .linkish{height:auto;padding:0;border:0;background:transparent;text-align:left;white-space:normal;word-break:break-all;color:inherit}
 
 /* side相談のパネル（P3-4）。主会話を見ながら使う、右側の浮かぶパネル。狭い画面では幅を縮める。 */
-.sidepanel{position:fixed;right:12px;top:92px;bottom:12px;width:min(380px,92vw);z-index:22;background:var(--surface);border:1px solid var(--line);border-radius:var(--r3);box-shadow:var(--sh-3);display:flex;flex-direction:column;min-height:0}
+.sidepanel{position:fixed;right:12px;top:76px;bottom:12px;width:min(380px,92vw);z-index:22;background:var(--surface);border:1px solid var(--line);border-radius:var(--r3);box-shadow:var(--sh-3);display:flex;flex-direction:column;min-height:0}
 .sidepanel header{display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid var(--line2)}
 .sidepanel .sp-note{padding:6px 10px}
 .sidepanel .sp-state{padding:0 10px 4px}
@@ -547,7 +552,8 @@ textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;paddin
 .ulegend i{width:10px;height:10px;border-radius:2px;flex:none}
 .ulegend .n{color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap}
 .tblwrap{overflow-x:auto;max-width:100%}
-.tblwrap .tbl td.nm{max-width:200px}
+.tblwrap .tbl th,.tblwrap .tbl td{padding:4px 6px}
+.tblwrap .tbl td.nm{max-width:130px}
 
 /* ==== resize ==== */
 /* 左一覧・ドックの幅のドラッグ変更（UI-7 が書き換える節） */
