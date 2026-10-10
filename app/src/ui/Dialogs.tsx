@@ -13,6 +13,7 @@ import { ParityBody } from "./ParityDialog";
 import { ChangesBody, RevertBody } from "./ChangesDialog";
 import { GoalBody, StatusBody } from "./PrefsDialogs";
 import { CompactBody, ForkBody, ReviewBody } from "./ThreadOpsDialogs";
+import { ResendBody, type ResendHandlers, type ResendState } from "./ResendDialog";
 import { ExtensionsBody } from "./ExtensionsDialogs";
 import { InstructionBody, ReferenceBody, SkillsBody, type ComposeProps } from "./ComposeDialogs";
 import { WorkspaceChoice, WorktreesBody } from "./WorktreeDialogs";
@@ -34,6 +35,7 @@ export type DialogState =
   | { type: "review"; chatId: string }
   | { type: "fork"; chatId: string; throughTurn: string | null }
   | { type: "compact"; chatId: string }
+  | { type: "resend"; chatId: string; purpose: "editResend" | "regenerate"; turnId: string; itemId: string | null }
   | { type: "goal"; chatId: string }
   | { type: "status"; chatId: string | null }
   | { type: "attach" }
@@ -345,8 +347,10 @@ function RenameDialog({ chat, onClose, run }: { chat: Chat | undefined; onClose:
 /** isolate は「分離」（worktreeを作成してから開始）。worktree は既存のAgentDock作成worktreeの記録ID（チャットに結び付ける）。 */
 export interface NewChatInput { cwd: string | null; model: string; firstMessage: string | null; isolate: boolean; worktree: string | null }
 
-export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnterMode, top, setTab, onAct, exe, onCreateChat, notify, autostart, appearance, quit, force, manage, onRename, opCaps, live, changesTick, onRevertDone, prefs, threadOps, worktree, cloudTasks, compose }: {
+export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnterMode, top, setTab, onAct, exe, onCreateChat, notify, autostart, appearance, quit, force, manage, onRename, opCaps, live, changesTick, onRevertDone, prefs, threadOps, worktree, cloudTasks, compose, resend }: {
   compose: ComposeDialogProps;
+  /** 編集して再送・再生成（M50）。state は種類「resend」のときだけ App が組み立てる。 */
+  resend: { state: ResendState | null; handlers: ResendHandlers };
   opCaps: OpCapability[];
   /** worktreeの台帳と、選択中のチャットの作業フォルダ（リポジトリの一覧用）。 */
   worktree: { records: WorktreeRecord[]; cwd: string | null };
@@ -448,6 +452,15 @@ export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnter
       return (
         <Shell title="文脈を圧縮" wide onClose={onClose} close="閉じる">
           <CompactBody {...common} cap={opCaps.find((x) => x.op === "compact")} />
+        </Shell>);
+    }
+    case "resend": {
+      const st = resend.state;
+      const blocked = !st || st.plan.kind === "blocked";
+      return (
+        <Shell title={d.purpose === "regenerate" ? "もう一度（再生成）" : "編集して分岐"} onClose={onClose} close={blocked ? "閉じる" : "キャンセル"}>
+          {st ? <ResendBody key={`${d.chatId}:${d.turnId}:${d.itemId ?? ""}`} chat={chats.find((x) => x.key.id === d.chatId)} live={live} cap={opCaps.find((x) => x.op === "fork")} s={st} h={resend.handlers} onClose={onClose} />
+            : <div className="content"><p>対象の会話を読み込めていません。</p></div>}
         </Shell>);
     }
     case "goal": return (

@@ -25,6 +25,8 @@ import { CommandPalette } from "./ui/CommandPalette";
 import { Dialogs, type DialogState, type NewChatInput } from "./ui/Dialogs";
 import { ackText } from "./ui/PrefsDialogs";
 import { SidePanel } from "./ui/SidePanel";
+import { resendCtxOf, resendTargetOf, rootTurns, type ResendHandlers, type ResendState } from "./ui/ResendDialog";
+import { resendAvailability } from "./ui/resend";
 import { PaneSplitter } from "./ui/PaneSplitter";
 import { displayWidths, loadSaved, type PaneKind } from "./ui/paneWidth";
 import { chatName, isRunning, isWorkingForDock, stopOpen } from "./ui/derive";
@@ -805,6 +807,42 @@ export default function App() {
     setDialog(null);
   };
 
+  // ── 編集して再送・再生成（M50）。分岐・下書き・送信の順序と最終判定はホスト。ここは結果の反映だけ ──
+  const resendHandlers: ResendHandlers = {
+    forked: (key, text, attempt) => {
+      selectChat(key.id);
+      if (text !== null) setDrafts((d) => ({ ...d, [key.id]: text }));
+      if (attempt) noteAttempt(key.id, attempt);
+    },
+    // 最初のturn: 新しいチャットを作って下書きに入れるだけ（送らない）。
+    startFirst: async (text) => {
+      if (!live) throw new Error("モックでは新しいチャットを作りません");
+      const src = dialog?.type === "resend" ? snap.chats.find((c) => c.key.id === dialog.chatId) : undefined;
+      if (!src) throw new Error("元のチャットを確認できません");
+      if (src.cwd.kind !== "value" && src.kind === "development") throw new Error("元の作業フォルダを確認できないため、新しいチャットを作れません");
+      const local = snap.chatLocals.find((l) => l.chat.id === src.key.id);
+      const model = bundle.modelSettings[src.key.id]?.selected ?? local?.model ?? null;
+      const r = await host.startChat(src.cwd.kind === "value" ? src.cwd.value : null, model, null, local?.permission ?? null, null);
+      setSelId(r.chat.key.id);
+      setDrafts((d) => ({ ...d, [r.chat.key.id]: text }));
+      try { await host.setDraft(r.chat.key, text); } catch (e) { throw new Error(`新しいチャットは作りましたが、下書きの保存に失敗しました（${host.asIpcError(e).message}）。依頼の文は入力欄に表示しています`); }
+      return r.chat.key;
+    },
+    saveDraft: async (key, text) => {
+      if (live) await host.setDraft(key, text);
+    },
+  };
+  let resendState: ResendState | null = null;
+  if (dialog?.type === "resend") {
+    const target = snap.chats.find((c) => c.key.id === dialog.chatId);
+    if (target) {
+      const turns = bundle.turns[target.key.id] ?? [];
+      const t = resendTargetOf(rootTurns(snap, target, turns), dialog.turnId, dialog.purpose, dialog.itemId);
+      const ctx = resendCtxOf(snap, target, connected, turns);
+      resendState = { plan: resendAvailability(ctx, t), purpose: dialog.purpose, requestText: t.requestText };
+    }
+  }
+
   // ── 削除・アーカイブ・エクスポート・使用量（P7） ──
 
   /** 削除確認を開く（対象と削除しないものを先に示す。実行はしない）。 */
@@ -970,6 +1008,12 @@ export default function App() {
 
   const act = (a: string) => {
     if (a.startsWith("unv:")) { setDialog({ type: "unv", why: a.slice(4) }); return; }
+    if (a.startsWith("resend:")) {
+      // 編集して再送・再生成。押したときはダイアログを開くだけ（無効なら理由だけを示す。送らない）。
+      const [purpose, turnId, itemId] = a.slice(7).split("|");
+      if (chat && turnId && (purpose === "editResend" || purpose === "regenerate")) setDialog({ type: "resend", chatId: chat.key.id, purpose, turnId, itemId: itemId || null });
+      return;
+    }
     if (a.startsWith("fork:")) { if (chat) setDialog({ type: "fork", chatId: chat.key.id, throughTurn: a.slice(5) }); return; }
     if (a.startsWith("settings:")) { setDialog({ type: "settings", tab: a.split(":")[1] }); return; }
     switch (a) {
@@ -1147,7 +1191,7 @@ export default function App() {
       {mini && !live ? <MiniWindow {...dockProps} top={miniTop} /> : null}
       {palette && !dialog ? <CommandPalette views={cmdViews} onRun={act} onClose={() => setPalette(false)} /> : null}
       {dialog ? (
-        <Dialogs d={dialog} onClose={closeDialog} opCaps={snap.opCapabilities} chats={snap.chats} source={src} models={models}
+        <Dialogs d={dialog} onClose={closeDialog} opCaps={snap.opCapabilities} resend={{ state: resendState, handlers: resendHandlers }} chats={snap.chats} source={src} models={models}
           prefs={{ goal: dialog.type === "goal" ? goals[dialog.chatId] : undefined, saveGoal,
             settings: dialog.type === "status" && dialog.chatId ? bundle.modelSettings[dialog.chatId] : undefined,
             local: dialog.type === "status" && dialog.chatId ? snap.chatLocals.find((l) => l.chat.id === dialog.chatId) : undefined }}

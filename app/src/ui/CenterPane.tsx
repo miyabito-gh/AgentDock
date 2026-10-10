@@ -13,6 +13,8 @@ import { FRESH, STATE, STOP_LABEL, hms, holdText, keyStr, knownValue, showKnown,
 import { baseName, clipboardImageName, mimeOf } from "./attach";
 import type { CommandView } from "./commands";
 import { GoalBar, UnverifiedTag, WORK_MODE_TEXT } from "./PrefsDialogs";
+import { resendCtxOf, resendTargetOf } from "./ResendDialog";
+import { PURPOSE_TAG, resendAvailability, type ResendCtx } from "./resend";
 
 const SCOPE_TEXT = { once: "1回だけ", session: "このセッション中", persistent: "以後ずっと（永続）", unknown: "効力範囲は不明" } as const;
 
@@ -186,7 +188,7 @@ function Header({ snap, chat, onAct, commands, local, onCwdToggle, cwdLock, wasL
       ) : <span className="cwd" title="一般チャット（作業フォルダなし）">一般</span>}
       {local?.nextCwd ? <span className="tag mono" title={`次の送信から使う作業フォルダ（まだ適用していません）: ${local.nextCwd}`}>次: {baseName(local.nextCwd)}</span> : null}
       {local?.reviewOf ? <span className="tag" title={`このチャットはレビュー用に作られました（レビュー元: ${origName(snap, local.reviewOf)}）`}>レビュー</span> : null}
-      {local?.forkOf ? <span className="tag" title={`このチャットは分岐で作られました（AgentDockの記録）。分岐元: ${origName(snap, local.forkOf.chat)}${local.forkOf.throughTurn ? `（turn ${local.forkOf.throughTurn} まで）` : ""}`}>分岐</span> : null}
+      {local?.forkOf ? <span className="tag" title={`このチャットは${local.forkOf.purpose === "editResend" ? "依頼を編集して送り直すために" : local.forkOf.purpose === "regenerate" ? "応答を作り直すために" : ""}分岐で作られました（AgentDockの記録）。分岐元: ${origName(snap, local.forkOf.chat)}${local.forkOf.throughTurn ? `（turn ${local.forkOf.throughTurn} まで）` : ""}`}>{PURPOSE_TAG[local.forkOf.purpose ?? "fork"]}</span> : null}
       {chat.noHistory ? <span className="tag" title={`Codex に、この会話の履歴がありません。${NO_HISTORY_TEXT}`}>履歴なし</span> : null}
       {chat.origin === "external" && isLive ? <span className="tag" title={`${externalLabel ?? "外部"} で作成された会話を、このアプリで再開済みです。${EXTERNAL_RESUMED_TEXT}`}>{externalLabel ?? "外部"}で作成</span> : null}
       <span className="grow" />
@@ -397,8 +399,11 @@ function CopyAct({ text }: { text: string }) {
 
 interface FindState { open: boolean; query: string; setQuery: (q: string) => void; tick: number; partial: boolean; close: () => void }
 
-function Messages({ turns, reqs, running, onRespond, onAct, extra, find }: {
-  turns: TurnRecord[]; reqs: PendingRequest[]; running: boolean; onRespond: CenterProps["onRespond"]; onAct: (a: string) => void; extra?: ReactNode; find: FindState;
+/** 依頼・応答の操作「編集して分岐」「もう一度」。無効でも押せて（aria-disabled）、押すと理由をダイアログで示す。 */
+interface ResendView { ctx: ResendCtx; rootAgentId: string | undefined }
+
+function Messages({ turns, reqs, running, onRespond, onAct, extra, find, resend }: {
+  turns: TurnRecord[]; reqs: PendingRequest[]; running: boolean; onRespond: CenterProps["onRespond"]; onAct: (a: string) => void; extra?: ReactNode; find: FindState; resend: ResendView;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
@@ -421,19 +426,32 @@ function Messages({ turns, reqs, running, onRespond, onAct, extra, find }: {
     <div className="msgs" id="msgs" aria-live="polite" ref={ref} onScroll={onScroll}>
       {turns.map((t) => {
         const others = t.entries.filter((e) => e.kind.kind !== "userMessage" && e.kind.kind !== "agentMessage");
+        // 編集・再生成の対象はメインのエージェントのturnだけ。
+        const mine = resend.rootAgentId === undefined || t.key.agent.id === resend.rootAgentId;
+        const blocked = (purpose: "editResend" | "regenerate", itemId: string | null) =>
+          resendAvailability(resend.ctx, resendTargetOf(turns, t.key.turnId, purpose, itemId)).kind === "blocked";
         return (
           <div key={keyStr(t.key.agent) + t.key.turnId}>
             {t.entries.filter((e) => e.kind.kind === "userMessage" || e.kind.kind === "agentMessage").map((e, _i, all) => {
               const text = e.text.kind === "value" ? e.text.value : "…";
               const lastAi = all.filter((x) => x.kind.kind === "agentMessage").pop();
               if (e.kind.kind === "userMessage") {
-                return <div className="msg user" key={e.key.itemId}><div className="sr">あなた</div><div className="bubble" data-find="body">{text}</div></div>;
+                return (
+                  <div className="msg user" key={e.key.itemId}>
+                    <div className="sr">あなた</div>
+                    <div className="bubble" data-find="body">{text}</div>
+                    <div className="acts">
+                      <CopyAct text={text} />
+                      {mine ? <button aria-disabled={blocked("editResend", e.key.itemId) || undefined} onClick={() => onAct(`resend:editResend|${t.key.turnId}|${e.key.itemId}`)}><Icon name="branch" />編集して分岐…</button> : null}
+                    </div>
+                  </div>);
               }
               return (
                 <div className="msg ai" key={e.key.itemId}>
                   <div className="who">Codex</div>
                   <div className="bubble" data-find="body"><Markdown text={text} streaming={t.end === null && e === lastAi} /></div>
-                  <div className="acts"><CopyAct text={text} /><button onClick={() => onAct(`fork:${t.key.turnId}`)}><Icon name="branch" />ここから分岐</button></div>
+                  <div className="acts"><CopyAct text={text} /><button onClick={() => onAct(`fork:${t.key.turnId}`)}><Icon name="branch" />ここから分岐</button>
+                    {mine && e === lastAi ? <button aria-disabled={blocked("regenerate", null) || undefined} onClick={() => onAct(`resend:regenerate|${t.key.turnId}|`)}><Icon name="refresh" />もう一度…</button> : null}</div>
                 </div>
               );
             })}
@@ -797,6 +815,7 @@ export function CenterPane(p: CenterProps) {
       {cwdOpen && !cwdLock ? <CwdPanel current={p.local?.nextCwd ?? knownValue(chat.cwd) ?? ""} onCwd={p.onCwd} onClose={() => setCwdOpen(false)} /> : null}
       <Banners p={p} />
       <Messages key={chat.key.id} turns={p.turns} reqs={reqs} running={running} onRespond={p.onRespond} onAct={p.onAct} find={find}
+        resend={{ ctx: resendCtxOf(snap, chat, snap.sources.some((x) => x.connection.kind === "connected"), p.turns), rootAgentId: rootView(snap, chat)?.agent.key.id }}
         extra={<FilesBlock sent={snap.attachments.filter((a) => keyStr(a.chat) === keyStr(chat.key) && a.usedBy.length > 0)} artifacts={snap.artifacts.filter((a) => keyStr(a.chat) === keyStr(chat.key))} files={p.files} />} />
       <Queue q={snap.queues.find((q) => keyStr(q.chat) === keyStr(chat.key))} nameOf={nameOf} qact={p.qact} />
       <GoalBar goal={p.goal} live={rootView(snap, chat)?.freshness === "live"} cap={snap.opCapabilities.find((o) => o.op === "goal")} busy={p.goalBusy}
