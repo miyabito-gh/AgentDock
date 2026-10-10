@@ -1,7 +1,7 @@
 // 実行: node --test src/ui/folderGroups.test.ts （tscの対象外）
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { folderKey, groupChats, shortNames, worktreeOf, flattenGroups, GENERAL_KEY, UNKNOWN_KEY } from "./folderGroups.ts";
+import { collapseAll, folderKey, groupChats, shortNames, worktreeOf, flattenGroups, GENERAL_KEY, UNKNOWN_KEY } from "./folderGroups.ts";
 
 let n = 0;
 const chat = (cwd: string | null, used: number | null, extra: any = {}): any => ({
@@ -71,4 +71,10 @@ test("flatten: 折りたたみ中は見出しだけ", () => {
   const gs = groupChats([chat("C:\\a", 1), chat("C:\\a", 2), chat("C:\\b", 0)], [], []);
   const flat = flattenGroups(gs, (k) => k === "c:\\a");
   assert.deepEqual(flat.map((f) => f.type), ["group", "group", "chat"]);
+});
+
+test("一括折りたたみ: 表示中の全見出しを加える（重複なし・保存済みの他キーは残す）／展開は空", () => {
+  assert.deepEqual(collapseAll([], ["a", "b"]), ["a", "b"]);
+  assert.deepEqual(collapseAll(["x", "a"], ["a", "b"]), ["x", "a", "b"]);
+  assert.deepEqual(collapseAll(["x"], []), ["x"]);
 });

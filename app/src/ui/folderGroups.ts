@@ -118,6 +118,13 @@ export function shortNames(items: { key: string; path: string }[]): Map<string, 
   return new Map(items.map((i) => [i.key, shortAt(i.path, depth.get(i.key)!)]));
 }
 
+/** 「すべて折りたたむ」: いま表示中の全見出しを折りたたみ済みに加える（保存済みの他のキーは残す）。「すべて展開」は空配列にするだけ。 */
+export function collapseAll(current: string[], shownKeys: string[]): string[] {
+  const out = [...current];
+  for (const k of shownKeys) if (!out.includes(k)) out.push(k);
+  return out;
+}
+
 /** 窓表示・描画用の平らな並び。見出しと行を交互に並べる（折りたたみ中の見出しは行を持たない）。 */
 export type FlatItem = { type: "group"; group: FolderGroup } | { type: "chat"; chat: Chat; group: FolderGroup };
 export function flattenGroups(groups: FolderGroup[], collapsed: (key: string) => boolean): FlatItem[] {

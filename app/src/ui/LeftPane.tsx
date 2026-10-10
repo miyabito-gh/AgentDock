@@ -6,7 +6,7 @@ import { TENTATIVE_HINT, TENTATIVE_STYLE, chatAgents, chatName, chatRequests, ch
 import { STATE, keyStr, knownValue } from "./format";
 import { PENDING_TEXT, archiveTag } from "./ManageDialogs";
 import { GROUP_HEADER_HEIGHT, WINDOW_THRESHOLD, cumulativeTops, rowHeight, scrollTopToRevealVar, windowRangeVar } from "./listWindow";
-import { UNKNOWN_KEY, flattenGroups, groupChats, shortNames, worktreeOf, type FlatItem, type FolderGroup } from "./folderGroups";
+import { UNKNOWN_KEY, collapseAll, flattenGroups, groupChats, shortNames, worktreeOf, type FlatItem, type FolderGroup } from "./folderGroups";
 
 /** 行の「…」メニューで選べる操作（App.tsx の onChatAct が対象チャットIDつきで受ける）。 */
 export type ChatOp = "rename" | "pin" | "archive" | "unarchive" | "export" | "delete";
@@ -245,10 +245,11 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct,
         <button type="button" className="grp-toggle" data-idx={idx} aria-expanded={!collapsed} title={title} onClick={() => { if (q === "") toggleCollapsed(g.key); }}
           aria-disabled={q !== "" || undefined} aria-label={`${label}（${g.chats.length}件）${g.pinned ? "。ピン留め" : ""}${collapsed && q === "" ? "。折りたたみ中" : ""}`}>
           <span className="grp-caret" aria-hidden="true">{collapsed && q === "" ? "▸" : "▾"}</span>
+          <span className="grp-ico" aria-hidden="true"><Icon name={g.kind === "general" ? "chat" : g.kind === "unknown" ? "folderUnknown" : collapsed && q === "" ? "folder" : "folderOpen"} /></span>
           <span className="grp-nm">{label}</span>
           <span className="grp-n">{g.chats.length}</span>
         </button>
-        {g.pinned ? <span className="tag" title="ピン留めしたフォルダ">ピン</span> : null}
+        {g.pinned ? <span className="grp-pin" title="ピン留めしたフォルダ" aria-label="ピン留めしたフォルダ" role="img"><Icon name="pin" /></span> : null}
         <span className="grp-marks">
           {counts.wait ? <span className="mark wait" title={`承認・質問待ち ${counts.wait}件`}>待 {counts.wait}</span> : null}
           {counts.fail ? <span className="mark fail" title={`未確認の失敗 ${counts.fail}件`}>失 {counts.fail}</span> : null}
@@ -270,28 +271,33 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct,
       const b = el.closest(".row-chat")?.querySelector<HTMLElement>(".row-more");
       if (b) openMenu({ kind: "chat", id: c.key.id }, b);
     };
+    const statusText = chatStatusText(snap, c);
+    const statusCls = statusClass(statusText);
+    const arc = archiveTag(localOf(c));
+    const cwdText = c.kind !== "general" && c.cwd.kind === "value" ? c.cwd.value : null;
+    const kindTitle = `${c.kind === "general" ? "一般チャット" : "作業フォルダのチャット"}${cwdText ? `（${cwdText}）` : ""}\n状態: ${statusText}`;
     return (
-      <div key={k} className={`row-chat ${k === sel ? "sel" : ""}${fixed ? " fixed" : ""}${open ? " menu-open" : ""}`}
+      <div key={k} className={`row-chat${byFolder ? " in-grp" : ""}${k === sel ? " sel" : ""}${fixed ? " fixed" : ""}${open ? " menu-open" : ""}`}
         style={fixed ? { height: rowH, minHeight: rowH } : undefined}
         onContextMenu={(e) => { e.preventDefault(); openFromRow(e.currentTarget); }}>
         <button type="button" className="row-main" onClick={() => onSelect(c.key.id)} aria-current={k === sel} data-idx={idx}
           {...(fixed && !byFolder ? { "aria-posinset": idx! + 1, "aria-setsize": items.length } : {})}
           onKeyDown={(e) => { if ((e.shiftKey && e.key === "F10") || e.key === "ContextMenu") { e.preventDefault(); e.stopPropagation(); openFromRow(e.currentTarget); } }}>
-          <span className="nm" style={chatTitle(c).confirmed ? undefined : TENTATIVE_STYLE} title={chatTitle(c).confirmed ? undefined : TENTATIVE_HINT}>{chatName(c)}</span>
+          <span className={`st st-mark ${statusCls || "none"}`} role="img" aria-label={`状態: ${statusText}`} title={statusText}><i aria-hidden="true" /></span>
+          <span className="nm" style={chatTitle(c).confirmed ? undefined : TENTATIVE_STYLE} title={chatTitle(c).confirmed ? kindTitle : TENTATIVE_HINT}>{chatName(c)}</span>
+          {c.origin === "external" ? <span className="tag" title="Codex 側で作られた会話（AgentDock が起動したものではない）">外部</span> : null}
+          {c.noHistory ? <span className="tag" title="Codex に記録がありません">履歴なし</span> : null}
+          {wt ? <span className="tag" title={`AgentDock が作った worktree（ブランチ ${wt.branch}）\n${wt.path}`}>worktree</span> : null}
+          {archived(c) && (!showArch || arc.text !== "アーカイブ") ? <span className="tag" title={arc.title || undefined}>{arc.text}</span> : null}
+          {localOf(c)?.deletePending ? <span className="tag unv" title={PENDING_TEXT(localOf(c)!.deletePending!.reason)}>削除保留</span> : null}
           <span className="marks">
-            {localOf(c)?.deletePending ? <span className="tag unv" title={PENDING_TEXT(localOf(c)!.deletePending!.reason)}>削除保留</span> : null}
             {hasReq ? <span className="mark wait" title="承認・質問待ち">待</span> : null}
             {unconfirmedFail ? (
               <span className="mark fail" role="button" tabIndex={0} title="未確認の失敗があります。クリックで「確認済み」にします（再実行ではありません）"
                 onClick={(e) => { e.stopPropagation(); onAcknowledge(c); }}
                 onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); onAcknowledge(c); } }}>失</span>
             ) : null}
-          </span>
-          <span className="sub">
-            {c.kind === "general" ? "一般" : <Icon name="folder" />}
-            <span className={`st ${statusClass(chatStatusText(snap, c))}`} title={chatStatusText(snap, c)}><i aria-hidden="true" /><span>{chatStatusText(snap, c)}</span></span>
-            {wt ? <span className="tag" title={`AgentDock が作った worktree（ブランチ ${wt.branch}）\n${wt.path}`}>worktree</span> : null}
-            {archived(c) ?<span className="tag" title={archiveTag(localOf(c)).title || undefined}>{archiveTag(localOf(c)).text}</span> : null}
+            {isRunning(snap, c) ? <span className="mark pend" title="作業中">作業中</span> : null}
           </span>
         </button>
         {moreBtn("chat", c.key.id, `「${chatName(c)}」の操作`, open, (el) => openMenu({ kind: "chat", id: c.key.id }, el))}
@@ -318,6 +324,19 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct,
                     <span>{v === "Recent" ? "最近使った順" : "作業フォルダごと"}</span><span aria-hidden="true">{chatList.view === v ? "✓" : ""}</span>
                   </button>
                 ))}
+                {chatList.view === "ByFolder" ? (
+                  <>
+                    <hr />
+                    <button type="button" role="menuitem" disabled={groups.length === 0}
+                      onClick={() => { const keys = groups.map((g) => g.key); onChatList((c) => ({ ...c, collapsedFolders: collapseAll(c.collapsedFolders, keys) })); close(); }}>
+                      <span>すべて折りたたむ</span>
+                    </button>
+                    <button type="button" role="menuitem" disabled={chatList.collapsedFolders.length === 0}
+                      onClick={() => { onChatList((c) => ({ ...c, collapsedFolders: [] })); close(); }}>
+                      <span>すべて展開</span>
+                    </button>
+                  </>
+                ) : null}
               </>
             )}
           </Popover>

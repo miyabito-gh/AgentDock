@@ -67,9 +67,9 @@
   --ser1:#4CC2FF; --ser2:#7DD58A; --ser3:#C4A9FF; --ser4:#FFC83D; --ser5:#A8A8A8; --ser6:#4DD0E1; --ser7:#FF8A80;
 }
 /* 文字サイズ（M51）。画面側（ui/appearance.ts）が data-ui-size／data-body-size を付ける。--fs-xs は 11px 未満にしない。 */
-:root{--row-h:40px}
-:root[data-ui-size="small"]{--fs:12px; --fs-s:11.5px; --fs-xs:11px}
-:root[data-ui-size="large"]{--fs:14px; --fs-s:13px; --fs-xs:12px; --row-h:44px}
+:root{--row-h:30px}
+:root[data-ui-size="small"]{--fs:12px; --fs-s:11.5px; --fs-xs:11px; --row-h:28px}
+:root[data-ui-size="large"]{--fs:14px; --fs-s:13px; --fs-xs:12px; --row-h:34px}
 :root[data-body-size="small"]{--fs-body:12px}
 :root[data-body-size="large"]{--fs-body:15px}
 :root[data-body-size="xlarge"]{--fs-body:17px}
@@ -394,7 +394,7 @@ textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;paddin
 .row-chat.fixed{height:var(--row-h);min-height:var(--row-h);/* listWindow.ts rowHeight と同じ値 */ overflow:hidden}
 .row-chat:hover,.row-chat.menu-open{background:var(--hover)}
 .row-chat.sel{background:var(--sel-bg);border-color:var(--line);box-shadow:inset 3px 0 0 var(--accent)}
-.row-chat .row-main{flex:1;min-width:0;height:auto;min-height:calc(var(--row-h) - 2px);display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;text-align:left;padding:2px 4px 2px 8px;border-radius:var(--r2);gap:0 6px;line-height:1.3;white-space:normal}
+.row-chat .row-main{flex:1;min-width:0;height:auto;min-height:calc(var(--row-h) - 2px);display:flex;align-items:center;text-align:left;padding:0 4px 0 8px;border-radius:var(--r2);gap:6px;line-height:1.3;white-space:nowrap;overflow:hidden}
 .row-chat .row-main:hover{background:transparent}
 .row-more{flex:none;width:24px;height:24px;padding:0;margin:0 2px;align-self:center;justify-content:center;border-radius:var(--r1);color:var(--ink2);font-weight:700;line-height:1;opacity:0}
 .row-chat:hover .row-more,.row-chat:focus-within .row-more,.row-chat.menu-open .row-more,.row-chat.sel .row-more,
@@ -405,23 +405,26 @@ textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;paddin
 .row-menu button.danger{color:var(--fail-ink)}
 .lt-row .btn.lt-view{flex:none;padding:0 8px;gap:4px}
 /* 作業フォルダごとの見出し（高さは listWindow.ts GROUP_HEADER_HEIGHT と同じ 28px） */
-.list-grp{display:flex;align-items:center;gap:4px;height:28px;box-sizing:border-box;padding:0 2px 0 0;border-radius:var(--r2);color:var(--ink2);font-size:var(--fs-s)}
-.list-grp:hover{background:var(--hover)}
+.list-grp{display:flex;align-items:center;gap:4px;height:28px;box-sizing:border-box;padding:0 2px 0 2px;border-top:1px solid var(--line);border-radius:var(--r2);color:var(--ink2);font-size:var(--fs-s);background:color-mix(in srgb,var(--ink) 6%,var(--rail))}
+.list-grp:hover{background:color-mix(in srgb,var(--ink) 10%,var(--rail))}
+.list-grp .grp-ico{flex:none;display:inline-flex;color:var(--ink2)}
+.list-grp .grp-pin{flex:none;display:inline-flex;color:var(--ink2)}
+.list-grp .grp-pin svg.i{width:12px;height:12px}
+.row-chat.in-grp .row-main{padding-left:20px}
 .list-grp .grp-toggle{flex:1 1 auto;min-width:0;height:24px;padding:0 4px;gap:4px;font-size:var(--fs-s);font-weight:700;color:var(--ink);text-align:left;overflow:hidden}
 .list-grp .grp-toggle[aria-disabled=true]{cursor:default}
 .list-grp .grp-caret{flex:none;color:var(--ink3);width:10px}
 .list-grp .grp-nm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.list-grp .grp-n{flex:none;color:var(--ink3);font-weight:400;font-variant-numeric:tabular-nums}
+.list-grp .grp-n{flex:none;color:var(--ink2);font-weight:500;font-size:var(--fs-xs);font-variant-numeric:tabular-nums;line-height:1.5;padding:0 6px;border-radius:999px;background:var(--surface);border:1px solid var(--line)}
 .list-grp .grp-marks{flex:none;display:flex;gap:3px}
 .list-grp .tag{flex:none}
-.row-chat .nm{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.row-chat .sub{grid-column:1/-1;font-size:var(--fs-s);color:var(--ink2);display:flex;gap:6px;align-items:center;min-width:0;overflow:hidden;white-space:nowrap}
-.row-chat .sub .st{margin-left:0;min-width:0;overflow:hidden;background:transparent;border-color:transparent;padding:0;line-height:1.2}
-.row-chat .sub .st>span{overflow:hidden;text-overflow:ellipsis}
-.row-chat .sub .st:not(.run):not(.wait):not(.fail):not(.int):not(.done):not(.idle):not(.unk){font-weight:400;color:var(--ink2)}
-.row-chat .sub .st:not(.run):not(.wait):not(.fail):not(.int):not(.done):not(.idle):not(.unk) i{display:none}
-.row-chat .sub .tag{flex:none}
-.row-chat .marks{flex:none}
+/* 1行表示: [状態の印] 名前 [小タグ] [印]。状態の文字は出さず、全文は title／aria-label（印の形は .st i の規則を流用） */
+.row-chat .nm{flex:1 1 auto;min-width:0;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row-chat .st-mark{flex:none;display:inline-flex;align-items:center;justify-content:center;width:12px;margin:0;padding:0;background:transparent;border:0}
+.row-chat .st-mark i{width:8px;height:8px}
+.row-chat .st-mark.none i{width:4px;height:4px;background:var(--ink3)}
+.row-chat .row-main .tag{flex:none}
+.row-chat .marks{flex:none;display:inline-flex;gap:4px;align-items:center}
 .left-foot{border-top:1px solid var(--line);padding:6px 10px;font-size:var(--fs-s);color:var(--ink2);display:flex;justify-content:space-between}
 
 .dock-top{position:relative;padding:6px 8px;border-bottom:1px solid var(--line2);display:flex;align-items:center;gap:6px;min-width:0}

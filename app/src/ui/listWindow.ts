@@ -1,12 +1,12 @@
 // チャット一覧の固定行高ウィンドウ表示の範囲計算（P3-9）。純粋関数。依存追加なし。
 /** これを超えたらウィンドウ表示にする。 */
 export const WINDOW_THRESHOLD = 200;
-/** 窓表示のときの1行の高さ（px。「標準」の値。CSSの `--row-h` と合わせる）。 */
-export const ROW_HEIGHT = 40;
+/** 1行表示の行の高さ（px。「標準」の値。CSSの `--row-h` と合わせる）。 */
+export const ROW_HEIGHT = 30;
 
-/** 画面の文字サイズ別の一覧の行の高さ（px。styles.css の `--row-h` と同じ値）。 */
+/** 画面の文字サイズ別の一覧の行の高さ（px。styles.css の `--row-h` と同じ値: 小28／標準30／大34）。 */
 export function rowHeight(uiSize: "Small" | "Normal" | "Large"): number {
-  return uiSize === "Large" ? 44 : 40;
+  return uiSize === "Large" ? 34 : uiSize === "Small" ? 28 : ROW_HEIGHT;
 }
 const OVERSCAN = 8;
 

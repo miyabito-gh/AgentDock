@@ -1,7 +1,7 @@
 // 実行: node --test src/ui/listWindow.test.ts （tscの対象外）
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { cumulativeTops, windowRange, windowRangeVar, scrollTopToRevealVar } from "./listWindow.ts";
+import { cumulativeTops, windowRange, windowRangeVar, scrollTopToRevealVar, rowHeight, ROW_HEIGHT } from "./listWindow.ts";
 
 test("同じ高さなら固定高さ版と先頭が同じで、見える範囲を必ず含む", () => {
   const h = new Array(500).fill(40);
@@ -36,4 +36,9 @@ test("可変高さの reveal", () => {
   assert.equal(scrollTopToRevealVar(h, 1, 100, 100), 28);
   assert.equal(scrollTopToRevealVar(h, 2, 40, 100), 40);
   assert.equal(scrollTopToRevealVar(h, 9, 7, 100), 7);
+});
+
+test("行高: 小28／標準30／大34、ROW_HEIGHT は標準", () => {
+  assert.deepEqual([rowHeight("Small"), rowHeight("Normal"), rowHeight("Large")], [28, 30, 34]);
+  assert.equal(rowHeight("Normal"), ROW_HEIGHT);
 });
