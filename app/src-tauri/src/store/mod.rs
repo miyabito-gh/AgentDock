@@ -513,6 +513,7 @@ impl Store {
         let mut total = UsageBreakdown::default();
         let mut chats: Vec<ChatUsage> = Vec::new();
         let mut unreadable: Vec<String> = Vec::new();
+        let mut webview_cache: Known<u64> = Known::NotFetched;
         let chats_root = self.root.join(layout::CHATS_DIR);
         let mut dirs: Vec<PathBuf> = match std::fs::read_dir(&chats_root) {
             Ok(rd) => rd.filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.is_dir()).collect(),
@@ -544,10 +545,19 @@ impl Store {
             let mut meta = 0u64;
             let Ok(rd) = std::fs::read_dir(&self.root) else {
                 unreadable.push(shown(&self.root));
-                return self.finish_usage(total, chats, unreadable);
+                return self.finish_usage(total, chats, unreadable, webview_cache);
             };
+            // フォルダが無ければ 0（読めている）。見つかって読めなかったときだけ「未取得」にする。
+            webview_cache = Known::direct(0);
             for e in rd.filter_map(|e| e.ok()) {
                 if e.file_name() == layout::CHATS_DIR {
+                    continue;
+                }
+                // 画面表示のキャッシュ（WebView2）はチャットのデータではないので、メタデータと分けて数える。
+                if e.file_name() == layout::WEBVIEW_CACHE_DIR {
+                    let (n, mut bad) = atomic::dir_size(&e.path());
+                    webview_cache = if bad.is_empty() { Known::direct(n) } else { Known::NotFetched };
+                    unreadable.append(&mut bad);
                     continue;
                 }
                 let (n, mut bad) = atomic::dir_size(&e.path());
@@ -556,15 +566,15 @@ impl Store {
             }
             total.metadata = total.metadata.saturating_add(meta);
         }
-        self.finish_usage(total, chats, unreadable)
+        self.finish_usage(total, chats, unreadable, webview_cache)
     }
 
-    fn finish_usage(&self, total: UsageBreakdown, chats: Vec<ChatUsage>, unreadable: Vec<String>) -> UsageReport {
+    fn finish_usage(&self, total: UsageBreakdown, chats: Vec<ChatUsage>, unreadable: Vec<String>, webview_cache: Known<u64>) -> UsageReport {
         let free_space = match atomic::free_space(&self.root) {
             Ok(n) => Known::direct(n),
             Err(_) => Known::NotFetched,
         };
-        UsageReport { total, chats, legacy_area: 0, free_space, measured_at: UnixMillis(now_ms()), unreadable }
+        UsageReport { total, chats, legacy_area: 0, free_space, webview_cache, measured_at: UnixMillis(now_ms()), unreadable }
     }
 
     /// チャット領域の合計サイズ（削除確認の表示用）。領域がなければ 0、読めなかったパスがあれば None（0で代用しない）。
@@ -1095,6 +1105,22 @@ mod tests {
         assert_eq!(one.chats.len(), 1);
         assert_eq!(one.total, one.chats[0].breakdown, "the chat scope does not include settings or other chats");
         assert_eq!(one.legacy_area, 0);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn webview_cache_is_reported_apart_from_metadata() {
+        let (root, store, _a, _b) = two_areas("webview");
+        std::fs::write(root.join("settings.json"), vec![0u8; 7]).unwrap();
+        let before = store.usage(None);
+        assert_eq!(before.webview_cache, Known::direct(0), "no cache folder is a readable zero");
+        std::fs::create_dir_all(root.join(layout::WEBVIEW_CACHE_DIR).join("Default")).unwrap();
+        std::fs::write(root.join(layout::WEBVIEW_CACHE_DIR).join("Default").join("c.bin"), vec![0u8; 100]).unwrap();
+        let after = store.usage(None);
+        assert_eq!(after.webview_cache, Known::direct(100));
+        assert_eq!(after.total.metadata, before.total.metadata, "the cache is not part of metadata");
+        // チャット単位の集計では測らない（0で代用しない）。
+        assert_eq!(store.usage(Some(&key("ta"))).webview_cache, Known::NotFetched);
         let _ = std::fs::remove_dir_all(&root);
     }
 

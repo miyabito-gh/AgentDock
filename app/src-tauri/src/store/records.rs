@@ -289,7 +289,7 @@ mod tests {
         f.work_mode = Some(WorkMode::Plan);
         f.memory_mode = Some("raw-mode".into());
         f.review_of = Some(key());
-        f.fork_of = Some(ForkOrigin { chat: key(), through_turn: Some(ExternalId("turn-2".into())) });
+        f.fork_of = Some(ForkOrigin { chat: key(), through_turn: Some(ExternalId("turn-2".into())), purpose: ForkPurpose::default() });
         f.side_sessions.push(SideSessionMeta { id: LocalId("s1".into()), main: key(), thread: key(), state: SideState::Ended { reason: "closed".into() }, opened_at: Some(UnixMillis(5)) });
         f.worktree = Some(LocalId("w1".into()));
         f.pending_ops.push(PendingOp { id: LocalId("op-1".into()), op: ParityOp::Compact, since: UnixMillis(7) });

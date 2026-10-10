@@ -219,6 +219,8 @@ pub fn run() {
             commands::start_review,
             commands::fork_chat,
             commands::reconcile_fork,
+            commands::resend_as_fork,
+            commands::recheck_unknown_agents,
             commands::compact_chat,
             commands::reconcile_op,
             commands::list_compaction_snapshots,

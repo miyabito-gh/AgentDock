@@ -539,6 +539,21 @@ pub enum WorkMode {
 pub struct ForkOrigin {
     pub chat: ChatKey,
     pub through_turn: Option<ExternalId>,
+    /// 何のための分岐か（古い記録では `Fork`）。
+    #[serde(default)]
+    pub purpose: ForkPurpose,
+}
+
+/// 分岐の目的（M50）。表示のタグ（「分岐」「編集から」「再生成」）に使う。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub enum ForkPurpose {
+    #[default]
+    Fork,
+    EditResend,
+    Regenerate,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

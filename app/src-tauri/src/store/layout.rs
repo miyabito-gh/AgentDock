@@ -41,6 +41,8 @@ pub const CLOUD_TASKS_FILE: &str = "cloud-tasks.json";
 pub const EXTENSION_OPS_FILE: &str = "extension-ops.jsonl";
 pub const WORKTREES_DIR: &str = "worktrees";
 pub const CHATS_DIR: &str = "chats";
+/// WebView2 のキャッシュ（専用領域直下。チャットのデータではない）。
+pub const WEBVIEW_CACHE_DIR: &str = "EBWebView";
 pub const CHAT_FILE: &str = "chat.json";
 pub const QUEUE_FILE: &str = "queue.json";
 pub const ACTIVITY_FILE: &str = "activity.jsonl";

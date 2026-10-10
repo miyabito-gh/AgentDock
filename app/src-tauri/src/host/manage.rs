@@ -137,13 +137,7 @@ impl Host {
         });
         for agent in cands {
             let Ok(h) = self.read_history(agent.clone(), ReadOptions { include_turns: true }).await else { continue };
-            let tail = match h.turns.last() {
-                None => HistoryTail::NoTurns,
-                Some(t) => match t.end {
-                    Some(end) => HistoryTail::Ended(t.key.turn_id.clone(), end),
-                    None => HistoryTail::NotTerminal,
-                },
-            };
+            let tail = super::state::history_tail_of(&h.turns);
             self.mutate(|d| {
                 let ev = d.note_history_tail(&agent, tail, now_ms());
                 ((), ev)

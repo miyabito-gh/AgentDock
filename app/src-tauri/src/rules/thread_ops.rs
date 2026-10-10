@@ -110,6 +110,118 @@ pub fn match_fork(candidates: &[ForkCandidate], source_id: &str, since: UnixMill
     }
 }
 
+// ───────────────────────────── 編集して再送・再生成（M50、DESIGN_P5 §5） ─────────────────────────────
+
+/// 編集して再送・再生成の可否の判断材料。ホストが履歴とチャットの状態から作る。
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResendCtx {
+    /// 分岐の能力が使えないときの理由（使えるなら None）。
+    pub capability_problem: Option<String>,
+    pub connected: bool,
+    pub delete_pending: bool,
+    /// 外部で実行中の可能性（外部作成で live でない）。
+    pub running_elsewhere: bool,
+    pub stop_unconfirmed: bool,
+    /// メイン・子孫に作業中・対応待ちがある、または送信の受理不明・結果未確認の操作がある。
+    pub busy: bool,
+    /// メインの状態が不明で、履歴で終端を確認できていない。
+    pub root_state_unknown: bool,
+    /// 履歴で、対象turnが `through_turn` の直後であることを確認できたか。
+    pub target_follows_through: bool,
+    /// 対象turnの依頼（ユーザー発話）の件数。2件以上は実行中の追加指示を含む。
+    pub target_request_count: usize,
+    /// `through_turn` の終端を履歴で確認できたか（`end === null` や turn ID なしは false）。
+    pub through_end_known: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResendBlockKind {
+    Capability,
+    NotConnected,
+    DeletePending,
+    RunningElsewhere,
+    StopUnconfirmed,
+    Busy,
+    StateUnknown,
+    /// 表示が古い（対象turnが終点の直後でない）。
+    Stale,
+    MultipleRequests,
+    PreviousNotEnded,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResendBlock {
+    pub kind: ResendBlockKind,
+    pub message: String,
+}
+
+/// 無効の理由を、DESIGN_P5 §5 の順（1〜9）で最初に当たったものだけ返す。None なら実行してよい。
+/// 表示が古い場合の照合（`target_follows_through`）は、履歴の内容に依る条件（追加指示・終点の終端）の前に調べる。
+pub fn resend_blocker(c: &ResendCtx) -> Option<ResendBlock> {
+    let b = |kind, m: &str| Some(ResendBlock { kind, message: m.to_string() });
+    if let Some(reason) = &c.capability_problem {
+        return Some(ResendBlock { kind: ResendBlockKind::Capability, message: reason.clone() });
+    }
+    if !c.connected {
+        return b(ResendBlockKind::NotConnected, "Codex に接続していません");
+    }
+    if c.delete_pending {
+        return b(ResendBlockKind::DeletePending, "削除保留中のチャットです");
+    }
+    if c.running_elsewhere {
+        return b(ResendBlockKind::RunningElsewhere, "外部で実行中か確認できないため使えません（再開の案内から確認してください）");
+    }
+    if c.stop_unconfirmed {
+        return b(ResendBlockKind::StopUnconfirmed, "停止を確認できていないため使えません");
+    }
+    if c.busy {
+        return b(ResendBlockKind::Busy, "実行中は使えません。完了するか、中断と停止の確認の後に使えます");
+    }
+    if c.root_state_unknown {
+        return b(ResendBlockKind::StateUnknown, "状態を確認できないため使えません（「状態を再照合」で確認できます）");
+    }
+    if !c.target_follows_through {
+        return b(ResendBlockKind::Stale, "表示が古いため、会話を読み直してからやり直してください");
+    }
+    if c.target_request_count >= 2 {
+        return b(ResendBlockKind::MultipleRequests, "追加指示を含むturnは、編集・再生成できません");
+    }
+    if !c.through_end_known {
+        return b(ResendBlockKind::PreviousNotEnded, "直前のturnの終了を確認できていません");
+    }
+    None
+}
+
+/// 分岐を受け付けた後の次の一歩。分岐が受理不明・拒否ならここで止め、下書きも送信もしない（照合は読取りだけ）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResendNext {
+    /// 分岐が受理されなかった。下書きも送信もしない。
+    StopAfterFork,
+    /// 下書きを保存できなかった。送らない。
+    StopAfterDraft,
+    /// 下書きを保存できたが、送信は求められていない（入力欄に入れるだけ）。
+    DraftOnly,
+    /// 分岐も下書きも済み、送信を1回だけ行う。
+    SendOnce,
+}
+
+pub fn resend_next(fork_accepted: bool, draft_saved: bool, send_requested: bool) -> ResendNext {
+    if !fork_accepted {
+        ResendNext::StopAfterFork
+    } else if !draft_saved {
+        ResendNext::StopAfterDraft
+    } else if send_requested {
+        ResendNext::SendOnce
+    } else {
+        ResendNext::DraftOnly
+    }
+}
+
+/// 送信後に下書きを消してよいか。受理が確認できたときだけ（拒否・受理不明は下書きを残す）。
+pub fn clear_draft_after(state: &SendState) -> bool {
+    matches!(state, SendState::Accepted { .. })
+}
+
 // ───────────────────────────── 受理不明の操作の照合 ─────────────────────────────
 
 #[derive(Debug, Clone, PartialEq)]
@@ -170,6 +282,101 @@ mod tests {
 
     fn cand(id: &str, from: Option<&str>, at: Option<i64>) -> ForkCandidate {
         ForkCandidate { chat: ck(id), forked_from: from.map(str::to_string), created_at: at.map(UnixMillis) }
+    }
+
+    fn ok_ctx() -> ResendCtx {
+        ResendCtx {
+            capability_problem: None,
+            connected: true,
+            delete_pending: false,
+            running_elsewhere: false,
+            stop_unconfirmed: false,
+            busy: false,
+            root_state_unknown: false,
+            target_follows_through: true,
+            target_request_count: 1,
+            through_end_known: true,
+        }
+    }
+
+    #[test]
+    fn resend_blocker_reports_each_reason_in_the_documented_order() {
+        assert_eq!(resend_blocker(&ok_ctx()), None);
+        let kind = |c: &ResendCtx| resend_blocker(c).map(|b| b.kind);
+        let mut c = ok_ctx();
+        c.capability_problem = Some("非対応".into());
+        assert_eq!(kind(&c), Some(ResendBlockKind::Capability));
+        c = ok_ctx();
+        c.connected = false;
+        assert_eq!(kind(&c), Some(ResendBlockKind::NotConnected));
+        c = ok_ctx();
+        c.delete_pending = true;
+        assert_eq!(kind(&c), Some(ResendBlockKind::DeletePending));
+        c = ok_ctx();
+        c.running_elsewhere = true;
+        assert_eq!(kind(&c), Some(ResendBlockKind::RunningElsewhere));
+        c = ok_ctx();
+        c.stop_unconfirmed = true;
+        assert_eq!(kind(&c), Some(ResendBlockKind::StopUnconfirmed));
+        c = ok_ctx();
+        c.busy = true;
+        assert_eq!(kind(&c), Some(ResendBlockKind::Busy));
+        c = ok_ctx();
+        c.root_state_unknown = true;
+        assert_eq!(kind(&c), Some(ResendBlockKind::StateUnknown));
+        c = ok_ctx();
+        c.target_request_count = 2;
+        assert_eq!(kind(&c), Some(ResendBlockKind::MultipleRequests));
+        c = ok_ctx();
+        c.through_end_known = false;
+        assert_eq!(kind(&c), Some(ResendBlockKind::PreviousNotEnded));
+        c = ok_ctx();
+        c.target_follows_through = false;
+        assert_eq!(kind(&c), Some(ResendBlockKind::Stale));
+    }
+
+    #[test]
+    fn resend_blocker_priority_earlier_reasons_win() {
+        let mut c = ok_ctx();
+        c.connected = false;
+        c.busy = true;
+        c.target_request_count = 3;
+        c.through_end_known = false;
+        assert_eq!(resend_blocker(&c).unwrap().kind, ResendBlockKind::NotConnected);
+        // 表示が古いときは、履歴の内容に依る理由（追加指示・終点未確認）より先に出す。
+        let mut c = ok_ctx();
+        c.target_follows_through = false;
+        c.target_request_count = 2;
+        c.through_end_known = false;
+        assert_eq!(resend_blocker(&c).unwrap().kind, ResendBlockKind::Stale);
+        // 追加指示は終点の未確認より先。
+        let mut c = ok_ctx();
+        c.target_request_count = 2;
+        c.through_end_known = false;
+        assert_eq!(resend_blocker(&c).unwrap().kind, ResendBlockKind::MultipleRequests);
+    }
+
+    #[test]
+    fn resend_never_sends_after_an_unconfirmed_fork_or_a_failed_draft_save() {
+        // 分岐が受理されていない（拒否・受理不明）: 下書きにも送信にも進まない。
+        assert_eq!(resend_next(false, true, true), ResendNext::StopAfterFork);
+        assert_eq!(resend_next(false, false, true), ResendNext::StopAfterFork);
+        // 下書きを保存できなかったら送らない。
+        assert_eq!(resend_next(true, false, true), ResendNext::StopAfterDraft);
+        assert_eq!(resend_next(true, false, false), ResendNext::StopAfterDraft);
+        // 送らない指定では入力欄に入れるだけ。
+        assert_eq!(resend_next(true, true, false), ResendNext::DraftOnly);
+        assert_eq!(resend_next(true, true, true), ResendNext::SendOnce);
+    }
+
+    #[test]
+    fn draft_is_cleared_only_when_the_send_is_confirmed_accepted() {
+        let turn = TurnKey { agent: AgentKey { backend: BackendKind::Codex, id: ExternalId("c".into()) }, turn_id: ExternalId("t".into()) };
+        assert!(clear_draft_after(&SendState::Accepted { turn }));
+        assert!(!clear_draft_after(&SendState::AcceptanceUnknown { since: UnixMillis(1) }));
+        assert!(!clear_draft_after(&SendState::Rejected { message: "x".into() }));
+        assert!(!clear_draft_after(&SendState::Sending));
+        assert!(!clear_draft_after(&SendState::NotFoundAfterReconcile));
     }
 
     #[test]

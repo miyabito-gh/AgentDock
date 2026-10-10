@@ -14,7 +14,7 @@ use std::time::Duration;
 use tokio::sync::Notify;
 
 use super::cloud::paths_overlap;
-use super::state::{agent_key_of, HostData};
+use super::state::{agent_key_of, history_tail_of, tail_confirms_idle, HistoryTail, HostData};
 use super::{blocked, err, now_ms, Host};
 use crate::backend::backend::*;
 use crate::backend::ipc::*;
@@ -44,6 +44,16 @@ struct TerminalFact {
 /// 最新turnを持つのに履歴の最新turnと違うときは、新しいturnが始まっているので使わない。
 fn history_term<'a>(latest: Option<&ExternalId>, term: Option<&'a TerminalFact>) -> Option<&'a TerminalFact> {
     term.filter(|t| t.end.is_some() && t.turn.is_some() && latest.is_none_or(|l| t.turn.as_ref() == Some(l)))
+}
+
+/// 履歴の末尾の様子を、再確認の結果にする。終端（またはturnなし）を確認できたものだけ `TerminalFound`、それ以外は状態不明のまま。
+/// 状態を終端扱いにする条件（`unknown_confirmed_idle`）と同じ判定にそろえ、最新turnが食い違うときは確認済みと言わない。
+fn recheck_outcome_of(latest_turn: Option<&ExternalId>, tail: &HistoryTail) -> RecheckOutcome {
+    if tail_confirms_idle(latest_turn, tail) {
+        RecheckOutcome::TerminalFound
+    } else {
+        RecheckOutcome::StillUnknown
+    }
 }
 
 /// キュー実行の作業状態（保存しない）。
@@ -429,22 +439,64 @@ impl Host {
 
     /// 1エージェントの履歴を読み、最新turnの終端を確認結果として記録する（読み取りのみ。resumeしない）。終端を確認できたら true。
     async fn read_terminal_fact(self: &Arc<Self>, agent: AgentKey) -> bool {
-        let fact = match self.read_history(agent.clone(), ReadOptions { include_turns: true }).await {
+        matches!(self.read_tail_fact(agent).await, Ok(HistoryTail::Ended(..)))
+    }
+
+    /// 履歴を読み、確認結果をキュー用の記録（`terminals`）へ残して、末尾の様子を返す（読み取りのみ）。読めなければ理由を返す。
+    async fn read_tail_fact(self: &Arc<Self>, agent: AgentKey) -> Result<HistoryTail, String> {
+        let (fact, res) = match self.read_history(agent.clone(), ReadOptions { include_turns: true }).await {
             Ok(h) => {
                 let last = h.turns.last();
-                TerminalFact {
+                let fact = TerminalFact {
                     turn: last.map(|t| t.key.turn_id.clone()),
                     end: last.and_then(|t| t.end),
                     completed_at: last.and_then(|t| t.completed_at.value().copied()),
                     checked_at: now_ms(),
-                }
+                };
+                (fact, Ok(history_tail_of(&h.turns)))
             }
             // 読めなかった: 確認できていないまま。次の間隔で再試行する（終端があったことにしない）。
-            Err(_) => TerminalFact { turn: None, end: None, completed_at: None, checked_at: now_ms() },
+            Err(e) => (TerminalFact { turn: None, end: None, completed_at: None, checked_at: now_ms() }, Err(e.to_string())),
         };
-        let ok = fact.end.is_some();
         self.queue_rt.terminals.lock().unwrap().insert(agent, fact);
-        ok
+        res
+    }
+
+    /// 「履歴で再確認」（M52。ユーザー操作）。状態不明の子孫の保存履歴を読むだけ（resume・送信・停止をしない。キューの有無に依存しない）。
+    /// 終端を確認できたものは「履歴で確認」として記録し、確認できなければ状態不明のまま。読めなければ何も変えない。
+    pub async fn recheck_unknown_agents(self: &Arc<Self>, args: RecheckAgentsArgs) -> Result<RecheckAgentsResult, IpcError> {
+        if !self.is_connected() {
+            return Err(err(IpcErrorCode::NotConnected, "Codex に接続していないため、履歴を確認できません"));
+        }
+        self.require_chat(&args.chat)?;
+        let root = agent_key_of(&args.chat);
+        let facts: Vec<q::RecheckFact> = self.read(|d| {
+            d.agents
+                .iter()
+                .filter(|v| v.agent.chat == args.chat)
+                .map(|v| q::RecheckFact { agent: v.agent.key.clone(), state: v.status.state, freshness: v.freshness })
+                .collect()
+        });
+        let mut results = Vec::new();
+        for plan in q::recheck_candidates(&root, &args.agents, &facts) {
+            let outcome = match plan.skip {
+                Some(reason) => RecheckOutcome::Skipped { reason },
+                None => match self.read_tail_fact(plan.agent.clone()).await {
+                    Ok(tail) => {
+                        let agent = plan.agent.clone();
+                        let latest = self.read(|d| d.view(&agent).and_then(|v| v.agent.latest_turn.clone()));
+                        let outcome = recheck_outcome_of(latest.as_ref(), &tail);
+                        self.mutate(|d| ((), d.note_history_tail(&agent, tail, now_ms())));
+                        outcome
+                    }
+                    Err(message) => RecheckOutcome::Unreadable { message },
+                },
+            };
+            results.push(AgentRecheck { agent: plan.agent, outcome });
+        }
+        // 確認できた終端は、キューの送信条件（合意済みの規則のまま）の判断に使われる。ボタンはキューを直接送らない。
+        self.kick_queue();
+        Ok(RecheckAgentsResult { results })
     }
 
     /// 「状態を再確認」（ユーザー操作）。ライブでなく作業中でもない子孫の履歴を、間隔を待たずに読み直す（読み取りのみ。resumeしない）。
@@ -1110,6 +1162,40 @@ mod tests {
 
     fn root() -> AgentKey {
         AgentKey { backend: BackendKind::Codex, id: ExternalId("r".into()) }
+    }
+
+    fn turn_rec(id: &str, end: Option<TurnEnd>) -> TurnRecord {
+        TurnRecord {
+            key: TurnKey { agent: root(), turn_id: ExternalId(id.into()) },
+            end,
+            started_at: Known::Missing,
+            completed_at: Known::Missing,
+            entries: vec![],
+            complete: end.is_some(),
+        }
+    }
+
+    #[test]
+    fn recheck_confirms_only_an_explicit_terminal_of_the_last_turn() {
+        // 最後のturnに終端がある: 履歴で確認。
+        let ended = [turn_rec("t1", None), turn_rec("t2", Some(TurnEnd::Failed))];
+        let t2 = ExternalId("t2".into());
+        assert!(matches!(recheck_outcome_of(Some(&t2), &history_tail_of(&ended)), RecheckOutcome::TerminalFound));
+        assert!(matches!(recheck_outcome_of(None, &history_tail_of(&ended)), RecheckOutcome::TerminalFound));
+        // turnなし（記録上も最新turnなし）: 実行されていないと確認できる。
+        assert!(matches!(recheck_outcome_of(None, &history_tail_of(&[])), RecheckOutcome::TerminalFound));
+        // 最後のturnの終端がない（前のturnが終わっていても、最新が進行中かもしれない）: 状態不明のまま。
+        let open = [turn_rec("t1", Some(TurnEnd::Completed)), turn_rec("t2", None)];
+        assert!(matches!(recheck_outcome_of(None, &history_tail_of(&open)), RecheckOutcome::StillUnknown));
+    }
+
+    #[test]
+    fn recheck_does_not_claim_confirmation_when_the_latest_turn_disagrees() {
+        // 最新turnがあるのに履歴が空、または別のturnで終わっている: 状態は終端扱いにならないので「確認」と言わない。
+        let latest = ExternalId("t9".into());
+        assert!(matches!(recheck_outcome_of(Some(&latest), &history_tail_of(&[])), RecheckOutcome::StillUnknown));
+        let other = [turn_rec("t2", Some(TurnEnd::Completed))];
+        assert!(matches!(recheck_outcome_of(Some(&latest), &history_tail_of(&other)), RecheckOutcome::StillUnknown));
     }
 
     #[test]

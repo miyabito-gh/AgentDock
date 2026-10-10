@@ -904,11 +904,8 @@ mod tests {
         for c in &caps {
             if implemented.contains(&c.op) {
                 assert_eq!(c.support, Support::Supported, "{:?}", c.op);
-                // 確認状況は版別の表（parity_table）どおり。方式を変えた変更の一覧・戻す操作（ChangeList・RevertChanges）は未確認のまま。
+                // 確認状況は版別の表（parity_table）どおり（ChangeList・RevertChangesは2026-10-10に実機確認済み）。
                 assert_eq!(c.verification, parity_table::verification(Some("0.160.0"), c.op), "{:?}", c.op);
-                if matches!(c.op, ParityOp::ChangeList | ParityOp::RevertChanges) {
-                    assert_eq!(c.verification, Verification::Unverified, "{:?}", c.op);
-                }
                 // クラウド委任は experimental のCLIである旨の注記を持つ。
                 assert_eq!(c.note.is_some(), c.op == ParityOp::CloudDelegation, "{:?}", c.op);
             } else {

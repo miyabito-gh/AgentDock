@@ -515,6 +515,19 @@ pub async fn reconcile_fork(host: Hs<'_>, args: ReconcileForkArgs) -> R<ForkReco
     host.inner().clone().reconcile_fork(args).await
 }
 
+/// 編集して再送・再生成（M50）。ダイアログの確認後のユーザー操作だけが呼ぶ。分岐→下書き保存→（求められたときだけ）1回送る。
+#[tauri::command]
+pub async fn resend_as_fork(host: Hs<'_>, args: ResendAsForkArgs) -> R<ResendAsForkResult> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().resend_as_fork(args, &confirmed).await
+}
+
+/// 状態不明の子孫の「履歴で再確認」（読取りのみ。resume・送信・停止をしない）。
+#[tauri::command]
+pub async fn recheck_unknown_agents(host: Hs<'_>, args: RecheckAgentsArgs) -> R<RecheckAgentsResult> {
+    host.inner().clone().recheck_unknown_agents(args).await
+}
+
 /// 文脈の圧縮。確認画面の後のユーザー操作だけが呼ぶ（圧縮前の控えを保存してから送る）。
 #[tauri::command]
 pub async fn compact_chat(host: Hs<'_>, args: ChatArgs) -> R<CompactChatResult> {

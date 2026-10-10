@@ -12,7 +12,12 @@ legacyArea: number,
 /**
  * 専用領域のあるドライブの空き。
  */
-freeSpace: Known<number>, measuredAt: UnixMillis, 
+freeSpace: Known<number>, 
+/**
+ * 専用領域の `EBWebView`（WebView2のキャッシュ）の大きさ。メタデータには含めない。読めなければ未取得（0で代用しない）。
+ * 全体の集計のときだけ測る（チャット指定では未取得）。AgentDockは削除しない。
+ */
+webviewCache: Known<number>, measuredAt: UnixMillis, 
 /**
  * 読めなかったパス（合計に含まれていない。0で代用しない）。
  */

@@ -36,6 +36,26 @@ pub enum HistoryTail {
     NotTerminal,
 }
 
+/// 読んだ履歴の末尾から、終端を確認できたかを判定する（最後のturnの `end` だけを根拠にする。推定しない）。
+pub fn history_tail_of(turns: &[TurnRecord]) -> HistoryTail {
+    match turns.last() {
+        None => HistoryTail::NoTurns,
+        Some(t) => match t.end {
+            Some(end) => HistoryTail::Ended(t.key.turn_id.clone(), end),
+            None => HistoryTail::NotTerminal,
+        },
+    }
+}
+
+/// 履歴の末尾が、このエージェントの最新turnの終端（またはturnなし）の根拠になるか。最新turnが記録と食い違うときは根拠にしない。
+pub fn tail_confirms_idle(latest_turn: Option<&ExternalId>, tail: &HistoryTail) -> bool {
+    match tail {
+        HistoryTail::NoTurns => latest_turn.is_none(),
+        HistoryTail::Ended(t, _) => latest_turn.is_none_or(|l| l == t),
+        HistoryTail::NotTerminal => false,
+    }
+}
+
 /// 履歴の末尾から、表示用の確認記録を作る(進行中・判別不能は出さない)。
 fn confirmation_of(agent: &AgentKey, tail: &HistoryTail, at: UnixMillis) -> Option<HistoryConfirmationEntry> {
     let (outcome, turn) = match tail {
@@ -293,11 +313,7 @@ impl HostData {
         if v.status.state != AgentState::Unknown {
             return false;
         }
-        match self.history_terminal.get(&v.agent.key) {
-            Some((HistoryTail::NoTurns, _)) => v.agent.latest_turn.is_none(),
-            Some((HistoryTail::Ended(t, _), _)) => v.agent.latest_turn.as_ref().is_none_or(|l| l == t),
-            _ => false,
-        }
+        self.history_terminal.get(&v.agent.key).is_some_and(|(t, _)| tail_confirms_idle(v.agent.latest_turn.as_ref(), t))
     }
 
     /// 履歴を読めたうえで、最新turnが進行中（終端を確認できない）の状態不明のエージェント。外部実行の可能性がある。

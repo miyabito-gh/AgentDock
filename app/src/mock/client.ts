@@ -1,8 +1,8 @@
 // モック切替用の仮実装（実IPCの代わりに仮データを返す）。製品の挙動ではない。
 import { makeBundle, MODELS, type Bundle } from "./data";
 import type {
-  ChatKey, ChatModelSettings, InterruptChatResult, LocalId, ModelChoice, ModelInfo, MonitorScope, RequestAnswer, RequestKey,
-  RespondOutcome, SendAttempt, SendIntent,
+  AgentKey, ChatKey, ChatModelSettings, ExternalId, ForkPurpose, InterruptChatResult, LocalId, ModelChoice, ModelInfo, MonitorScope, RecheckAgentsResult,
+  RequestAnswer, RequestKey, RespondOutcome, ResendAsForkResult, SendAttempt, SendIntent,
 } from "../ipc/types";
 
 export async function getBundle(scenario: string): Promise<Bundle> {
@@ -25,6 +25,13 @@ export async function respondRequest(_request: RequestKey, _answer: RequestAnswe
 }
 export async function interruptChat(_chat: ChatKey): Promise<InterruptChatResult | null> {
   return null;
+}
+// 編集して再送・履歴で再確認（モックでは何も起きない。ホストの実装は Rust 側）。
+export async function resendAsFork(_chat: ChatKey, _throughTurn: ExternalId, _targetTurn: ExternalId, _text: string, _purpose: ForkPurpose, _send: boolean): Promise<ResendAsForkResult | null> {
+  return null;
+}
+export async function recheckUnknownAgents(_chat: ChatKey, agents: AgentKey[]): Promise<RecheckAgentsResult> {
+  return { results: agents.map((agent) => ({ agent, outcome: { kind: "stillUnknown" } })) };
 }
 export async function setChatModel(_chat: ChatKey, choice: ModelChoice): Promise<ChatModelSettings> {
   return { selected: choice, accepted: { kind: "notFetched" }, effective: { kind: "notFetched" }, applies: "nextTurn", acceptedWorkMode: { kind: "notFetched" } };

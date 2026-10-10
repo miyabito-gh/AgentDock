@@ -18,7 +18,7 @@ import {
   type HandoffText, type InstructionFiles, type InstructionTemplateResult, type OpenSideResult, type ReferenceBlock, type ReferenceTurns, type SideSessionMeta, type SideTranscript, type SkillList,
   type ExtensionOp, type ExtensionOpRecord, type ExtensionView, type ToolServerList, type ToolServerLoginStart,
   type CloudApplyResult, type CloudCommandOutput, type CloudEnvHint, type CloudTaskList, type CloudTaskRecord,
-  type CompactChatResult, type CompactionSnapshot, type ForkReconcile, type ForkResult, type OpReconcile, type ParityOp, type ReviewChoices, type ReviewDelivery, type ReviewOutcome, type ReviewTarget,
+  type CompactChatResult, type CompactionSnapshot, type ForkPurpose, type ForkReconcile, type ForkResult, type RecheckAgentsResult, type ResendAsForkResult, type OpReconcile, type ParityOp, type ReviewChoices, type ReviewDelivery, type ReviewOutcome, type ReviewTarget,
 } from "./types";
 
 /** 型付きinvoke。引数は `args` 1個で渡す（types.ts CommandMap の規約）。 */
@@ -191,6 +191,14 @@ export const startReview = (chat: ChatKey, target: ReviewTarget, delivery: Revie
 export const forkChat = (chat: ChatKey, throughTurn: ExternalId | null): Promise<ForkResult> => invokeCmd("fork_chat", { chat, throughTurn });
 /** 受理不明の分岐の照合（読取りのみ）。ちょうど1件に絞れたときだけ分岐先を採用する。 */
 export const reconcileFork = (chat: ChatKey, attemptedAt: number): Promise<ForkReconcile> => invokeCmd("reconcile_fork", { chat, attemptedAt });
+/**
+ * 編集して再送・再生成（M50）。throughTurn=対象の1つ前の終端turn、targetTurn=対象turn。元の会話は変えない。
+ * send=false は分岐して下書きに入れるだけ。fork.ack が unknown のときは送らず、reconcileFork で確認する。送信の受理不明は再送しない。
+ */
+export const resendAsFork = (chat: ChatKey, throughTurn: ExternalId, targetTurn: ExternalId, text: string, purpose: ForkPurpose, send: boolean): Promise<ResendAsForkResult> =>
+  invokeCmd("resend_as_fork", { chat, throughTurn, targetTurn, text, purpose, send });
+/** 状態不明の子孫の「履歴で再確認」（読取りのみ。再開・停止しない。確認できなければ状態不明のまま）。 */
+export const recheckUnknownAgents = (chat: ChatKey, agents: AgentKey[]): Promise<RecheckAgentsResult> => invokeCmd("recheck_unknown_agents", { chat, agents });
 /** 文脈の圧縮。圧縮前の本文を控えに保存してから送る（保存できなければ送らない）。 */
 export const compactChat = (chat: ChatKey): Promise<CompactChatResult> => invokeCmd("compact_chat", { chat });
 /** 結果が未確認の操作（レビュー・圧縮）の照合（読取りのみ。再送しない）。 */

@@ -685,6 +685,11 @@ pub struct UsageReport {
     /// 専用領域のあるドライブの空き。
     #[cfg_attr(test, ts(as = "Known<u32>"))]
     pub free_space: Known<u64>,
+    /// 専用領域の `EBWebView`（WebView2のキャッシュ）の大きさ。メタデータには含めない。読めなければ未取得（0で代用しない）。
+    /// 全体の集計のときだけ測る（チャット指定では未取得）。AgentDockは削除しない。
+    #[serde(default = "Known::not_fetched")]
+    #[cfg_attr(test, ts(as = "Known<u32>"))]
+    pub webview_cache: Known<u64>,
     pub measured_at: UnixMillis,
     /// 読めなかったパス（合計に含まれていない。0で代用しない）。
     pub unreadable: Vec<String>,

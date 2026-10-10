@@ -667,6 +667,78 @@ pub enum ForkReconcile {
     Unreadable { message: String },
 }
 
+/// 編集して再送・再生成（M50）。元の会話は変えない。分岐（終点 = `through_turn`）→ 分岐先へ下書き保存 → （`send` のときだけ）通常の送信経路で1回送る。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct ResendAsForkArgs {
+    pub chat: ChatKey,
+    /// 分岐の終点（対象turnの1つ前の終端turn。最初のturnは対象外）。
+    pub through_turn: ExternalId,
+    /// 編集・再生成の対象turn。履歴で `through_turn` の直後であることを照合する。
+    pub target_turn: ExternalId,
+    pub text: String,
+    pub purpose: ForkPurpose,
+    /// false＝分岐して下書きに入れるだけ（送らない）。
+    pub send: bool,
+}
+
+/// `fork.ack` が `Unknown` のときは、送信も下書き保存もしていない（`fork.attemptedAt` で照合する）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct ResendAsForkResult {
+    pub fork: ForkResult,
+    /// 分岐先の下書きへ保存できたか。
+    pub draft_saved: bool,
+    /// 送った場合だけ。`acceptanceUnknown` は再送しない。
+    pub send: Option<SendAttempt>,
+}
+
+/// 状態不明の子孫の履歴を読むだけ（再開・送信・停止をしない。キューの有無に依存しない）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct RecheckAgentsArgs {
+    pub chat: ChatKey,
+    pub agents: Vec<AgentKey>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct RecheckAgentsResult {
+    pub results: Vec<AgentRecheck>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct AgentRecheck {
+    pub agent: AgentKey,
+    pub outcome: RecheckOutcome,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum RecheckOutcome {
+    /// 履歴で終端を確認した（状態は書き換えない。表示は「履歴で〜を確認」）。
+    TerminalFound,
+    /// 読めたが終端を確認できない。状態不明のまま。
+    StillUnknown,
+    /// 読めなかった。状態不明のまま。
+    Unreadable { message: String },
+    /// 対象外（このチャットの子孫でない・メイン・作業中・live）。読まない。
+    Skipped { reason: String },
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]

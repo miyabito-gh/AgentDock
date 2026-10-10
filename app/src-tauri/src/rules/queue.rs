@@ -460,10 +460,76 @@ pub fn check_cwd_change(queue: &ChatQueue, busy: bool, queue_retarget_confirmed:
     CwdChangeCheck::Allowed
 }
 
+/// 「履歴で再確認」の対象の判断材料（そのチャットのエージェント1件分）。
+#[derive(Debug, Clone, PartialEq)]
+pub struct RecheckFact {
+    pub agent: AgentKey,
+    pub state: AgentState,
+    pub freshness: Freshness,
+}
+
+/// 再確認の対象の選別結果。`skip` があるものは履歴を読まない。
+#[derive(Debug, Clone, PartialEq)]
+pub struct RecheckPlan {
+    pub agent: AgentKey,
+    pub skip: Option<String>,
+}
+
+/// 要求されたエージェントのうち、履歴を読んでよいもの（このチャットの子孫で、状態不明、liveでない）を選ぶ。
+/// メイン・作業中・live・他チャットのもの・状態不明でないものは読まない（理由つきで返す）。重複は1件にする。
+/// `chat_agents` はこのチャットに属するエージェントだけを渡す（含まれないものは他チャット扱い）。
+pub fn recheck_candidates(root: &AgentKey, requested: &[AgentKey], chat_agents: &[RecheckFact]) -> Vec<RecheckPlan> {
+    let mut seen: Vec<&AgentKey> = Vec::new();
+    let mut out = Vec::new();
+    for a in requested {
+        if seen.contains(&a) {
+            continue;
+        }
+        seen.push(a);
+        let skip = if a == root {
+            Some("メインのエージェントは対象外です".to_string())
+        } else {
+            match chat_agents.iter().find(|f| &f.agent == a) {
+                None => Some("このチャットの子孫ではありません".to_string()),
+                Some(f) if is_working(f.state) => Some("作業中のため読みません".to_string()),
+                Some(f) if f.freshness == Freshness::Live => Some("live購読中のため読みません".to_string()),
+                Some(f) if f.freshness == Freshness::Unsupported => Some("このバックエンドでは履歴を読めません".to_string()),
+                Some(f) if f.state != AgentState::Unknown => Some("状態不明ではありません".to_string()),
+                Some(_) => None,
+            }
+        };
+        out.push(RecheckPlan { agent: a.clone(), skip });
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::backend::backend::PermissionPreset;
+
+    fn rf(id: &str, state: AgentState, freshness: Freshness) -> RecheckFact {
+        RecheckFact { agent: AgentKey { backend: BackendKind::Codex, id: ExternalId(id.into()) }, state, freshness }
+    }
+
+    #[test]
+    fn recheck_reads_only_unknown_non_live_descendants_of_the_chat() {
+        let root = AgentKey { backend: BackendKind::Codex, id: ExternalId("root".into()) };
+        let k = |id: &str| AgentKey { backend: BackendKind::Codex, id: ExternalId(id.into()) };
+        let facts = vec![
+            rf("root", AgentState::Idle, Freshness::Live),
+            rf("unk", AgentState::Unknown, Freshness::HistoryOnly),
+            rf("live", AgentState::Unknown, Freshness::Live),
+            rf("run", AgentState::Running, Freshness::HistoryOnly),
+            rf("done", AgentState::Done, Freshness::HistoryOnly),
+        ];
+        let req = vec![k("root"), k("unk"), k("unk"), k("live"), k("run"), k("done"), k("other")];
+        let plans = recheck_candidates(&root, &req, &facts);
+        assert_eq!(plans.len(), 6, "duplicates are collapsed");
+        let readable: Vec<&AgentKey> = plans.iter().filter(|p| p.skip.is_none()).map(|p| &p.agent).collect();
+        assert_eq!(readable, vec![&k("unk")]);
+        assert!(plans.iter().find(|p| p.agent == k("other")).unwrap().skip.as_deref().unwrap().contains("子孫ではありません"));
+    }
 
     fn chat() -> ChatKey {
         ChatKey { backend: BackendKind::Codex, id: ExternalId("root".into()) }
