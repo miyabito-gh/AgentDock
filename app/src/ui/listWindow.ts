@@ -31,3 +31,43 @@ export function scrollTopToReveal(index: number, scrollTop: number, viewport: nu
   if (bottom > scrollTop + viewport) return bottom - viewport;
   return scrollTop;
 }
+
+/** 見出し行の高さ（px。styles.css の `.list-grp` と同じ値）。 */
+export const GROUP_HEADER_HEIGHT = 28;
+
+/** 可変高さ（見出し行込み）の累積の上端。`tops[i]` が行 i の上端、`tops[n]` が全体の高さ。 */
+export function cumulativeTops(heights: number[]): number[] {
+  const tops = new Array<number>(heights.length + 1);
+  tops[0] = 0;
+  for (let i = 0; i < heights.length; i++) tops[i + 1] = tops[i] + heights[i];
+  return tops;
+}
+
+/** 可変高さ版の表示範囲 [start, end)。`scrollTop` は一覧の先頭からの相対。上下に `overscan` 行ずつ余分に描く。 */
+export function windowRangeVar(heights: number[], scrollTop: number, viewport: number, overscan: number = OVERSCAN): { start: number; end: number } {
+  const n = heights.length;
+  if (n === 0) return { start: 0, end: 0 };
+  const tops = cumulativeTops(heights);
+  const y = Math.max(0, scrollTop);
+  const bottom = y + Math.max(0, viewport);
+  // 上端が y 以下の最後の行（二分探索）
+  let lo = 0, hi = n - 1;
+  while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (tops[mid] <= y) lo = mid; else hi = mid - 1; }
+  const first = lo;
+  // 上端が bottom 未満の最後の行
+  lo = first; hi = n - 1;
+  while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (tops[mid] < bottom) lo = mid; else hi = mid - 1; }
+  const start = Math.max(0, first - overscan);
+  const end = Math.min(n, lo + 1 + overscan);
+  return { start, end: Math.max(start, end) };
+}
+
+/** 可変高さ版: 行 `index` を完全に見せるために必要な scrollTop。 */
+export function scrollTopToRevealVar(heights: number[], index: number, scrollTop: number, viewport: number): number {
+  if (index < 0 || index >= heights.length) return scrollTop;
+  const tops = cumulativeTops(heights);
+  const top = tops[index], bottom = tops[index + 1];
+  if (top < scrollTop) return top;
+  if (bottom > scrollTop + viewport) return bottom - viewport;
+  return scrollTop;
+}

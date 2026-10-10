@@ -13,7 +13,7 @@ const loadMock = async () => {
   return { client, scenarios: data.SCENARIOS };
 };
 import { GlobalBanner, MenuBar, SaveBanner } from "./ui/Chrome";
-import { LeftPane } from "./ui/LeftPane";
+import { LeftPane, type ChatOp } from "./ui/LeftPane";
 import { CenterPane, EmptyCenter, type CwdResult, type FileActions, type SendNotice } from "./ui/CenterPane";
 import { fenceCode, insertBlock } from "./ui/attach";
 import { DockPane, MiniWindow } from "./ui/Dock";
@@ -793,12 +793,13 @@ export default function App() {
   // ── 削除・アーカイブ・エクスポート・使用量（P7） ──
 
   /** 削除確認を開く（対象と削除しないものを先に示す。実行はしない）。 */
-  const openDelete = () => {
-    if (!chat) return;
+  const openDelete = (chatId: string | undefined) => {
+    const target = snap.chats.find((x) => x.key.id === chatId);
+    if (!target) return;
     if (!live) { say("この操作はモックでは動きません。"); return; }
     setDel({ preview: null, error: null, running: false, outcome: null });
-    setDialog({ type: "delete", chatId: chat.key.id });
-    host.previewDelete(chat.key)
+    setDialog({ type: "delete", chatId: target.key.id });
+    host.previewDelete(target.key)
       .then((p) => setDel((s) => ({ ...s, preview: p })))
       .catch((e) => setDel((s) => ({ ...s, error: host.asIpcError(e).message })));
   };
@@ -822,11 +823,12 @@ export default function App() {
     } catch (e) { setDel((s) => ({ ...s, running: false, error: host.asIpcError(e).message })); }
   };
 
-  const openExport = () => {
-    if (!chat) return;
+  const openExport = (chatId: string | undefined) => {
+    const target = snap.chats.find((x) => x.key.id === chatId);
+    if (!target) return;
     if (!live) { say("この操作はモックでは動きません。"); return; }
     setExp({ include: false, running: false, error: null });
-    setDialog({ type: "export", chatId: chat.key.id });
+    setDialog({ type: "export", chatId: target.key.id });
   };
 
   /** 保存先を選んで書き出す。書き込みの成功を確認できたときだけ完了と言う。 */
@@ -846,16 +848,17 @@ export default function App() {
     } catch (e) { setExp((s) => ({ ...s, running: false, error: host.asIpcError(e).message })); }
   };
 
-  const archiveOp = (on: boolean) => {
-    if (!chat) return;
+  const archiveOp = (on: boolean, chatId: string | undefined) => {
+    const target = snap.chats.find((x) => x.key.id === chatId);
+    if (!target) return;
     if (!live) { say("この操作はモックでは動きません。"); return; }
     if (on) {
-      const working = isRunning(snap, chat);
-      host.archiveChat(chat.key)
+      const working = isRunning(snap, target);
+      host.archiveChat(target.key)
         .then(() => say(working ? "アーカイブしました。作業は続きます。Codex への反映は、作業が終わり停止を確認してから行います。" : "アーカイブしました。"))
         .catch((e) => sayErr("アーカイブできませんでした", e));
     } else {
-      host.unarchiveChat(chat.key).then(() => say("アーカイブを解除しました。")).catch((e) => sayErr("アーカイブを解除できませんでした", e));
+      host.unarchiveChat(target.key).then(() => say("アーカイブを解除しました。")).catch((e) => sayErr("アーカイブを解除できませんでした", e));
     }
   };
 
@@ -879,11 +882,12 @@ export default function App() {
   };
 
   /** ピン留めの切替（ホストが chat.json へ保存する。再起動後も戻る）。 */
-  const togglePin = () => {
-    if (!chat) return;
-    const on = !chat.pinned;
-    if (!live) { updateSnap((s) => ({ ...s, chats: s.chats.map((c) => (c.key.id === chat.key.id ? { ...c, pinned: on } : c)) })); return; }
-    host.setPinned(chat.key, on).then(() => say(on ? "ピン留めしました。" : "ピン留めを外しました。")).catch((e) => sayErr("ピン留めを変更できませんでした", e));
+  const togglePin = (chatId: string | undefined) => {
+    const target = snap.chats.find((x) => x.key.id === chatId);
+    if (!target) return;
+    const on = !target.pinned;
+    if (!live) { updateSnap((s) => ({ ...s, chats: s.chats.map((c) => (c.key.id === target.key.id ? { ...c, pinned: on } : c)) })); return; }
+    host.setPinned(target.key, on).then(() => say(on ? "ピン留めしました。" : "ピン留めを外しました。")).catch((e) => sayErr("ピン留めを変更できませんでした", e));
   };
 
   /** 変更の控えの記録のオン／オフ（設定へ保存。すでに取った控えは消えない）。 */
@@ -937,6 +941,18 @@ export default function App() {
     } catch (e) { return host.asIpcError(e).message; }
   };
 
+  /** 左一覧の行の「…」メニュー。対象はその行のチャット（選択中とは限らない。選択と最近利用は変えない）。 */
+  const chatAct = (op: ChatOp, chatId: string) => {
+    switch (op) {
+      case "rename": setDialog({ type: "rename", chatId }); break;
+      case "pin": togglePin(chatId); break;
+      case "archive": archiveOp(true, chatId); break;
+      case "unarchive": archiveOp(false, chatId); break;
+      case "export": openExport(chatId); break;
+      case "delete": openDelete(chatId); break;
+    }
+  };
+
   const act = (a: string) => {
     if (a.startsWith("unv:")) { setDialog({ type: "unv", why: a.slice(4) }); return; }
     if (a.startsWith("fork:")) { if (chat) setDialog({ type: "fork", chatId: chat.key.id, throughTurn: a.slice(5) }); return; }
@@ -974,11 +990,11 @@ export default function App() {
       case "skills": if (chat) setDialog({ type: "skills", chatId: chat.key.id }); else say("チャットを選んでください。"); break;
       case "instructions": if (chat) setDialog({ type: "instructions", chatId: chat.key.id }); else say("チャットを選んでください。"); break;
       case "sideOpen": void openSide(); break;
-      case "archiveChat": archiveOp(true); break;
-      case "unarchiveChat": archiveOp(false); break;
-      case "exportMd": openExport(); break;
-      case "deleteChat": openDelete(); break;
-      case "togglePin": togglePin(); break;
+      case "archiveChat": archiveOp(true, chat?.key.id); break;
+      case "unarchiveChat": archiveOp(false, chat?.key.id); break;
+      case "exportMd": openExport(chat?.key.id); break;
+      case "deleteChat": openDelete(chat?.key.id); break;
+      case "togglePin": togglePin(chat?.key.id); break;
       case "renameChat": if (chat) setDialog({ type: "rename", chatId: chat.key.id }); break;
       case "refreshList": void refreshList(); break;
       case "reloadHistory": if (chat && live) { void loadChat(chat.key.id); say("保存履歴を取り直しています（読み取りのみ）。"); } break;
@@ -1063,7 +1079,9 @@ export default function App() {
           style={{ ...(!leftTemp && leftOpen ? { "--lw": `${paneW.left}px` } : {}), ...(!rightTemp && rightOpen ? { "--rw": `${paneW.dock}px` } : {}) } as CSSProperties}
         >
           <aside className="left" id="pane-left" aria-label="チャット一覧">
-            <LeftPane snap={snap} sel={chat ? keyStr(chat.key) : null} onSelect={(id) => { selectChat(id); setLNarrow(false); }} onAct={act} onAcknowledge={(c) => onAcknowledge(c.key, null)} listStatus={listStatus} uiSize={snap.settings.appearance.uiText} />
+            <LeftPane snap={snap} sel={chat ? keyStr(chat.key) : null} onSelect={(id) => { selectChat(id); setLNarrow(false); }} onAct={act} onAcknowledge={(c) => onAcknowledge(c.key, null)}
+              onChatAct={chatAct} chatList={snap.settings.chatList} onNotice={say}
+              onChatList={(f) => updateSettings((s) => ({ ...s, chatList: f(s.chatList) }), "一覧の表示設定を保存できませんでした。次回の起動では保存されている値に戻ります")} listStatus={listStatus} uiSize={snap.settings.appearance.uiText} />
           </aside>
           <main className="center">
             {chat ? (
