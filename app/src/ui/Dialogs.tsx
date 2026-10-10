@@ -426,11 +426,11 @@ export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnter
       </Shell>);
     case "changes": return (
       <Shell title="変更ファイルと差分" wide full onClose={onClose} close="閉じる">
-        <ChangesBody chat={chats.find((x) => x.key.id === d.chatId)} live={live} tick={changesTick} cap={opCaps.find((c) => c.op === "changeList")} onRevert={() => onAct("revert")} />
+        <ChangesBody chat={chats.find((x) => x.key.id === d.chatId)} live={live} tick={changesTick} cap={opCaps.find((c) => c.op === "changeList")} onRevert={() => onAct("revert")} baselinesEnabled={manage.baselines.enabled} />
       </Shell>);
     case "revert": return (
       <Shell title="変更を戻す" wide full onClose={onClose} close="閉じる">
-        <RevertBody chat={chats.find((x) => x.key.id === d.chatId)} live={live} cap={opCaps.find((c) => c.op === "revertChanges")} onDone={onRevertDone} />
+        <RevertBody chat={chats.find((x) => x.key.id === d.chatId)} live={live} cap={opCaps.find((c) => c.op === "revertChanges")} onDone={onRevertDone} baselinesEnabled={manage.baselines.enabled} />
       </Shell>);
     case "review": case "compact": case "fork": {
       const c = chats.find((x) => x.key.id === d.chatId);

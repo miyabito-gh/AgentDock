@@ -206,6 +206,9 @@ export function StorageBody({ u, chats, selected, acked, bl }: { u: UsageProps; 
       <div className="field"><span>旧領域</span>
         {r ? <span>{fmtBytes(r.legacyArea)}（一般チャットの作業領域。段階①の場所のまま移動しておらず、上の合計には含みません）</span> : <span className="muted">未集計</span>}
       </div>
+      <div className="field"><span>画面表示のキャッシュ（WebView2）</span>
+        {r ? <span className="nw">{r.webviewCache.kind === "value" ? fmtBytes(r.webviewCache.value) : r.webviewCache.kind === "unsupported" ? "このAIでは非対応" : "取得できません"}</span> : <span className="muted">未集計</span>}
+        <span className="note">画面の表示に使う一時データです。チャットのデータではなく、上の使用量の内訳・合計には含めません。AgentDockは削除しません。</span></div>
       <div className="field"><span>空き容量</span><span>{r ? showKnown(r.freeSpace, fmtBytes) : "未確認"}</span>
         <span className="note">保存期限はありません。容量が足りなくても自動で削除しません。足りないときは、その操作を止めてお知らせします。</span></div>
       {r && r.unreadable.length ? (

@@ -115,7 +115,8 @@ export function availability(c: Pick<ParityCommand, "needsChat" | "blockedWhileB
   if (ctx.deletePending) return disabled("削除保留中のため使えません");
   if (ctx.externalRunning) return disabled("外部で実行中の会話は閲覧のみです");
   if (c.blockedWhileBusy && ctx.busy) return disabled("作業中のため使えません（完了または停止の確認後に実行できます）");
-  if (c.needsGit && ctx.gitMissing) return disabled("Git が見つからないため使えません");
+  // チャットを必要とする操作だけ（worktree の新規開始は別のフォルダを選べるので、選択中チャットのGitでは止めない）。
+  if (c.needsGit && c.needsChat && ctx.gitMissing) return disabled("Gitリポジトリではありません");
   return { kind: "enabled", unverified: cap.verification === "unverified" };
 }
 

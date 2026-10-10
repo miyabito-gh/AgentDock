@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { readText } from "@tauri-apps/plugin-clipboard-manager";
-import type { AppSettings, AttachmentEntry, Chat, ChatKey, Goal, GoalUpdate, Known, WorkMode, WorkModeInfo, DeleteOutcome, DeletePreview, UsageReport, ForceKillPreview, HostEvent, HostEventEnvelope, HostSnapshot, ModelInfo, MonitorScope, PendingRequest, PermissionPreset, QuitDecision, QuitPhase, RequestAnswer, SendAttempt, SettingsImpact, SourceInfo } from "./ipc/types";
+import type { AgentKey, AppSettings, AttachmentEntry, Chat, ChatKey, Goal, GoalUpdate, Known, WorkMode, WorkModeInfo, DeleteOutcome, DeletePreview, UsageReport, ForceKillPreview, HostEvent, HostEventEnvelope, HostSnapshot, ModelInfo, MonitorScope, PendingRequest, PermissionPreset, QuitDecision, QuitPhase, RequestAnswer, SendAttempt, SettingsImpact, SourceInfo } from "./ipc/types";
 import * as host from "./ipc/client";
 import { LinkContext } from "./ui/Markdown";
 import { applyHostEvent, createEventPipeline, emptyBundle, replaceSnapshot, seqAction, UNKNOWN_CAPS } from "./ipc/live";
@@ -19,6 +19,8 @@ import { CenterPane, EmptyCenter, type CwdResult, type FileActions, type SendNot
 import { fenceCode, insertBlock } from "./ui/attach";
 import { DockPane, MiniWindow } from "./ui/Dock";
 import { commandViews } from "./ui/commands";
+import { recheckSummary } from "./ui/chatState";
+import { gitKindOf, type GitKind } from "./ui/revertView";
 import { CommandPalette } from "./ui/CommandPalette";
 import { Dialogs, type DialogState, type NewChatInput } from "./ui/Dialogs";
 import { ackText } from "./ui/PrefsDialogs";
@@ -295,7 +297,17 @@ export default function App() {
   const chat = snap.chats.find((c) => c.key.id === selId) ?? null;
   const connected = src?.connection.kind === "connected";
   /** 主要ボタン・メニュー「作業」・Ctrl+K が共有する操作の可否（台帳から導く）。 */
-  const cmdViews = commandViews(snap, chat, connected);
+  // 選択中チャットの作業フォルダがGitリポジトリか（`git_info` の読取りだけ。チャット選択時と作業フォルダ変更時に1回）。確認できていないときは無効にしない。
+  const gitCwd = chat?.cwd.kind === "value" ? chat.cwd.value : null;
+  const [gitKinds, setGitKinds] = useState<Record<string, GitKind>>({});
+  useEffect(() => {
+    if (!live || !gitCwd) return;
+    let alive = true;
+    setGitKinds((m) => { const n = { ...m }; delete n[gitCwd]; return n; }); // 取り直す間は古い判定を残さない（unknown＝塞がない）
+    host.gitInfo(gitCwd).then((i) => gitKindOf(i), () => "unknown" as GitKind).then((k) => { if (alive) setGitKinds((m) => ({ ...m, [gitCwd]: k })); });
+    return () => { alive = false; };
+  }, [live, gitCwd, selId]);
+  const cmdViews = commandViews(snap, chat, connected, !!gitCwd && gitKinds[gitCwd] === "notRepo");
   const goalSupported = snap.opCapabilities.some((c) => c.op === "goal" && c.support === "supported");
   const workModeSupported = snap.opCapabilities.some((c) => c.op === "workMode" && c.support === "supported");
   /** 目標を読む（読取りのみ。会話は再開しない）。読めなければ未取得のまま表示する。 */
@@ -1059,6 +1071,13 @@ export default function App() {
       if (!live) setConfirmed((s) => new Set(s).add(k));
       const v = snap.agents.find((a) => keyStr(a.agent.key) === k);
       if (v) onAcknowledge(v.agent.chat, v.agent.key);
+    },
+    // 状態不明の子の履歴再確認（保存履歴の読取りだけ。結果は実際に履歴で確認できた件数だけを案内する）。
+    onRecheck: async (c: ChatKey, agents: AgentKey[]) => {
+      try {
+        const r = live ? await host.recheckUnknownAgents(c, agents) : await (await loadMock()).client.recheckUnknownAgents(c, agents);
+        say(recheckSummary(r.results.map((x) => x.outcome)), 6000);
+      } catch (e) { sayErr("履歴で再確認できませんでした（状態不明のままです）", e); }
     },
   };
 

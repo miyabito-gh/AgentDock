@@ -1,7 +1,21 @@
 // 実行: node --test src/ui/chatState.test.ts （tscの対象外）
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chatDisplayKind, dockRank, sortByDockRank, unknownCount, unknownSignature, validOutcome, parkGroup, historyBreakdown, historyBreakdownText } from "./chatState.ts";
+import { chatDisplayKind, dockRank, sortByDockRank, unknownCount, unknownSignature, validOutcome, parkGroup, historyBreakdown, historyBreakdownText, rawStateText, recheckSummary } from "./chatState.ts";
+
+test("再確認の結果文: 確認できた件数だけを成功に数える", () => {
+  const k = (...ks: string[]) => ks.map((kind) => ({ kind })) as any;
+  assert.match(recheckSummary(k("terminalFound", "terminalFound", "stillUnknown")), /^2件の終端を履歴で確認しました。残り1件/);
+  assert.match(recheckSummary(k("stillUnknown", "unreadable")), /^履歴では確認できませんでした（状態不明のまま）（うち1件は履歴を読めませんでした）/);
+  assert.doesNotMatch(recheckSummary(k("unreadable")), /確認しました/);
+  assert.equal(recheckSummary(k("terminalFound")), "1件の終端を履歴で確認しました。");
+});
+
+test("原状態の文言: notLoadedは説明つき、他は根拠なし", () => {
+  assert.match(rawStateText("notLoaded"), /^原状態: notLoaded（.*根拠なし）$/);
+  assert.match(rawStateText("notLoaded"), /読み込んでいない/);
+  assert.equal(rawStateText("zzz"), "原状態: zzz（根拠なし）");
+});
 
 test("親done＋子running→子が作業中", () => assert.equal(chatDisplayKind("done", ["running"]), "childWorking"));
 test("親done＋孫waiting→子が作業中", () => assert.equal(chatDisplayKind("done", ["done", "waiting"]), "childWorking"));

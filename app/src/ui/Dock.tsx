@@ -1,10 +1,10 @@
 import { useState } from "react";
-import type { AgentView, Chat, HistoryOutcome, HostSnapshot, MonitorScope } from "../ipc/types";
+import type { AgentKey, AgentView, Chat, ChatKey, HistoryOutcome, HostSnapshot, MonitorScope } from "../ipc/types";
 import { Icon } from "./Icon";
 import { Popover } from "./Popover";
 import type { Known } from "../ipc/types";
 import { chatAgents, chatDisplay, descendantStates, historyOutcomeOf, chatName, isDoneLike, isWorkingForDock, previewTitle } from "./derive";
-import { CHAT_DISPLAY_TEXT, HISTORY_OUTCOME_TEXT, historyBreakdown, historyBreakdownText, parkGroup, sortByDockRank, unknownCount, unknownNote, unknownSignature } from "./chatState";
+import { CHAT_DISPLAY_TEXT, HISTORY_OUTCOME_TEXT, historyBreakdown, historyBreakdownText, parkGroup, rawStateText, sortByDockRank, unknownCount, unknownNote, unknownSignature } from "./chatState";
 import { FRESH, SOURCE_LABEL, STATE, hms, keyStr, showKnown } from "./format";
 import { TitleBar } from "./Chrome";
 
@@ -36,7 +36,7 @@ function Berth({ a, depth, orphan, mini, confirmed, onConfirmFail, rootName, chi
   const m = outcome ? { c: outcome === "failed" ? STATE.failed.c : outcome === "interrupted" ? STATE.interrupted.c : STATE.done.c, t: HISTORY_OUTCOME_TEXT[outcome] } : STATE[a.status.state];
   const rel = orphan ? "親不明" : ["メイン", "子", "孫", "ひ孫"][depth] ?? `${depth}階層下`;
   const notLive = a.freshness !== "live";
-  const act = waitText(a) ?? (a.currentActivity ? activityText(a.currentActivity.summary) : a.status.state === "unknown" ? `原状態: ${a.status.raw.label}（根拠なし）` : "活動なし");
+  const act = waitText(a) ?? (a.currentActivity ? activityText(a.currentActivity.summary) : a.status.state === "unknown" ? rawStateText(a.status.raw.label) : "活動なし");
   const failUnconfirmed = a.status.state === "failed" && !confirmed;
   return (
     <div className={`card berth ${m.c} ${notLive ? "stale" : ""}`}>
@@ -76,7 +76,7 @@ function Berth({ a, depth, orphan, mini, confirmed, onConfirmFail, rootName, chi
             <button className="btn sm" aria-label="確認済みにして隠す" title="この画面の表示だけを隠します。Codexやホストの状態・判定は変わりません。新しい活動が届くと再表示します" onClick={onDismiss}><Icon name="check" />隠す</button>
           ) : null}
           {failUnconfirmed && !mini ? (
-            <button className="btn sm" aria-label="失敗を確認済みにする" title="失敗を確認済みにする" onClick={() => onConfirmFail(keyStr(a.agent.key))}><Icon name="check" />確認済みに</button>
+            <button className="btn sm" aria-label="失敗を確認済みにする" title="失敗を確認済みにする" onClick={() => onConfirmFail(keyStr(a.agent.key))}><Icon name="check" />確認済み</button>
           ) : null}
         </div>
       )}
@@ -92,10 +92,12 @@ function parentNote(snap: HostSnapshot, c: Chat): string | undefined {
   return n > 0 ? [base, unknownNote(n)].filter(Boolean).join("／") : base;
 }
 
-function RootBlock({ snap, c, views, showHead, selected, mini, parentOnly, confirmed, dismissed, onDismiss, onOpen, onConfirmFail }: {
+function RootBlock({ snap, c, views, showHead, selected, mini, parentOnly, confirmed, dismissed, onDismiss, onOpen, onConfirmFail, onRecheck }: {
   snap: HostSnapshot; c: Chat; views: AgentView[]; showHead: boolean; selected: boolean; mini: boolean; parentOnly: boolean;
   confirmed: Set<string>; dismissed: Map<string, string>; onDismiss: (items: AgentView[]) => void; onOpen: (id: string) => void; onConfirmFail: (key: string) => void;
+  onRecheck?: (chat: ChatKey, agents: AgentKey[]) => Promise<void>;
 }) {
+  const [rechecking, setRechecking] = useState(false);
   const [openUnknown, setOpenUnknown] = useState(false);
   const [openHistory, setOpenHistory] = useState(false);
   const inList = new Set(views.map((v) => keyStr(v.agent.key)));
@@ -168,6 +170,10 @@ function RootBlock({ snap, c, views, showHead, selected, mini, parentOnly, confi
           <div className="grp-h">
             <button className="btn-line small" aria-expanded={openUnknown} onClick={() => setOpenUnknown(!openUnknown)}>{openUnknown ? "▼" : "▶"} 状態不明の子 {parkedShown.length}件{parkedHidden ? `（確認済み${parkedHidden}件は非表示）` : ""}</button>
             {openUnknown && parkedShown.length && !mini ? <button className="btn-line small" title="この画面の表示だけを隠します。ホストの状態・判定は変わりません" onClick={() => onDismiss(parkedShown)}>まとめて確認済みにして隠す</button> : null}
+            {parkedShown.length && !mini && onRecheck ? (
+              <button className="btn-line small" disabled={rechecking} aria-busy={rechecking} title="保存履歴を読むだけです。再開・停止はしません。確認できなければ状態不明のままです"
+                onClick={() => { setRechecking(true); void onRecheck(c.key, parkedShown.map((v) => v.agent.key)).finally(() => setRechecking(false)); }}>{rechecking ? "確認中…" : "履歴で再確認"}</button>
+            ) : null}
           </div>
           {openUnknown ? (
             <ul className="tree">{parkedShown.map((v) => (
@@ -192,8 +198,10 @@ function RootBlock({ snap, c, views, showHead, selected, mini, parentOnly, confi
   );
 }
 
-export function DockPane({ snap, scope, selId, mini, confirmed, onScope, onOpen, onConfirmFail, onAct }: {
+export function DockPane({ snap, scope, selId, mini, confirmed, onScope, onOpen, onConfirmFail, onAct, onRecheck }: {
   snap: HostSnapshot; scope: MonitorScope; selId: string | null; mini?: boolean; confirmed: Set<string>;
+  /** 状態不明の子の「履歴で再確認」（本窓のみ。保存履歴を読むだけ）。結果の案内は呼び出し側が出す。 */
+  onRecheck?: (chat: ChatKey, agents: AgentKey[]) => Promise<void>;
   onScope: (s: MonitorScope) => void; onOpen: (id: string) => void; onConfirmFail: (key: string) => void; onAct: (a: string) => void;
 }) {
   // 「実行中」表示と「親のみ」はウィンドウ内の記憶（ホストへは保存しない）。表示範囲の変更だけで送信先・中断・承認を変えない。
@@ -246,7 +254,7 @@ export function DockPane({ snap, scope, selId, mini, confirmed, onScope, onOpen,
       <div className="dock-scroll">
         {blocks.length ? blocks.map(({ c, views }) => (
           <RootBlock key={keyStr(c.key)} snap={snap} c={c} views={views} showHead={!isSel || !!mini} selected={c.key.id === selId} mini={!!mini} parentOnly={parentOnly}
-            confirmed={confirmed} dismissed={dismissed} onDismiss={onDismiss} onOpen={onOpen} onConfirmFail={onConfirmFail} />
+            confirmed={confirmed} dismissed={dismissed} onDismiss={onDismiss} onOpen={onOpen} onConfirmFail={onConfirmFail} onRecheck={onRecheck} />
         )) : <div className="empty-note">{snap.chats.length ? "作業中・対応待ちのエージェントはありません" : "チャットを始めると、ここにエージェントが表示されます"}</div>}
       </div>
     </>

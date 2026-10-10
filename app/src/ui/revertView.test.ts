@@ -1,7 +1,7 @@
 // 実行: node --test src/ui/revertView.test.ts （tscの対象外）
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { reasonLines, sortedItems, initialChosen, pickedPaths, forcedPaths, resultKind, turnOptions, noBaselineReason } from "./revertView.ts";
+import { reasonLines, sortedItems, initialChosen, pickedPaths, forcedPaths, resultKind, turnOptions, noBaselineReason, gitKindOf, sameReason } from "./revertView.ts";
 
 const item = (path: string, verdict: any) => ({ path, kind: null, includesTurns: [], verdict });
 const rev = { kind: "revertible", summary: "" };
@@ -38,6 +38,30 @@ test("turn選択肢: 失敗・送信なし・未対応づけは出さない", ()
   const o = turnOptions([seg("t1", { kind: "ready" }), seg("t2", { kind: "failed", reason: { kind: "timeout" } }), seg(null, { kind: "ready" }), seg("t3", { kind: "endUnknown" }, true), seg("t1", { kind: "ready" })] as any);
   assert.deepEqual(o.map((x) => x.turn), ["t1", "t3"]);
   assert.match(o[1].label, /同時作業/);
+});
+test("控えなしの理由（文脈つき）: 設定オフ→Gitなし→Git不明→控え前の順に1つだけ", () => {
+  const r = (enabled: boolean, git: any) => noBaselineReason([], { baselinesEnabled: enabled, git })!;
+  assert.match(r(false, "notRepo"), /設定で控えの記録がオフ/);
+  assert.match(r(true, "notRepo"), /Gitリポジトリではない/);
+  assert.match(r(true, "unknown"), /確認できていない/);
+  assert.match(r(true, "repo"), /控えを取る前のturn/);
+  // ホストが返した失敗の理由は文脈より優先
+  const f = [{ turn: "t", startedAt: 1, state: { kind: "failed", reason: { kind: "gitUnavailable" } }, concurrent: false }] as any;
+  assert.match(noBaselineReason(f, { baselinesEnabled: true, git: "repo" })!, /Gitを実行できません/);
+});
+test("sameReason: 同一文だけ重複、別原因は両方", () => {
+  assert.equal(sameReason(" a ", "a"), true);
+  assert.equal(sameReason("host", "other"), false);
+  assert.equal(sameReason(null, "a"), false);
+});
+test("gitKindOf: 確認できたときだけrepo/notRepo", () => {
+  assert.equal(gitKindOf(null), "unknown");
+  assert.equal(gitKindOf({ status: { kind: "ready" } } as any), "repo");
+  const ns = (message: string) => gitKindOf({ status: { kind: "notSupported", message } } as any);
+  assert.equal(ns("このフォルダはGitのリポジトリではありません"), "notRepo");
+  assert.equal(ns("フォルダが見つかりません"), "unknown");
+  assert.equal(ns("Gitを実行できません（未導入、または設定のGitの場所が違います）"), "unknown");
+  assert.equal(gitKindOf({ status: { kind: "notFetched", message: "x" } } as any), "unknown");
 });
 test("控えなしの理由: 取得中はnull、空は理由、失敗のみは失敗理由", () => {
   assert.equal(noBaselineReason(null), null);

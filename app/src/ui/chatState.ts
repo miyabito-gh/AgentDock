@@ -27,6 +27,22 @@ export const CHAT_DISPLAY_TEXT: Record<Exclude<ChatDisplayKind, "root">, string>
 export const unknownCount = (descendants: AgentState[]): number => descendants.filter((s) => s === "unknown").length;
 export const unknownNote = (n: number): string => `子${n}件の状態不明`;
 
+/** Codexの原状態ラベルに添える説明（既知のものだけ。他は従来どおり「根拠なし」）。原文のラベルと「根拠なし」の意味は残す。 */
+const RAW_STATE_NOTE: Record<string, string> = {
+  notLoaded: "Codexが読み込んでいない状態。完了・失敗の根拠なし",
+};
+/** 「履歴で再確認」の結果の1文。件数は実際に履歴で終端を確認できた数だけ（読めない・確認できないものを成功に数えない）。 */
+export function recheckSummary(outcomes: Array<{ kind: "terminalFound" | "stillUnknown" | "unreadable" | "skipped" }>): string {
+  const found = outcomes.filter((o) => o.kind === "terminalFound").length;
+  const unreadable = outcomes.filter((o) => o.kind === "unreadable").length;
+  const rest = outcomes.length - found;
+  const tail = unreadable > 0 ? `（うち${unreadable}件は履歴を読めませんでした）` : "";
+  if (found > 0) return `${found}件の終端を履歴で確認しました。${rest > 0 ? `残り${rest}件は確認できませんでした（状態不明のまま）${tail}。` : ""}`;
+  return `履歴では確認できませんでした（状態不明のまま）${tail}。`;
+}
+
+export const rawStateText =(label: string): string => `原状態: ${label}（${RAW_STATE_NOTE[label] ?? "根拠なし"}）`;
+
 /** ドックの子カードの並び順: 実行中・対応待ち(0) → 失敗・中断(1) → 完了(2) → 状態不明(3)。同順位は元の順（安定ソート）。 */
 /** `outcome` は状態不明のものを履歴で終端確認できたときの結果。失敗・中断は注意が要る位置、完了・turnなしは完了の位置（状態は書き換えない）。 */
 export function dockRank(st: AgentState, outcome?: HistoryOutcome | null): number {

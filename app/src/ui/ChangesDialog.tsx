@@ -3,12 +3,13 @@
 //       戻す操作は確認の後だけ。戻せない理由はそのまま出し、部分的にしか戻せなかったときは完了と書かない。
 import { useEffect, useState } from "react";
 import * as host from "../ipc/client";
-import type { Chat, ChangeKind, ChangeList, ChangedFile, ChangeSource, ListStatus, OpCapability, RevertPlan, RevertResult, SegmentStatus, UnifiedDiff } from "../ipc/types";
+import type { Chat, ChangeKind, GitInfo, ChangeList, ChangedFile, ChangeSource, ListStatus, OpCapability, RevertPlan, RevertResult, SegmentStatus, UnifiedDiff } from "../ipc/types";
 import { chatName } from "./derive";
 import { showKnown } from "./format";
 import { About, ConfirmBlock, FootActions, ShortId } from "./DialogParts";
 import { Icon } from "./Icon";
-import { forcedPaths, groupOf, initialChosen, noBaselineReason, pickedPaths, reasonLines, resultKind, sortedItems, turnOptions } from "./revertView";
+import type { BaselineContext } from "./revertView";
+import { forcedPaths, gitKindOf, groupOf, initialChosen, noBaselineReason, sameReason, pickedPaths, reasonLines, resultKind, sortedItems, turnOptions } from "./revertView";
 
 const KIND_TEXT: Record<ChangeKind, string> = { added: "追加", deleted: "削除", modified: "変更" };
 const SOURCE_TEXT: Record<ChangeSource, string> = { baseline: "turnの変更（控え基準）", git: "Git上の現在の差分（HEAD比較）" };
@@ -25,6 +26,20 @@ function statusText(s: ListStatus): string | null {
     case "notFetched": return `取得できませんでした: ${s.message}`;
     case "notSupported": return `非対応: ${s.message}`;
   }
+}
+
+/** 控えがない理由の判定材料（設定の控えの記録・作業フォルダのGit）。Gitは `git_info` の読取りだけ。設定が分からないとき（undefined）は一般文のまま。 */
+function useBaselineContext(live: boolean, chat: Chat | undefined, baselinesEnabled: boolean | undefined): BaselineContext | undefined {
+  const [info, setInfo] = useState<GitInfo | null>(null);
+  const cwd = chat?.cwd.kind === "value" ? chat.cwd.value : null;
+  useEffect(() => {
+    setInfo(null);
+    if (!live || !cwd) return;
+    let alive = true;
+    host.gitInfo(cwd).then((i) => { if (alive) setInfo(i); }).catch(() => { if (alive) setInfo(null); });
+    return () => { alive = false; };
+  }, [live, cwd]);
+  return baselinesEnabled === undefined ? undefined : { baselinesEnabled, git: gitKindOf(info) };
 }
 
 export function UnverifiedNote({ cap }: { cap: OpCapability | undefined }) {
@@ -53,9 +68,11 @@ export interface ChangesProps {
   tick: number;
   cap: OpCapability | undefined;
   onRevert: () => void;
+  /** 設定で控えの記録がオンか（控えがない理由の判定に使う）。 */
+  baselinesEnabled?: boolean;
 }
 
-export function ChangesBody({ chat, live, tick, cap, onRevert }: ChangesProps) {
+export function ChangesBody({ chat, live, tick, cap, onRevert, baselinesEnabled }: ChangesProps) {
   const [tab, setTab] = useState<ChangeSource>("baseline");
   const [turn, setTurn] = useState("");
   const [segs, setSegs] = useState<SegmentStatus[] | null>(null);
@@ -66,6 +83,7 @@ export function ChangesBody({ chat, live, tick, cap, onRevert }: ChangesProps) {
   const [diffErr, setDiffErr] = useState<string | null>(null);
   const chatKey = chat?.key;
   const chatId = chatKey?.id;
+  const bctx = useBaselineContext(live, chat, baselinesEnabled);
 
   useEffect(() => {
     if (!live || !chatKey) return;
@@ -101,9 +119,9 @@ export function ChangesBody({ chat, live, tick, cap, onRevert }: ChangesProps) {
   if (!live) return <div className="content"><p>モックでは動きません（実接続で使えます）。</p></div>;
   const st = list ? statusText(list.status) : null;
   const turns = segs ? turnOptions(segs) : [];
-  const noBase = noBaselineReason(segs);
-  // 同じ原因（控えがない）の帯は1本にする。ホストが「非対応: 控えがありません」と返したときは、そちらを残す。
-  const sameCause = !!noBase && list?.status.kind === "notSupported" && list.status.message.trim() === noBase.trim();
+  const noBase = noBaselineReason(segs, bctx);
+  // 同じ原因（控えがない）の帯は1本にする。文が一致したときだけ重複とみなし、原因が違うときは両方出す。
+  const sameCause = list?.status.kind === "notSupported" && sameReason(list.status.message, noBase);
   return (
     <>
       <div className="tabs" role="tablist">
@@ -161,13 +179,14 @@ export interface RevertProps {
   chat: Chat | undefined;
   live: boolean;
   cap: OpCapability | undefined;
+  baselinesEnabled?: boolean;
   /** 実行の完了を親へ伝える（トースト用。結果の本文はこのダイアログに残す）。結果が得られなければ null。呼ぶたびに親が差分表示の再取得を促す。 */
   onDone: (r: RevertResult | null) => void;
 }
 
 const GROUP_TAG = { revertible: "戻せる", needsOverride: "要確認", blocked: "止める" } as const;
 
-export function RevertBody({ chat, live, cap, onDone }: RevertProps) {
+export function RevertBody({ chat, live, cap, onDone, baselinesEnabled }: RevertProps) {
   const [segs, setSegs] = useState<SegmentStatus[] | null>(null);
   const [from, setFrom] = useState("");
   const [plan, setPlan] = useState<RevertPlan | null>(null);
@@ -180,6 +199,7 @@ export function RevertBody({ chat, live, cap, onDone }: RevertProps) {
   const [nonce, setNonce] = useState(0);
   const chatKey = chat?.key;
   const chatId = chatKey?.id;
+  const bctx = useBaselineContext(live, chat, baselinesEnabled);
 
   useEffect(() => {
     if (!live || !chatKey) return;
@@ -208,7 +228,7 @@ export function RevertBody({ chat, live, cap, onDone }: RevertProps) {
   const total = picked.length + forced.length;
   const forcedItems = items.filter((i) => forced.includes(i.path));
   const turns = segs ? turnOptions(segs) : [];
-  const noBase = noBaselineReason(segs);
+  const noBase = noBaselineReason(segs, bctx);
   const busy = running || stage !== 0;
   const run = async () => {
     if (!chatKey || !plan) return;
