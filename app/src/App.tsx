@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { readText } from "@tauri-apps/plugin-clipboard-manager";
 import type { AppSettings, AttachmentEntry, Chat, ChatKey, Goal, GoalUpdate, Known, WorkMode, WorkModeInfo, DeleteOutcome, DeletePreview, UsageReport, ForceKillPreview, HostEvent, HostEventEnvelope, HostSnapshot, ModelInfo, MonitorScope, PendingRequest, PermissionPreset, QuitDecision, QuitPhase, RequestAnswer, SendAttempt, SettingsImpact, SourceInfo } from "./ipc/types";
 import * as host from "./ipc/client";
+import { LinkContext } from "./ui/Markdown";
 import { applyHostEvent, createEventPipeline, emptyBundle, replaceSnapshot, seqAction, UNKNOWN_CAPS } from "./ipc/live";
 import type { Bundle } from "./mock/data";
 
@@ -90,6 +91,8 @@ export default function App() {
   const [menu, setMenu] = useState<string | null>(null);
   const [palette, setPalette] = useState(false);
   const [dialog, setDialog] = useState<DialogState | null>(null);
+  // 本文のリンクは確認ダイアログを経て開く（DESIGN_P5 §3.3）。
+  const linkActions = useMemo(() => ({ openLink: (url: string, text: string) => setDialog({ type: "openLink", url, text }) }), []);
   /** 表示しているside相談（主会話を選んでいる間だけ出す。相談そのものはホストが持つ）。 */
   const [sideId, setSideId] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -1060,7 +1063,7 @@ export default function App() {
   };
 
   return (
-    <>
+    <LinkContext.Provider value={linkActions}>
       <svg width="0" height="0" style={{ position: "absolute" }} aria-hidden="true">
         <defs><pattern id="hatch" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="2" height="4" style={{ fill: "var(--unk)" }} /></pattern></defs>
       </svg>
@@ -1171,6 +1174,6 @@ export default function App() {
           </div>
         ) : null}
       </div>
-    </>
+    </LinkContext.Provider>
   );
 }

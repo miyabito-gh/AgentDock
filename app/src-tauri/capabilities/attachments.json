@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "attachments",
-  "description": "添付・成果物の操作（ファイル選択・保存先の指定・選択範囲の貼り付け）",
+  "description": "添付・成果物の操作（ファイル選択・保存先の指定・選択範囲の貼り付け・応答とコードのコピー）",
   "windows": ["main"],
-  "permissions": ["dialog:allow-open", "dialog:allow-save", "clipboard-manager:allow-read-text"]
+  "permissions": ["dialog:allow-open", "dialog:allow-save", "clipboard-manager:allow-read-text", "clipboard-manager:allow-write-text"]
 }

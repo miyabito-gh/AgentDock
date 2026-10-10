@@ -5,6 +5,7 @@ import type {
 } from "../ipc/types";
 import { Icon } from "./Icon";
 import { Popover } from "./Popover";
+import { Markdown, COPY_LABEL, useCopy } from "./Markdown";
 import { PENDING_TEXT } from "./ManageDialogs";
 import { TENTATIVE_HINT, TENTATIVE_STYLE, chatAgents, chatDisplay, chatName, chatRequests, chatTitle, chatStatusText, chatStops, isRunning, rootView, stopOpen } from "./derive";
 import { FRESH, STATE, STOP_LABEL, hms, holdText, keyStr, knownValue, showKnown, stopCauseText, targetList } from "./format";
@@ -387,6 +388,12 @@ const kindLabel = (k: ActivityKind): string => (k.kind === "other" ? k.raw : KIN
 const entryText = (t: TurnRecord["entries"][number]): string => (t.text.kind === "value" ? t.text.value : "（内容の記載なし）");
 const NEAR_BOTTOM_PX = 120;
 
+/** 応答の原文（Markdownのまま）をコピーするボタン。結果は2秒表示し読み上げる。 */
+function CopyAct({ text }: { text: string }) {
+  const { state, copy } = useCopy();
+  return <button onClick={() => copy(text)} aria-live="polite"><Icon name="copy" />{state === "idle" ? COPY_LABEL.idle : COPY_LABEL[state]}</button>;
+}
+
 function Messages({ turns, reqs, running, onRespond, onAct, extra }: {
   turns: TurnRecord[]; reqs: PendingRequest[]; running: boolean; onRespond: CenterProps["onRespond"]; onAct: (a: string) => void; extra?: ReactNode;
 }) {
@@ -412,16 +419,17 @@ function Messages({ turns, reqs, running, onRespond, onAct, extra }: {
         const others = t.entries.filter((e) => e.kind.kind !== "userMessage" && e.kind.kind !== "agentMessage");
         return (
           <div key={keyStr(t.key.agent) + t.key.turnId}>
-            {t.entries.filter((e) => e.kind.kind === "userMessage" || e.kind.kind === "agentMessage").map((e) => {
+            {t.entries.filter((e) => e.kind.kind === "userMessage" || e.kind.kind === "agentMessage").map((e, _i, all) => {
               const text = e.text.kind === "value" ? e.text.value : "…";
+              const lastAi = all.filter((x) => x.kind.kind === "agentMessage").pop();
               if (e.kind.kind === "userMessage") {
                 return <div className="msg user" key={e.key.itemId}><div className="sr">あなた</div><div className="bubble">{text}</div></div>;
               }
               return (
                 <div className="msg ai" key={e.key.itemId}>
                   <div className="who">Codex</div>
-                  <div className="bubble">{text.split("\n\n").map((para, i) => para.startsWith("reconnect()") ? <pre key={i}>{para}</pre> : <p key={i}>{para}</p>)}</div>
-                  <div className="acts"><button onClick={() => onAct("stub")}><Icon name="copy" />コピー</button><button onClick={() => onAct(`fork:${t.key.turnId}`)}><Icon name="branch" />ここから分岐</button></div>
+                  <div className="bubble"><Markdown text={text} streaming={t.end === null && e === lastAi} /></div>
+                  <div className="acts"><CopyAct text={text} /><button onClick={() => onAct(`fork:${t.key.turnId}`)}><Icon name="branch" />ここから分岐</button></div>
                 </div>
               );
             })}
