@@ -150,6 +150,28 @@ AgentDockプロジェクトのClaude Code向け作業指示。毎ターン読み
 
 順序: UI-0 → UI-1∥2∥3 → UI-7∥4 → UI-5 → UI-6。
 
+### 段階⑤のタスク（2026-10-10分解。設計は `app/DESIGN_P5.md`。正本1.3 M47〜M52・M16詳細）
+
+|#|内容|担当|依存|
+|---|---|---|---|
+|P5-0|基盤＋文字サイズ・テーマ（AppSettings.chatList/appearance、updateSettings直列化、data-theme、設定「表示」）|implementer|—|
+|P5-H|ホスト: resend_as_fork、recheck_unknown_agents、UsageReport.webviewCache、ForkOrigin.purpose|implementer|—|
+|P5-1|行の「…」メニュー＋作業フォルダごとの表示（フォルダのピン・折りたたみ）|implementer|P5-0|
+|P5-2|Markdown整形（react-markdown＋remark-gfm、安全条件、コピー、リンク確認）|implementer|P5-0|
+|P5-3|会話内検索（Ctrl+F、Highlight API）|implementer|P5-2|
+|P5-5u|前バッチA〜Cの画面（履歴で再確認、WebView2の行、控えの理由、Gitなし配線、文言）|implementer|P5-H・P5-0|
+|P5-4u|編集して再送・再生成の画面（ResendDialog）|implementer|P5-H・P5-3|
+|R5|P5-H・P5-4uの差分レビュー→`app/REVIEW_R5.md`|designer|P5-4u|
+|P5-7|R5の指摘の修正|implementer|R5|
+|P5-6|総点検（到達性・focus-visible・不要CSS・ダークのコントラスト・狭い画面・ダイアログのEsc）|implementer|P5-7|
+|S5|NSIS作り直しと実機確認手順（UI-6とまとめる）|司令塔|全部|
+
+順序: (P5-0∥P5-H) → (P5-1∥P5-2) → (P5-3∥P5-5u) → P5-4u → R5 → P5-7 → P5-6 → S5。
+
+段階⑤で合意した判断（2026-10-10）:
+- Markdownは react-markdown＋remark-gfm だけ例外として追加。生HTMLは文字で表示、リンクは確認後に http・https だけ開く、リモート画像は読み込まない、依頼は整形しない。
+- 設定以外のダイアログもEscで閉じる（IME変換中は閉じない）。実行中のチャットでは編集・再生成を許さない。再送は押したときだけ1回、自動再送なし。
+
 **現状（2026-10-10）: 段階③＋Git基準の戻す完了、GUIデザイン案の選択待ち。引き継ぎは `app/HANDOFF.md` 冒頭を最初に読む。** 以下は2026-10-07時点の記述。
 
 **旧現状（2026-10-07）: 段階③まで実装完了（修正バッチ・P3-0〜P3-10・R3、NSIS作成済み）。実機確認は `app/LIVE_CHECK_P3.md` と段階②の残り。段階②: 実装完了、実機確認は途中。残りの実機確認は後でまとめて行い、実装を先に進める。引き継ぎは `app/HANDOFF.md` を最初に読む。** 次は段階②持ち越しの修正バッチ → 段階③（18操作）の分解・実装。
