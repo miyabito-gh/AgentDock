@@ -774,7 +774,7 @@ export function EmptyCenter({ onAct }: { onAct: (a: string) => void }) {
   return (
     <div className="msgs" style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
       <div style={{ maxWidth: 420 }}>
-        <h2 style={{ fontSize: 17, margin: "0 0 8px" }}>最初のチャットを始めましょう</h2>
+        <h2 style={{ fontSize: "calc(var(--fs) + 4px)", margin: "0 0 8px" }}>最初のチャットを始めましょう</h2>
         <p className="muted" style={{ margin: "0 0 12px" }}>作業フォルダを選ばずに、相談や文章作成から始められます。コードを扱うときはフォルダを指定します。</p>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <button className="btn-main" onClick={() => onAct("newChat")}><Icon name="chat" />一般チャットを始める</button>

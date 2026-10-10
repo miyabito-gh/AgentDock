@@ -507,6 +507,85 @@ pub struct AppSettings {
     /// 左一覧・ドックの幅（UI-7）。None＝既定。古い `settings.json`（この項目なし）は既定値で読む。
     #[serde(default)]
     pub layout: LayoutSettings,
+    /// 左一覧の表示（並び・フォルダのピン・折りたたみ。M48）。古い `settings.json` は既定値で読む。
+    #[serde(default)]
+    pub chat_list: ChatListSettings,
+    /// 表示（テーマ・文字サイズ。M51）。古い `settings.json` は既定値で読む。
+    #[serde(default)]
+    pub appearance: AppearanceSettings,
+}
+
+/// 左一覧の並び。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+pub enum ChatListView {
+    /// 最近使った順（従来）。
+    #[default]
+    Recent,
+    /// 作業フォルダごと。
+    ByFolder,
+}
+
+/// 左一覧の表示設定。フォルダのキーは画面側の `folderKey`（正規化済みパス）。
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct ChatListSettings {
+    #[serde(default)]
+    pub view: ChatListView,
+    /// ピン留めしたフォルダ（ピンした順）。
+    #[serde(default)]
+    pub pinned_folders: Vec<String>,
+    #[serde(default)]
+    pub collapsed_folders: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+pub enum ThemePref {
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+
+/// 画面の文字の大きさ。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+pub enum UiTextSize {
+    Small,
+    #[default]
+    Normal,
+    Large,
+}
+
+/// 会話本文の文字の大きさ。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+pub enum BodyTextSize {
+    Small,
+    #[default]
+    Normal,
+    Large,
+    XLarge,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct AppearanceSettings {
+    #[serde(default)]
+    pub theme: ThemePref,
+    #[serde(default)]
+    pub ui_text: UiTextSize,
+    #[serde(default)]
+    pub body_text: BodyTextSize,
 }
 
 /// 左一覧・ドックの幅（px）。None＝既定。範囲への丸めは表示側（`ui/paneWidth.ts`）で行う。
@@ -596,6 +675,8 @@ impl Default for AppSettings {
             cloud_env_by_repo: Default::default(),
             baselines: BaselineSettings::default(),
             layout: LayoutSettings::default(),
+            chat_list: ChatListSettings::default(),
+            appearance: AppearanceSettings::default(),
         }
     }
 }
@@ -1089,6 +1170,21 @@ mod settings_tests {
         let s: AppSettings = serde_json::from_value(v).unwrap();
         assert_eq!(s.layout, LayoutSettings::default());
         assert_eq!(s.layout.left_width, None);
+    }
+
+    #[test]
+    fn settings_without_chat_list_and_appearance_load_with_defaults() {
+        let mut v = serde_json::to_value(AppSettings::default()).unwrap();
+        let o = v.as_object_mut().unwrap();
+        o.remove("chatList");
+        o.remove("appearance");
+        let s: AppSettings = serde_json::from_value(v).unwrap();
+        assert_eq!(s.chat_list, ChatListSettings::default());
+        assert_eq!(s.chat_list.view, ChatListView::Recent);
+        assert_eq!(s.appearance, AppearanceSettings::default());
+        assert_eq!(s.appearance.theme, ThemePref::System);
+        assert_eq!(s.appearance.ui_text, UiTextSize::Normal);
+        assert_eq!(s.appearance.body_text, BodyTextSize::Normal);
     }
 
     #[test]

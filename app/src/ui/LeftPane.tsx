@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { Chat, HostSnapshot } from "../ipc/types";
+import type { Chat, HostSnapshot, UiTextSize } from "../ipc/types";
 import { Icon } from "./Icon";
 import { TENTATIVE_HINT, TENTATIVE_STYLE, chatAgents, chatName, chatRequests, chatStatusText, chatTitle, sortChats } from "./derive";
 import { STATE, keyStr, knownValue } from "./format";
 import { PENDING_TEXT, archiveTag } from "./ManageDialogs";
-import { ROW_HEIGHT, WINDOW_THRESHOLD, scrollTopToReveal, windowRange } from "./listWindow";
+import { WINDOW_THRESHOLD, rowHeight, scrollTopToReveal, windowRange } from "./listWindow";
 
 /** 一覧の状態文字（chatStatusText）から状態チップの色クラスを引く。対応が無い文言（履歴なし等）は色なしの控えめな文字。 */
 function statusClass(text: string): string {
@@ -16,11 +16,14 @@ function statusClass(text: string): string {
   return "";
 }
 
-export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, listStatus }: {
+export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, listStatus, uiSize = "Normal" }: {
   snap: HostSnapshot; sel: string | null; onSelect: (id: string) => void; onAct: (a: string) => void; onAcknowledge: (c: Chat) => void;
   /** 直近の「更新」の結果（成功・失敗とも次の更新まで残す）。 */
   listStatus?: { ok: boolean; text: string } | null;
+  /** 画面の文字サイズ（一覧の行の高さが変わる）。 */
+  uiSize?: UiTextSize;
 }) {
+  const rowH = rowHeight(uiSize);
   const [query, setQuery] = useState("");
   const [inclArch, setInclArch] = useState(false);
   const [showArch, setShowArch] = useState(false);
@@ -80,8 +83,8 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, listStatus
     if (el) { el.focus(); focusIdx.current = null; }
   };
   const restRows = () => (windowed ? (
-    <div ref={listRef} onKeyDown={onListKey} style={{ height: rest.length * ROW_HEIGHT, position: "relative" }}>
-      <div style={{ position: "absolute", top: range.start * ROW_HEIGHT, left: 0, right: 0 }}>
+    <div ref={listRef} onKeyDown={onListKey} style={{ height: rest.length * rowH, position: "relative" }}>
+      <div style={{ position: "absolute", top: range.start * rowH, left: 0, right: 0 }}>
         {rest.slice(range.start, range.end).map((c, i) => row(c, range.start + i))}
       </div>
     </div>
@@ -95,7 +98,7 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, listStatus
     const unconfirmedFail = marks ? marks.unacknowledgedFailure : chatAgents(snap, c).some((a) => a.status.state === "failed");
     return (
       <button key={k} className={`row-chat ${k === sel ? "sel" : ""}${idx !== undefined ? " fixed" : ""}`} onClick={() => onSelect(c.key.id)} aria-current={k === sel}
-        {...(idx !== undefined ? { style: { height: ROW_HEIGHT, minHeight: ROW_HEIGHT }, "data-idx": idx, "aria-posinset": idx + 1, "aria-setsize": rest.length } : {})}>
+        {...(idx !== undefined ? { style: { height: rowH, minHeight: rowH }, "data-idx": idx, "aria-posinset": idx + 1, "aria-setsize": rest.length } : {})}>
         <span className="nm" style={chatTitle(c).confirmed ? undefined : TENTATIVE_STYLE} title={chatTitle(c).confirmed ? undefined : TENTATIVE_HINT}>{chatName(c)}</span>
         <span className="marks">
           {localOf(c)?.deletePending ? <span className="tag unv" title={PENDING_TEXT(localOf(c)!.deletePending!.reason)}>削除保留</span> : null}

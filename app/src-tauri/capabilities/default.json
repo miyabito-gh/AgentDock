@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "通常画面と監視窓の基本権限（イベント購読など）。窓を閉じる操作だけ追加（通常画面は閉じるとトレイへ格納される）",
   "windows": ["main", "monitor"],
-  "permissions": ["core:default", "core:window:allow-close"]
+  "permissions": ["core:default", "core:window:allow-close", "core:window:allow-set-theme"]
 }
