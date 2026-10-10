@@ -83,6 +83,22 @@ export interface Bundle {
   externalLabel: Record<string, string>;
 }
 
+/** Markdown 整形表示の見本（見出し・表・コード・リンク・生HTML・長文）。モック専用。 */
+const MD_SAMPLE = [
+  "# 見出し1", "## 見出し2", "### 見出し3",
+  "本文に**太字**、*斜体*、~~取消線~~、`inline code`、自動リンク https://example.com/docs と [表示の文字](https://example.org/a) を含みます。",
+  "[危険なリンク](javascript:alert(1)) と [相対](./a.md) は押せない文字になります。",
+  "- 箇条書き\n  - 入れ子\n- [x] 済のタスク\n- [ ] 未のタスク",
+  "1. 手順1\n2. 手順2",
+  "> 引用の文です。",
+  "| 項目 | 値 | 備考 |\n|---|---|---|\n| 接続 | live | これは横に長い表の例です。これは横に長い表の例です。これは横に長い表の例です。これは横に長い表の例です。 |\n| 再送 | しない | 受理不明では再送しない |",
+  "生HTMLは文字として出ます。\n\n<script>alert(1)</script>\n\n<img src=x onerror=alert(1)>",
+  "![リモート画像](https://example.com/x.png) は読み込まれません。",
+  "```ts\nfunction add(a: number, b: number) {\n  return a + b;\n}\n```",
+  "長いコード（200行）:\n\n```text\n" + Array.from({ length: 200 }, (_, i) => `line ${i + 1}: ${"x".repeat(i % 40)}`).join("\n") + "\n```",
+  "閉じていないコードブロック:\n\n```sh\necho unclosed",
+].join("\n\n");
+
 function turns(chatId: string, entries: Array<[string, string]>, end: TurnRecord["end"] = null): TurnRecord[] {
   return [{
     key: { agent: ak(`${chatId}0`), turnId: "t1" }, end, startedAt: val(ago(1800)), completedAt: end ? val(ago(100)) : nf(),
@@ -151,13 +167,13 @@ function base(): Bundle {
     turns: {
       a: turns("a", [
         ["u", "再接続したときに同じ依頼が二重に送られる不具合を調べて。ログも添付する。"],
-        ["a", "ログを確認しました。再接続直後に未確認の送信が再送されています。調査をサブエージェントに分けて進めます。\n\nreconnect() -> resend_pending()  // 受理確認前に再送"],
+        ["a", "ログを確認しました。再接続直後に未確認の送信が再送されています。調査をサブエージェントに分けて進めます。\n\n```rust\nreconnect() -> resend_pending()  // 受理確認前に再送\n```"],
         ["subAgent", "Explorer を生成: 再送経路の洗い出し"],
         ["subAgent", "Worker を生成: 修正案の実装"],
         ["subAgent", "Worker が Tester を生成: 再現テスト"],
       ]),
       c: turns("c", [["u", "依存ライブラリを最新にして、ビルドが通るか確認して。"], ["a", "tokio を 1.x 系の最新に上げます。メジャー更新が必要な crate が1件あります。"]]),
-      b: turns("b", [["u", "この要件の文章を読みやすく整えて。"], ["a", "整えた版を作りました。成果物として保存しています。"]], "completed"),
+      b: turns("b", [["u", "この要件の文章を読みやすく整えて。"], ["a", "整えた版を作りました。成果物として保存しています。"], ["u", "Markdown の見本を出して。"], ["a", MD_SAMPLE]], "completed"),
       d: turns("d", [["u", "今週の作業から週報の下書きを作って。"]]),
       e: turns("e", [["u", "release ビルドの設定を見直して。"], ["a", "（CLIで作成された保存履歴）profile.release の設定を提案しました。"]]),
     },

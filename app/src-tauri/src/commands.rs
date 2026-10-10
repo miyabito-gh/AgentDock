@@ -655,12 +655,28 @@ pub async fn reload_tool_servers(host: Hs<'_>) -> R<OpAck> {
     host.inner().clone().reload_tool_servers(&confirmed).await
 }
 
+/// http:// か https:// の直後に、空白・`/`・`?`・`#` でない1文字以上のホストが続くものだけ開いてよい（先頭空白も不可）。
+fn is_openable_http_url(url: &str) -> bool {
+    let lower = url.to_ascii_lowercase();
+    let rest = lower.strip_prefix("https://").or_else(|| lower.strip_prefix("http://"));
+    rest.and_then(|r| r.chars().next()).is_some_and(|c| !c.is_whitespace() && !matches!(c, '/' | '?' | '#'))
+}
+
+#[cfg(test)]
+mod open_url_tests {
+    use super::is_openable_http_url;
+    #[test]
+    fn only_plain_http_urls_with_host() {
+        for u in ["https://example.com/a", "http://localhost:3000", "HTTPS://Example.com"] { assert!(is_openable_http_url(u), "{u}"); }
+        for u in ["https:///x", "http:a.com", " https://a.com", "javascript:alert(1)", "https://", "http://?x", "https:// a.com", "file:///C:/a"] { assert!(!is_openable_http_url(u), "{u}"); }
+    }
+}
+
 /// 認可URLを既定のブラウザで開く（UIの明示クリックのときだけ。http・httpsのURLだけ）。
 #[tauri::command]
 pub async fn open_authorization_url(app: tauri::AppHandle, url: String) -> R<()> {
     use tauri_plugin_opener::OpenerExt;
-    let lower = url.to_ascii_lowercase();
-    if !(lower.starts_with("https://") || lower.starts_with("http://")) {
+    if !is_openable_http_url(&url) {
         return Err(IpcError { code: IpcErrorCode::InvalidArgs, message: "http・https以外のURLは開きません".into(), blocked: None });
     }
     app.opener().open_url(url, None::<&str>).map_err(|_| IpcError { code: IpcErrorCode::Io, message: "ブラウザで開けませんでした".into(), blocked: None })

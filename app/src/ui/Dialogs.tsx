@@ -5,7 +5,10 @@ import { chatName } from "./derive";
 import { SCOPE_TEXT } from "./Chrome";
 import { Icon } from "./Icon";
 import { DeleteBody, ExportBody, StorageBody, type BaselineProps, type DeleteProps, type ExportProps, type UsageProps } from "./ManageDialogs";
-import { FootCtx, useFootSlots, About, ConfirmBlock } from "./DialogParts";
+import { FootCtx, useFootSlots, About, ConfirmBlock, FootActions } from "./DialogParts";
+import * as host from "../ipc/client";
+import { copyText } from "./markdown/parts";
+import { hostOf, isIdnHost, textMismatchesUrl } from "./markdown/plugins";
 import { ParityBody } from "./ParityDialog";
 import { ChangesBody, RevertBody } from "./ChangesDialog";
 import { GoalBody, StatusBody } from "./PrefsDialogs";
@@ -38,7 +41,8 @@ export type DialogState =
   | { type: "skills"; chatId: string }
   | { type: "instructions"; chatId: string }
   | { type: "resumeExternal"; chatId: string }
-  | { type: "rename"; chatId: string };
+  | { type: "rename"; chatId: string }
+  | { type: "openLink"; url: string; text: string };
 
 /** 外枠。フッターは左＝副操作、右＝閉じる（キャンセル）＋主操作（いちばん右）。
  *  `close` を渡すと、閉じるボタン付きのフッターを作り、本文側が FootActions で副操作・主操作を差し込める。
@@ -205,6 +209,30 @@ function targetText(t: StopRecord["targets"][number]): string {
 }
 
 /** 完全終了の確認・進行。閉じる操作（トレイ格納）ではここを出さない。停止は証拠で確認し、時間経過だけでは確認にしない。 */
+/** リンクの確認（DESIGN_P5 §3.3）。http・https だけがここへ来る。行き先の全文を見せ、押したときだけ既定のブラウザで開く。 */
+function OpenLinkBody({ url, text, onClose }: { url: string; text: string; onClose: () => void }) {
+  const [msg, setMsg] = useState<string | null>(null);
+  const hn = hostOf(url);
+  const at = hn ? url.indexOf(hn) : -1;
+  const open = async () => {
+    try { await host.openAuthorizationUrl(url); onClose(); } catch (e) { setMsg(`ブラウザで開けませんでした: ${host.asIpcError(e).message}`); }
+  };
+  const copy = async () => setMsg((await copyText(url)) ? "URLをコピーしました。" : "コピーできませんでした。");
+  return (
+    <div className="content">
+      <p>外部のページをブラウザで開きます。</p>
+      {textMismatchesUrl(text, url) ? <div className="banner info" role="alert"><div>表示の文字と実際の行き先が違います。</div></div> : null}
+      {isIdnHost(hn) ? <div className="banner info" role="alert"><div>国際化ドメイン名です。見た目が似た別のサイトの可能性があります。</div></div> : null}
+      <p className="small">行き先のホスト: <b className="mono" style={{ userSelect: "text" }}>{hn}</b></p>
+      <p className="mono" style={{ overflowWrap: "anywhere", userSelect: "text" }}>
+        {at >= 0 ? <>{url.slice(0, at)}<b>{hn}</b>{url.slice(at + hn.length)}</> : url}
+      </p>
+      {msg ? <p className="small" role="status">{msg}</p> : null}
+      <FootActions left={<button className="btn" onClick={() => void copy()}>URLをコピー</button>} main={<button className="btn primary" autoFocus onClick={() => void open()}>ブラウザで開く</button>} />
+    </div>
+  );
+}
+
 function QuitDialog({ q, chats, onClose, onAct }: { q: QuitProps; chats: Chat[]; onClose: () => void; onAct: (a: string) => void }) {
   const p = q.phase;
   const cancel = <button className="btn" onClick={() => q.decide("cancel")}>終了を取り消す</button>;
@@ -388,6 +416,10 @@ export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnter
           <ExportBody e={m} />
         </Shell>);
     }
+    case "openLink": return (
+      <Shell title="外部のページを開く" onClose={onClose} close="キャンセル">
+        <OpenLinkBody url={d.url} text={d.text} onClose={onClose} />
+      </Shell>);
     case "unv": return (
       <Shell title="この操作はまだ使えません" onClose={onClose} close="閉じる">
         <div className="content"><p>{d.why}。</p><p className="small muted">Codex 側の経路と動作を確認できるまで、成功したように見せることはしません。</p></div>
