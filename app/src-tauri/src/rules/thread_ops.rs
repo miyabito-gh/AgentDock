@@ -590,6 +590,7 @@ broken line without tab
                     kind,
                     text: Known::Missing,
                     phase: ActivityPhase::Completed,
+                    message_phase: Default::default(),
                     attachments: Vec::new(),
                 })
                 .collect(),

@@ -61,6 +61,7 @@ fn tick_events(tick: usize) -> Vec<BackendEvent> {
                     key: item(&id, tick),
                     kind: ActivityKind::Command,
                     phase: ActivityPhase::InProgress,
+                    message_phase: Default::default(),
                     summary: Known::direct(format!("step {tick}")),
                     evidence: ev(),
                 },

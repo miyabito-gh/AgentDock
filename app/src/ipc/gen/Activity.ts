@@ -4,8 +4,13 @@ import type { ActivityPhase } from "./ActivityPhase";
 import type { Evidence } from "./Evidence";
 import type { ItemKey } from "./ItemKey";
 import type { Known } from "./Known";
+import type { MessagePhase } from "./MessagePhase";
 
 /**
  * 活動（§5）。本文全文ではなく短い表示本文。全文は履歴取得で別に扱う。
  */
-export type Activity = { key: ItemKey, kind: ActivityKind, phase: ActivityPhase, summary: Known<string>, evidence: Evidence, };
+export type Activity = { key: ItemKey, kind: ActivityKind, phase: ActivityPhase, 
+/**
+ * エージェント発言の位置づけ（発言以外・不明は Unknown）。
+ */
+messagePhase: MessagePhase, summary: Known<string>, evidence: Evidence, };

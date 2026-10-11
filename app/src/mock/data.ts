@@ -64,7 +64,7 @@ function view(a: Agent, s: AgentStatus, act: string | null, freshness: Freshness
   return {
     agent: a, status: s, freshness,
     currentActivity: act === null ? null : {
-      key: { agent: a.key, turnId: "t1", itemId: `i-${a.key.id}` }, kind: { kind: "agentMessage" }, phase: "inProgress",
+      key: { agent: a.key, turnId: "t1", itemId: `i-${a.key.id}` }, kind: { kind: "agentMessage" }, phase: "inProgress", messagePhase: "unknown",
       summary: val(act), evidence: s.evidence,
     },
   };
@@ -107,7 +107,7 @@ function turns(chatId: string, entries: Array<[string, string]>, end: TurnRecord
     entries: entries.map(([k, t], i) => ({
       key: { agent: ak(`${chatId}0`), turnId: "t1", itemId: `m${i}` },
       kind: k === "u" ? { kind: "userMessage" } : k === "a" ? { kind: "agentMessage" } : { kind: "other", raw: k },
-      text: val(t), phase: "completed" as const, attachments: [],
+      text: val(t), phase: "completed" as const, messagePhase: "unknown" as const, attachments: [],
     })),
   }];
 }

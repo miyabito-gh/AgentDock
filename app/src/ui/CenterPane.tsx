@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import type {
   AgentKey, AgentView, ArtifactEntry, AttachmentEntry, EntryAttachment, Chat, ChatKey, ChatLocalView, ChatModelSettings, ChatQueue, DecisionOption, FileRef, Goal, HostSnapshot, Known, ModelInfo, PendingRequest, PathInfo,
   PermissionPreset, QueueEntry, RequestAnswer, ActivityKind, SaveState, StopRecord, TurnRecord, WorkMode, WorkModeInfo,
@@ -11,7 +11,7 @@ import { PENDING_TEXT } from "./ManageDialogs";
 import { TENTATIVE_HINT, TENTATIVE_STYLE, chatAgents, chatDisplay, chatName, chatRequests, chatTitle, chatStatusText, chatStops, isRunning, rootView, stopOpen } from "./derive";
 import { FRESH, STATE, STOP_LABEL, hms, holdText, keyStr, knownValue, showKnown, stopCauseText, targetList } from "./format";
 import { baseName, clipboardImageName, mimeOf } from "./attach";
-import { FOLD_KEEP, createFoldMemory, isLongBody, messageTexts, needsExpand, splitFold } from "./fold";
+import { FOLD_KEEP, createFoldMemory, isLongBody, messageTexts, needsExpand, splitFold, workFold, workFoldLabel } from "./fold";
 import { assignSends, chipKey, chipModel, matchLocal, splitChips, type SentLocal } from "./chips";
 import type { CommandView } from "./commands";
 import { GoalBar, UnverifiedTag, WORK_MODE_TEXT } from "./PrefsDialogs";
@@ -520,10 +520,13 @@ function Messages({ chatId, turns, reqs, running, onRespond, onAct, extra, find,
   // 折りたたみ（既定は直近の発言だけ。展開はこのチャットの間だけ覚え、新しい発言で勝手に折りたたまない）
   const [expanded, setExpandedRaw] = useState(() => foldMem.get(chatId).expanded);
   const [openMsgs, setOpenMsgs] = useState<string[]>(() => foldMem.get(chatId).openMsgs);
-  const memo = useRef({ expanded, openMsgs });
-  const remember = (e: boolean, o: string[]) => { memo.current = { expanded: e, openMsgs: o }; foldMem.set(chatId, memo.current); };
-  const setExpanded = (f: (v: boolean) => boolean) => setExpandedRaw((v) => { const n = f(v); remember(n, memo.current.openMsgs); return n; });
-  const toggleMsg = (id: string) => setOpenMsgs((o) => { const n = o.includes(id) ? o.filter((x) => x !== id) : [...o, id]; remember(memo.current.expanded, n); return n; });
+  // 完了したturnの「作業の経過」の展開状態（turn単位。チャット別に覚える）
+  const [openWork, setOpenWork] = useState<string[]>(() => foldMem.get(chatId).openWork);
+  const memo = useRef({ expanded, openMsgs, openWork });
+  const remember = (p: Partial<typeof memo.current>) => { memo.current = { ...memo.current, ...p }; foldMem.set(chatId, memo.current); };
+  const setExpanded = (f: (v: boolean) => boolean) => setExpandedRaw((v) => { const n = f(v); remember({ expanded: n }); return n; });
+  const toggleMsg = (id: string) => setOpenMsgs((o) => { const n = o.includes(id) ? o.filter((x) => x !== id) : [...o, id]; remember({ openMsgs: n }); return n; });
+  const toggleWork = (id: string) => setOpenWork((o) => { const n = o.includes(id) ? o.filter((x) => x !== id) : [...o, id]; remember({ openWork: n }); return n; });
   const fold = useMemo(() => splitFold(turns, FOLD_KEEP), [turns]);
   // 送った直後（履歴・live通知がまだ添付を運ばない間）は、送信時のローカルの記録から添付を出す
   const sentMap = useMemo(() => assignSends(turns, sends), [turns, sends]);
@@ -571,16 +574,45 @@ function Messages({ chatId, turns, reqs, running, onRespond, onAct, extra, find,
         </div>
       ) : null}
       {visible.map((t) => {
-        const others = t.entries.filter((e) => e.kind.kind !== "userMessage" && e.kind.kind !== "agentMessage");
+        // 完了したturnの途中経過と作業の記録は「作業の経過」に畳む（実行中・失敗・中断・phase不明は畳まない）
+        const wf = workFold(t);
+        const wfSet = new Set(wf?.ids ?? []);
+        const wfKey = keyStr(t.key.agent) + t.key.turnId;
+        const wfEntries = t.entries.filter((e) => wfSet.has(e.key.itemId));
+        // 検索の語が畳み内の途中経過にあれば自動で展開する
+        const wfForce = !!wf && find.open && !!find.query && needsExpand(messageTexts([{ entries: wfEntries.filter((e) => e.kind.kind === "agentMessage") }]), find.query);
+        const wfOpen = openWork.includes(wfKey) || wfForce;
+        let wfDone = false;
+        const wfBlock = wf ? (
+          <div className="workfold" key="workfold">
+            <div className="foldrow">
+              <button type="button" className="foldbtn" aria-expanded={wfOpen} disabled={wfForce && !openWork.includes(wfKey)}
+                title={wfForce && !openWork.includes(wfKey) ? "検索の一致が作業の経過にあるため、展開しています" : undefined} onClick={() => toggleWork(wfKey)}>
+                {workFoldLabel(wf)} {wfOpen ? "‹" : "›"}
+              </button>
+            </div>
+            {wfOpen ? wfEntries.map((e) => e.kind.kind === "agentMessage" ? (
+              <div className="msg ai" key={e.key.itemId}>
+                <div className="who">Codex</div>
+                <div className="bubble" data-find="body"><Markdown text={e.text.kind === "value" ? e.text.value : "…"} streaming={false} /></div>
+              </div>
+            ) : (
+              <div className="msg ai" key={e.key.itemId}><div className="activity"><b>{kindLabel(e.kind)}</b>　{entryText(e)}</div></div>
+            )) : null}
+          </div>
+        ) : null;
+        const others = wf ? [] : t.entries.filter((e) => e.kind.kind !== "userMessage" && e.kind.kind !== "agentMessage");
         // 編集・再生成の対象はメインのエージェントのturnだけ。
         const mine = resend.rootAgentId === undefined || t.key.agent.id === resend.rootAgentId;
         const blocked = (purpose: "editResend" | "regenerate", itemId: string | null) =>
           resendAvailability(resend.ctx, resendTargetOf(turns, t.key.turnId, purpose, itemId)).kind === "blocked";
         return (
           <div key={keyStr(t.key.agent) + t.key.turnId}>
-            {t.entries.filter((e) => e.kind.kind === "userMessage" || e.kind.kind === "agentMessage").map((e, _i, all) => {
+            {t.entries.filter((e) => (e.kind.kind === "userMessage" || e.kind.kind === "agentMessage") && !wfSet.has(e.key.itemId)).map((e, _i, all) => {
               const text = e.text.kind === "value" ? e.text.value : "…";
               const lastAi = all.filter((x) => x.kind.kind === "agentMessage").pop();
+              // 畳み見出しは、最初の返答（依頼の後）の直前に置く
+              const lead = !wfDone && e.kind.kind !== "userMessage" ? (wfDone = true, wfBlock) : null;
               if (e.kind.kind === "userMessage") {
                 // 添付だけの依頼は本文の項目がない。空の吹き出しにせず、中立の表示にする（コピーは本文があるときだけ）。
                 const noBody = e.text.kind !== "value" || !e.text.value.trim();
@@ -599,14 +631,18 @@ function Messages({ chatId, turns, reqs, running, onRespond, onAct, extra, find,
                   </div>);
               }
               return (
-                <div className="msg ai" key={e.key.itemId}>
+                <Fragment key={e.key.itemId}>
+                {lead}
+                <div className="msg ai">
                   <div className="who">Codex</div>
                   <div className="bubble" data-find="body"><Markdown text={text} streaming={t.end === null && e === lastAi} /></div>
                   <div className="acts"><CopyAct text={text} /><button onClick={() => onAct(`fork:${t.key.turnId}`)}><Icon name="branch" />ここから分岐</button>
                     {mine && e === lastAi ? <button aria-disabled={blocked("regenerate", null) || undefined} onClick={() => onAct(`resend:regenerate|${t.key.turnId}|`)}><Icon name="refresh" />もう一度…</button> : null}</div>
                 </div>
+                </Fragment>
               );
             })}
+            {wfBlock && !wfDone ? wfBlock : null}
             {others.length ? (
               <div className="msg ai">
                 <details className="activity"><summary>作業の記録（{others.length}件）</summary>

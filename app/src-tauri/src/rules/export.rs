@@ -293,7 +293,7 @@ mod tests {
         ItemKey { agent: ak("root"), turn_id: Some(ExternalId("t1".into())), item_id: ExternalId(i.into()) }
     }
     fn entry(kind: ActivityKind, text: Known<String>) -> TranscriptEntry {
-        TranscriptEntry { key: ikey("i"), kind, text, phase: ActivityPhase::Completed, attachments: Vec::new() }
+        TranscriptEntry { key: ikey("i"), kind, text, phase: ActivityPhase::Completed, message_phase: Default::default(), attachments: Vec::new() }
     }
     fn turn(entries: Vec<TranscriptEntry>, end: Option<TurnEnd>, complete: bool) -> TurnRecord {
         TurnRecord { key: TurnKey { agent: ak("root"), turn_id: ExternalId("t1".into()) }, end, started_at: Known::NotFetched, completed_at: Known::NotFetched, entries, complete }

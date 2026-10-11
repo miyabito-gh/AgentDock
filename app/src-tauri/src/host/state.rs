@@ -1468,6 +1468,7 @@ mod tests {
             key: ItemKey { agent: ak("root"), turn_id: Some(ExternalId("t1".into())), item_id: ExternalId("i1".into()) },
             kind: ActivityKind::SubAgent,
             phase: ActivityPhase::Started,
+            message_phase: Default::default(),
             summary: Known::Missing,
             evidence: evidence(EvidenceSource::LiveEvent, "x", UnixMillis(0)),
         };

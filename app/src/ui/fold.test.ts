@@ -1,7 +1,7 @@
 // 実行: node --test src/ui/fold.test.ts （tscの対象外）
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createFoldMemory, isLongBody, messageTexts, needsExpand, splitFold } from "./fold.ts";
+import { formatWorkDuration, workFold, workFoldLabel, createFoldMemory, isLongBody, messageTexts, needsExpand, splitFold } from "./fold.ts";
 import { assignSends, chipKey, chipModel, classifyCarry, matchLocal, splitChips, UNDETERMINED_LABEL } from "./chips.ts";
 
 const e = (k: string, text = "x") => ({ kind: { kind: k }, text: { kind: "value", value: text } });
@@ -117,12 +117,52 @@ test("再送の添付: 保持済みで使えるものだけ付け、欠損・復
 
 test("展開状態の記憶は、戻ったとき保たれ、上限を超えると古いチャットから忘れる", () => {
   const m = createFoldMemory(2);
-  assert.deepEqual(m.get("a"), { expanded: false, openMsgs: [] });
-  m.set("a", { expanded: true, openMsgs: ["i1"] });
-  m.set("b", { expanded: true, openMsgs: [] });
+  assert.deepEqual(m.get("a"), { expanded: false, openMsgs: [], openWork: [] });
+  m.set("a", { expanded: true, openMsgs: ["i1"], openWork: [] });
+  m.set("b", { expanded: true, openMsgs: [], openWork: [] });
   assert.equal(m.get("a").expanded, true); // 使うと新しい側へ
-  m.set("c", { expanded: true, openMsgs: [] });
+  m.set("c", { expanded: true, openMsgs: [], openWork: [] });
   assert.equal(m.size(), 2);
   assert.equal(m.get("b").expanded, false); // 最も古い b を忘れた
   assert.equal(m.get("a").expanded, true);
+});
+
+const we = (id: string, kind: string, messagePhase = "unknown", phase = "completed") => ({ key: { itemId: id }, kind: { kind }, phase, messagePhase });
+const wt = (end: string | null, entries: ReturnType<typeof we>[], s: number | null = 1000, c: number | null = 8000) => ({
+  end, entries,
+  startedAt: s === null ? { kind: "missing" } : { kind: "value", value: s },
+  completedAt: c === null ? { kind: "missing" } : { kind: "value", value: c },
+});
+
+test("途中経過の折りたたみ: 完了turnで最終回答があれば、commentaryと作業の記録だけ畳む", () => {
+  const w = workFold(wt("completed", [we("u", "userMessage"), we("a", "agentMessage", "commentary"), we("c", "command"), we("b", "agentMessage", "commentary"), we("f", "agentMessage", "final"), we("x", "agentMessage", "unknown")]));
+  assert.deepEqual(w, { ids: ["a", "c", "b"], count: 3, durationMs: 7000 });
+  assert.equal(workFoldLabel(w!), "作業の経過（3件・7秒）");
+});
+
+test("途中経過の折りたたみ: 実行中・失敗・中断・最終回答なし・phase不明だけは畳まない", () => {
+  const es = [we("a", "agentMessage", "commentary"), we("f", "agentMessage", "final")];
+  assert.equal(workFold(wt(null, es)), null);
+  assert.equal(workFold(wt("failed", es)), null);
+  assert.equal(workFold(wt("interrupted", es)), null);
+  assert.equal(workFold(wt("completed", [we("a", "agentMessage", "commentary"), we("c", "command")])), null);
+  assert.equal(workFold(wt("completed", [we("a", "agentMessage", "unknown"), we("f", "agentMessage", "unknown")])), null);
+  // 畳む対象が無い／未完了・終端未確認の項目がある
+  assert.equal(workFold(wt("completed", [we("f", "agentMessage", "final")])), null);
+  assert.equal(workFold(wt("completed", [...es, we("c", "command", "unknown", "unconfirmed")])), null);
+  assert.equal(workFold(wt("completed", [...es, we("c", "command", "unknown", "inProgress")])), null);
+});
+
+test("途中経過の折りたたみ: 時刻が分からなければ件数のみ", () => {
+  const es = [we("a", "agentMessage", "commentary"), we("f", "agentMessage", "final")];
+  assert.equal(workFoldLabel(workFold(wt("completed", es, null, 5000))!), "作業の経過（1件）");
+  assert.equal(workFoldLabel(workFold(wt("completed", es, 9000, 5000))!), "作業の経過（1件）");
+});
+
+test("所要時間の表記", () => {
+  assert.equal(formatWorkDuration(200), "1秒未満");
+  assert.equal(formatWorkDuration(42000), "42秒");
+  assert.equal(formatWorkDuration(427000), "7分7秒");
+  assert.equal(formatWorkDuration(420000), "7分");
+  assert.equal(formatWorkDuration(3720000), "1時間2分");
 });

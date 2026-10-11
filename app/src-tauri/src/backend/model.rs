@@ -844,6 +844,21 @@ pub enum ActivityPhase {
     Unconfirmed,
 }
 
+/// エージェント発言の位置づけ。途中経過か最終回答か。バックエンドが示さなければ Unknown（断定しない）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub enum MessagePhase {
+    /// 作業中の途中経過の発言。
+    Commentary,
+    /// 最終回答。
+    Final,
+    /// 示されていない・未知の値。
+    #[default]
+    Unknown,
+}
+
 /// 活動（§5）。本文全文ではなく短い表示本文。全文は履歴取得で別に扱う。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
@@ -853,6 +868,9 @@ pub struct Activity {
     pub key: ItemKey,
     pub kind: ActivityKind,
     pub phase: ActivityPhase,
+    /// エージェント発言の位置づけ（発言以外・不明は Unknown）。
+    #[serde(default)]
+    pub message_phase: MessagePhase,
     pub summary: Known<String>,
     pub evidence: Evidence,
 }
@@ -867,6 +885,9 @@ pub struct TranscriptEntry {
     pub kind: ActivityKind,
     pub text: Known<String>,
     pub phase: ActivityPhase,
+    /// エージェント発言の位置づけ（発言以外・不明は Unknown）。
+    #[serde(default)]
+    pub message_phase: MessagePhase,
     /// ユーザーの発言に付いていた添付（履歴の入力項目から復元したもの）。復元の根拠は各要素の `basis`。
     #[serde(default)]
     pub attachments: Vec<EntryAttachment>,

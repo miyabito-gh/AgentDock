@@ -125,6 +125,7 @@ mod tests {
                 None => Known::Missing,
             },
             phase: ActivityPhase::Completed,
+            message_phase: Default::default(),
             attachments: Vec::new(),
         }
     }

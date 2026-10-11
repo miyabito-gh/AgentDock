@@ -127,12 +127,12 @@ export function applyHostEvent(b: Bundle, e: HostEvent): Bundle {
         const prev = textOf(old?.text);
         // 要約は短縮されることがあるので、逐次本文で既に長く持っていれば維持する（全文は完了後の履歴取得で置き換わる）。
         const text = prev.length > next.length ? old!.text : a.summary;
-        return { key: a.key, kind: a.kind as ActivityKind, text, phase: a.phase, attachments: old?.attachments ?? [] };
+        return { key: a.key, kind: a.kind as ActivityKind, text, phase: a.phase, messagePhase: a.messagePhase, attachments: old?.attachments ?? [] };
       });
     }
     case "activityDelta":
       return withEntry(b, e.item, (old) => ({
-        key: e.item, kind: old?.kind ?? { kind: "agentMessage" }, text: val(textOf(old?.text) + e.delta), phase: "inProgress", attachments: old?.attachments ?? [],
+        key: e.item, kind: old?.kind ?? { kind: "agentMessage" }, text: val(textOf(old?.text) + e.delta), phase: "inProgress", messagePhase: old?.messagePhase ?? "unknown", attachments: old?.attachments ?? [],
       }));
     case "requestUpdated":
       return set({ requests: upsert(s.requests, e.request, (r) => r.key.requestId === e.request.key.requestId && r.key.source === e.request.key.source) });

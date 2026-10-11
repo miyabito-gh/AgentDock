@@ -493,6 +493,18 @@ pub fn item_phase(item: &Value, default: ActivityPhase) -> ActivityPhase {
     }
 }
 
+/// agentMessage の `phase`。無い・null・未知の値は Unknown（途中経過・最終回答と断定しない）。
+pub fn message_phase_of(item: &Value) -> MessagePhase {
+    if str_of(item, "type") != Some("agentMessage") {
+        return MessagePhase::Unknown;
+    }
+    match str_of(item, "phase") {
+        Some("commentary") => MessagePhase::Commentary,
+        Some("final_answer") => MessagePhase::Final,
+        _ => MessagePhase::Unknown,
+    }
+}
+
 pub fn item_id(item: &Value) -> Option<&str> {
     str_of(item, "id")
 }
@@ -503,6 +515,7 @@ pub fn item_to_activity(item: &Value, agent: &AgentKey, turn_id: Option<&str>, p
     let (kind, text) = item_kind_and_text(item);
     Some(Activity {
         key: ItemKey { agent: agent.clone(), turn_id: turn_id.map(ext), item_id: ext(id) },
+        message_phase: message_phase_of(item),
         kind,
         phase,
         summary: match text {
@@ -532,6 +545,7 @@ pub fn turn_to_record(thread_id: &str, t: &WireTurn) -> TurnRecord {
                     _ => Known::Missing,
                 },
                 phase: item_phase(item, ActivityPhase::Completed),
+                message_phase: message_phase_of(item),
             })
         })
         .collect();
@@ -1010,5 +1024,16 @@ mod tests {
     fn permission_presets_never_escalate_by_default() {
         assert_eq!(permission_params(PermissionPreset::WorkspaceWriteOnRequest), ("on-request", "workspace-write"));
         assert_eq!(permission_params(PermissionPreset::ReadOnly).1, "read-only");
+    }
+
+    #[test]
+    fn message_phase_is_neutral_and_never_guessed() {
+        let m = |p: Value| json!({"type": "agentMessage", "id": "i", "text": "x", "phase": p});
+        assert_eq!(message_phase_of(&m(json!("commentary"))), MessagePhase::Commentary);
+        assert_eq!(message_phase_of(&m(json!("final_answer"))), MessagePhase::Final);
+        assert_eq!(message_phase_of(&m(json!(null))), MessagePhase::Unknown);
+        assert_eq!(message_phase_of(&m(json!("other"))), MessagePhase::Unknown);
+        assert_eq!(message_phase_of(&json!({"type": "agentMessage", "id": "i", "text": "x"})), MessagePhase::Unknown);
+        assert_eq!(message_phase_of(&json!({"type": "plan", "phase": "commentary"})), MessagePhase::Unknown);
     }
 }

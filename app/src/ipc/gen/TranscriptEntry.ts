@@ -4,11 +4,16 @@ import type { ActivityPhase } from "./ActivityPhase";
 import type { EntryAttachment } from "./EntryAttachment";
 import type { ItemKey } from "./ItemKey";
 import type { Known } from "./Known";
+import type { MessagePhase } from "./MessagePhase";
 
 /**
  * 会話本文の1要素（履歴表示用）。Markdown等は文字列データとしてのみ扱う（§2.1）。
  */
 export type TranscriptEntry = { key: ItemKey, kind: ActivityKind, text: Known<string>, phase: ActivityPhase, 
+/**
+ * エージェント発言の位置づけ（発言以外・不明は Unknown）。
+ */
+messagePhase: MessagePhase, 
 /**
  * ユーザーの発言に付いていた添付（履歴の入力項目から復元したもの）。復元の根拠は各要素の `basis`。
  */
