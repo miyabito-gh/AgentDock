@@ -25,6 +25,10 @@ externalHistory: Support, attachmentKinds: Array<AttachmentKind>,
  */
 managedExecControl: Support, 
 /**
+ * プロジェクト（名前＋作業フォルダの集合）の一覧の読取り。
+ */
+projects: Support, 
+/**
  * VS Code拡張との同等性の操作ごとの能力（段階③、`app/DESIGN_P3.md` §2.1）。
  */
 ops: Array<OpCapability>, };

@@ -90,6 +90,11 @@ pub async fn set_pinned(host: Hs<'_>, args: SetPinnedArgs) -> R<Chat> {
 }
 
 #[tauri::command]
+pub async fn list_projects(host: Hs<'_>, args: ListProjectsArgs) -> R<ProjectsOutcome> {
+    host.list_projects(args).await
+}
+
+#[tauri::command]
 pub async fn list_models(host: Hs<'_>, args: ListModelsArgs) -> R<Vec<ModelInfo>> {
     host.list_models(args).await
 }

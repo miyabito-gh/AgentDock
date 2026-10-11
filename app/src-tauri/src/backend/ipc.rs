@@ -11,7 +11,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::backend::{
-    ChatSummary, InterruptAck, ManageOp, ManageOutcome, Page, PermissionPreset, RespondOutcome, ResumeOutcome,
+    ChatSummary, InterruptAck, ProjectSummary, ManageOp, ManageOutcome, Page, PermissionPreset, RespondOutcome, ResumeOutcome,
     AgentHistory,
 };
 use super::local::{RepoRecordChoice, AppSettings, ArtifactEntry, AttachmentEntry, ChatLocalView, ChatQueue, QuitPhase, SaveScope, SaveStatus};
@@ -37,6 +37,7 @@ pub mod command_names {
     pub const MANAGE_CHAT: &str = "manage_chat";
     pub const SET_PINNED: &str = "set_pinned";
     pub const LIST_MODELS: &str = "list_models";
+    pub const LIST_PROJECTS: &str = "list_projects";
     pub const SET_CHAT_MODEL: &str = "set_chat_model";
     pub const SET_MONITOR_SCOPE: &str = "set_monitor_scope";
     pub const ACKNOWLEDGE_WARNINGS: &str = "acknowledge_warnings";
@@ -455,6 +456,28 @@ pub struct ListModelsArgs {
 }
 
 pub type ListModelsResult = Vec<ModelInfo>;
+
+/// プロジェクト一覧の取得（読取りのみ）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct ListProjectsArgs {
+    pub backend: BackendKind,
+}
+
+/// プロジェクト一覧の取得結果。取得できなかったことを「プロジェクトなし」に変換しない。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum ProjectsOutcome {
+    Loaded { projects: Vec<ProjectSummary> },
+    /// このバックエンド・版・設定では使えない、または応答の形が想定と違う（再試行しても変わらない）。
+    Unsupported { reason: String },
+    /// 通信断・タイムアウトなどで取得できなかった（次の更新で再試行できる）。
+    Failed { reason: String },
+}
 
 /// チャット単位のモデル選択（既定値の変更は既存チャットに波及させない）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

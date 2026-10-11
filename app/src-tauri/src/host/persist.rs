@@ -145,6 +145,7 @@ pub fn chat_from_record(key: &ChatKey, local: &ChatLocalFile) -> Option<Chat> {
         created_at: created_at_from_dir_id(&local.dir_id.0).map_or(Known::NotFetched, |t| Known::Value { value: t, basis: Basis::Derived }),
         last_used_at: local.last_used_at,
         no_history: true,
+        project_id: None,
     })
 }
 

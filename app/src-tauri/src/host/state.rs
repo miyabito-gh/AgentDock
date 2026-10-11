@@ -1350,7 +1350,7 @@ mod tests {
         let mut d = HostData::default();
         let chat = Chat {
             key: ck("root"), kind: ChatKind::Development, cwd: Known::NotFetched, name: Known::NotFetched, preview: Known::NotFetched, pinned: false,
-            archived: Known::NotFetched, origin: ChatOrigin::External, draft: None, created_at: Known::NotFetched, last_used_at: None, no_history: false,
+            archived: Known::NotFetched, origin: ChatOrigin::External, draft: None, created_at: Known::NotFetched, last_used_at: None, no_history: false, project_id: None,
         };
         d.upsert_chat(chat);
         d.upsert_history_agent(agent("root", true), status(AgentState::Unknown, None, StateScope::Agent));
@@ -1394,7 +1394,7 @@ mod tests {
             draft: None,
             created_at: Known::NotFetched,
             last_used_at: None,
-            no_history: false,
+            no_history: false, project_id: None,
         };
         d.upsert_chat(mk(ChatOrigin::External));
         assert_eq!(d.chat(&ck("root")).unwrap().origin, ChatOrigin::External);
@@ -1600,7 +1600,7 @@ mod tests {
         let mk = |id: &str, kind, created: Option<i64>| Chat {
             key: ck(id), kind, cwd: Known::NotFetched, name: Known::NotFetched, preview: Known::NotFetched, pinned: false, archived: Known::NotFetched,
             origin: ChatOrigin::External, draft: None,
-            created_at: created.map_or(Known::NotFetched, |t| Known::direct(UnixMillis(t))), last_used_at: None, no_history: false,
+            created_at: created.map_or(Known::NotFetched, |t| Known::direct(UnixMillis(t))), last_used_at: None, no_history: false, project_id: None,
         };
         let mut d = HostData::default();
         // 復元した hosted の印は、一覧取得（外部と返る）でも保たれ、送信は止まらない。
@@ -1623,7 +1623,7 @@ mod tests {
         let mk = |id: &str, created: Option<i64>, used: Option<i64>, pinned: bool| Chat {
             key: ck(id), kind: ChatKind::General, cwd: Known::NotFetched, name: Known::NotFetched, preview: Known::NotFetched, pinned, archived: Known::NotFetched,
             origin: ChatOrigin::AppManaged, draft: None, created_at: created.map_or(Known::NotFetched, |t| Known::direct(UnixMillis(t))),
-            last_used_at: used.map(UnixMillis), no_history: false,
+            last_used_at: used.map(UnixMillis), no_history: false, project_id: None,
         };
         let mut v = vec![
             mk("unk1", None, None, false),
@@ -1642,7 +1642,7 @@ mod tests {
     fn only_user_use_moves_a_chat_up_not_background_upserts() {
         let mk = |id: &str, t: i64| Chat {
             key: ck(id), kind: ChatKind::General, cwd: Known::NotFetched, name: Known::NotFetched, preview: Known::NotFetched, pinned: false, archived: Known::NotFetched,
-            origin: ChatOrigin::AppManaged, draft: None, created_at: Known::direct(UnixMillis(t)), last_used_at: None, no_history: false,
+            origin: ChatOrigin::AppManaged, draft: None, created_at: Known::direct(UnixMillis(t)), last_used_at: None, no_history: false, project_id: None,
         };
         let mut d = HostData::default();
         for (id, t) in [("a", 300), ("b", 200), ("c", 100)] {

@@ -356,6 +356,10 @@ pub enum Support {
     Unknown,
 }
 
+fn support_unknown() -> Support {
+    Support::Unknown
+}
+
 /// バックエンドの能力一覧。UIはUnsupportedの操作を隠すか「このAIでは非対応」と表示する。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
@@ -382,6 +386,9 @@ pub struct Capabilities {
     pub attachment_kinds: Vec<AttachmentKind>,
     /// 管理実行（バックグラウンド端末等）の一覧・終了。
     pub managed_exec_control: Support,
+    /// プロジェクト（名前＋作業フォルダの集合）の一覧の読取り。
+    #[serde(default = "support_unknown")]
+    pub projects: Support,
     /// VS Code拡張との同等性の操作ごとの能力（段階③、`app/DESIGN_P3.md` §2.1）。
     #[serde(default)]
     pub ops: Vec<OpCapability>,
@@ -721,6 +728,9 @@ pub struct Chat {
     /// バックエンドに履歴がない（発話前のチャットなど、バックエンドの一覧・読取りに現れない）。アプリの記録だけから出している表示。
     #[serde(default)]
     pub no_history: bool,
+    /// バックエンドが示す所属プロジェクトのID（確定。無ければ None。フォルダ一致による推測はUI側で別に行い、ここには入れない）。
+    #[serde(default)]
+    pub project_id: Option<String>,
 }
 
 /// 直接親の関係（M03）。深さから推定しない。

@@ -36,13 +36,17 @@ export function worktreeOf(cwd: string | null, worktrees: WorktreeRecord[]): Wor
 
 export interface FolderGroup {
   key: string;
-  kind: "folder" | "general" | "unknown";
+  kind: "folder" | "general" | "unknown" | "project" | "noProject";
   /** 全文のパス（一般・不明は表示名）。最近利用が最も新しいチャットの元の文字列。 */
   path: string;
   chats: Chat[];
   /** 中のチャットの最近利用の最大値 */
   latest: number | null;
   pinned: boolean;
+  /** プロジェクト見出し（kind=project）の表示名・フォルダ（先頭がプライマリと推定）・フォルダ一致の推測で入ったチャットの件数。 */
+  label?: string;
+  roots?: string[];
+  guessedCount?: number;
 }
 
 /** グループ化。`chats` は表示する順（sortChats 済み・ピン留めチャットは除いたもの）。グループ内はその順のまま。 */

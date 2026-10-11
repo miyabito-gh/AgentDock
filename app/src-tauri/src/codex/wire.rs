@@ -123,6 +123,7 @@ struct WireThreadRaw {
     source: Option<Value>,
     agent_nickname: Option<String>,
     agent_role: Option<String>,
+    project_id: Option<String>,
     turns: Vec<Value>,
 }
 
@@ -141,6 +142,7 @@ pub struct WireThread {
     pub source: Option<Value>,
     pub agent_nickname: Option<String>,
     pub agent_role: Option<String>,
+    pub project_id: Option<String>,
     pub status: WireStatus,
     pub turns: Vec<WireTurn>,
 }
@@ -166,6 +168,7 @@ impl WireThread {
             source: raw.source,
             agent_nickname: raw.agent_nickname,
             agent_role: raw.agent_role,
+            project_id: raw.project_id,
             turns,
         })
     }

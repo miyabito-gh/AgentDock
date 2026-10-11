@@ -242,6 +242,7 @@ pub fn thread_to_chat(t: &WireThread, app_data_dir: Option<&str>, archived: Know
         },
         last_used_at: None,
         no_history: false,
+        project_id: t.project_id.clone().filter(|p| !p.is_empty()),
     }
 }
 

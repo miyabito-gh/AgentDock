@@ -209,6 +209,19 @@ pub struct ChatSummary {
     pub preview: Known<String>,
 }
 
+/// プロジェクト（名前＋作業フォルダの集合）。`roots` は順序つき。先頭がプライマリフォルダかは
+/// バックエンドが示さないので、画面では推定として扱う（確定表示にしない）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectSummary {
+    pub id: String,
+    pub name: String,
+    pub roots: Vec<String>,
+    pub position: i32,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReadOptions {
@@ -473,6 +486,9 @@ pub trait AiBackend: Send + Sync {
 
     // ── 監視 ──
     /// このプロセスでロード済みのエージェント。
+    /// プロジェクト一覧（読取りのみ。作成・変更はしない）。能力 `projects` が非対応なら `Unsupported`。
+    async fn list_projects(&self) -> BackendResult<Vec<ProjectSummary>>;
+
     async fn list_loaded(&self) -> BackendResult<Vec<AgentKey>>;
     /// 子孫の再発見（能力 `descendant_search` 依存）。
     async fn scan_descendants(&self, root: AgentKey) -> BackendResult<DescendantScan>;

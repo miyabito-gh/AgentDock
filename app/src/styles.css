@@ -415,6 +415,7 @@ textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;paddin
 .list-grp .grp-toggle[aria-disabled=true]{cursor:default}
 .list-grp .grp-caret{flex:none;color:var(--ink3);width:10px}
 .list-grp .grp-nm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.list-grp .grp-guess{flex:none;color:var(--ink3);font-size:var(--fs-xs);font-weight:500;line-height:1.5;padding:0 4px;border:1px dashed var(--line);border-radius:999px;white-space:nowrap}
 .list-grp .grp-n{flex:none;color:var(--ink2);font-weight:500;font-size:var(--fs-xs);font-variant-numeric:tabular-nums;line-height:1.5;padding:0 6px;border-radius:999px;background:var(--surface);border:1px solid var(--line)}
 .list-grp .grp-marks{flex:none;display:flex;gap:3px}
 .list-grp .tag{flex:none}

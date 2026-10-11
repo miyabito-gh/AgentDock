@@ -525,6 +525,8 @@ pub enum ChatListView {
     Recent,
     /// 作業フォルダごと。
     ByFolder,
+    /// プロジェクトごと（プロジェクトの所属は、バックエンドが示すIDか、作業フォルダの一致による推測）。
+    ByProject,
 }
 
 /// 左一覧の表示設定。フォルダのキーは画面側の `folderKey`（正規化済みパス）。

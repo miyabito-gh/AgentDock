@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { readText } from "@tauri-apps/plugin-clipboard-manager";
-import type { RepoRecordChoice, AgentKey, AppSettings, AttachmentEntry, Chat, ChatKey, Goal, GoalUpdate, Known, WorkMode, WorkModeInfo, DeleteOutcome, DeletePreview, UsageReport, ForceKillPreview, HostEvent, HostEventEnvelope, HostSnapshot, ModelInfo, MonitorScope, PendingRequest, PermissionPreset, QuitDecision, QuitPhase, RequestAnswer, SendAttempt, SettingsImpact, SourceInfo } from "./ipc/types";
+import type { RepoRecordChoice, AgentKey, AppSettings, AttachmentEntry, Chat, ChatKey, Goal, GoalUpdate, Known, WorkMode, WorkModeInfo, DeleteOutcome, DeletePreview, UsageReport, ForceKillPreview, HostEvent, HostEventEnvelope, HostSnapshot, ModelInfo, ProjectsOutcome, MonitorScope, PendingRequest, PermissionPreset, QuitDecision, QuitPhase, RequestAnswer, SendAttempt, SettingsImpact, SourceInfo } from "./ipc/types";
 import * as host from "./ipc/client";
 import { LinkContext } from "./ui/Markdown";
 import { applyHostEvent, createEventPipeline, emptyBundle, replaceSnapshot, seqAction, UNKNOWN_CAPS } from "./ipc/live";
@@ -76,6 +76,8 @@ export default function App() {
   const [scenarios, setScenarios] = useState<Array<[string, string]>>([]);
   const [bundle, setBundle] = useState<Bundle>(() => emptyBundle());
   const [models, setModels] = useState<ModelInfo[]>([]);
+  /** プロジェクト一覧の取得結果（null＝未取得）。取得できなかったことを空の一覧にしない。 */
+  const [projects, setProjects] = useState<ProjectsOutcome | null>(null);
   const [selId, setSelId] = useState<string | null>(null);
   const [scope, setScope] = useState<MonitorScope>({ kind: "selectedChat", chat: null });
   const [leftOpen, setLeftOpen] = useState(true);
@@ -145,6 +147,12 @@ export default function App() {
   const sayErr = useCallback((prefix: string, e: unknown) => say(`${prefix}: ${host.asIpcError(e).message}`), [say]);
 
   /** 保存履歴から会話本文を読み込む（resumeしない）。 */
+  /** プロジェクト一覧を取り直す（読取りのみ。一覧の更新と同時に呼ぶ）。通信などで取れなかったときは「取得できなかった」と記録する。 */
+  const refreshProjects = useCallback(async () => {
+    try { setProjects(await host.listProjects()); }
+    catch (e) { setProjects({ kind: "failed", reason: host.asIpcError(e).message }); }
+  }, []);
+
   const loadChat = useCallback(async (id: string) => {
     try {
       const h = await host.openChat({ backend: "codex", id });
@@ -180,8 +188,9 @@ export default function App() {
       }
     } catch (e) { sayErr("会話の一覧を取得できませんでした", e); }
     try { setModels(await host.listModels()); } catch (e) { sayErr("モデル一覧を取得できませんでした", e); }
+    void refreshProjects();
     return true;
-  }, [loadChat, sayErr]);
+  }, [loadChat, sayErr, refreshProjects]);
 
   // 実接続: 購読 → スナップショット → 接続。seqが飛んだらスナップショットを取り直す。
   useEffect(() => {
@@ -247,7 +256,7 @@ export default function App() {
       effects(env.event);
     };
 
-    setBundle(emptyBundle()); setSelId(null); setModels([]); setAttempts({}); setScope({ kind: "selectedChat", chat: null });
+    setBundle(emptyBundle()); setSelId(null); setModels([]); setProjects(null); setAttempts({}); setScope({ kind: "selectedChat", chat: null });
     void (async () => {
       try {
         const un = await host.subscribeHostEvents((env) => { if (ready) handle(env); else pending.push(env); });
@@ -262,6 +271,7 @@ export default function App() {
           const page = await host.listChats().catch(() => null);
           if (page?.items[0] && !selRef.current) { setSelId(page.items[0].chat.key.id); void loadChat(page.items[0].chat.key.id); }
           setModels(await host.listModels().catch(() => []));
+          void refreshProjects();
         }
         if (!alive) return;
         last = snap.seq;
@@ -277,7 +287,7 @@ export default function App() {
       }
     })();
     return () => { alive = false; unlisten?.(); pipe.dispose(); };
-  }, [live, boot, loadChat, noteAttempt, say, sayErr]);
+  }, [live, boot, loadChat, noteAttempt, say, sayErr, refreshProjects]);
 
   const snap: HostSnapshot = bundle.snapshot;
   // このアプリの起動中に一度でも live 監視になったエージェント（再起動後の保存履歴表示と、接続断からの回復を区別する）。
@@ -995,6 +1005,7 @@ export default function App() {
     const at = hms(Date.now());
     try {
       const page = await host.listChats();
+      void refreshProjects();
       const text = `一覧を更新しました（Codex から${page.items.length}件${page.nextCursor ? "、続きあり" : ""}）`;
       setListStatus({ ok: true, text: `${text}　${at}` });
       say(`${text}。`);
@@ -1181,7 +1192,7 @@ export default function App() {
         >
           <aside className="left" id="pane-left" aria-label="チャット一覧">
             <LeftPane snap={snap} sel={chat ? keyStr(chat.key) : null} onSelect={(id) => { selectChat(id); setLNarrow(false); }} onAct={act} onAcknowledge={(c) => onAcknowledge(c.key, null)}
-              onChatAct={chatAct} chatList={snap.settings.chatList} onNotice={say}
+              onChatAct={chatAct} chatList={snap.settings.chatList} projects={projects} onNotice={say}
               onChatList={(f) => updateSettings((s) => ({ ...s, chatList: f(s.chatList) }), "一覧の表示設定を保存できませんでした。次回の起動では保存されている値に戻ります")} listStatus={listStatus} uiSize={snap.settings.appearance.uiText} />
           </aside>
           <main className="center">

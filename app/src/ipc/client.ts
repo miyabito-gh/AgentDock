@@ -6,7 +6,7 @@ import {
   HOST_EVENT_CHANNEL,
   type AgentHistory, type AgentKey, type AppSettings, type Chat, type ChatKey, type ChatModelSettings, type CommandMap, type CommandName,
   type HostEventEnvelope, type HostSnapshot, type InterruptChatResult, type IpcError, type IpcErrorCode, type LocalId,
-  type ModelChoice, type ModelInfo, type MonitorScope, type Page, type ChatSummary, type PermissionPreset,
+  type ModelChoice, type ModelInfo, type ProjectsOutcome, type MonitorScope, type Page, type ChatSummary, type PermissionPreset,
   type RequestAnswer, type RequestKey, type RespondOutcome, type SendAttempt, type SendIntent, type SourceInfo,
   type StartChatResult, type ResumeOutcome, type SaveScope, type SaveStatus, type ChatQueue, type QueueEntry, type SettingsImpact,
   type AttachmentEntry, type FileRef, type BaselineSettings, type RepoRecordChoice,
@@ -57,6 +57,8 @@ export const resumeChat = (chat: ChatKey): Promise<ResumeOutcome> => invokeCmd("
 export const renameChat = (chat: ChatKey, name: string): Promise<ManageOutcome> => invokeCmd("manage_chat", { chat, op: { kind: "rename", name } });
 export const setPinned = (chat: ChatKey, pinned: boolean): Promise<Chat> => invokeCmd("set_pinned", { chat, pinned });
 export const listModels = (): Promise<ModelInfo[]> => invokeCmd("list_models", { backend: "codex", includeHidden: false });
+/** プロジェクト一覧（読取りのみ）。取得できなかったことを空の一覧にしない（結果の種類で区別する）。 */
+export const listProjects = (): Promise<ProjectsOutcome> => invokeCmd("list_projects", { backend: "codex" });
 export const setChatModel = (chat: ChatKey, choice: ModelChoice): Promise<ChatModelSettings> => invokeCmd("set_chat_model", { chat, choice });
 export const setMonitorScope = (scope: MonitorScope): Promise<null> => invokeCmd("set_monitor_scope", { scope });
 /** 入力途中の文章をホストへ渡す（保存は500msまとめ、ホスト側）。復元しても送信しない。 */

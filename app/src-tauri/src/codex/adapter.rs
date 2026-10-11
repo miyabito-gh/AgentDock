@@ -76,6 +76,8 @@ pub fn codex_capabilities_for(experimental: bool, version: Option<&str>) -> Capa
         attachment_kinds: vec![AttachmentKind::Image, AttachmentKind::Audio, AttachmentKind::File, AttachmentKind::Skill],
         // thread/backgroundTerminals/* はexperimental。
         managed_exec_control: exp,
+        // project/list はexperimental。
+        projects: exp,
         ops: super::parity::op_capabilities(version, experimental),
     }
 }
@@ -98,6 +100,7 @@ fn unknown_capabilities() -> Capabilities {
         external_history: Support::Unknown,
         attachment_kinds: Vec::new(),
         managed_exec_control: Support::Unknown,
+        projects: Support::Unknown,
         // 接続前でも一覧できるよう、宣言と確認状況（版不明＝すべて未確認）を持つ。
         ops: super::parity::op_capabilities(None, true),
     }
@@ -621,6 +624,22 @@ fn flatten(nodes: &[super::tree::TreeNode], out: &mut Vec<Agent>) {
     }
 }
 
+/// `Project` → 共通の `ProjectSummary`。形が違えば `Protocol`（空やゼロで代用しない）。
+fn project_from_value(v: &Value) -> BackendResult<ProjectSummary> {
+    let bad = |what: &str| BackendError::Protocol { message: format!("project/list: {what}") };
+    let id = v.get("id").and_then(Value::as_str).filter(|s| !s.is_empty()).ok_or_else(|| bad("missing id"))?;
+    let name = v.get("name").and_then(Value::as_str).ok_or_else(|| bad("missing name"))?;
+    let roots = v
+        .get("roots")
+        .and_then(Value::as_array)
+        .ok_or_else(|| bad("missing roots"))?
+        .iter()
+        .map(|r| r.get("path").and_then(Value::as_str).map(str::to_string).ok_or_else(|| bad("missing root path")))
+        .collect::<BackendResult<Vec<_>>>()?;
+    let position = v.get("position").and_then(Value::as_i64).and_then(|p| i32::try_from(p).ok()).ok_or_else(|| bad("missing position"))?;
+    Ok(ProjectSummary { id: id.into(), name: name.into(), roots, position })
+}
+
 fn parse_thread(v: &Value) -> BackendResult<WireThread> {
     WireThread::from_value(v).map_err(|m| BackendError::Protocol { message: m })
 }
@@ -806,6 +825,23 @@ impl AiBackend for CodexBackend {
         Ok(ManageOutcome::Done)
     }
 
+    async fn list_projects(&self) -> BackendResult<Vec<ProjectSummary>> {
+        let (_, experimental) = self.client()?;
+        if !experimental {
+            return Err(BackendError::Unsupported { capability: "projects".into() });
+        }
+        let (data, truncated) = match self.collect_pages("project/list", json!({}), "data").await {
+            Ok(r) => r,
+            // 実験的APIの拒否・メソッド無しは「非対応」。通信断などと区別する。
+            Err(e) if super::parity::is_experimental_rejection(&e) || matches!(e, BackendError::Rejected { code: Some(-32601), .. }) => return Err(BackendError::Unsupported { capability: "projects".into() }),
+            Err(e) => return Err(e),
+        };
+        if truncated {
+            return Err(BackendError::Protocol { message: "project/list: too many pages".into() });
+        }
+        data.iter().map(project_from_value).collect()
+    }
+
     async fn list_loaded(&self) -> BackendResult<Vec<AgentKey>> {
         let (data, truncated) = self.collect_pages("thread/loaded/list", json!({}), "data").await?;
         if truncated {
@@ -953,6 +989,15 @@ impl AiBackend for CodexBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn project_is_parsed_strictly() {
+        let p = project_from_value(&json!({"id":"p1","name":"A","roots":[{"path":"C:/a"},{"path":"C:/b"}],"position":3,"recencyAt":null})).unwrap();
+        assert_eq!((p.id.as_str(), p.name.as_str(), p.position), ("p1", "A", 3));
+        assert_eq!(p.roots, vec!["C:/a".to_string(), "C:/b".to_string()]);
+        assert!(matches!(project_from_value(&json!({"id":"p1","name":"A","position":0})), Err(BackendError::Protocol { .. })));
+        assert!(matches!(project_from_value(&json!({"id":"","name":"A","roots":[],"position":0})), Err(BackendError::Protocol { .. })));
+    }
 
     fn req(mode: SendMode) -> SendRequest {
         SendRequest {

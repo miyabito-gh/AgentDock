@@ -1055,6 +1055,16 @@ impl Host {
         res
     }
 
+    /// プロジェクト一覧（読取りのみ）。結果は「読めた／使えない／取得できなかった」を区別して返す。
+    pub async fn list_projects(&self, _args: ListProjectsArgs) -> Result<ProjectsOutcome, IpcError> {
+        Ok(match self.backend.list_projects().await {
+            Ok(projects) => ProjectsOutcome::Loaded { projects },
+            Err(BackendError::Unsupported { .. }) => ProjectsOutcome::Unsupported { reason: "このバージョンの Codex ではプロジェクトの一覧を読めません".into() },
+            Err(BackendError::Protocol { message }) => ProjectsOutcome::Unsupported { reason: format!("プロジェクトの一覧の形式が想定と違います（{message}）") },
+            Err(e) => ProjectsOutcome::Failed { reason: e.to_string() },
+        })
+    }
+
     pub async fn list_models(&self, args: ListModelsArgs) -> Result<Vec<ModelInfo>, IpcError> {
         let models = self.backend.list_models(ModelQuery { include_hidden: args.include_hidden }).await?;
         if !args.include_hidden {

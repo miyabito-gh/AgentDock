@@ -3,4 +3,4 @@
 /**
  * 左一覧の並び。
  */
-export type ChatListView = "Recent" | "ByFolder";
+export type ChatListView = "Recent" | "ByFolder" | "ByProject";

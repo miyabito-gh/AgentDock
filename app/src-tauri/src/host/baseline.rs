@@ -1201,6 +1201,7 @@ mod tests {
             created_at: Known::NotFetched,
             last_used_at: None,
             no_history: false,
+            project_id: None,
         }
     }
 

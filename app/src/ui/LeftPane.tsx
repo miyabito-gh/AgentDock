@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { Chat, ChatListSettings, ChatListView, HostSnapshot, UiTextSize } from "../ipc/types";
+import type { Chat, ChatListSettings, ChatListView, HostSnapshot, ProjectsOutcome, UiTextSize } from "../ipc/types";
 import { Icon } from "./Icon";
 import { Popover } from "./Popover";
 import { TENTATIVE_HINT, TENTATIVE_STYLE, chatAgents, chatName, chatRequests, chatStatusText, chatTitle, isRunning, sortChats } from "./derive";
 import { STATE, keyStr, knownValue } from "./format";
 import { PENDING_TEXT, archiveTag } from "./ManageDialogs";
 import { GROUP_HEADER_HEIGHT, WINDOW_THRESHOLD, cumulativeTops, rowHeight, scrollTopToRevealVar, windowRangeVar } from "./listWindow";
+import { groupByProject } from "./projectGroups";
 import { UNKNOWN_KEY, collapseAll, flattenGroups, groupChats, shortNames, worktreeOf, type FlatItem, type FolderGroup } from "./folderGroups";
 
 /** 行の「…」メニューで選べる操作（App.tsx の onChatAct が対象チャットIDつきで受ける）。 */
@@ -21,16 +22,19 @@ function statusClass(text: string): string {
   return "";
 }
 
+const NL = "\n";
 interface MenuItem { act: string; label: string; danger?: boolean; sep?: boolean }
 /** 開いているメニュー（行の「…」・見出しの「…」で共通）。位置は「…」ボタンに寄せる。 */
 type OpenMenu = { kind: "chat"; id: string } | { kind: "group"; key: string };
 
-export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct, chatList, onChatList, onNotice, listStatus, uiSize = "Normal" }: {
+export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct, chatList, onChatList, projects = null, onNotice, listStatus, uiSize = "Normal" }: {
   snap: HostSnapshot; sel: string | null; onSelect: (id: string) => void; onAct: (a: string) => void; onAcknowledge: (c: Chat) => void;
   /** 行の「…」メニュー・右クリック・Shift+F10 の操作。対象は選択中ではなくその行のチャット。 */
   onChatAct: (op: ChatOp, chatId: string) => void;
   /** 一覧の表示設定（AppSettings.chatList）と、その更新（直列化された updateSettings 経由）。 */
   chatList: ChatListSettings; onChatList: (f: (c: ChatListSettings) => ChatListSettings) => void;
+  /** プロジェクト一覧の取得結果（null＝未取得）。取得できなかったことを「プロジェクトなし」にしない。 */
+  projects?: ProjectsOutcome | null;
   /** 短い通知（パスのコピーなど）。 */
   onNotice?: (text: string) => void;
   /** 直近の「更新」の結果（成功・失敗とも次の更新まで残す）。 */
@@ -54,12 +58,26 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct,
   const pinned = visible.filter((c) => c.pinned && !showArch);
   const rest = visible.filter((c) => !c.pinned || showArch);
 
-  const byFolder = chatList.view === "ByFolder" && !showArch;
-  const groups = byFolder ? groupChats(rest, snap.worktrees, chatList.pinnedFolders) : [];
+  // 「プロジェクトごと」は、プロジェクト一覧を読めたときだけ。読めない間は作業フォルダごとで表示する（保存した設定は変えない）。
+  const loadedProjects = projects?.kind === "loaded" ? projects.projects : null;
+  const projectsOff = projects?.kind === "unsupported" ? projects.reason : null;
+  const view: ChatListView = chatList.view === "ByProject" && !loadedProjects ? "ByFolder" : chatList.view;
+  const byFolder = view === "ByFolder" && !showArch;
+  const byProject = view === "ByProject" && !showArch;
+  const grouped = byFolder || byProject;
+  const projectGrouping = byProject && loadedProjects ? groupByProject(rest, loadedProjects, chatList.pinnedFolders) : null;
+  const groups = projectGrouping ? projectGrouping.groups : byFolder ? groupChats(rest, snap.worktrees, chatList.pinnedFolders) : [];
+  const multi = projectGrouping?.multi ?? new Map<string, string[]>();
   const shorts = shortNames(groups.filter((g) => g.kind === "folder").map((g) => ({ key: g.key, path: g.path })));
+  const labelOf = (g: FolderGroup) => (g.kind === "folder" ? shorts.get(g.key) ?? g.path : g.kind === "project" ? g.label ?? g.path : g.path);
+  /** 一覧で「プロジェクトごと」を選んでいるのに読めていないときの案内（読めない理由が「非対応」のときはメニューの項目に出す）。 */
+  const projectsNote = chatList.view === "ByProject" && !showArch && !loadedProjects
+    ? projects === null ? { text: "プロジェクト情報を取得中です（作業フォルダごとで表示中）", bad: false }
+      : projects.kind === "failed" ? { text: "プロジェクト情報を取得できませんでした（作業フォルダごとで表示中）", bad: true } : null
+    : null;
   // 検索中は一致のあるグループを折りたたみ無視で開く（保存値は変えない）。
   const isCollapsed = (key: string) => q === "" && chatList.collapsedFolders.includes(key);
-  const items: FlatItem[] = byFolder
+  const items: FlatItem[] = grouped
     ? flattenGroups(groups, isCollapsed)
     : rest.map((c) => ({ type: "chat" as const, chat: c, group: null as unknown as FolderGroup }));
   const heights = items.map((it) => (it.type === "group" ? GROUP_HEADER_HEIGHT : rowH));
@@ -193,7 +211,7 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct,
     const g = groups.find((x) => x.key === menu.key);
     if (!g) return null;
     return {
-      label: `「${g.kind === "folder" ? shorts.get(g.key) ?? g.path : g.path}」の操作`,
+      label: `「${labelOf(g)}」の操作`,
       items: [
         ...(g.kind !== "unknown" ? [{ act: "gpin", label: g.pinned ? "フォルダのピン留めを外す" : "フォルダをピン留め" }] : []),
         ...(g.kind === "folder" ? [{ act: "gcopy", label: "パスをコピー" }] : []),
@@ -218,7 +236,7 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct,
     };
   };
 
-  const renderItem = (it: FlatItem, idx: number) => (it.type === "group" ? groupHeader(it.group, idx) : row(it.chat, idx));
+  const renderItem = (it: FlatItem, idx: number) => (it.type === "group" ? groupHeader(it.group, idx) : row(it.chat, idx, it.group.key));
 
   const moreBtn = (kind: "chat" | "group", id: string, label: string, open: boolean, onOpen: (el: HTMLElement) => void) => (
     <button type="button" className="row-more" data-more={`${kind}:${id}`} aria-label={label} aria-haspopup="menu" aria-expanded={open}
@@ -236,17 +254,26 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct,
       if (f.unconfirmedFail) counts.fail++;
       if (isRunning(snap, c)) counts.run++;
     }
-    const label = g.kind === "folder" ? shorts.get(g.key) ?? g.path : g.path;
+    const label = labelOf(g);
     const open = menu?.kind === "group" && menu.key === g.key;
-    const title = g.kind === "folder" ? g.path : g.kind === "unknown" ? "作業フォルダを取得できていないチャットです" : "作業フォルダを持たない一般チャットです";
+    const guessN = g.kind === "project" ? g.guessedCount ?? 0 : 0;
+    const dupN = g.kind === "project" ? g.chats.filter((c) => multi.has(c.key.id)).length : 0;
+    const title = g.kind === "folder" ? g.path
+      : g.kind === "project"
+        ? [`プロジェクト「${label}」`, g.roots && g.roots.length ? `フォルダ（先頭をプライマリと推定）:${NL}${g.roots.join(NL)}` : "フォルダなし",
+          guessN ? `フォルダ一致による推測で入ったチャット: ${guessN}件（推測であり、確定ではありません）` : "",
+          dupN ? `複数のプロジェクトに一致するチャット ${dupN}件は、一致したすべての見出しに重複して表示し、各見出しの件数に含みます` : ""].filter((x) => x).join(NL)
+      : g.kind === "noProject" ? "どのプロジェクトのフォルダにも一致しないチャットです（一般チャットを含む）"
+      : g.kind === "unknown" ? "作業フォルダを取得できていないチャットです" : "作業フォルダを持たない一般チャットです";
     return (
       <div key={`g:${g.key}`} className={`list-grp${open ? " menu-open" : ""}`} style={{ height: GROUP_HEADER_HEIGHT }}
         onContextMenu={(e) => { e.preventDefault(); const b = e.currentTarget.querySelector<HTMLElement>(".row-more"); if (b && g.key !== UNKNOWN_KEY) openMenu({ kind: "group", key: g.key }, b); }}>
         <button type="button" className="grp-toggle" data-idx={idx} aria-expanded={!collapsed} title={title} onClick={() => { if (q === "") toggleCollapsed(g.key); }}
-          aria-disabled={q !== "" || undefined} aria-label={`${label}（${g.chats.length}件）${g.pinned ? "。ピン留め" : ""}${collapsed && q === "" ? "。折りたたみ中" : ""}`}>
+          aria-disabled={q !== "" || undefined} aria-label={`${label}（${g.chats.length}件）${guessN ? "。フォルダ一致による推測を含む" : ""}${g.pinned ? "。ピン留め" : ""}${collapsed && q === "" ? "。折りたたみ中" : ""}`}>
           <span className="grp-caret" aria-hidden="true">{collapsed && q === "" ? "▸" : "▾"}</span>
-          <span className="grp-ico" aria-hidden="true"><Icon name={g.kind === "general" ? "chat" : g.kind === "unknown" ? "folderUnknown" : collapsed && q === "" ? "folder" : "folderOpen"} /></span>
+          <span className="grp-ico" aria-hidden="true"><Icon name={g.kind === "general" || g.kind === "noProject" ? "chat" : g.kind === "unknown" ? "folderUnknown" : collapsed && q === "" ? "folder" : "folderOpen"} /></span>
           <span className="grp-nm">{label}</span>
+          {guessN ? <span className="grp-guess" title="フォルダ一致による推測を含みます" aria-hidden="true">推定</span> : null}
           <span className="grp-n">{g.chats.length}</span>
         </button>
         {g.pinned ? <span className="grp-pin" title="ピン留めしたフォルダ" aria-label="ピン留めしたフォルダ" role="img"><Icon name="pin" /></span> : null}
@@ -261,7 +288,7 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct,
   };
 
   /** `idx` は一覧本体（窓表示の対象）の中の位置。ピン留め欄の行には付けない。 */
-  const row = (c: Chat, idx?: number) => {
+  const row = (c: Chat, idx?: number, gkey?: string) => {
     const k = keyStr(c.key);
     const { hasReq, unconfirmedFail } = flagsOf(c);
     const open = menu?.kind === "chat" && menu.id === c.key.id;
@@ -277,16 +304,18 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct,
     const cwdText = c.kind !== "general" && c.cwd.kind === "value" ? c.cwd.value : null;
     const kindTitle = `${c.kind === "general" ? "一般チャット" : "作業フォルダのチャット"}${cwdText ? `（${cwdText}）` : ""}\n状態: ${statusText}`;
     return (
-      <div key={k} className={`row-chat${byFolder ? " in-grp" : ""}${k === sel ? " sel" : ""}${fixed ? " fixed" : ""}${open ? " menu-open" : ""}`}
+      <div key={gkey ? `${gkey}|${k}` : k} className={`row-chat${grouped ? " in-grp" : ""}${k === sel ? " sel" : ""}${fixed ? " fixed" : ""}${open ? " menu-open" : ""}`}
         style={fixed ? { height: rowH, minHeight: rowH } : undefined}
         onContextMenu={(e) => { e.preventDefault(); openFromRow(e.currentTarget); }}>
         <button type="button" className="row-main" onClick={() => onSelect(c.key.id)} aria-current={k === sel} data-idx={idx}
-          {...(fixed && !byFolder ? { "aria-posinset": idx! + 1, "aria-setsize": items.length } : {})}
+          {...(fixed && !grouped ? { "aria-posinset": idx! + 1, "aria-setsize": items.length } : {})}
           onKeyDown={(e) => { if ((e.shiftKey && e.key === "F10") || e.key === "ContextMenu") { e.preventDefault(); e.stopPropagation(); openFromRow(e.currentTarget); } }}>
           <span className={`st st-mark ${statusCls || "none"}`} role="img" aria-label={`状態: ${statusText}`} title={statusText}><i aria-hidden="true" /></span>
           <span className="nm" style={chatTitle(c).confirmed ? undefined : TENTATIVE_STYLE} title={chatTitle(c).confirmed ? kindTitle : TENTATIVE_HINT}>{chatName(c)}</span>
           {c.origin === "external" ? <span className="tag" title="Codex 側で作られた会話（AgentDock が起動したものではない）">外部</span> : null}
           {c.noHistory ? <span className="tag" title="Codex に記録がありません">履歴なし</span> : null}
+          {multi.has(c.key.id) ? <span className="tag" title={`複数のプロジェクトのフォルダに一致しています（フォルダ一致による推測）: ${multi.get(c.key.id)!.join("、")}
+どれか一つに決めず、各見出しに表示しています`}>複数</span> : null}
           {wt ? <span className="tag" title={`AgentDock が作った worktree（ブランチ ${wt.branch}）\n${wt.path}`}>worktree</span> : null}
           {archived(c) && (!showArch || arc.text !== "アーカイブ") ? <span className="tag" title={arc.title || undefined}>{arc.text}</span> : null}
           {localOf(c)?.deletePending ? <span className="tag unv" title={PENDING_TEXT(localOf(c)!.deletePending!.reason)}>削除保留</span> : null}
@@ -305,7 +334,8 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct,
     );
   };
 
-  const viewLabel = chatList.view === "ByFolder" ? "作業フォルダごと" : "最近使った順";
+  const VIEW_LABEL: Record<ChatListView, string> = { Recent: "最近使った順", ByFolder: "作業フォルダごと", ByProject: "プロジェクトごと" };
+  const viewLabel = VIEW_LABEL[view];
   const setView = (v: ChatListView) => onChatList((c) => ({ ...c, view: v }));
   const mi = menuItems();
   // 開いたまま対象（チャット・フォルダ）が一覧から無くなったら閉じる。
@@ -319,12 +349,14 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct,
           <Popover role="menu" align="right" triggerClassName="btn lt-view" label={`一覧の表示（現在: ${viewLabel}）`} title={`一覧の表示: ${viewLabel}`} trigger={<>表示 <span aria-hidden="true">▾</span></>}>
             {(close) => (
               <>
-                {(["Recent", "ByFolder"] as ChatListView[]).map((v) => (
-                  <button key={v} type="button" role="menuitemradio" aria-checked={chatList.view === v} onClick={() => { setView(v); close(); }}>
-                    <span>{v === "Recent" ? "最近使った順" : "作業フォルダごと"}</span><span aria-hidden="true">{chatList.view === v ? "✓" : ""}</span>
+                {(["Recent", "ByFolder", "ByProject"] as ChatListView[]).map((v) => (
+                  <button key={v} type="button" role="menuitemradio" aria-checked={chatList.view === v} disabled={v === "ByProject" && projectsOff !== null}
+                    title={v === "ByProject" ? projectsOff ?? "プロジェクト（名前とフォルダの集合）ごとにまとめます。所属はフォルダ一致による推測を含みます" : undefined}
+                    onClick={() => { setView(v); close(); }}>
+                    <span>{VIEW_LABEL[v]}</span><span aria-hidden="true">{chatList.view === v ? "✓" : ""}</span>
                   </button>
                 ))}
-                {chatList.view === "ByFolder" ? (
+                {chatList.view !== "Recent" ? (
                   <>
                     <hr />
                     <button type="button" role="menuitem" disabled={groups.length === 0}
@@ -344,6 +376,7 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct,
         </div>
         <input type="search" placeholder="名前で検索" aria-label="チャットを名前で検索" value={query} onChange={(e) => setQuery(e.target.value)} />
         {q ? <label className="small"><input type="checkbox" checked={inclArch} onChange={(e) => setInclArch(e.target.checked)} />アーカイブも含める</label> : null}
+        {projectsNote ? <div className={`small${projectsNote.bad ? " lt-fail" : ""}`} role="status">{projectsNote.text}</div> : null}
         {listStatus && !listStatus.ok ? <div className="small lt-fail" role="status">{listStatus.text}</div> : null}
       </div>
       <div className="left-scroll" ref={scrollerRef} onScroll={() => { if (menu) closeMenu(false); if (windowed) measure(); }}>

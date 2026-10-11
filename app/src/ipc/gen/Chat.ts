@@ -24,4 +24,8 @@ lastUsedAt: UnixMillis | null,
 /**
  * バックエンドに履歴がない（発話前のチャットなど、バックエンドの一覧・読取りに現れない）。アプリの記録だけから出している表示。
  */
-noHistory: boolean, };
+noHistory: boolean, 
+/**
+ * バックエンドが示す所属プロジェクトのID（確定。無ければ None。フォルダ一致による推測はUI側で別に行い、ここには入れない）。
+ */
+projectId: string | null, };

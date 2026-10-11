@@ -159,6 +159,7 @@ pub fn run() {
             commands::manage_chat,
             commands::set_pinned,
             commands::list_models,
+            commands::list_projects,
             commands::set_chat_model,
             commands::set_monitor_scope,
             commands::acknowledge_warnings,

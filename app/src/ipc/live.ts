@@ -29,7 +29,7 @@ export const emptyBundle = (): Bundle => ({
 export const UNKNOWN_CAPS: Capabilities = {
   descendantMonitoring: "unknown", descendantSearch: "unknown", historyReadWithoutResume: "unknown", resume: "unknown", listLoaded: "unknown",
   approvalKinds: [], steer: "unknown", interrupt: "unknown", modelSelection: "unknown", effortSelection: "unknown", rename: "unknown",
-  archive: "unknown", delete: "unknown", externalHistory: "unknown", attachmentKinds: [], managedExecControl: "unknown", ops: [],
+  archive: "unknown", delete: "unknown", externalHistory: "unknown", attachmentKinds: [], managedExecControl: "unknown", projects: "unknown", ops: [],
 };
 
 const upsert =<T,>(list: T[], item: T, same: (a: T) => boolean): T[] => {
