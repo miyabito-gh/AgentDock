@@ -475,8 +475,9 @@ pub struct RecheckPlan {
     pub skip: Option<String>,
 }
 
-/// 要求されたエージェントのうち、履歴を読んでよいもの（このチャットの子孫で、状態不明、liveでない）を選ぶ。
-/// メイン・作業中・live・他チャットのもの・状態不明でないものは読まない（理由つきで返す）。重複は1件にする。
+/// 要求されたエージェントのうち、履歴を読んでよいもの（このチャットの子孫で、状態不明）を選ぶ。
+/// liveが返すnotLoadedは終端の根拠ではないため、状態不明ならlive鮮度でも読む（読取りのみ）。
+/// メイン・作業中・他チャットのもの・状態不明でないものは読まない（理由つきで返す）。重複は1件にする。
 /// `chat_agents` はこのチャットに属するエージェントだけを渡す（含まれないものは他チャット扱い）。
 pub fn recheck_candidates(root: &AgentKey, requested: &[AgentKey], chat_agents: &[RecheckFact]) -> Vec<RecheckPlan> {
     let mut seen: Vec<&AgentKey> = Vec::new();
@@ -492,7 +493,6 @@ pub fn recheck_candidates(root: &AgentKey, requested: &[AgentKey], chat_agents: 
             match chat_agents.iter().find(|f| &f.agent == a) {
                 None => Some("このチャットの子孫ではありません".to_string()),
                 Some(f) if is_working(f.state) => Some("作業中のため読みません".to_string()),
-                Some(f) if f.freshness == Freshness::Live => Some("live購読中のため読みません".to_string()),
                 Some(f) if f.freshness == Freshness::Unsupported => Some("このバックエンドでは履歴を読めません".to_string()),
                 Some(f) if f.state != AgentState::Unknown => Some("状態不明ではありません".to_string()),
                 Some(_) => None,
@@ -513,7 +513,7 @@ mod tests {
     }
 
     #[test]
-    fn recheck_reads_only_unknown_non_live_descendants_of_the_chat() {
+    fn recheck_reads_only_unknown_descendants_of_the_chat_even_when_live() {
         let root = AgentKey { backend: BackendKind::Codex, id: ExternalId("root".into()) };
         let k = |id: &str| AgentKey { backend: BackendKind::Codex, id: ExternalId(id.into()) };
         let facts = vec![
@@ -521,13 +521,14 @@ mod tests {
             rf("unk", AgentState::Unknown, Freshness::HistoryOnly),
             rf("live", AgentState::Unknown, Freshness::Live),
             rf("run", AgentState::Running, Freshness::HistoryOnly),
+            rf("runlive", AgentState::Running, Freshness::Live),
             rf("done", AgentState::Done, Freshness::HistoryOnly),
         ];
-        let req = vec![k("root"), k("unk"), k("unk"), k("live"), k("run"), k("done"), k("other")];
+        let req = vec![k("root"), k("unk"), k("unk"), k("live"), k("run"), k("runlive"), k("done"), k("other")];
         let plans = recheck_candidates(&root, &req, &facts);
-        assert_eq!(plans.len(), 6, "duplicates are collapsed");
+        assert_eq!(plans.len(), 7, "duplicates are collapsed");
         let readable: Vec<&AgentKey> = plans.iter().filter(|p| p.skip.is_none()).map(|p| &p.agent).collect();
-        assert_eq!(readable, vec![&k("unk")]);
+        assert_eq!(readable, vec![&k("unk"), &k("live")]);
         assert!(plans.iter().find(|p| p.agent == k("other")).unwrap().skip.as_deref().unwrap().contains("子孫ではありません"));
     }
 

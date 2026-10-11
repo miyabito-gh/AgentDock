@@ -31,14 +31,20 @@ export const unknownNote = (n: number): string => `子${n}件の状態不明`;
 const RAW_STATE_NOTE: Record<string, string> = {
   notLoaded: "Codexが読み込んでいない状態。完了・失敗の根拠なし",
 };
-/** 「履歴で再確認」の結果の1文。件数は実際に履歴で終端を確認できた数だけ（読めない・確認できないものを成功に数えない）。 */
-export function recheckSummary(outcomes: Array<{ kind: "terminalFound" | "stillUnknown" | "unreadable" | "skipped" }>): string {
-  const found = outcomes.filter((o) => o.kind === "terminalFound").length;
-  const unreadable = outcomes.filter((o) => o.kind === "unreadable").length;
-  const rest = outcomes.length - found;
-  const tail = unreadable > 0 ? `（うち${unreadable}件は履歴を読めませんでした）` : "";
-  if (found > 0) return `${found}件の終端を履歴で確認しました。${rest > 0 ? `残り${rest}件は確認できませんでした（状態不明のまま）${tail}。` : ""}`;
-  return `履歴では確認できませんでした（状態不明のまま）${tail}。`;
+/** 「履歴で再確認」の結果の1文。確認できた・終端なし・読めなかった・読まなかった（理由つき）を分け、確認できた数だけを成功に数える。 */
+export function recheckSummary(outcomes: Array<{ kind: "terminalFound" | "stillUnknown" | "unreadable" | "skipped"; reason?: string }>): string {
+  const n = (k: string) => outcomes.filter((o) => o.kind === k).length;
+  const found = n("terminalFound"), still = n("stillUnknown"), unreadable = n("unreadable");
+  const skipped = outcomes.filter((o) => o.kind === "skipped");
+  const parts: string[] = [];
+  if (found > 0) parts.push(`${found}件の終端を履歴で確認しました`);
+  if (still > 0) parts.push(`${still}件は読みましたが終端を確認できませんでした（状態不明のまま）`);
+  if (unreadable > 0) parts.push(`${unreadable}件は履歴を読めませんでした`);
+  if (skipped.length > 0) {
+    const reasons = [...new Set(skipped.map((o) => o.reason).filter((r): r is string => !!r))];
+    parts.push(`${skipped.length}件は読みませんでした${reasons.length > 0 ? `（${reasons.join("、")}）` : ""}`);
+  }
+  return parts.length > 0 ? `${parts.join("。")}。` : "再確認の対象がありませんでした。";
 }
 
 export const rawStateText =(label: string): string => `原状態: ${label}（${RAW_STATE_NOTE[label] ?? "根拠なし"}）`;

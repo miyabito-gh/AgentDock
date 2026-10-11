@@ -676,8 +676,9 @@ mod open_url_tests {
 
 /// 認可URLを既定のブラウザで開く（UIの明示クリックのときだけ。http・httpsのURLだけ）。
 #[tauri::command]
-pub async fn open_authorization_url(app: tauri::AppHandle, url: String) -> R<()> {
+pub async fn open_authorization_url(app: tauri::AppHandle, args: crate::backend::ipc::OpenUrlArgs) -> R<()> {
     use tauri_plugin_opener::OpenerExt;
+    let url = args.url;
     if !is_openable_http_url(&url) {
         return Err(IpcError { code: IpcErrorCode::InvalidArgs, message: "http・https以外のURLは開きません".into(), blocked: None });
     }

@@ -1025,6 +1025,14 @@ pub struct ToolServerNameArgs {
     pub name: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OpenUrlArgs {
+    pub url: String,
+}
+
 /// 認可URL。UIが明示クリックのときだけ既定ブラウザで開く。ログ・診断・履歴に出さない（Debugにも出さない）。
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]

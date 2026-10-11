@@ -3,12 +3,15 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { chatDisplayKind, dockRank, sortByDockRank, unknownCount, unknownSignature, validOutcome, parkGroup, historyBreakdown, historyBreakdownText, rawStateText, recheckSummary } from "./chatState.ts";
 
-test("再確認の結果文: 確認できた件数だけを成功に数える", () => {
+test("再確認の結果文: 確認・終端なし・読めない・読まなかったを分け、確認できた数だけ成功に数える", () => {
   const k = (...ks: string[]) => ks.map((kind) => ({ kind })) as any;
-  assert.match(recheckSummary(k("terminalFound", "terminalFound", "stillUnknown")), /^2件の終端を履歴で確認しました。残り1件/);
-  assert.match(recheckSummary(k("stillUnknown", "unreadable")), /^履歴では確認できませんでした（状態不明のまま）（うち1件は履歴を読めませんでした）/);
-  assert.doesNotMatch(recheckSummary(k("unreadable")), /確認しました/);
+  assert.equal(recheckSummary(k("terminalFound", "terminalFound", "stillUnknown")), "2件の終端を履歴で確認しました。1件は読みましたが終端を確認できませんでした（状態不明のまま）。");
+  assert.equal(recheckSummary(k("stillUnknown", "unreadable")), "1件は読みましたが終端を確認できませんでした（状態不明のまま）。1件は履歴を読めませんでした。");
+  assert.doesNotMatch(recheckSummary(k("unreadable")), /確認しました|確認できませんでした/);
   assert.equal(recheckSummary(k("terminalFound")), "1件の終端を履歴で確認しました。");
+  const sk = [{ kind: "skipped", reason: "作業中のため読みません" }, { kind: "skipped", reason: "作業中のため読みません" }, { kind: "skipped", reason: "メインのエージェントは対象外です" }] as any;
+  assert.equal(recheckSummary(sk), "3件は読みませんでした（作業中のため読みません、メインのエージェントは対象外です）。");
+  assert.doesNotMatch(recheckSummary(sk), /確認できませんでした/);
 });
 
 test("原状態の文言: notLoadedは説明つき、他は根拠なし", () => {

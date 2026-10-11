@@ -1150,7 +1150,7 @@ export default function App() {
     onRecheck: async (c: ChatKey, agents: AgentKey[]) => {
       try {
         const r = live ? await host.recheckUnknownAgents(c, agents) : await (await loadMock()).client.recheckUnknownAgents(c, agents);
-        say(recheckSummary(r.results.map((x) => x.outcome)), 6000);
+        say(recheckSummary(r.results.map((x) => ({ kind: x.outcome.kind, reason: x.outcome.kind === "skipped" ? x.outcome.reason : undefined }))), 6000);
       } catch (e) { sayErr("履歴で再確認できませんでした（状態不明のままです）", e); }
     },
   };

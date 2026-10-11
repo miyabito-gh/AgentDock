@@ -742,7 +742,9 @@ impl AiBackend for CodexBackend {
     }
 
     async fn list_chats(&self, query: ListChatsQuery) -> BackendResult<Page<ChatSummary>> {
-        let mut p = json!({"sourceKinds": source_kinds(&query), "archived": query.archived});
+        // 既定（created_at）の走査はChatGPTアプリ側で作った会話（vscode・agent_created_thread）を落とし、ページ送りで重複も返す（実測）。
+        // recency_at なら取りこぼしも重複もない。
+        let mut p = json!({"sourceKinds": source_kinds(&query), "archived": query.archived, "sortKey": "recency_at"});
         if let Some(c) = &query.cursor {
             p["cursor"] = json!(c);
         }
