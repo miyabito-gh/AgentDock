@@ -1237,6 +1237,19 @@ export default function App() {
     return () => window.removeEventListener("keydown", h);
   }, [dialog]);
 
+  // Ctrl+B で左ペイン（チャット一覧）、Ctrl+Alt+B で右ペイン（ドック）の表示切替。入力欄にフォーカスがあっても動く。ダイアログ・コマンドメニューの表示中は動かさない。
+  const blockedPane = !!dialog || palette;
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if (!e.ctrlKey || e.shiftKey || e.metaKey || e.isComposing || e.code !== "KeyB") return;
+      e.preventDefault();
+      if (blockedPane) return;
+      act(e.altKey ? "toggleRight" : "toggleLeft");
+    };
+    window.addEventListener("keydown", h, true);
+    return () => window.removeEventListener("keydown", h, true);
+  });
+
   // Ctrl+F で会話内検索（capture で WebView 既定の検索より先に受ける）。会話画面の表示中だけ。実体は CenterPane。
   const findable = !!chat && !dialog && !palette;
   useEffect(() => {
