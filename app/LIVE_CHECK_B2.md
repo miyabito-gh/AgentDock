@@ -1,6 +1,6 @@
 # 実機確認（修正バッチ第2段、2026-10-11〜）
 
-インストーラー: `app/src-tauri/target/release/bundle/nsis/AgentDock_0.0.1_x64-setup.exe`（ビルド完了後に時刻を追記）。上書きインストールして起動する。
+インストーラー: `app/src-tauri/target/release/bundle/nsis/AgentDock_0.0.1_x64-setup.exe`（2026-10-11 21:29、4.7 MB。コミット 3173486 相当）。上書きインストールして起動する。
 確認でおかしい点は、画面と状況を送る。第1段の未確認（H1・承認カードのボタン §6）も続けて残す（app/LIVE_CHECK_B1.md）。
 
 ## 1. 入力欄（HANDOFF 7・14）
