@@ -840,6 +840,38 @@ pub struct TranscriptEntry {
     pub kind: ActivityKind,
     pub text: Known<String>,
     pub phase: ActivityPhase,
+    /// ユーザーの発言に付いていた添付（履歴の入力項目から復元したもの）。復元の根拠は各要素の `basis`。
+    #[serde(default)]
+    pub attachments: Vec<EntryAttachment>,
+}
+
+/// 発言に付いていた添付1件（履歴から復元。Codex固有の入力項目の型は出さない）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct EntryAttachment {
+    /// 表示名。復元できないときは None（断定しない）。
+    pub name: Option<String>,
+    /// 種類。分からないときは None。
+    pub kind: Option<AttachmentKind>,
+    /// 添付のパス（履歴にあったもの）。無ければ None。
+    pub path: Option<String>,
+    pub basis: EntryAttachmentBasis,
+}
+
+/// 添付を復元できた根拠。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub enum EntryAttachmentBasis {
+    /// 履歴の入力項目（画像・音声・mention・skill）が添付を直接示している。
+    Structured,
+    /// 本文の「添付ファイル:」定型文（形式が厳密に一致したもの）から復元した。
+    ListedText,
+    /// 添付があったことしか分からない（URL形式の画像など）。
+    Undetermined,
 }
 
 /// 1turn分の履歴。

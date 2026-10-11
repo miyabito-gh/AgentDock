@@ -248,18 +248,75 @@ pub fn thread_to_chat(t: &WireThread, app_data_dir: Option<&str>, archived: Know
 
 // ───────────────────────────── item → 活動・本文（§5） ─────────────────────────────
 
-fn join_text_content(content: Option<&Value>) -> Option<String> {
-    let arr = content?.as_array()?;
-    let parts: Vec<&str> = arr
-        .iter()
-        .filter(|c| c.get("type").and_then(Value::as_str) == Some("text"))
-        .filter_map(|c| c.get("text").and_then(Value::as_str))
-        .collect();
-    if parts.is_empty() {
+/// 添付の一覧を本文の後ろの `text` 項目に列挙する定型文の先頭行（adapter の `build_turn_input` と同じ）。
+const ATTACH_LIST_HEAD: &str = "添付ファイル:";
+
+fn path_base_name(path: &str) -> &str {
+    path.rsplit(['/', '\\']).find(|s| !s.is_empty()).unwrap_or(path)
+}
+
+fn is_abs_path(p: &str) -> bool {
+    let b = p.as_bytes();
+    p.starts_with("\\\\") || p.starts_with('/') || (b.len() >= 3 && b[0].is_ascii_alphabetic() && b[1] == b':' && (b[2] == b'\\' || b[2] == b'/'))
+}
+
+/// 「添付ファイル:」定型文を厳密に解釈する。先頭行が一致し、残りの全行が `- 名前 — 絶対パス`（名前がパスの末尾と一致）のときだけ。
+/// 1行でも外れれば None（利用者が似た文言を書いた場合に添付へ誤変換しない）。
+pub fn parse_attachment_list(text: &str) -> Option<Vec<EntryAttachment>> {
+    let mut lines = text.split('\n').map(|l| l.strip_suffix('\r').unwrap_or(l));
+    if lines.next()? != ATTACH_LIST_HEAD {
+        return None;
+    }
+    let mut out = Vec::new();
+    for line in lines {
+        let rest = line.strip_prefix("- ")?;
+        let parsed = rest.match_indices(" — ").find_map(|(i, sep)| {
+            let (name, path) = (&rest[..i], &rest[i + sep.len()..]);
+            (!name.is_empty() && is_abs_path(path) && path_base_name(path) == name).then(|| (name.to_string(), path.to_string()))
+        })?;
+        out.push(EntryAttachment { name: Some(parsed.0), kind: Some(AttachmentKind::File), path: Some(parsed.1), basis: EntryAttachmentBasis::ListedText });
+    }
+    if out.is_empty() {
         None
     } else {
-        Some(parts.join("\n"))
+        Some(out)
     }
+}
+
+/// userMessage の `content`（UserInput の並び）を、本文と添付に分ける。
+/// 本文は text 項目を改行でつないだもの（添付の定型文は除く）。添付は入力項目から復元し、分からないものは断定しない。
+pub fn split_user_content(content: Option<&Value>) -> (Option<String>, Vec<EntryAttachment>) {
+    let Some(arr) = content.and_then(Value::as_array) else {
+        return (None, Vec::new());
+    };
+    let mut body: Vec<&str> = Vec::new();
+    let mut atts = Vec::new();
+    for (i, c) in arr.iter().enumerate() {
+        let path = str_of(c, "path");
+        let structured = |name: Option<String>, kind: AttachmentKind| {
+            let basis = if name.is_some() { EntryAttachmentBasis::Structured } else { EntryAttachmentBasis::Undetermined };
+            EntryAttachment { name, kind: Some(kind), path: path.map(str::to_string), basis }
+        };
+        match str_of(c, "type") {
+            Some("text") => {
+                let t = str_of(c, "text").unwrap_or("");
+                // 定型文は最後の項目のときだけ（adapter はファイル一覧を必ず末尾に置く）
+                match (i + 1 == arr.len()).then(|| parse_attachment_list(t)).flatten() {
+                    Some(list) => atts.extend(list),
+                    None => body.push(t),
+                }
+            }
+            Some("localImage") => atts.push(structured(path.map(|p| path_base_name(p).to_string()), AttachmentKind::Image)),
+            Some("localAudio") => atts.push(structured(path.map(|p| path_base_name(p).to_string()), AttachmentKind::Audio)),
+            Some("mention") => atts.push(structured(str_of(c, "name").or(path.map(path_base_name)).map(str::to_string), AttachmentKind::File)),
+            Some("skill") => atts.push(structured(str_of(c, "name").map(str::to_string), AttachmentKind::Skill)),
+            Some("image") => atts.push(structured(None, AttachmentKind::Image)),
+            Some("audio") => atts.push(structured(None, AttachmentKind::Audio)),
+            _ => atts.push(EntryAttachment { name: None, kind: None, path: None, basis: EntryAttachmentBasis::Undetermined }),
+        }
+    }
+    let text = if body.is_empty() { None } else { Some(body.join("\n")) };
+    (text, atts)
 }
 
 fn str_of<'a>(item: &'a Value, key: &str) -> Option<&'a str> {
@@ -284,7 +341,7 @@ fn details(parts: [Option<String>; 2]) -> String {
 pub fn item_kind_and_text(item: &Value) -> (ActivityKind, Option<String>) {
     let ty = str_of(item, "type").unwrap_or("");
     match ty {
-        "userMessage" => (ActivityKind::UserMessage, join_text_content(item.get("content"))),
+        "userMessage" => (ActivityKind::UserMessage, split_user_content(item.get("content")).0),
         "agentMessage" => (ActivityKind::AgentMessage, str_of(item, "text").map(str::to_string)),
         "reasoning" => {
             let join = |k: &str| {
@@ -435,6 +492,7 @@ pub fn turn_to_record(thread_id: &str, t: &WireTurn) -> TurnRecord {
             let (kind, text) = item_kind_and_text(item);
             Some(TranscriptEntry {
                 key: ItemKey { agent: agent.clone(), turn_id: Some(ext(t.id())), item_id: ext(id) },
+                attachments: if matches!(kind, ActivityKind::UserMessage) { split_user_content(item.get("content")).1 } else { Vec::new() },
                 kind,
                 text: match text {
                     Some(s) if !s.is_empty() => Known::direct(s),
@@ -782,6 +840,57 @@ mod tests {
         assert_eq!(item_phase(&json!({"status": "inProgress"}), ActivityPhase::Started), ActivityPhase::InProgress);
         assert_eq!(item_phase(&json!({"status": "failed"}), ActivityPhase::Started), ActivityPhase::Completed);
         assert_eq!(item_phase(&json!({}), ActivityPhase::Started), ActivityPhase::Started);
+    }
+
+    #[test]
+    fn user_content_restores_attachments_with_basis() {
+        let list = "添付ファイル:\n- a.txt — C:\\data\\a.txt\n- b b.md — /home/u/b b.md";
+        let (body, atts) = split_user_content(Some(&json!([
+            {"type": "text", "text": "見て", "text_elements": []},
+            {"type": "localImage", "path": "C:\\copy\\p.png"},
+            {"type": "skill", "name": "s1", "path": "C:\\skills\\s1\\SKILL.md"},
+            {"type": "mention", "name": "m.rs", "path": "C:\\w\\m.rs"},
+            {"type": "text", "text": list, "text_elements": []},
+        ])));
+        assert_eq!(body.as_deref(), Some("見て"));
+        assert_eq!(atts.len(), 5);
+        assert_eq!((atts[0].name.as_deref(), atts[0].kind, atts[0].basis), (Some("p.png"), Some(AttachmentKind::Image), EntryAttachmentBasis::Structured));
+        assert_eq!((atts[1].name.as_deref(), atts[1].kind), (Some("s1"), Some(AttachmentKind::Skill)));
+        assert_eq!((atts[2].name.as_deref(), atts[2].kind), (Some("m.rs"), Some(AttachmentKind::File)));
+        assert_eq!((atts[3].name.as_deref(), atts[3].path.as_deref(), atts[3].basis), (Some("a.txt"), Some("C:\\data\\a.txt"), EntryAttachmentBasis::ListedText));
+        assert_eq!(atts[4].name.as_deref(), Some("b b.md"));
+    }
+
+    #[test]
+    fn attachment_only_message_has_no_body_and_unknown_items_are_neutral() {
+        let (body, atts) = split_user_content(Some(&json!([{"type": "localImage", "path": "C:/x/y.png"}, {"type": "image", "url": "data:..."}, {"type": "futureInput"}])));
+        assert_eq!(body, None);
+        assert_eq!(atts.len(), 3);
+        assert_eq!(atts[0].name.as_deref(), Some("y.png"));
+        assert_eq!((atts[1].name.clone(), atts[1].kind, atts[1].basis), (None, Some(AttachmentKind::Image), EntryAttachmentBasis::Undetermined));
+        assert_eq!((atts[2].kind, atts[2].basis), (None, EntryAttachmentBasis::Undetermined));
+        assert_eq!(split_user_content(None), (None, Vec::new()));
+    }
+
+    #[test]
+    fn attachment_list_text_must_match_strictly() {
+        // 利用者が似た文言を書いた場合は本文のまま（添付にしない）
+        for t in [
+            "添付ファイル:\n- a.txt — relative/a.txt",
+            "添付ファイル:\n- other.txt — C:/d/a.txt",
+            "添付ファイル:\n- a.txt — C:/d/a.txt\nおわり",
+            "添付ファイル:",
+            "先に一言\n添付ファイル:\n- a.txt — C:/d/a.txt",
+        ] {
+            assert!(parse_attachment_list(t).is_none(), "{t}");
+            let (body, atts) = split_user_content(Some(&json!([{"type": "text", "text": t}])));
+            assert_eq!(body.as_deref(), Some(t));
+            assert!(atts.is_empty());
+        }
+        // 定型文が末尾でない（途中にある）ときは本文のまま
+        let (body, atts) = split_user_content(Some(&json!([{"type": "text", "text": "添付ファイル:\n- a.txt — C:/d/a.txt"}, {"type": "text", "text": "後"}])));
+        assert!(atts.is_empty());
+        assert_eq!(body.as_deref(), Some("添付ファイル:\n- a.txt — C:/d/a.txt\n後"));
     }
 
     #[test]

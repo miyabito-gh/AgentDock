@@ -288,7 +288,7 @@ impl Host {
     /// 元の会話は変えず、resumeは送信の経路（分岐先への通常の送信）以外ではしない。自動再送しない:
     /// 分岐が受理不明なら送らず（照合は読取りだけ）、下書きを保存できなければ送らず、送信の受理不明・拒否は再送しない。
     pub async fn resend_as_fork(self: &Arc<Self>, args: ResendAsForkArgs, confirmed: &UserConfirmed) -> Result<ResendAsForkResult, IpcError> {
-        if args.text.trim().is_empty() {
+        if args.text.trim().is_empty() && args.attachments.is_empty() {
             return Err(err(IpcErrorCode::InvalidArgs, "依頼の文が空です"));
         }
         if args.purpose == ForkPurpose::Fork {
@@ -329,12 +329,20 @@ impl Host {
             f.draft.updated_at = Some(now_ms());
         });
         let saved = matches!(self.save_now(SaveScope::ChatLocal { chat: new_chat.clone() }).await, Some(SaveStatus { state: SaveState::Saved { .. }, .. }));
+        // 元の発言の添付を、分岐先へ新しいコピーとして付ける（送信前の添付＝下書きに入る）。引き継げなければ送らない（黙って落とさない）。
+        let mut carried: Vec<LocalId> = Vec::new();
+        if saved && !args.attachments.is_empty() {
+            match self.carry_attachments(&args.chat, &new_chat, &args.attachments).await {
+                Ok(es) => carried = es.into_iter().map(|e| e.id).collect(),
+                Err(m) => return Ok(ResendAsForkResult { fork, draft_saved: true, send: None, send_error: Some(format!("添付を引き継げなかったため、送っていません（{m}）。分岐先の入力欄で添付を確認してください")) }),
+            }
+        }
         if resend_next(true, saved, args.send) != ResendNext::SendOnce {
             return Ok(ResendAsForkResult { fork, draft_saved: saved, send: None, send_error: None });
         }
         // 通常の送信経路で1回だけ送る（送信ロック・clientUserMessageId・Sending保存・受理不明の扱い）。再送しない。
         // 送る前に止まったとき（Err。送信は起きていない）は、分岐先ができていることを伝えるため Ok で理由を返す。下書きは残す。
-        let send = match self.send_message(SendMessageArgs { chat: new_chat.clone(), text: args.text, attachments: Vec::new(), intent: SendIntent::NewTurn }, confirmed).await {
+        let send = match self.send_message(SendMessageArgs { chat: new_chat.clone(), text: args.text, attachments: carried, intent: SendIntent::NewTurn }, confirmed).await {
             Ok(s) => s,
             Err(e) => return Ok(ResendAsForkResult { fork, draft_saved: true, send: None, send_error: Some(e.message) }),
         };

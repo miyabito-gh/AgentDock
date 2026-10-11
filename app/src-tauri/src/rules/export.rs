@@ -139,6 +139,27 @@ fn attachment_line(a: &AttachmentEntry) -> String {
     format!("- {}{note}\n", a.display_name)
 }
 
+/// 発言に付いていた添付の1行（名前と種類だけ。パス・中身は出さない）。復元できないものは中立の「添付あり（詳細未確認）」。
+fn entry_attachments_line(atts: &[EntryAttachment]) -> String {
+    let items: Vec<String> = atts
+        .iter()
+        .map(|a| match &a.name {
+            Some(n) => {
+                let kind = match a.kind {
+                    Some(AttachmentKind::Image) => "画像",
+                    Some(AttachmentKind::Audio) => "音声",
+                    Some(AttachmentKind::Skill) => "Skill",
+                    Some(AttachmentKind::File) => "ファイル",
+                    None => "種類未確認",
+                };
+                format!("{n}（{kind}）")
+            }
+            None => "添付あり（詳細未確認）".to_string(),
+        })
+        .collect();
+    format!("添付: {}\n\n", items.join("、"))
+}
+
 fn artifact_line(a: &ArtifactEntry) -> String {
     let note = match &a.exists {
         Known::Value { value: true, .. } => "",
@@ -197,7 +218,10 @@ pub fn render_markdown(input: &ExportInput<'_>) -> String {
         }
         for e in &turn.entries {
             out.push_str(&format!("**{}**\n\n", kind_label(&e.kind)));
+            let has_atts = e.kind == ActivityKind::UserMessage && !e.attachments.is_empty();
             match &e.text {
+                // 添付だけの発言は本文が無い。「未取得」とは書かず、添付の行だけを出す。
+                Known::Missing if has_atts => {}
                 Known::Value { value, .. } => match e.kind {
                     ActivityKind::UserMessage | ActivityKind::AgentMessage => {
                         out.push_str(value);
@@ -209,6 +233,9 @@ pub fn render_markdown(input: &ExportInput<'_>) -> String {
                     }
                 },
                 _ => out.push_str(&format!("{NOT_FETCHED}\n\n")),
+            }
+            if has_atts {
+                out.push_str(&entry_attachments_line(&e.attachments));
             }
         }
         out.push_str(&format!("_turn終端: {}_\n\n", end_label(turn.end)));
@@ -266,7 +293,7 @@ mod tests {
         ItemKey { agent: ak("root"), turn_id: Some(ExternalId("t1".into())), item_id: ExternalId(i.into()) }
     }
     fn entry(kind: ActivityKind, text: Known<String>) -> TranscriptEntry {
-        TranscriptEntry { key: ikey("i"), kind, text, phase: ActivityPhase::Completed }
+        TranscriptEntry { key: ikey("i"), kind, text, phase: ActivityPhase::Completed, attachments: Vec::new() }
     }
     fn turn(entries: Vec<TranscriptEntry>, end: Option<TurnEnd>, complete: bool) -> TurnRecord {
         TurnRecord { key: TurnKey { agent: ak("root"), turn_id: ExternalId("t1".into()) }, end, started_at: Known::NotFetched, completed_at: Known::NotFetched, entries, complete }
@@ -298,6 +325,26 @@ mod tests {
             monitor_activity: act,
             exported_at_local: "2026-10-06 12:00".into(),
         }
+    }
+
+    #[test]
+    fn user_message_attachments_are_listed_by_name_and_kind() {
+        let mut e = entry(ActivityKind::UserMessage, Known::direct("見て".into()));
+        e.attachments = vec![
+            EntryAttachment { name: Some("a.png".into()), kind: Some(AttachmentKind::Image), path: Some(r"C:\secret\a.png".into()), basis: EntryAttachmentBasis::Structured },
+            EntryAttachment { name: Some("b.txt".into()), kind: Some(AttachmentKind::File), path: None, basis: EntryAttachmentBasis::ListedText },
+            EntryAttachment { name: None, kind: None, path: None, basis: EntryAttachmentBasis::Undetermined },
+        ];
+        let t = [turn(vec![e], Some(TurnEnd::Completed), true)];
+        let md = render_markdown(&input(&t, &[], &[], None));
+        assert!(md.contains("見て\n\n添付: a.png（画像）、b.txt（ファイル）、添付あり（詳細未確認）\n\n"), "{md}");
+        assert!(!md.contains("secret"));
+        // 本文なしの添付だけの発言は「未取得」と書かない
+        let mut only = entry(ActivityKind::UserMessage, Known::Missing);
+        only.attachments = vec![EntryAttachment { name: Some("x.md".into()), kind: Some(AttachmentKind::File), path: None, basis: EntryAttachmentBasis::ListedText }];
+        let t = [turn(vec![only], Some(TurnEnd::Completed), true)];
+        let md = render_markdown(&input(&t, &[], &[], None));
+        assert!(md.contains("**ユーザー**\n\n添付: x.md（ファイル）\n\n"), "{md}");
     }
 
     #[test]

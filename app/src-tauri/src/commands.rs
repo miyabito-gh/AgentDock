@@ -221,6 +221,17 @@ pub async fn add_attachment_file(host: Hs<'_>, args: AddAttachmentFileArgs) -> R
     host.inner().clone().add_attachment_file(args).await
 }
 
+/// 元のチャットの添付（台帳のID）を別のチャットへ新しいコピーとして付ける。元の台帳にあり使える状態のものだけ（任意のパスは受けない）。
+#[tauri::command]
+pub async fn carry_attachment(host: Hs<'_>, args: CarryAttachmentArgs) -> R<AttachmentEntry> {
+    let h = host.inner().clone();
+    match h.carry_attachments(&args.from, &args.to, std::slice::from_ref(&args.attachment)).await {
+        Ok(mut v) if v.len() == 1 => Ok(v.remove(0)),
+        Ok(_) => Err(IpcError { code: IpcErrorCode::Io, message: "添付を引き継げませんでした".into(), blocked: None }),
+        Err(m) => Err(IpcError { code: IpcErrorCode::InvalidArgs, message: m, blocked: None }),
+    }
+}
+
 /// クリップボード画像。本文は生バイト（PNG）、チャットと名前はヘッダー（`x-chat-backend`・`x-chat-id`・`x-file-name`）で受ける。
 #[tauri::command]
 pub async fn add_attachment_image_bytes(host: Hs<'_>, request: tauri::ipc::Request<'_>) -> R<AttachmentEntry> {

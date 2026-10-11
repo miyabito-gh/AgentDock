@@ -725,6 +725,20 @@ pub struct ResendAsForkArgs {
     pub purpose: ForkPurpose,
     /// false＝分岐して下書きに入れるだけ（送らない）。
     pub send: bool,
+    /// 引き継ぐ元の発言の添付（元のチャットの台帳のID）。分岐先へ新しいコピーを作って付ける。欠損・コピー不能なら送らない（付けずに送る判断は画面が行い、IDから外して渡す）。
+    #[serde(default)]
+    pub attachments: Vec<LocalId>,
+}
+
+/// 元のチャットの添付（台帳のID）を、別のチャットへ新しいコピーとして付ける（元の管理領域のコピーだけが対象。任意のパスは受けない）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct CarryAttachmentArgs {
+    pub from: ChatKey,
+    pub to: ChatKey,
+    pub attachment: LocalId,
 }
 
 /// `fork.ack` が `Unknown` のときは、送信も下書き保存もしていない（`fork.attemptedAt` で照合する）。

@@ -3,10 +3,11 @@
 //       送信の受理不明は再送しない（分岐先の「履歴と照合」に委ねる）。元の会話は変えない。結果は「受け付けた」までしか書かない。
 import { useEffect, useRef, useState } from "react";
 import * as host from "../ipc/client";
-import type { Chat, ChatKey, ForkPurpose, ForkReconcile, HostSnapshot, OpCapability, SendAttempt, TurnRecord } from "../ipc/types";
+import type { AttachmentEntry, Chat, ChatKey, EntryAttachment, ForkPurpose, ForkReconcile, HostSnapshot, OpCapability, SendAttempt, TurnRecord } from "../ipc/types";
 import { availability, commandContext } from "./commands";
 import { chatAgents, chatName, chatRequests, chatStops, historyOutcomeOf, isRunning, rootView, stopOpen } from "./derive";
 import { isActiveState } from "./chatState";
+import { classifyCarry } from "./chips";
 import { UnverifiedNote } from "./ChangesDialog";
 import { About, FootActions } from "./DialogParts";
 import { PURPOSE_SUFFIX, type ResendCtx, type ResendPlan, type ResendTarget } from "./resend";
@@ -54,7 +55,9 @@ export function resendTargetOf(turns: TurnRecord[], turnId: string, purpose: Pur
   return {
     turnId, purpose,
     userIndex: purpose === "editResend" ? (idx < 0 ? 0 : idx) : null,
-    requestText: entry && entry.text.kind === "value" ? entry.text.value : null,
+    // 添付だけの依頼は本文が無い。空の文として扱い（編集・再生成できる）、添付は別に引き継ぐ。
+    requestText: entry && entry.text.kind === "value" ? entry.text.value : entry && entry.attachments.length > 0 ? "" : null,
+    attachments: entry ? entry.attachments : [],
   };
 }
 
@@ -69,7 +72,7 @@ export interface ResendHandlers {
    * チャットの作成に失敗したときだけ例外。作った後に下書きを保存できなかったときは例外にせず draftSaved=false で返す
    * （押し直しで空のチャットが増えないように、同じダイアログでは作ったチャットを使い回す）。
    */
-  startFirst: (text: string, existing: ChatKey | null) => Promise<{ key: ChatKey; draftSaved: boolean; message: string | null }>;
+  startFirst: (text: string, existing: ChatKey | null, carry: AttachmentEntry[]) => Promise<{ key: ChatKey; draftSaved: boolean; message: string | null; carried: string[]; carryFailed: string | null }>;
   /** 分岐先の下書きへ文を保存し、入力欄に反映する（保存できなければ例外）。既に別の下書きがあれば上書きせず "kept"。 */
   saveDraft: (key: ChatKey, text: string) => Promise<"saved" | "kept">;
 }
@@ -78,6 +81,9 @@ export interface ResendState {
   plan: ResendPlan;
   purpose: Purpose;
   requestText: string | null;
+  /** 元の依頼に付いていた添付（履歴から復元）と、元のチャットのローカルの添付台帳。 */
+  attachments: EntryAttachment[];
+  locals: AttachmentEntry[];
 }
 
 interface Result { tone: "info" | "err"; lines: string[]; unknownAt: number | null; finished: boolean }
@@ -117,9 +123,14 @@ export function ResendBody({ chat, live, cap, s, h, onClose, onRunning }: { chat
   const [editing, setEditing] = useState(s.purpose === "editResend");
   const [running, setRunning] = useState(false);
   const [checking, setChecking] = useState(false);
+  // 付けられない添付があるとき、付けずに送ることをユーザーが確認したか
+  const [dropOk, setDropOk] = useState(false);
+  const carryPlan = classifyCarry(s.attachments, s.locals);
   const [result, setResult] = useState<Result | null>(null);
   // 最初のturnの経路で作ったチャット（下書きの保存に失敗した後の押し直しで、空のチャットを増やさない）。
   const createdRef = useRef<ChatKey | null>(null);
+  // 新しいチャットへ付け終えた添付（元の台帳のID）。押し直しでは未付与分だけを付け直す（二重に付けない）。
+  const carriedRef = useRef<Set<string>>(new Set());
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   // 実行中は外枠が閉じられないようにする（閉じて開き直しての二重実行を防ぐ。ホストも同じチャットの2本目を拒否する）。
@@ -140,7 +151,8 @@ export function ResendBody({ chat, live, cap, s, h, onClose, onRunning }: { chat
   const first = plan.kind === "first";
   const finished = result?.finished === true;
   const unknownAt = result?.unknownAt ?? null;
-  const cannot = running || finished || unknownAt !== null || text.trim() === "";
+  const lostBlock = carryPlan.lost.length > 0 && !dropOk;
+  const cannot = running || finished || unknownAt !== null || (text.trim() === "" && carryPlan.carry.length === 0) || lostBlock;
   const guard = (): boolean => {
     if (live) return true;
     setResult({ tone: "err", lines: ["モックでは分岐も送信もしません（画面の確認用です）。"], unknownAt: null, finished: false });
@@ -152,7 +164,7 @@ export function ResendBody({ chat, live, cap, s, h, onClose, onRunning }: { chat
     setRunning(true);
     const startedAt = Date.now();
     try {
-      const r = await host.resendAsFork(chat.key, plan.throughTurn, plan.targetTurn, text, purpose, send);
+      const r = await host.resendAsFork(chat.key, plan.throughTurn, plan.targetTurn, text, purpose, send, carryPlan.carry.map((c) => c.id));
       const ack = r.fork.ack;
       if (ack.kind === "rejected") {
         setResult({ tone: "err", lines: [`分岐は受け付けられませんでした（${ack.message}）。何も送っていません。`], unknownAt: null, finished: false });
@@ -177,13 +189,15 @@ export function ResendBody({ chat, live, cap, s, h, onClose, onRunning }: { chat
     if (cannot || !guard()) return;
     setRunning(true);
     try {
-      const r = await h.startFirst(text, createdRef.current);
+      const r = await h.startFirst(text, createdRef.current, s.locals.filter((l) => carryPlan.carry.some((c) => c.id === l.id) && !carriedRef.current.has(l.id)));
       createdRef.current = r.key;
+      r.carried.forEach((id) => carriedRef.current.add(id));
+      const carryLine = r.carryFailed ? [`添付を引き継げませんでした（${r.carryFailed}）。新しいチャットで添付し直してください。`] : [];
       if (r.draftSaved) {
-        setResult({ tone: "info", lines: ["新しいチャットを作り、依頼の文を入力欄に入れました。送信は入力欄から行ってください。"], unknownAt: null, finished: true });
+        setResult({ tone: "info", lines: ["新しいチャットを作り、依頼の文を入力欄に入れました。送信は入力欄から行ってください。", ...carryLine], unknownAt: null, finished: true });
       } else {
         // チャットはできている。押し直しは同じチャットへ保存をやり直す（空のチャットを増やさない）ので、閉じない。
-        setResult({ tone: "err", lines: [`新しいチャットは作りましたが、入力欄への保存に失敗しました（${r.message ?? "原因不明"}）。依頼の文は入力欄に表示しています。もう一度押すと、保存だけをやり直します。`], unknownAt: null, finished: false });
+        setResult({ tone: "err", lines: [`新しいチャットは作りましたが、入力欄への保存に失敗しました（${r.message ?? "原因不明"}）。依頼の文は入力欄に表示しています。もう一度押すと、保存と未付与の添付をやり直します。`, ...carryLine], unknownAt: null, finished: false });
       }
     } catch (e) {
       // チャットの作成の結果が分からない。押し直す前に一覧で確認してもらう。
@@ -239,7 +253,18 @@ export function ResendBody({ chat, live, cap, s, h, onClose, onRunning }: { chat
           <div><button className="btn-line" disabled={running || finished} onClick={() => setEditing(true)}>文を編集する</button></div>
         </div>
       )}
-      <p className="small">元の依頼の添付・Skill指定は引き継ぎません。必要なら新しいチャットで添付し直してください。</p>
+      {s.attachments.length ? (
+        <div className="resend-field">
+          <span>元の依頼の添付（{carryPlan.carry.length ? `${carryPlan.carry.length}件を同じ内容で付けて送ります` : "付けられるものはありません"}）</span>
+          <ul className="resend-atts">
+            {carryPlan.carry.map((c) => <li key={c.id}>{c.label}<span className="muted small">　付けます（新しいチャット用にコピー）</span></li>)}
+            {carryPlan.lost.map((l, i) => <li key={`l${i}`} className="lost">{l.label}<span className="small">　付けられません: {l.reason}</span></li>)}
+          </ul>
+          {carryPlan.lost.length ? (
+            <label className="small"><input type="checkbox" checked={dropOk} disabled={running || finished} onChange={(e) => setDropOk(e.target.checked)} /> 付けられない添付があることを確認しました。それらを付けずに進めます</label>
+          ) : null}
+        </div>
+      ) : null}
       {first ? null : <About><p>分岐は Codex の会話の分岐機能で作られます。元の会話・添付は変わらず、分岐先は AgentDock の一覧に加わります。分岐先の名前は「{name}{suffix}」になり、ヘッダーに「{purpose === "editResend" ? "編集から" : "再生成"}」の印が付きます。</p></About>}
       {result ? <div className={`banner ${result.tone}`} role={result.tone === "err" ? "alert" : "status"}><div>{result.lines.map((l, i) => <p key={i} style={{ margin: i ? "4px 0 0" : 0 }}>{l}</p>)}</div></div> : null}
     </div>

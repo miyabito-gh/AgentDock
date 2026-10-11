@@ -25,6 +25,7 @@ import { CommandPalette } from "./ui/CommandPalette";
 import { Dialogs, type DialogState, type NewChatInput } from "./ui/Dialogs";
 import { ackText } from "./ui/PrefsDialogs";
 import { SidePanel } from "./ui/SidePanel";
+import { fromLocal, type SentLocal } from "./ui/chips";
 import { resendCtxOf, resendTargetOf, rootTurns, type ResendHandlers, type ResendState } from "./ui/ResendDialog";
 import { resendAvailability } from "./ui/resend";
 import { PaneSplitter } from "./ui/PaneSplitter";
@@ -52,6 +53,8 @@ const failedSource = (message: string): SourceInfo => ({
 });
 
 /** 送信の受理状態の案内。受理不明は失敗とも成功とも言わない。 */
+const NO_SENDS: SentLocal[] = [];
+
 function noticeOf(a: SendAttempt | undefined, steer: { attemptId: string; queueInstead: () => void } | null = null): SendNotice | null {
   if (!a) return null;
   switch (a.state.kind) {
@@ -109,6 +112,8 @@ export default function App() {
   const [connectError, setConnectError] = useState<string | null>(null);
   const [exePath, setExePath] = useState<string>(readExe);
   const [attempts, setAttempts] = useState<Record<string, SendAttempt>>({});
+  // 送った発言のローカルの記録（送信直後の添付チップ用。メモリのみ。再読込み・再起動後は履歴から復元する）
+  const [sends, setSends] = useState<Record<string, SentLocal[]>>({});
   const [warnHidden, setWarnHidden] = useState(false);
   const [listStatus, setListStatus] = useState<{ ok: boolean; text: string } | null>(null);
   const [steerOf, setSteerOf] = useState<Record<string, { attemptId: string; text: string; attachments: string[] }>>({});
@@ -502,9 +507,13 @@ export default function App() {
       // 完了後に送る依頼として登録する（送信はホストが条件を判断して1件ずつ行う）。
       try { await host.enqueue(chat.key, text, attachments); say("完了後に送る依頼として登録しました。"); return true; } catch (e) { sayErr("依頼を登録できませんでした", e); return false; }
     }
+    // 送る添付の名前・種類・コピー先を、送信前の台帳から控える（送信で下書きから外れる前）
+    const sentAtts = attachments.map((id) => snap.attachments.find((x) => x.id === id)).filter((x): x is AttachmentEntry => !!x).map(fromLocal);
     try {
       const a = await host.sendMessage(chat.key, text, running ? "steer" : "newTurn", attachments);
       noteAttempt(chat.key.id, a);
+      // 受理を確認できた送信だけを、添付なしも含めて控える（同じ本文の別の発言に他の送信の添付が付かないように）
+      if (a.state.kind === "accepted") setSends((m) => ({ ...m, [chat.key.id]: [...(m[chat.key.id] ?? []), { text, at: a.at, atts: sentAtts, steer: running }].slice(-30) }));
       if (running) {
         setSteerOf((m) => ({ ...m, [chat.key.id]: { attemptId: a.attemptId, text, attachments } }));
         if (a.state.kind === "accepted") say("追加指示を Codex が受理しました。現在のturnへの反映は会話の表示で確認してください（受理と反映は別です）。");
@@ -825,11 +834,11 @@ export default function App() {
       if (attempt) noteAttempt(key.id, attempt);
     },
     // 最初のturn: 新しいチャットを作って下書きに入れるだけ（送らない）。
-    startFirst: async (text, existing) => {
+    startFirst: async (text, existing, carry) => {
       if (!live) throw new Error("モックでは新しいチャットを作りません");
       let key = existing;
+      const src = dialog?.type === "resend" ? snap.chats.find((c) => c.key.id === dialog.chatId) : undefined;
       if (!key) {
-        const src = dialog?.type === "resend" ? snap.chats.find((c) => c.key.id === dialog.chatId) : undefined;
         if (!src) throw new Error("元のチャットを確認できません");
         if (src.cwd.kind !== "value" && src.kind === "development") throw new Error("元の作業フォルダを確認できないため、新しいチャットを作れません");
         const local = snap.chatLocals.find((l) => l.chat.id === src.key.id);
@@ -844,11 +853,23 @@ export default function App() {
       // 作った後の保存の失敗は例外にしない（押し直しで空のチャットが増えないよう、呼び出し側は作ったチャットを使い回す）。
       setSelId(key.id);
       setDrafts((d) => ({ ...d, [key.id]: text }));
+      // 元の依頼の添付を、新しいチャットの送信前の添付へ新しいコピーとして付ける（送らない）。元の台帳のIDだけをホストへ渡し、ホストが台帳からコピーする。
+      // 失敗は黙って落とさず知らせる。付け終えた分は返し、押し直しで二重に付けない。
+      const carryOver = async (): Promise<{ carried: string[]; carryFailed: string | null }> => {
+        const carried: string[] = [], fails: string[] = [];
+        for (const l of carry) {
+          try {
+            if (!src || !key) throw new Error("元のチャットを確認できません");
+            await host.carryAttachment(src.key, key, l.id); carried.push(l.id);
+          } catch (e) { fails.push(`${l.displayName}: ${host.asIpcError(e).message}`); }
+        }
+        return { carried, carryFailed: fails.length ? fails.join("、") : null };
+      };
       try {
         await host.setDraft(key, text);
-        return { key, draftSaved: true, message: null };
+        return { key, draftSaved: true, message: null, ...(await carryOver()) };
       } catch (e) {
-        return { key, draftSaved: false, message: host.asIpcError(e).message };
+        return { key, draftSaved: false, message: host.asIpcError(e).message, ...(await carryOver()) };
       }
     },
     saveDraft: async (key, text) => {
@@ -867,7 +888,7 @@ export default function App() {
       const turns = bundle.turns[target.key.id] ?? [];
       const t = resendTargetOf(rootTurns(snap, target, turns), dialog.turnId, dialog.purpose, dialog.itemId);
       const ctx = resendCtxOf(snap, target, connected, turns);
-      resendState = { plan: resendAvailability(ctx, t), purpose: dialog.purpose, requestText: t.requestText };
+      resendState = { plan: resendAvailability(ctx, t), purpose: dialog.purpose, requestText: t.requestText, attachments: t.attachments ?? [], locals: snap.attachments.filter((a) => keyStr(a.chat) === keyStr(target.key)) };
     }
   }
 
@@ -1208,7 +1229,7 @@ export default function App() {
                 goal={goals[chat.key.id]} goalBusy={goalBusy} onGoalReload={() => void loadGoal(chat.key)} onGoalClear={clearGoal}
                 notice={live ? noticeOf(attempts[chat.key.id], steerOf[chat.key.id] ? { attemptId: steerOf[chat.key.id].attemptId, queueInstead: () => { void onSend(steerOf[chat.key.id].text, false, steerOf[chat.key.id].attachments); } } : null) : null} onRetrySend={() => void onRetrySend()}
                 queue={snap.queues.find((q) => q.chat.id === chat.key.id)} local={snap.chatLocals.find((l) => l.chat.id === chat.key.id)}
-                qact={qact} onPermission={onPermission} onCwd={onCwd}
+                qact={qact} onPermission={onPermission} onCwd={onCwd} sends={sends[chat.key.id] ?? NO_SENDS}
               />
             ) : <EmptyCenter onAct={act} />}
           </main>

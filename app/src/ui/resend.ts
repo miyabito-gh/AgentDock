@@ -1,7 +1,7 @@
 // 編集して再送・再生成（M50、DESIGN_P5 §5）の可否。純粋関数。型だけに依存し、Nodeで直接テストできる。
 // 理由の順と文言は、ホストの `rules::thread_ops::resend_blocker` と揃える。最終判定はホスト（ここは押す前の案内）。
 //   能力 → 接続 → 削除保留 → 外部実行中 → 停止未確認 → 作業中 → 状態不明 → 表示が古い → 追加指示 → 依頼の文なし(UIのみ) → 直前の終端未確認
-import type { ForkPurpose, TurnEnd } from "../ipc/types";
+import type { EntryAttachment, ForkPurpose, TurnEnd } from "../ipc/types";
 
 /** 履歴のturn1件の要約（メインのエージェントのturnを古い順に並べる）。 */
 export interface TurnLite {
@@ -36,6 +36,8 @@ export interface ResendTarget {
   userIndex: number | null;
   /** 依頼の文（取得できていないとき null）。 */
   requestText: string | null;
+  /** その依頼に付いていた添付（履歴から復元したもの。再送で引き継ぐ）。 */
+  attachments?: EntryAttachment[];
 }
 
 export type ResendPlan =

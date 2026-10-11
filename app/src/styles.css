@@ -696,3 +696,22 @@ textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;paddin
 .dialog .resend-text{width:100%;min-height:120px;line-height:1.6;resize:vertical}
 .resend-quote{border:1px solid var(--line);border-radius:var(--r1);background:var(--surface2);padding:6px 10px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:200px;overflow:auto;line-height:1.6}
 .resend-quote:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
+
+/* ==== 会話の折りたたみ・添付チップ（第2段 9・20） ==== */
+.foldrow{max-width:760px;margin:0 auto 12px;display:flex;justify-content:center}
+.foldbtn{height:26px;padding:0 14px;border:1px solid var(--line-strong);border-radius:999px;background:var(--surface);color:var(--ink2);font-size:var(--fs-s)}
+.foldbtn:hover:not(:disabled){background:var(--accent-weak);color:var(--ink)}
+.foldbtn:disabled{opacity:.7}
+.foldbtn:focus-visible,.foldmsg:focus-visible,.uchip:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
+.msg.user .bubble.clamp{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:8;line-clamp:8;overflow:hidden}
+.foldmsg{align-self:flex-end;margin:2px 0 0;padding:0 4px;height:20px;border:0;background:none;color:var(--accent-text);font-size:var(--fs-s);text-decoration:underline}
+.uchips{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:4px;margin:4px 0 0 60px;max-width:calc(100% - 60px)}
+.uchip{display:inline-flex;align-items:center;gap:4px;height:24px;max-width:200px;padding:0 6px;border:1px solid var(--line);border-radius:var(--r1);background:var(--surface);color:var(--ink);font-size:var(--fs-s)}
+.uchip.neutral{color:var(--ink3);border-style:dashed}
+.uchip.bad{border-color:var(--fail-line);background:var(--fail-bg)}
+button.uchip:hover{background:var(--accent-weak)}
+.uchip .uname{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.uchip.more{color:var(--ink2);padding:0 8px}
+@media (max-width:959px){.uchips{margin-left:20px;max-width:calc(100% - 20px)}}
+.resend-atts{margin:2px 0;padding-left:18px;font-size:var(--fs-s)}
+.resend-atts li.lost{color:var(--fail-ink)}

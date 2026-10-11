@@ -181,6 +181,7 @@ pub fn run() {
             commands::acknowledge_failure,
             commands::set_selected_chat,
             commands::add_attachment_file,
+            commands::carry_attachment,
             commands::add_attachment_image_bytes,
             commands::remove_attachment,
             commands::open_file,

@@ -165,6 +165,33 @@ impl Host {
         self.finish_attachment(&chat, res, "").await
     }
 
+    /// 元のチャットの添付（台帳のID）を、別のチャットへ新しいコピーとして付ける（編集して再送で添付を引き継ぐ）。
+    /// 元の台帳に無い・使えない状態（コピー中・失敗・欠損）のものがあれば、その旨を返して止める（付けずに黙って進めない）。
+    /// 付け終えたものは送信前の添付（下書き）に入り、新しい台帳の項目を元の順で返す。
+    pub async fn carry_attachments(self: &Arc<Self>, from: &ChatKey, to: &ChatKey, ids: &[LocalId]) -> Result<Vec<AttachmentEntry>, String> {
+        let mut out = Vec::new();
+        for id in ids {
+            let Some(src) = self.read(|d| d.locals.get(from).and_then(|f| f.attachments.iter().find(|a| &a.id == id).cloned())) else {
+                return Err("元の発言の添付が台帳に見つかりません".into());
+            };
+            if src.state != AttachmentState::Ready {
+                return Err(format!("元の添付「{}」は使えない状態です（{}）", src.display_name, not_ready_message(&src.state)));
+            }
+            let made = match &src.source {
+                AttachmentSource::Skill { name, path } => self.add_skill_attachment(AddSkillArgs { chat: to.clone(), name: name.clone(), path: path.clone() }).await,
+                _ => match src.copy_path.clone() {
+                    Some(p) => self.add_attachment_file(AddAttachmentFileArgs { chat: to.clone(), path: p }).await,
+                    None => return Err(format!("元の添付「{}」のコピーの場所が分かりません", src.display_name)),
+                },
+            };
+            match made {
+                Ok(e) => out.push(e),
+                Err(e) => return Err(format!("添付「{}」を引き継げませんでした（{}）", src.display_name, e.message)),
+            }
+        }
+        Ok(out)
+    }
+
     /// 送信前の添付を取り外す。まだ使っていないコピーは消し、送信・キューに使った添付は台帳に残す（履歴の参照を保つ）。
     pub async fn remove_attachment(self: &Arc<Self>, args: AttachmentArgs) -> Result<(), IpcError> {
         let Some(entry) = self.read(|d| d.locals.get(&args.chat).and_then(|f| f.attachments.iter().find(|a| a.id == args.attachment).cloned())) else {

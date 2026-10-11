@@ -140,6 +140,8 @@ export const openDiagDir = (): Promise<string> => invoke("open_diag_dir");
 // ── 添付・成果物（§3.8）。コピーしたファイルは対象チャット用の領域にあり、元ファイルは変更されない。 ──
 /** ファイル選択・ドロップで得たパスを添付する。フォルダは `blocked.folderIsWorkspace`（コピーしない）。 */
 export const addAttachmentFile = (chat: ChatKey, path: string): Promise<AttachmentEntry> => invokeCmd("add_attachment_file", { chat, path });
+/** 元のチャットの添付（台帳のID）を別のチャットへ新しいコピーとして付ける（編集して再送の引き継ぎ。任意のパスは渡さない）。 */
+export const carryAttachment = (from: ChatKey, to: ChatKey, attachment: LocalId): Promise<AttachmentEntry> => invokeCmd("carry_attachment", { from, to, attachment });
 /** クリップボード画像（PNG）を生バイトで送る。JSON配列にはしない。チャットと名前はヘッダーで渡す。 */
 export const addAttachmentImageBytes = (chat: ChatKey, name: string, bytes: ArrayBuffer): Promise<AttachmentEntry> =>
   invoke("add_attachment_image_bytes", bytes, { headers: { "x-chat-backend": chat.backend, "x-chat-id": chat.id, "x-file-name": name } });
@@ -200,8 +202,8 @@ export const reconcileFork = (chat: ChatKey, attemptedAt: number, purpose: ForkP
  * 編集して再送・再生成（M50）。throughTurn=対象の1つ前の終端turn、targetTurn=対象turn。元の会話は変えない。
  * send=false は分岐して下書きに入れるだけ。fork.ack が unknown のときは送らず、reconcileFork で確認する。送信の受理不明は再送しない。
  */
-export const resendAsFork = (chat: ChatKey, throughTurn: ExternalId, targetTurn: ExternalId, text: string, purpose: ForkPurpose, send: boolean): Promise<ResendAsForkResult> =>
-  invokeCmd("resend_as_fork", { chat, throughTurn, targetTurn, text, purpose, send });
+export const resendAsFork = (chat: ChatKey, throughTurn: ExternalId, targetTurn: ExternalId, text: string, purpose: ForkPurpose, send: boolean, attachments: LocalId[] = []): Promise<ResendAsForkResult> =>
+  invokeCmd("resend_as_fork", { chat, throughTurn, targetTurn, text, purpose, send, attachments });
 /** 状態不明の子孫の「履歴で再確認」（読取りのみ。再開・停止しない。確認できなければ状態不明のまま）。 */
 export const recheckUnknownAgents = (chat: ChatKey, agents: AgentKey[]): Promise<RecheckAgentsResult> => invokeCmd("recheck_unknown_agents", { chat, agents });
 /** 文脈の圧縮。圧縮前の本文を控えに保存してから送る（保存できなければ送らない）。 */

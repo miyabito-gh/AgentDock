@@ -106,7 +106,7 @@ function turns(chatId: string, entries: Array<[string, string]>, end: TurnRecord
     entries: entries.map(([k, t], i) => ({
       key: { agent: ak(`${chatId}0`), turnId: "t1", itemId: `m${i}` },
       kind: k === "u" ? { kind: "userMessage" } : k === "a" ? { kind: "agentMessage" } : { kind: "other", raw: k },
-      text: val(t), phase: "completed" as const,
+      text: val(t), phase: "completed" as const, attachments: [],
     })),
   }];
 }

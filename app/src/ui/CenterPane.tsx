@@ -1,6 +1,6 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import type {
-  AgentKey, AgentView, ArtifactEntry, AttachmentEntry, Chat, ChatKey, ChatLocalView, ChatModelSettings, ChatQueue, DecisionOption, FileRef, Goal, HostSnapshot, Known, ModelInfo, PendingRequest,
+  AgentKey, AgentView, ArtifactEntry, AttachmentEntry, EntryAttachment, Chat, ChatKey, ChatLocalView, ChatModelSettings, ChatQueue, DecisionOption, FileRef, Goal, HostSnapshot, Known, ModelInfo, PendingRequest,
   PermissionPreset, QueueEntry, RequestAnswer, ActivityKind, SaveState, StopRecord, TurnRecord, WorkMode, WorkModeInfo,
 } from "../ipc/types";
 import { Icon } from "./Icon";
@@ -11,6 +11,8 @@ import { PENDING_TEXT } from "./ManageDialogs";
 import { TENTATIVE_HINT, TENTATIVE_STYLE, chatAgents, chatDisplay, chatName, chatRequests, chatTitle, chatStatusText, chatStops, isRunning, rootView, stopOpen } from "./derive";
 import { FRESH, STATE, STOP_LABEL, hms, holdText, keyStr, knownValue, showKnown, stopCauseText, targetList } from "./format";
 import { baseName, clipboardImageName, mimeOf } from "./attach";
+import { FOLD_KEEP, createFoldMemory, isLongBody, messageTexts, needsExpand, splitFold } from "./fold";
+import { assignSends, chipKey, chipModel, matchLocal, splitChips, type SentLocal } from "./chips";
 import type { CommandView } from "./commands";
 import { GoalBar, UnverifiedTag, WORK_MODE_TEXT } from "./PrefsDialogs";
 import { resendCtxOf, resendTargetOf } from "./ResendDialog";
@@ -64,6 +66,8 @@ export interface CenterProps {
   qact: QueueActions;
   onPermission: (p: PermissionPreset) => void;
   onCwd: (cwd: string, confirmed: boolean) => Promise<CwdResult>;
+  /** このチャットで送った発言のローカルの記録（送信直後の添付チップ用）。 */
+  sends: SentLocal[];
 }
 
 export interface FileActions {
@@ -407,12 +411,109 @@ interface FindState { open: boolean; query: string; setQuery: (q: string) => voi
 /** 依頼・応答の操作「編集して分岐」「もう一度」。無効でも押せて（aria-disabled）、押すと理由をダイアログで示す。 */
 interface ResendView { ctx: ResendCtx; rootAgentId: string | undefined }
 
-function Messages({ turns, reqs, running, onRespond, onAct, extra, find, resend }: {
+/** 画像のプレビューは、画面に入るまで読み込まない（古い発言のチップで重い読込みをしない）。 */
+function LazyThumb(props: Parameters<typeof Thumb>[0]) {
+  const [seen, setSeen] = useState(false);
+  const ref = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (seen || !el) return;
+    if (typeof IntersectionObserver === "undefined") { setSeen(true); return; }
+    const io = new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) { setSeen(true); io.disconnect(); } });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [seen]);
+  return seen ? <Thumb {...props} /> : <span ref={ref} className="thumb" title="画像（読み込み待ち）" />;
+}
+
+/**
+ * 発言に付いていた添付のチップ（最大3件＋「＋N」）。履歴の入力項目から復元したもので、受理の根拠ではない。
+ * 成功の印は付けない。復元できないものは中立の「添付あり（詳細未確認）」。
+ */
+function MsgChips({ atts, locals, files }: { atts: EntryAttachment[]; locals: AttachmentEntry[]; files: FileActions }) {
+  const [all, setAll] = useState(false);
+  const models = atts.map((a, i) => ({ k: chipKey(a, i), m: chipModel(a), local: matchLocal(a.path, locals) }));
+  const { shown, more } = splitChips(models, all);
+  return (
+    <div className="uchips" role="group" aria-label={`添付 ${atts.length}件`}>
+      {shown.map(({ k, m, local }) => {
+        const target: FileRef | null = local ? { kind: "attachment", chat: local.chat, id: local.id } : null;
+        const gone = !!local && (local.state.kind === "missing" || local.state.kind === "copyFailed");
+        const ready = !!local && local.state.kind === "ready";
+        const isImg = m.kind === "image";
+        const lead = isImg && target && ready ? <LazyThumb target={target} name={m.label} load={files.preview} /> : <Icon name="clip" />;
+        const inner = (
+          <>
+            {lead}
+            <span className={`uname${m.neutral ? " neutral" : ""}`}>{m.label}</span>
+            {gone ? <span className="tag" title="このアプリが保持していた添付のコピーが見つかりません">欠損</span> : null}
+          </>
+        );
+        const title = gone ? `${m.title}\nコピーが見つかりません（欠損）` : m.title;
+        // 画像はプレビュー（拡大）、その他の保持済みファイルは「開く」と同じ操作。それ以外は表示のみ。
+        return !isImg && target && ready && m.kind !== "skill"
+          ? <button key={k} type="button" className="uchip" title={title} aria-label={`${m.label}を関連アプリで開く`} onClick={() => files.open(target)}>{inner}</button>
+          : <span key={k} className={`uchip${m.neutral ? " neutral" : ""}${gone ? " bad" : ""}`} title={title}>{inner}</span>;
+      })}
+      {more > 0 || (all && models.length > 3)
+        ? <button type="button" className="uchip more" aria-expanded={all} title={all ? "3件だけ表示" : `残り${more}件を表示`} onClick={() => setAll((v) => !v)}>{all ? "閉じる" : `＋${more}`}</button>
+        : null}
+    </div>
+  );
+}
+
+/** チャットごとの展開状態（メモリ内。別チャットへ切り替えて戻っても保つ）。 */
+const foldMem = createFoldMemory(50);
+
+/** ユーザーの吹き出し。長い依頼文（8行超または600文字超）は数行で切り、「展開」で全文を出す。全文はDOMに残るので検索の件数は変わらない。 */
+function UserBubble({ text, forceOpen, open, onToggle }: { text: string; forceOpen: boolean; open: boolean; onToggle: () => void }) {
+  const long = isLongBody(text);
+  const id = useId();
+  const shown = open || forceOpen;
+  return (
+    <>
+      <div id={id} className={`bubble${long && !shown ? " clamp" : ""}`} data-find="body">{text}</div>
+      {long ? <button type="button" className="foldmsg" aria-expanded={shown} aria-controls={id} onClick={onToggle}>{shown ? "折りたたむ" : "展開"}</button> : null}
+    </>
+  );
+}
+
+function Messages({ chatId, turns, reqs, running, onRespond, onAct, extra, find, resend, locals, files, sends }: {
   turns: TurnRecord[]; reqs: PendingRequest[]; running: boolean; onRespond: CenterProps["onRespond"]; onAct: (a: string) => void; extra?: ReactNode; find: FindState; resend: ResendView;
+  locals: AttachmentEntry[]; files: FileActions; sends: SentLocal[]; chatId: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   const [away, setAway] = useState(false);
+  // 折りたたみ（既定は直近の発言だけ。展開はこのチャットの間だけ覚え、新しい発言で勝手に折りたたまない）
+  const [expanded, setExpandedRaw] = useState(() => foldMem.get(chatId).expanded);
+  const [openMsgs, setOpenMsgs] = useState<string[]>(() => foldMem.get(chatId).openMsgs);
+  const memo = useRef({ expanded, openMsgs });
+  const remember = (e: boolean, o: string[]) => { memo.current = { expanded: e, openMsgs: o }; foldMem.set(chatId, memo.current); };
+  const setExpanded = (f: (v: boolean) => boolean) => setExpandedRaw((v) => { const n = f(v); remember(n, memo.current.openMsgs); return n; });
+  const toggleMsg = (id: string) => setOpenMsgs((o) => { const n = o.includes(id) ? o.filter((x) => x !== id) : [...o, id]; remember(memo.current.expanded, n); return n; });
+  const fold = useMemo(() => splitFold(turns, FOLD_KEEP), [turns]);
+  // 送った直後（履歴・live通知がまだ添付を運ばない間）は、送信時のローカルの記録から添付を出す
+  const sentMap = useMemo(() => assignSends(turns, sends), [turns, sends]);
+  const folded = fold.hiddenTurns > 0;
+  // 検索の語が折りたたみ内にあれば自動で展開する（件数が折りたたみの有無で変わらないように）
+  const findForce = folded && find.open && !!find.query && needsExpand(messageTexts(turns.slice(0, fold.hiddenTurns)), find.query);
+  const open = expanded || findForce;
+  const lastH = useRef(0);
+  const prevOpen = useRef(open);
+  // 展開・折りたたみで古い側の高さが変わっても、いま見ている位置が飛ばないように補正する
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    if (prevOpen.current !== open) {
+      prevOpen.current = open;
+      const d = el.scrollHeight - lastH.current;
+      if (d !== 0) el.scrollTop += d;
+    }
+    lastH.current = el.scrollHeight;
+  });
+  const toggleFold = () => { if (ref.current) lastH.current = ref.current.scrollHeight; setExpanded((v) => !v); };
+  const visible = folded && !open ? turns.slice(fold.hiddenTurns) : turns;
   const toBottom = () => { const el = ref.current; if (el) el.scrollTop = el.scrollHeight; stick.current = true; setAway(false); };
   const onScroll = () => {
     const el = ref.current;
@@ -429,7 +530,15 @@ function Messages({ turns, reqs, running, onRespond, onAct, extra, find, resend 
     <div className="msgs-wrap">
     {find.open ? <FindBar root={ref} query={find.query} setQuery={find.setQuery} focusTick={find.tick} partial={find.partial} onClose={find.close} /> : null}
     <div className="msgs" id="msgs" aria-live="polite" ref={ref} onScroll={onScroll}>
-      {turns.map((t) => {
+      {folded ? (
+        <div className="foldrow">
+          <button type="button" className="foldbtn" aria-expanded={open} disabled={open && !expanded}
+            title={open && !expanded ? "検索の一致が過去のメッセージにあるため、展開しています" : undefined} onClick={toggleFold}>
+            {open ? "過去のメッセージを折りたたむ" : `${fold.hiddenMessages}件の過去のメッセージ ›`}
+          </button>
+        </div>
+      ) : null}
+      {visible.map((t) => {
         const others = t.entries.filter((e) => e.kind.kind !== "userMessage" && e.kind.kind !== "agentMessage");
         // 編集・再生成の対象はメインのエージェントのturnだけ。
         const mine = resend.rootAgentId === undefined || t.key.agent.id === resend.rootAgentId;
@@ -443,10 +552,14 @@ function Messages({ turns, reqs, running, onRespond, onAct, extra, find, resend 
               if (e.kind.kind === "userMessage") {
                 // 添付だけの依頼は本文の項目がない。空の吹き出しにせず、中立の表示にする（コピーは本文があるときだけ）。
                 const noBody = e.text.kind !== "value" || !e.text.value.trim();
+                const atts = (e.attachments?.length ? e.attachments : sentMap.get(e.key.itemId)) ?? [];
                 return (
                   <div className="msg user" key={e.key.itemId}>
                     <div className="sr">あなた</div>
-                    <div className="bubble" data-find="body">{noBody ? <span className="muted">（本文なし）</span> : text}</div>
+                    {noBody
+                      ? (atts.length ? null : <div className="bubble" data-find="body"><span className="muted">（本文なし）</span></div>)
+                      : <UserBubble text={text} forceOpen={find.open && needsExpand([text], find.query)} open={openMsgs.includes(e.key.itemId)} onToggle={() => toggleMsg(e.key.itemId)} />}
+                    {atts.length ? <MsgChips atts={atts} locals={locals} files={files} /> : null}
                     <div className="acts">
                       {noBody ? null : <CopyAct text={text} />}
                       {mine ? <button aria-disabled={blocked("editResend", e.key.itemId) || undefined} onClick={() => onAct(`resend:editResend|${t.key.turnId}|${e.key.itemId}`)}><Icon name="branch" />編集して分岐…</button> : null}
@@ -826,7 +939,8 @@ export function CenterPane(p: CenterProps) {
       <Header snap={snap} chat={chat} onAct={p.onAct} commands={p.commands} local={p.local} onCwdToggle={() => setCwdOpen((o) => !o)} cwdLock={cwdLock} wasLive={p.wasLive} externalLabel={p.externalLabel} />
       {cwdOpen && !cwdLock ? <CwdPanel current={p.local?.nextCwd ?? knownValue(chat.cwd) ?? ""} onCwd={p.onCwd} onClose={() => setCwdOpen(false)} /> : null}
       <Banners p={p} />
-      <Messages key={chat.key.id} turns={p.turns} reqs={reqs} running={running} onRespond={p.onRespond} onAct={p.onAct} find={find}
+      <Messages key={chat.key.id} chatId={chat.key.id} turns={p.turns} reqs={reqs} running={running} onRespond={p.onRespond} onAct={p.onAct} find={find}
+        locals={snap.attachments.filter((a) => keyStr(a.chat) === keyStr(chat.key))} files={p.files} sends={p.sends}
         resend={{ ctx: resendCtxOf(snap, chat, snap.sources.some((x) => x.connection.kind === "connected"), p.turns), rootAgentId: rootView(snap, chat)?.agent.key.id }}
         extra={<FilesBlock chatId={chat.key.id} sent={snap.attachments.filter((a) => keyStr(a.chat) === keyStr(chat.key) && a.usedBy.length > 0)} artifacts={snap.artifacts.filter((a) => keyStr(a.chat) === keyStr(chat.key))} files={p.files} />} />
       <Queue q={snap.queues.find((q) => keyStr(q.chat) === keyStr(chat.key))} nameOf={nameOf} qact={p.qact} />

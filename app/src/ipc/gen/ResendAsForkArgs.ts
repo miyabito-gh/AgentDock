@@ -2,6 +2,7 @@
 import type { ChatKey } from "./ChatKey";
 import type { ExternalId } from "./ExternalId";
 import type { ForkPurpose } from "./ForkPurpose";
+import type { LocalId } from "./LocalId";
 
 /**
  * 編集して再送・再生成（M50）。元の会話は変えない。分岐（終点 = `through_turn`）→ 分岐先へ下書き保存 → （`send` のときだけ）通常の送信経路で1回送る。
@@ -18,4 +19,8 @@ targetTurn: ExternalId, text: string, purpose: ForkPurpose,
 /**
  * false＝分岐して下書きに入れるだけ（送らない）。
  */
-send: boolean, };
+send: boolean, 
+/**
+ * 引き継ぐ元の発言の添付（元のチャットの台帳のID）。分岐先へ新しいコピーを作って付ける。欠損・コピー不能なら送らない（付けずに送る判断は画面が行い、IDから外して渡す）。
+ */
+attachments: Array<LocalId>, };
