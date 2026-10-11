@@ -2,9 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { readText } from "@tauri-apps/plugin-clipboard-manager";
-import type { RepoRecordChoice, AgentKey, AppSettings, AttachmentEntry, Chat, ChatKey, Goal, GoalUpdate, Known, WorkMode, WorkModeInfo, DeleteOutcome, DeletePreview, UsageReport, ForceKillPreview, HostEvent, HostEventEnvelope, HostSnapshot, ModelInfo, ProjectsOutcome, MonitorScope, PendingRequest, PermissionPreset, QuitDecision, QuitPhase, RequestAnswer, SendAttempt, SettingsImpact, SourceInfo } from "./ipc/types";
+import type { RepoRecordChoice, AgentKey, AppSettings, AttachmentEntry, Chat, ChatKey, Goal, GoalUpdate, Known, WorkMode, WorkModeInfo, DeleteOutcome, DeletePreview, UsageReport, ForceKillPreview, HostEvent, HostEventEnvelope, HostSnapshot, ModelInfo, PathInfo, ProjectsOutcome, MonitorScope, PendingRequest, PermissionPreset, QuitDecision, QuitPhase, RequestAnswer, SendAttempt, SettingsImpact, SourceInfo } from "./ipc/types";
 import * as host from "./ipc/client";
-import { LinkContext } from "./ui/Markdown";
+import { LinkContext, RefContext, type PathAction, type RefActions } from "./ui/Markdown";
+import { copyText } from "./ui/markdown/parts";
+import { baseNameOf } from "./ui/markdown/refs";
+import { usePathStats } from "./ui/usePathStats";
 import { applyHostEvent, createEventPipeline, emptyBundle, replaceSnapshot, seqAction, UNKNOWN_CAPS } from "./ipc/live";
 import type { Bundle } from "./mock/data";
 
@@ -786,6 +789,42 @@ export default function App() {
     },
   };
 
+  // ── 会話内のチャットID・ファイルパス（項目5・24・30）。リンク・メニューはユーザーのクリックだけで動く。 ──
+  const { pathInfo, requestPath } = usePathStats(live, chat?.key ?? null);
+  const pathAct = (act: PathAction, path: string, info: PathInfo) => {
+    if (!chat || !live || !info.absolute) { say("この操作はモックでは動きません。"); return; }
+    const abs = info.absolute;
+    const copy = (text: string, what: string) => { void copyText(text).then((ok) => say(ok ? `${what}をコピーしました。` : `${what}をコピーできませんでした。`)); };
+    switch (act) {
+      case "attach": void addFiles(chat.key, [abs]); break;
+      case "copyAbs": copy(abs, "絶対パス"); break;
+      case "copyRel": if (info.relative) copy(info.relative, "相対パス"); break;
+      case "copyName": copy(baseNameOf(abs), "ファイル名"); break;
+      case "reveal": host.revealPath(chat.key, path).catch((e) => sayErr("表示できませんでした", e)); break;
+      case "open":
+        void (async () => {
+          try { await host.openPath(chat.key, path); return; } catch (e) {
+            const b = host.asIpcError(e).blocked;
+            if (b?.kind !== "openNeedsConfirm") { sayErr("開けませんでした", e); return; }
+            const why = [
+              b.executable ? "実行形式のファイルです。開くとプログラムが実行されることがあります。" : "",
+              b.outsideProject ? "このチャットのプロジェクト（作業フォルダ）の外にあるファイルです。" : "",
+            ].filter(Boolean).join("\n");
+            if (!window.confirm(`${why}\n${b.path}\n\n内容を確認したうえで、開きますか？`)) { say("開くのをやめました。"); return; }
+            try { await host.openPath(chat.key, path, true); } catch (e2) { sayErr("開けませんでした", e2); }
+          }
+        })();
+        break;
+    }
+  };
+  const refActions: RefActions = {
+    chatTitle: (id) => { const c = snap.chats.find((x) => x.key.id.toLowerCase() === id.toLowerCase()); return c ? chatName(c) : undefined; },
+    openChat: (id) => { const c = snap.chats.find((x) => x.key.id.toLowerCase() === id.toLowerCase()); if (c) selectChat(c.key.id); },
+    refreshList: () => refreshList(),
+    pathInfo, requestPath, pathAct,
+    canAttach: !!chat && live,
+  };
+
   /** 完全終了の選択（ホストが中断要求・停止照合・保存を進める）。「待つ」は画面を閉じるだけで、手順は続く。 */
   const decide = (d: QuitDecision) => {
     if (d === "wait") { setDialog((x) => (x?.type === "quit" ? null : x)); return; }
@@ -1194,6 +1233,7 @@ export default function App() {
 
   return (
     <LinkContext.Provider value={linkActions}>
+    <RefContext.Provider value={refActions}>
       <svg width="0" height="0" style={{ position: "absolute" }} aria-hidden="true">
         <defs><pattern id="hatch" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="2" height="4" style={{ fill: "var(--unk)" }} /></pattern></defs>
       </svg>
@@ -1306,6 +1346,7 @@ export default function App() {
           </div>
         ) : null}
       </div>
+    </RefContext.Provider>
     </LinkContext.Provider>
   );
 }

@@ -667,6 +667,15 @@ textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;paddin
 .md del{color:var(--ink3)}
 .md .md-task{display:inline-flex;align-items:center;margin-right:4px}
 .md .md-link{color:var(--accent-text);text-decoration:underline;cursor:pointer}
+.md .md-ref{font:inherit;font-size:.95em;padding:0 8px;border:1px solid var(--accent-line);border-radius:var(--r1);background:var(--accent-weak);color:var(--accent-text);cursor:pointer;vertical-align:baseline}
+.md .md-ref:hover{background:var(--surface2)}
+.md .md-ref:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
+.md .md-ref.off{display:inline-flex;gap:6px;align-items:baseline;flex-wrap:wrap;cursor:default;color:var(--ink2);border-style:dashed;border-color:var(--line-strong);background:transparent}
+.md .md-pathwrap{display:inline}
+.md .md-path{all:unset;cursor:pointer;display:inline;color:inherit}
+.md .md-path code{text-decoration:underline dotted;text-underline-offset:2px}
+.md .md-path:hover code,.md .md-path[aria-expanded=true] code{background:var(--accent-weak)}
+.md .md-path:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
 .md .md-link.off{color:var(--ink2);text-decoration:underline dotted;cursor:default}
 .md .md-link:focus-visible,.md .md-code pre:focus-visible,.md .md-mini:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
 .md .md-img{display:inline-flex;gap:4px;align-items:baseline;flex-wrap:wrap;color:var(--ink2);border:1px dashed var(--line-strong);border-radius:var(--r1);padding:0 6px}

@@ -264,6 +264,32 @@ pub async fn open_file(app: tauri::AppHandle, host: Hs<'_>, args: OpenFileArgs) 
         .map_err(|e| IpcError { code: IpcErrorCode::Io, message: format!("開けませんでした: {e}"), blocked: None })
 }
 
+/// 会話内のパスの実在・種類・絶対／相対パスの確認（読取りのメタデータだけ。内容は読まない）。
+#[tauri::command]
+pub async fn stat_paths(host: Hs<'_>, args: crate::pathref::StatPathsArgs) -> R<Vec<crate::pathref::PathInfo>> {
+    Ok(host.inner().clone().stat_paths(args).await)
+}
+
+/// 会話内のパスを関連アプリで開く（ユーザー操作のときだけ）。作業フォルダ外・実行形式は確認が要る。
+#[tauri::command]
+pub async fn open_path(app: tauri::AppHandle, host: Hs<'_>, args: crate::pathref::OpenPathArgs) -> R<()> {
+    use tauri_plugin_opener::OpenerExt;
+    let path = host.inner().clone().open_path_target(&args).await?;
+    app.opener()
+        .open_path(path.to_string_lossy(), None::<&str>)
+        .map_err(|e| IpcError { code: IpcErrorCode::Io, message: format!("開けませんでした: {e}"), blocked: None })
+}
+
+/// 会話内のパスをエクスプローラーで表示する（ユーザー操作のときだけ）。
+#[tauri::command]
+pub async fn reveal_path(app: tauri::AppHandle, host: Hs<'_>, args: crate::pathref::RevealPathArgs) -> R<()> {
+    use tauri_plugin_opener::OpenerExt;
+    let path = host.inner().clone().reveal_path_target(&args).await?;
+    app.opener()
+        .reveal_item_in_dir(&path)
+        .map_err(|e| IpcError { code: IpcErrorCode::Io, message: format!("表示できませんでした: {e}"), blocked: None })
+}
+
 /// 名前を付けて保存。同名があれば `TargetExists` で止まる（UIで確認したら `overwriteConfirmed` で再実行）。
 #[tauri::command]
 pub async fn save_file_as(host: Hs<'_>, args: SaveFileAsArgs) -> R<()> {

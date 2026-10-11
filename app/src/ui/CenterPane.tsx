@@ -6,7 +6,7 @@ import type {
 import { Icon } from "./Icon";
 import { FindBar } from "./FindBar";
 import { Popover } from "./Popover";
-import { Markdown, COPY_LABEL, useCopy } from "./Markdown";
+import { Markdown, PathText, COPY_LABEL, useCopy } from "./Markdown";
 import { PENDING_TEXT } from "./ManageDialogs";
 import { TENTATIVE_HINT, TENTATIVE_STYLE, chatAgents, chatDisplay, chatName, chatRequests, chatTitle, chatStatusText, chatStops, isRunning, rootView, stopOpen } from "./derive";
 import { FRESH, STATE, STOP_LABEL, hms, holdText, keyStr, knownValue, showKnown, stopCauseText, targetList } from "./format";
@@ -378,7 +378,7 @@ function FilesBlock({ chatId, sent, artifacts, files }: { chatId: string; sent: 
               {isImageName(name) && !gone && !unsure ? <Thumb target={target} name={name} load={files.preview} /> : <Icon name="diff" />}
               <div className="grow">
                 <b>{name}</b>　<span className={`st ${gone ? "bad" : ""}`}>成果物・{gone ? "見つかりません（欠損）。移動または削除された可能性があります" : unsure ? "実在を確認できていません" : `実在を確認済み${a.checkedAt !== null ? `（${hms(a.checkedAt)}）` : ""}`}</span>
-                <div className="mono small muted">{a.path}{a.inChatArea ? "" : <>　<span className="tag" title="作業フォルダ側のファイル。チャットを削除しても消しません">作業フォルダ側</span></>}</div>
+                <div className="mono small muted"><PathText path={a.path} />{a.inChatArea ? "" : <>　<span className="tag" title="作業フォルダ側のファイル。チャットを削除しても消しません">作業フォルダ側</span></>}</div>
               </div>
               <button className="small" disabled={gone} onClick={() => files.open(target)}>開く</button>
               <button className="small" disabled={gone} onClick={() => files.save(target, name)}>名前を付けて保存…</button>

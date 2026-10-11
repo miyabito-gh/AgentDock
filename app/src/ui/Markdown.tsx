@@ -1,13 +1,18 @@
 // 応答の Markdown 整形表示（DESIGN_P5 §3）。生HTMLは文字として出し、リンク・画像は確認経由／読み込まない。
 import { memo, useEffect, useRef, useState } from "react";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { components } from "./markdown/parts";
+import { components as baseComponents } from "./markdown/parts";
 import { exceedsFormatLimit, remarkHtmlAsText, STREAM_THROTTLE_MS } from "./markdown/plugins";
+import { remarkRefs } from "./markdown/refs";
+import { RefLink, RefSpan } from "./RefParts";
 
 export { LinkContext, CopyButton, COPY_LABEL, useCopy } from "./markdown/parts";
+export { RefContext, PathText, type RefActions, type PathAction } from "./RefParts";
 
-const REMARK_PLUGINS = [remarkGfm, remarkHtmlAsText];
+const REMARK_PLUGINS = [remarkGfm, remarkHtmlAsText, remarkRefs];
+// チャット参照・ファイルパスは、一覧にある／実在を確認できたものだけボタン・メニューにする（RefParts）。
+const components: Components = { ...baseComponents, a: RefLink, span: RefSpan as Components["span"] };
 
 /** 逐次表示中は最短120ms間隔で更新する。終端になったら即座に最終文字列。 */
 function useThrottledText(text: string, streaming: boolean): string {

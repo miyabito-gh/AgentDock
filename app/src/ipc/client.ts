@@ -13,7 +13,7 @@ import {
   type ForceKillPreview, type MonitorWindowScope, type QuitDecision, type QuitPhase, type StopRecord, type WindowKind,
   type ChatLocalView, type DeleteOutcome, type DeletePreview, type UsageReport, type ManageOutcome,
   type ChangeList, type ChangeScope, type ChangeSource, type ExternalId, type RevertPlan, type RevertResult, type SegmentStatus, type UnifiedDiff,
-  type BackendStatus, type Goal, type GoalUpdate, type Known, type MemoryStatus, type OpAck, type ResetMemoryResult, type WorkMode, type WorkModeInfo,
+  type PathInfo, type BackendStatus, type Goal, type GoalUpdate, type Known, type MemoryStatus, type OpAck, type ResetMemoryResult, type WorkMode, type WorkModeInfo,
   type GitInfo, type WorktreeRecord, type WorktreeRemoveOutcome, type WorktreeRemovePreview,
   type HandoffText, type InstructionFiles, type InstructionTemplateResult, type OpenSideResult, type ReferenceBlock, type ReferenceTurns, type SideSessionMeta, type SideTranscript, type SkillList,
   type ExtensionOp, type ExtensionOpRecord, type ExtensionView, type ToolServerList, type ToolServerLoginStart,
@@ -149,6 +149,12 @@ export const removeAttachment = (chat: ChatKey, attachment: LocalId): Promise<nu
 /** 関連アプリで開く（ユーザー操作のときだけ）。実体がなければ欠損として止まる。 */
 /** プロジェクト外・実行形式は `blocked.openNeedsConfirm`。確認のうえ `riskConfirmed=true` で再実行する。 */
 export const openFile = (target: FileRef, riskConfirmed = false): Promise<null> => invokeCmd("open_file", { target, riskConfirmed });
+/** 会話内のパスの実在・種類・絶対／相対パス（読取りのメタデータだけ。遅い・失敗は kind=unconfirmed）。 */
+export const statPaths = (chat: ChatKey, paths: string[]): Promise<PathInfo[]> => invokeCmd("stat_paths", { chat, paths });
+/** 会話内のパスを関連アプリで開く。作業フォルダ外・実行形式は `blocked.openNeedsConfirm`（`openFile` と同じ流れ）。 */
+export const openPath = (chat: ChatKey, path: string, riskConfirmed = false): Promise<null> => invokeCmd("open_path", { chat, path, riskConfirmed });
+/** 会話内のパスをエクスプローラーで表示する。 */
+export const revealPath = (chat: ChatKey, path: string): Promise<null> => invokeCmd("reveal_path", { chat, path });
 /** 名前を付けて保存。同名があれば `blocked.targetExists`。確認のうえ `overwriteConfirmed=true` で再実行する。 */
 export const saveFileAs = (target: FileRef, dest: string, overwriteConfirmed: boolean): Promise<null> =>
   invokeCmd("save_file_as", { target, dest, overwriteConfirmed });

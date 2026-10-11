@@ -62,6 +62,9 @@ pub mod command_names {
     pub const ADD_ATTACHMENT_IMAGE_BYTES: &str = "add_attachment_image_bytes";
     pub const REMOVE_ATTACHMENT: &str = "remove_attachment";
     pub const OPEN_FILE: &str = "open_file";
+    pub const STAT_PATHS: &str = "stat_paths";
+    pub const OPEN_PATH: &str = "open_path";
+    pub const REVEAL_PATH: &str = "reveal_path";
     pub const SAVE_FILE_AS: &str = "save_file_as";
     pub const REQUEST_QUIT: &str = "request_quit";
     pub const QUIT_DECISION: &str = "quit_decision";

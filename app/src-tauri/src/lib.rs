@@ -6,6 +6,7 @@ pub mod diag;
 pub mod exec;
 pub mod gitops;
 pub mod host;
+pub mod pathref;
 pub mod rules;
 pub mod store;
 pub mod win;
@@ -185,6 +186,9 @@ pub fn run() {
             commands::add_attachment_image_bytes,
             commands::remove_attachment,
             commands::open_file,
+            commands::stat_paths,
+            commands::open_path,
+            commands::reveal_path,
             commands::save_file_as,
             commands::read_file_preview,
             commands::request_quit,

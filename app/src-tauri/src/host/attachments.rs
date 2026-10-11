@@ -16,6 +16,7 @@ use crate::backend::backend::*;
 use crate::backend::ipc::*;
 use crate::backend::local::*;
 use crate::backend::model::*;
+use crate::pathref::{self, OpenPathArgs, PathInfo, PathKind, RevealPathArgs, StatPathsArgs};
 use crate::store::records::ChatLocalFile;
 use crate::store::{layout, StoreError};
 
@@ -430,6 +431,82 @@ impl Host {
             Ok(Err(e)) => Err(err(IpcErrorCode::Io, format!("読み込めませんでした: {e}"))),
             Err(e) => Err(err(IpcErrorCode::Io, format!("読み込みが中断されました: {e}"))),
         }
+    }
+
+    // ───────────── 会話内のファイルパス（読取りのメタデータ確認だけ） ─────────────
+
+    fn chat_cwd(&self, chat: &ChatKey) -> Option<String> {
+        self.read(|d| d.chats.iter().find(|c| &c.key == chat).and_then(|c| c.cwd.value().cloned()))
+    }
+
+    /// パスの実在とメタデータだけを確認する（内容は読まない）。遅い・失敗は `Unconfirmed`。
+    pub async fn stat_paths(self: &Arc<Self>, args: StatPathsArgs) -> Vec<PathInfo> {
+        let cwd = self.chat_cwd(&args.chat);
+        let deadline = tokio::time::Instant::now() + Duration::from_millis(pathref::STAT_TIMEOUT_MS);
+        let unconfirmed = |input: &str| PathInfo { input: input.to_string(), kind: PathKind::Unconfirmed, absolute: None, relative: None };
+        let mut jobs = Vec::new();
+        for (i, input) in args.paths.iter().enumerate() {
+            // ネットワークパス（UNC等）は、ファイルシステムに触れず未確認で返す（認証情報の送信を避ける）。
+            let resolved = (i < pathref::MAX_PATHS && input.chars().count() <= pathref::MAX_PATH_CHARS && !pathref::is_network_path(input))
+                .then(|| pathref::resolve(input, cwd.as_deref()))
+                .flatten()
+                .filter(|abs| !pathref::is_network_path(abs));
+            jobs.push(resolved.map(|abs| {
+                let a = abs.clone();
+                (abs, tokio::task::spawn_blocking(move || pathref::stat_blocking(&a)))
+            }));
+        }
+        let mut out = Vec::new();
+        for (input, job) in args.paths.iter().zip(jobs) {
+            let Some((abs, handle)) = job else { out.push(unconfirmed(input)); continue };
+            match tokio::time::timeout_at(deadline, handle).await {
+                Ok(Ok((kind, canon))) => {
+                    let (absolute, relative) = if matches!(kind, PathKind::File | PathKind::Folder) {
+                        let absolute = canon.unwrap_or(abs.clone());
+                        let relative = cwd.as_deref().and_then(|root| pathref::relative_to(&abs, root).or_else(|| pathref::relative_to(&absolute, root)));
+                        (Some(absolute), relative)
+                    } else {
+                        (None, None)
+                    };
+                    out.push(PathInfo { input: input.clone(), kind, absolute, relative });
+                }
+                _ => out.push(unconfirmed(input)),
+            }
+        }
+        out
+    }
+
+    /// 会話内のパスを実在確認し、絶対パスにする。確認できなければ止める。
+    async fn resolve_chat_path(self: &Arc<Self>, chat: &ChatKey, path: &str) -> Result<PathBuf, IpcError> {
+        if pathref::is_network_path(path) {
+            return Err(err(IpcErrorCode::InvalidArgs, "ネットワークパスは自動確認も開く操作もしません（接続するとWindowsの認証情報が相手に送信されることがあります）"));
+        }
+        let info = self.stat_paths(StatPathsArgs { chat: chat.clone(), paths: vec![path.to_string()] }).await.into_iter().next();
+        match info {
+            Some(PathInfo { kind: PathKind::File | PathKind::Folder, absolute: Some(a), .. }) => Ok(PathBuf::from(a)),
+            Some(PathInfo { kind: PathKind::Missing, .. }) => Err(err(IpcErrorCode::NotFound, "ファイルが見つかりません。移動または削除された可能性があります")),
+            _ => Err(err(IpcErrorCode::Io, "ファイルの有無を確認できませんでした")),
+        }
+    }
+
+    /// 会話内のパスを開く前の確認。作業フォルダの外、または実行形式は、`confirmed` でなければ止める（成果物の「開く」と同じ条件）。
+    pub async fn open_path_target(self: &Arc<Self>, args: &OpenPathArgs) -> Result<PathBuf, IpcError> {
+        let path = self.resolve_chat_path(&args.chat, &args.path).await?;
+        if args.risk_confirmed {
+            return Ok(path);
+        }
+        let executable = attach::is_executable_path(&path);
+        let outside_project = !self.chat_cwd(&args.chat).is_some_and(|root| attach::is_inside_project_resolved(&path, &root));
+        if !executable && !outside_project {
+            return Ok(path);
+        }
+        let shown = path.to_string_lossy().into_owned();
+        Err(blocked(BlockedReason::OpenNeedsConfirm { path: shown, outside_project, executable }, "開く前に確認が必要です"))
+    }
+
+    /// エクスプローラーで表示する対象（実在確認のみ。実行はしないので確認は要らない）。
+    pub async fn reveal_path_target(self: &Arc<Self>, args: &RevealPathArgs) -> Result<PathBuf, IpcError> {
+        self.resolve_chat_path(&args.chat, &args.path).await
     }
 
     // ───────────── 送信への受け渡し ─────────────
