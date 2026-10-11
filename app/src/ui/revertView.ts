@@ -121,11 +121,12 @@ export function turnOptions(status: SegmentStatus[]): TurnOption[] {
 }
 
 /** 作業フォルダのGit。`git_info` で確認できたときだけ repo／notRepo、取得前・失敗は unknown（無効にしない）。 */
-export type GitKind = "repo" | "notRepo" | "unknown";
+export type GitKind = "repo" | "notRepo" | "ownerMismatch" | "unknown";
 /** ホスト（git_info）は NotSupported を「フォルダなし」「Gitを実行できない」「リポジトリではない」に使う。コードはなくメッセージだけなので、リポジトリではないと言い切れる文だけを notRepo にする。 */
 const NOT_REPO_MESSAGE = /Gitのリポジトリではありません/;
-export function gitKindOf(info: Pick<GitInfo, "status"> | null): GitKind {
+export function gitKindOf(info: Pick<GitInfo, "status"> & { ownerMismatch?: boolean } | null): GitKind {
   if (!info) return "unknown";
+  if (info.ownerMismatch) return "ownerMismatch"; // 所有者違いはリポジトリでないとは別（git系の操作は塞がず、案内へ導く）
   return info.status.kind === "ready" ? "repo" : info.status.kind === "notSupported" && NOT_REPO_MESSAGE.test(info.status.message) ? "notRepo" : "unknown";
 }
 
@@ -147,6 +148,7 @@ export function noBaselineReason(status: SegmentStatus[] | null, ctx?: BaselineC
     if (ctx) {
       if (!ctx.baselinesEnabled) return "設定で控えの記録がオフのため、このチャットには変更の控えがありません。";
       if (ctx.git === "notRepo") return "作業フォルダがGitリポジトリではないため、変更の控えがありません。";
+      if (ctx.git === "ownerMismatch") return "作業フォルダのGit管理が別のユーザー（Codexのサンドボックス）の所有になっているため、変更の控えを確認できません。「控え基準」の案内で対処できます。";
       if (ctx.git === "unknown") return "作業フォルダのGitの状態を確認できていないため、控えがない理由を特定できません。";
       return "このチャットには変更の控えがありません（控えを取る前のturnだけです）。";
     }

@@ -497,14 +497,15 @@ export function RequestCard({ r, onRespond }: { r: PendingRequest; onRespond: Ce
             ))}
           </div>
         </div>
-      )) : (
+      )) : null}
+      {!isQuestion || (r.kind.kind === "toolElicitation" && r.options.length > 0) ? (
         <div className="opts">
           {r.options.map((o, i) => (
             <button key={o.id} className={optClass(o, i === 0)} title={SCOPE_TEXT[o.scope]} onClick={() => onRespond(r, { kind: "decision", optionId: o.id })}>{o.label}</button>
           ))}
         </div>
-      )}
-      {!isQuestion ? <div className="scope" title="選択肢と効力範囲は Codex が示したものを表示します。">効力範囲: {r.options.map((o) => `${o.label}=${SCOPE_TEXT[o.scope]}`).join("／")}</div> : null}
+      ) : null}
+      {!isQuestion || (r.kind.kind === "toolElicitation" && r.options.length > 0) ? <div className="scope" title="選択肢と効力範囲は Codex が示したものを表示します。">効力範囲: {r.options.map((o) => `${o.label}=${SCOPE_TEXT[o.scope]}`).join("／")}</div> : null}
     </div>
   );
 }

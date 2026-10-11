@@ -32,7 +32,7 @@ function statusText(s: ListStatus): string | null {
 }
 
 /** 控えがない理由の判定材料（設定の控えの記録・作業フォルダのGit）。Gitは `git_info` の読取りだけ。設定が分からないとき（undefined）は一般文のまま。 */
-function useBaselineContext(live: boolean, chat: Chat | undefined, baselinesEnabled: boolean | undefined): BaselineContext | undefined {
+function useGitInfo(live: boolean, chat: Chat | undefined): GitInfo | null {
   const [info, setInfo] = useState<GitInfo | null>(null);
   const cwd = chat?.cwd.kind === "value" ? chat.cwd.value : null;
   useEffect(() => {
@@ -42,6 +42,10 @@ function useBaselineContext(live: boolean, chat: Chat | undefined, baselinesEnab
     host.gitInfo(cwd).then((i) => { if (alive) setInfo(i); }).catch(() => { if (alive) setInfo(null); });
     return () => { alive = false; };
   }, [live, cwd]);
+  return info;
+}
+
+function baselineContextOf(info: GitInfo | null, baselinesEnabled: boolean | undefined): BaselineContext | undefined {
   return baselinesEnabled === undefined ? undefined : { baselinesEnabled, git: gitKindOf(info) };
 }
 
@@ -89,7 +93,10 @@ export function ChangesBody({ chat, live, tick, cap, onRevert, baselinesEnabled,
   const [diffErr, setDiffErr] = useState<string | null>(null);
   const chatKey = chat?.key;
   const chatId = chatKey?.id;
-  const bctx = useBaselineContext(live, chat, baselinesEnabled);
+  const gitInfo = useGitInfo(live, chat);
+  const bctx = baselineContextOf(gitInfo, baselinesEnabled);
+  /** 作業フォルダのリポジトリが所有者違いでGitが拒否している（案内を出すリポジトリの場所）。 */
+  const ownerRepo = gitInfo?.ownerMismatch ? gitInfo.root ?? "" : null;
 
   useEffect(() => {
     if (!live || !chatKey) return;
@@ -139,7 +146,7 @@ export function ChangesBody({ chat, live, tick, cap, onRevert, baselinesEnabled,
         {tab === "baseline" ? <p className="small">コミット・ブランチ切替の後は控えへ戻せません。</p> : null}
         <About><p>{tab === "baseline" ? NOTE_BASELINE : NOTE_GIT}</p></About>
         {tab === "baseline" && noBase && !sameCause && noBase !== SKIPPED_TEXT ? <p className="gbanner warn" role="status">{noBase}</p> : null}
-        {tab === "baseline" ? <RepoRecordPanel chat={chat} segs={segs} prefs={repoPrefs} onSet={onSetRepo} /> : null}
+        {tab === "baseline" ? <RepoRecordPanel chat={chat} segs={segs} prefs={repoPrefs} onSet={onSetRepo} ownerRepo={ownerRepo} /> : null}
         {tab === "baseline" && turns.length > 0 ? (
           <div className="field"><span>対象</span>
             <select value={turn} onChange={(e) => setTurn(e.target.value)} aria-label="対象のturn">
@@ -149,6 +156,7 @@ export function ChangesBody({ chat, live, tick, cap, onRevert, baselinesEnabled,
         {err ? <p style={{ color: "var(--fail)" }}>{err}</p> : !list ? <p>取得しています…</p> : (
           <>
             {st ? <p className="gbanner warn" role="status">{st}</p> : null}
+            {tab === "git" && ownerRepo !== null ? <div className="acts"><button className="btn-line" onClick={() => { setTab("baseline"); setSel(null); }}>対処の案内を見る（「控え基準」タブ）</button></div> : null}
             {list.notes.map((n, i) => <p key={i} className="small muted">{n}</p>)}
             {list.status.kind === "ready" && list.files.length === 0 ? <p>{tab === "git" ? "Git上の変更はありません（取得済み）。" : noBase ? "控えがないため、表示できる変更はありません。" : "控え基準の変更はありません。"}</p> : null}
             {list.files.length > 0 ? (
@@ -209,7 +217,7 @@ export function RevertBody({ chat, live, cap, onDone, baselinesEnabled }: Revert
   const [nonce, setNonce] = useState(0);
   const chatKey = chat?.key;
   const chatId = chatKey?.id;
-  const bctx = useBaselineContext(live, chat, baselinesEnabled);
+  const bctx = baselineContextOf(useGitInfo(live, chat), baselinesEnabled);
 
   useEffect(() => {
     if (!live || !chatKey) return;

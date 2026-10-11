@@ -81,6 +81,8 @@ fn to_api_verdict(v: RemoveVerdict) -> WorktreeRemoveVerdict {
     }
 }
 
+pub(super) const OWNER_MISMATCH_MESSAGE: &str = crate::rules::baseline::OWNER_MISMATCH_TEXT;
+
 fn blocked_message(b: RemoveBlock, detail: Option<&str>) -> String {
     match b {
         RemoveBlock::OutsideRoot => "記録されたパスがAgentDockの置き場所の外（またはリンク先が外）のため、削除しません".into(),
@@ -95,6 +97,13 @@ impl Host {
     pub(super) fn git_for_worktree(&self) -> Git {
         let tool = self.read(|d| d.settings.tools.git.clone());
         Git::new(tool.as_deref())
+    }
+
+    /// 書込み系の操作が所有者違いで止まったときの文言（そのリポジトリの許可の有無で出し分ける）。`repo` が空ならフォルダで判定する。
+    pub(super) fn owner_mismatch_write_message(&self, repo: &str, folder: &str, action: &str) -> String {
+        let target = if repo.is_empty() { folder } else { repo };
+        let allowed = self.read(|d| crate::rules::baseline::repo_git_allowed(&d.settings.baselines.repos, target));
+        crate::rules::baseline::owner_mismatch_write_text(allowed, action)
     }
 
     /// worktreeの置き場所（専用領域の `worktrees\`）。
@@ -161,15 +170,23 @@ impl Host {
     /// フォルダのGit情報（読取りのみ）。リポジトリでない・Gitがない場合は理由つきで返す。取得できなかった値は未取得。
     pub async fn git_info(self: &Arc<Self>, args: GitInfoArgs) -> Result<GitInfo, IpcError> {
         let folder = args.folder.trim().to_string();
-        let blank = |status: ListStatus| GitInfo { folder: folder.clone(), status, root: None, branch: None, head: None, dirty_count: Known::NotFetched, worktrees: vec![] };
+        let blank = |status: ListStatus| GitInfo { folder: folder.clone(), status, root: None, branch: None, head: None, dirty_count: Known::NotFetched, worktrees: vec![], owner_mismatch: false };
         if folder.is_empty() || !Path::new(&folder).is_dir() {
             return Ok(blank(ListStatus::NotSupported { message: "フォルダが見つかりません".into() }));
         }
-        let git = self.git_for_worktree();
-        let root = match gw::repo_root(&git, Path::new(&folder)).await {
+        // 読取りだけの呼出しなので、所有者違いを許可済みのリポジトリはその許可（コマンドラインの `-c safe.directory`）で判定する。
+        let git = self.git_for_baseline();
+        let root = match gw::repo_root_kind(&git, Path::new(&folder)).await {
             Err(e) => return Ok(blank(git_error_status(&e))),
-            Ok(None) => return Ok(blank(ListStatus::NotSupported { message: "このフォルダはGitのリポジトリではありません".into() })),
-            Ok(Some(r)) => r,
+            Ok(gw::RepoRootKind::NotRepo) => return Ok(blank(ListStatus::NotSupported { message: "このフォルダはGitのリポジトリではありません".into() })),
+            Ok(gw::RepoRootKind::OwnerMismatch { repo }) => {
+                let mut info = blank(ListStatus::NotSupported { message: OWNER_MISMATCH_MESSAGE.into() });
+                info.owner_mismatch = true;
+                // 所有者違いのときの `root` は、Gitが示したリポジトリの場所（確認できたルートではない。案内・許可の対象に使う）。
+                info.root = Some(if repo.is_empty() { folder.clone() } else { repo });
+                return Ok(info);
+            }
+            Ok(gw::RepoRootKind::Root(r)) => r,
         };
         let rootp = PathBuf::from(&root);
         let one_line = |o: Result<crate::gitops::GitOutput, GitError>| o.ok().filter(|o| o.success()).map(|o| o.stdout_text().trim().to_string()).filter(|s| !s.is_empty());
@@ -198,7 +215,7 @@ impl Host {
             }
             Err(e) => (ListStatus::NotFetched { message: format!("worktreeの一覧を取得できませんでした（{}）", e.message()) }, vec![]),
         };
-        Ok(GitInfo { folder, status, root: Some(root), branch, head, dirty_count, worktrees })
+        Ok(GitInfo { folder, status, root: Some(root), branch, head, dirty_count, worktrees, owner_mismatch: false })
     }
 
     // ───────────── 作成 ─────────────
@@ -212,9 +229,10 @@ impl Host {
         }
         let _op = self.worktree_rt.lock.lock().await;
         let git = self.git_for_worktree();
-        let top = match gw::repo_root(&git, Path::new(&folder)).await.map_err(git_run_err)? {
-            Some(r) => r,
-            None => return Err(blocked(BlockedReason::NotARepository, "このフォルダはGitのリポジトリではないため、worktreeを作れません")),
+        let top = match gw::repo_root_kind(&git, Path::new(&folder)).await.map_err(git_run_err)? {
+            gw::RepoRootKind::Root(r) => r,
+            gw::RepoRootKind::NotRepo => return Err(blocked(BlockedReason::NotARepository, "このフォルダはGitのリポジトリではないため、worktreeを作れません")),
+            gw::RepoRootKind::OwnerMismatch { repo } => return Err(blocked(BlockedReason::NotARepository, self.owner_mismatch_write_message(&repo, &folder, "worktreeの作成"))),
         };
         // 名前付けと記録は、メインの作業ツリー（一覧の先頭）を基準にする。
         let listed = gw::list(&git, Path::new(&top)).await.map_err(wt_err)?;

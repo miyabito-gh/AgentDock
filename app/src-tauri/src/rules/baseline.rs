@@ -664,6 +664,23 @@ pub fn safe_directories(prefs: &[RepoBaselinePref]) -> Vec<String> {
     prefs.iter().filter(|p| p.allow_git && p.choice == RepoRecordChoice::Record).map(|p| clean_repo_path(&p.path)).collect()
 }
 
+/// 所有者違いでGitが拒否したときの基本の文言（案内は「変更」の「控え基準」タブ）。
+pub const OWNER_MISMATCH_TEXT: &str = "このフォルダのgit管理が別のユーザー（Codexのサンドボックス）の所有になっているため確認できません。「変更」の「控え基準」で対処できます";
+
+/// そのリポジトリに、AgentDockのgit操作への許可（案④）が付いているか。
+pub fn repo_git_allowed(prefs: &[RepoBaselinePref], repo: &str) -> bool {
+    pref_for(prefs, repo).is_some_and(|p| p.allow_git && p.choice == RepoRecordChoice::Record)
+}
+
+/// 書込み系（worktree作成・クラウド取込み）が所有者違いで止まったときの文言。許可は読取りと記録にだけ効くので、許可済みなら別の説明にする。
+pub fn owner_mismatch_write_text(allowed: bool, action: &str) -> String {
+    if allowed {
+        format!("AgentDockだけの許可は、差分の確認と変更の記録にだけ効きます。{action}には、gitの safe.directory 登録、または .git の所有者を自分に戻す必要があります（コピーできるコマンドは「変更」の「控え基準」の②③にあります）")
+    } else {
+        format!("{OWNER_MISMATCH_TEXT}（{action}はできません）")
+    }
+}
+
 /// gitのエラー文が所有者違い（dubious ownership）なら、Gitが示したリポジトリの場所（示されていなければ `fallback`）。
 pub fn dubious_repo(stderr: &str, fallback: &str) -> Option<String> {
     if !stderr.to_lowercase().contains("dubious ownership") {
@@ -687,6 +704,17 @@ mod tests {
         assert_eq!(dubious_repo(msg, "D:/x").as_deref(), Some("C:/Users/me/DocTrail"));
         assert_eq!(dubious_repo("fatal: detected dubious ownership in repository", "C:\\w\\r\\").as_deref(), Some("C:/w/r"));
         assert_eq!(dubious_repo("fatal: not a git repository", "C:/x"), None);
+    }
+
+    #[test]
+    fn write_ops_blocked_by_owner_mismatch_say_different_things_when_allowed() {
+        let pref = |p: &str, a| RepoBaselinePref { path: p.into(), choice: RepoRecordChoice::Record, allow_git: a };
+        assert!(!repo_git_allowed(&[pref("C:/r/DocTrail", false)], "C:/r/DocTrail"));
+        assert!(repo_git_allowed(&[pref("C:/r/DocTrail", true)], "c:\\r\\doctrail"));
+        let denied = owner_mismatch_write_text(false, "worktreeの作成");
+        let allowed = owner_mismatch_write_text(true, "worktreeの作成");
+        assert!(denied.contains("控え基準") && denied.contains("できません") && !denied.contains("だけの許可"));
+        assert!(allowed.contains("だけの許可") && allowed.contains("safe.directory"));
     }
 
     #[test]

@@ -440,6 +440,7 @@ pub fn server_request_to_event(key: &RequestKey, method: &str, p: &Value, ctx: &
             let server = s(p, "serverName").unwrap_or("?");
             let mut d = base_detail(s(p, "message").unwrap_or("MCPサーバーからの入力要求"));
             d.reason = Known::direct(format!("MCPサーバー: {server}"));
+            d.cwd = Known::NotFetched; // この要求には作業フォルダが含まれない（「非対応」ではなく「未確認」）
             if s(p, "mode") == Some("url") {
                 d.url = known_opt_str(s(p, "url"));
             } else {

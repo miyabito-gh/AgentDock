@@ -29,7 +29,7 @@ use crate::backend::ipc::*;
 use crate::backend::model::*;
 use crate::gitops::snapshot::{SnapshotEnv, SnapshotOp};
 use crate::gitops::{Git, GitError, GitOp, GitOutput};
-use crate::rules::baseline::{self as rb, CurrentFile, EntryState, ExecItem, PathPlan, PlanInput, RepoStatus, RevertMark, SegEnd, Segment, StateAt, WriteKind, WriteOp, WriteOutcome};
+use crate::rules::baseline::{self as rb, dubious_repo,CurrentFile, EntryState, ExecItem, PathPlan, PlanInput, RepoStatus, RevertMark, SegEnd, Segment, StateAt, WriteKind, WriteOp, WriteOutcome};
 use crate::rules::diff::{parse_status_v2, split_files, StatusEntry};
 use crate::store::{atomic, layout, Store, StoreError};
 
@@ -801,6 +801,7 @@ impl Host {
                 ListStatus::NotFetched { message } => GitCtx::NotFetched(message),
                 ListStatus::Ready => GitCtx::NotFetched("Gitの状態を取得できませんでした".into()),
             },
+            Ok(out) if !out.success() && dubious_repo(&String::from_utf8_lossy(&out.stderr), "").is_some() => GitCtx::NotSupported(super::worktree::OWNER_MISMATCH_MESSAGE.into()),
             Ok(out) if !out.success() => GitCtx::NotSupported(format!("作業フォルダはGitのリポジトリではありません（{}）", first_line(&out.stderr))),
             Ok(out) => {
                 let root = out.stdout_text().trim().to_string();

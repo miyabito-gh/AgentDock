@@ -62,6 +62,7 @@ test("gitKindOf: 確認できたときだけrepo/notRepo", () => {
   assert.equal(ns("フォルダが見つかりません"), "unknown");
   assert.equal(ns("Gitを実行できません（未導入、または設定のGitの場所が違います）"), "unknown");
   assert.equal(gitKindOf({ status: { kind: "notFetched", message: "x" } } as any), "unknown");
+  assert.equal(gitKindOf({ status: { kind: "notSupported", message: "このフォルダのgit管理が別のユーザー" }, ownerMismatch: true } as any), "ownerMismatch");
 });
 test("控えなしの理由: 取得中はnull、空は理由、失敗のみは失敗理由", () => {
   assert.equal(noBaselineReason(null), null);

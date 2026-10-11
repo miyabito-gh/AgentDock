@@ -207,11 +207,11 @@ label{display:inline-flex;align-items:center;gap:6px}
 /* layout */
 .body{position:relative;flex:1;display:grid;grid-template-columns:var(--lw,240px) minmax(0,1fr) var(--rw,320px);min-height:0}
 .body.l-off{--lw:0px}.body.r-off{--rw:0px}
-.left,.right{min-height:0;overflow:hidden}
-.left{background:var(--rail);border-right:1px solid var(--line);display:flex;flex-direction:column}
-.right{background:var(--surface);border-left:1px solid var(--line);display:flex;flex-direction:column}
-.l-off .left,.r-off .right{display:none}
-.left{grid-column:1}.center{grid-column:2}.right{grid-column:3}
+.body>.left,.body>.right{min-height:0;overflow:hidden}
+.body>.left{background:var(--rail);border-right:1px solid var(--line);display:flex;flex-direction:column}
+.body>.right{background:var(--surface);border-left:1px solid var(--line);display:flex;flex-direction:column}
+.l-off>.left,.r-off>.right{display:none}
+.body>.left{grid-column:1}.center{grid-column:2}.body>.right{grid-column:3}
 .center{min-width:0;display:flex;flex-direction:column;min-height:0;background:var(--surface)}
 
 /* center */
@@ -350,17 +350,17 @@ textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;paddin
 .dropdown button:disabled{color:var(--ink3);cursor:default}
 @media (max-width:1279px){
   .body{grid-template-columns:var(--lw,240px) minmax(0,1fr)!important}
-  .right{position:fixed;top:0;bottom:0;right:0;z-index:25;width:min(300px,86vw);display:none;box-shadow:var(--sh-3)}
-  .body.n-r .right{display:flex}
+  .body>.right{position:fixed;top:0;bottom:0;right:0;z-index:25;width:min(300px,86vw);display:none;box-shadow:var(--sh-3)}
+  .body.n-r>.right{display:flex}
   .body.n-l .panel-scrim,.body.n-r .panel-scrim{display:block;position:fixed;inset:0;z-index:24;background:var(--scrim-light)}
   .only-narrow-r{display:inline-flex!important}
 }
 @media (max-width:959px){
   .window{inset:0;border-radius:0;border:0}
   .body{grid-template-columns:minmax(0,1fr)!important}
-  .left{position:fixed;top:0;bottom:0;left:0;z-index:25;width:min(300px,86vw);display:none;box-shadow:var(--sh-3)}
+  .body>.left{position:fixed;top:0;bottom:0;left:0;z-index:25;width:min(300px,86vw);display:none;box-shadow:var(--sh-3)}
   .center{grid-column:1}
-  .body.n-l .left{display:flex}
+  .body.n-l>.left{display:flex}
   .only-narrow-l{display:inline-flex!important}
   .winbtn{width:38px}
   .chead{padding:6px 10px;flex-wrap:wrap;row-gap:2px}

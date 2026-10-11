@@ -22,11 +22,13 @@ function CopyLine({ text }: { text: string }) {
 const confirmAllow = (repo: string): boolean =>
   window.confirm(`次のリポジトリを、AgentDockのgit操作だけに許可します。\n\n${cleanRepoPath(repo)}\n\nAgentDockが呼ぶgitにだけ safe.directory として渡します。あなたのgit設定（.gitconfig）は変更しません。このフォルダのGit管理は別のユーザーの所有です。内容を信頼できる場合だけ許可してください。許可はいつでも解除できます。`);
 
-export function RepoRecordPanel({ chat, segs, prefs, onSet }: { chat: Chat | undefined; segs: SegmentStatus[] | null; prefs: RepoBaselinePref[] | undefined; onSet: SetRepoFn | undefined }) {
+/** `ownerRepo`: 作業フォルダのリポジトリが、いま所有者違いでGitに拒否されているときの場所（`git_info` の所有者違い。控えの失敗記録がなくても案内を出す）。 */
+export function RepoRecordPanel({ chat, segs, prefs, onSet, ownerRepo }: { chat: Chat | undefined; segs: SegmentStatus[] | null; prefs: RepoBaselinePref[] | undefined; onSet: SetRepoFn | undefined; ownerRepo?: string | null }) {
   const [busy, setBusy] = useState(false);
   const [guide, setGuide] = useState(false);
   const cwd = chat?.cwd.kind === "value" ? chat.cwd.value : null;
-  const problem = currentOwnerProblem(segs);
+  const segProblem = currentOwnerProblem(segs);
+  const problem = segProblem || ownerRepo || null;
   const pref = prefFor(prefs, problem, cwd);
   const repo = problem || pref?.path || cwd;
   const failedCount = ownerFailedCount(segs);
@@ -59,7 +61,7 @@ export function RepoRecordPanel({ chat, segs, prefs, onSet }: { chat: Chat | und
     <div className="small" role="status">
       {problem || guide ? (
         <div className="gbanner warn" style={{ display: "block" }}>
-          <p><b>{problem ? "この発言の前の状態を保存できなかったため、この発言の変更は戻せません。" : "このリポジトリの変更を記録します。"}</b>{problem ? `原因: このフォルダのGit管理（.git）が別のユーザー（Codexのサンドボックス）の所有になっていて、Gitが安全のため拒否しています。AgentDockは設定を勝手に変えません。次のどれかを選んでください。` : "所有者の問題があれば、ここに案内を出します。"}</p>
+          <p><b>{segProblem ? "この発言の前の状態を保存できなかったため、この発言の変更は戻せません。" : problem ? "このフォルダのGit管理が別のユーザーの所有になっているため、差分の確認や変更の記録ができません。" : "このリポジトリの変更を記録します。"}</b>{problem ? `原因: このフォルダのGit管理（.git）が別のユーザー（Codexのサンドボックス）の所有になっていて、Gitが安全のため拒否しています。AgentDockは設定を勝手に変えません。次のどれかを選んでください。` : "所有者の問題があれば、ここに案内を出します。"}</p>
           {problem ? (
             <>
               <p>① 先に自分で <code className="mono">git init</code> する（Codexに作らせない）。今後のリポジトリはこれで防げます。</p>

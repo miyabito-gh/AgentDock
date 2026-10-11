@@ -18,4 +18,8 @@ head: string | null,
 /**
  * 未コミット・未追跡の変更の件数。
  */
-dirtyCount: Known<number>, worktrees: Array<WorktreeEntry>, };
+dirtyCount: Known<number>, worktrees: Array<WorktreeEntry>, 
+/**
+ * Gitが所有者違い（dubious ownership）を理由に拒否した。リポジトリでないとは別（このとき `status` は `NotSupported`、`root` はGitが示したリポジトリの場所）。
+ */
+ownerMismatch: boolean, };

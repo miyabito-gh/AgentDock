@@ -61,6 +61,9 @@ pub struct GitInfo {
     /// 未コミット・未追跡の変更の件数。
     pub dirty_count: Known<u32>,
     pub worktrees: Vec<WorktreeEntry>,
+    /// Gitが所有者違い（dubious ownership）を理由に拒否した。リポジトリでないとは別（このとき `status` は `NotSupported`、`root` はGitが示したリポジトリの場所）。
+    #[serde(default)]
+    pub owner_mismatch: bool,
 }
 
 /// worktreeの作成。`branch`・`base` を省略すると、ブランチは `agentdock/<チャット名を安全化>-<短いID>`、基点は現在のコミット（HEAD）。

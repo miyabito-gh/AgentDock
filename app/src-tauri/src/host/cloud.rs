@@ -249,9 +249,10 @@ impl Host {
         }
         let _op = self.cloud_rt.lock.lock().await;
         let git = self.git_for_worktree();
-        let root = match gw::repo_root(&git, Path::new(&folder)).await.map_err(git_run_err)? {
-            Some(r) => r,
-            None => return Err(blocked(BlockedReason::NotARepository, "取込み先はGitのリポジトリではないため、取り込めません（変更を照合できません）")),
+        let root = match gw::repo_root_kind(&git, Path::new(&folder)).await.map_err(git_run_err)? {
+            gw::RepoRootKind::Root(r) => r,
+            gw::RepoRootKind::NotRepo => return Err(blocked(BlockedReason::NotARepository, "取込み先はGitのリポジトリではないため、取り込めません（変更を照合できません）")),
+            gw::RepoRootKind::OwnerMismatch { repo } => return Err(blocked(BlockedReason::NotARepository, self.owner_mismatch_write_message(&repo, &folder, "取込み"))),
         };
         // 実行中は、重なる作業フォルダのチャットのキューを保留する（先に印を付けてから判定する）。
         let _folder_op = self.begin_folder_op(vec![folder.clone(), root.clone()]);

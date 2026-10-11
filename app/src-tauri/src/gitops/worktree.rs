@@ -60,14 +60,40 @@ fn ok(out: GitOutput) -> Result<GitOutput, WtError> {
     Err(WtError::Exit { message })
 }
 
-/// リポジトリのルート。リポジトリでなければ `Ok(None)`。
-pub async fn repo_root(git: &Git, folder: &Path) -> Result<Option<String>, GitError> {
-    let out = git.run(folder, &GitOp::RepoRoot).await?;
-    if !out.success() {
-        return Ok(None);
+/// `rev-parse --show-toplevel` の結果の分類。所有者違い（dubious ownership）は「リポジトリではない」と区別する。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RepoRootKind {
+    Root(String),
+    NotRepo,
+    /// Gitが所有者違いを理由に拒否した（リポジトリかどうかは確認できていない）。
+    /// `repo` はGitが示したリポジトリの場所（示されていなければ空）。
+    OwnerMismatch { repo: String },
+}
+
+/// 終了の成否・標準出力・標準エラーからの分類（純粋ロジック）。
+pub fn classify_repo_root(success: bool, stdout: &str, stderr: &str) -> RepoRootKind {
+    if !success {
+        return match crate::rules::baseline::dubious_repo(stderr, "") {
+            Some(repo) => RepoRootKind::OwnerMismatch { repo },
+            None => RepoRootKind::NotRepo,
+        };
     }
-    let root = out.stdout_text().trim().to_string();
-    Ok((!root.is_empty()).then_some(root))
+    let root = stdout.trim();
+    if root.is_empty() { RepoRootKind::NotRepo } else { RepoRootKind::Root(root.to_string()) }
+}
+
+/// リポジトリのルートを分類して返す。
+pub async fn repo_root_kind(git: &Git, folder: &Path) -> Result<RepoRootKind, GitError> {
+    let out = git.run(folder, &GitOp::RepoRoot).await?;
+    Ok(classify_repo_root(out.success(), &out.stdout_text(), &String::from_utf8_lossy(&out.stderr)))
+}
+
+/// リポジトリのルート。リポジトリでない・所有者違いで確認できないときは `Ok(None)`（区別が要るときは `repo_root_kind`）。
+pub async fn repo_root(git: &Git, folder: &Path) -> Result<Option<String>, GitError> {
+    Ok(match repo_root_kind(git, folder).await? {
+        RepoRootKind::Root(r) => Some(r),
+        RepoRootKind::NotRepo | RepoRootKind::OwnerMismatch { .. } => None,
+    })
 }
 
 /// worktreeの一覧（先頭がメインの作業ツリー）。
@@ -124,6 +150,15 @@ mod tests {
         assert_eq!(ok(o(Some(1), "")).unwrap_err(), WtError::Exit { message: "gitが終了コード 1 で終わりました".into() });
         assert_eq!(ok(o(None, "")).unwrap_err(), WtError::Exit { message: "gitが異常終了しました".into() });
         assert!(ok(o(Some(0), "warn")).is_ok());
+    }
+
+    #[test]
+    fn repo_root_is_classified_as_root_not_repo_or_owner_mismatch() {
+        assert_eq!(classify_repo_root(true, "C:/w/r\n", ""), RepoRootKind::Root("C:/w/r".into()));
+        assert_eq!(classify_repo_root(true, "\n", ""), RepoRootKind::NotRepo);
+        assert_eq!(classify_repo_root(false, "", "fatal: not a git repository (or any of the parent directories): .git"), RepoRootKind::NotRepo);
+        let dubious = "fatal: detected dubious ownership in repository at 'C:/Users/wmasa/Documents/Rust/DocTrail'\nTo add an exception";
+        assert_eq!(classify_repo_root(false, "", dubious), RepoRootKind::OwnerMismatch { repo: "C:/Users/wmasa/Documents/Rust/DocTrail".into() });
     }
 
     #[test]
