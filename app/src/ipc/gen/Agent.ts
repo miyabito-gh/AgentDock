@@ -24,4 +24,12 @@ assignment: Known<string>,
 /**
  * Codexが返したエージェントの経路（例 `/root/luna`）。役割とは別。
  */
-agentPath: Known<string>, latestTurn: ExternalId | null, };
+agentPath: Known<string>, 
+/**
+ * 子スレッドに記録されたモデル名（記録値。いま使用中とは限らない）。
+ */
+model: Known<string>, 
+/**
+ * 子スレッドに記録された推論強度（記録値）。
+ */
+effort: Known<string>, latestTurn: ExternalId | null, };

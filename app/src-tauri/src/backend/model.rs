@@ -765,6 +765,12 @@ pub struct Agent {
     pub assignment: Known<String>,
     /// Codexが返したエージェントの経路（例 `/root/luna`）。役割とは別。
     pub agent_path: Known<String>,
+    /// 子スレッドに記録されたモデル名（記録値。いま使用中とは限らない）。
+    #[serde(default = "Known::not_fetched")]
+    pub model: Known<String>,
+    /// 子スレッドに記録された推論強度（記録値）。
+    #[serde(default = "Known::not_fetched")]
+    pub effort: Known<String>,
     pub latest_turn: Option<ExternalId>,
 }
 

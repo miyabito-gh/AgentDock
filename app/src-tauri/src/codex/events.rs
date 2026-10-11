@@ -265,6 +265,7 @@ fn convert_known(method: &str, p: &Value, ctx: &EventCtx, live: &dyn Fn(Option<U
             let (Some(name), Some(status)) = (s(p, "name"), s(p, "status")) else { return missing("name/status") };
             vec![BackendEvent::ToolServerStatusChanged { name: name.to_string(), state: super::parity::tool_startup_state_from_wire(status) }]
         }
+        "account/rateLimits/updated" => vec![BackendEvent::RateLimitsUpdated],
         "mcpServer/oauthLogin/completed" => {
             let (Some(name), Some(success)) = (s(p, "name"), p.get("success").and_then(Value::as_bool)) else { return missing("name/success") };
             vec![BackendEvent::ToolServerLoginCompleted { name: name.to_string(), success }]
@@ -643,7 +644,7 @@ mod tests {
     #[test]
     fn known_noise_is_not_surfaced_but_warnings_are() {
         assert!(run("thread/tokenUsage/updated", json!({})).is_empty());
-        assert!(run("account/rateLimits/updated", json!({})).is_empty());
+        assert!(matches!(run("account/rateLimits/updated", json!({})).as_slice(), [BackendEvent::RateLimitsUpdated]));
         let ev = run("configWarning", json!({"message": "bad config"}));
         assert!(matches!(&ev[0], BackendEvent::Unrecognized { note: Some(n), .. } if n == "bad config"));
     }

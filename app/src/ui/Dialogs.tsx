@@ -12,6 +12,7 @@ import { hostOf, isIdnHost, textMismatchesUrl } from "./markdown/plugins";
 import { ParityBody } from "./ParityDialog";
 import { ChangesBody, RevertBody } from "./ChangesDialog";
 import { GoalBody, StatusBody } from "./PrefsDialogs";
+import { UsagePanel } from "./UsagePanel";
 import { CompactBody, ForkBody, ReviewBody } from "./ThreadOpsDialogs";
 import { ResendBody, type ResendHandlers, type ResendState } from "./ResendDialog";
 import { ExtensionsBody } from "./ExtensionsDialogs";
@@ -38,6 +39,7 @@ export type DialogState =
   | { type: "resend"; chatId: string; purpose: "editResend" | "regenerate"; turnId: string; itemId: string | null }
   | { type: "goal"; chatId: string }
   | { type: "status"; chatId: string | null }
+  | { type: "usage" }
   | { type: "attach" }
   | { type: "reference"; chatId: string }
   | { type: "skills"; chatId: string }
@@ -489,6 +491,10 @@ export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnter
     case "status": return (
       <Shell title="Codex の状態" wide onClose={onClose} close="閉じる">
         <StatusBody live={live} chat={chats.find((x) => x.key.id === d.chatId)} settings={prefs.settings} local={prefs.local} caps={opCaps} />
+      </Shell>);
+    case "usage": return (
+      <Shell title="利用状況" onClose={onClose} close="閉じる">
+        <div className="content"><UsagePanel live={live} /></div>
       </Shell>);
     case "worktrees": return (
       <Shell title="worktree の管理" wide onClose={onClose} close="閉じる">

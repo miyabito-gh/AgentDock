@@ -175,6 +175,8 @@ mod tests {
             role: Known::NotFetched,
             assignment: Known::NotFetched,
             agent_path: Known::NotFetched,
+            model: Known::NotFetched,
+            effort: Known::NotFetched,
             latest_turn: None,
         }
     }

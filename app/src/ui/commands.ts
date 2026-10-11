@@ -147,6 +147,7 @@ export const PARITY_COMMANDS: ParityCommand[] = [
   cmd("toolServers", "toolServers", "settings:mcp", false, false, { label: "MCP を確認…" }),
   cmd("extensions", "extensions", "settings:mcp", false, false, { label: "Plugins を管理…" }),
   cmd("backendStatus", "backendStatus", "status", false, false, { label: "Codex の状態" }),
+  cmd("usage", "backendStatus", "usage", false, false, { label: "利用状況" }),
   cmd("speedTier", "speedTier", "status", true, false, { label: "速度（Fast）の設定を確認" }),
   cmd("memory", "memory", "status", false, false, { label: "memories の設定を確認" }),
   cmd("personality", "personality", "status", false, false, { label: "personality の状態を確認" }),

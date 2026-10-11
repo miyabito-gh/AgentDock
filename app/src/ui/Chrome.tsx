@@ -1,6 +1,8 @@
 import { useEffect } from "react";
 import { Icon } from "./Icon";
 import type { CommandView } from "./commands";
+import { Popover } from "./Popover";
+import { UsagePanel } from "./UsagePanel";
 import type { SaveScope, SaveStatus, SourceInfo, StartupWarning } from "../ipc/types";
 
 export function TitleBar({ title, tag, mini, top, onAct }: { title: string; tag?: string; mini?: boolean; top?: boolean; onAct: (a: string) => void }) {
@@ -31,10 +33,12 @@ const MENUS: Record<string, MenuItem[]> = {
 /** 上部メニューの並び。「作業」は操作台帳（commands.ts）から作る。 */
 const ORDER = ["チャット", "作業", "表示", "設定", "ヘルプ"];
 
-export function MenuBar({ open, setOpen, checked, views, onAct, tag }: {
+export function MenuBar({ open, setOpen, checked, views, onAct, tag, live }: {
   open: string | null; setOpen: (m: string | null) => void; checked: Record<string, boolean>; views: CommandView[]; onAct: (a: string) => void;
   /** 接続先の版タグ（右端。押すと接続先の切替）。 */
   tag?: string;
+  /** 実接続か。実接続では版タグが利用状況のポップオーバーを開く（接続先の切替はその中）。 */
+  live?: boolean;
 }) {
   // Escで閉じる。外側クリックはウィンドウ側（App）で閉じる。
   useEffect(() => {
@@ -61,7 +65,16 @@ export function MenuBar({ open, setOpen, checked, views, onAct, tag }: {
         </div>
       ))}
       <span className="grow" />
-      {tag ? <button className="mock-tag" title="接続先（実接続／モック）を切り替える" aria-haspopup="true" onClick={(e) => { e.stopPropagation(); onAct("modeMenu"); }}>{tag}</button> : null}
+      {tag && live ? (
+        <Popover trigger={tag} label="利用状況" title="利用状況を見る（読取りのみ）" align="right" triggerClassName="mock-tag">
+          {(close) => (
+            <div className="usage-pop" onClick={(e) => e.stopPropagation()}>
+              <UsagePanel live />
+              <div className="pop-acts"><button type="button" className="btn-line" onClick={() => { close(); onAct("modeMenu"); }}>接続先の切替…</button></div>
+            </div>
+          )}
+        </Popover>
+      ) : tag ? <button className="mock-tag" title="接続先（実接続／モック）を切り替える" aria-haspopup="true" onClick={(e) => { e.stopPropagation(); onAct("modeMenu"); }}>{tag}</button> : null}
     </nav>
   );
 }

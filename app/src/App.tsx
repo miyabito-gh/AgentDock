@@ -1130,6 +1130,7 @@ export default function App() {
       case "compact": if (chat) setDialog({ type: "compact", chatId: chat.key.id }); else say("チャットを選んでください。"); break;
       case "palette": if (!dialog) setPalette(true); break;
       case "status": setDialog({ type: "status", chatId: chat?.key.id ?? null }); break;
+      case "usage": setDialog({ type: "usage" }); break;
       case "workMode":
         if (!chat) { say("チャットを選んでください。"); break; }
         onWorkMode(bundle.modelSettings[chat.key.id]?.workMode === "plan" ? "default" : "plan");
@@ -1241,7 +1242,7 @@ export default function App() {
         <defs><pattern id="hatch" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="2" height="4" style={{ fill: "var(--unk)" }} /></pattern></defs>
       </svg>
       <div className="window" role="application" aria-label="AgentDock" onClick={() => { if (menu) setMenu(null); if (mockOpen) setMockOpen(false); }}>
-        <MenuBar open={menu} setOpen={setMenu} checked={checked} views={cmdViews} onAct={act} tag={modeTag} />
+        <MenuBar open={menu} setOpen={setMenu} checked={checked} views={cmdViews} onAct={act} tag={modeTag} live={live} />
         <GlobalBanner source={src} onAct={act} />
         {live && quit.kind !== "idle" && dialog?.type !== "quit" && dialog?.type !== "force" ? (
           <div className="gbanner warn" role="status">

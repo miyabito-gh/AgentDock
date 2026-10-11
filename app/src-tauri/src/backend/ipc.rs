@@ -1186,6 +1186,8 @@ pub enum HostEvent {
     GoalUpdated { chat: ChatKey, goal: Option<Goal> },
     /// ツールサーバー（MCP）の起動状態が変わった通知（UIは表示中の一覧を取り直す。会話への反映の確認ではない）。
     ToolServersChanged { name: String },
+    /// 利用上限の更新通知（中身なし）。開いている利用状況の表示だけが読み直す。通知・警告は出さない。
+    RateLimitsChanged,
     /// ツールサーバーの認可の進行（待機・完了・完了未確認）。URL・トークンは含めない。
     ToolServerLoginUpdated { login: ToolServerLogin },
     /// 拡張・ツールサーバーの管理操作の記録の追加・更新（1件分で置き換える）。

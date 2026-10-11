@@ -302,6 +302,10 @@ impl Host {
         self.side_observe(&env.event);
         // ツールサーバー（MCP）の認可の完了・起動状態の通知（UIが取り直す合図）。
         self.ext_observe(&env.event);
+        // 利用上限の更新通知（画面が開いているときだけ読み直す合図。状態は変えない）。
+        if matches!(env.event, BackendEvent::RateLimitsUpdated) {
+            self.mutate(|_| ((), vec![HostEvent::RateLimitsChanged]));
+        }
         // 変更の控え: ルートのturn終端の記録・切断での終了未確認（待たない）。
         self.baseline_observe(&env.event);
         if !matches!(env.event, BackendEvent::Activity { .. } | BackendEvent::ActivityDelta { .. } | BackendEvent::ArtifactObserved { .. }) {

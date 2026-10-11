@@ -1298,6 +1298,8 @@ mod history_gate_tests {
                 role: Known::NotFetched,
                 assignment: Known::NotFetched,
                 agent_path: Known::NotFetched,
+                model: Known::NotFetched,
+                effort: Known::NotFetched,
                 // 一覧・走査で作った子は最新turnを持たない。
                 latest_turn: None,
             },

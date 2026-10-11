@@ -281,6 +281,15 @@ impl HostData {
                 a.assignment = Known::direct(t.clone());
             }
         }
+        // 記録値のモデル・推論強度は、今回の読取りに無ければ以前に読めた値を残す（未取得への巻き戻しを避ける）。
+        if let Some(prev) = self.view(&a.key) {
+            if a.model.value().is_none() && prev.agent.model.value().is_some() {
+                a.model = prev.agent.model.clone();
+            }
+            if a.effort.value().is_none() && prev.agent.effort.value().is_some() {
+                a.effort = prev.agent.effort.clone();
+            }
+        }
         a
     }
 
@@ -859,6 +868,8 @@ impl HostData {
                                     role: Known::NotFetched,
                                     assignment: Known::NotFetched,
                                     agent_path: Known::NotFetched,
+                                    model: Known::NotFetched,
+                                    effort: Known::NotFetched,
                                     latest_turn: status.turn.clone(),
                                 },
                                 status: status.clone(),
@@ -996,7 +1007,7 @@ impl HostData {
             BackendEvent::GoalUpdated { chat, goal } => out.push(HostEvent::GoalUpdated { chat: chat.clone(), goal: goal.clone() }),
             BackendEvent::OpCapabilitiesChanged { ops } => out.push(HostEvent::OpCapabilitiesUpdated { ops: ops.clone() }),
             // ツールサーバーの通知は、ホストの拡張管理（`extensions.rs`）が見る。エージェントの状態には使わない。
-            BackendEvent::ToolServerStatusChanged { .. } | BackendEvent::ToolServerLoginCompleted { .. } => {}
+            BackendEvent::ToolServerStatusChanged { .. } | BackendEvent::ToolServerLoginCompleted { .. } | BackendEvent::RateLimitsUpdated => {}
             BackendEvent::ModelRerouted { agent, effective, .. } => {
                 if let Some(chat) = self.view(agent).filter(|_| self.is_root(agent)).map(|v| v.agent.chat.clone()) {
                     let s = self.model_settings.entry(chat.clone()).or_insert_with(|| ChatModelSettings::blank(ApplyTiming::Unknown));
@@ -1049,6 +1060,8 @@ mod tests {
             role: Known::NotFetched,
             assignment: Known::NotFetched,
             agent_path: Known::NotFetched,
+            model: Known::NotFetched,
+            effort: Known::NotFetched,
             latest_turn: None,
         }
     }

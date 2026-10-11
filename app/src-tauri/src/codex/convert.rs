@@ -190,6 +190,9 @@ pub fn thread_to_agent(t: &WireThread, chat: ChatKey) -> Agent {
             _ => Known::NotFetched,
         },
         agent_path: if is_root { Known::NotFetched } else { known_str(&t.spawn_field("agent_path")) },
+        // 記録値（thread/list・thread/read が返したもの）。子だけ保持する（親は既存のモデル表示がある）。
+        model: if is_root { Known::NotFetched } else { known_str(&t.model) },
+        effort: if is_root { Known::NotFetched } else { known_str(&t.reasoning_effort) },
         latest_turn: t.latest_turn().map(|x| ext(x.id())),
     }
 }
@@ -815,6 +818,18 @@ mod tests {
         assert_eq!(a.role.value().map(String::as_str), Some("explorer"));
         assert_eq!(a.assignment, Known::NotFetched);
         assert_eq!(a.chat, chat_key("p"));
+    }
+
+    #[test]
+    fn child_model_and_effort_are_recorded_values() {
+        let t = thread(json!({"id": "c", "parentThreadId": "p", "model": "gpt-6.1-sol", "reasoningEffort": "high"}));
+        let a = thread_to_agent(&t, chat_key("p"));
+        assert_eq!(a.model, Known::direct("gpt-6.1-sol".to_string()));
+        assert_eq!(a.effort, Known::direct("high".to_string()));
+        let none = thread(json!({"id": "c2", "parentThreadId": "p"}));
+        assert_eq!(thread_to_agent(&none, chat_key("p")).model, Known::Missing);
+        let root = thread(json!({"id": "r", "model": "m"}));
+        assert_eq!(thread_to_agent(&root, chat_key("r")).model, Known::NotFetched);
     }
 
     #[test]

@@ -10,4 +10,8 @@ export type BackendStatus = { version: Known<string>, executable: Known<string>,
 /**
  * 利用上限（取れなければ未取得。使用率を残量に換算しない）。
  */
-rateLimits: Known<Array<RateLimitView>>, usage: Known<UsageSummary>, warnings: Array<string>, };
+rateLimits: Known<Array<RateLimitView>>, usage: Known<UsageSummary>, 
+/**
+ * 利用上限・使用量の読取りに失敗したときの理由（取得不能の説明。成功時は None）。
+ */
+rateLimitsError: string | null, usageError: string | null, warnings: Array<string>, };

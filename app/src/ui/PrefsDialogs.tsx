@@ -5,10 +5,11 @@
 import { useCallback, useEffect, useState } from "react";
 import * as host from "../ipc/client";
 import type {
-  BackendStatus, Chat, ChatLocalView, ChatModelSettings, Goal, GoalStatus, GoalUpdate, Known, LimitWindowRole, MemoryStatus, ModelChoice, OpAck, OpCapability, ResetMemoryResult, WorkMode,
+  BackendStatus, Chat, ChatLocalView, ChatModelSettings, Goal, GoalStatus, GoalUpdate, Known, MemoryStatus, ModelChoice, OpAck, OpCapability, ResetMemoryResult, WorkMode,
 } from "../ipc/types";
 import { chatName } from "./derive";
 import { showKnown } from "./format";
+import { usageLine, windowLine } from "./usage";
 
 const errText = (e: unknown) => host.asIpcError(e).message;
 
@@ -130,9 +131,9 @@ export function GoalBody({ chat, current, live, cap, save }: {
 
 // ───────────────────────────── Codex の状態 ─────────────────────────────
 
-const ROLE_TEXT: Record<LimitWindowRole, string> = { primary: "短い期間の枠", secondary: "長い期間の枠" };
-
-function LimitsView({ k }: { k: BackendStatus["rateLimits"] }) {
+/** 利用上限の枠の一覧（「Codex の状態」と利用状況のポップオーバーで共用）。表示文は ui/usage.ts。 */
+export function LimitsView({ k }: { k: BackendStatus["rateLimits"] }) {
+  const now = Date.now();
   if (k.kind !== "value") return <>{showKnown(k)}</>;
   if (k.value.length === 0) return <>枠の情報はありません</>;
   return (
@@ -140,7 +141,7 @@ function LimitsView({ k }: { k: BackendStatus["rateLimits"] }) {
       {k.value.map((l, i) => (
         <li key={i}><b>{showKnown(l.name)}</b>
           {l.windows.length === 0 ? <span className="sub">使用率は取得できていません</span> : l.windows.map((w, j) => (
-            <span className="sub" key={j}>{ROLE_TEXT[w.role]}: 使用率 {w.usedPercent}%（期間 {showKnown(w.windowMinutes, (n) => `${n}分`)}）</span>
+            <span className="sub" key={j}>{windowLine(w, now)}</span>
           ))}
         </li>
       ))}
@@ -212,7 +213,7 @@ export function StatusBody({ live, chat, settings, local, caps }: StatusProps) {
       <div className="field"><span>アカウント</span><span>{status ? `${showKnown(status.accountKind)}／プラン ${showKnown(status.plan)}` : "未取得"}</span></div>
       <div className="field"><span>利用上限</span><div>{status ? <LimitsView k={status.rateLimits} /> : "未取得"}<span className="note">Codex が示した使用率のままで、残量・回復時刻には換算しません。</span></div></div>
       <div className="field"><span>累計の使用量</span><span>{status ? (status.usage.kind === "value"
-        ? `累計 ${showKnown(status.usage.value.lifetimeTokens)} トークン／1日の最大 ${showKnown(status.usage.value.peakDailyTokens)} トークン` : showKnown(status.usage)) : "未取得"}</span></div>
+        ? usageLine(status.usage.value) : showKnown(status.usage)) : "未取得"}</span></div>
       <div className="field"><span>設定の警告</span><div>{status ? (status.warnings.length ? <ul className="quit-list">{status.warnings.map((w, i) => <li key={i}>{w}</li>)}</ul> : "受信していません（警告がないことの確認ではありません）") : "未取得"}</div></div>
 
       <h4 style={{ margin: "10px 0 4px" }}>選択中のチャットの設定 <UnverifiedTag cap={cap("speedTier")} /></h4>

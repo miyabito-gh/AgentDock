@@ -322,6 +322,9 @@ pub struct RateLimitWindowView {
     pub role: LimitWindowRole,
     pub used_percent: f64,
     pub window_minutes: Known<u32>,
+    /// 枠のリセット時刻（バックエンドが示した値。示されなければ Missing。推測しない）。
+    #[serde(default = "Known::not_fetched")]
+    pub resets_at: Known<UnixMillis>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -359,6 +362,11 @@ pub struct BackendStatus {
     /// 利用上限（取れなければ未取得。使用率を残量に換算しない）。
     pub rate_limits: Known<Vec<RateLimitView>>,
     pub usage: Known<UsageSummary>,
+    /// 利用上限・使用量の読取りに失敗したときの理由（取得不能の説明。成功時は None）。
+    #[serde(default)]
+    pub rate_limits_error: Option<String>,
+    #[serde(default)]
+    pub usage_error: Option<String>,
     pub warnings: Vec<String>,
 }
 

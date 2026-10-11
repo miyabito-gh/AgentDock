@@ -232,6 +232,10 @@ label{display:inline-flex;align-items:center;gap:6px}
 .pop hr{border:0;border-top:1px solid var(--line2);margin:4px 2px}
 .helpwrap{display:inline-flex;margin-left:6px;vertical-align:middle}
 .pop-acts{margin-top:8px;display:flex;gap:6px}
+.usage-pop{padding:6px 8px;min-width:280px;font-size:var(--fs-s)}
+.usage-head{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.usage-sec{margin:6px 0}
+.usage .why{font-size:var(--fs-s);color:var(--ink2)}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .goal{display:flex;gap:8px;align-items:center;padding:2px 16px;min-height:26px;border-bottom:1px solid var(--line2);background:var(--surface2);font-size:var(--fs-s)}
 .goal b{color:var(--accent-text)}
@@ -467,6 +471,8 @@ textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;paddin
 .card .c1 .nm{font-weight:700;flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .card .c1 .rel{flex:none}
 .card .c1 .st{flex:none;margin-left:auto}
+.card .c1 .mdl{flex:0 1 auto;min-width:0;max-width:9ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--fs-xs);color:var(--ink2);background:var(--surface2);border-radius:3px;padding:0 5px;cursor:default}
+.card .c1 .mdl-tip{position:fixed;z-index:60;max-width:min(300px,86vw);white-space:normal;overflow-wrap:anywhere;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:var(--r2);box-shadow:var(--sh-3);padding:6px 8px;font-size:var(--fs-s);font-weight:400}
 .card .rel{font-size:var(--fs-xs);color:var(--ink3)}
 .card .c2{display:flex;flex-wrap:wrap;gap:0 10px;align-items:baseline;font-size:var(--fs-s);color:var(--ink2);min-width:0}
 .card .kvp{white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}

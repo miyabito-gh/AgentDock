@@ -358,13 +358,13 @@ impl ParityOps for CodexBackend {
             Ok(v) => account_of(&v),
             Err(_) => (Known::NotFetched, Known::NotFetched),
         };
-        let rate_limits = match self.call("account/rateLimits/read", json!({}), STATUS_TIMEOUT).await {
-            Ok(v) => rate_limits_of(&v),
-            Err(_) => Known::NotFetched,
+        let (rate_limits, rate_limits_error) = match self.call("account/rateLimits/read", json!({}), STATUS_TIMEOUT).await {
+            Ok(v) => (rate_limits_of(&v), None),
+            Err(e) => read_failure(&e),
         };
-        let usage = match self.call("account/usage/read", json!({}), STATUS_TIMEOUT).await {
-            Ok(v) => usage_of(&v),
-            Err(_) => Known::NotFetched,
+        let (usage, usage_error) = match self.call("account/usage/read", json!({}), STATUS_TIMEOUT).await {
+            Ok(v) => (usage_of(&v), None),
+            Err(e) => read_failure(&e),
         };
         Ok(BackendStatus {
             version: version.map(Known::direct).unwrap_or(Known::NotFetched),
@@ -374,6 +374,8 @@ impl ParityOps for CodexBackend {
             plan,
             rate_limits,
             usage,
+            rate_limits_error,
+            usage_error,
             warnings: self.config_warnings(),
         })
     }
@@ -627,7 +629,21 @@ fn window_of(w: &Value, role: LimitWindowRole) -> Option<RateLimitWindowView> {
         Some(m) => Known::direct(m as u32),
         None => Known::Missing,
     };
-    Some(RateLimitWindowView { role, used_percent: used, window_minutes: minutes })
+    // resetsAt は Unix 秒。示されない・妥当な範囲（2000〜2200年）外の値は Missing（推測・0への変換をしない）。
+    let resets_at = match w.get("resetsAt").and_then(Value::as_f64).filter(|s| s.is_finite() && (946_684_800.0..7_258_118_400.0).contains(s)) {
+        Some(s) => Known::direct(UnixMillis((s * 1000.0) as i64)),
+        None => Known::Missing,
+    };
+    Some(RateLimitWindowView { role, used_percent: used, window_minutes: minutes, resets_at })
+}
+
+/// 読取りの失敗を、非対応（メソッドが無い・能力なし）と取得不能（それ以外）に分け、理由を添える。0や空にはしない。
+pub fn read_failure<T>(e: &BackendError) -> (Known<T>, Option<String>) {
+    let reason = e.to_string();
+    match e {
+        BackendError::Unsupported { .. } | BackendError::Rejected { code: Some(-32601), .. } => (Known::Unsupported, Some(reason)),
+        _ => (Known::NotFetched, Some(reason)),
+    }
 }
 
 fn limit_of(s: &Value, fallback_name: Option<&str>) -> RateLimitView {
@@ -1000,6 +1016,20 @@ mod tests {
         assert_eq!(value.len(), 1);
         assert_eq!(value[0].windows.len(), 1);
         assert_eq!(value[0].windows[0].used_percent, 12.5);
+        // 範囲外（1秒＝1970年）は示されていない扱い。
+        assert_eq!(value[0].windows[0].resets_at, Known::Missing);
+        let ok = rate_limits_of(&json!({"rateLimits": {"primary": {"usedPercent": 1, "resetsAt": 1_800_000_000}}}));
+        let Known::Value { value: ok, .. } = ok else { panic!("expected value") };
+        assert_eq!(ok[0].windows[0].resets_at, Known::direct(UnixMillis(1_800_000_000_000)));
+        for bad in [json!(0), json!(-5), json!(9.0e18), json!(null)] {
+            let r = rate_limits_of(&json!({"rateLimits": {"primary": {"usedPercent": 1, "resetsAt": bad}}}));
+            let Known::Value { value: r, .. } = r else { panic!("expected value") };
+            assert_eq!(r[0].windows[0].resets_at, Known::Missing);
+        }
+        let (k, why): (Known<u8>, _) = read_failure(&BackendError::Rejected { code: Some(-32601), message: "method not found".into() });
+        assert_eq!((k, why.is_some()), (Known::Unsupported, true));
+        let (k, _): (Known<u8>, _) = read_failure(&BackendError::OutcomeUnknown { message: "timeout".into() });
+        assert_eq!(k, Known::NotFetched);
         assert_eq!(rate_limits_of(&json!({})), Known::Missing);
         assert_eq!(usage_of(&json!({})), Known::Missing);
         assert_eq!(memory_summary(&json!({})), Known::Missing);

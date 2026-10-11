@@ -35,6 +35,8 @@ fn agent(root: usize, k: usize) -> Agent {
         role: Known::NotFetched,
         assignment: Known::NotFetched,
         agent_path: Known::NotFetched,
+        model: Known::NotFetched,
+        effort: Known::NotFetched,
         latest_turn: None,
     }
 }

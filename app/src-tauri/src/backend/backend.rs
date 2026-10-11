@@ -89,6 +89,8 @@ pub enum BackendEvent {
     ToolServerStatusChanged { name: String, state: ToolServerConnection },
     /// ツールサーバーの認可（ブラウザ側の操作）の完了通知。URL・トークン・エラー本文は運ばない。
     ToolServerLoginCompleted { name: String, success: bool },
+    /// 利用上限の更新通知（中身は運ばない。画面が開いている間だけ読み直す合図。通知・警告は出さない）。
+    RateLimitsUpdated,
     /// 操作ごとの能力が実行時に変わった（experimentalの拒否による非対応への降格など）。
     OpCapabilitiesChanged { ops: Vec<OpCapability> },
     /// 未知のイベント・正規化できない内容。破棄せず警告として表示（M12）。
