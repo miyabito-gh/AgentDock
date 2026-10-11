@@ -300,8 +300,21 @@ label{display:inline-flex;align-items:center;gap:6px}
 .dropzone{position:fixed;inset:12px;z-index:55;border:2px dashed var(--accent);border-radius:var(--r3);background:var(--dropzone-bg);display:flex;align-items:center;justify-content:center;text-align:center;padding:24px;font-size:calc(var(--fs) + 1px);pointer-events:none}
 textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;padding:4px;outline:none;background:transparent;line-height:1.6}
 .shell textarea{min-height:44px}
-.ctrl{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
-.ctrl .grow{flex:1}
+.shell{container-type:inline-size}
+/* 左: 設定部品（足りなければ折り返す）／右: 送信方法・中断・送信（常に右端・折り返さない） */
+.ctrl{display:flex;align-items:flex-end;gap:6px}
+.ctrl-l{flex:1 1 0;min-width:0;display:flex;align-items:center;gap:4px;flex-wrap:wrap}
+.ctrl-r{flex:none;display:flex;align-items:center;gap:4px;margin-left:auto}
+.ctrl-r .seg button{white-space:nowrap}
+.ctrl-r .btn-line{white-space:nowrap}
+.ctrl-l select{min-width:0}
+@container (max-width:560px){
+  .ctrl-r .btn-line .lbl{display:none}
+  .ctrl-r .seg button{padding:0 6px}
+}
+@container (max-width:380px){
+  .ctrl-l select{max-width:112px}
+}
 .ctrl select{border:1px solid var(--line);border-radius:var(--r1);background:var(--surface);height:26px;padding:0 4px;font-size:var(--fs-s);max-width:200px}
 .ctrl select.danger{color:var(--fail-ink);border-color:var(--fail-line)}
 .ctrl .acc{color:var(--ink);border:1px solid var(--line-strong);border-radius:var(--r1);padding:0 5px;line-height:1.6;white-space:nowrap}

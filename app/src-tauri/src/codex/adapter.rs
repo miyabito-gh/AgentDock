@@ -112,7 +112,8 @@ fn unknown_capabilities() -> Capabilities {
 /// （`mention` は使わない。モデルがファイルの中身を読めるかは未確認、V09）。
 /// Skillの明示指定は `skill`（名前とSkill定義のパス。実測で成立済み、DESIGN_P3 #11）。名前が欠けていれば送らず拒否する。
 pub fn build_turn_input(text: &str, attachments: &[Attachment]) -> BackendResult<Vec<Value>> {
-    let mut input = vec![json!({"type": "text", "text": text, "text_elements": []})];
+    // 本文が空で添付があるときは、空のtext項目を付けない（添付だけの入力）。
+    let mut input = if text.trim().is_empty() && !attachments.is_empty() { Vec::new() } else { vec![json!({"type": "text", "text": text, "text_elements": []})] };
     let mut files: Vec<String> = Vec::new();
     for a in attachments {
         let path = a.copy_path.clone().unwrap_or_else(|| a.original_path.clone());
@@ -1086,6 +1087,17 @@ mod tests {
         assert!(f.iter().all(|v| v["type"] != "mention"));
         // 添付がなければ本文だけ。
         assert_eq!(build_turn_input("x", &[]).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn empty_text_with_attachments_omits_the_text_input() {
+        let i = build_turn_input("", &[att(AttachmentKind::Image)]).unwrap();
+        assert_eq!(i, vec![json!({"type": "localImage", "path": "C:/copy.png"})]);
+        let f = build_turn_input("  \n", &[att(AttachmentKind::File)]).unwrap();
+        assert_eq!(f.len(), 1);
+        assert!(f[0]["text"].as_str().unwrap().starts_with("添付ファイル:"));
+        // 本文があれば従来どおり先頭にtext項目。
+        assert_eq!(build_turn_input("x", &[att(AttachmentKind::Image)]).unwrap()[0]["type"], "text");
     }
 
     #[test]

@@ -338,15 +338,20 @@ function attachmentStatus(a: AttachmentEntry): { text: string; bad: boolean } {
   }
 }
 
-const isImageName = (n: string): boolean => mimeOf(n).startsWith("image/");
+/** 「ファイル」欄をユーザーが開いたかをチャットごとに覚える（メモリ内のみ。既定は閉じる）。 */
+const filesOpen = new Map<string, boolean>();
+
+const isImageName =(n: string): boolean => mimeOf(n).startsWith("image/");
 
 /** 会話内のファイル項目（送信した添付と、実在を確認した成果物）。開く・保存はユーザーの操作だけ。 */
-function FilesBlock({ sent, artifacts, files }: { sent: AttachmentEntry[]; artifacts: ArtifactEntry[]; files: FileActions }) {
+function FilesBlock({ chatId, sent, artifacts, files }: { chatId: string; sent: AttachmentEntry[]; artifacts: ArtifactEntry[]; files: FileActions }) {
   if (!sent.length && !artifacts.length) return null;
+  // 注意が要るもの（欠損・コピー失敗・実在を確認できていない成果物）があれば、閉じていても見出しに印を残す。
+  const attention = sent.some((a) => attachmentStatus(a).bad || a.state.kind !== "ready") || artifacts.some((a) => a.exists.kind !== "value" || !a.exists.value);
   return (
     <div className="msg ai files">
-      <details open>
-        <summary><Icon name="clip" /><b>ファイル（添付 {sent.length}件・成果物 {artifacts.length}件）</b><Help text="ファイルを表示できることと、モデルが内容を読めることは別です。外部アプリでは、「開く」を押したときだけ開きます。" /></summary>
+      <details open={filesOpen.get(chatId) ?? false} onToggle={(e) => { filesOpen.set(chatId, e.currentTarget.open); }}>
+        <summary><Icon name="clip" /><b>ファイル（添付 {sent.length}件・成果物 {artifacts.length}件）</b>{attention ? <span className="tag" title="欠損・コピー失敗・実在未確認のファイルがあります。開いて確認してください">要確認</span> : null}<Help text="ファイルを表示できることと、モデルが内容を読めることは別です。外部アプリでは、「開く」を押したときだけ開きます。" /></summary>
         {sent.map((a) => {
           const st = attachmentStatus(a);
           const target: FileRef = { kind: "attachment", chat: a.chat, id: a.id };
@@ -436,12 +441,14 @@ function Messages({ turns, reqs, running, onRespond, onAct, extra, find, resend 
               const text = e.text.kind === "value" ? e.text.value : "…";
               const lastAi = all.filter((x) => x.kind.kind === "agentMessage").pop();
               if (e.kind.kind === "userMessage") {
+                // 添付だけの依頼は本文の項目がない。空の吹き出しにせず、中立の表示にする（コピーは本文があるときだけ）。
+                const noBody = e.text.kind !== "value" || !e.text.value.trim();
                 return (
                   <div className="msg user" key={e.key.itemId}>
                     <div className="sr">あなた</div>
-                    <div className="bubble" data-find="body">{text}</div>
+                    <div className="bubble" data-find="body">{noBody ? <span className="muted">（本文なし）</span> : text}</div>
                     <div className="acts">
-                      <CopyAct text={text} />
+                      {noBody ? null : <CopyAct text={text} />}
                       {mine ? <button aria-disabled={blocked("editResend", e.key.itemId) || undefined} onClick={() => onAct(`resend:editResend|${t.key.turnId}|${e.key.itemId}`)}><Icon name="branch" />編集して分岐…</button> : null}
                     </div>
                   </div>);
@@ -523,7 +530,7 @@ function EntryRow({ n, e, qact }: { n: number; e: QueueEntry; qact: QueueActions
     <div className="qitem">
       <span className="qnum">{n}</span>
       <div>
-        {editing ? <textarea aria-label="依頼を編集" value={text} onChange={(ev) => setText(ev.target.value)} style={{ width: "100%" }} /> : <div>{e.text}</div>}
+        {editing ? <textarea aria-label="依頼を編集" value={text} onChange={(ev) => setText(ev.target.value)} style={{ width: "100%" }} /> : e.text.trim() ? <div>{e.text}</div> : <div className="muted">（本文なし・添付のみ）</div>}
         {e.attachments.length ? <div className="small muted" title="このチャット用のコピーを送ります">添付 {e.attachments.length}件</div> : null}
         {why ? <div className={`why ${s.kind === "waiting" ? "" : "err"}`}>{why}</div> : null}
       </div>
@@ -645,7 +652,7 @@ function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock
   // コピー中・失敗・欠損の添付があるうちは送らない（ホストも同じ規則で止める。不完全なコピーは送れない）。
   const attachBlock = attachments.some((a) => a.state.kind !== "ready") ? "コピー中・コピー失敗・欠損の添付があります。取り外すか、もう一度添付してから送信してください。" : null;
   const send = async () => {
-    if (!p.draft.trim() || lock || attachBlock) return;
+    if ((!p.draft.trim() && attachments.length === 0) || lock || attachBlock) return;
     const ok = await p.onSend(p.draft, running && steer, attachments.map((a) => a.id));
     if (ok) p.setDraft("");
   };
@@ -713,6 +720,7 @@ function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock
             if ((p.enterMode === "ctrl" && e.ctrlKey) || (p.enterMode === "enter" && !e.shiftKey)) { e.preventDefault(); void send(); }
           }} />
         <div className="ctrl">
+          <div className="ctrl-l">
           <button aria-label="ファイル・画像・参考情報を追加" disabled={!!lock} onClick={() => p.onAct("attach")}><Icon name="clip" /></button>
           <select aria-label="モデル" value={model} onChange={(e) => pickModel(e.target.value)}>{models.map((m) => <option key={m.id} value={m.id}>{m.displayName}</option>)}</select>
           <select aria-label="推論の強さ" value={effort} onChange={(e) => pickEffort(e.target.value)}>{efforts.map((x) => <option key={x.id} value={x.id}>{x.id}</option>)}</select>
@@ -756,15 +764,18 @@ function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock
           {wmSelected && wmAccepted !== wmSelected ? <span className="small acc" title={wmLine ?? undefined}>{wmShort(wmSelected)}: 未受理</span> : null}
           {!wmSelected && wmAccepted ? <span className="small acc" title={wmLine ?? undefined}>計画／実行 {wmShort(wmAccepted)} のまま</span> : null}
           {speedKept ? <span className="small why" title={speedKeptLine ?? undefined}>速度 {speedKept} のまま</span> : null}
-          <span className="grow" />
+          </div>
+          {/* 右端は折り返さない（送信・中断・送信方法）。設定部品は左の群で折り返す */}
+          <div className="ctrl-r">
           {running ? (
             <span className="seg" role="group" aria-label="実行中の送信方法">
               <button aria-pressed={steer} title="現在のturnへ。実行中のturnへ対象を照合して送ります。モデル・権限・フォルダの変更には使えません" onClick={() => setSteer(true)}>追加指示</button>
               <button aria-pressed={!steer} title="次の依頼として。親と子孫の作業が終わってから送ります" onClick={() => setSteer(false)}>完了後に送信</button>
             </span>
           ) : null}
-          {running ? <button className="btn-line" aria-label="中断" title="実行中の作業に中断を要求します（停止の確認は別に行います）" onClick={() => p.onAct("interrupt")}><Icon name="stop" />中断</button> : null}
-          <button className="btn-main send" aria-label={running ? (steer ? "追加指示を送る" : "完了後に送る依頼として登録") : "送信"} title={enterHint} disabled={!!lock || !!attachBlock} onClick={() => void send()}><Icon name="send" /></button>
+          {running ? <button className="btn-line" aria-label="中断" title="実行中の作業に中断を要求します（停止の確認は別に行います）" onClick={() => p.onAct("interrupt")}><Icon name="stop" /><span className="lbl">中断</span></button> : null}
+          <button className="btn-main send" aria-label={running ? (steer ? "追加指示を送る" : "完了後に送る依頼として登録") : "送信"} title={enterHint} disabled={!!lock || !!attachBlock || (!p.draft.trim() && attachments.length === 0)} onClick={() => void send()}><Icon name="send" /></button>
+          </div>
         </div>
       </div>
     </div>
@@ -817,7 +828,7 @@ export function CenterPane(p: CenterProps) {
       <Banners p={p} />
       <Messages key={chat.key.id} turns={p.turns} reqs={reqs} running={running} onRespond={p.onRespond} onAct={p.onAct} find={find}
         resend={{ ctx: resendCtxOf(snap, chat, snap.sources.some((x) => x.connection.kind === "connected"), p.turns), rootAgentId: rootView(snap, chat)?.agent.key.id }}
-        extra={<FilesBlock sent={snap.attachments.filter((a) => keyStr(a.chat) === keyStr(chat.key) && a.usedBy.length > 0)} artifacts={snap.artifacts.filter((a) => keyStr(a.chat) === keyStr(chat.key))} files={p.files} />} />
+        extra={<FilesBlock chatId={chat.key.id} sent={snap.attachments.filter((a) => keyStr(a.chat) === keyStr(chat.key) && a.usedBy.length > 0)} artifacts={snap.artifacts.filter((a) => keyStr(a.chat) === keyStr(chat.key))} files={p.files} />} />
       <Queue q={snap.queues.find((q) => keyStr(q.chat) === keyStr(chat.key))} nameOf={nameOf} qact={p.qact} />
       <GoalBar goal={p.goal} live={rootView(snap, chat)?.freshness === "live"} cap={snap.opCapabilities.find((o) => o.op === "goal")} busy={p.goalBusy}
         onEdit={() => p.onAct("goal")} onClear={p.onGoalClear} onReload={p.onGoalReload} />

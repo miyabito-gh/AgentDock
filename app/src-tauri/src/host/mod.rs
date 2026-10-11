@@ -743,7 +743,8 @@ impl Host {
     }
 
     pub async fn send_message(self: &Arc<Self>, args: SendMessageArgs, confirmed: &UserConfirmed) -> Result<SendAttempt, IpcError> {
-        if args.text.trim().is_empty() {
+        // 本文が空でも、添付が1件以上あれば送れる（text項目は付けない。adapter側）。
+        if args.text.trim().is_empty() && args.attachments.is_empty() {
             return Err(err(IpcErrorCode::InvalidArgs, "メッセージが空です"));
         }
         // このチャットの手動送信とキューの自動送信を同時に走らせない（再開から受理まで）。

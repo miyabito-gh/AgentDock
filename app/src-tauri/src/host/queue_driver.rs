@@ -1003,7 +1003,7 @@ impl Host {
 
     /// 完了後に送る依頼を登録する。設定（モデル・権限・作業フォルダ）は登録時に固定せず、送信時点のものを使う。
     pub fn enqueue(self: &Arc<Self>, args: EnqueueArgs) -> Result<QueueEntry, IpcError> {
-        if args.text.trim().is_empty() {
+        if args.text.trim().is_empty() && args.attachments.is_empty() {
             return Err(err(IpcErrorCode::InvalidArgs, "依頼が空です"));
         }
         if self.read(|d| d.chat(&args.chat).is_none()) {
@@ -1028,7 +1028,7 @@ impl Host {
     }
 
     pub fn edit_queue_entry(self: &Arc<Self>, args: EditQueueEntryArgs) -> Result<QueueEntry, IpcError> {
-        if args.text.trim().is_empty() {
+        if args.text.trim().is_empty() && args.attachments.is_empty() {
             return Err(err(IpcErrorCode::InvalidArgs, "依頼が空です"));
         }
         self.precheck_space()?;
