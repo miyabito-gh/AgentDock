@@ -1,7 +1,7 @@
 // 実行: node --test src/ui/revertView.test.ts （tscの対象外）
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { reasonLines, sortedItems, initialChosen, pickedPaths, forcedPaths, resultKind, turnOptions, noBaselineReason, gitKindOf, sameReason } from "./revertView.ts";
+import { reasonLines, sortedItems, initialChosen, pickedPaths, forcedPaths, resultKind, turnOptions, noBaselineReason, gitKindOf, sameReason, ownerMarkVisible, ownerExplainsNoBaseline, ownerCardShown } from "./revertView.ts";
 
 const item = (path: string, verdict: any) => ({ path, kind: null, includesTurns: [], verdict });
 const rev = { kind: "revertible", summary: "" };
@@ -69,4 +69,36 @@ test("控えなしの理由: 取得中はnull、空は理由、失敗のみは�
   assert.ok(noBaselineReason([]));
   assert.match(noBaselineReason([{ turn: "t", startedAt: 1, state: { kind: "failed", reason: { kind: "notARepository" } }, concurrent: false }] as any)!, /Gitリポジトリ/);
   assert.equal(noBaselineReason([{ turn: "t", startedAt: 1, state: { kind: "ready" }, concurrent: false }] as any), null);
+});
+test("入口の印: 所有者違いで、記録しない・許可済みを選んでいないときだけ", () => {
+  const pref = (choice: string, allowGit = false) => [{ path: "C:/r", choice, allowGit }] as any;
+  assert.equal(ownerMarkVisible("ownerMismatch", undefined, "C:/r"), true);
+  assert.equal(ownerMarkVisible("ownerMismatch", pref("Record"), "C:/r"), true);
+  assert.equal(ownerMarkVisible("ownerMismatch", pref("Skip"), "C:/r"), false);
+  assert.equal(ownerMarkVisible("ownerMismatch", pref("Record", true), "C:/r"), false);
+  assert.equal(ownerMarkVisible("repo", undefined, "C:/r"), false);
+  assert.equal(ownerMarkVisible(undefined, undefined, "C:/r"), false);
+});
+test("所有者違いの案内が説明済みの控えなし理由", () => {
+  const ctx = (git: any, en = true) => ({ baselinesEnabled: en, git });
+  const failed = (reason: any) => [{ turn: "t", startedAt: 1, state: { kind: "failed", reason }, concurrent: false }] as any;
+  assert.equal(ownerExplainsNoBaseline(null, ctx("ownerMismatch")), false);
+  assert.equal(ownerExplainsNoBaseline([], ctx("ownerMismatch")), true);
+  assert.equal(ownerExplainsNoBaseline([], ctx("ownerMismatch", false)), false);
+  assert.equal(ownerExplainsNoBaseline([], ctx("repo")), false);
+  assert.equal(ownerExplainsNoBaseline(failed({ kind: "dubiousOwnership", repo: "" })), true);
+  assert.equal(ownerExplainsNoBaseline(failed({ kind: "skipped" })), false);
+  assert.equal(ownerExplainsNoBaseline(failed({ kind: "notARepository" })), false);
+});
+test("案内カードを出す条件（RepoRecordPanelと共通）", () => {
+  const pref = (choice: string, allowGit = false) => [{ path: "C:/r", choice, allowGit }] as any;
+  const ownerFail = [{ turn: "t", startedAt: 1, state: { kind: "failed", reason: { kind: "dubiousOwnership", repo: "C:/r" } }, concurrent: false }] as any;
+  assert.equal(ownerCardShown(null, "C:/r", undefined, "C:/r"), true); // 未選択
+  assert.equal(ownerCardShown(null, "C:/r", pref("Record"), "C:/r"), true); // 記録する選択済み
+  assert.equal(ownerCardShown(null, "C:/r", pref("Record", true), "C:/r"), true); // 許可済み（案内は残る）
+  assert.equal(ownerCardShown(null, "C:/r", pref("Skip"), "C:/r"), false); // 記録しない（一行表示）
+  assert.equal(ownerCardShown(ownerFail, null, pref("Skip"), "C:/r"), false);
+  assert.equal(ownerCardShown(ownerFail, null, undefined, "C:/r"), true); // 区間の失敗
+  assert.equal(ownerCardShown(null, null, undefined, "C:/r"), false); // リポジトリでない
+  assert.equal(ownerCardShown(null, null, undefined, null), false); // git_info不明
 });

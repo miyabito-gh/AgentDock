@@ -23,11 +23,13 @@ function statusClass(text: string): string {
 }
 
 const NL = "\n";
-interface MenuItem { act: string; label: string; danger?: boolean; sep?: boolean }
+interface MenuItem { act: string; label: string; danger?: boolean; sep?: boolean; title?: string }
 /** 開いているメニュー（行の「…」・見出しの「…」で共通）。位置は「…」ボタンに寄せる。 */
 type OpenMenu = { kind: "chat"; id: string } | { kind: "group"; key: string };
 
-export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct, chatList, onChatList, projects = null, onNotice, listStatus, uiSize = "Normal" }: {
+export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct, chatList, onChatList, projects = null, onNotice, listStatus, uiSize = "Normal", onNewChatIn }: {
+  /** 見出しの「このフォルダで新しいチャット」。第1引数が初期の作業フォルダ、第2引数は候補（プロジェクトの全フォルダ）。作成はダイアログで押したときだけ。 */
+  onNewChatIn?: (cwd: string, choices: string[]) => void;
   snap: HostSnapshot; sel: string | null; onSelect: (id: string) => void; onAct: (a: string) => void; onAcknowledge: (c: Chat) => void;
   /** 行の「…」メニュー・右クリック・Shift+F10 の操作。対象は選択中ではなくその行のチャット。 */
   onChatAct: (op: ChatOp, chatId: string) => void;
@@ -190,6 +192,14 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct,
   const toggleFolderPin = (key: string) => onChatList((c) => ({ ...c, pinnedFolders: c.pinnedFolders.includes(key) ? c.pinnedFolders.filter((k) => k !== key) : [...c.pinnedFolders, key] }));
   const toggleCollapsed = (key: string) => onChatList((c) => ({ ...c, collapsedFolders: c.collapsedFolders.includes(key) ? c.collapsedFolders.filter((k) => k !== key) : [...c.collapsedFolders, key] }));
 
+  /** 見出しから新しいチャットを作る作業フォルダ（先頭が初期値）。フォルダが無い見出しは null。実在確認はしない（ダイアログ側の検証に任せる）。 */
+  const newChatFolders = (g: FolderGroup): string[] | null => {
+    if (!onNewChatIn) return null;
+    if (g.kind === "folder") return g.path.trim() ? [g.path] : null;
+    if (g.kind === "project") { const r = (g.roots ?? []).filter((x) => x.trim() !== ""); return r.length ? r : null; }
+    return null;
+  };
+
   /** メニューの項目（チャットの項目は上部メニュー「チャット」と同じ順・同じ文言）。 */
   const menuItems = (): { label: string; items: MenuItem[] } | null => {
     if (!menu) return null;
@@ -210,9 +220,11 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct,
     }
     const g = groups.find((x) => x.key === menu.key);
     if (!g) return null;
+    const newIn = newChatFolders(g);
     return {
       label: `「${labelOf(g)}」の操作`,
       items: [
+        ...(newIn ? [{ act: "gnew", label: g.kind === "project" ? `このプロジェクトで新しいチャット（先頭フォルダ: ${newIn[0]}）` : "このフォルダで新しいチャット", title: g.kind === "project" ? "先頭をプライマリと推定" : undefined }] : []),
         ...(g.kind !== "unknown" ? [{ act: "gpin", label: g.pinned ? "フォルダのピン留めを外す" : "フォルダをピン留め" }] : []),
         ...(g.kind === "folder" ? [{ act: "gcopy", label: "パスをコピー" }] : []),
       ],
@@ -222,7 +234,9 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct,
     if (!menu) return;
     const m = menu;
     closeMenu(act === "pin" || act === "archive" || act === "unarchive" || act === "gpin" || act === "gcopy");
+    // gnew はダイアログが開くので、フォーカスは戻さない。
     if (m.kind === "chat") onChatAct(act as ChatOp, m.id);
+    else if (act === "gnew") { const g = groups.find((x) => x.key === m.key); const f = g ? newChatFolders(g) : null; if (f && onNewChatIn) onNewChatIn(f[0], f); }
     else if (act === "gpin") toggleFolderPin(m.key);
     else if (act === "gcopy") { const g = groups.find((x) => x.key === m.key); if (g) copyPath(g.path); }
   };
@@ -396,7 +410,7 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct,
       {mi ? (
         <div ref={menuRef} className="pop row-menu" role="menu" aria-label={mi.label} tabIndex={-1} style={{ visibility: "hidden" }} onKeyDown={onMenuKey}>
           {mi.items.map((it, i) => it.sep ? <hr key={i} /> : (
-            <button key={it.act} type="button" role="menuitem" className={it.danger ? "danger" : undefined} onClick={() => pick(it.act)}>{it.label}</button>
+            <button key={it.act} type="button" role="menuitem" className={it.danger ? "danger" : undefined} title={it.title} onClick={() => pick(it.act)}>{it.label}</button>
           ))}
         </div>
       ) : null}

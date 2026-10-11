@@ -197,7 +197,7 @@ function Header({ snap, chat, onAct, commands, local, onCwdToggle, cwdLock, wasL
       {chat.origin === "external" && isLive ? <span className="tag" title={`${externalLabel ?? "外部"} で作成された会話を、このアプリで再開済みです。${EXTERNAL_RESUMED_TEXT}`}>{externalLabel ?? "外部"}で作成</span> : null}
       <span className="grow" />
       {/* 主要操作は台帳から作る。無効のときは押せず、理由をツールチップで示す（文字のみ） */}
-      <Popover trigger={<Icon name="more" />} label="その他の操作" title="差分・戻す・レビュー・分岐・Goal・作業フォルダ・すべての操作" role="menu" align="right" triggerClassName="btn subtle icon">
+      <Popover trigger={<Icon name="more" />} label="その他の操作" title={`変更・戻す・レビュー・分岐・Goal・作業フォルダ・すべての操作${commands.some((v) => v.mark) ? "\n記録できない変更があります（「変更」から案内を表示）" : ""}`} role="menu" align="right" triggerClassName="btn subtle icon">
         {(close) => (
           <>
             {commands.filter((v) => v.cmd.header).map((v) => {
@@ -206,7 +206,7 @@ function Header({ snap, chat, onAct, commands, local, onCwdToggle, cwdLock, wasL
                 <button key={v.cmd.id} role="menuitem" disabled={st.kind === "disabled"} aria-label={v.cmd.label.replace(/…$/, "")}
                   title={st.kind === "disabled" ? st.reason : st.unverified ? "未確認の操作です（結果は観測した事実だけを表示します）" : undefined}
                   onClick={() => { close(); onAct(v.cmd.act); }}>
-                  <span>{v.cmd.header}</span>{st.kind === "enabled" && st.unverified ? <span className="tag unv">未確認</span> : null}
+                  <span>{v.cmd.header}</span>{v.mark ? <span className="tag" title="押すと対処の案内を表示します">{v.mark}</span> : null}{st.kind === "enabled" && st.unverified ? <span className="tag unv">未確認</span> : null}
                 </button>
               );
             })}

@@ -1,5 +1,5 @@
-// 変更ファイルと差分の表示（#1）と「変更を戻す」（#2）の本体（段階③ P3-1）。外枠（Shell）と下部ボタンは Dialogs.tsx 側。
-// 規則: 「turnの変更（控え基準）」と「Git上の現在の差分」は出所を分けて表示する。取れていない値は「未確認」と書き、0や空で代用しない。
+// 変更の確認（変更ファイルと差分の表示。#1）と「変更を戻す」（#2）の本体（段階③ P3-1）。外枠（Shell）と下部ボタンは Dialogs.tsx 側。
+// 規則: 「この会話の変更（記録）」と「Gitの現在の差分」は出所を分けて表示する。取れていない値は「未確認」と書き、0や空で代用しない。
 //       戻す操作は確認の後だけ。戻せない理由はそのまま出し、部分的にしか戻せなかったときは完了と書かない。
 import { useEffect, useState } from "react";
 import * as host from "../ipc/client";
@@ -10,10 +10,10 @@ import { About, ConfirmBlock, FootActions, ShortId } from "./DialogParts";
 import { RepoRecordPanel, type SetRepoFn } from "./RepoRecordPanel";
 import { Icon } from "./Icon";
 import type { BaselineContext } from "./revertView";
-import { failureText, forcedPaths, gitKindOf, groupOf, initialChosen, noBaselineReason, sameReason, pickedPaths, reasonLines, resultKind, sortedItems, turnOptions } from "./revertView";
+import { ownerCardShown, failureText, forcedPaths, gitKindOf, groupOf, initialChosen, noBaselineReason, ownerExplainsNoBaseline, sameReason, pickedPaths, reasonLines, resultKind, sortedItems, turnOptions } from "./revertView";
 
 const KIND_TEXT: Record<ChangeKind, string> = { added: "追加", deleted: "削除", modified: "変更" };
-const SOURCE_TEXT: Record<ChangeSource, string> = { baseline: "turnの変更（控え基準）", git: "Git上の現在の差分（HEAD比較）" };
+const SOURCE_TEXT: Record<ChangeSource, string> = { baseline: "この会話の変更（記録）", git: "Gitの現在の差分（HEAD比較）" };
 
 const NOTE_BASELINE = "turnの開始時と終了時にAgentDockがGitで控えた内容の差です。Codexがコマンドで編集した変更も含みます（Codexの報告には依存しません）。Gitリポジトリのみで、.gitignore 対象・サブモジュール・作業フォルダ外は含みません。turnの最中に別のツールで変えた内容も含まれます。控えは自動削除されません。";
 const NOTE_GIT = "Gitの作業ツリーとHEADの現在の差分です（turnの区切りはありません）。Gitリポジトリのみ。";
@@ -135,6 +135,10 @@ export function ChangesBody({ chat, live, tick, cap, onRevert, baselinesEnabled,
   const noBase = noBaselineReason(segs, bctx);
   // 同じ原因（控えがない）の帯は1本にする。文が一致したときだけ重複とみなし、原因が違うときは両方出す。
   const sameCause = list?.status.kind === "notSupported" && sameReason(list.status.message, noBase);
+  // 所有者違いで案内カードが実際に出ているときだけ、カードが原因を説明する（「記録しない」の一行表示のときは隠さない）。控えがない帯と「非対応」の帯は重ねて出さない。
+  const ownerCase = ownerCardShown(segs, ownerRepo, repoPrefs, chat.cwd.kind === "value" ? chat.cwd.value : null);
+  const ownerExplained = tab === "baseline" && ownerCase && ownerExplainsNoBaseline(segs, bctx);
+  const hideStatus = tab === "baseline" && ownerCase && list?.status.kind === "notSupported";
   return (
     <>
       <div className="tabs" role="tablist">
@@ -145,7 +149,7 @@ export function ChangesBody({ chat, live, tick, cap, onRevert, baselinesEnabled,
         <UnverifiedNote cap={cap} />
         {tab === "baseline" ? <p className="small">コミット・ブランチ切替の後は控えへ戻せません。</p> : null}
         <About><p>{tab === "baseline" ? NOTE_BASELINE : NOTE_GIT}</p></About>
-        {tab === "baseline" && noBase && !sameCause && noBase !== SKIPPED_TEXT ? <p className="gbanner warn" role="status">{noBase}</p> : null}
+        {tab === "baseline" && noBase && !sameCause && !ownerExplained && noBase !== SKIPPED_TEXT ? <p className="gbanner warn" role="status">{noBase}</p> : null}
         {tab === "baseline" ? <RepoRecordPanel chat={chat} segs={segs} prefs={repoPrefs} onSet={onSetRepo} ownerRepo={ownerRepo} /> : null}
         {tab === "baseline" && turns.length > 0 ? (
           <div className="field"><span>対象</span>
@@ -155,10 +159,10 @@ export function ChangesBody({ chat, live, tick, cap, onRevert, baselinesEnabled,
             </select></div>) : null}
         {err ? <p style={{ color: "var(--fail)" }}>{err}</p> : !list ? <p>取得しています…</p> : (
           <>
-            {st ? <p className="gbanner warn" role="status">{st}</p> : null}
-            {tab === "git" && ownerRepo !== null ? <div className="acts"><button className="btn-line" onClick={() => { setTab("baseline"); setSel(null); }}>対処の案内を見る（「控え基準」タブ）</button></div> : null}
+            {st && !hideStatus ? <p className="gbanner warn" role="status">{st}</p> : null}
+            {tab === "git" && ownerRepo !== null ? <div className="acts"><button className="btn-line" onClick={() => { setTab("baseline"); setSel(null); }}>対処の案内を見る（「この会話の変更（記録）」タブ）</button></div> : null}
             {list.notes.map((n, i) => <p key={i} className="small muted">{n}</p>)}
-            {list.status.kind === "ready" && list.files.length === 0 ? <p>{tab === "git" ? "Git上の変更はありません（取得済み）。" : noBase ? "控えがないため、表示できる変更はありません。" : "控え基準の変更はありません。"}</p> : null}
+            {list.status.kind === "ready" && list.files.length === 0 ? <p>{tab === "git" ? "Git上の変更はありません（取得済み）。" : noBase ? "控えがないため、表示できる変更はありません。" : "記録した変更はありません。"}</p> : null}
             {list.files.length > 0 ? (
               <table className="tbl change-table">
                 <thead><tr><th>種類</th><th>ファイル</th><th>追加</th><th>削除</th><th>{tab === "git" ? "" : "turn"}</th></tr></thead>

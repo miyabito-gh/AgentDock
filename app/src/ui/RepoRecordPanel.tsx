@@ -4,7 +4,7 @@
 import { useState } from "react";
 import type { Chat, RepoBaselinePref, RepoRecordChoice, SegmentStatus } from "../ipc/types";
 import { useCopy } from "./markdown/parts";
-import { cleanRepoPath, currentOwnerProblem, ownerCommands, ownerFailedCount, prefFor, safeDirectoryCommand } from "./revertView";
+import { cleanRepoPath, currentOwnerProblem, ownerCardProblem, ownerCommands, ownerFailedCount, prefFor, safeDirectoryCommand } from "./revertView";
 
 export type SetRepoFn = (repo: string, choice: RepoRecordChoice | null, allowGit: boolean) => Promise<void>;
 
@@ -28,7 +28,7 @@ export function RepoRecordPanel({ chat, segs, prefs, onSet, ownerRepo }: { chat:
   const [guide, setGuide] = useState(false);
   const cwd = chat?.cwd.kind === "value" ? chat.cwd.value : null;
   const segProblem = currentOwnerProblem(segs);
-  const problem = segProblem || ownerRepo || null;
+  const problem = ownerCardProblem(segs, ownerRepo);
   const pref = prefFor(prefs, problem, cwd);
   const repo = problem || pref?.path || cwd;
   const failedCount = ownerFailedCount(segs);
@@ -49,10 +49,13 @@ export function RepoRecordPanel({ chat, segs, prefs, onSet, ownerRepo }: { chat:
   }
   if (problem && !pref) {
     return (
-      <div className="gbanner warn" role="status" style={{ flexWrap: "wrap" }}>
-        <span className="grow">このリポジトリ（{cleanRepoPath(repo)}）の変更を記録しますか？ Git管理が別のユーザー（Codexのサンドボックスなど）の所有になっているため、いまは記録できません。</span>
-        <button className="btn-line" disabled={busy || !onSet} onClick={() => void set("Record", false, () => setGuide(true))}>記録する</button>
-        <button className="btn-line" disabled={busy || !onSet} onClick={() => void set("Skip", false)}>記録しない</button>
+      <div className="gbanner warn" role="status" style={{ display: "block" }}>
+        <p><b>このリポジトリ（{cleanRepoPath(repo)}）のGit管理が、別のユーザー（Codexのサンドボックスなど）の所有になっています。</b></p>
+        <p>そのため、差分の確認と変更の記録ができません。記録しますか？</p>
+        <div className="acts">
+          <button className="btn-line" disabled={busy || !onSet} onClick={() => void set("Record", false, () => setGuide(true))}>記録する</button>
+          <button className="btn-line" disabled={busy || !onSet} onClick={() => void set("Skip", false)}>記録しない</button>
+        </div>
       </div>
     );
   }

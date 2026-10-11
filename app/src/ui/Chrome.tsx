@@ -78,6 +78,7 @@ function WorkItems({ views, onPick }: { views: CommandView[]; onPick: (act: stri
             {v.cmd.id === "interrupt" ? <hr /> : null}
             <button role="menuitem" className={st.kind === "disabled" ? "has-why" : undefined} disabled={st.kind === "disabled"} title={st.kind === "disabled" ? st.reason : undefined} onClick={(e) => { e.stopPropagation(); onPick(v.cmd.act); }}>
               <span>{v.cmd.label}</span>
+              {v.mark ? <span className="tag" title="押すと対処の案内を表示します">{v.mark}</span> : null}
               {st.kind === "enabled" && st.unverified ? <span className="tag unv">未確認</span> : v.cmd.kbd ? <span className="kbd">{v.cmd.kbd}</span> : null}
               {st.kind === "disabled" ? <span className="why">{st.reason}</span> : null}
             </button>

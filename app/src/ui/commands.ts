@@ -5,7 +5,7 @@ import type { Chat, HostSnapshot, OpCapability, OpRoute, ParityOp, Support, Veri
 import { chatStops, isRunning, rootView, stopOpen } from "./derive";
 
 export const OP_LABEL: Record<ParityOp, string> = {
-  changeList: "変更ファイルと差分の表示",
+  changeList: "変更の確認",
   revertChanges: "変更を戻す",
   codeReview: "コードレビュー",
   reviewToNewChat: "レビュー結果を別チャットへ",
@@ -128,7 +128,7 @@ const cmd = (id: string, op: ParityOp, act: string, needsChat: boolean, blockedW
 
 /** 台帳。順序は上部メニュー「作業」の並び（モックの順）。メニュー・主要ボタン・Ctrl+K はすべてここから作る。 */
 export const PARITY_COMMANDS: ParityCommand[] = [
-  cmd("changeList", "changeList", "diff", true, false, { label: "差分を確認", menu: true, header: "差分", git: true }),
+  cmd("changeList", "changeList", "diff", true, false, { label: "変更を確認", menu: true, header: "変更", git: true }),
   cmd("revertChanges", "revertChanges", "revert", true, true, { label: "変更を戻す…", menu: true, header: "戻す", git: true }),
   cmd("codeReview", "codeReview", "review", true, true, { label: "コードレビュー…", menu: true, header: "レビュー", git: true }),
   cmd("reviewToNewChat", "reviewToNewChat", "review", true, true, { label: "レビューを別チャットで…", git: true }),
@@ -160,11 +160,12 @@ export const PARITY_COMMANDS: ParityCommand[] = [
 ];
 
 /** 画面に出す1操作（台帳の項目と、いまの可否）。 */
-export interface CommandView { cmd: ParityCommand; state: Enabled }
+/** `mark` は入口の小さな中立の印（例: 「記録できません」）。状態の根拠ではなく、押すと対処の案内へ行ける目印。 */
+export interface CommandView { cmd: ParityCommand; state: Enabled; mark?: string }
 
 /** 3つの入口（メニュー・ヘッダー・Ctrl+K）が使う可否の一覧。能力が非対応のものは「このAIでは非対応」の理由つきで無効になる。 */
-export const commandViews = (snap: HostSnapshot, chat: Chat | null, connected: boolean, gitMissing = false): CommandView[] =>
-  PARITY_COMMANDS.map((c) => ({ cmd: c, state: c.enabled(commandContext(snap, chat, connected, c.op, gitMissing)) }));
+export const commandViews = (snap: HostSnapshot, chat: Chat | null, connected: boolean, gitMissing = false, marks: Record<string, string | undefined> = {}): CommandView[] =>
+  PARITY_COMMANDS.map((c) => ({ cmd: c, state: c.enabled(commandContext(snap, chat, connected, c.op, gitMissing)), mark: marks[c.id] }));
 
 /** 検索語に合う操作（ラベル・操作名の部分一致、大文字小文字は区別しない。空なら全件）。 */
 export const filterCommands = (views: CommandView[], q: string): CommandView[] => {

@@ -23,7 +23,7 @@ import { fenceCode, insertBlock } from "./ui/attach";
 import { DockPane, MiniWindow } from "./ui/Dock";
 import { commandViews } from "./ui/commands";
 import { recheckSummary } from "./ui/chatState";
-import { gitKindOf, type GitKind } from "./ui/revertView";
+import { gitKindOf, ownerMarkVisible, type GitKind } from "./ui/revertView";
 import { CommandPalette } from "./ui/CommandPalette";
 import { Dialogs, type DialogState, type NewChatInput } from "./ui/Dialogs";
 import { ackText } from "./ui/PrefsDialogs";
@@ -320,14 +320,17 @@ export default function App() {
   // 選択中チャットの作業フォルダがGitリポジトリか（`git_info` の読取りだけ。チャット選択時と作業フォルダ変更時に1回）。確認できていないときは無効にしない。
   const gitCwd = chat?.cwd.kind === "value" ? chat.cwd.value : null;
   const [gitKinds, setGitKinds] = useState<Record<string, GitKind>>({});
+  const [gitRoots, setGitRoots] = useState<Record<string, string | null>>({});
   useEffect(() => {
     if (!live || !gitCwd) return;
     let alive = true;
     setGitKinds((m) => { const n = { ...m }; delete n[gitCwd]; return n; }); // 取り直す間は古い判定を残さない（unknown＝塞がない）
-    host.gitInfo(gitCwd).then((i) => gitKindOf(i), () => "unknown" as GitKind).then((k) => { if (alive) setGitKinds((m) => ({ ...m, [gitCwd]: k })); });
+    host.gitInfo(gitCwd).then((i) => ({ k: gitKindOf(i), root: i.root ?? null }), () => ({ k: "unknown" as GitKind, root: null })).then(({ k, root }) => { if (alive) { setGitKinds((m) => ({ ...m, [gitCwd]: k })); setGitRoots((m) => ({ ...m, [gitCwd]: root })); } });
     return () => { alive = false; };
   }, [live, gitCwd, selId]);
-  const cmdViews = commandViews(snap, chat, connected, !!gitCwd && gitKinds[gitCwd] === "notRepo");
+  // 入口の印: 作業フォルダが所有者違いで、「記録しない」も許可も選んでいないとき、「変更を確認」に中立の小さな印を付ける。
+  const changesMark = live && !!gitCwd && ownerMarkVisible(gitKinds[gitCwd], snap.settings.baselines.repos, gitRoots[gitCwd], gitCwd);
+  const cmdViews = commandViews(snap, chat, connected, !!gitCwd && gitKinds[gitCwd] === "notRepo", changesMark ? { changeList: "記録できません" } : {});
   const goalSupported = snap.opCapabilities.some((c) => c.op === "goal" && c.support === "supported");
   const workModeSupported = snap.opCapabilities.some((c) => c.op === "workMode" && c.support === "supported");
   /** 目標を読む（読取りのみ。会話は再開しない）。読めなければ未取得のまま表示する。 */
@@ -1254,6 +1257,7 @@ export default function App() {
           <aside className="left" id="pane-left" aria-label="チャット一覧">
             <LeftPane snap={snap} sel={chat ? keyStr(chat.key) : null} onSelect={(id) => { selectChat(id); setLNarrow(false); }} onAct={act} onAcknowledge={(c) => onAcknowledge(c.key, null)}
               onChatAct={chatAct} chatList={snap.settings.chatList} projects={projects} onNotice={say}
+              onNewChatIn={(cwd, choices) => { setDialog({ type: "newChat", dev: true, cwd, cwdChoices: choices.length > 1 ? choices : undefined }); setLNarrow(false); }}
               onChatList={(f) => updateSettings((s) => ({ ...s, chatList: f(s.chatList) }), "一覧の表示設定を保存できませんでした。次回の起動では保存されている値に戻ります")} listStatus={listStatus} uiSize={snap.settings.appearance.uiText} />
           </aside>
           <main className="center">

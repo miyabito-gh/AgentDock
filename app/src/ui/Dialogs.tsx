@@ -21,7 +21,7 @@ import { CloudBody } from "./CloudDialogs";
 
 export type DialogState =
   | { type: "settings"; tab: string }
-  | { type: "newChat"; dev?: boolean }
+  | { type: "newChat"; dev?: boolean; cwd?: string; cwdChoices?: string[] }
   | { type: "worktrees" }
   | { type: "cloud"; chatId: string | null }
   | { type: "quit" }
@@ -386,8 +386,8 @@ export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnter
   top: { main: boolean; mini: boolean; setMain: (b: boolean) => void; setMini: (b: boolean) => void };
   setTab: (t: string) => void; onAct: (a: string) => void;
 }) {
-  const [kind, setKind] = useState(d.type === "newChat" && d.dev ? "dev" : "general");
-  const [cwd, setCwd] = useState("");
+  const [kind, setKind] = useState(d.type === "newChat" && (d.dev || d.cwd) ? "dev" : "general");
+  const [cwd, setCwd] = useState(d.type === "newChat" ? d.cwd ?? "" : "");
   const [isolate, setIsolate] = useState(false);
   const [wt, setWt] = useState<string | null>(null);
   const [model, setModel] = useState(models.find((m) => m.isDefault)?.id ?? models[0]?.id ?? "");
@@ -405,7 +405,12 @@ export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnter
         <div className="content">
           <div className="field"><span>AI</span><div><label><input type="radio" defaultChecked />Codex</label><div className="small muted">他の AI は今後追加できるようにする予定です。</div></div></div>
           <div className="field"><span>作業フォルダ</span><div><label><input type="radio" name="k" checked={kind === "general"} onChange={() => setKind("general")} />指定しない（一般チャット）</label><br /><label><input type="radio" name="k" checked={kind === "dev"} onChange={() => setKind("dev")} />フォルダを指定する</label>
-            {kind === "dev" ? <input type="text" className="mono" style={{ width: "100%", marginTop: 4 }} value={cwd} onChange={(e) => { setCwd(e.target.value); setIsolate(false); setWt(null); }} placeholder="作業フォルダのフルパス" aria-label="作業フォルダのパス" /> : null}</div></div>
+            {kind === "dev" ? <input type="text" className="mono" style={{ width: "100%", marginTop: 4 }} value={cwd} onChange={(e) => { setCwd(e.target.value); setIsolate(false); setWt(null); }} placeholder="作業フォルダのフルパス" aria-label="作業フォルダのパス" /> : null}
+            {kind === "dev" && d.cwdChoices && d.cwdChoices.length > 1 ? (
+              <div className="small" style={{ marginTop: 4 }} role="group" aria-label="プロジェクトのフォルダ候補">
+                <div className="muted">このプロジェクトのフォルダ（先頭をプライマリと推定）</div>
+                {d.cwdChoices.map((p) => <label key={p} style={{ display: "block" }}><input type="radio" name="cwd-choice" checked={cwd === p} onChange={() => { setCwd(p); setIsolate(false); setWt(null); }} /> <span className="mono">{p}</span></label>)}
+              </div>) : null}</div></div>
           {kind === "dev" ? <WorkspaceChoice live={live} cwd={cwd} isolate={isolate} setIsolate={setIsolate} onUse={(p, r) => { setCwd(p); setWt(r); setIsolate(false); }} /> : null}
           <div className="field"><span>モデル</span><div style={{ display: "flex", gap: 6 }}><select value={model} onChange={(e) => setModel(e.target.value)}>{models.map((m) => <option key={m.id} value={m.id}>{m.displayName}</option>)}</select></div><span className="note">このチャットの最初の選択です。Codex から取得した一覧です。</span></div>
           <div className="field"><span>最初の依頼</span><textarea value={first} onChange={(e) => setFirst(e.target.value)} rows={3} style={{ width: "100%" }} placeholder="空欄なら、チャットだけ作成します" aria-label="最初の依頼" /></div>
@@ -443,7 +448,7 @@ export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnter
         <div className="content"><p>{d.why}。</p><p className="small muted">Codex 側の経路と動作を確認できるまで、成功したように見せることはしません。</p></div>
       </Shell>);
     case "changes": return (
-      <Shell title="変更ファイルと差分" wide full onClose={onClose} close="閉じる">
+      <Shell title="変更の確認" wide full onClose={onClose} close="閉じる">
         <ChangesBody chat={chats.find((x) => x.key.id === d.chatId)} live={live} tick={changesTick} cap={opCaps.find((c) => c.op === "changeList")} onRevert={() => onAct("revert")} baselinesEnabled={manage.baselines.enabled} repoPrefs={manage.baselines.repos} onSetRepo={manage.baselines.setRepo} />
       </Shell>);
     case "revert": return (

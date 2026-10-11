@@ -148,7 +148,7 @@ export function noBaselineReason(status: SegmentStatus[] | null, ctx?: BaselineC
     if (ctx) {
       if (!ctx.baselinesEnabled) return "設定で控えの記録がオフのため、このチャットには変更の控えがありません。";
       if (ctx.git === "notRepo") return "作業フォルダがGitリポジトリではないため、変更の控えがありません。";
-      if (ctx.git === "ownerMismatch") return "作業フォルダのGit管理が別のユーザー（Codexのサンドボックス）の所有になっているため、変更の控えを確認できません。「控え基準」の案内で対処できます。";
+      if (ctx.git === "ownerMismatch") return "作業フォルダのGit管理が別のユーザー（Codexのサンドボックス）の所有になっているため、変更の控えを確認できません。「この会話の変更（記録）」タブの案内で対処できます。";
       if (ctx.git === "unknown") return "作業フォルダのGitの状態を確認できていないため、控えがない理由を特定できません。";
       return "このチャットには変更の控えがありません（控えを取る前のturnだけです）。";
     }
@@ -183,6 +183,37 @@ export function prefFor(prefs: readonly RepoBaselinePref[] | undefined, ...paths
     }
   }
   return best;
+}
+
+/**
+ * 入口（ヘッダー・メニュー）に「記録できません」の印を出すか。作業フォルダのGitが所有者違いで、ユーザーが「記録しない」を選んでおらず、
+ * AgentDockのgit操作への許可も無いときだけ。警告ではなく、対処の案内へ行ける目印。
+ */
+export function ownerMarkVisible(git: GitKind | undefined, prefs: readonly RepoBaselinePref[] | undefined, ...paths: (string | null | undefined)[]): boolean {
+  if (git !== "ownerMismatch") return false;
+  const pref = prefFor(prefs, ...paths);
+  return pref?.choice !== "Skip" && !pref?.allowGit;
+}
+
+/** 案内の対象になる所有者違いのリポジトリ（直近の区間の失敗、なければ git_info の所有者違い）。なければ null。RepoRecordPanel と変更ダイアログの両方がこれを使う。 */
+export const ownerCardProblem = (status: SegmentStatus[] | null, ownerRepo?: string | null): string | null => currentOwnerProblem(status) || ownerRepo || null;
+
+/** RepoRecordPanel が大きな案内カード（未選択の「記録しますか」、記録する選択後・許可済みの案内）を出すか。「記録しない」の一行表示のときは false。 */
+export function ownerCardShown(status: SegmentStatus[] | null, ownerRepo: string | null | undefined, prefs: readonly RepoBaselinePref[] | undefined, cwd: string | null | undefined): boolean {
+  const problem = ownerCardProblem(status, ownerRepo);
+  if (!problem) return false;
+  const pref = prefFor(prefs, problem, cwd);
+  return !!(problem || pref?.path || cwd) && pref?.choice !== "Skip";
+}
+
+/** 控えがない理由（`noBaselineReason`）の原因が所有者違いで、案内カードがすでに同じ原因を説明しているか（その帯は重ねて出さない）。 */
+export function ownerExplainsNoBaseline(status: SegmentStatus[] | null, ctx?: BaselineContext): boolean {
+  if (!status) return false;
+  if (status.some((s) => s.state.kind === "ready" || s.state.kind === "running" || s.state.kind === "endUnknown")) return false;
+  if (status.length === 0) return !!ctx && ctx.baselinesEnabled && ctx.git === "ownerMismatch";
+  const failed = [...status].reverse().find((s) => s.state.kind === "failed");
+  if (!failed || failed.state.kind !== "failed") return false;
+  return failed.state.reason.kind !== "skipped" && ownerProblemOf(failed.state.reason) !== null;
 }
 
 /** 所有者違いで控えを取れなかった送信の数（その発言の変更は戻せない）。 */
