@@ -444,7 +444,7 @@ export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnter
       </Shell>);
     case "changes": return (
       <Shell title="変更ファイルと差分" wide full onClose={onClose} close="閉じる">
-        <ChangesBody chat={chats.find((x) => x.key.id === d.chatId)} live={live} tick={changesTick} cap={opCaps.find((c) => c.op === "changeList")} onRevert={() => onAct("revert")} baselinesEnabled={manage.baselines.enabled} />
+        <ChangesBody chat={chats.find((x) => x.key.id === d.chatId)} live={live} tick={changesTick} cap={opCaps.find((c) => c.op === "changeList")} onRevert={() => onAct("revert")} baselinesEnabled={manage.baselines.enabled} repoPrefs={manage.baselines.repos} onSetRepo={manage.baselines.setRepo} />
       </Shell>);
     case "revert": return (
       <Shell title="変更を戻す" wide full onClose={onClose} close="閉じる">

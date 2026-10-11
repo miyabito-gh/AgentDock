@@ -428,6 +428,13 @@ pub async fn delete_baselines(host: Hs<'_>, args: ChatArgs) -> R<()> {
     host.inner().clone().delete_baselines(args, &confirmed).await
 }
 
+/// 所有者違いのリポジトリの選択を保存する（記録する／しない／AgentDockのgit操作にだけ許可。ユーザーのgit設定は変えない）。
+#[tauri::command]
+pub async fn set_repo_baseline(host: Hs<'_>, args: SetRepoBaselineArgs) -> R<crate::backend::local::BaselineSettings> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().set_repo_baseline(args, &confirmed)
+}
+
 #[tauri::command]
 pub async fn get_file_diff(host: Hs<'_>, args: GetFileDiffArgs) -> R<UnifiedDiff> {
     host.inner().clone().get_file_diff(args).await

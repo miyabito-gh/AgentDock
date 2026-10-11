@@ -287,7 +287,7 @@ impl Git {
     }
 
     async fn exec_snapshot(&self, cwd: &Path, vars: Vec<(String, String)>, op: &SnapshotOp) -> Result<GitOutput, GitError> {
-        let args = op.args()?;
+        let args = self.full_args(op.args()?);
         let stdin = op.stdin()?;
         let pairs: Vec<(&str, &str)> = vars.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
         let _serial = self.lock.lock().await;

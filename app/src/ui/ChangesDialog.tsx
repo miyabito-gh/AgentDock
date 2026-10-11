@@ -3,13 +3,14 @@
 //       戻す操作は確認の後だけ。戻せない理由はそのまま出し、部分的にしか戻せなかったときは完了と書かない。
 import { useEffect, useState } from "react";
 import * as host from "../ipc/client";
-import type { Chat, ChangeKind, GitInfo, ChangeList, ChangedFile, ChangeSource, ListStatus, OpCapability, RevertPlan, RevertResult, SegmentStatus, UnifiedDiff } from "../ipc/types";
+import type { Chat, ChangeKind, GitInfo, RepoBaselinePref, ChangeList, ChangedFile, ChangeSource, ListStatus, OpCapability, RevertPlan, RevertResult, SegmentStatus, UnifiedDiff } from "../ipc/types";
 import { chatName } from "./derive";
 import { showKnown } from "./format";
 import { About, ConfirmBlock, FootActions, ShortId } from "./DialogParts";
+import { RepoRecordPanel, type SetRepoFn } from "./RepoRecordPanel";
 import { Icon } from "./Icon";
 import type { BaselineContext } from "./revertView";
-import { forcedPaths, gitKindOf, groupOf, initialChosen, noBaselineReason, sameReason, pickedPaths, reasonLines, resultKind, sortedItems, turnOptions } from "./revertView";
+import { failureText, forcedPaths, gitKindOf, groupOf, initialChosen, noBaselineReason, sameReason, pickedPaths, reasonLines, resultKind, sortedItems, turnOptions } from "./revertView";
 
 const KIND_TEXT: Record<ChangeKind, string> = { added: "追加", deleted: "削除", modified: "変更" };
 const SOURCE_TEXT: Record<ChangeSource, string> = { baseline: "turnの変更（控え基準）", git: "Git上の現在の差分（HEAD比較）" };
@@ -17,6 +18,8 @@ const SOURCE_TEXT: Record<ChangeSource, string> = { baseline: "turnの変更（�
 const NOTE_BASELINE = "turnの開始時と終了時にAgentDockがGitで控えた内容の差です。Codexがコマンドで編集した変更も含みます（Codexの報告には依存しません）。Gitリポジトリのみで、.gitignore 対象・サブモジュール・作業フォルダ外は含みません。turnの最中に別のツールで変えた内容も含まれます。控えは自動削除されません。";
 const NOTE_GIT = "Gitの作業ツリーとHEADの現在の差分です（turnの区切りはありません）。Gitリポジトリのみ。";
 
+/** 「記録しない」を選んだリポジトリの表示（専用の一行で見せるので、控えがない帯には重ねない）。 */
+const SKIPPED_TEXT = failureText({ kind: "skipped" });
 const fileKey = (f: ChangedFile) => `${f.path}|${f.moveTo ?? ""}`;
 const errText = (e: unknown) => host.asIpcError(e).message;
 
@@ -70,9 +73,12 @@ export interface ChangesProps {
   onRevert: () => void;
   /** 設定で控えの記録がオンか（控えがない理由の判定に使う）。 */
   baselinesEnabled?: boolean;
+  /** リポジトリ別の選択（所有者違いの案内。変更ダイアログだけで使う）。 */
+  repoPrefs?: RepoBaselinePref[];
+  onSetRepo?: SetRepoFn;
 }
 
-export function ChangesBody({ chat, live, tick, cap, onRevert, baselinesEnabled }: ChangesProps) {
+export function ChangesBody({ chat, live, tick, cap, onRevert, baselinesEnabled, repoPrefs, onSetRepo }: ChangesProps) {
   const [tab, setTab] = useState<ChangeSource>("baseline");
   const [turn, setTurn] = useState("");
   const [segs, setSegs] = useState<SegmentStatus[] | null>(null);
@@ -132,7 +138,8 @@ export function ChangesBody({ chat, live, tick, cap, onRevert, baselinesEnabled 
         <UnverifiedNote cap={cap} />
         {tab === "baseline" ? <p className="small">コミット・ブランチ切替の後は控えへ戻せません。</p> : null}
         <About><p>{tab === "baseline" ? NOTE_BASELINE : NOTE_GIT}</p></About>
-        {tab === "baseline" && noBase && !sameCause ? <p className="gbanner warn" role="status">{noBase}</p> : null}
+        {tab === "baseline" && noBase && !sameCause && noBase !== SKIPPED_TEXT ? <p className="gbanner warn" role="status">{noBase}</p> : null}
+        {tab === "baseline" ? <RepoRecordPanel chat={chat} segs={segs} prefs={repoPrefs} onSet={onSetRepo} /> : null}
         {tab === "baseline" && turns.length > 0 ? (
           <div className="field"><span>対象</span>
             <select value={turn} onChange={(e) => setTurn(e.target.value)} aria-label="対象のturn">
@@ -180,6 +187,9 @@ export interface RevertProps {
   live: boolean;
   cap: OpCapability | undefined;
   baselinesEnabled?: boolean;
+  /** リポジトリ別の選択（所有者違いの案内。変更ダイアログだけで使う）。 */
+  repoPrefs?: RepoBaselinePref[];
+  onSetRepo?: SetRepoFn;
   /** 実行の完了を親へ伝える（トースト用。結果の本文はこのダイアログに残す）。結果が得られなければ null。呼ぶたびに親が差分表示の再取得を促す。 */
   onDone: (r: RevertResult | null) => void;
 }

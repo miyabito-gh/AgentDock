@@ -1,6 +1,6 @@
 // 「変更を戻す」の表示用の純粋ロジック（区分・理由の並び・控えの状況の文）。画面（ChangesDialog.tsx）から使う。
 // 規則: 判定そのものはホスト（rules/baseline.rs）が行う。ここは受け取った判定を並べ替えて文にするだけで、判定を足したり変えたりしない。
-import type { BaselineFailure, GitInfo,RevertBlockCode, RevertItem, RevertVerdict, SegmentState, SegmentStatus } from "../ipc/types";
+import type { BaselineFailure, GitInfo, RepoBaselinePref, RevertBlockCode, RevertItem, RevertVerdict, SegmentState, SegmentStatus } from "../ipc/types";
 
 export const BLOCK_LABEL: Record<RevertBlockCode, string> = {
   gitBusy: "Gitの操作の途中",
@@ -75,7 +75,22 @@ export function failureText(f: BaselineFailure): string {
     case "gitBusy": return "Gitの操作の途中でした";
     case "disabled": return "設定で控えの記録がオフです";
     case "git": return `Gitがエラーを返しました: ${f.message}`;
+    case "dubiousOwnership": return "このフォルダのGit管理が別のユーザー（Codexのサンドボックスなど）の所有になっているため、Gitが拒否しました";
+    case "skipped": return "このリポジトリの変更は記録しない設定です";
   }
+}
+
+/** 所有者違い（dubious ownership）の失敗なら、そのリポジトリの場所。保存済みの古い形（`git` のメッセージ）も拾う（場所が分からなければ空文字）。 */
+export function ownerProblemOf(f: BaselineFailure): string | null {
+  if (f.kind === "dubiousOwnership") return f.repo;
+  if (f.kind === "git" && /dubious ownership/i.test(f.message)) return /repository at '([^']*)'/.exec(f.message)?.[1] ?? "";
+  return null;
+}
+
+/** いま所有者違いで控えを取れていないリポジトリ（直近の区間が所有者違いで失敗しているときだけ。後の送信で取れていれば null）。 */
+export function currentOwnerProblem(status: SegmentStatus[] | null): string | null {
+  const last = status && status.length > 0 ? status[status.length - 1] : null;
+  return last && last.state.kind === "failed" ? ownerProblemOf(last.state.reason) : null;
 }
 
 export function stateText(s: SegmentState): string {
@@ -83,7 +98,7 @@ export function stateText(s: SegmentState): string {
     case "ready": return "";
     case "running": return "作業中（途中の状態）";
     case "endUnknown": return "終了時の控えなし";
-    case "failed": return `控えを取れませんでした: ${failureText(s.reason)}`;
+    case "failed": return ownerProblemOf(s.reason) !== null ? "戻せない（控えなし：所有者の問題）" : `控えを取れませんでした: ${failureText(s.reason)}`;
     case "abandoned": return "送信されなかったため控えなし";
   }
 }
@@ -138,6 +153,48 @@ export function noBaselineReason(status: SegmentStatus[] | null, ctx?: BaselineC
     return "このチャットには変更の控えがありません（控えを取る前のturn、Gitリポジトリではない、または設定で控えの記録がオフです）。";
   }
   const failed = [...status].reverse().find((s) => s.state.kind === "failed");
+  if (failed && failed.state.kind === "failed" && failed.state.reason.kind === "skipped") return failureText(failed.state.reason);
+  if (failed && failed.state.kind === "failed" && ownerProblemOf(failed.state.reason) !== null) return `この発言の前の状態を保存できなかったため、この発言の変更は戻せません（${failureText({ kind: "dubiousOwnership", repo: "" })}）。`;
   if (failed && failed.state.kind === "failed") return `直近の控えを取れませんでした（${failureText(failed.state.reason)}）。戻せる控えがありません。`;
   return "戻せる控えがありません（送信されなかった区間のみ）。";
 }
+
+// ───────────────────────────── リポジトリ別の選択（所有者違い） ─────────────────────────────
+
+/** ホスト（rules/baseline.rs `clean_repo_path`）と同じ正規化。`\\?\` を除き `/` 区切り・末尾の区切りなし。比較は小文字で行う。 */
+export function cleanRepoPath(p: string): string {
+  const s = p.trim().replace(/\\/g, "/").replace(/^\/\/\?\//, "");
+  return s.replace(/\/+$/, "") || s;
+}
+const cmpPath = (p: string) => cleanRepoPath(p).toLowerCase();
+const insidePath = (outer: string, inner: string) => inner === outer || inner.startsWith(`${outer}/`);
+
+/** 場所（リポジトリ・作業フォルダ）を含む選択。入れ子なら最も深いもの。 */
+export function prefFor(prefs: readonly RepoBaselinePref[] | undefined, ...paths: (string | null | undefined)[]): RepoBaselinePref | undefined {
+  let best: RepoBaselinePref | undefined;
+  for (const raw of paths) {
+    if (!raw) continue;
+    const c = cmpPath(raw);
+    for (const p of prefs ?? []) {
+      const k = cmpPath(p.path);
+      if (insidePath(k, c) && (!best || k.length > cmpPath(best.path).length)) best = p;
+    }
+  }
+  return best;
+}
+
+/** 所有者違いで控えを取れなかった送信の数（その発言の変更は戻せない）。 */
+export const ownerFailedCount = (status: SegmentStatus[] | null): number =>
+  status ? status.filter((s) => s.state.kind === "failed" && ownerProblemOf(s.state.reason) !== null).length : 0;
+
+/** Windowsのパス（`\` 区切り）。コマンド例に使う。 */
+export const winPath = (p: string): string => cleanRepoPath(p).replace(/\//g, "\\");
+
+/** 所有者を戻すコマンド例（ユーザーが管理者のコマンドプロンプトで自分で実行する。AgentDockは実行しない）。 */
+export function ownerCommands(repo: string): string[] {
+  const git = `${winPath(repo)}\\.git`;
+  return [`takeown /F "${git}" /R /D Y`, `icacls "${git}" /setowner "%USERNAME%" /T`];
+}
+
+/** `safe.directory` 登録のコマンド例（ユーザーのgit設定を変えるので、ユーザーが自分で実行する）。 */
+export const safeDirectoryCommand = (repo: string): string => `git config --global --add safe.directory ${cleanRepoPath(repo)}`;

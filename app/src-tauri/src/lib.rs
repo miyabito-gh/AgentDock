@@ -203,6 +203,7 @@ pub fn run() {
             commands::get_change_list,
             commands::get_baseline_status,
             commands::delete_baselines,
+            commands::set_repo_baseline,
             commands::get_file_diff,
             commands::preview_revert,
             commands::revert_changes,

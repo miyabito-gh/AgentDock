@@ -14,7 +14,7 @@ use super::backend::{
     ChatSummary, InterruptAck, ManageOp, ManageOutcome, Page, PermissionPreset, RespondOutcome, ResumeOutcome,
     AgentHistory,
 };
-use super::local::{AppSettings, ArtifactEntry, AttachmentEntry, ChatLocalView, ChatQueue, QuitPhase, SaveScope, SaveStatus};
+use super::local::{RepoRecordChoice, AppSettings, ArtifactEntry, AttachmentEntry, ChatLocalView, ChatQueue, QuitPhase, SaveScope, SaveStatus};
 use super::model::*;
 use super::changes::ListStatus;
 use super::parity::{ExtensionOp, ExtensionOpResult, Goal, GoalUpdate, MemoryStatus, ReviewTarget, ToolServerView};
@@ -85,6 +85,7 @@ pub mod command_names {
     pub const REVERT_CHANGES: &str = "revert_changes";
     pub const GET_BASELINE_STATUS: &str = "get_baseline_status";
     pub const DELETE_BASELINES: &str = "delete_baselines";
+    pub const SET_REPO_BASELINE: &str = "set_repo_baseline";
     pub const SET_WORK_MODE: &str = "set_work_mode";
     pub const LIST_WORK_MODES: &str = "list_work_modes";
     pub const GET_GOAL: &str = "get_goal";
@@ -514,6 +515,19 @@ impl StartupWarning {
 #[serde(rename_all = "camelCase")]
 pub struct AcknowledgeWarningsArgs {
     pub reset: bool,
+}
+
+/// 所有者違いのリポジトリの選択（変更を記録するか・AgentDockのgit操作にだけ許可するか）。`choice` が None なら選択を消す。
+/// `allow_git` は `choice` が Record のときだけ有効。確認ダイアログ（行き先のパスを表示）を経たときだけ true にする。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct SetRepoBaselineArgs {
+    pub repo: String,
+    pub choice: Option<RepoRecordChoice>,
+    #[serde(default)]
+    pub allow_git: bool,
 }
 
 // ───────────────────────────── 計画／実行・Goal・状態・memories（段階③ P3-3） ─────────────────────────────

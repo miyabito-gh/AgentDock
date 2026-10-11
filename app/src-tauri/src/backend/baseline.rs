@@ -114,6 +114,10 @@ pub enum BaselineFailure {
     /// 設定で無効（警告は出さない）。
     Disabled,
     Git { message: String },
+    /// リポジトリの所有者が現在のユーザーと違い、Gitが拒否した（dubious ownership）。`repo` はGitが示したリポジトリの場所（`/` 区切り）。
+    DubiousOwnership { repo: String },
+    /// ユーザーがこのリポジトリを「記録しない」にしている（警告は出さない）。
+    Skipped,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -269,6 +273,8 @@ mod tests {
             BaselineFailure::InsufficientSpace { required: 10, available: 3 },
             BaselineFailure::Git { message: "boom".into() },
             BaselineFailure::Disabled,
+            BaselineFailure::DubiousOwnership { repo: "C:/r".into() },
+            BaselineFailure::Skipped,
         ] {
             roundtrip(BaselineLine::Failed { seg: None, at: UnixMillis(1), attempt: LocalId("att".into()), phase: BaselinePhase::Base, reason });
         }
@@ -303,6 +309,11 @@ mod tests {
         v.as_object_mut().unwrap().remove("baselines");
         let s: AppSettings = serde_json::from_value(v).unwrap();
         assert!(s.baselines.enabled);
+        // リポジトリ別の設定を足す前の形（enabled だけ）も読める。
+        let b: super::super::local::BaselineSettings = serde_json::from_str(r#"{"enabled":false}"#).unwrap();
+        assert!(!b.enabled && b.repos.is_empty());
+        let b: super::super::local::BaselineSettings = serde_json::from_str(r#"{"enabled":true,"repos":[{"path":"C:/r","choice":"Skip"}]}"#).unwrap();
+        assert!(!b.repos[0].allow_git);
         let u: UsageBreakdown = serde_json::from_str(r#"{"attachments":1,"artifacts":2,"workspace":3,"activity":4,"metadata":5}"#).unwrap();
         assert_eq!((u.baselines, u.revert_backups), (0, 0));
     }

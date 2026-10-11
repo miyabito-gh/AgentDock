@@ -10,7 +10,7 @@ use std::time::Instant;
 use crate::backend::baseline::*;
 use crate::gitops::snapshot::{GitPathsInfo, GitVersion, IndexInfoEntry, SnapshotEnv, SnapshotOp};
 use crate::gitops::{Git, GitError};
-use crate::rules::baseline::{classify, Classified, FileMeta};
+use crate::rules::baseline::{classify, dubious_repo, Classified, FileMeta};
 use crate::store::layout::is_inside;
 
 /// 取得に必要な空き容量の余裕（違うファイルの合計サイズに足す）。
@@ -132,6 +132,9 @@ pub async fn probe_repo_info(git: &Git, cwd: &Path) -> Result<RepoProbe, Baselin
     let out = git.run_repo_probe(cwd, &SnapshotOp::GitPaths).await.map_err(failure_of)?;
     if !out.success() {
         let msg = first_line(&out.stderr);
+        if let Some(repo) = dubious_repo(&String::from_utf8_lossy(&out.stderr), &cwd.to_string_lossy()) {
+            return Err(BaselineFailure::DubiousOwnership { repo });
+        }
         return Err(if msg.to_lowercase().contains("not a git repository") { BaselineFailure::NotARepository } else { BaselineFailure::Git { message: msg } });
     }
     let info = GitPathsInfo::parse(&out.stdout_text()).ok_or_else(|| BaselineFailure::Git { message: "unexpected output from git rev-parse".into() })?;
@@ -184,6 +187,11 @@ fn unique_name() -> String {
 }
 
 fn git_fail(out: &crate::gitops::GitOutput, what: &str) -> BaselineFailure {
+    if let Some(repo) = dubious_repo(&String::from_utf8_lossy(&out.stderr), "") {
+        if !repo.is_empty() {
+            return BaselineFailure::DubiousOwnership { repo };
+        }
+    }
     let msg = first_line(&out.stderr);
     BaselineFailure::Git { message: if msg.is_empty() { format!("{what} failed") } else { format!("{what}: {msg}") } }
 }

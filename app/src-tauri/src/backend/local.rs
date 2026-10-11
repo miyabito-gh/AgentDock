@@ -602,7 +602,7 @@ pub struct LayoutSettings {
 
 /// 変更の控えの設定。取得の時間の上限は固定（10秒、`backend::baseline::BASELINE_TIME_LIMIT_MS`）。
 /// 控えに失敗しても送信は止めない。失敗の警告は理由ごとにチャット1回出す（無効のときは出さない）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
@@ -610,6 +610,33 @@ pub struct BaselineSettings {
     /// turnの開始時に変更の控えを取る（Gitリポジトリのみ）。オフなら取らず、「変更を戻す」の対象になりません。
     #[serde(default = "default_true")]
     pub enabled: bool,
+    /// リポジトリ別の選択（所有者違いを検知したときにユーザーが選んだもの）。専用の操作（`set_repo_baseline`）だけが変える
+    /// （`set_app_settings` は古い写しで上書きしない）。
+    #[serde(default)]
+    pub repos: Vec<RepoBaselinePref>,
+}
+
+/// 所有者違いのリポジトリで、変更を記録するか。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+pub enum RepoRecordChoice {
+    Record,
+    /// 以降このリポジトリではGitを呼ばない（基準B・Eを取らない）。
+    Skip,
+}
+
+/// リポジトリ1件の選択。`path` はリポジトリの場所（`\\?\` なし・`/` 区切り）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct RepoBaselinePref {
+    pub path: String,
+    pub choice: RepoRecordChoice,
+    /// 「AgentDockのgit操作だけに許可」（確認済み）。AgentDockが呼ぶgitに `-c safe.directory=<path>` を付ける。ユーザーのgit設定は変えない。
+    #[serde(default)]
+    pub allow_git: bool,
 }
 
 fn default_true() -> bool {
@@ -618,7 +645,7 @@ fn default_true() -> bool {
 
 impl Default for BaselineSettings {
     fn default() -> Self {
-        BaselineSettings { enabled: true }
+        BaselineSettings { enabled: true, repos: Vec::new() }
     }
 }
 

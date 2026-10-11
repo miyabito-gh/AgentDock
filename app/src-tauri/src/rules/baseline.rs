@@ -12,6 +12,7 @@ use std::collections::HashSet;
 use sha2::{Digest, Sha256};
 
 use crate::backend::baseline::*;
+use crate::backend::local::{RepoBaselinePref, RepoRecordChoice};
 use crate::backend::changes::{OverrideReason, RevertBlockCode, RevertFailure, RevertVerdict};
 use crate::backend::model::*;
 
@@ -628,10 +629,77 @@ pub fn aggregate(outcomes: Vec<WriteOutcome>, prior_failed: Vec<RevertFailure>) 
     agg
 }
 
+// ───────────────────────────── リポジトリ別の選択（所有者違い） ─────────────────────────────
+
+/// リポジトリの場所の保存・表示用の形（`\\?\` の接頭辞を除き、`/` 区切り、末尾の区切りなし）。
+pub fn clean_repo_path(p: &str) -> String {
+    let s = p.trim().replace('\\', "/");
+    let s = s.strip_prefix("//?/").unwrap_or(&s);
+    let t = s.trim_end_matches('/');
+    if t.is_empty() { s.to_string() } else { t.to_string() }
+}
+
+/// 比較用の形（大文字小文字を区別しない）。
+fn repo_cmp(p: &str) -> String {
+    clean_repo_path(p).to_lowercase()
+}
+
+fn inside(outer: &str, inner: &str) -> bool {
+    inner == outer || inner.strip_prefix(outer).is_some_and(|r| r.starts_with('/'))
+}
+
+/// 作業フォルダ `cwd` を含む（または同じ）リポジトリの選択。入れ子なら最も深いもの。
+pub fn pref_for<'a>(prefs: &'a [RepoBaselinePref], cwd: &str) -> Option<&'a RepoBaselinePref> {
+    let c = repo_cmp(cwd);
+    prefs.iter().filter(|p| inside(&repo_cmp(&p.path), &c)).max_by_key(|p| repo_cmp(&p.path).len())
+}
+
+/// 同じリポジトリか（表記の違いを吸収して比べる）。
+pub fn same_repo(a: &str, b: &str) -> bool {
+    repo_cmp(a) == repo_cmp(b)
+}
+
+/// AgentDockが呼ぶgitに `-c safe.directory=` で付けるリポジトリ（確認済みで、記録する選択のもの）。
+pub fn safe_directories(prefs: &[RepoBaselinePref]) -> Vec<String> {
+    prefs.iter().filter(|p| p.allow_git && p.choice == RepoRecordChoice::Record).map(|p| clean_repo_path(&p.path)).collect()
+}
+
+/// gitのエラー文が所有者違い（dubious ownership）なら、Gitが示したリポジトリの場所（示されていなければ `fallback`）。
+pub fn dubious_repo(stderr: &str, fallback: &str) -> Option<String> {
+    if !stderr.to_lowercase().contains("dubious ownership") {
+        return None;
+    }
+    let from_msg = stderr.find("repository at '").and_then(|i| {
+        let rest = &stderr[i + "repository at '".len()..];
+        rest.find('\'').map(|j| rest[..j].to_string())
+    });
+    Some(clean_repo_path(&from_msg.filter(|s| !s.trim().is_empty()).unwrap_or_else(|| fallback.to_string())))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::collections::HashMap;
+
+    #[test]
+    fn dubious_ownership_is_detected_and_the_repository_is_taken_from_the_message() {
+        let msg = "fatal: detected dubious ownership in repository at 'C:/Users/me/DocTrail'\nTo add an exception for this directory, call:";
+        assert_eq!(dubious_repo(msg, "D:/x").as_deref(), Some("C:/Users/me/DocTrail"));
+        assert_eq!(dubious_repo("fatal: detected dubious ownership in repository", "C:\\w\\r\\").as_deref(), Some("C:/w/r"));
+        assert_eq!(dubious_repo("fatal: not a git repository", "C:/x"), None);
+    }
+
+    #[test]
+    fn repo_prefs_match_by_folder_boundary_case_insensitively_and_the_deepest_wins() {
+        let pref = |p: &str, c, a| RepoBaselinePref { path: p.into(), choice: c, allow_git: a };
+        let prefs = vec![pref("C:/Users/me/DocTrail", RepoRecordChoice::Skip, false), pref("c:/users/me/doctrail/sub", RepoRecordChoice::Record, true)];
+        assert_eq!(pref_for(&prefs, r"\\?\C:\Users\me\DocTrail").unwrap().choice, RepoRecordChoice::Skip);
+        assert_eq!(pref_for(&prefs, "C:/Users/me/DocTrail/src").unwrap().choice, RepoRecordChoice::Skip);
+        assert_eq!(pref_for(&prefs, "C:/Users/me/DocTrail/SUB/x").unwrap().choice, RepoRecordChoice::Record);
+        assert!(pref_for(&prefs, "C:/Users/me/DocTrail2").is_none(), "a sibling with the same prefix is not inside");
+        assert_eq!(safe_directories(&prefs), vec!["c:/users/me/doctrail/sub".to_string()]);
+        assert!(same_repo(r"\\?\C:\a\B\", "c:/a/b"));
+    }
 
     const OK: RevertBlockCode = RevertBlockCode::ChangedAfter;
 

@@ -9,7 +9,7 @@ import {
   type ModelChoice, type ModelInfo, type MonitorScope, type Page, type ChatSummary, type PermissionPreset,
   type RequestAnswer, type RequestKey, type RespondOutcome, type SendAttempt, type SendIntent, type SourceInfo,
   type StartChatResult, type ResumeOutcome, type SaveScope, type SaveStatus, type ChatQueue, type QueueEntry, type SettingsImpact,
-  type AttachmentEntry, type FileRef,
+  type AttachmentEntry, type FileRef, type BaselineSettings, type RepoRecordChoice,
   type ForceKillPreview, type MonitorWindowScope, type QuitDecision, type QuitPhase, type StopRecord, type WindowKind,
   type ChatLocalView, type DeleteOutcome, type DeletePreview, type UsageReport, type ManageOutcome,
   type ChangeList, type ChangeScope, type ChangeSource, type ExternalId, type RevertPlan, type RevertResult, type SegmentStatus, type UnifiedDiff,
@@ -165,6 +165,8 @@ export const revertChanges = (chat: ChatKey, planId: LocalId, paths: string[], f
 export const getBaselineStatus = (chat: ChatKey): Promise<SegmentStatus[]> => invokeCmd("get_baseline_status", { chat });
 /** このチャットの控えを削除する（確認の後だけ。作業中はホストが拒否する）。 */
 export const deleteBaselines = (chat: ChatKey): Promise<null> => invokeCmd("delete_baselines", { chat });
+/** 所有者違いのリポジトリの選択を保存する（choice=null で選択を消す）。allowGit=true は確認ダイアログの後だけ。ユーザーのgit設定は変えない。 */
+export const setRepoBaseline = (repo: string, choice: RepoRecordChoice | null, allowGit: boolean): Promise<BaselineSettings> => invokeCmd("set_repo_baseline", { repo, choice, allowGit });
 
 // ── 計画／実行・Goal・状態・memories（段階③ P3-3） ──
 /** 計画／実行の選択（次のturnから適用）。null＝選択を外す。受理されたかは、設定の更新通知を受けたときだけ「受理済み」に出る。 */

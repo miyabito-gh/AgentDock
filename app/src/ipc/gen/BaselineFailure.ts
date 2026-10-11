@@ -3,4 +3,4 @@
 /**
  * 控えを取れなかった理由（保存・UI共通）。
  */
-export type BaselineFailure = { "kind": "notARepository" } | { "kind": "gitUnavailable" } | { "kind": "gitTooOld", found: string, } | { "kind": "workFolderUnknown" } | { "kind": "timeout" } | { "kind": "insufficientSpace", required: number, available: number, } | { "kind": "gitBusy" } | { "kind": "disabled" } | { "kind": "git", message: string, };
+export type BaselineFailure = { "kind": "notARepository" } | { "kind": "gitUnavailable" } | { "kind": "gitTooOld", found: string, } | { "kind": "workFolderUnknown" } | { "kind": "timeout" } | { "kind": "insufficientSpace", required: number, available: number, } | { "kind": "gitBusy" } | { "kind": "disabled" } | { "kind": "git", message: string, } | { "kind": "dubiousOwnership", repo: string, } | { "kind": "skipped" };

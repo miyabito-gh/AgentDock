@@ -1,10 +1,12 @@
 // 削除確認・Markdownエクスポート・「保存と容量」の本体（P7）。外枠（Shell）と下部ボタンは Dialogs.tsx 側。
 // 規則: 取得できていない値は「未確認」と書き、0で代用しない。保存・削除の成功は、ホストの結果を確認できたときだけ言う。
 import { useState } from "react";
-import type { Chat, ChatLocalView, DeleteOutcome, DeletePendingReason, DeletePreview, DeleteStep, UsageBreakdown, UsageReport } from "../ipc/types";
+import type { Chat, ChatLocalView, RepoBaselinePref, DeleteOutcome, DeletePendingReason, DeletePreview, DeleteStep, UsageBreakdown, UsageReport } from "../ipc/types";
 import { chatName } from "./derive";
 import { showKnown } from "./format";
 import { About } from "./DialogParts";
+import type { SetRepoFn } from "./RepoRecordPanel";
+import { cleanRepoPath } from "./revertView";
 
 /** 削除の完了した工程の表示文（ホストは列挙値だけを持つ）。 */
 export function stepText(s: DeleteStep): string {
@@ -149,6 +151,9 @@ function UsageBar({ b }: { b: UsageBreakdown }) {
 export interface BaselineProps {
   enabled: boolean;
   setEnabled: (on: boolean) => void;
+  /** リポジトリ別の選択（所有者違いのリポジトリで、記録するか・AgentDockのgit操作にだけ許可するか）。 */
+  repos: RepoBaselinePref[];
+  setRepo: SetRepoFn;
   /** 選択中チャットの控えを削除する（確認の後だけ呼ぶ）。 */
   deleteForSelected: () => Promise<void>;
   /** 削除できない理由（チャット未選択・作業中・モックなど）。null なら削除できる。 */
@@ -176,6 +181,21 @@ export function StorageBody({ u, chats, selected, acked, bl }: { u: UsageProps; 
       <div className="field"><span>変更の控え</span>
         <label><input type="checkbox" checked={bl.enabled} onChange={(e) => bl.setEnabled(e.target.checked)} />turnの開始時に変更の控えを取る（Gitリポジトリのみ）</label>
         <span className="note">オフにすると以後のturnは控えを取らず、「変更を戻す」の対象になりません。すでに取った控えは消えません（自動では削除しません）。</span></div>
+      {bl.repos.length > 0 ? (
+        <div className="field"><span>リポジトリ別の記録</span>
+          <div>
+            {bl.repos.map((p) => (
+              <div key={p.path} className="acts" style={{ alignItems: "center" }}>
+                <span className="mono" style={{ overflowWrap: "anywhere" }}>{cleanRepoPath(p.path)}</span>
+                <span className="muted">{p.choice === "Skip" ? "記録しない" : p.allowGit ? "記録する（AgentDockのgit操作だけに許可）" : "記録する"}</span>
+                {p.choice === "Skip"
+                  ? <button className="btn-line" onClick={() => void bl.setRepo(p.path, "Record", false)}>このリポジトリの記録を有効にする</button>
+                  : p.allowGit ? <button className="btn-line" onClick={() => void bl.setRepo(p.path, "Record", false)}>許可を解除</button> : null}
+                <button className="btn-line" onClick={() => void bl.setRepo(p.path, null, false)}>選択を消す</button>
+              </div>))}
+          </div>
+          <span className="note">所有者が別のユーザーのリポジトリで選んだ内容です。許可はAgentDockが呼ぶgitにだけ効き、あなたのgit設定は変えません。「選択を消す」と、次に所有者の問題を検知したとき、もう一度聞きます。</span></div>
+      ) : null}
       <div className="field"><span>このチャットの控え</span>
         {!mine ? <span className="muted">{r ? "控えはありません" : "未集計"}</span> : (
           <span>変更の控え <span className="nw">{fmtBytes(mine.breakdown.baselines)}</span>／戻す前の控え <span className="nw">{fmtBytes(mine.breakdown.revertBackups)}</span></span>)}

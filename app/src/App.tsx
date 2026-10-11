@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { readText } from "@tauri-apps/plugin-clipboard-manager";
-import type { AgentKey, AppSettings, AttachmentEntry, Chat, ChatKey, Goal, GoalUpdate, Known, WorkMode, WorkModeInfo, DeleteOutcome, DeletePreview, UsageReport, ForceKillPreview, HostEvent, HostEventEnvelope, HostSnapshot, ModelInfo, MonitorScope, PendingRequest, PermissionPreset, QuitDecision, QuitPhase, RequestAnswer, SendAttempt, SettingsImpact, SourceInfo } from "./ipc/types";
+import type { RepoRecordChoice, AgentKey, AppSettings, AttachmentEntry, Chat, ChatKey, Goal, GoalUpdate, Known, WorkMode, WorkModeInfo, DeleteOutcome, DeletePreview, UsageReport, ForceKillPreview, HostEvent, HostEventEnvelope, HostSnapshot, ModelInfo, MonitorScope, PendingRequest, PermissionPreset, QuitDecision, QuitPhase, RequestAnswer, SendAttempt, SettingsImpact, SourceInfo } from "./ipc/types";
 import * as host from "./ipc/client";
 import { LinkContext } from "./ui/Markdown";
 import { applyHostEvent, createEventPipeline, emptyBundle, replaceSnapshot, seqAction, UNKNOWN_CAPS } from "./ipc/live";
@@ -965,6 +965,11 @@ export default function App() {
   const setBaselinesEnabled = (on: boolean) => {
     updateSettings((s) => ({ ...s, baselines: { ...s.baselines, enabled: on } }), "控えの記録の設定を変更できませんでした");
   };
+  /** 所有者違いのリポジトリの選択（記録する／しない／AgentDockのgit操作にだけ許可）。保存して `settingsUpdated` で画面へ戻る。 */
+  const setRepoBaseline = async (repo: string, choice: RepoRecordChoice | null, allowGit: boolean) => {
+    if (!live) { say("モックでは動きません。"); return; }
+    try { await host.setRepoBaseline(repo, choice, allowGit); } catch (e) { sayErr("リポジトリの記録の設定を保存できませんでした", e); }
+  };
   /** 選択中チャットの控えを削除する（確認ダイアログの後だけ呼ばれる。ホストが作業中なら拒否する）。 */
   const deleteChatBaselines = async () => {
     if (!live || !chat) return;
@@ -1247,6 +1252,8 @@ export default function App() {
             baselines: {
               enabled: snap.settings.baselines.enabled,
               setEnabled: setBaselinesEnabled,
+              repos: snap.settings.baselines.repos,
+              setRepo: setRepoBaseline,
               deleteForSelected: deleteChatBaselines,
               deleteBlocked: !live ? "モックでは動きません。" : !chat ? "チャットを選ぶと削除できます。" : isWorkingForDock(snap, chat) ? "作業中のチャットの控えは削除できません。" : null,
             },

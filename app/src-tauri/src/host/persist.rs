@@ -580,6 +580,8 @@ impl Host {
             settings.acknowledged_warnings = d.settings.acknowledged_warnings.clone();
             // 環境IDの記憶はクラウド委任を送ったときだけ更新する（古い写しで上書きしない）。
             settings.cloud_env_by_repo = d.settings.cloud_env_by_repo.clone();
+            // リポジトリ別の選択（記録する／しない・git操作の許可）は専用の操作（set_repo_baseline）だけが変える。
+            settings.baselines.repos = d.settings.baselines.repos.clone();
             d.settings = settings.clone();
             ((), vec![HostEvent::SettingsUpdated { settings: settings.clone() }])
         });

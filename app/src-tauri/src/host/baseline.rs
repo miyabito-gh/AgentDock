@@ -24,10 +24,10 @@ use super::{blocked, err, now_ms, Host};
 use crate::backend::backend::*;
 use crate::backend::baseline::*;
 use crate::backend::ipc::*;
-use crate::backend::local::ChatArgs;
+use crate::backend::local::{BaselineSettings, ChatArgs, RepoBaselinePref, RepoRecordChoice, SaveScope};
 use crate::backend::model::*;
 use crate::gitops::Git;
-use crate::rules::baseline::norm_path;
+use crate::rules::baseline::{clean_repo_path, norm_path, pref_for, safe_directories, same_repo};
 use crate::store::{Store, StoreError};
 
 /// Eの待機判定の周期（通知が来ない状態変化の取りこぼし防止）。
@@ -153,10 +153,11 @@ impl ChatSegs {
     }
 }
 
-/// 警告の理由キー。警告しない理由（リポジトリでない・作業フォルダ不明・設定で無効）は None。
+/// 警告の理由キー。警告しない理由（リポジトリでない・作業フォルダ不明・設定で無効・記録しない選択）は None。
+/// 所有者違い（dubious ownership）もトーストにはしない（『変更』欄の案内に置き換える）。
 pub fn warn_key(reason: &BaselineFailure) -> Option<String> {
     Some(match reason {
-        BaselineFailure::NotARepository | BaselineFailure::WorkFolderUnknown | BaselineFailure::Disabled => return None,
+        BaselineFailure::NotARepository | BaselineFailure::WorkFolderUnknown | BaselineFailure::Disabled | BaselineFailure::Skipped | BaselineFailure::DubiousOwnership { .. } => return None,
         BaselineFailure::GitUnavailable => "gitUnavailable".into(),
         BaselineFailure::GitTooOld { .. } => "gitTooOld".into(),
         BaselineFailure::Timeout => "timeout".into(),
@@ -177,6 +178,8 @@ pub fn failure_text(reason: &BaselineFailure) -> String {
         BaselineFailure::InsufficientSpace { required, available } => format!("空き容量が足りません（必要 {required} バイト、空き {available} バイト）"),
         BaselineFailure::GitBusy => "Gitの操作（rebase・merge等）の途中です".into(),
         BaselineFailure::Disabled => "設定で無効です".into(),
+        BaselineFailure::Skipped => "このリポジトリの変更は記録しない設定です".into(),
+        BaselineFailure::DubiousOwnership { repo } => format!("このフォルダのGit管理が別のユーザー（Codexのサンドボックスなど）の所有になっているため、Gitが拒否しました（{repo}）"),
         BaselineFailure::Git { message } => format!("Gitのエラー: {message}"),
     }
 }
@@ -388,6 +391,39 @@ fn store_failure(e: StoreError) -> BaselineFailure {
 }
 
 impl Host {
+    // ───────────── リポジトリ別の選択（所有者違い） ─────────────
+
+    /// 作業フォルダを含むリポジトリの選択（なければ None）。
+    pub(super) fn repo_pref_for(&self, cwd: &str) -> Option<RepoBaselinePref> {
+        self.read(|d| pref_for(&d.settings.baselines.repos, cwd).cloned())
+    }
+
+    /// 控え・変更表示用のgit。所有者違いを許可したリポジトリには `-c safe.directory=` をコマンドラインで付ける（ユーザーのgit設定は変えない）。
+    pub(super) fn git_for_baseline(&self) -> Git {
+        let (tool, safe) = self.read(|d| (d.settings.tools.git.clone(), safe_directories(&d.settings.baselines.repos)));
+        Git::new(tool.as_deref()).with_safe_directories(safe)
+    }
+
+    /// リポジトリ別の選択を保存する。`choice` が None なら選択を消す（未選択に戻す）。`allow_git` は「記録する」のときだけ有効。
+    /// 許可（`allow_git`）を新しく付けるときは、確認ダイアログを経たユーザー操作（`UserConfirmed`）が要る。
+    pub fn set_repo_baseline(self: &Arc<Self>, args: SetRepoBaselineArgs, _confirmed: &UserConfirmed) -> Result<BaselineSettings, IpcError> {
+        let path = clean_repo_path(&args.repo);
+        if path.is_empty() {
+            return Err(err(IpcErrorCode::InvalidArgs, "リポジトリの場所が分かりません"));
+        }
+        self.precheck_space()?;
+        let settings = self.mutate(|d| {
+            let repos = &mut d.settings.baselines.repos;
+            repos.retain(|p| !same_repo(&p.path, &path));
+            if let Some(choice) = args.choice {
+                repos.push(RepoBaselinePref { path: path.clone(), choice, allow_git: args.allow_git && choice == RepoRecordChoice::Record });
+            }
+            (d.settings.clone(), vec![HostEvent::SettingsUpdated { settings: d.settings.clone() }])
+        });
+        self.schedule_save(SaveScope::AppSettings, Duration::ZERO);
+        Ok(settings.baselines)
+    }
+
     // ───────────── 記録 ─────────────
 
     /// 控えの記録を1行追記する。削除中・保存先なしは書かない。書けたら `ChangesUpdated` を出す。
@@ -534,8 +570,11 @@ impl Host {
 
     /// 作業フォルダのリポジトリを調べ、リポジトリロック（読取り）を取って控えを取る。調査と取得はそれぞれ10秒の上限。
     async fn baseline_capture_at(self: &Arc<Self>, chat: &ChatKey, store: &Arc<Store>, cwd: &Path) -> Result<(RepoRef, Snapshot), BaselineFailure> {
-        let tool = self.read(|d| d.settings.tools.git.clone());
-        let git = Git::new(tool.as_deref());
+        // 「記録しない」を選んだリポジトリでは、Gitを呼ばない（基準B・Eとも）。
+        if self.repo_pref_for(&cwd.to_string_lossy()).is_some_and(|p| p.choice == RepoRecordChoice::Skip) {
+            return Err(BaselineFailure::Skipped);
+        }
+        let git = self.git_for_baseline();
         let limit = Duration::from_millis(BASELINE_TIME_LIMIT_MS);
         let t0 = Instant::now();
         let probe = tokio::time::timeout(limit, probe_repo(&git, cwd)).await.map_err(|_| BaselineFailure::Timeout)??;
@@ -898,7 +937,7 @@ mod tests {
         assert!(!c.should_warn(k));
         assert!(c.should_warn(warn_key(&BaselineFailure::Timeout).unwrap()));
         assert!(c.should_warn(warn_key(&BaselineFailure::Git { message: "other".into() }).unwrap()), "a different reason warns again");
-        for quiet in [BaselineFailure::NotARepository, BaselineFailure::WorkFolderUnknown, BaselineFailure::Disabled] {
+        for quiet in [BaselineFailure::NotARepository, BaselineFailure::WorkFolderUnknown, BaselineFailure::Disabled, BaselineFailure::Skipped, BaselineFailure::DubiousOwnership { repo: "C:/r".into() }] {
             assert_eq!(warn_key(&quiet), None);
         }
         let t = warn_text(&BaselineFailure::Timeout, BaselinePhase::Base);

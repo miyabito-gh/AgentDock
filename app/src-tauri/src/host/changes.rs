@@ -494,8 +494,7 @@ struct Session {
 impl Session {
     async fn open(host: &Arc<Host>, chat: &ChatKey, cwd: &str) -> Result<Session, OpenFail> {
         let store = host.persist.store().cloned().ok_or(OpenFail::NoStore)?;
-        let tool = host.read(|d| d.settings.tools.git.clone());
-        let git = Git::new(tool.as_deref());
+        let git = host.git_for_baseline();
         let limit = Duration::from_millis(BASELINE_TIME_LIMIT_MS);
         let probe = tokio::time::timeout(limit, probe_repo_info(&git, Path::new(cwd)))
             .await
@@ -795,8 +794,7 @@ impl Host {
         let Some(cwd) = self.read(|d| d.chat(chat).and_then(|c| c.cwd.value().cloned())) else {
             return GitCtx::NotSupported("作業フォルダが分からないため、Gitの差分を取得できません".into());
         };
-        let tool = self.read(|d| d.settings.tools.git.clone());
-        let git = Git::new(tool.as_deref());
+        let git = self.git_for_baseline();
         match git.run(Path::new(&cwd), &GitOp::RepoRoot).await {
             Err(e) => match git_error_status(&e) {
                 ListStatus::NotSupported { message } => GitCtx::NotSupported(message),

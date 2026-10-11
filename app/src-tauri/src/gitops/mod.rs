@@ -229,17 +229,36 @@ impl GitOp {
 pub struct Git {
     exe: String,
     lock: tokio::sync::Mutex<()>,
+    /// ユーザーが確認して許可したリポジトリ。実行のたびに `-c safe.directory=<path>` をコマンドラインで付ける（ユーザーのgit設定は変えない）。
+    safe_dirs: Vec<String>,
 }
 
 impl Git {
     /// `exe` は設定 `tools.git`。None・空白だけならPATHの `git`。
     pub fn new(exe: Option<&str>) -> Self {
         let exe = exe.map(str::trim).filter(|s| !s.is_empty()).unwrap_or("git").to_string();
-        Git { exe, lock: tokio::sync::Mutex::new(()) }
+        Git { exe, lock: tokio::sync::Mutex::new(()), safe_dirs: Vec::new() }
+    }
+
+    /// 所有者違いでも扱ってよいリポジトリ（AgentDockの設定で許可済みのもの）を指定する。
+    pub fn with_safe_directories(mut self, dirs: Vec<String>) -> Self {
+        self.safe_dirs = dirs;
+        self
+    }
+
+    /// 実行する引数。許可済みリポジトリの `-c safe.directory=` を先頭に付ける。
+    pub(crate) fn full_args(&self, args: Vec<String>) -> Vec<String> {
+        let mut out = Vec::with_capacity(args.len() + self.safe_dirs.len() * 2);
+        for d in &self.safe_dirs {
+            out.push("-c".to_string());
+            out.push(format!("safe.directory={d}"));
+        }
+        out.extend(args);
+        out
     }
 
     pub async fn run(&self, cwd: &Path, op: &GitOp) -> Result<GitOutput, GitError> {
-        let args = op.args()?;
+        let args = self.full_args(op.args()?);
         let _serial = self.lock.lock().await;
         let out = run_bounded(RunSpec {
             program: &self.exe,
