@@ -4,6 +4,7 @@ import type { ChatKey } from "./ChatKey";
 import type { ExternalId } from "./ExternalId";
 import type { Known } from "./Known";
 import type { ParentLink } from "./ParentLink";
+import type { SpawnSpec } from "./SpawnSpec";
 
 /**
  * エージェント（§5）。ルート自身もエージェントとして持つ。
@@ -32,4 +33,8 @@ model: Known<string>,
 /**
  * 子スレッドに記録された推論強度（記録値）。
  */
-effort: Known<string>, latestTurn: ExternalId | null, };
+effort: Known<string>, 
+/**
+ * 親の履歴に記録された起動時の指定（記録値。子スレッドの現在値とは別）。
+ */
+spawnSpec: Known<SpawnSpec>, latestTurn: ExternalId | null, };

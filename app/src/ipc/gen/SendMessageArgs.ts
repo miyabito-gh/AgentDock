@@ -3,4 +3,9 @@ import type { ChatKey } from "./ChatKey";
 import type { LocalId } from "./LocalId";
 import type { SendIntent } from "./SendIntent";
 
-export type SendMessageArgs = { chat: ChatKey, text: string, attachments: Array<LocalId>, intent: SendIntent, };
+export type SendMessageArgs = { chat: ChatKey, text: string, attachments: Array<LocalId>, intent: SendIntent, 
+/**
+ * 送信待ちの依頼を追加指示として今送るとき、その項目（`intent` は Steer）。受理されたら項目を取り消す。
+ * 受理不明なら項目を残したまま保留にし（自動送信しない）、照合で受理と確定したら取り消す。受理なしなら待機のまま。
+ */
+steerEntry: LocalId | null, };

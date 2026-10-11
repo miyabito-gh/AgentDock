@@ -193,6 +193,7 @@ pub fn thread_to_agent(t: &WireThread, chat: ChatKey) -> Agent {
         // 記録値（thread/list・thread/read が返したもの）。子だけ保持する（親は既存のモデル表示がある）。
         model: if is_root { Known::NotFetched } else { known_str(&t.model) },
         effort: if is_root { Known::NotFetched } else { known_str(&t.reasoning_effort) },
+        spawn_spec: Known::NotFetched,
         latest_turn: t.latest_turn().map(|x| ext(x.id())),
     }
 }
@@ -437,21 +438,50 @@ pub fn file_change_paths(item: &Value) -> Vec<String> {
 /// 親の `collabAgentToolCall`（spawnAgent）から、生成された子の担当（依頼文の先頭）を取り出す。
 /// 受信側が1件に確定できるときだけ（複数なら、どの子の依頼か決められないので割り当てない）。
 pub fn spawn_assignment(item: &Value) -> Option<(AgentKey, String)> {
+    let child = spawn_child(item)?;
+    let prompt = str_of(item, "prompt").map(str::trim).filter(|p| !p.is_empty())?;
+    Some((agent_key(&child), truncate(prompt, 80)))
+}
+
+/// spawnAgent の受信側（生成された子）。receiverThreadIds、空なら agentsStates のキー（どちらも1件に確定できるときだけ）。
+fn spawn_child(item: &Value) -> Option<String> {
     if str_of(item, "type") != Some("collabAgentToolCall") || str_of(item, "tool") != Some("spawnAgent") {
         return None;
     }
-    // 受信側は receiverThreadIds、空なら agentsStates のキー（どちらも1件に確定できるときだけ）。
     let mut ids: Vec<String> = item.get("receiverThreadIds").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_string).collect();
     if ids.is_empty() {
         ids = item.get("agentsStates").and_then(Value::as_object).map(|o| o.keys().cloned().collect()).unwrap_or_default();
     }
-    let [child] = ids.as_slice() else { return None };
-    let child = child.as_str();
-    if child.is_empty() {
-        return None;
+    match ids.as_slice() {
+        [child] if !child.is_empty() => Some(child.clone()),
+        _ => None,
     }
-    let prompt = str_of(item, "prompt").map(str::trim).filter(|p| !p.is_empty())?;
-    Some((agent_key(child), truncate(prompt, 80)))
+}
+
+/// 親の `collabAgentToolCall`（spawnAgent）が記録した起動時の指定（task_name・model・reasoning_effort・fork_turns）。
+/// 子を1件に確定できるときだけ。項目に無いものは None のまま（補わない）。`arguments`（オブジェクトまたはJSON文字列）があればそこも見る。
+pub fn spawn_spec(item: &Value) -> Option<(AgentKey, SpawnSpec)> {
+    let child = spawn_child(item)?;
+    let args: Option<Value> = match item.get("arguments") {
+        Some(Value::String(s)) => serde_json::from_str(s).ok(),
+        Some(v @ Value::Object(_)) => Some(v.clone()),
+        _ => None,
+    };
+    let pick = |keys: &[&str]| -> Option<String> {
+        let from = |v: &Value| keys.iter().find_map(|k| v.get(*k)).and_then(|x| match x {
+            Value::String(s) => Some(s.trim().to_string()),
+            Value::Number(n) => Some(n.to_string()),
+            _ => None,
+        });
+        from(item).or_else(|| args.as_ref().and_then(from)).filter(|s| !s.is_empty())
+    };
+    let spec = SpawnSpec {
+        task_name: pick(&["task_name", "taskName"]),
+        model: pick(&["model"]),
+        effort: pick(&["reasoningEffort", "reasoning_effort"]),
+        fork_turns: pick(&["fork_turns", "forkTurns"]),
+    };
+    (!spec.is_empty()).then_some((agent_key(&child), spec))
 }
 
 /// itemの `status` から進行段階を決める。status無しは `default`。
@@ -795,6 +825,22 @@ mod tests {
         assert_eq!(thread_to_agent(&root, chat_key("r")).assignment, Known::NotFetched);
         let empty = thread(json!({"id": "c2", "preview": "  ", "status": {"type": "idle"}, "source": {"subAgent": {"thread_spawn": {"parent_thread_id": "p"}}}}));
         assert_eq!(thread_to_agent(&empty, chat_key("p")).assignment, Known::NotFetched);
+    }
+
+    #[test]
+    fn spawn_spec_is_taken_only_for_one_unambiguous_child_and_never_filled_in() {
+        let item = |ids: Value| json!({"type": "collabAgentToolCall", "tool": "spawnAgent", "receiverThreadIds": ids, "model": "m1", "reasoningEffort": "high"});
+        let (k, s) = spawn_spec(&item(json!(["c1"]))).unwrap();
+        assert_eq!(k, agent_key("c1"));
+        assert_eq!(s, SpawnSpec { task_name: None, model: Some("m1".into()), effort: Some("high".into()), fork_turns: None });
+        assert_eq!(spawn_spec(&item(json!(["c1", "c2"]))), None, "ambiguous: do not guess");
+        assert_eq!(spawn_spec(&item(json!([]))), None);
+        let bare = json!({"type": "collabAgentToolCall", "tool": "spawnAgent", "receiverThreadIds": ["c1"], "model": null, "reasoningEffort": null});
+        assert_eq!(spawn_spec(&bare), None, "nothing recorded: not confirmed");
+        let with_args = json!({"type": "collabAgentToolCall", "tool": "spawnAgent", "receiverThreadIds": ["c1"], "arguments": "{\"task_name\":\"design\",\"fork_turns\":\"all\",\"model\":\"m2\",\"reasoning_effort\":\"low\"}"});
+        let (_, s) = spawn_spec(&with_args).unwrap();
+        assert_eq!(s, SpawnSpec { task_name: Some("design".into()), model: Some("m2".into()), effort: Some("low".into()), fork_turns: Some("all".into()) });
+        assert_eq!(spawn_spec(&json!({"type": "collabAgentToolCall", "tool": "sendInput", "receiverThreadIds": ["c1"], "model": "m"})), None);
     }
 
     #[test]

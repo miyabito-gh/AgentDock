@@ -943,9 +943,14 @@ impl Host {
         match self.backend.reconcile_send(pending).await {
             ReconcileOutcome::Accepted { turn } => {
                 self.unresolved.lock().unwrap().resolve(attempt_id);
+                // 追加指示として送ったキュー項目なら、記録を消す前にその項目を控える（受理と確定したので取り消す）。
+                let steered = self.read(|d| d.queues.get(&chat).and_then(|f| f.unresolved_sends.iter().find(|r| &r.attempt == attempt_id)).and_then(|r| r.entry.clone()));
                 self.drop_unresolved_record(&chat, attempt_id);
                 self.baseline_bound(&chat, attempt_id, &turn.turn_id);
                 self.apply_reconciled(&chat, attempt_id, |a| q::SendResult::ReconciledAccepted { attempt: a, turn: turn.clone() });
+                if let Some(e) = steered {
+                    self.cancel_steered(&chat, &e);
+                }
                 let a = make(SendState::Accepted { turn });
                 self.emit_send(&chat, &a);
                 ReconcileStep::Resolved(a)
@@ -976,6 +981,43 @@ impl Host {
             };
             q::apply_send_result(&mut f.queue, &entry, make(attempt.clone()), now_ms());
             (true, vec![queue_event(f)])
+        });
+        if changed {
+            self.schedule_save(SaveScope::Queue { chat: chat.clone() }, Duration::ZERO);
+            self.kick_queue();
+        }
+    }
+
+    /// 項目が送信待ち（Waiting）のままか。
+    pub(super) fn queue_entry_waiting(&self, chat: &ChatKey, entry: &LocalId) -> bool {
+        self.read(|d| d.queues.get(chat).is_some_and(|f| f.queue.entries.iter().any(|e| &e.id == entry && matches!(e.state, QueueEntryState::Waiting))))
+    }
+
+    /// 追加指示として送った項目の後始末。受理なら項目を取り消す。受理不明なら項目を残し、試行へ結び付ける
+    /// （受理不明の間はキュー全体が保留で自動送信されない。照合で受理と確定したら取り消す）。受理なしなら待機のまま。
+    pub(super) fn settle_steer_entry(self: &Arc<Self>, chat: &ChatKey, entry: &LocalId, attempt: &SendAttempt) {
+        match &attempt.state {
+            SendState::Accepted { .. } => self.cancel_steered(chat, entry),
+            SendState::AcceptanceUnknown { .. } => {
+                let linked = self.mutate(|d| {
+                    let Some(f) = d.queues.get_mut(chat) else { return (false, vec![]) };
+                    let Some(r) = f.unresolved_sends.iter_mut().find(|r| r.attempt == attempt.attempt_id) else { return (false, vec![]) };
+                    r.entry = Some(entry.clone());
+                    (true, vec![])
+                });
+                if linked {
+                    self.schedule_save(SaveScope::Queue { chat: chat.clone() }, Duration::ZERO);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// 追加指示が受理された項目を取り消す（送信待ちのときだけ）。
+    fn cancel_steered(self: &Arc<Self>, chat: &ChatKey, entry: &LocalId) {
+        let changed = self.mutate(|d| {
+            let Some(f) = d.queues.get_mut(chat) else { return (false, vec![]) };
+            if q::cancel_steered(&mut f.queue, entry) { (true, vec![queue_event(f)]) } else { (false, vec![]) }
         });
         if changed {
             self.schedule_save(SaveScope::Queue { chat: chat.clone() }, Duration::ZERO);
@@ -1300,6 +1342,7 @@ mod history_gate_tests {
                 agent_path: Known::NotFetched,
                 model: Known::NotFetched,
                 effort: Known::NotFetched,
+                spawn_spec: Known::NotFetched,
                 // 一覧・走査で作った子は最新turnを持たない。
                 latest_turn: None,
             },

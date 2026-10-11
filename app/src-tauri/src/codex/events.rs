@@ -197,6 +197,9 @@ fn convert_known(method: &str, p: &Value, ctx: &EventCtx, live: &dyn Fn(Option<U
                     if let Some((agent, assignment)) = super::convert::spawn_assignment(item) {
                         out.push(BackendEvent::AgentAssignment { agent, assignment });
                     }
+                    if let Some((agent, spec)) = super::convert::spawn_spec(item) {
+                        out.push(BackendEvent::AgentSpawnSpec { agent, spec });
+                    }
                     out
                 }
                 None => vec![unrecognized(method, "item without id")],

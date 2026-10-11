@@ -34,7 +34,7 @@ import { resendAvailability } from "./ui/resend";
 import { PaneSplitter } from "./ui/PaneSplitter";
 import { displayWidths, loadSaved, type PaneKind } from "./ui/paneWidth";
 import { chatName, isRunning, isWorkingForDock, stopOpen } from "./ui/derive";
-import { hms, keyStr } from "./ui/format";
+import { hms, keyStr, knownValue } from "./ui/format";
 import { applyAppearance, watchSystemTheme } from "./ui/appearance";
 
 type Mode = "live" | "mock";
@@ -117,6 +117,8 @@ export default function App() {
   const [attempts, setAttempts] = useState<Record<string, SendAttempt>>({});
   // 送った発言のローカルの記録（送信直後の添付チップ用。メモリのみ。再読込み・再起動後は履歴から復元する）
   const [sends, setSends] = useState<Record<string, SentLocal[]>>({});
+  /** キュー項目から追加指示で送り、受理不明のままの項目（項目ID→送信の試行ID）。 */
+  const [steerUnknown, setSteerUnknown] = useState<Record<string, string>>({});
   const [warnHidden, setWarnHidden] = useState(false);
   const [listStatus, setListStatus] = useState<{ ok: boolean; text: string } | null>(null);
   const [steerOf, setSteerOf] = useState<Record<string, { attemptId: string; text: string; attachments: string[] }>>({});
@@ -548,6 +550,44 @@ export default function App() {
       if (!chat || !live) return false;
       try { await host.sendQueueEntryNow(chat.key, entry); say("先頭の依頼の送信を依頼しました。受理されたかどうかは、会話とキューの表示で確認してください。"); return true; } catch (e) { sayErr("今すぐ送れませんでした", e); return false; }
     },
+    /** キュー項目を追加指示として今送る（押したとき1回だけ）。受理されたら元の項目を消す。受理不明は項目を残し、再送しない。 */
+    steerUnknown,
+    steerEntry: async (e: { id: string; text: string; attachments: string[] }): Promise<void> => {
+      if (!chat || !live) return;
+      if (!isRunning(snap, chat)) { say("実行中ではないため、追加指示としては送れません。"); return; }
+      const sentAtts = e.attachments.map((id) => snap.attachments.find((x) => x.id === id)).filter((x): x is AttachmentEntry => !!x).map(fromLocal);
+      const key = chat.key;
+      try {
+        // 項目の取消し・受理不明の保留は、ホストが行う（受理→項目を取り消す／受理不明→項目を残しキューを保留／受理なし→待機のまま）
+        const a = await host.sendMessage(key, e.text, "steer", e.attachments, e.id);
+        switch (a.state.kind) {
+          case "accepted":
+            setSends((m) => ({ ...m, [key.id]: [...(m[key.id] ?? []), { text: e.text, at: a.at, atts: sentAtts, steer: true }].slice(-30) }));
+            say("追加指示を Codex が受理しました。元の依頼は取り消しました。現在のturnへの反映は会話の表示で確認してください（受理と反映は別です）。");
+            break;
+          case "acceptanceUnknown":
+            setSteerUnknown((m) => ({ ...m, [e.id]: a.attemptId }));
+            say("追加指示を受理したか確認できません。元の依頼は残し、自動送信を保留しています。再送はしません。履歴との照合で確定します（「履歴と照合」でも確認できます）。");
+            break;
+          case "rejected": say(`追加指示は受け付けられませんでした（${a.state.message}）。元の依頼はそのまま残しています。`); break;
+          default: say("追加指示の結果を確認できませんでした。元の依頼はそのまま残しています。");
+        }
+      } catch (er) { sayErr("追加指示を送れませんでした。元の依頼はそのまま残しています", er); }
+    },
+    steerReconcile: (entryId: string) => {
+      const attempt = steerUnknown[entryId];
+      if (!chat || !live || !attempt) return;
+      const key = chat.key;
+      const clear = () => setSteerUnknown((m) => { const n = { ...m }; delete n[entryId]; return n; });
+      // 照合は読み取りのみ。受理と確定したらホストが元の項目を取り消し、受理なしなら項目は待機に戻る。
+      host.reconcileSend(key, attempt).then((a) => {
+        if (a.state.kind === "accepted") {
+          clear();
+          say("履歴との照合で、追加指示の受理を確認しました。元の依頼は取り消しました。");
+        } else if (a.state.kind === "acceptanceUnknown") say("まだ受理を確認できません。元の依頼は残しています（再送はしません）。");
+        else { clear(); say("履歴に受理の痕跡がないことを確認しました。元の依頼はそのまま残しています。"); }
+      }).catch((er) => sayErr("照合できませんでした", er));
+    },
     reconcile: (attempt: string) => {
       if (!chat || !live) return;
       host.reconcileSend(chat.key, attempt).then((a) => say(a.state.kind === "acceptanceUnknown" ? "まだ受理を確認できません。照合を続けます（再送はしません）。" : "履歴との照合で確定しました。")).catch((e) => sayErr("照合できませんでした", e));
@@ -804,22 +844,27 @@ export default function App() {
       case "copyRel": if (info.relative) copy(info.relative, "相対パス"); break;
       case "copyName": copy(baseNameOf(abs), "ファイル名"); break;
       case "reveal": host.revealPath(chat.key, path).catch((e) => sayErr("表示できませんでした", e)); break;
-      case "open":
-        void (async () => {
-          try { await host.openPath(chat.key, path); return; } catch (e) {
-            const b = host.asIpcError(e).blocked;
-            if (b?.kind !== "openNeedsConfirm") { sayErr("開けませんでした", e); return; }
-            const why = [
-              b.executable ? "実行形式のファイルです。開くとプログラムが実行されることがあります。" : "",
-              b.outsideProject ? "このチャットのプロジェクト（作業フォルダ）の外にあるファイルです。" : "",
-            ].filter(Boolean).join("\n");
-            if (!window.confirm(`${why}\n${b.path}\n\n内容を確認したうえで、開きますか？`)) { say("開くのをやめました。"); return; }
-            try { await host.openPath(chat.key, path, true); } catch (e2) { sayErr("開けませんでした", e2); }
-          }
-        })();
-        break;
+      case "open": openWithConfirm(chat.key, path); break;
     }
   };
+  /** 開く（作業フォルダ外・実行形式はホストが止めるので、確認のうえで再実行）。ユーザーのクリックから呼ぶ。 */
+  const openWithConfirm = (chatKey: ChatKey, path: string) => {
+    void (async () => {
+      try { await host.openPath(chatKey, path); return; } catch (e) {
+        const b = host.asIpcError(e).blocked;
+        if (b?.kind !== "openNeedsConfirm") { sayErr("開けませんでした", e); return; }
+        const why = [
+          b.executable ? "実行形式のファイルです。開くとプログラムが実行されることがあります。" : "",
+          b.outsideProject ? "このチャットのプロジェクト（作業フォルダ）の外にあるファイルです。" : "",
+        ].filter(Boolean).join("\n");
+        if (!window.confirm(`${why}\n${b.path}\n\n内容を確認したうえで、開きますか？`)) { say("開くのをやめました。"); return; }
+        try { await host.openPath(chatKey, path, true); } catch (e2) { sayErr("開けませんでした", e2); }
+      }
+    })();
+  };
+  // ヘッダーの作業フォルダの実在確認（読取りのメタデータだけ。開くのは押したときだけ）
+  const headCwd = chat ? knownValue(chat.cwd) : null;
+  useEffect(() => { if (live && headCwd) requestPath(headCwd); }, [live, headCwd, chat?.key.id, requestPath]);
   const refActions: RefActions = {
     chatTitle: (id) => { const c = snap.chats.find((x) => x.key.id.toLowerCase() === id.toLowerCase()); return c ? chatName(c) : undefined; },
     openChat: (id) => { const c = snap.chats.find((x) => x.key.id.toLowerCase() === id.toLowerCase()); if (c) selectChat(c.key.id); },
@@ -1154,6 +1199,7 @@ export default function App() {
       case "togglePin": togglePin(chat?.key.id); break;
       case "renameChat": if (chat) setDialog({ type: "rename", chatId: chat.key.id }); break;
       case "refreshList": void refreshList(); break;
+      case "openCwd": { const c = chat ? knownValue(chat.cwd) : null; if (chat && live && c) openWithConfirm(chat.key, c); break; }
       case "reloadHistory": if (chat && live) { void loadChat(chat.key.id); say("保存履歴を取り直しています（読み取りのみ）。"); } break;
       case "attachPick": void pickFiles(); break;
       case "attachPasteSelection": void pasteSelection(); break;
@@ -1275,6 +1321,7 @@ export default function App() {
                 notice={live ? noticeOf(attempts[chat.key.id], steerOf[chat.key.id] ? { attemptId: steerOf[chat.key.id].attemptId, queueInstead: () => { void onSend(steerOf[chat.key.id].text, false, steerOf[chat.key.id].attachments); } } : null) : null} onRetrySend={() => void onRetrySend()}
                 queue={snap.queues.find((q) => q.chat.id === chat.key.id)} local={snap.chatLocals.find((l) => l.chat.id === chat.key.id)}
                 qact={qact} onPermission={onPermission} onCwd={onCwd} sends={sends[chat.key.id] ?? NO_SENDS}
+                cwdInfo={headCwd ? pathInfo(headCwd) : undefined}
               />
             ) : <EmptyCenter onAct={act} />}
           </main>

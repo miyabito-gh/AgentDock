@@ -23,7 +23,7 @@ function statusClass(text: string): string {
 }
 
 const NL = "\n";
-interface MenuItem { act: string; label: string; danger?: boolean; sep?: boolean; title?: string }
+interface MenuItem { act: string; label: string; danger?: boolean; sep?: boolean; title?: string; /** 2行目の小さな補足（長いときは省略表示。全文は title） */ sub?: string }
 /** 開いているメニュー（行の「…」・見出しの「…」で共通）。位置は「…」ボタンに寄せる。 */
 type OpenMenu = { kind: "chat"; id: string } | { kind: "group"; key: string };
 
@@ -224,7 +224,12 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct,
     return {
       label: `「${labelOf(g)}」の操作`,
       items: [
-        ...(newIn ? [{ act: "gnew", label: g.kind === "project" ? `このプロジェクトで新しいチャット（先頭フォルダ: ${newIn[0]}）` : "このフォルダで新しいチャット", title: g.kind === "project" ? "先頭をプライマリと推定" : undefined }] : []),
+        ...(newIn ? [{
+          act: "gnew",
+          label: g.kind === "project" ? "このプロジェクトで新しいチャット" : "このフォルダで新しいチャット",
+          sub: g.kind === "project" ? `先頭フォルダ: ${newIn[0]}` : newIn[0],
+          title: g.kind === "project" ? `先頭フォルダ（プライマリと推定）: ${newIn[0]}` : newIn[0],
+        }] : []),
         ...(g.kind !== "unknown" ? [{ act: "gpin", label: g.pinned ? "フォルダのピン留めを外す" : "フォルダをピン留め" }] : []),
         ...(g.kind === "folder" ? [{ act: "gcopy", label: "パスをコピー" }] : []),
       ],
@@ -410,7 +415,7 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct,
       {mi ? (
         <div ref={menuRef} className="pop row-menu" role="menu" aria-label={mi.label} tabIndex={-1} style={{ visibility: "hidden" }} onKeyDown={onMenuKey}>
           {mi.items.map((it, i) => it.sep ? <hr key={i} /> : (
-            <button key={it.act} type="button" role="menuitem" className={it.danger ? "danger" : undefined} title={it.title} onClick={() => pick(it.act)}>{it.label}</button>
+            <button key={it.act} type="button" role="menuitem" className={it.danger ? "danger" : it.sub ? "has-sub" : undefined} title={it.title} onClick={() => pick(it.act)}>{it.sub ? <><span>{it.label}</span><span className="sub">{it.sub}</span></> : it.label}</button>
           ))}
         </div>
       ) : null}

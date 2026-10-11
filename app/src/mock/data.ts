@@ -55,6 +55,7 @@ function agent(id: string, chatId: string, parent: string | null | "?", name: st
     key: ak(id), chat: ck(chatId),
     parent: parent === null ? { kind: "root" } : parent === "?" ? { kind: "unknown" } : { kind: "explicit", parent: ak(parent) },
     forkedFrom: val(null), displayName: name ? val(name) : nf(), role: role ? val(role) : nf(), assignment: task ? val(task) : nf(), agentPath: nf(), model: parent === null ? nf() : val("gpt-6.1-sol"), effort: parent === null ? nf() : val("high"),
+    spawnSpec: nf(),
     latestTurn: "t1",
   };
 }

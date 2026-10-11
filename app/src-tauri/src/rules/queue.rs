@@ -274,6 +274,18 @@ pub fn cancel(queue: &mut ChatQueue, id: &LocalId) -> Result<(), EditError> {
     Ok(())
 }
 
+/// 追加指示として送った項目を、受理の確認後に取り消す。送信待ち（Waiting）のときだけ取り消し、変えたら true。
+/// 他の状態（すでに自動送信された・受理不明・受理なし等）は変えない。
+pub fn cancel_steered(queue: &mut ChatQueue, id: &LocalId) -> bool {
+    match queue.entries.iter_mut().find(|e| &e.id == id) {
+        Some(e) if matches!(e.state, QueueEntryState::Waiting) => {
+            e.state = QueueEntryState::Cancelled;
+            true
+        }
+        _ => false,
+    }
+}
+
 /// 送信開始。Waiting（または、ユーザーが再送を選んだ NotAccepted）の項目を `Sending{attempt}` にし、送信時点の設定を記録する。
 /// 戻り値は開始できたか（それ以外の状態の項目は変えない）。
 pub fn begin_send(queue: &mut ChatQueue, id: &LocalId, attempt: SendAttempt, applied: AppliedSettings) -> bool {
@@ -896,6 +908,27 @@ mod tests {
         assert_eq!(cancel(&mut q, &lid("a")), Err(EditError::NotEditable));
         cancel(&mut q, &lid("b")).unwrap();
         assert_eq!(q.entries[1].state, QueueEntryState::Cancelled);
+    }
+
+    #[test]
+    fn cancel_steered_only_when_waiting() {
+        let mut q = queue_with(&["a", "b", "c"], 1500);
+        // 受理不明の間は項目を変えず、キュー全体が保留で自動送信されない（試行の保留は GateInput.unresolved_attempt）。
+        let mut i = input();
+        i.unresolved_attempt = Some(lid("steer1"));
+        assert_eq!(evaluate(&q, &i), GateDecision::Hold(QueueHold::AcceptanceUnknown { attempt: lid("steer1") }));
+        assert_eq!(q.entries[0].state, QueueEntryState::Waiting);
+        // 照合で受理と確定したら、送信待ちの項目だけ取り消す。
+        assert!(cancel_steered(&mut q, &lid("q0")));
+        assert_eq!(q.entries[0].state, QueueEntryState::Cancelled);
+        // 取消済み・存在しない項目・送信済み系の状態は変えない。
+        assert!(!cancel_steered(&mut q, &lid("q0")));
+        assert!(!cancel_steered(&mut q, &lid("zz")));
+        begin_send(&mut q, &lid("q1"), attempt("at1"), applied());
+        assert!(!cancel_steered(&mut q, &lid("q1")));
+        assert!(matches!(q.entries[1].state, QueueEntryState::Sending { .. }));
+        // 受理なしの確定では何もしないので、項目は待機のまま（保留が解ければ通常どおり送信対象に戻る）。
+        assert_eq!(q.entries[2].state, QueueEntryState::Waiting);
     }
 
     #[test]

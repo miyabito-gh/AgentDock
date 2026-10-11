@@ -46,8 +46,8 @@ export const openChat = (chat: ChatKey): Promise<AgentHistory> => invokeCmd("ope
 /** worktree は、作業フォルダ（cwd）がAgentDockが作ったworktreeの場所のとき、その記録のID（チャットに結び付ける）。 */
 export const startChat = (cwd: string | null, model: ModelChoice | null, firstMessage: string | null, permission: PermissionPreset | null = null, worktree: LocalId | null = null): Promise<StartChatResult> =>
   invokeCmd("start_chat", { backend: "codex", cwd, model, permission, firstMessage, worktree });
-export const sendMessage = (chat: ChatKey, text: string, intent: SendIntent, attachments: LocalId[] = []): Promise<SendAttempt> =>
-  invokeCmd("send_message", { chat, text, attachments, intent });
+export const sendMessage = (chat: ChatKey, text: string, intent: SendIntent, attachments: LocalId[] = [], steerEntry: LocalId | null = null): Promise<SendAttempt> =>
+  invokeCmd("send_message", { chat, text, attachments, intent, steerEntry });
 export const retrySend = (chat: ChatKey, attempt: LocalId): Promise<SendAttempt> => invokeCmd("retry_send", { chat, attempt });
 export const respondRequest = (request: RequestKey, answer: RequestAnswer): Promise<RespondOutcome> =>
   invokeCmd("respond_request", { request, answer });

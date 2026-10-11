@@ -226,6 +226,9 @@ label{display:inline-flex;align-items:center;gap:6px}
 .chead .grow{flex:0 0 0}
 .chead .cwd~.grow{flex:0 0 0}
 .chead>.pop-wrap{flex:none}
+.chead .cwdopen{width:24px;height:24px;padding:0;margin-left:-4px}
+.chead .cwdopen svg.i{width:14px;height:14px}
+.chead .cwdopen[aria-disabled=true]{opacity:.45;cursor:not-allowed}
 .chead .pop,.ctrl .pop,.helpwrap .pop{width:max-content}
 .chead .pop[role=menu]{min-width:220px}
 .pop .kbd{color:var(--ink3);font-size:var(--fs-xs)}
@@ -307,21 +310,44 @@ textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;paddin
 .shell{container-type:inline-size}
 /* 左: 設定部品（足りなければ折り返す）／右: 送信方法・中断・送信（常に右端・折り返さない） */
 .ctrl{display:flex;align-items:flex-end;gap:6px}
-.ctrl-l{flex:1 1 0;min-width:0;display:flex;align-items:center;gap:4px;flex-wrap:wrap}
+/* 下段は常に1段。左は縮められる部品だけ（足りなければ印・選択部品が縮む）、右（中断・送信）は縮まない */
+.ctrl-l{flex:1 1 0;min-width:0;display:flex;align-items:center;gap:4px;flex-wrap:nowrap}
+.ctrl-l>*{flex:none}
+.ctrl-l>.sel,.ctrl-l>.small{flex:0 1 auto;min-width:0}
+.ctrl-l>.acc,.ctrl-l>.why,.ctrl-l>.muted{overflow:hidden;text-overflow:ellipsis}
 .ctrl-r{flex:none;display:flex;align-items:center;gap:4px;margin-left:auto}
-.ctrl-r .seg button{white-space:nowrap}
 .ctrl-r .btn-line{white-space:nowrap}
-.ctrl-l select{min-width:0}
+.eff-pop{display:none}
 @container (max-width:560px){
   .ctrl-r .btn-line .lbl{display:none}
-  .ctrl-r .seg button{padding:0 6px}
 }
-@container (max-width:380px){
-  .ctrl-l select{max-width:112px}
+@container (max-width:420px){
+  .ctrl .ctrl-l .sel select{max-width:110px}
+}
+/* 収まらない幅では、推論の強さを「…」の中へ畳む */
+@container (max-width:340px){
+  .ctrl-l .eff-inline{display:none}
+  .eff-pop{display:grid}
+  .ctrl .ctrl-l .sel select{max-width:84px}
 }
 .ctrl select{border:1px solid var(--line);border-radius:var(--r1);background:var(--surface);height:26px;padding:0 4px;font-size:var(--fs-s);max-width:200px}
 .ctrl select.danger{color:var(--fail-ink);border-color:var(--fail-line)}
+/* 下段の選択部品（モデル・推論の強さ）は枠・背景なしの文字だけ。▾は hover／focus のときだけ濃くする */
+.ctrl .sel{position:relative;display:inline-flex;align-items:center;min-width:0}
+.ctrl .sel select{appearance:none;-webkit-appearance:none;border:0;background:transparent;color:var(--ink2);height:26px;padding:0 14px 0 4px;max-width:200px;min-width:0;text-overflow:ellipsis;cursor:pointer;border-radius:var(--r1)}
+.ctrl .sel::after{content:"▾";position:absolute;right:3px;top:50%;transform:translateY(-50%);font-size:var(--fs-xs);color:var(--ink3);opacity:.55;pointer-events:none}
+.ctrl .sel:hover select,.ctrl .sel:focus-within select{color:var(--ink)}
+.ctrl .sel:hover::after,.ctrl .sel:focus-within::after{opacity:1;color:var(--ink)}
+.ctrl .sel select:hover{background:var(--hover)}
+.ctrl .sel select:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
+.ctrl .sel select option{background:var(--surface);color:var(--ink)}
 .ctrl .acc{color:var(--ink);border:1px solid var(--line-strong);border-radius:var(--r1);padding:0 5px;line-height:1.6;white-space:nowrap}
+.ctrl .acc.danger{color:var(--fail-ink);border-color:var(--fail-line)}
+/* 送信ボタンと隣の▾（実行中のみ）を1つの部品に */
+.sendgrp{display:inline-flex;align-items:center}
+.sendgrp .pop-wrap{display:inline-flex}
+.sendgrp:has(.sendmore) .send{border-top-right-radius:0;border-bottom-right-radius:0}
+.sendgrp .sendmore{height:32px;width:20px;padding:0;justify-content:center;border-radius:0 var(--r2) var(--r2) 0;border-left:1px solid color-mix(in srgb,var(--accent-ink) 35%,transparent)}
 .ctrl .why{color:var(--wait-ink)}
 .ctrl .pop{top:auto;bottom:calc(100% + 4px);min-width:300px}
 .moreset{display:grid;gap:8px;padding:6px 8px}
@@ -381,7 +407,8 @@ textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;paddin
   .only-narrow-l{display:inline-flex!important}
   .winbtn{width:38px}
   .chead{padding:6px 10px;flex-wrap:wrap;row-gap:2px}
-  .chead .cwd{order:9;flex:1 0 100%}
+  .chead .cwd{order:9;flex:1 0 calc(100% - 30px)}
+  .chead .cwdopen{order:9}
   .chead .tag{order:9}
   .chead .grow{flex:1 1 0}
   .chead .hide-s{display:none}
@@ -420,6 +447,9 @@ textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;paddin
 .row-menu{position:fixed;top:0;left:0;z-index:40;width:220px;max-width:calc(100vw - 8px)}
 .row-menu button{width:100%;justify-content:flex-start;height:30px}
 .row-menu button.danger{color:var(--fail-ink)}
+.row-menu button.has-sub{flex-direction:column;align-items:flex-start;justify-content:center;height:auto;min-height:30px;padding-top:3px;padding-bottom:3px;gap:0;min-width:0}
+.row-menu button.has-sub>span{max-width:100%;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left}
+.row-menu button.has-sub .sub{font-size:var(--fs-xs);color:var(--ink3)}
 .lt-row .btn.lt-view{flex:none;padding:0 8px;gap:4px}
 /* 作業フォルダごとの見出し（高さは listWindow.ts GROUP_HEADER_HEIGHT と同じ 28px） */
 .list-grp{display:flex;align-items:center;gap:4px;height:28px;box-sizing:border-box;padding:0 2px 0 2px;border-top:1px solid var(--line);border-radius:var(--r2);color:var(--ink2);font-size:var(--fs-s);background:color-mix(in srgb,var(--ink) 6%,var(--rail))}
@@ -472,7 +502,7 @@ textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;paddin
 .card .c1 .rel{flex:none}
 .card .c1 .st{flex:none;margin-left:auto}
 .card .c1 .mdl{flex:0 1 auto;min-width:0;max-width:9ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--fs-xs);color:var(--ink2);background:var(--surface2);border-radius:3px;padding:0 5px;cursor:default}
-.card .c1 .mdl-tip{position:fixed;z-index:60;max-width:min(300px,86vw);white-space:normal;overflow-wrap:anywhere;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:var(--r2);box-shadow:var(--sh-3);padding:6px 8px;font-size:var(--fs-s);font-weight:400}
+.card .c1 .mdl-tip{position:fixed;z-index:60;max-width:min(300px,86vw);white-space:pre-line;overflow-wrap:anywhere;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:var(--r2);box-shadow:var(--sh-3);padding:6px 8px;font-size:var(--fs-s);font-weight:400}
 .card .rel{font-size:var(--fs-xs);color:var(--ink3)}
 .card .c2{display:flex;flex-wrap:wrap;gap:0 10px;align-items:baseline;font-size:var(--fs-s);color:var(--ink2);min-width:0}
 .card .kvp{white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}

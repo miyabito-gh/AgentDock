@@ -771,7 +771,28 @@ pub struct Agent {
     /// 子スレッドに記録された推論強度（記録値）。
     #[serde(default = "Known::not_fetched")]
     pub effort: Known<String>,
+    /// 親の履歴に記録された起動時の指定（記録値。子スレッドの現在値とは別）。
+    #[serde(default = "Known::not_fetched")]
+    pub spawn_spec: Known<SpawnSpec>,
     pub latest_turn: Option<ExternalId>,
+}
+
+/// 親がエージェントを起動したときの指定（親の履歴の記録値）。取れた項目だけ持つ。
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct SpawnSpec {
+    pub task_name: Option<String>,
+    pub model: Option<String>,
+    pub effort: Option<String>,
+    pub fork_turns: Option<String>,
+}
+
+impl SpawnSpec {
+    pub fn is_empty(&self) -> bool {
+        self.task_name.is_none() && self.model.is_none() && self.effort.is_none() && self.fork_turns.is_none()
+    }
 }
 
 /// UIに渡すエージェントの表示単位。状態と鮮度を並置する（変換しない）。

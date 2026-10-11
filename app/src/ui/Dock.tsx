@@ -44,7 +44,7 @@ function Berth({ a, depth, orphan, mini, confirmed, onConfirmFail, rootName, chi
       <div className="c1">
         <span className="nm" title={a.agent.parent.kind === "root" ? undefined : "Codexが付けた呼び名です（役割ではありません）"}>{a.agent.parent.kind === "root" ? (rootName ?? showKnown(a.agent.displayName)) : showKnown(a.agent.displayName)}</span>
         <span className="rel" title={a.agent.parent.kind === "root" ? "役割: メイン（会話の本体）" : undefined}>{rel}</span>
-        {a.agent.parent.kind === "root" ? null : <ModelBadge model={a.agent.model} effort={a.agent.effort} compact={mini} />}
+        {a.agent.parent.kind === "root" ? null : <ModelBadge model={a.agent.model} effort={a.agent.effort} spawn={a.agent.spawnSpec} compact={mini} />}
         <span className={`st ${m.c}${outcome ? " hist" : ""}`}><i aria-hidden="true" />{m.t}</span>
       </div>
       {childNote || (a.agent.parent.kind !== "root" && a.agent.agentPath.kind === "value") || (!mini && a.agent.parent.kind !== "root") ? (

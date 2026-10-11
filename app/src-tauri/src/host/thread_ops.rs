@@ -342,7 +342,7 @@ impl Host {
         }
         // 通常の送信経路で1回だけ送る（送信ロック・clientUserMessageId・Sending保存・受理不明の扱い）。再送しない。
         // 送る前に止まったとき（Err。送信は起きていない）は、分岐先ができていることを伝えるため Ok で理由を返す。下書きは残す。
-        let send = match self.send_message(SendMessageArgs { chat: new_chat.clone(), text: args.text, attachments: carried, intent: SendIntent::NewTurn }, confirmed).await {
+        let send = match self.send_message(SendMessageArgs { chat: new_chat.clone(), text: args.text, attachments: carried, intent: SendIntent::NewTurn, steer_entry: None }, confirmed).await {
             Ok(s) => s,
             Err(e) => return Ok(ResendAsForkResult { fork, draft_saved: true, send: None, send_error: Some(e.message) }),
         };

@@ -155,6 +155,7 @@ export type { AgentKey } from "./gen/AgentKey";
 export type { AgentState } from "./gen/AgentState";
 export type { AgentStatus } from "./gen/AgentStatus";
 export type { AgentView } from "./gen/AgentView";
+export type { SpawnSpec } from "./gen/SpawnSpec";
 export type { AppSettings } from "./gen/AppSettings";
 export type { AppearanceSettings } from "./gen/AppearanceSettings";
 export type { BodyTextSize } from "./gen/BodyTextSize";

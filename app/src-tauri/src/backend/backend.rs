@@ -64,6 +64,8 @@ pub enum BackendEvent {
     TurnEnded { turn: TurnKey, end: TurnEnd, error: Option<String>, evidence: Evidence },
     /// 子エージェントの担当（親のspawn依頼文の先頭）。対応が確定できたものだけ（推測で割り当てない）。
     AgentAssignment { agent: AgentKey, assignment: String },
+    /// 子エージェントの起動時の指定（親のspawn項目の記録値）。対応が確定できたものだけ。
+    AgentSpawnSpec { agent: AgentKey, spec: SpawnSpec },
     /// 活動itemの開始・更新・完了。
     Activity { activity: Activity },
     /// 逐次本文（agentMessage等のdelta）。順序は `seq` に従う。
@@ -240,6 +242,9 @@ pub struct AgentHistory {
     pub chat: Option<Chat>,
     pub status: AgentStatus,
     pub turns: Vec<TurnRecord>,
+    /// このエージェントの履歴に記録された、子の起動時の指定（対応が確定できたものだけ）。UIへは出さない。
+    #[serde(skip)]
+    pub spawns: Vec<(AgentKey, SpawnSpec)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -259,7 +259,12 @@ impl Host {
 
     /// 履歴の読取り。同時実行数を上限（4）に抑える。許可はこの1回のあいだだけ持つ。
     async fn read_history(&self, agent: AgentKey, options: ReadOptions) -> BackendResult<AgentHistory> {
-        self.read_limit.run(self.backend.read(agent, options)).await
+        let h = self.read_limit.run(self.backend.read(agent, options)).await?;
+        // 親の履歴に spawn の記録があれば、子の「起動時の指定」として保持（追加の通信なし）。
+        if !h.spawns.is_empty() {
+            self.mutate(|d| ((), d.record_spawn_specs(&h.spawns)));
+        }
+        Ok(h)
     }
 
     fn warn(&self, message: impl Into<String>) {
@@ -308,6 +313,7 @@ impl Host {
         }
         // 変更の控え: ルートのturn終端の記録・切断での終了未確認（待たない）。
         self.baseline_observe(&env.event);
+        self.refresh_unnamed_chat(&env.event);
         if !matches!(env.event, BackendEvent::Activity { .. } | BackendEvent::ActivityDelta { .. } | BackendEvent::ArtifactObserved { .. }) {
             self.kick_queue();
         }
@@ -320,6 +326,31 @@ impl Host {
                 Followup::ObserveArtifact { agent, item, path } => self.observe_artifact(agent, item, path),
             }
         }
+    }
+
+    /// ルートのturnが終わったとき、名前も最初の依頼の要約も未取得のチャットだけ、そのチャット1件のメタデータを読み直す。
+    /// 一覧の取得は起動時と手動だけなので、新規チャットは最初のやり取りの後も「（名前未確認）」「履歴なし」のままになっていた。
+    /// 読取りのみ（resume・送信・承認はしない）。読めなければ何も変えず、次のturn終了でまた試す。
+    fn refresh_unnamed_chat(self: &Arc<Self>, event: &BackendEvent) {
+        let BackendEvent::TurnEnded { turn, .. } = event else { return };
+        let chat = ChatKey { backend: turn.agent.backend, id: turn.agent.id.clone() };
+        if turn.agent != agent_key_of(&chat) {
+            return;
+        }
+        let needs = self.read(|d| d.chat(&chat).is_some_and(|c| c.name.value().is_none() && c.preview.value().is_none()));
+        if !needs {
+            return;
+        }
+        let host = self.clone();
+        tokio::spawn(async move {
+            match host.read_history(agent_key_of(&chat), ReadOptions { include_turns: false }).await {
+                Ok(h) => {
+                    let Some(c) = h.chat else { return };
+                    host.mutate(|d| ((), d.upsert_chat(c)));
+                }
+                Err(e) => crate::diag::log("unnamed-refresh", &crate::diag::error_kind(&e)),
+            }
+        });
     }
 
     /// 子孫の監視を始める（同じルートに1つだけ。読み取りのみで resume・送信・承認をしない）。
@@ -759,6 +790,16 @@ impl Host {
         if self.folder_op_active(&args.chat) {
             return Err(blocked(BlockedReason::ChatBusy, "作業フォルダを書き換える操作（変更を戻す等）の実行中です。完了してから送信してください"));
         }
+        // キュー項目を追加指示で送るときは、項目が送信待ちのままであることを送る前に確認する（自動送信と二重にならないように）。
+        let steer_entry = args.steer_entry.clone();
+        if let Some(entry) = &steer_entry {
+            if !matches!(args.intent, SendIntent::Steer) {
+                return Err(err(IpcErrorCode::InvalidArgs, "キュー項目の送信は追加指示としてだけ行えます"));
+            }
+            if !self.queue_entry_waiting(&args.chat, entry) {
+                return Err(err(IpcErrorCode::NotFound, "追加指示にできる送信待ちの依頼がありません（すでに送信・取消されています）"));
+            }
+        }
         // 使えない添付（コピー中・失敗・欠損）やモデルが受けない入力があれば、再開（resume）より前に止める。
         let attachments = self.prepare_attachments(&args.chat, &args.attachments).await?;
         self.ensure_live(&args.chat, confirmed).await?;
@@ -800,6 +841,9 @@ impl Host {
         let attempt = self.dispatch_send(request).await;
         // 送信に使った添付は下書きから外し、試行を記録する（拒否されても、再送（retry_send）は同じ添付で行う）。
         self.attachments_used(&chat, &args.attachments, &attempt.attempt_id);
+        if let Some(entry) = steer_entry {
+            self.settle_steer_entry(&chat, &entry, &attempt);
+        }
         Ok(attempt)
     }
 

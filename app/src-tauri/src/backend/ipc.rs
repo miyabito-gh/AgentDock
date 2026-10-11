@@ -373,6 +373,10 @@ pub struct SendMessageArgs {
     pub text: String,
     pub attachments: Vec<LocalId>,
     pub intent: SendIntent,
+    /// 送信待ちの依頼を追加指示として今送るとき、その項目（`intent` は Steer）。受理されたら項目を取り消す。
+    /// 受理不明なら項目を残したまま保留にし（自動送信しない）、照合で受理と確定したら取り消す。受理なしなら待機のまま。
+    #[serde(default)]
+    pub steer_entry: Option<LocalId>,
 }
 
 /// 送信試行。`state` が `acceptanceUnknown` の間、UIは再送ボタンを出さない。

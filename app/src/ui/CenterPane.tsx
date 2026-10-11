@@ -1,6 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import type {
-  AgentKey, AgentView, ArtifactEntry, AttachmentEntry, EntryAttachment, Chat, ChatKey, ChatLocalView, ChatModelSettings, ChatQueue, DecisionOption, FileRef, Goal, HostSnapshot, Known, ModelInfo, PendingRequest,
+  AgentKey, AgentView, ArtifactEntry, AttachmentEntry, EntryAttachment, Chat, ChatKey, ChatLocalView, ChatModelSettings, ChatQueue, DecisionOption, FileRef, Goal, HostSnapshot, Known, ModelInfo, PendingRequest, PathInfo,
   PermissionPreset, QueueEntry, RequestAnswer, ActivityKind, SaveState, StopRecord, TurnRecord, WorkMode, WorkModeInfo,
 } from "../ipc/types";
 import { Icon } from "./Icon";
@@ -68,6 +68,8 @@ export interface CenterProps {
   onCwd: (cwd: string, confirmed: boolean) => Promise<CwdResult>;
   /** このチャットで送った発言のローカルの記録（送信直後の添付チップ用）。 */
   sends: SentLocal[];
+  /** ヘッダーの作業フォルダの実在確認（読取りのメタデータ）。未取得は undefined。 */
+  cwdInfo: PathInfo | undefined;
 }
 
 export interface FileActions {
@@ -99,6 +101,28 @@ export interface QueueActions {
   sendNow: (entry: string) => Promise<boolean>;
   /** 受理なしが確定した依頼を、ユーザーの確認のうえで再送する。 */
   retry: (attempt: string) => void;
+  /** キュー項目を追加指示として今送る（押したとき1回だけ）。受理されたら元の項目を消す。 */
+  steerEntry: (e: QueueEntry) => Promise<void>;
+  /** 追加指示として送って受理不明のままの項目（項目ID→試行ID）。 */
+  steerUnknown: Record<string, string>;
+  /** 受理不明の追加指示を履歴と照合する（読み取りのみ。再送しない）。 */
+  steerReconcile: (entryId: string) => void;
+}
+
+/** 追加指示にできない理由（できるときは null）。追加指示はモデル・権限・作業フォルダの変更には使えず、実行中のturnにだけ送れる。 */
+function steerBlockReason(running: boolean, changed: boolean, local: ChatLocalView | undefined): string | null {
+  if (!running) return "実行中のturnがないため、追加指示にはできません";
+  if (changed) return "モデル・推論の強さ・速度を変更中のため、追加指示にはできません（変更は次のturnから適用されます）";
+  if (local?.nextCwd) return "作業フォルダの変更が予定されているため、追加指示にはできません";
+  return null;
+}
+
+/** 選択したモデル設定が、Codex が受理した値と違うか（受理を受け取っていなければ false）。 */
+function modelChanged(s: ChatModelSettings | undefined): boolean {
+  const sel = s?.selected;
+  const acc = s?.accepted.kind === "value" ? s.accepted.value : null;
+  if (!sel || !acc) return false;
+  return acc.model !== sel.model || (acc.effort ?? "") !== (sel.effort ?? "") || (acc.speedTier ?? "") !== ((sel.speedTier ?? "") === "default" ? "" : (sel.speedTier ?? ""));
 }
 
 export type CwdResult = { kind: "ok" } | { kind: "needsConfirm"; waiting: number } | { kind: "error"; message: string };
@@ -156,8 +180,8 @@ function freshnessText(root: AgentView | undefined, wasLive: boolean): string {
     : `アプリの再起動後のため、保存履歴から表示しています。送信すると続きから再開します（再開するまでライブ監視はしません）。保存履歴から取得した状態です（${t}）。${STALE_TAIL}`;
 }
 
-function Header({ snap, chat, onAct, commands, local, onCwdToggle, cwdLock, wasLive, externalLabel }: {
-  snap: HostSnapshot; chat: Chat; onAct: (a: string) => void; commands: CommandView[]; local: ChatLocalView | undefined;
+function Header({ snap, chat, onAct, commands, local, onCwdToggle, cwdLock, wasLive, externalLabel, cwdInfo }: {
+  snap: HostSnapshot; chat: Chat; onAct: (a: string) => void; commands: CommandView[]; local: ChatLocalView | undefined; cwdInfo: PathInfo | undefined;
   onCwdToggle: () => void; cwdLock: string | null; wasLive: boolean; externalLabel: string | undefined;
 }) {
   const root = rootView(snap, chat);
@@ -190,6 +214,14 @@ function Header({ snap, chat, onAct, commands, local, onCwdToggle, cwdLock, wasL
           ? <button className="cwd mono" title={`作業フォルダ: ${cwd}\n押すと、次の送信から使う作業フォルダを変更します`} onClick={onCwdToggle}>{cwd}</button>
           : <span className="cwd mono" title={`作業フォルダ: ${cwd}`}>{cwd}</span>
       ) : <span className="cwd" title="一般チャット（作業フォルダなし）">一般</span>}
+      {cwd ? (() => {
+        // 押したときだけ開く。ネットワークパス・実在しないフォルダは押せない（理由はツールチップ）
+        const why = /^[\\/]{2}[^?.]/.test(cwd.trim()) ? "ネットワークパスは開きません（接続するとWindowsの認証情報が相手に送信されることがあります）"
+          : cwdInfo?.kind === "missing" ? "フォルダが見つかりません。移動または削除された可能性があります"
+          : cwdInfo?.kind === "unconfirmed" ? "フォルダの有無を確認できていません" : null;
+        return <button className="btn subtle icon cwdopen" aria-label="作業フォルダを開く" aria-disabled={why ? true : undefined}
+          title={why ?? `作業フォルダをエクスプローラーで開く\n${cwd}`} onClick={() => { if (!why) onAct("openCwd"); }}><Icon name="folderOpen" /></button>;
+      })() : null}
       {local?.nextCwd ? <span className="tag mono" title={`次の送信から使う作業フォルダ（まだ適用していません）: ${local.nextCwd}`}>次: {baseName(local.nextCwd)}</span> : null}
       {local?.reviewOf ? <span className="tag" title={`このチャットはレビュー用に作られました（レビュー元: ${origName(snap, local.reviewOf)}）`}>レビュー</span> : null}
       {local?.forkOf ? <span className="tag" title={`このチャットは${local.forkOf.purpose === "editResend" ? "依頼を編集して送り直すために" : local.forkOf.purpose === "regenerate" ? "応答を作り直すために" : ""}分岐で作られました（AgentDockの記録）。分岐元: ${origName(snap, local.forkOf.chat)}${local.forkOf.throughTurn ? `（turn ${local.forkOf.throughTurn} まで）` : ""}`}>{PURPOSE_TAG[local.forkOf.purpose ?? "fork"]}</span> : null}
@@ -630,11 +662,15 @@ export function RequestCard({ r, onRespond }: { r: PendingRequest; onRespond: Ce
   );
 }
 
-function EntryRow({ n, e, qact }: { n: number; e: QueueEntry; qact: QueueActions }) {
+function EntryRow({ n, e, qact, steerWhy, holdAttempt }: { n: number; e: QueueEntry; qact: QueueActions; steerWhy: string | null; holdAttempt: string | null }) {
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(e.text);
+  const [steering, setSteering] = useState(false);
   const s = e.state;
-  const why = s.kind === "acceptanceUnknown" ? "受理不明: 送信したか確認できません。履歴と照合して確定するまで、再送しません"
+  // 追加指示の受理不明は、ホストがキューを保留している間だけ（照合で確定すれば消える）
+  const steerUnk = qact.steerUnknown[e.id] && qact.steerUnknown[e.id] === holdAttempt ? qact.steerUnknown[e.id] : undefined;
+  const why = steerUnk ? "追加指示として送りましたが、受理されたか確認できません。この依頼は残しています（再送しません）。履歴と照合して確定してください"
+    : s.kind === "acceptanceUnknown" ? "受理不明: 送信したか確認できません。履歴と照合して確定するまで、再送しません"
     : s.kind === "sending" ? "送信中"
     : s.kind === "notAccepted" ? `受理されていません（${s.message}）。自動では再送しません`
     : null;
@@ -645,9 +681,17 @@ function EntryRow({ n, e, qact }: { n: number; e: QueueEntry; qact: QueueActions
       <div>
         {editing ? <textarea aria-label="依頼を編集" value={text} onChange={(ev) => setText(ev.target.value)} style={{ width: "100%" }} /> : e.text.trim() ? <div>{e.text}</div> : <div className="muted">（本文なし・添付のみ）</div>}
         {e.attachments.length ? <div className="small muted" title="このチャット用のコピーを送ります">添付 {e.attachments.length}件</div> : null}
-        {why ? <div className={`why ${s.kind === "waiting" ? "" : "err"}`}>{why}</div> : null}
+        {why ? <div className={`why ${s.kind === "waiting" && !steerUnk ? "" : "err"}`}>{why}</div> : null}
       </div>
       <div style={{ display: "flex", gap: 2 }}>
+        {s.kind === "waiting" && !editing ? (() => {
+          // 追加指示（実行中のturnへ今すぐ）。条件を満たさないとき・受理不明の確認中は押せない（理由はツールチップ）
+          const block = steerUnk ? "追加指示の受理を確認中です。先に「履歴と照合」で確定してください" : steering ? "送信中です" : steerWhy;
+          return <button className="small" aria-label="追加指示として今すぐ送る（実行中のturnへ割り込んで送ります）" aria-disabled={block ? true : undefined}
+            title={block ?? "追加指示として今すぐ送る（実行中のturnへ割り込んで送ります。受理されたらこの依頼は取り消します）"}
+            onClick={() => { if (block) return; setSteering(true); void qact.steerEntry(e).finally(() => setSteering(false)); }}><Icon name="send" />追加指示</button>;
+        })() : null}
+        {steerUnk ? <button className="small" title="履歴と照合して、追加指示の受理を確認します（読み取りのみ。再送しません）" onClick={() => qact.steerReconcile(e.id)}>履歴と照合</button> : null}
         {s.kind === "waiting" && !editing ? <button className="small" onClick={() => setEditing(true)}>編集</button> : null}
         {editing ? <><button className="small" onClick={() => void save()}>保存</button><button className="small" onClick={() => { setEditing(false); setText(e.text); }}>やめる</button></> : null}
         {/* 受理不明の間は再送ボタンを出さない。照合だけ */}
@@ -694,7 +738,7 @@ function HoldExit({ q, head, nameOf, qact }: { q: ChatQueue; head: QueueEntry | 
   );
 }
 
-function Queue({ q, nameOf, qact }: { q: ChatQueue | undefined; nameOf: (a: AgentKey) => string; qact: QueueActions }) {
+function Queue({ q, nameOf, qact, steerWhy }: { q: ChatQueue | undefined; nameOf: (a: AgentKey) => string; qact: QueueActions; steerWhy: string | null }) {
   if (!q) return null;
   const items = q.entries.filter((e) => e.state.kind !== "sent" && e.state.kind !== "cancelled");
   if (!items.length) return null;
@@ -716,7 +760,7 @@ function Queue({ q, nameOf, qact }: { q: ChatQueue | undefined; nameOf: (a: Agen
           <span className="muted">{stopped ? "停止中" : q.hold ? holdText(q.hold, nameOf) : ""}</span>
           <span className="muted small qnote" title="送信待ちの依頼は、送信する時点のモデル・権限・作業フォルダで送ります。">送信時の設定で送信</span></summary>
         <HoldExit q={q} head={items[0]} nameOf={nameOf} qact={qact} />
-        {items.map((e, i) => <EntryRow key={e.id + e.state.kind} n={i + 1} e={e} qact={qact} />)}
+        {items.map((e, i) => <EntryRow key={e.id + e.state.kind} n={i + 1} e={e} qact={qact} steerWhy={steerWhy} holdAttempt={q.hold?.kind === "acceptanceUnknown" ? q.hold.attempt : null} />)}
       </details>
     </div>
   );
@@ -750,7 +794,6 @@ function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock
   const [model, setModel] = useState(settings?.selected?.model ?? dflt?.id ?? "");
   const [effort, setEffort] = useState(settings?.selected?.effort ?? dflt?.defaultEffort ?? "");
   const [speed, setSpeed] = useState(settings?.selected?.speedTier ?? "");
-  const [steer, setSteer] = useState(false);
   const accepted = settings?.accepted.kind === "value" ? settings.accepted.value : null;
   const changed = !!accepted && (accepted.model !== model || (accepted.effort ?? "") !== effort || (accepted.speedTier ?? "") !== (speed === "default" ? "" : speed));
   const efforts = models.find((m) => m.id === model)?.efforts ?? [];
@@ -764,9 +807,13 @@ function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock
   const wmOptions: WorkModeInfo[] = p.workModes.length ? p.workModes : [{ mode: "plan", label: WORK_MODE_TEXT.plan }, { mode: "default", label: WORK_MODE_TEXT.default }];
   // コピー中・失敗・欠損の添付があるうちは送らない（ホストも同じ規則で止める。不完全なコピーは送れない）。
   const attachBlock = attachments.some((a) => a.state.kind !== "ready") ? "コピー中・コピー失敗・欠損の添付があります。取り外すか、もう一度添付してから送信してください。" : null;
-  const send = async () => {
-    if ((!p.draft.trim() && attachments.length === 0) || lock || attachBlock) return;
-    const ok = await p.onSend(p.draft, running && steer, attachments.map((a) => a.id));
+  // 追加指示は送るたびの1回限り（状態を持たない。次の送信は常に既定の「完了後に送信」）
+  const empty = !p.draft.trim() && attachments.length === 0;
+  const steerWhy = lock ? "いまは送信できません" : attachBlock ? "添付に問題があります" : empty ? "送る内容がありません" : steerBlockReason(running, changed, p.local);
+  const send = async (asSteer = false) => {
+    if (empty || lock || attachBlock) return;
+    if (asSteer && steerWhy) return;
+    const ok = await p.onSend(p.draft, running && asSteer, attachments.map((a) => a.id));
     if (ok) p.setDraft("");
   };
   const pickModel = (id: string) => {
@@ -791,6 +838,8 @@ function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock
     ? `計画／実行: 選択 ${wmSelected ? WORK_MODE_TEXT[wmSelected] : "未選択"}／受理済み ${wmAccepted ? WORK_MODE_TEXT[wmAccepted] : "未確認"}${wmSelected && wmAccepted !== wmSelected ? "（未受理。次のターンから適用）" : ""}`
     : null;
   const wmShort = (m: WorkMode) => (m === "plan" ? "計画" : "実行");
+  const perm = p.local?.permission ?? "workspaceWriteOnRequest";
+  const permOff = perm !== "workspaceWriteOnRequest";
   const speedKept = accepted?.speedTier && !speed ? accepted.speedTier : null;
   const speedKeptLine = speedKept ? `速度は「指定なし」ですが、Codex 側は速度 ${speedKept} のままです。標準へ戻すには「標準（default）」を選んで送信し、受理済みの表示で確認してください。` : null;
   const speedName = speed ? (speed === "default" ? "標準" : tiers.find((t) => t.id === speed)?.name ?? speed) : null;
@@ -820,7 +869,7 @@ function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock
           <div className="lockmsg">計画／実行（{WORK_MODE_TEXT[wmSelected]}）を選んだままですが、この Codex 接続では使えないため、送信は止まります。<button className="small" onClick={() => p.onWorkMode(null)}>選択を外す</button></div>
         ) : null}
         <textarea aria-label="メッセージ" disabled={!!lock} value={p.draft} onChange={(e) => p.setDraft(e.target.value)} ref={p.inputRef}
-          placeholder={`${running ? (steer ? "現在の作業への追加指示" : "完了後に送る次の依頼") : "メッセージを入力"}（${enterHint}）`}
+          placeholder={`${running ? "完了後に送る次の依頼" : "メッセージを入力"}（${enterHint}${running ? "／Ctrl＋Shift＋Enter で追加指示" : ""}）`}
           onPaste={(e) => {
             // クリップボードの画像は添付にする（生バイトでホストへ）。文章だけの貼り付けは通常どおり。
             const img = Array.from(e.clipboardData.files).find((f) => f.type.startsWith("image/"));
@@ -830,21 +879,30 @@ function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock
           }}
           onKeyDown={(e) => {
             if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
+            // 追加指示で送る（実行中のみ。条件を満たさないときは何も送らない。理由は▾メニューの項目に出る）
+            if (e.ctrlKey && e.shiftKey) { e.preventDefault(); if (running) void send(true); return; }
             if ((p.enterMode === "ctrl" && e.ctrlKey) || (p.enterMode === "enter" && !e.shiftKey)) { e.preventDefault(); void send(); }
           }} />
         <div className="ctrl">
           <div className="ctrl-l">
           <button aria-label="ファイル・画像・参考情報を追加" disabled={!!lock} onClick={() => p.onAct("attach")}><Icon name="clip" /></button>
-          <select aria-label="モデル" value={model} onChange={(e) => pickModel(e.target.value)}>{models.map((m) => <option key={m.id} value={m.id}>{m.displayName}</option>)}</select>
-          <select aria-label="推論の強さ" value={effort} onChange={(e) => pickEffort(e.target.value)}>{efforts.map((x) => <option key={x.id} value={x.id}>{x.id}</option>)}</select>
-          <select aria-label="権限" className={p.local?.permission === "fullAccess" ? "danger" : undefined}
-            title={`次の送信から適用。送信待ちの依頼にも送信時に適用されます（現在: ${PERMISSION_FULL[p.local?.permission ?? "workspaceWriteOnRequest"]}）`}
-            value={p.local?.permission ?? "workspaceWriteOnRequest"} onChange={(e) => p.onPermission(e.target.value as PermissionPreset)}>
-            {(Object.keys(PERMISSION_LABEL) as PermissionPreset[]).map((k) => <option key={k} value={k} title={PERMISSION_FULL[k]}>{k === "fullAccess" ? "■ " : ""}{PERMISSION_LABEL[k]}</option>)}
-          </select>
-          {/* まれな設定（速度・計画／実行）と受理の全文は「⋯」へ。指定中は値を1行目に添える */}
-          <Popover trigger={<Icon name="more" />} label="その他の設定" title="速度・計画／実行の設定と、受理の全文" triggerClassName="btn subtle icon">
+          <span className="sel"><select aria-label="モデル" title="モデル（次の送信から適用）" value={model} onChange={(e) => pickModel(e.target.value)}>{models.map((m) => <option key={m.id} value={m.id}>{m.displayName}</option>)}</select></span>
+          <span className="sel eff-inline"><select aria-label="推論の強さ" title="推論の強さ（次の送信から適用）" value={effort} onChange={(e) => pickEffort(e.target.value)}>{efforts.map((x) => <option key={x.id} value={x.id}>{x.id}</option>)}</select></span>
+          {/* まれな設定（権限・速度・計画／実行）と受理の全文は「⋯」へ。既定から外れているときだけ、下の小さな印で示す */}
+          <Popover trigger={<Icon name="more" />} label="その他の設定" title="権限・速度・計画／実行の設定と、受理の全文" triggerClassName="btn subtle icon">
             <div className="moreset">
+              <label>
+                <span>権限</span>
+                <select aria-label="権限" className={perm === "fullAccess" ? "danger" : undefined}
+                  title={`次の送信から適用。送信待ちの依頼にも送信時に適用されます（現在: ${PERMISSION_FULL[perm]}）`}
+                  value={perm} onChange={(e) => p.onPermission(e.target.value as PermissionPreset)}>
+                  {(Object.keys(PERMISSION_LABEL) as PermissionPreset[]).map((k) => <option key={k} value={k} title={PERMISSION_FULL[k]}>{k === "fullAccess" ? "■ " : ""}{PERMISSION_LABEL[k]}</option>)}
+                </select>
+              </label>
+              <label className="eff-pop">
+                <span>推論の強さ</span>
+                <select aria-label="推論の強さ" value={effort} onChange={(e) => pickEffort(e.target.value)}>{efforts.map((x) => <option key={x.id} value={x.id}>{x.id}</option>)}</select>
+              </label>
               <label>
                 <span>速度 {stCap?.verification === "unverified" && speed ? <UnverifiedTag cap={stCap} /> : null}</span>
                 <select aria-label="速度" value={speed} disabled={tiers.length === 0}
@@ -870,6 +928,7 @@ function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock
               {speedKeptLine ? <div className="small why">{speedKeptLine}</div> : null}
             </div>
           </Popover>
+          {permOff ? <span className={`small acc ${perm === "fullAccess" ? "danger" : ""}`} title={`権限は既定から外れています: ${PERMISSION_FULL[perm]}（次の送信から適用。変更は「…」）`}>権限: {PERMISSION_LABEL[perm]}</span> : null}
           {speedName ? <span className="small muted" title="速度の指定（次の送信から適用）">速度 {speedName}</span> : null}
           {wmSelected ? <span className="small muted" title={`計画／実行の指定: ${WORK_MODE_TEXT[wmSelected]}（次の送信から適用）`}>{wmShort(wmSelected)}</span> : null}
           {/* 受理の根拠は、問題があるときだけ1行目に出す（全文は title と「⋯」） */}
@@ -880,14 +939,24 @@ function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock
           </div>
           {/* 右端は折り返さない（送信・中断・送信方法）。設定部品は左の群で折り返す */}
           <div className="ctrl-r">
-          {running ? (
-            <span className="seg" role="group" aria-label="実行中の送信方法">
-              <button aria-pressed={steer} title="現在のturnへ。実行中のturnへ対象を照合して送ります。モデル・権限・フォルダの変更には使えません" onClick={() => setSteer(true)}>追加指示</button>
-              <button aria-pressed={!steer} title="次の依頼として。親と子孫の作業が終わってから送ります" onClick={() => setSteer(false)}>完了後に送信</button>
-            </span>
-          ) : null}
           {running ? <button className="btn-line" aria-label="中断" title="実行中の作業に中断を要求します（停止の確認は別に行います）" onClick={() => p.onAct("interrupt")}><Icon name="stop" /><span className="lbl">中断</span></button> : null}
-          <button className="btn-main send" aria-label={running ? (steer ? "追加指示を送る" : "完了後に送る依頼として登録") : "送信"} title={enterHint} disabled={!!lock || !!attachBlock || (!p.draft.trim() && attachments.length === 0)} onClick={() => void send()}><Icon name="send" /></button>
+          <span className="sendgrp">
+            <button className="btn-main send" aria-label={running ? "完了後に送る依頼として登録" : "送信"} title={running ? `完了後に送信（親と子孫の作業が終わってから送ります）。${enterHint}` : enterHint} disabled={!!lock || !!attachBlock || empty} onClick={() => void send()}><Icon name="send" /></button>
+            {/* 追加指示は送る前に決めず、送る時点で選ぶ（1回限り）。実行中のみ */}
+            {running ? (
+              <Popover role="menu" align="right" label="送信方法" title="送信方法（完了後に送信／追加指示で送る）" triggerClassName="btn-main sendmore" trigger={<span aria-hidden="true">▾</span>}>
+                {(close) => (
+                  <>
+                    <button role="menuitem" disabled={!!lock || !!attachBlock || empty} title="次の依頼として。親と子孫の作業が終わってから送ります（既定）" onClick={() => { close(); void send(false); }}><span>完了後に送信</span><span className="tag">既定</span></button>
+                    <button role="menuitem" aria-disabled={steerWhy ? true : undefined}
+                      title={steerWhy ?? "現在のturnへ割り込んで送ります。実行中のturnへ対象を照合して送ります。モデル・権限・フォルダの変更には使えません"}
+                      onClick={() => { if (steerWhy) return; close(); void send(true); }}><span>追加指示で送る</span><span className="kbd">Ctrl+Shift+Enter</span></button>
+                    {steerWhy ? <div className="small muted" style={{ padding: "2px 8px 4px" }}>追加指示にできない理由: {steerWhy}</div> : null}
+                  </>
+                )}
+              </Popover>
+            ) : null}
+          </span>
           </div>
         </div>
       </div>
@@ -936,14 +1005,14 @@ export function CenterPane(p: CenterProps) {
     : chat.origin === "external" && rootView(snap, chat)?.freshness !== "live" ? "再開するまで送信できません（上の案内から再開）" : null;
   return (
     <>
-      <Header snap={snap} chat={chat} onAct={p.onAct} commands={p.commands} local={p.local} onCwdToggle={() => setCwdOpen((o) => !o)} cwdLock={cwdLock} wasLive={p.wasLive} externalLabel={p.externalLabel} />
+      <Header snap={snap} chat={chat} onAct={p.onAct} commands={p.commands} local={p.local} onCwdToggle={() => setCwdOpen((o) => !o)} cwdLock={cwdLock} wasLive={p.wasLive} externalLabel={p.externalLabel} cwdInfo={p.cwdInfo} />
       {cwdOpen && !cwdLock ? <CwdPanel current={p.local?.nextCwd ?? knownValue(chat.cwd) ?? ""} onCwd={p.onCwd} onClose={() => setCwdOpen(false)} /> : null}
       <Banners p={p} />
       <Messages key={chat.key.id} chatId={chat.key.id} turns={p.turns} reqs={reqs} running={running} onRespond={p.onRespond} onAct={p.onAct} find={find}
         locals={snap.attachments.filter((a) => keyStr(a.chat) === keyStr(chat.key))} files={p.files} sends={p.sends}
         resend={{ ctx: resendCtxOf(snap, chat, snap.sources.some((x) => x.connection.kind === "connected"), p.turns), rootAgentId: rootView(snap, chat)?.agent.key.id }}
         extra={<FilesBlock chatId={chat.key.id} sent={snap.attachments.filter((a) => keyStr(a.chat) === keyStr(chat.key) && a.usedBy.length > 0)} artifacts={snap.artifacts.filter((a) => keyStr(a.chat) === keyStr(chat.key))} files={p.files} />} />
-      <Queue q={snap.queues.find((q) => keyStr(q.chat) === keyStr(chat.key))} nameOf={nameOf} qact={p.qact} />
+      <Queue q={snap.queues.find((q) => keyStr(q.chat) === keyStr(chat.key))} nameOf={nameOf} qact={p.qact} steerWhy={steerBlockReason(running, modelChanged(p.settings), p.local)} />
       <GoalBar goal={p.goal} live={rootView(snap, chat)?.freshness === "live"} cap={snap.opCapabilities.find((o) => o.op === "goal")} busy={p.goalBusy}
         onEdit={() => p.onAct("goal")} onClear={p.onGoalClear} onReload={p.onGoalReload} />
       <Composer key={`${chat.key.id}:${p.models.length}`} p={p} running={running} lock={lock} />

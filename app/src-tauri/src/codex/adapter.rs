@@ -613,6 +613,7 @@ impl CodexBackend {
             chat: is_root.then(|| thread_to_chat(t, self.app_dir().as_deref(), Known::NotFetched)),
             status: derive_status(&t.status, t.latest_turn(), self.ev(src, label)),
             turns: if include_turns { t.turns.iter().map(|x| turn_to_record(&t.id, x)).collect() } else { Vec::new() },
+            spawns: if include_turns { t.turns.iter().flat_map(|x| x.raw.items.iter()).filter_map(super::convert::spawn_spec).collect() } else { Vec::new() },
             agent,
         }
     }

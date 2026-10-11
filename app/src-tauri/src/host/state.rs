@@ -102,6 +102,8 @@ pub struct HostData {
     pub side_threads: HashMap<ChatKey, ChatKey>,
     /// 親のspawn依頼から確定できた子の担当（エージェントの再登録で失わないよう保持）。
     assignments: HashMap<AgentKey, String>,
+    /// 親の履歴・spawn項目から確定できた子の起動時の指定（記録値。既存の読取りで得た値だけ保持）。
+    spawn_specs: HashMap<AgentKey, SpawnSpec>,
     /// 実行中と分かっているturn（中断・追加指示の対象）。
     pub running_turn: HashMap<AgentKey, ExternalId>,
     /// 開始を観測した最新turn（古いturnの後着を捨てる基準）。
@@ -144,6 +146,7 @@ impl Default for HostData {
             startup_warnings: Vec::new(),
             side_threads: HashMap::new(),
             assignments: HashMap::new(),
+            spawn_specs: HashMap::new(),
             running_turn: HashMap::new(),
             latest_turn_start: HashMap::new(),
             last_end: HashMap::new(),
@@ -272,6 +275,22 @@ impl HostData {
         self.view(&agent_key_of(chat))
     }
 
+    /// 親の履歴から得た子の起動時の指定を保持し、既に一覧にいる子へ反映する（読取りで得た値のみ。通信はしない）。
+    pub fn record_spawn_specs(&mut self, specs: &[(AgentKey, SpawnSpec)]) -> Vec<HostEvent> {
+        let mut out = Vec::new();
+        for (agent, spec) in specs {
+            if spec.is_empty() || self.spawn_specs.get(agent) == Some(spec) {
+                continue;
+            }
+            self.spawn_specs.insert(agent.clone(), spec.clone());
+            if let Some(v) = self.view_mut(agent) {
+                v.agent.spawn_spec = Known::direct(spec.clone());
+                out.push(HostEvent::AgentUpdated { view: v.clone() });
+            }
+        }
+        out
+    }
+
     /// 担当が未取得なら、確定済みの担当を入れる。
     fn with_assignment(&self, mut a: Agent) -> Agent {
         // 親のspawn依頼で確定した担当（直接）は、子の最初の依頼からの導出値より優先する。
@@ -280,6 +299,9 @@ impl HostData {
             if let Some(t) = self.assignments.get(&a.key) {
                 a.assignment = Known::direct(t.clone());
             }
+        }
+        if let Some(s) = self.spawn_specs.get(&a.key) {
+            a.spawn_spec = Known::direct(s.clone());
         }
         // 記録値のモデル・推論強度は、今回の読取りに無ければ以前に読めた値を残す（未取得への巻き戻しを避ける）。
         if let Some(prev) = self.view(&a.key) {
@@ -804,6 +826,9 @@ impl HostData {
                     out.push(HostEvent::AgentUpdated { view: v.clone() });
                 }
             }
+            BackendEvent::AgentSpawnSpec { agent, spec } => {
+                out.extend(self.record_spawn_specs(&[(agent.clone(), spec.clone())]));
+            }
             BackendEvent::AgentDiscovered { agent } => {
                 let agent = &self.with_assignment(agent.clone());
                 if self.view(&agent.key).is_none() {
@@ -870,6 +895,7 @@ impl HostData {
                                     agent_path: Known::NotFetched,
                                     model: Known::NotFetched,
                                     effort: Known::NotFetched,
+                                    spawn_spec: Known::NotFetched,
                                     latest_turn: status.turn.clone(),
                                 },
                                 status: status.clone(),
@@ -1062,6 +1088,7 @@ mod tests {
             agent_path: Known::NotFetched,
             model: Known::NotFetched,
             effort: Known::NotFetched,
+            spawn_spec: Known::NotFetched,
             latest_turn: None,
         }
     }
@@ -1091,7 +1118,7 @@ mod tests {
             ck("root"),
             ChatModelSettings { selected: Some(selected.clone()), ..ChatModelSettings::blank(ApplyTiming::NextTurn) },
         );
-        let history = AgentHistory { agent: agent("root", true), chat: None, status: status(AgentState::Idle, None, StateScope::Agent), turns: vec![] };
+        let history = AgentHistory { agent: agent("root", true), chat: None, status: status(AgentState::Idle, None, StateScope::Agent), turns: vec![], spawns: vec![] };
         // 応答が会話のモデルを示さなければ、未取得のまま（受理済みにしない）。
         let ev = d.apply_resumed(&ck("root"), history.clone(), Known::NotFetched);
         assert!(!ev.iter().any(|e| matches!(e, HostEvent::ModelSettingsUpdated { .. })));
