@@ -198,6 +198,9 @@ pub struct ListChatsQuery {
     pub include_external: bool,
     /// 子孫（サブエージェント）を一覧に含める。
     pub include_descendants: bool,
+    /// 作業フォルダの完全一致条件（thread/list の cwd。下位フォルダは含まれない）。
+    #[serde(default)]
+    pub cwd: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -319,6 +319,9 @@ pub struct ListChatsArgs {
     pub limit: Option<u32>,
     pub search: Option<String>,
     pub include_archived: bool,
+    /// 作業フォルダの完全一致条件（指定時は一覧補完の判断をしない）。
+    #[serde(default)]
+    pub cwd: Option<Vec<String>>,
 }
 
 pub type ListChatsResult = Page<ChatSummary>;

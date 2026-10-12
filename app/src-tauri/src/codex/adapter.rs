@@ -816,6 +816,9 @@ impl AiBackend for CodexBackend {
         if let Some(s) = &query.search {
             p["searchTerm"] = json!(s);
         }
+        if let Some(c) = &query.cwd {
+            p["cwd"] = json!(c);
+        }
         let r = self.call("thread/list", p, READ_TIMEOUT).await?;
         let data = r.get("data").and_then(Value::as_array).ok_or_else(|| BackendError::Protocol { message: "thread/list: missing data".into() })?;
         let app_dir = self.app_dir();

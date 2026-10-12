@@ -528,9 +528,10 @@ impl Host {
             archived: args.include_archived,
             include_external: true,
             include_descendants: false,
+            cwd: args.cwd.filter(|c| !c.is_empty()),
         };
-        // 通常の一覧の取得（先頭ページ）だけが、一覧に無いアプリ管理の会話を補う契機になる（検索・続きのページ・アーカイブ側では判断しない）。
-        let complete = query.cursor.is_none() && query.search.is_none() && !query.archived;
+        // 通常の一覧の取得（先頭ページ）だけが、一覧に無いアプリ管理の会話を補う契機になる（検索・続きのページ・アーカイブ側・フォルダ条件付きでは判断しない）。
+        let complete = query.cursor.is_none() && query.search.is_none() && !query.archived && query.cwd.is_none();
         let page = self.backend.list_chats(query).await?;
         let listed: HashSet<ChatKey> = page.items.iter().map(|s| s.chat.key.clone()).collect();
         self.mutate(|d| {

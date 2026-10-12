@@ -16,7 +16,7 @@ AgentDockプロジェクトのClaude Code向け作業指示。毎ターン読み
 ## プロジェクト
 
 - **AgentDock**: Windows 11上でCodexを使う個人用の独立クライアント。アプリ内で起動・チャット・承認・質問・中断・履歴を扱い、子・孫エージェントを常時監視する。
-- 要件の正本: `AgentDock_Requirements.md`（1.5）。要件変更はこのファイルを版更新する。`Agent_Monitor_Requirements.md`以下の旧資料・レビューは経緯・証拠記録で、**実装中は読まない**。
+- 要件の正本: `AgentDock_Requirements.md`（1.6）。要件変更はこのファイルを版更新する。`Agent_Monitor_Requirements.md`以下の旧資料・レビューは経緯・証拠記録で、**実装中は読まない**。
 - 画面の基準: `AgentDock_Mock.html`（旧`Agent_Monitor_Mock.html`は変更しない）。
 - 技術: Tauri 2＋React＋TypeScript、Rustホスト。Codex App Serverへstdio（JSON-RPC）で接続。codex.exeは設定でパス指定、既存`~/.codex`を共有。
 - 将来の他AI接続に備え、ホストに**AIバックエンド境界**を置く。Codex固有の型をUI・保存形式へ持ち込まない（正本§2.3）。

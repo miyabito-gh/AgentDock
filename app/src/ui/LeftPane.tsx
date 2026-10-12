@@ -7,6 +7,7 @@ import { STATE, keyStr, knownValue } from "./format";
 import { PENDING_TEXT, archiveTag } from "./ManageDialogs";
 import { GROUP_HEADER_HEIGHT, WINDOW_THRESHOLD, cumulativeTops, rowHeight, scrollTopToRevealVar, windowRangeVar } from "./listWindow";
 import { BASIS_TEXT, groupByProject, type MatchBasis } from "./projectGroups";
+import { projectUpdateMessage } from "./listFetch";
 import { UNKNOWN_KEY, collapseAll, flattenGroups, groupChats, shortNames, worktreeOf, type FlatItem, type FolderGroup } from "./folderGroups";
 
 /** 行の「…」メニューで選べる操作（App.tsx の onChatAct が対象チャットIDつきで受ける）。 */
@@ -27,7 +28,11 @@ interface MenuItem { act: string; label: string; danger?: boolean; sep?: boolean
 /** 開いているメニュー（行の「…」・見出しの「…」で共通）。位置は「…」ボタンに寄せる。 */
 type OpenMenu = { kind: "chat"; id: string } | { kind: "group"; key: string };
 
-export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct, chatList, onChatList, projects = null, onNotice, listStatus, uiSize = "Normal", onNewChatIn, onReclassify }: {
+export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct, chatList, onChatList, projects = null, onNotice, listStatus, uiSize = "Normal", onNewChatIn, onReclassify, onFetchProjectChats, onLoadMore }: {
+  /** プロジェクト見出しの「このプロジェクトのチャットを取得」。roots を cwd 条件に読む（読み取りのみ）。結果の通知は呼び出し側が出す。 */
+  onFetchProjectChats?: (label: string, roots: string[]) => Promise<void>;
+  /** 一覧末尾の「続きを読み込む」。続きがあるときだけ渡される（読み取りのみ）。 */
+  onLoadMore?: () => Promise<void>;
   /** 見出しの「このフォルダで新しいチャット」。第1引数が初期の作業フォルダ、第2引数は候補（プロジェクトの全フォルダ）。作成はダイアログで押したときだけ。 */
   onNewChatIn?: (cwd: string, choices: string[]) => void;
   /** プロジェクトとチャット一覧を取り直す（読み取りのみ）。失敗の理由を返す（成功は null）。 */
@@ -59,6 +64,7 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct,
   const removed = (c: Chat) => localOf(c)?.visibility.kind === "removedFromList";
   const visible = sortChats(snap.chats).filter((c) => !removed(c)).filter((c) =>
     (showArch ? archived(c) : !archived(c) || (q !== "" && inclArch)) && (!q || chatName(c).includes(q)));
+  const loadedCount = snap.chats.filter((c) => !removed(c) && !archived(c)).length;
   const pinned = visible.filter((c) => c.pinned && !showArch);
   const rest = visible.filter((c) => !c.pinned || showArch);
 
@@ -87,9 +93,16 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct,
       else if (g.kind === "noProject") none += g.chats.length;
       else if (g.kind === "unknown") unk += g.chats.length;
     }
-    onNotice?.(`プロジェクト${loadedProjects?.length ?? 0}件・チャット${conf + guess + none + unk}件を振り分けました（確定${conf}件／推定${guess}件／プロジェクトなし${none}件${unk ? `／フォルダ未確認${unk}件` : ""}）`);
+    onNotice?.(projectUpdateMessage({ projects: loadedProjects?.length ?? 0, confirmed: conf, guessed: guess, none, unknown: unk }));
     setReclass("idle");
   }, [reclass, projectGrouping]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 取得系の操作（見出しごと・続き）の実行中。二重実行しない。
+  const [fetching, setFetching] = useState(false);
+  const runFetch = async (f?: () => Promise<void>) => {
+    if (!f || fetching) return;
+    setFetching(true);
+    try { await f(); } finally { setFetching(false); }
+  };
   const multi = projectGrouping?.multi ?? new Map<string, string[]>();
   const basisOf = projectGrouping?.basis ?? new Map<string, MatchBasis>();
   const shorts = shortNames(groups.filter((g) => g.kind === "folder").map((g) => ({ key: g.key, path: g.path })));
@@ -252,6 +265,11 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct,
           sub: g.kind === "project" ? `先頭フォルダ: ${newIn[0]}` : newIn[0],
           title: g.kind === "project" ? `先頭フォルダ（プライマリと推定）: ${newIn[0]}` : newIn[0],
         }] : []),
+        ...(g.kind === "project" && onFetchProjectChats && (g.roots ?? []).some((x) => x.trim() !== "") ? [{
+          act: "gfetch",
+          label: fetching ? "取得中…" : "このプロジェクトのチャットを取得",
+          title: "このプロジェクトのフォルダを作業フォルダに持つチャットを Codex から取得します（読み取りのみ。押したときだけ）。フォルダの完全一致のみで、下位フォルダのチャットは取得できません",
+        }] : []),
         ...(g.kind !== "unknown" ? [{ act: "gpin", label: g.kind === "project" ? (g.pinned ? "プロジェクトのピン留めを外す" : "プロジェクトをピン留め") : (g.pinned ? "フォルダのピン留めを外す" : "フォルダをピン留め") }] : []),
         ...(g.kind === "folder" ? [{ act: "gcopy", label: "パスをコピー" }] : []),
       ],
@@ -264,6 +282,11 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct,
     // gnew はダイアログが開くので、フォーカスは戻さない。
     if (m.kind === "chat") onChatAct(act as ChatOp, m.id);
     else if (act === "gnew") { const g = groups.find((x) => x.key === m.key); const f = g ? newChatFolders(g) : null; if (f && onNewChatIn) onNewChatIn(f[0], f); }
+    else if (act === "gfetch") {
+      const g = groups.find((x) => x.key === m.key);
+      const roots = (g?.roots ?? []).filter((x) => x.trim() !== "");
+      if (g && roots.length && onFetchProjectChats) void runFetch(() => onFetchProjectChats(labelOf(g), roots));
+    }
     else if (act === "gpin") toggleFolderPin(m.key);
     else if (act === "gcopy") { const g = groups.find((x) => x.key === m.key); if (g) copyPath(g.path); }
   };
@@ -400,9 +423,9 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct,
                   <>
                     <hr />
                     <button type="button" role="menuitem" disabled={!onReclassify || reclass === "busy" || !loadedProjects}
-                      title="プロジェクト一覧とチャット一覧を取り直し（読み取りのみ）、所属を判定し直します。押したときだけ実行します"
+                      title="プロジェクト一覧だけを取り直し（読み取りのみ）、所属を判定し直します。チャット一覧は取得しません（チャットの更新は更新ボタン）。押したときだけ実行します"
                       onClick={() => { close(); void doReclassify(); }}>
-                      <span>{reclass === "busy" ? "振り分け直し中…" : "プロジェクトを再取得して振り分け直す"}</span>
+                      <span>{reclass === "busy" ? "更新中…" : "プロジェクト一覧を更新"}</span>
                     </button>
                   </>
                 ) : null}
@@ -440,6 +463,13 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct,
             {pinned.length ? <><div className="list-h"><span>ピン留め</span></div>{pinned.map((c) => row(c))}</> : null}
             <div className="list-h"><span>{viewLabel}</span></div>
             {rest.length ? listRows() : <div className="empty-note">{q ? "一致するチャットはありません" : "まだチャットがありません"}</div>}
+            {onLoadMore && q === "" ? (
+              <div className="list-more" style={{ padding: "6px 8px", display: "flex", alignItems: "center", gap: 8 }}>
+                <button type="button" className="small" disabled={fetching} onClick={() => void runFetch(onLoadMore)}
+                  title="Codex の一覧の続きを次の1ページ取得します（読み取りのみ）">{fetching ? "読み込み中…" : "続きを読み込む"}</button>
+                <span className="small" style={{ opacity: 0.7 }}>取得済み{loadedCount}件</span>
+              </div>
+            ) : null}
           </>
         )}
       </div>

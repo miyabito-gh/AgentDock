@@ -7,6 +7,7 @@ import * as host from "./ipc/client";
 import { LinkContext, RefContext, type PathAction, type RefActions } from "./ui/Markdown";
 import { copyText } from "./ui/markdown/parts";
 import { usePathStats } from "./ui/usePathStats";
+import { MAX_FETCH_PAGES, countFetched, fetchAllPages, loadMoreMessage, projectFetchMessage } from "./ui/listFetch";
 import { addDecision, mergeDecisions, type DecisionItem } from "./ui/decisions";
 import { applyHostEvent, createEventPipeline, emptyBundle, replaceSnapshot, seqAction, UNKNOWN_CAPS } from "./ipc/live";
 import type { Bundle } from "./mock/data";
@@ -127,6 +128,8 @@ export default function App() {
   const [steerUnknown, setSteerUnknown] = useState<Record<string, string>>({});
   const [warnHidden, setWarnHidden] = useState(false);
   const [listStatus, setListStatus] = useState<{ ok: boolean; text: string } | null>(null);
+  /** 通常の一覧の続き（nextCursor）。null＝続きなし（または未取得）。「続きを読み込む」だけが使う。 */
+  const [listCursor, setListCursor] = useState<string | null>(null);
   const [steerOf, setSteerOf] = useState<Record<string, { attemptId: string; text: string; attachments: string[] }>>({});
   const [dragging, setDragging] = useState(false);
   const [changesTick, setChangesTick] = useState(0);
@@ -199,6 +202,7 @@ export default function App() {
     }
     try {
       const page = await host.listChats();
+      setListCursor(page.nextCursor);
       if (!selRef.current && page.items[0]) {
         const id = page.items[0].chat.key.id;
         setSelId(id);
@@ -288,6 +292,7 @@ export default function App() {
           snap = await host.getSnapshot();
         } else {
           const page = await host.listChats().catch(() => null);
+          if (page) setListCursor(page.nextCursor);
           if (page?.items[0] && !selRef.current) { setSelId(page.items[0].chat.key.id); void loadChat(page.items[0].chat.key.id); }
           setModels(await host.listModels().catch(() => []));
           void refreshProjects();
@@ -1156,6 +1161,7 @@ export default function App() {
     const at = hms(Date.now());
     try {
       const page = await host.listChats();
+      setListCursor(page.nextCursor);
       if (!skipProjects) void refreshProjects();
       const text = `一覧を更新しました（Codex から${page.items.length}件${page.nextCursor ? "、続きあり" : ""}）`;
       setListStatus({ ok: true, text: `${text}　${at}` });
@@ -1168,15 +1174,34 @@ export default function App() {
       return false;
     }
   };
-  /** プロジェクトを再取得して振り分け直す（読み取りのみ。押したときだけ）。取れなかったときは前の一覧を残す。戻り値は失敗の理由（成功は null）。 */
+  /** プロジェクト一覧を更新して振り分け直す（project/list の再取得だけ。チャット一覧は取らない。押したときだけ）。取れなかったときは前の振り分けを残す。戻り値は失敗の理由（成功は null）。 */
   const reclassify = async (): Promise<string | null> => {
     if (!live) return "この操作はモックでは動きません。";
     try {
       const o = await host.listProjects();
-      if (o.kind !== "loaded") return `プロジェクトを取得できませんでした: ${o.reason}`;
+      if (o.kind !== "loaded") return `プロジェクトを取得できませんでした（前の振り分けのままです）: ${o.reason}`;
       setProjects(o);
-    } catch (e) { return `プロジェクトを取得できませんでした: ${host.asIpcError(e).message}`; }
-    return (await refreshList(true)) ? null : "チャット一覧を取得できませんでした（プロジェクトは取得済みです。前のチャット一覧のまま振り分けました）";
+    } catch (e) { return `プロジェクトを取得できませんでした（前の振り分けのままです）: ${host.asIpcError(e).message}`; }
+    return null;
+  };
+  /** 一覧末尾の「続きを読み込む」。次の1ページだけ取得してマージする（読み取りのみ）。失敗時は続きの位置を保つ。 */
+  const loadMoreChats = async () => {
+    if (!live || !listCursor) return;
+    const known = new Set(snap.chats.map((c) => c.key.id));
+    try {
+      const page = await host.listChats(listCursor);
+      setListCursor(page.nextCursor);
+      const n = countFetched(page.items.map((s) => s.chat.key.id), known);
+      say(loadMoreMessage({ ...n, more: page.nextCursor !== null }));
+    } catch (e) { sayErr("続きを取得できませんでした（取得済みの一覧はそのままです）", e); }
+  };
+  /** プロジェクト見出しの「このプロジェクトのチャットを取得」。roots を cwd 条件にして、続きも上限ページまで取得する（読み取りのみ）。 */
+  const fetchProjectChats = async (label: string, roots: string[]) => {
+    if (!live) { say("この操作はモックでは動きません。"); return; }
+    const known = new Set(snap.chats.map((c) => c.key.id));
+    const r = await fetchAllPages((cursor) => host.listChats(cursor, false, roots), MAX_FETCH_PAGES, (e) => host.asIpcError(e).message);
+    const n = countFetched(r.items.map((s) => s.chat.key.id), known);
+    say(projectFetchMessage(label, { ...n, truncated: r.truncated, error: r.error }), r.error || r.truncated ? 8000 : 5000);
   };
 
   /** 名前の変更。Codex が受け付けたと確認できたときだけダイアログを閉じる。失敗の理由は返してダイアログに残す。 */
@@ -1359,7 +1384,7 @@ export default function App() {
         >
           <aside className="left" id="pane-left" aria-label="チャット一覧">
             <LeftPane snap={snap} sel={chat ? keyStr(chat.key) : null} onSelect={(id) => { selectChat(id); setLNarrow(false); }} onAct={act} onAcknowledge={(c) => onAcknowledge(c.key, null)}
-              onChatAct={chatAct} chatList={snap.settings.chatList} projects={projects} onNotice={say} onReclassify={reclassify}
+              onChatAct={chatAct} chatList={snap.settings.chatList} projects={projects} onNotice={say} onReclassify={reclassify} onFetchProjectChats={fetchProjectChats} onLoadMore={listCursor ? loadMoreChats : undefined}
               onNewChatIn={(cwd, choices) => { setDialog({ type: "newChat", dev: true, cwd, cwdChoices: choices.length > 1 ? choices : undefined }); setLNarrow(false); }}
               onChatList={(f) => updateSettings((s) => ({ ...s, chatList: f(s.chatList) }), "一覧の表示設定を保存できませんでした。次回の起動では保存されている値に戻ります")} listStatus={listStatus} uiSize={snap.settings.appearance.uiText} />
           </aside>

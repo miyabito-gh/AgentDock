@@ -41,8 +41,9 @@ export function subscribeHostEvents(handler: (e: HostEventEnvelope) => void): Pr
 export const getSnapshot = (): Promise<HostSnapshot> => invokeCmd("get_snapshot", {});
 export const connectBackend = (executable: string | null): Promise<SourceInfo> =>
   invokeCmd("connect_backend", { backend: "codex", executable });
-export const listChats = (cursor: string | null = null, includeArchived = false): Promise<Page<ChatSummary>> =>
-  invokeCmd("list_chats", { cursor, limit: null, search: null, includeArchived });
+/** cwd は作業フォルダの完全一致条件（下位フォルダは含まれない）。 */
+export const listChats = (cursor: string | null = null, includeArchived = false, cwd: string[] | null = null): Promise<Page<ChatSummary>> =>
+  invokeCmd("list_chats", { cursor, limit: null, search: null, includeArchived, cwd });
 export const openChat = (chat: ChatKey): Promise<AgentHistory> => invokeCmd("open_chat", { chat });
 /** worktree は、作業フォルダ（cwd）がAgentDockが作ったworktreeの場所のとき、その記録のID（チャットに結び付ける）。 */
 /** extraFolders は追加の作業フォルダ（cwd以外）。confirmedStrong は強い確認を済ませたパス（ホストが再検査する）。 */
