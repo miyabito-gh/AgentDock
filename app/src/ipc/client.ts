@@ -45,7 +45,7 @@ export const listChats = (cursor: string | null = null, includeArchived = false)
 export const openChat = (chat: ChatKey): Promise<AgentHistory> => invokeCmd("open_chat", { chat });
 /** worktree は、作業フォルダ（cwd）がAgentDockが作ったworktreeの場所のとき、その記録のID（チャットに結び付ける）。 */
 export const startChat = (cwd: string | null, model: ModelChoice | null, firstMessage: string | null, permission: PermissionPreset | null = null, worktree: LocalId | null = null): Promise<StartChatResult> =>
-  invokeCmd("start_chat", { backend: "codex", cwd, model, permission, firstMessage, worktree });
+  invokeCmd("start_chat", { backend: "codex", cwd, model, permission, firstMessage, worktree, extraFolders: [], confirmedStrong: [] });
 export const sendMessage = (chat: ChatKey, text: string, intent: SendIntent, attachments: LocalId[] = [], steerEntry: LocalId | null = null): Promise<SendAttempt> =>
   invokeCmd("send_message", { chat, text, attachments, intent, steerEntry });
 export const retrySend = (chat: ChatKey, attempt: LocalId): Promise<SendAttempt> => invokeCmd("retry_send", { chat, attempt });
@@ -81,7 +81,7 @@ export const reconcileSend = (chat: ChatKey, attempt: LocalId): Promise<SendAtte
 export const setChatPermission = (chat: ChatKey, permission: PermissionPreset): Promise<SettingsImpact> =>
   invokeCmd("set_chat_permission", { chat, permission });
 export const setChatCwd = (chat: ChatKey, cwd: string, queueRetargetConfirmed: boolean): Promise<SettingsImpact> =>
-  invokeCmd("set_chat_cwd", { chat, cwd, queueRetargetConfirmed });
+  invokeCmd("set_chat_cwd", { chat, cwd, queueRetargetConfirmed, confirmedStrong: [] });
 /** アプリ設定の保存（通知設定など。ホストが保存し、`settingsUpdated` で返る）。 */
 export const setAppSettings = (settings: AppSettings): Promise<AppSettings> => invokeCmd("set_app_settings", { settings });
 /** 起動時の保存データ警告を確認済みにする（reset=true で解除）。設定へ保存するだけで、領域のファイルは触らない。 */

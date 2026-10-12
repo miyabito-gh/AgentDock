@@ -163,7 +163,7 @@ function base(): Bundle {
       requests: [], stops: [], queues: [queue], monitorScope: { kind: "selectedChat", chat: ck("a") },
       chatLocals: [], saveStatus: [], settings: DEFAULT_SETTINGS, modelSettings: [], startupWarnings: [],
       attachments: MOCK_ATTACHMENTS, artifacts: MOCK_ARTIFACTS, quit: { kind: "idle" },
-      opCapabilities: [], pendingOps: [], sideSessions: [], worktrees: [], cloudTasks: [], historyConfirmations: [],
+      opCapabilities: [], workspaceRoots: "unknown", pendingOps: [], sideSessions: [], worktrees: [], cloudTasks: [], historyConfirmations: [],
     },
     turns: {
       a: turns("a", [

@@ -226,6 +226,7 @@ impl HostData {
             artifacts: self.locals.values().flat_map(|f| f.artifacts.iter().cloned()).collect(),
             quit: crate::backend::local::QuitPhase::Idle, // 手順の状態は `Host::snapshot` が重ねる
             op_capabilities: Vec::new(), // `Host::snapshot` がバックエンドの宣言を重ねる
+            workspace_roots: Support::Unknown, // 同上
             pending_ops: self
                 .locals
                 .iter()
@@ -1054,6 +1055,7 @@ impl HostData {
             // 目標の更新・解除はUIが表示している分を置き換えるだけ。エージェント状態（§4.1）には流用しない。
             BackendEvent::GoalUpdated { chat, goal } => out.push(HostEvent::GoalUpdated { chat: chat.clone(), goal: goal.clone() }),
             BackendEvent::OpCapabilitiesChanged { ops } => out.push(HostEvent::OpCapabilitiesUpdated { ops: ops.clone() }),
+            BackendEvent::WorkspaceRootsSupportChanged { support } => out.push(HostEvent::WorkspaceRootsSupportUpdated { support: *support }),
             // ツールサーバーの通知は、ホストの拡張管理（`extensions.rs`）が見る。エージェントの状態には使わない。
             BackendEvent::ToolServerStatusChanged { .. } | BackendEvent::ToolServerLoginCompleted { .. } | BackendEvent::RateLimitsUpdated => {}
             BackendEvent::ModelRerouted { agent, effective, .. } => {

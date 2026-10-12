@@ -239,6 +239,8 @@ pub struct ForkInherit {
     pub work_mode: Option<WorkMode>,
     pub worktree: Option<LocalId>,
     pub next_cwd: Option<String>,
+    /// 次の送信から使う作業フォルダの並び（`accepted_folders`・`unconfirmed_folders` は別スレッドの記録ではないので写さない）。
+    pub next_folders: Option<Vec<String>>,
 }
 
 impl ForkInherit {
@@ -250,6 +252,7 @@ impl ForkInherit {
             work_mode: work_mode.or_else(|| local.and_then(|l| l.work_mode)),
             worktree: local.and_then(|l| l.worktree.clone()),
             next_cwd: local.and_then(|l| l.next_cwd.clone()),
+            next_folders: local.and_then(|l| l.next_folders.clone()),
         }
     }
 
@@ -269,6 +272,9 @@ impl ForkInherit {
         }
         if f.next_cwd.is_none() {
             f.next_cwd = self.next_cwd.clone();
+        }
+        if f.next_folders.is_none() {
+            f.next_folders = self.next_folders.clone();
         }
     }
 }
@@ -469,6 +475,9 @@ mod tests {
         let mut src = local_with(Some(PermissionPreset::ReadOnly), None);
         src.worktree = Some(LocalId("wt".into()));
         src.next_cwd = Some("C:\\work".into());
+        src.next_folders = Some(vec!["C:\\work".into(), "D:\\lib".into()]);
+        src.accepted_folders = Some(AcceptedFolders { folders: WorkFolders { folders: vec!["C:\\old".into()] }, accepted_at: UnixMillis(1) });
+        src.unconfirmed_folders = Some(vec!["C:\\unk".into()]);
         let sel = ModelChoice { model: "x".into(), effort: Some("high".into()), speed_tier: None };
         let inh = ForkInherit::from_source(Some(&src), Some(sel.clone()), Some(WorkMode::Plan));
         let mut dst = local_with(None, None);
@@ -478,6 +487,8 @@ mod tests {
         assert_eq!(dst.work_mode, Some(WorkMode::Plan));
         assert_eq!(dst.worktree, Some(LocalId("wt".into())));
         assert_eq!(dst.next_cwd.as_deref(), Some("C:\\work"));
+        assert_eq!(dst.next_folders, Some(vec!["C:\\work".to_string(), "D:\\lib".to_string()]));
+        assert!(dst.accepted_folders.is_none() && dst.unconfirmed_folders.is_none(), "records of the source thread are not inherited");
     }
 
     #[test]

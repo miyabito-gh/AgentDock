@@ -95,6 +95,8 @@ pub enum BackendEvent {
     RateLimitsUpdated,
     /// 操作ごとの能力が実行時に変わった（experimentalの拒否による非対応への降格など）。
     OpCapabilitiesChanged { ops: Vec<OpCapability> },
+    /// 複数の作業フォルダの指定（experimental）が実行時に使えなくなった（拒否による降格）。
+    WorkspaceRootsSupportChanged { support: Support },
     /// 未知のイベント・正規化できない内容。破棄せず警告として表示（M12）。
     Unrecognized { raw_label: String, note: Option<String> },
     /// イベント欠落の可能性（キュー溢れ・lag・パース失敗）。対象の鮮度を要照合にする。

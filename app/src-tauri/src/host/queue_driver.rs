@@ -254,6 +254,8 @@ struct Plan {
     model: Option<ModelChoice>,
     permission: Option<PermissionPreset>,
     cwd: Option<String>,
+    /// 次の送信から使う作業フォルダの並び（あれば `cwd` は None で、先頭がプライマリ）。
+    work_folders: Option<WorkFolders>,
     work_mode: Option<WorkMode>,
 }
 
@@ -620,7 +622,7 @@ impl Host {
     fn begin_entry_send(&self, chat: &ChatKey, entry: &LocalId, attempt: SendAttempt, unconfirmed: u32) -> Option<Plan> {
         let now = attempt.at;
         self.mutate(|d| {
-            let (model, permission, cwd_override, work_mode) = {
+            let (model, permission, cwd_override, work_mode, work_folders) = {
                 let l = d.locals.get(chat);
                 let work_mode = d.model_settings.get(chat).and_then(|s| s.work_mode);
                 let selected = d.model_settings.get(chat).and_then(|s| s.selected.clone());
@@ -630,11 +632,15 @@ impl Host {
                 } else {
                     selected
                 };
-                (model, l.and_then(|l| l.permission), l.and_then(|l| l.next_cwd.clone()), work_mode)
+                // 作業フォルダの並びがあれば、それが cwd（先頭）と roots を決める。cwd単独の指定は使わない。
+                let folders = super::work_folders::folders_for_send(true, l.and_then(|l| l.next_folders.as_deref()));
+                let cwd = if folders.is_some() { None } else { l.and_then(|l| l.next_cwd.clone()) };
+                (model, l.and_then(|l| l.permission), cwd, work_mode, folders)
             };
-            let cwd_known = match &cwd_override {
-                Some(c) => Known::direct(c.clone()),
-                None => d.chat(chat).map(|c| c.cwd.clone()).unwrap_or(Known::NotFetched),
+            let cwd_known = match (&work_folders, &cwd_override) {
+                (Some(f), _) => f.folders.first().map_or(Known::NotFetched, |c| Known::direct(c.clone())),
+                (None, Some(c)) => Known::direct(c.clone()),
+                (None, None) => d.chat(chat).map(|c| c.cwd.clone()).unwrap_or(Known::NotFetched),
             };
             let applied = AppliedSettings { model: model.clone(), permission: permission.unwrap_or(PermissionPreset::WorkspaceWriteOnRequest), cwd: cwd_known, decided_at: now, work_mode, unconfirmed_descendants: (unconfirmed > 0).then_some(unconfirmed) };
             let Some(f) = d.queues.get_mut(chat) else { return (None, vec![]) };
@@ -642,7 +648,7 @@ impl Host {
             if !q::begin_send(&mut f.queue, entry, attempt, applied) {
                 return (None, vec![]);
             }
-            (Some(Plan { text, attachments, model, permission, cwd: cwd_override, work_mode }), vec![queue_event(f)])
+            (Some(Plan { text, attachments, model, permission, cwd: cwd_override, work_folders, work_mode }), vec![queue_event(f)])
         })
     }
 
@@ -680,7 +686,7 @@ impl Host {
             model: plan.model,
             permission: plan.permission,
             cwd: plan.cwd,
-            work_folders: None,
+            work_folders: plan.work_folders,
             work_mode: plan.work_mode,
             client_message_id: attempt.client_message_id.clone(),
         };
@@ -704,6 +710,7 @@ impl Host {
         request.model = plan.model;
         request.permission = plan.permission;
         request.cwd = plan.cwd;
+        request.work_folders = plan.work_folders;
         Ok(self.run_entry_send(chat, entry, attempt, request, prior).await)
     }
 
@@ -730,11 +737,20 @@ impl Host {
             }
         }
         let sent_cwd = request.cwd.clone();
+        let sent_folders = if matches!(request.mode, SendMode::NewTurn) { request.work_folders.clone() } else { None };
+        // 作業フォルダの並びは送信の直前にも存在を確かめる。消えていたら外さず、送らずに明示拒否として扱う（キューは止まり、再開・再送はユーザー操作）。
+        let folders_problem = match &sent_folders {
+            Some(f) => self.recheck_send_folders(f).await.err(),
+            None => None,
+        };
         // 変更の控え（基準B）は送信の直前に取る。失敗しても送信は止めない。
-        if matches!(request.mode, SendMode::NewTurn) {
-            self.baseline_take_base(chat, &attempt.attempt_id, request.cwd.clone()).await;
+        if matches!(request.mode, SendMode::NewTurn) && folders_problem.is_none() {
+            self.baseline_take_base(chat, &attempt.attempt_id, request.cwd.clone().or_else(|| request.work_folders.as_ref().and_then(|f| f.folders.first().cloned()))).await;
         }
-        let outcome = self.backend.send(request).await;
+        let outcome = match folders_problem {
+            Some(message) => SendOutcome::Rejected { error: BackendError::Rejected { code: None, message }, request: NotAccepted::new(request) },
+            None => self.backend.send(request).await,
+        };
         let now = now_ms();
         let mut done = attempt.clone();
         let result = match outcome {
@@ -753,6 +769,9 @@ impl Host {
             SendOutcome::AcceptanceUnknown(u) => {
                 done.state = SendState::AcceptanceUnknown { since: u.since };
                 let applied = self.read(|d| d.queues.get(chat).and_then(|f| f.queue.entries.iter().find(|e| e.id == entry)).and_then(|e| e.applied.clone()));
+                if let Some(f) = &sent_folders {
+                    self.note_folders_unconfirmed(chat, f);
+                }
                 self.register_unknown(chat, &attempt.attempt_id, Some(entry.clone()), applied, u);
                 q::SendResult::Unknown { attempt: done.clone() }
             }
@@ -770,7 +789,9 @@ impl Host {
             let root = agent_key_of(chat);
             self.queue_rt.reset_scan(&root);
             self.start_scan(root);
-            if let Some(cwd) = sent_cwd {
+            if let Some(folders) = sent_folders {
+                self.apply_folders_after_accept(chat, folders);
+            } else if let Some(cwd) = sent_cwd {
                 self.apply_cwd_after_accept(chat, cwd);
             }
             self.update_local(chat, true, Duration::ZERO, |f| f.last_used_at = Some(now));
@@ -952,6 +973,8 @@ impl Host {
                 let steered = self.read(|d| d.queues.get(&chat).and_then(|f| f.unresolved_sends.iter().find(|r| &r.attempt == attempt_id)).and_then(|r| r.entry.clone()));
                 self.drop_unresolved_record(&chat, attempt_id);
                 self.baseline_bound(&chat, attempt_id, &turn.turn_id);
+                // 受理不明のときに記録した作業フォルダの指定を、送信記録へ移す（受理と確定したときだけ）。
+                self.promote_folders_after_reconcile(&chat);
                 self.apply_reconciled(&chat, attempt_id, |a| q::SendResult::ReconciledAccepted { attempt: a, turn: turn.clone() });
                 if let Some(e) = steered {
                     self.cancel_steered(&chat, &e);
@@ -965,6 +988,7 @@ impl Host {
                 self.rejected.lock().unwrap().insert(attempt_id.clone(), na);
                 self.drop_unresolved_record(&chat, attempt_id);
                 self.baseline_abandoned(&chat, attempt_id, "notFoundAfterReconcile");
+                self.note_folders_not_accepted(&chat);
                 self.apply_reconciled(&chat, attempt_id, |a| q::SendResult::ReconciledNotFound { attempt: a });
                 let a = make(SendState::NotFoundAfterReconcile);
                 self.emit_send(&chat, &a);
@@ -1183,38 +1207,6 @@ impl Host {
         }
         self.precheck_space()?;
         self.update_local(&args.chat, true, Duration::ZERO, |f| f.permission = Some(args.permission));
-        Ok(self.settings_impact(&args.chat))
-    }
-
-    /// 次のturnから使う作業フォルダの変更（M44）。作業中・停止未確認なら止め、送信待ちがあれば確認を求める。
-    pub fn set_chat_cwd(self: &Arc<Self>, args: SetChatCwdArgs) -> Result<SettingsImpact, IpcError> {
-        let cwd = args.cwd.trim().to_string();
-        let info = self.read(|d| {
-            d.chat(&args.chat).map(|c| {
-                let busy = d.agents.iter().any(|v| v.agent.chat == args.chat && d.running_turn.contains_key(&v.agent.key)) || d.open_stop(&args.chat).is_some();
-                (c.kind, busy)
-            })
-        });
-        let Some((kind, busy)) = info else { return Err(err(IpcErrorCode::NotFound, "チャットが見つかりません")) };
-        if kind == ChatKind::General {
-            return Err(err(IpcErrorCode::InvalidArgs, "一般チャットの作業フォルダは変更できません"));
-        }
-        if cwd.is_empty() || !std::path::Path::new(&cwd).is_dir() {
-            return Err(err(IpcErrorCode::InvalidArgs, format!("作業フォルダが見つかりません: {cwd}")));
-        }
-        let busy = busy || self.unknown_attempt(&args.chat).is_some();
-        let queue = self.read(|d| d.queues.get(&args.chat).map(|f| f.queue.clone())).unwrap_or_else(|| q::new_queue(args.chat.clone()));
-        match q::check_cwd_change(&queue, busy, args.queue_retarget_confirmed) {
-            q::CwdChangeCheck::Busy => {
-                return Err(blocked(BlockedReason::ChatBusy, "作業中または停止未確認のため、作業フォルダは変更できません。完了・停止を確認してから変更してください"))
-            }
-            q::CwdChangeCheck::NeedsQueueConfirmation { waiting } => {
-                return Err(blocked(BlockedReason::QueueRetargetUnconfirmed { waiting }, format!("送信待ちの依頼 {waiting} 件も、新しいフォルダが対象になります")))
-            }
-            q::CwdChangeCheck::Allowed => {}
-        }
-        self.precheck_space()?;
-        self.update_local(&args.chat, true, Duration::ZERO, |f| f.next_cwd = Some(cwd));
         Ok(self.settings_impact(&args.chat))
     }
 

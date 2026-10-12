@@ -29,6 +29,7 @@ pub mod state;
 pub mod stop;
 pub mod thread_ops;
 pub mod worktree;
+pub mod work_folders;
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -279,7 +280,9 @@ impl Host {
     pub fn snapshot(&self) -> HostSnapshot {
         let mut s = self.read(|d| d.snapshot());
         s.quit = self.quit_phase();
-        s.op_capabilities = self.backend.capabilities().ops;
+        let caps = self.backend.capabilities();
+        s.op_capabilities = caps.ops;
+        s.workspace_roots = caps.workspace_roots;
         s
     }
 
@@ -584,12 +587,38 @@ impl Host {
                 (ChatKind::General, dir)
             }
         };
+        // 追加の作業フォルダ（experimental）。UIの確認結果は信用せず、ここで集合ごと再検査する（強い確認は confirmedStrong に無ければ拒否）。
+        let (cwd, extra_folders) = if args.extra_folders.is_empty() {
+            (cwd, Vec::new())
+        } else {
+            if kind == ChatKind::General {
+                return Err(err(IpcErrorCode::InvalidArgs, "一般チャットには追加の作業フォルダを指定できません"));
+            }
+            let all = work_folders::compose_with_primary(&cwd, &args.extra_folders);
+            let confirmed = args.confirmed_strong.clone();
+            let checked = {
+                let all = all.clone();
+                tokio::task::spawn_blocking(move || {
+                    crate::rules::work_folders::verify_folder_set(&all, &confirmed, &crate::rules::work_folders::FolderEnv::from_os(), &crate::rules::work_folders::os_probe)
+                })
+                .await
+                .map_err(|_| err(IpcErrorCode::Io, "作業フォルダの確認を完了できませんでした"))?
+            };
+            match checked {
+                Ok(w) => {
+                    let mut it = w.folders.into_iter();
+                    let primary = it.next().unwrap_or(cwd);
+                    (primary, it.collect())
+                }
+                Err(r) => return Err(err(IpcErrorCode::InvalidArgs, work_folders::set_reject_message(&all, &r))),
+            }
+        };
         let params = StartChatParams {
             kind,
             cwd,
             model: args.model.clone(),
             permission: args.permission.unwrap_or(PermissionPreset::WorkspaceWriteOnRequest),
-            extra_folders: Vec::new(),
+            extra_folders,
         };
         let started = match self.backend.start_chat(params).await {
             Ok(s) => s,
@@ -608,6 +637,12 @@ impl Host {
             f.hosted = true;
             f.cached_meta = Some(meta);
             f.worktree = args.worktree.clone();
+            // 開始の応答が示した作業フォルダ（追加を求めたときだけ記録）。バックエンドの現在値とは断定しない送信記録として持つ。
+            if !args.extra_folders.is_empty() {
+                if let Known::Value { value, .. } = &started.accepted_folders {
+                    f.accepted_folders = Some(AcceptedFolders { folders: value.clone(), accepted_at: now_ms() });
+                }
+            }
         });
         if let Some(w) = &args.worktree {
             self.bind_worktree_chat(w, &key).await;
@@ -830,6 +865,9 @@ impl Host {
         // 権限・作業フォルダは新しいturnにだけ付ける。追加指示（turn/steer）では設定を変えない。
         let (permission, cwd) = if matches!(mode, SendMode::NewTurn) { self.send_overrides(&args.chat) } else { (None, None) };
         let is_new_turn = matches!(mode, SendMode::NewTurn);
+        // 作業フォルダの並び（次の送信から）。新しいturnにだけ付け、付けるときはcwd単独の指定は使わない（先頭がcwdになる）。
+        let work_folders = self.work_folders_for_send(&args.chat, is_new_turn);
+        let cwd = if work_folders.is_some() { None } else { cwd };
         let work_mode = if is_new_turn { self.chat_work_mode(&args.chat) } else { None };
         let model = self.model_for_send(&args.chat, selected_model, work_mode);
         let chat = args.chat.clone();
@@ -842,7 +880,7 @@ impl Host {
             model,
             permission,
             cwd,
-            work_folders: None,
+            work_folders,
             work_mode,
             client_message_id: self.local_id("cm").0,
         };
@@ -885,6 +923,16 @@ impl Host {
         let mut attempt = SendAttempt { attempt_id: attempt_id.clone(), client_message_id: request.client_message_id.clone(), at: now_ms(), state: SendState::Sending };
         self.emit_send(&chat, &attempt);
         let sent_cwd = if matches!(request.mode, SendMode::NewTurn) { request.cwd.clone() } else { None };
+        let sent_folders = if matches!(request.mode, SendMode::NewTurn) { request.work_folders.clone() } else { None };
+        // 作業フォルダの並びは送信の直前にも存在を確かめる。消えていたら外して送らず、理由を出して止める（再送権は残す）。
+        if let Some(folders) = &sent_folders {
+            if let Err(message) = self.recheck_send_folders(folders).await {
+                self.rejected.lock().unwrap().insert(attempt_id.clone(), NotAccepted::new(request));
+                attempt.state = SendState::Rejected { message };
+                self.emit_send(&chat, &attempt);
+                return attempt;
+            }
+        }
         // 送信前に記録を保存してから送る（送信中に落ちても、再起動後に受理不明として照合し、送信を抑止するため）。保存できなければ送らない。
         if let Err(message) = self.record_presend(&chat, &attempt_id, &request, attempt.at).await {
             self.rejected.lock().unwrap().insert(attempt_id.clone(), NotAccepted::new(request));
@@ -894,7 +942,7 @@ impl Host {
         }
         // 変更の控え（基準B）は送信の直前に取る。失敗しても送信は止めない（理由は記録し、警告は理由ごとにチャット1回）。
         if matches!(request.mode, SendMode::NewTurn) {
-            self.baseline_take_base(&chat, &attempt_id, request.cwd.clone()).await;
+            self.baseline_take_base(&chat, &attempt_id, request.cwd.clone().or_else(|| request.work_folders.as_ref().and_then(|f| f.folders.first().cloned()))).await;
         }
         let state = match self.backend.send(request).await {
             SendOutcome::Accepted { turn, .. } => {
@@ -906,10 +954,15 @@ impl Host {
                 self.drop_unresolved_record(&chat, &attempt_id);
                 self.baseline_abandoned(&chat, &attempt_id, "rejected");
                 self.rejected.lock().unwrap().insert(attempt_id.clone(), request);
+                // 能力の降格（experimentalの拒否）は `WorkspaceRootsSupportChanged` で届く。指定を外して自動で送り直さない。
                 SendState::Rejected { message: error.to_string() }
             }
             SendOutcome::AcceptanceUnknown(u) => {
                 let since = u.since;
+                // 作業フォルダの指定が含まれた送信は、受理が確定するまで「未確認」。次の送信から使う値は残す（照合まで再送しない）。
+                if let Some(f) = &sent_folders {
+                    self.note_folders_unconfirmed(&chat, f);
+                }
                 // 登録・保存・照合の開始（切断・再起動をまたいで続ける）は queue_driver.rs。
                 self.register_unknown(&chat, &attempt_id, None, None, u);
                 SendState::AcceptanceUnknown { since }
@@ -926,7 +979,9 @@ impl Host {
             let root = agent_key_of(&chat);
             self.queue_rt.reset_scan(&root);
             self.start_scan(root);
-            if let Some(cwd) = sent_cwd {
+            if let Some(folders) = sent_folders {
+                self.apply_folders_after_accept(&chat, folders);
+            } else if let Some(cwd) = sent_cwd {
                 self.apply_cwd_after_accept(&chat, cwd);
             }
             // ユーザーの利用として最近利用時刻を更新する（背景活動では更新しない、§3.6）。

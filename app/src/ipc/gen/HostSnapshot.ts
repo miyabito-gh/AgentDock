@@ -19,6 +19,7 @@ import type { SideSessionMeta } from "./SideSessionMeta";
 import type { SourceInfo } from "./SourceInfo";
 import type { StartupWarning } from "./StartupWarning";
 import type { StopRecord } from "./StopRecord";
+import type { Support } from "./Support";
 import type { WorktreeRecord } from "./WorktreeRecord";
 
 /**
@@ -65,6 +66,10 @@ quit: QuitPhase,
  * 同等性の操作ごとの能力（宣言・経路・確認状況）。接続前でも宣言と「未確認」を返す。`Host::snapshot` が重ねる。
  */
 opCapabilities: Array<OpCapability>, 
+/**
+ * 複数の作業フォルダの指定の能力（`Host::snapshot` がバックエンドの宣言を重ねる）。
+ */
+workspaceRoots: Support, 
 /**
  * 結果が未確認の操作（レビュー・圧縮）。照合まで残る。
  */

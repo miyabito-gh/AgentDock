@@ -141,6 +141,15 @@ pub struct ChatLocalView {
     pub permission: Option<PermissionPreset>,
     /// 次のturnから使う作業フォルダ（M44）。None＝会話の現在の作業フォルダ。
     pub next_cwd: Option<String>,
+    /// 次の送信から使う作業フォルダの並び（先頭＝プライマリ。None＝指定なし）。
+    #[serde(default)]
+    pub next_folders: Option<WorkFolders>,
+    /// AgentDockが送って受理を確認した作業フォルダ（送信記録。バックエンドの現在値とは断定しない）。
+    #[serde(default)]
+    pub accepted_folders: Option<AcceptedFolders>,
+    /// 受理不明の送信に含まれた作業フォルダ。
+    #[serde(default)]
+    pub unconfirmed_folders: Option<WorkFolders>,
     /// memoriesのチャット別設定として要求した値（バックエンドが示す不透明な値。受け付けられたときだけ入る）。
     pub memory_mode: Option<String>,
     /// このチャットがレビュー用に作られたときの、レビュー元（P3-2）。
@@ -1067,6 +1076,40 @@ pub struct SetChatCwdArgs {
     pub cwd: String,
     /// 送信待ちがあるとき、新しいフォルダが対象になることをユーザーが確認したか（M44）。
     pub queue_retarget_confirmed: bool,
+    /// 強い確認（ドライブ直下など）を済ませたパス。ホストが再検査する。
+    #[serde(default)]
+    pub confirmed_strong: Vec<String>,
+}
+
+/// 作業フォルダの並び（先頭＝プライマリ）を次の送信から使う値として保存する（`app/DESIGN_WORKFOLDERS.md`）。送信まで何も送らない。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct SetNextWorkFoldersArgs {
+    pub chat: ChatKey,
+    pub folders: Vec<String>,
+    /// 強い確認を済ませたパス。ホストが同じ判定を再実行し、対象なのにここにないものは拒否する。
+    pub confirmed_strong: Vec<String>,
+    pub queue_retarget_confirmed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct GetWorkFoldersArgs {
+    pub chat: ChatKey,
+}
+
+/// フォルダ1件の検査（追加前の確認用）。`current` は既に並んでいるフォルダ（プライマリを含む）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct CheckWorkFolderArgs {
+    pub path: String,
+    pub current: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

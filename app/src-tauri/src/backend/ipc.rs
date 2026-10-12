@@ -111,6 +111,9 @@ pub mod command_names {
     pub const CREATE_WORKTREE: &str = "create_worktree";
     pub const PREVIEW_REMOVE_WORKTREE: &str = "preview_remove_worktree";
     pub const REMOVE_WORKTREE: &str = "remove_worktree";
+    pub const GET_WORK_FOLDERS: &str = "get_work_folders";
+    pub const CHECK_WORK_FOLDER: &str = "check_work_folder";
+    pub const SET_NEXT_WORK_FOLDERS: &str = "set_next_work_folders";
 }
 
 // ───────────────────────────── エラー ─────────────────────────────
@@ -245,6 +248,8 @@ pub struct HostSnapshot {
     pub quit: QuitPhase,
     /// 同等性の操作ごとの能力（宣言・経路・確認状況）。接続前でも宣言と「未確認」を返す。`Host::snapshot` が重ねる。
     pub op_capabilities: Vec<OpCapability>,
+    /// 複数の作業フォルダの指定の能力（`Host::snapshot` がバックエンドの宣言を重ねる）。
+    pub workspace_roots: Support,
     /// 結果が未確認の操作（レビュー・圧縮）。照合まで残る。
     pub pending_ops: Vec<ChatPendingOp>,
     /// side相談の記録。
@@ -342,6 +347,12 @@ pub struct StartChatArgs {
     /// `cwd` が、AgentDockが作ったworktree（`create_worktree` の戻り値のID）の場所なら、そのチャットに結び付ける（P3-7）。
     #[serde(default)]
     pub worktree: Option<LocalId>,
+    /// 追加の作業フォルダ（`cwd` 以外）。空なら指定しない。あれば `cwd` と合わせて検査し、experimentalが使えなければ開始しない。
+    #[serde(default)]
+    pub extra_folders: Vec<String>,
+    /// 強い確認（ドライブ直下など）を済ませたパス。ホストが再検査する。
+    #[serde(default)]
+    pub confirmed_strong: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1200,6 +1211,8 @@ pub enum HostEvent {
     ExtensionOpUpdated { record: ExtensionOpRecord },
     /// 操作ごとの能力の出し直し（experimentalの拒否で非対応へ降格したときなど）。
     OpCapabilitiesUpdated { ops: Vec<OpCapability> },
+    /// 複数の作業フォルダの指定の能力が変わった（拒否による非対応への降格）。
+    WorkspaceRootsSupportUpdated { support: Support },
     /// 添付の追加・コピーの進行・失敗・欠損の更新（1件分で置き換える）。
     AttachmentUpdated { entry: AttachmentEntry },
     /// 成果物の追加・実在確認の更新（1件分で置き換える）。

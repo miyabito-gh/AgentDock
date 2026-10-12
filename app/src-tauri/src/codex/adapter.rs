@@ -540,7 +540,17 @@ impl CodexBackend {
 
     /// 作業フォルダ指定（experimental）が拒否された接続では、能力を `Unsupported` に落とす（以後の指定は送らず拒否する。自動で外して出し直さない）。
     pub(super) fn degrade_workspace_roots(&self) {
-        self.shared.caps.lock().unwrap().workspace_roots = Support::Unsupported;
+        {
+            let mut caps = self.shared.caps.lock().unwrap();
+            if caps.workspace_roots == Support::Unsupported {
+                return;
+            }
+            caps.workspace_roots = Support::Unsupported;
+        }
+        let source = self.shared.conn.lock().unwrap().as_ref().map(|c| c.source.clone());
+        if let Some(source) = source {
+            self.shared.emit(&source, BackendEvent::WorkspaceRootsSupportChanged { support: Support::Unsupported });
+        }
     }
 
     /// 接続した実行ファイルと確認できた版（状態表示用）。

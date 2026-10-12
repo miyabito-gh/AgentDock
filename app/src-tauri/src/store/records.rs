@@ -89,6 +89,16 @@ pub struct ChatLocalFile {
     /// 送る前に保存した、turnを開始する操作（レビュー・圧縮）の未解決の記録。照合（読取り）だけが消す。
     #[serde(default)]
     pub pending_ops: Vec<PendingOp>,
+    // ── 作業フォルダ（複数、`app/DESIGN_WORKFOLDERS.md`。すべて既定値あり。SCHEMA_VERSION は上げない） ──
+    /// 次の送信から使う作業フォルダの並び（先頭＝プライマリ）。None＝変更なし。`next_cwd` と併存し、あればこちらを優先する。
+    #[serde(default)]
+    pub next_folders: Option<Vec<String>>,
+    /// AgentDockが送って受理を確認した作業フォルダの記録（バックエンドの現在値とは断定しない）。
+    #[serde(default)]
+    pub accepted_folders: Option<AcceptedFolders>,
+    /// 受理不明の送信に含まれた作業フォルダ（照合で受理と確定したら `accepted_folders` へ、受理なしなら捨てる）。
+    #[serde(default)]
+    pub unconfirmed_folders: Option<Vec<String>>,
 }
 
 /// 文脈の圧縮前の控え（`chats\<dirId>\compactions\<ms>.json`）。AgentDock保存・表示専用で、バックエンドへは戻さない。
@@ -215,6 +225,9 @@ impl ChatLocalFile {
             side_sessions: Vec::new(),
             worktree: None,
             pending_ops: Vec::new(),
+            next_folders: None,
+            accepted_folders: None,
+            unconfirmed_folders: None,
         }
     }
 }

@@ -5,4 +5,8 @@ export type SetChatCwdArgs = { chat: ChatKey, cwd: string,
 /**
  * 送信待ちがあるとき、新しいフォルダが対象になることをユーザーが確認したか（M44）。
  */
-queueRetargetConfirmed: boolean, };
+queueRetargetConfirmed: boolean, 
+/**
+ * 強い確認（ドライブ直下など）を済ませたパス。ホストが再検査する。
+ */
+confirmedStrong: Array<string>, };

@@ -18,7 +18,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
 const emptySnapshot = (): HostSnapshot => ({
   seq: 0, sources: [], chats: [], agents: [], requests: [], stops: [], queues: [], monitorScope: { kind: "selectedChat", chat: null },
   chatLocals: [], saveStatus: [], settings: DEFAULT_SETTINGS, modelSettings: [], startupWarnings: [], attachments: [], artifacts: [], quit: { kind: "idle" },
-  opCapabilities: [], pendingOps: [], sideSessions: [], worktrees: [], cloudTasks: [], historyConfirmations: [],
+  opCapabilities: [], workspaceRoots: "unknown", pendingOps: [], sideSessions: [], worktrees: [], cloudTasks: [], historyConfirmations: [],
 });
 
 export const emptyBundle = (): Bundle => ({
@@ -163,6 +163,8 @@ export function applyHostEvent(b: Bundle, e: HostEvent): Bundle {
       return set({ settings: e.settings });
     case "opCapabilitiesUpdated": // experimental の拒否などによる降格。能力を出し直す
       return set({ opCapabilities: e.ops });
+    case "workspaceRootsSupportUpdated": // 複数の作業フォルダの指定が拒否され、非対応へ降格した
+      return set({ workspaceRoots: e.support });
     case "rateLimitsChanged": // 開いている利用状況の表示だけが読み直す（状態は変えない・通知しない）
     case "toolServersChanged": // 開いているMCP・Pluginsの表示が画面側で取り直す（状態は変えない）
     case "toolServerLoginUpdated":

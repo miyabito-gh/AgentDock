@@ -20,4 +20,12 @@ firstMessage: string | null,
 /**
  * `cwd` が、AgentDockが作ったworktree（`create_worktree` の戻り値のID）の場所なら、そのチャットに結び付ける（P3-7）。
  */
-worktree: LocalId | null, };
+worktree: LocalId | null, 
+/**
+ * 追加の作業フォルダ（`cwd` 以外）。空なら指定しない。あれば `cwd` と合わせて検査し、experimentalが使えなければ開始しない。
+ */
+extraFolders: Array<string>, 
+/**
+ * 強い確認（ドライブ直下など）を済ませたパス。ホストが再検査する。
+ */
+confirmedStrong: Array<string>, };

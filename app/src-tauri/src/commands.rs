@@ -13,6 +13,7 @@ use crate::backend::ipc::*;
 use crate::backend::local::{
     AddAttachmentFileArgs, AttachmentArgs, AttachmentEntry, OpenFileArgs, SaveFileAsArgs,
     AcknowledgeFailureArgs, AppSettings, ChatArgs, ChatLocalView, ChatQueue, DeleteOutcome, DeletePreview, ExportMarkdownArgs, GetUsageArgs, UsageReport, EditQueueEntryArgs, EnqueueArgs, ForceKillArgs, ForceKillPreview, QueueEntry, QueueEntryArgs, QuitDecisionArgs, QuitPhase,
+    GetWorkFoldersArgs, CheckWorkFolderArgs, SetNextWorkFoldersArgs,
     ReconcileSendArgs, RetrySaveArgs, SaveStatus, SetAlwaysOnTopArgs, SetAppSettingsArgs, SetChatCwdArgs, SetChatPermissionArgs, SetDraftArgs, SetMonitorWindowScopeArgs, SetSelectedChatArgs,
     SettingsImpact, ShowMainWindowArgs,
 };
@@ -198,8 +199,23 @@ pub async fn set_chat_permission(host: Hs<'_>, args: SetChatPermissionArgs) -> R
 }
 
 #[tauri::command]
+pub async fn set_next_work_folders(host: Hs<'_>, args: SetNextWorkFoldersArgs) -> R<SettingsImpact> {
+    host.inner().clone().set_next_work_folders(args).await
+}
+
+#[tauri::command]
+pub async fn get_work_folders(host: Hs<'_>, args: GetWorkFoldersArgs) -> R<WorkFoldersView> {
+    host.inner().clone().get_work_folders(args).await
+}
+
+#[tauri::command]
+pub async fn check_work_folder(host: Hs<'_>, args: CheckWorkFolderArgs) -> R<FolderCheck> {
+    host.check_work_folder(args).await
+}
+
+#[tauri::command]
 pub async fn set_chat_cwd(host: Hs<'_>, args: SetChatCwdArgs) -> R<SettingsImpact> {
-    host.inner().clone().set_chat_cwd(args)
+    host.inner().clone().set_chat_cwd(args).await
 }
 
 /// 「確認済み」（印を外すだけ。再実行・成功化・キュー再開はしない）。
