@@ -1169,6 +1169,8 @@ pub enum HostEvent {
     ActivityDelta { item: ItemKey, delta: String },
     /// 承認・質問の到着・状態変化。到着は即時（2秒集約の対象外）。
     RequestUpdated { request: PendingRequest },
+    /// 応答した承認・質問・MCP許可の記録を1件追記した（項目51）。`save` が失敗なら、再起動後には残らない。
+    DecisionRecorded { record: super::decision::DecisionRecord, save: super::decision::DecisionSave },
     SendUpdated { chat: ChatKey, attempt: SendAttempt },
     /// チャット1件分のキュー全体（項目・進行・保留理由）で置き換える。
     ChatQueueUpdated { queue: ChatQueue },

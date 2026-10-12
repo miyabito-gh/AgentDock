@@ -16,7 +16,7 @@ import {
   type PathInfo, type BackendStatus, type Goal, type GoalUpdate, type Known, type MemoryStatus, type OpAck, type ResetMemoryResult, type WorkMode, type WorkModeInfo,
   type GitInfo, type WorktreeRecord, type WorktreeRemoveOutcome, type WorktreeRemovePreview,
   type HandoffText, type InstructionFiles, type InstructionTemplateResult, type OpenSideResult, type ReferenceBlock, type ReferenceTurns, type SideSessionMeta, type SideTranscript, type SkillList,
-  type ExtensionOp, type ExtensionOpRecord, type ExtensionView, type ToolServerList, type ToolServerLoginStart,
+  type DecisionRecord, type ExtensionOp, type ExtensionOpRecord, type ExtensionView, type ToolServerList, type ToolServerLoginStart,
   type CloudApplyResult, type CloudCommandOutput, type CloudEnvHint, type CloudTaskList, type CloudTaskRecord,
   type CompactChatResult, type CompactionSnapshot, type ForkPurpose, type ForkReconcile, type ForkResult, type RecheckAgentsResult, type ResendAsForkResult, type OpReconcile, type ParityOp, type ReviewChoices, type ReviewDelivery, type ReviewOutcome, type ReviewTarget,
 } from "./types";
@@ -184,6 +184,8 @@ export const setWorkMode = (chat: ChatKey, mode: WorkMode | null): Promise<Setti
 export const listWorkModes = (): Promise<WorkModeInfo[]> => invokeCmd("list_work_modes", {});
 /** 目標の取得（読取りのみ。resumeしない）。値なし＝目標は設定されていない、未取得＝読めなかった。 */
 export const getGoal = (chat: ChatKey): Promise<Known<Goal>> => invokeCmd("get_goal", { chat });
+/** 応答した承認・質問・MCP許可の記録（AgentDockが保存したもの。読取りのみ）。古い順。 */
+export const listDecisionRecords = (chat: ChatKey): Promise<DecisionRecord[]> => invokeCmd("list_decision_records", { chat });
 /** 目標の設定・変更（ユーザー操作。必要なら会話を再開する）。accepted は要求の受付で、結果は画面の目標の更新で確認する。 */
 export const setGoal = (chat: ChatKey, update: GoalUpdate): Promise<OpAck> => invokeCmd("set_goal", { chat, update });
 export const clearGoal = (chat: ChatKey): Promise<OpAck> => invokeCmd("clear_goal", { chat });

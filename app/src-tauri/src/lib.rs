@@ -216,6 +216,7 @@ pub fn run() {
             commands::set_work_mode,
             commands::list_work_modes,
             commands::get_goal,
+            commands::list_decision_records,
             commands::set_goal,
             commands::clear_goal,
             commands::get_backend_status,

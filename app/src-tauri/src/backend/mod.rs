@@ -11,6 +11,8 @@ pub mod backend;
 pub mod baseline;
 /// 段階③ P3-1: 変更ファイルの一覧・差分・変更を戻す（`app/DESIGN_P3.md` §1 #1・#2）。
 pub mod changes;
+/// 項目51: 応答した承認・質問・MCP許可のローカル記録の型。
+pub mod decision;
 pub mod ipc;
 /// 段階②のアプリ側データとIPC追加分（`app/DESIGN_P2.md`）。
 pub mod local;

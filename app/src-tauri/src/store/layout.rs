@@ -13,6 +13,7 @@
 //!     chat.json                   補足情報（ChatLocalFile）
 //!     queue.json                  キューと受理不明の送信記録（QueueFile）
 //!     activity.jsonl              取得した監視活動履歴（追記）
+//!     decisions.jsonl             応答した承認・質問・MCP許可の記録（追記。AgentDock保存・表示専用。項目51。自動では削除しない）
 //!     changes.jsonl               旧方式（Codex報告の差分の逆適用）の観測記録。P3B以降は新規に書かず、読まない。消さない（チャット削除で一緒に消える）
 //!     baselines\                  変更の控え（Git基準。DESIGN_P3B §2。自動では削除しない。「控えを削除」とチャット削除でだけ消える）
 //!       objects\                  専用のgitオブジェクト置き場（loose）
@@ -46,6 +47,7 @@ pub const WEBVIEW_CACHE_DIR: &str = "EBWebView";
 pub const CHAT_FILE: &str = "chat.json";
 pub const QUEUE_FILE: &str = "queue.json";
 pub const ACTIVITY_FILE: &str = "activity.jsonl";
+pub const DECISIONS_FILE: &str = "decisions.jsonl";
 pub const CHANGES_FILE: &str = "changes.jsonl";
 pub const REVERT_BACKUP_DIR: &str = "revert-backup";
 pub const BASELINES_DIR: &str = "baselines";

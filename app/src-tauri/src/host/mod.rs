@@ -243,7 +243,11 @@ impl Host {
         }
         let inbox = std::mem::take(&mut d.notify_inbox);
         let activity = std::mem::take(&mut d.activity_outbox);
+        let decisions = std::mem::take(&mut d.decision_outbox);
         drop(d);
+        if !decisions.is_empty() {
+            self.submit_decisions(decisions);
+        }
         if !activity.is_empty() {
             self.persist.submit_activity(activity);
         }
@@ -284,6 +288,7 @@ impl Host {
     /// バックエンドのイベントを常にdrainする専用task。ここでは要求をawaitしない。
     pub fn start_event_pump(self: &Arc<Self>) {
         self.start_activity_writer();
+        self.start_decision_writer();
         self.start_baseline_driver();
         self.start_queue_driver();
         self.start_manage_watch();
@@ -962,6 +967,7 @@ impl Host {
                     RespondOutcome::Unknown { .. } => RequestState::AnswerUnconfirmed { at },
                 };
                 let request = r.clone();
+                d.note_decision(&request);
                 let marks = d.marks_event(&request.chat);
                 return ((), std::iter::once(HostEvent::RequestUpdated { request }).chain(marks).collect());
             }

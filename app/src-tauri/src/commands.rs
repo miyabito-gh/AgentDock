@@ -497,6 +497,12 @@ pub async fn list_work_modes(host: Hs<'_>) -> R<Vec<crate::backend::parity::Work
     host.list_work_modes().await
 }
 
+/// 応答した承認・質問・MCP許可の記録（読取りのみ。AgentDockが保存したものだけ）。
+#[tauri::command]
+pub async fn list_decision_records(host: Hs<'_>, args: ChatArgs) -> R<Vec<crate::backend::decision::DecisionRecord>> {
+    host.inner().clone().list_decision_records(args).await
+}
+
 /// 目標の取得（読取りのみ。resumeしない）。
 #[tauri::command]
 pub async fn get_goal(host: Hs<'_>, args: ChatArgs) -> R<Known<crate::backend::parity::Goal>> {

@@ -12,6 +12,7 @@
 
 pub mod baseline;
 pub mod compose;
+pub mod decision;
 pub mod diff;
 pub mod export;
 pub mod manage;

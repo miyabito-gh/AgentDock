@@ -18,6 +18,7 @@ use crate::backend::ipc::*;
 use crate::backend::local::*;
 use crate::backend::model::*;
 use crate::host::state::HostData;
+use crate::backend::decision::{DecisionRecord, DecisionSave};
 use crate::store::records::{ActivityLine, AppSettingsFile, CachedChatMeta, ChatLocalFile};
 use crate::store::{layout, Restored, Store, StoreError, AUTO_RETRY_LIMIT, DRAFT_DEBOUNCE_MS};
 
@@ -31,11 +32,13 @@ pub struct Persist {
     counter: AtomicU64,
     /// 監視活動（`activity.jsonl`）の追記を、書込みtaskへ順に渡す口。taskを始めるまで（保存先なし・テスト）は捨てる。
     activity_tx: std::sync::OnceLock<tokio::sync::mpsc::UnboundedSender<(ChatKey, ActivityLine)>>,
+    /// 応答記録（`decisions.jsonl`、項目51）の追記を書込みtaskへ順に渡す口。
+    decision_tx: std::sync::OnceLock<tokio::sync::mpsc::UnboundedSender<DecisionRecord>>,
 }
 
 impl Persist {
     pub fn new(store: Option<Arc<Store>>) -> Self {
-        Persist { store, io_lock: Mutex::new(()), generation: Mutex::new(HashMap::new()), counter: AtomicU64::new(1), activity_tx: std::sync::OnceLock::new() }
+        Persist { store, io_lock: Mutex::new(()), generation: Mutex::new(HashMap::new()), counter: AtomicU64::new(1), activity_tx: std::sync::OnceLock::new(), decision_tx: std::sync::OnceLock::new() }
     }
 
     pub(super) fn submit_activity(&self, lines: Vec<(ChatKey, ActivityLine)>) {
@@ -560,6 +563,73 @@ impl Host {
             }
         }
         first_err.map_or(Ok(()), Err)
+    }
+
+    // ── 応答記録（項目51） ──
+
+    /// 応答記録の書込みtaskを始める（イベントpump開始時に1回。保存先が使えないときは何もしない＝記録は「保存できていません」で出す）。
+    /// 1件ずつ届いた順に追記し、結果（保存済み／失敗）を `decisionRecorded` で伝える。失敗しても再送・自動削除はしない。
+    pub(super) fn start_decision_writer(self: &Arc<Self>) {
+        if !self.persist.enabled() {
+            return;
+        }
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<DecisionRecord>();
+        if self.persist.decision_tx.set(tx).is_err() {
+            return;
+        }
+        let host = self.clone();
+        tokio::spawn(async move {
+            while let Some(record) = rx.recv().await {
+                let h = host.clone();
+                let r = record.clone();
+                let res = tokio::task::spawn_blocking(move || h.append_decision_record(&r)).await.unwrap_or_else(|e| Some(Err(StoreError::Io(std::io::Error::other(e.to_string())))));
+                // None = 削除中・削除済みのチャットなので、書かず、表示もしない。
+                let save = match res {
+                    None => continue,
+                    Some(Ok(())) => DecisionSave::Saved,
+                    Some(Err(e)) => DecisionSave::Failed { message: save_failure_message(&e) },
+                };
+                host.mutate(|_| ((), vec![HostEvent::DecisionRecorded { record, save }]));
+            }
+        });
+    }
+
+    fn append_decision_record(&self, record: &DecisionRecord) -> Option<Result<(), StoreError>> {
+        let store = match self.persist.store.as_ref() {
+            Some(s) => s,
+            None => return Some(Err(StoreError::Io(std::io::Error::other("保存先が使えません")))),
+        };
+        let _g = self.persist.io_lock.lock().unwrap_or_else(|e| e.into_inner());
+        let chat = &record.chat;
+        if self.manage_rt.is_deleting(chat) || !self.read(|d| d.chat(chat).is_some() || d.locals.contains_key(chat)) {
+            return None;
+        }
+        Some(store.append_decision(record))
+    }
+
+    /// 応答記録を書込みtaskへ渡す。書込みtaskがない（保存先なし）ときは、保存失敗として表示用に伝える。
+    pub(super) fn submit_decisions(&self, records: Vec<DecisionRecord>) {
+        for record in records {
+            match self.persist.decision_tx.get() {
+                Some(tx) => {
+                    let _ = tx.send(record);
+                }
+                None => {
+                    let save = DecisionSave::Failed { message: "保存先が使えないため、この記録は再起動後に残りません".into() };
+                    self.mutate(|_| ((), vec![HostEvent::DecisionRecorded { record, save }]));
+                }
+            }
+        }
+    }
+
+    /// このチャットの応答記録（古い順）。読取りのみ。
+    pub async fn list_decision_records(self: &Arc<Self>, args: ChatArgs) -> Result<Vec<DecisionRecord>, IpcError> {
+        let Some(store) = self.persist.store().cloned() else { return Ok(Vec::new()) };
+        let chat = args.chat;
+        tokio::task::spawn_blocking(move || store.read_decisions(&chat))
+            .await
+            .map_err(|e| err(IpcErrorCode::Io, format!("記録の読込みが中断されました: {e}")))?
+            .map_err(|e| err(IpcErrorCode::Io, format!("応答の記録を読めませんでした: {e}")))
     }
 
     // ── IPC ──

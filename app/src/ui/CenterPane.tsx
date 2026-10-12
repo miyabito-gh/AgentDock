@@ -11,6 +11,7 @@ import { PENDING_TEXT } from "./ManageDialogs";
 import { TENTATIVE_HINT, TENTATIVE_STYLE, chatAgents, chatDisplay, chatName, chatRequests, chatTitle, chatStatusText, chatStops, isRunning, rootView, stopOpen } from "./derive";
 import { FRESH, STATE, STOP_LABEL, hms, holdText, keyStr, knownValue, showKnown, stopCauseText, targetList, unconfirmedNote } from "./format";
 import { baseName, clipboardImageName, mimeOf } from "./attach";
+import { decisionLine, placeDecisions, slotKey, type DecisionItem } from "./decisions";
 import { createFoldMemory, isLongBody, messageTexts, needsExpand, workFold, workFoldLabel } from "./fold";
 import { assignSends, chipKey, chipModel, matchLocal, splitChips, type SentLocal } from "./chips";
 import type { CommandView } from "./commands";
@@ -73,6 +74,8 @@ export interface CenterProps {
   sends: SentLocal[];
   /** ヘッダーの作業フォルダの実在確認（読取りのメタデータ）。未取得は undefined。 */
   cwdInfo: PathInfo | undefined;
+  /** 応答した承認・質問・MCP許可の記録（AgentDockが保存したもの。Codexの履歴には載らない）。 */
+  decisions: DecisionItem[];
 }
 
 export interface FileActions {
@@ -514,8 +517,8 @@ function UserBubble({ text, forceOpen, open, onToggle }: { text: string; forceOp
   );
 }
 
-function Messages({ chatId, turns, reqs, running, onRespond, onAct, extra, find, resend, locals, files, sends, agentName }: {
-  agentName?: (a: AgentKey) => string;
+function Messages({ chatId, turns, reqs, running, onRespond, onAct, extra, find, resend, locals, files, sends, agentName, decisions }: {
+  agentName?: (a: AgentKey) => string; decisions: DecisionItem[];
   turns: TurnRecord[]; reqs: PendingRequest[]; running: boolean; onRespond: CenterProps["onRespond"]; onAct: (a: string) => void; extra?: ReactNode; find: FindState; resend: ResendView;
   locals: AttachmentEntry[]; files: FileActions; sends: SentLocal[]; chatId: string;
 }) {
@@ -532,6 +535,7 @@ function Messages({ chatId, turns, reqs, running, onRespond, onAct, extra, find,
   const toggleWork = (id: string) => setOpenWork((o) => { const n = o.includes(id) ? o.filter((x) => x !== id) : [...o, id]; remember({ openWork: n }); return n; });
   // 送った直後（履歴・live通知がまだ添付を運ばない間）は、送信時のローカルの記録から添付を出す
   const sentMap = useMemo(() => assignSends(turns, sends), [turns, sends]);
+  const placed = useMemo(() => placeDecisions(turns, decisions), [turns, decisions]);
   const toBottom = () => { const el = ref.current; if (el) el.scrollTop = el.scrollHeight; stick.current = true; setAway(false); };
   const onScroll = () => {
     const el = ref.current;
@@ -548,6 +552,7 @@ function Messages({ chatId, turns, reqs, running, onRespond, onAct, extra, find,
     <div className="msgs-wrap">
     {find.open ? <FindBar root={ref} query={find.query} setQuery={find.setQuery} focusTick={find.tick} partial={find.partial} onClose={find.close} /> : null}
     <div className="msgs" id="msgs" aria-live="polite" ref={ref} onScroll={onScroll}>
+      {placed.head.map((it) => <DecisionRow key={it.record.id} it={it} agentName={agentName} />)}
       {turns.map((t) => {
         // 完了したturnの途中経過と作業の記録は「作業の経過」に畳む（実行中・失敗・中断・phase不明は畳まない）
         const wf = workFold(t);
@@ -625,6 +630,7 @@ function Messages({ chatId, turns, reqs, running, onRespond, onAct, extra, find,
                 </details>
               </div>
             ) : null}
+            {(placed.byTurn.get(slotKey(t.key.agent.id, t.key.turnId)) ?? []).map((it) => <DecisionRow key={it.record.id} it={it} agentName={agentName} />)}
           </div>
         );
       })}
@@ -633,6 +639,18 @@ function Messages({ chatId, turns, reqs, running, onRespond, onAct, extra, find,
       {running && reqs.length === 0 ? <div className="msg ai"><div className="who">Codex</div><div className="activity">作業中…</div></div> : null}
     </div>
     {away ? <button className="jump" onClick={toBottom}>最新へ</button> : null}
+    </div>
+  );
+}
+
+/** 応答した承認・質問・MCP許可の小さな行。応答の事実だけを出す（再実行・再送のボタンは置かない）。 */
+function DecisionRow({ it, agentName }: { it: DecisionItem; agentName?: (a: AgentKey) => string }) {
+  const r = it.record;
+  const { text, failed } = decisionLine(it, agentName ? agentName(r.agent) : null);
+  return (
+    <div className="msg ai decision" role="note" title={`応答した時刻: ${new Date(r.at).toLocaleString()}`}>
+      <div className="activity"><span className="muted">{new Date(r.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>　{text}
+        {failed ? <span className="err" title={failed}>　（この記録は保存できていません。再起動後には残りません）</span> : null}</div>
     </div>
   );
 }
@@ -1050,7 +1068,7 @@ export function CenterPane(p: CenterProps) {
       <Header snap={snap} chat={chat} onAct={p.onAct} commands={p.commands} local={p.local} onCwdToggle={() => setCwdOpen((o) => !o)} cwdLock={cwdLock} wasLive={p.wasLive} externalLabel={p.externalLabel} cwdInfo={p.cwdInfo} leftShown={p.leftShown} rightShown={p.rightShown} />
       {cwdOpen && !cwdLock ? <CwdPanel current={p.local?.nextCwd ?? knownValue(chat.cwd) ?? ""} onCwd={p.onCwd} onClose={() => setCwdOpen(false)} /> : null}
       <Banners p={p} />
-      <Messages key={chat.key.id} chatId={chat.key.id} agentName={nameOf} turns={p.turns} reqs={reqs} running={running} onRespond={p.onRespond} onAct={p.onAct} find={find}
+      <Messages key={chat.key.id} chatId={chat.key.id} agentName={nameOf} decisions={p.decisions} turns={p.turns} reqs={reqs} running={running} onRespond={p.onRespond} onAct={p.onAct} find={find}
         locals={snap.attachments.filter((a) => keyStr(a.chat) === keyStr(chat.key))} files={p.files} sends={p.sends}
         resend={{ ctx: resendCtxOf(snap, chat, snap.sources.some((x) => x.connection.kind === "connected"), p.turns), rootAgentId: rootView(snap, chat)?.agent.key.id }}
         extra={<FilesBlock chatId={chat.key.id} sent={snap.attachments.filter((a) => keyStr(a.chat) === keyStr(chat.key) && a.usedBy.length > 0)} artifacts={snap.artifacts.filter((a) => keyStr(a.chat) === keyStr(chat.key))} files={p.files} />} />

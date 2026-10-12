@@ -167,6 +167,7 @@ export function applyHostEvent(b: Bundle, e: HostEvent): Bundle {
     case "toolServersChanged": // 開いているMCP・Pluginsの表示が画面側で取り直す（状態は変えない）
     case "toolServerLoginUpdated":
     case "extensionOpUpdated":
+    case "decisionRecorded": // 応答記録の追記。画面側（App）が会話の行として保持する（状態は変えない）
     case "goalUpdated": // 画面側（App）が目標の表示を置き換える（状態は変えない）
     case "changesUpdated": // 開いている差分表示が画面側で取り直す（状態は変えない）
     case "sendUpdated":

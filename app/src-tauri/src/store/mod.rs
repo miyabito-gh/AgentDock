@@ -21,6 +21,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 
+use crate::backend::decision::{DecisionEntry, DecisionRecord, DECISION_SCHEMA_VERSION};
 use crate::backend::baseline::{BaselineEntry, BaselineLine, BASELINE_SCHEMA_VERSION};
 use crate::backend::local::*;
 use crate::backend::model::*;
@@ -365,6 +366,32 @@ impl Store {
             Err(e) => return Err(StoreError::Io(e)),
         };
         Ok(text.lines().filter_map(|l| serde_json::from_str::<ActivityLine>(l).ok()).collect())
+    }
+
+    /// 応答記録を1行追記する（`decisions.jsonl`。flushまで行う。空き確認つき）。
+    pub fn append_decision(&self, record: &DecisionRecord) -> Result<(), StoreError> {
+        let entry = DecisionEntry { schema_version: DECISION_SCHEMA_VERSION, record: record.clone() };
+        let text = serde_json::to_string(&entry).map_err(|e| StoreError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, e)))?;
+        self.check_space(text.len() as u64 + 1)?;
+        let dir = layout::chat_dir(&self.root, &self.ensure_dir_id(&record.chat));
+        atomic::append_line(&dir.join(layout::DECISIONS_FILE), &text)?;
+        Ok(())
+    }
+
+    /// このチャットの応答記録を古い順に読む。読めない行（途中で切れた最終行など）と新しい版の行は飛ばす。
+    pub fn read_decisions(&self, chat: &ChatKey) -> Result<Vec<DecisionRecord>, StoreError> {
+        let dir = layout::chat_dir(&self.root, &self.ensure_dir_id(chat));
+        let text = match std::fs::read_to_string(dir.join(layout::DECISIONS_FILE)) {
+            Ok(t) => t,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => return Err(StoreError::Io(e)),
+        };
+        Ok(text
+            .lines()
+            .filter_map(|l| serde_json::from_str::<DecisionEntry>(l).ok())
+            .filter(|e| e.schema_version <= DECISION_SCHEMA_VERSION)
+            .map(|e| e.record)
+            .collect())
     }
 
     /// 拡張・ツールサーバーの管理操作の記録を1行追記する（ルートの `extension-ops.jsonl`。flushまで行う。空き確認つき）。
@@ -923,6 +950,31 @@ mod tests {
         std::fs::OpenOptions::new().append(true).open(&path).unwrap().write_all(b"{\"kind\":\"freshn").unwrap();
         let got = store.read_activity(&k).unwrap();
         assert_eq!(got.len(), 1);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn decision_records_append_and_a_cut_last_line_is_ignored() {
+        use crate::backend::decision::{DecisionKind, DecisionOutcome};
+        let root = temp_root("decisions");
+        let store = Store::open(root.clone()).unwrap();
+        let k = key("t4");
+        let rec = DecisionRecord {
+            id: LocalId("d1".into()),
+            chat: k.clone(),
+            agent: AgentKey { backend: BackendKind::Codex, id: ExternalId("a".into()) },
+            agent_name: Some("Kant".into()),
+            turn: None,
+            kind: DecisionKind::Command,
+            summary: "git status".into(),
+            outcome: DecisionOutcome::Declined,
+            requested_at: UnixMillis(1),
+            at: UnixMillis(2),
+        };
+        store.append_decision(&rec).unwrap();
+        let path = layout::chat_dir(&root, &store.ensure_dir_id(&k)).join(layout::DECISIONS_FILE);
+        std::fs::OpenOptions::new().append(true).open(&path).unwrap().write_all(b"{\"schemaVersion\":1,\"rec").unwrap();
+        assert_eq!(store.read_decisions(&k).unwrap(), vec![rec]);
         let _ = std::fs::remove_dir_all(&root);
     }
 
