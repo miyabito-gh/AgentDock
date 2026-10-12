@@ -6,7 +6,7 @@ import { TENTATIVE_HINT, TENTATIVE_STYLE, chatAgents, chatName, chatRequests, ch
 import { STATE, keyStr, knownValue } from "./format";
 import { PENDING_TEXT, archiveTag } from "./ManageDialogs";
 import { GROUP_HEADER_HEIGHT, WINDOW_THRESHOLD, cumulativeTops, rowHeight, scrollTopToRevealVar, windowRangeVar } from "./listWindow";
-import { groupByProject } from "./projectGroups";
+import { BASIS_TEXT, groupByProject, type MatchBasis } from "./projectGroups";
 import { UNKNOWN_KEY, collapseAll, flattenGroups, groupChats, shortNames, worktreeOf, type FlatItem, type FolderGroup } from "./folderGroups";
 
 /** 行の「…」メニューで選べる操作（App.tsx の onChatAct が対象チャットIDつきで受ける）。 */
@@ -27,9 +27,11 @@ interface MenuItem { act: string; label: string; danger?: boolean; sep?: boolean
 /** 開いているメニュー（行の「…」・見出しの「…」で共通）。位置は「…」ボタンに寄せる。 */
 type OpenMenu = { kind: "chat"; id: string } | { kind: "group"; key: string };
 
-export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct, chatList, onChatList, projects = null, onNotice, listStatus, uiSize = "Normal", onNewChatIn }: {
+export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct, chatList, onChatList, projects = null, onNotice, listStatus, uiSize = "Normal", onNewChatIn, onReclassify }: {
   /** 見出しの「このフォルダで新しいチャット」。第1引数が初期の作業フォルダ、第2引数は候補（プロジェクトの全フォルダ）。作成はダイアログで押したときだけ。 */
   onNewChatIn?: (cwd: string, choices: string[]) => void;
+  /** プロジェクトとチャット一覧を取り直す（読み取りのみ）。失敗の理由を返す（成功は null）。 */
+  onReclassify?: () => Promise<string | null>;
   snap: HostSnapshot; sel: string | null; onSelect: (id: string) => void; onAct: (a: string) => void; onAcknowledge: (c: Chat) => void;
   /** 行の「…」メニュー・右クリック・Shift+F10 の操作。対象は選択中ではなくその行のチャット。 */
   onChatAct: (op: ChatOp, chatId: string) => void;
@@ -67,9 +69,29 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct,
   const byFolder = view === "ByFolder" && !showArch;
   const byProject = view === "ByProject" && !showArch;
   const grouped = byFolder || byProject;
-  const projectGrouping = byProject && loadedProjects ? groupByProject(rest, loadedProjects, chatList.pinnedFolders) : null;
+  const projectGrouping = byProject && loadedProjects ? groupByProject(rest, loadedProjects, chatList.pinnedFolders, (c) => localOf(c)?.acceptedFolders?.folders.folders ?? localOf(c)?.nextFolders?.folders ?? [], q === "") : null;
+  // 「振り分け直す」の結果通知。取り直しの完了後、最新の振り分けから件数を数えて1回だけ通知する。
+  const [reclass, setReclass] = useState<"idle" | "busy" | "done">("idle");
+  const doReclassify = async () => {
+    if (!onReclassify || reclass === "busy") return;
+    setReclass("busy");
+    const err = await onReclassify();
+    if (err) { onNotice?.(err); setReclass("idle"); } else setReclass("done");
+  };
   const groups = projectGrouping ? projectGrouping.groups : byFolder ? groupChats(rest, snap.worktrees, chatList.pinnedFolders) : [];
+  useEffect(() => {
+    if (reclass !== "done" || !projectGrouping) return;
+    let conf = 0, guess = 0, none = 0, unk = 0;
+    for (const g of projectGrouping.groups) {
+      if (g.kind === "project") { const n = g.guessedCount ?? 0; guess += n; conf += g.chats.length - n; }
+      else if (g.kind === "noProject") none += g.chats.length;
+      else if (g.kind === "unknown") unk += g.chats.length;
+    }
+    onNotice?.(`プロジェクト${loadedProjects?.length ?? 0}件・チャット${conf + guess + none + unk}件を振り分けました（確定${conf}件／推定${guess}件／プロジェクトなし${none}件${unk ? `／フォルダ未確認${unk}件` : ""}）`);
+    setReclass("idle");
+  }, [reclass, projectGrouping]); // eslint-disable-line react-hooks/exhaustive-deps
   const multi = projectGrouping?.multi ?? new Map<string, string[]>();
+  const basisOf = projectGrouping?.basis ?? new Map<string, MatchBasis>();
   const shorts = shortNames(groups.filter((g) => g.kind === "folder").map((g) => ({ key: g.key, path: g.path })));
   const labelOf = (g: FolderGroup) => (g.kind === "folder" ? shorts.get(g.key) ?? g.path : g.kind === "project" ? g.label ?? g.path : g.path);
   /** 一覧で「プロジェクトごと」を選んでいるのに読めていないときの案内（読めない理由が「非対応」のときはメニューの項目に出す）。 */
@@ -279,7 +301,7 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct,
     const title = g.kind === "folder" ? g.path
       : g.kind === "project"
         ? [`プロジェクト「${label}」`, g.roots && g.roots.length ? `フォルダ（先頭をプライマリと推定）:${NL}${g.roots.join(NL)}` : "フォルダなし",
-          guessN ? `フォルダ一致による推測で入ったチャット: ${guessN}件（推測であり、確定ではありません）` : ""].filter((x) => x).join(NL)
+          guessN ? `フォルダ一致による推測で入ったチャット: ${guessN}件（すべてのフォルダを含む／先頭フォルダに一致／一部のフォルダに一致のいずれか。確定ではありません）` : ""].filter((x) => x).join(NL)
       : g.kind === "noProject" ? "どのプロジェクトのフォルダにも一致しないチャットです（一般チャットを含む）"
       : g.kind === "unknown" ? "作業フォルダを取得できていないチャットです" : "作業フォルダを持たない一般チャットです";
     return (
@@ -291,6 +313,7 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct,
           <span className="grp-ico" aria-hidden="true"><Icon name={g.kind === "general" || g.kind === "noProject" ? "chat" : g.kind === "unknown" ? "folderUnknown" : collapsed && q === "" ? "folder" : "folderOpen"} /></span>
           <span className="grp-nm">{label}</span>
           {guessN ? <span className="grp-guess" title="フォルダ一致による推測を含みます" aria-hidden="true">推定</span> : null}
+          {g.chats.length === 0 ? <span className="grp-empty" style={{ fontSize: "0.85em", opacity: 0.6, marginLeft: "auto", marginRight: 6 }}>チャットなし</span> : null}
           <span className="grp-n">{g.chats.length}</span>
         </button>
         {g.pinned ? <span className="grp-pin" title="ピン留めしたフォルダ" aria-label="ピン留めしたフォルダ" role="img"><Icon name="pin" /></span> : null}
@@ -332,7 +355,7 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct,
           {c.origin === "external" ? <span className="tag" title="Codex 側で作られた会話（AgentDock が起動したものではない）">外部</span> : null}
           {c.noHistory ? <span className="tag" title="Codex に記録がありません">履歴なし</span> : null}
           {multi.has(c.key.id) ? <span className="tag" title={`他に一致: ${multi.get(c.key.id)!.join("、")}
-（フォルダ一致による推測。表示は先頭のプロジェクトにだけ置いています）`}>複数</span> : null}
+（フォルダ一致による推測${basisOf.has(c.key.id) ? `: ${BASIS_TEXT[basisOf.get(c.key.id)!]}` : ""}。表示は先頭のプロジェクトにだけ置いています）`}>複数</span> : null}
           {wt ? <span className="tag" title={`AgentDock が作った worktree（ブランチ ${wt.branch}）\n${wt.path}`}>worktree</span> : null}
           {archived(c) && (!showArch || arc.text !== "アーカイブ") ? <span className="tag" title={arc.title || undefined}>{arc.text}</span> : null}
           {localOf(c)?.deletePending ? <span className="tag unv" title={PENDING_TEXT(localOf(c)!.deletePending!.reason)}>削除保留</span> : null}
@@ -373,6 +396,16 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct,
                     <span>{VIEW_LABEL[v]}</span><span aria-hidden="true">{chatList.view === v ? "✓" : ""}</span>
                   </button>
                 ))}
+                {chatList.view === "ByProject" ? (
+                  <>
+                    <hr />
+                    <button type="button" role="menuitem" disabled={!onReclassify || reclass === "busy" || !loadedProjects}
+                      title="プロジェクト一覧とチャット一覧を取り直し（読み取りのみ）、所属を判定し直します。押したときだけ実行します"
+                      onClick={() => { close(); void doReclassify(); }}>
+                      <span>{reclass === "busy" ? "振り分け直し中…" : "プロジェクトを再取得して振り分け直す"}</span>
+                    </button>
+                  </>
+                ) : null}
                 {chatList.view !== "Recent" ? (
                   <>
                     <hr />

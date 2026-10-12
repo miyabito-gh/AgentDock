@@ -884,7 +884,7 @@ export default function App() {
   const refActions: RefActions = {
     chatTitle: (id) => { const c = snap.chats.find((x) => x.key.id.toLowerCase() === id.toLowerCase()); return c ? chatName(c) : undefined; },
     openChat: (id) => { const c = snap.chats.find((x) => x.key.id.toLowerCase() === id.toLowerCase()); if (c) selectChat(c.key.id); },
-    refreshList: () => refreshList(),
+    refreshList: async () => { await refreshList(); },
     pathInfo, requestPath, pathAct,
     canAttach: !!chat && live,
   };
@@ -1126,20 +1126,32 @@ export default function App() {
   };
 
   /** チャット一覧を取り直す（読み取りのみ。再開・送信はしない）。 */
-  const refreshList = async () => {
-    if (!live) { say("この操作はモックでは動きません。"); return; }
+  const refreshList = async (skipProjects = false): Promise<boolean> => {
+    if (!live) { say("この操作はモックでは動きません。"); return false; }
     const at = hms(Date.now());
     try {
       const page = await host.listChats();
-      void refreshProjects();
+      if (!skipProjects) void refreshProjects();
       const text = `一覧を更新しました（Codex から${page.items.length}件${page.nextCursor ? "、続きあり" : ""}）`;
       setListStatus({ ok: true, text: `${text}　${at}` });
-      say(`${text}。`);
+      if (!skipProjects) say(`${text}。`);
+      return true;
     } catch (e) {
       const msg = host.asIpcError(e).message;
       setListStatus({ ok: false, text: `一覧を更新できませんでした: ${msg}　${at}` });
       sayErr("一覧を更新できませんでした", e);
+      return false;
     }
+  };
+  /** プロジェクトを再取得して振り分け直す（読み取りのみ。押したときだけ）。取れなかったときは前の一覧を残す。戻り値は失敗の理由（成功は null）。 */
+  const reclassify = async (): Promise<string | null> => {
+    if (!live) return "この操作はモックでは動きません。";
+    try {
+      const o = await host.listProjects();
+      if (o.kind !== "loaded") return `プロジェクトを取得できませんでした: ${o.reason}`;
+      setProjects(o);
+    } catch (e) { return `プロジェクトを取得できませんでした: ${host.asIpcError(e).message}`; }
+    return (await refreshList(true)) ? null : "チャット一覧を取得できませんでした（プロジェクトは取得済みです。前のチャット一覧のまま振り分けました）";
   };
 
   /** 名前の変更。Codex が受け付けたと確認できたときだけダイアログを閉じる。失敗の理由は返してダイアログに残す。 */
@@ -1334,7 +1346,7 @@ export default function App() {
         >
           <aside className="left" id="pane-left" aria-label="チャット一覧">
             <LeftPane snap={snap} sel={chat ? keyStr(chat.key) : null} onSelect={(id) => { selectChat(id); setLNarrow(false); }} onAct={act} onAcknowledge={(c) => onAcknowledge(c.key, null)}
-              onChatAct={chatAct} chatList={snap.settings.chatList} projects={projects} onNotice={say}
+              onChatAct={chatAct} chatList={snap.settings.chatList} projects={projects} onNotice={say} onReclassify={reclassify}
               onNewChatIn={(cwd, choices) => { setDialog({ type: "newChat", dev: true, cwd, cwdChoices: choices.length > 1 ? choices : undefined }); setLNarrow(false); }}
               onChatList={(f) => updateSettings((s) => ({ ...s, chatList: f(s.chatList) }), "一覧の表示設定を保存できませんでした。次回の起動では保存されている値に戻ります")} listStatus={listStatus} uiSize={snap.settings.appearance.uiText} />
           </aside>
