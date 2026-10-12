@@ -88,7 +88,13 @@ pub fn run() {
                     let _ = window.hide();
                 }
             }
-            tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => win::window::note_bounds(window),
+            // 監視窓が破棄されたら開閉状態を通知する（×・Ctrl+Shift+M・トレイ以外の閉じ方も含む）。
+            tauri::WindowEvent::Destroyed => {
+                if window.label() == win::window::MONITOR_LABEL {
+                    win::window::emit_monitor_state(window.app_handle(), false);
+                }
+            }
+            tauri::WindowEvent::Moved(_) |tauri::WindowEvent::Resized(_) => win::window::note_bounds(window),
             _ => {}
         })
         .setup(|app| {
@@ -200,6 +206,9 @@ pub fn run() {
             commands::force_kill,
             commands::set_always_on_top,
             commands::open_monitor_window,
+            commands::toggle_monitor_window,
+            commands::monitor_window_open,
+            commands::close_monitor_window,
             commands::set_monitor_window_scope,
             commands::show_main_window,
             commands::touch_chat_used,

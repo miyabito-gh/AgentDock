@@ -1,7 +1,9 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { Icon } from "./Icon";
 import type { CommandView } from "./commands";
 import { Popover } from "./Popover";
+import { MenuList, moveInMenu } from "./MenuList";
+import { MENUBAR, resolveMenu } from "./menuModel";
 import { UsagePanel } from "./UsagePanel";
 import type { SaveScope, SaveStatus, SourceInfo, StartupWarning } from "../ipc/types";
 
@@ -22,44 +24,51 @@ export function TitleBar({ title, tag, mini, top, onAct }: { title: string; tag?
   );
 }
 
-type MenuItem = [label: string, action: string, kbd?: string] | "-";
-const MENUS: Record<string, MenuItem[]> = {
-  "チャット": [["新しいチャット", "newChat", "Ctrl+N"], ["名前を変更…", "renameChat"], ["ピン留めを切替", "togglePin"], ["一覧を更新", "refreshList"], ["アーカイブ", "archiveChat"], ["アーカイブを解除", "unarchiveChat"], ["Markdown にエクスポート…", "exportMd"], "-", ["削除…", "deleteChat"], "-", ["AgentDock を終了…", "quit"]],
-  "表示": [["チャット一覧", "toggleLeft", "Ctrl+B"], ["エージェントのドック", "toggleRight", "Ctrl+Alt+B"], ["コンパクト監視窓", "toggleMini"], ["コマンドメニュー…", "palette", "Ctrl+K"], "-", ["通常画面を最前面に", "toggleMainTop"], ["監視窓を最前面に", "toggleMiniTop"], "-", ["終了済みも表示（全チャット）", "toggleDone"]],
-  "設定": [["設定…", "settings:general"], ["MCP・Plugins…", "settings:mcp"], ["Skills・AGENTS.md…", "settings:skills"]],
-  "ヘルプ": [["状態の見方", "stub"], ["Codex の状態", "status"], ["同等性の確認状況…", "parity"], ["バージョン情報", "stub"]],
-};
-
-/** 上部メニューの並び。「作業」は操作台帳（commands.ts）から作る。 */
-const ORDER = ["チャット", "作業", "表示", "設定", "ヘルプ"];
-
-export function MenuBar({ open, setOpen, checked, views, onAct, tag, live }: {
-  open: string | null; setOpen: (m: string | null) => void; checked: Record<string, boolean>; views: CommandView[]; onAct: (a: string) => void;
+export function MenuBar({ open, setOpen, views, onAct, tag, live }: {
+  open: string | null; setOpen: (m: string | null) => void; views: CommandView[]; onAct: (a: string) => void;
   /** 接続先の版タグ（右端。押すと接続先の切替）。 */
   tag?: string;
   /** 実接続か。実接続では版タグが利用状況のポップオーバーを開く（接続先の切替はその中）。 */
   live?: boolean;
 }) {
-  // Escで閉じる。外側クリックはウィンドウ側（App）で閉じる。
+  const bar = useRef<HTMLElement>(null);
+  const drop = useRef<HTMLDivElement>(null);
+  const titles = MENUBAR.map((m) => m.title as string);
+  const focusTrigger = (t: string) => bar.current?.querySelector<HTMLElement>(`[data-menu="${t}"]`)?.focus();
+  // Esc で閉じてメニュー名へフォーカスを戻す（変換中は閉じない）。外側クリックはウィンドウ側（App）で閉じる。
   useEffect(() => {
     if (!open) return;
-    const h = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(null); };
+    const h = (e: KeyboardEvent) => { if (e.key === "Escape" && !e.isComposing) { setOpen(null); focusTrigger(open); } };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
   }, [open, setOpen]);
+  // 開いたら先頭の有効な項目へフォーカス。
+  useEffect(() => {
+    if (open) drop.current?.querySelector<HTMLElement>("button:not(:disabled)")?.focus();
+  }, [open]);
+  const onKey = (e: React.KeyboardEvent) => {
+    if (!open || e.nativeEvent.isComposing) return;
+    // Tab: メニュー名へフォーカスを置いてから閉じる（既定の Tab 移動で、メニュー名の次／前へ進む）。
+    if (e.key === "Tab") { focusTrigger(open); setOpen(null); return; }
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      e.preventDefault();
+      const i = titles.indexOf(open);
+      const t = titles[(i + (e.key === "ArrowRight" ? 1 : -1) + titles.length) % titles.length];
+      setOpen(t);
+      return;
+    }
+    moveInMenu(e, drop.current);
+  };
   return (
-    <nav className="menubar" aria-label="メニュー">
-      {ORDER.map((m) => (
+    <nav className="menubar" aria-label="メニュー" ref={bar} onKeyDown={onKey}>
+      {MENUBAR.map(({ title: m }) => (
         <div className="menu" key={m}>
-          <button aria-haspopup="true" aria-expanded={open === m} onClick={(e) => { e.stopPropagation(); setOpen(open === m ? null : m); }}>{m}</button>
+          <button data-menu={m} aria-haspopup="true" aria-expanded={open === m}
+            onKeyDown={(e) => { if (e.key === "ArrowDown" && open !== m && !e.nativeEvent.isComposing) { e.preventDefault(); e.stopPropagation(); setOpen(m); } }}
+            onClick={(e) => { e.stopPropagation(); setOpen(open === m ? null : m); }}>{m}</button>
           {open === m ? (
-            <div className="dropdown" role="menu">
-              {m === "作業" ? <WorkItems views={views} onPick={(a) => { setOpen(null); onAct(a); }} /> : MENUS[m].map((it, i) => it === "-" ? <hr key={i} /> : (
-                <button key={i} role="menuitem" onClick={(e) => { e.stopPropagation(); setOpen(null); onAct(it[1]); }}>
-                  <span>{checked[it[1]] ? "✓ " : ""}{it[0]}</span>
-                  {it[1].startsWith("unv:") ? <span className="tag unv">未確認</span> : it[2] ? <span className="kbd">{it[2]}</span> : null}
-                </button>
-              ))}
+            <div className="dropdown" role="menu" aria-label={m} ref={drop}>
+              <MenuList entries={resolveMenu(m, views)} onPick={(a) => { setOpen(null); onAct(a); }} />
             </div>
           ) : null}
         </div>
@@ -76,29 +85,6 @@ export function MenuBar({ open, setOpen, checked, views, onAct, tag, live }: {
         </Popover>
       ) : tag ? <button className="mock-tag" title="接続先（実接続／モック）を切り替える" aria-haspopup="true" onClick={(e) => { e.stopPropagation(); onAct("modeMenu"); }}>{tag}</button> : null}
     </nav>
-  );
-}
-
-/** 「作業」メニューの中身。台帳の順に、無効なものは理由を添えて表示する。文字のみ（アイコンなし）。 */
-function WorkItems({ views, onPick }: { views: CommandView[]; onPick: (act: string) => void }) {
-  const items = views.filter((v) => v.cmd.menu);
-  return (
-    <>
-      {items.map((v) => {
-        const st = v.state;
-        return (
-          <div key={v.cmd.id}>
-            {v.cmd.id === "interrupt" ? <hr /> : null}
-            <button role="menuitem" className={st.kind === "disabled" ? "has-why" : undefined} disabled={st.kind === "disabled"} title={st.kind === "disabled" ? st.reason : undefined} onClick={(e) => { e.stopPropagation(); onPick(v.cmd.act); }}>
-              <span>{v.cmd.label}</span>
-              {v.mark ? <span className="tag" title="押すと対処の案内を表示します">{v.mark}</span> : null}
-              {st.kind === "enabled" && st.unverified ? <span className="tag unv">未確認</span> : v.cmd.kbd ? <span className="kbd">{v.cmd.kbd}</span> : null}
-              {st.kind === "disabled" ? <span className="why">{st.reason}</span> : null}
-            </button>
-          </div>
-        );
-      })}
-    </>
   );
 }
 

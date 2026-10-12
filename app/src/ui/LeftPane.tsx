@@ -248,11 +248,11 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct,
       items: [
         ...(newIn ? [{
           act: "gnew",
-          label: g.kind === "project" ? "このプロジェクトで新しいチャット" : "このフォルダで新しいチャット",
+          label: g.kind === "project" ? "このプロジェクトで新しいチャット…" : "このフォルダで新しいチャット…",
           sub: g.kind === "project" ? `先頭フォルダ: ${newIn[0]}` : newIn[0],
           title: g.kind === "project" ? `先頭フォルダ（プライマリと推定）: ${newIn[0]}` : newIn[0],
         }] : []),
-        ...(g.kind !== "unknown" ? [{ act: "gpin", label: g.pinned ? "フォルダのピン留めを外す" : "フォルダをピン留め" }] : []),
+        ...(g.kind !== "unknown" ? [{ act: "gpin", label: g.kind === "project" ? (g.pinned ? "プロジェクトのピン留めを外す" : "プロジェクトをピン留め") : (g.pinned ? "フォルダのピン留めを外す" : "フォルダをピン留め") }] : []),
         ...(g.kind === "folder" ? [{ act: "gcopy", label: "パスをコピー" }] : []),
       ],
     };
@@ -386,7 +386,7 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct,
       <div className="left-top">
         <div className="lt-row">
           <button className="btn-line grow" onClick={() => onAct("newChat")}><Icon name="plus" />新しいチャット</button>
-          <Popover role="menu" align="right" triggerClassName="btn lt-view" label={`一覧の表示（現在: ${viewLabel}）`} title={`一覧の表示: ${viewLabel}`} trigger={<>表示 <span aria-hidden="true">▾</span></>}>
+          <Popover role="menu" align="right" triggerClassName="btn lt-view" label={`一覧の並べ方（現在: ${viewLabel}）`} title={`一覧の並べ方: ${viewLabel}`} trigger={<>並べ方 <span aria-hidden="true">▾</span></>}>
             {(close) => (
               <>
                 {(["Recent", "ByFolder", "ByProject"] as ChatListView[]).map((v) => (

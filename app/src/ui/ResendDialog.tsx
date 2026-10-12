@@ -4,7 +4,8 @@
 import { useEffect, useRef, useState } from "react";
 import * as host from "../ipc/client";
 import type { AttachmentEntry, Chat, ChatKey, EntryAttachment, ForkPurpose, ForkReconcile, HostSnapshot, OpCapability, SendAttempt, TurnRecord } from "../ipc/types";
-import { availability, commandContext } from "./commands";
+import { availability } from "./commands";
+import { commandContext } from "./commandViews";
 import { chatAgents, chatName, chatRequests, chatStops, historyOutcomeOf, isRunning, rootView, stopOpen } from "./derive";
 import { isActiveState } from "./chatState";
 import { classifyCarry } from "./chips";

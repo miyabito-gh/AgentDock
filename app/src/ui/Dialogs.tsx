@@ -10,6 +10,7 @@ import * as host from "../ipc/client";
 import { copyText } from "./markdown/parts";
 import { hostOf, isIdnHost, textMismatchesUrl } from "./markdown/plugins";
 import { ParityBody } from "./ParityDialog";
+import { AboutBody, HowtoBody, ShortcutsBody } from "./HelpDialogs";
 import { ChangesBody, RevertBody } from "./ChangesDialog";
 import { GoalBody, StatusBody } from "./PrefsDialogs";
 import { UsagePanel } from "./UsagePanel";
@@ -33,6 +34,9 @@ export type DialogState =
   | { type: "export"; chatId: string }
   | { type: "unv"; why: string }
   | { type: "parity" }
+  | { type: "shortcuts" }
+  | { type: "howto" }
+  | { type: "about" }
   | { type: "changes"; chatId: string }
   | { type: "revert"; chatId: string }
   | { type: "review"; chatId: string }
@@ -572,6 +576,12 @@ export function Dialogs({ workspaceRoots, d, onClose, chats, source, models, ent
       <Shell title="同等性の確認状況" wide onClose={onClose} close="閉じる">
         <ParityBody caps={opCaps} />
       </Shell>);
+    case "shortcuts": return (
+      <Shell title="キーボードショートカット" onClose={onClose} close="閉じる"><ShortcutsBody /></Shell>);
+    case "howto": return (
+      <Shell title="状態の見方" wide onClose={onClose} close="閉じる"><HowtoBody /></Shell>);
+    case "about": return (
+      <Shell title="バージョン情報" onClose={onClose} close="閉じる"><AboutBody source={source} live={live} /></Shell>);
     case "reference": return (
       <Shell title="過去の会話を参考に" wide onClose={onClose} close="閉じる">
         <ReferenceBody key={d.chatId} chat={chats.find((x) => x.key.id === d.chatId)} chats={chats} live={live} cap={opCaps.find((c) => c.op === "referenceChat")} insertText={compose.insertText} onDone={onClose} />

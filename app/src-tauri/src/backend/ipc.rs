@@ -72,6 +72,9 @@ pub mod command_names {
     pub const FORCE_KILL: &str = "force_kill";
     pub const SET_ALWAYS_ON_TOP: &str = "set_always_on_top";
     pub const OPEN_MONITOR_WINDOW: &str = "open_monitor_window";
+    pub const TOGGLE_MONITOR_WINDOW: &str = "toggle_monitor_window";
+    pub const MONITOR_WINDOW_OPEN: &str = "monitor_window_open";
+    pub const CLOSE_MONITOR_WINDOW: &str = "close_monitor_window";
     pub const SET_MONITOR_WINDOW_SCOPE: &str = "set_monitor_window_scope";
     pub const SHOW_MAIN_WINDOW: &str = "show_main_window";
     pub const TOUCH_CHAT_USED: &str = "touch_chat_used";

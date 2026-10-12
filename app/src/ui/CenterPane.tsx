@@ -16,6 +16,9 @@ import { decisionLine, placeDecisions, slotKey, type DecisionItem } from "./deci
 import { createFoldMemory, isLongBody, messageTexts, needsExpand, workFold, workFoldLabel } from "./fold";
 import { assignSends, chipKey, chipModel, matchLocal, splitChips, type SentLocal } from "./chips";
 import type { CommandView } from "./commands";
+import { HEADER_MORE, resolveEntries } from "./menuModel";
+import { MenuList } from "./MenuList";
+import { shortcutById, tipWithKey } from "./shortcuts";
 import { GoalBar, UnverifiedTag, WORK_MODE_TEXT } from "./PrefsDialogs";
 import { resendCtxOf, resendTargetOf } from "./ResendDialog";
 import { PURPOSE_TAG, resendAvailability, type ResendCtx } from "./resend";
@@ -201,7 +204,7 @@ function Header({ snap, chat, onAct, commands, local, onCwdToggle, wasLive, exte
   const freshTip = freshnessText(root, wasLive);
   return (
     <div className="chead">
-      <button className="btn subtle icon panebtn" aria-label="チャット一覧" aria-pressed={leftShown} title={`チャット一覧を${leftShown ? "閉じる" : "開く"}（Ctrl+B）`} onClick={() => onAct("toggleLeft")}><Icon name="list" /></button>
+      <button className="btn subtle icon panebtn" aria-label="チャット一覧" aria-pressed={leftShown} title={tipWithKey(`チャット一覧を${leftShown ? "閉じる" : "開く"}`, "toggleLeft")} onClick={() => onAct("toggleLeft")}><Icon name="list" /></button>
       <span className="ttl" style={ttl.confirmed ? undefined : TENTATIVE_STYLE} title={`${ttl.text}（Codex）${ttl.confirmed ? "" : `\n${TENTATIVE_HINT}`}`}>{ttl.text}</span>
       {/* 状態と鮮度は別表示。片方から他方を導かない */}
       <span className={`st ${chatChipClass(snap, chat)}`}><i />{chatStatusText(snap, chat)}</span>
@@ -236,29 +239,11 @@ function Header({ snap, chat, onAct, commands, local, onCwdToggle, wasLive, exte
       {chat.noHistory ? <span className="tag" title={`Codex に、この会話の履歴がありません。${NO_HISTORY_TEXT}`}>履歴なし</span> : null}
       {chat.origin === "external" && isLive ? <span className="tag" title={`${externalLabel ?? "外部"} で作成された会話を、このアプリで再開済みです。${EXTERNAL_RESUMED_TEXT}`}>{externalLabel ?? "外部"}で作成</span> : null}
       <span className="grow" />
-      {/* 主要操作は台帳から作る。無効のときは押せず、理由をツールチップで示す（文字のみ） */}
-      <Popover trigger={<Icon name="more" />} label="その他の操作" title={`変更・戻す・レビュー・分岐・Goal・作業フォルダ・すべての操作${commands.some((v) => v.mark) ? "\n記録できない変更があります（「変更」から案内を表示）" : ""}`} role="menu" align="right" triggerClassName="btn subtle icon">
-        {(close) => (
-          <>
-            {commands.filter((v) => v.cmd.header).map((v) => {
-              const st = v.state;
-              return (
-                <button key={v.cmd.id} role="menuitem" disabled={st.kind === "disabled"} aria-label={v.cmd.label.replace(/…$/, "")}
-                  title={st.kind === "disabled" ? st.reason : st.unverified ? "未確認の操作です（結果は観測した事実だけを表示します）" : undefined}
-                  onClick={() => { close(); onAct(v.cmd.act); }}>
-                  <span>{v.cmd.header}</span>{v.mark ? <span className="tag" title="押すと対処の案内を表示します">{v.mark}</span> : null}{st.kind === "enabled" && st.unverified ? <span className="tag unv">未確認</span> : null}
-                </button>
-              );
-            })}
-            <hr />
-            {dev ? <button role="menuitem" title="作業フォルダの確認と、次の送信から使う作業フォルダの変更" onClick={() => { close(); onCwdToggle(); }}><span>作業フォルダ{(local?.nextFolders?.folders.length ?? 0) > 1 ? `（${local?.nextFolders?.folders.length}）` : ""}</span></button> : null}
-            {!isLive ? <button role="menuitem" title="保存履歴を読み直して状態を取り直します（読み取りのみ）" onClick={() => { close(); onAct("reloadHistory"); }}><span>状態を再照合</span></button> : null}
-            <hr />
-            <button role="menuitem" title="すべての操作を検索（Ctrl+K）" onClick={() => { close(); onAct("palette"); }}><span>すべての操作…</span><span className="kbd">Ctrl+K</span></button>
-          </>
-        )}
+      {/* このチャットの近道。項目・名前・無効理由は上部メニューと同じ台帳（menuModel の HEADER_MORE）から作る */}
+      <Popover trigger={<Icon name="more" />} label="このチャットの操作" title={`変更・会話・このチャットの操作と、すべての操作${commands.some((v) => v.mark) ? "\n記録できない変更があります（「変更を確認…」から案内を表示）" : ""}`} role="menu" align="right" triggerClassName="btn subtle icon">
+        {(close) => <MenuList entries={resolveEntries(HEADER_MORE, commands)} onPick={(a) => { close(); onAct(a); }} />}
       </Popover>
-      <button className="btn subtle icon panebtn" aria-label="エージェントのドック" aria-pressed={rightShown} title={`エージェントのドックを${rightShown ? "閉じる" : "開く"}（Ctrl+Alt+B）`} onClick={() => onAct("toggleRight")}><Icon name="dock" /></button>
+      <button className="btn subtle icon panebtn" aria-label="エージェントのドック" aria-pressed={rightShown} title={tipWithKey(`エージェントのドックを${rightShown ? "閉じる" : "開く"}`, "toggleRight")} onClick={() => onAct("toggleRight")}><Icon name="dock" /></button>
     </div>
   );
 }
@@ -928,7 +913,7 @@ function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock
           <span className="sel"><select aria-label="モデル" title="モデル（次の送信から適用）" value={model} onChange={(e) => pickModel(e.target.value)}>{models.map((m) => <option key={m.id} value={m.id}>{m.displayName}</option>)}</select></span>
           <span className="sel eff-inline"><select aria-label="推論の強さ" title="推論の強さ（次の送信から適用）" value={effort} onChange={(e) => pickEffort(e.target.value)}>{efforts.map((x) => <option key={x.id} value={x.id}>{x.id}</option>)}</select></span>
           {/* まれな設定（権限・速度・計画／実行）と受理の全文は「⋯」へ。既定から外れているときだけ、下の小さな印で示す */}
-          <Popover trigger={<Icon name="more" />} label="その他の設定" title="権限・速度・計画／実行の設定と、受理の全文" triggerClassName="btn subtle icon">
+          <Popover trigger={<Icon name="more" />} label="送信の設定" title="次の送信に使う権限・推論の強さ・速度・計画／実行（と、受理の全文）" triggerClassName="btn subtle icon">
             <div className="moreset">
               <label>
                 <span>権限</span>
@@ -983,13 +968,13 @@ function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock
             <button className="btn-main send" aria-label={running ? "完了後に送る依頼として登録" : "送信"} title={running ? `完了後に送信（親と子孫の作業が終わってから送ります）。${enterHint}` : enterHint} disabled={!!lock || !!attachBlock || empty} onClick={() => void send()}><Icon name="send" /></button>
             {/* 追加指示は送る前に決めず、送る時点で選ぶ（1回限り）。実行中のみ */}
             {running ? (
-              <Popover role="menu" align="right" label="送信方法" title="送信方法（完了後に送信／追加指示で送る）" triggerClassName="btn-main sendmore" trigger={<span aria-hidden="true">▾</span>}>
+              <Popover role="menu" align="right" label="送信方法" title="この送信の送り方（完了後に送信／追加指示で送る）" triggerClassName="btn-main sendmore" trigger={<span aria-hidden="true">▾</span>}>
                 {(close) => (
                   <>
                     <button role="menuitem" disabled={!!lock || !!attachBlock || empty} title="次の依頼として。親と子孫の作業が終わってから送ります（既定）" onClick={() => { close(); void send(false); }}><span>完了後に送信</span><span className="tag">既定</span></button>
                     <button role="menuitem" aria-disabled={steerWhy ? true : undefined}
                       title={steerWhy ?? "現在のturnへ割り込んで送ります。実行中のturnへ対象を照合して送ります。モデル・権限・フォルダの変更には使えません"}
-                      onClick={() => { if (steerWhy) return; close(); void send(true); }}><span>追加指示で送る</span><span className="kbd">Ctrl+Shift+Enter</span></button>
+                      onClick={() => { if (steerWhy) return; close(); void send(true); }}><span>追加指示で送る</span><span className="kbd">{shortcutById("sendQueue")?.keys}</span></button>
                     {steerWhy ? <div className="small muted" style={{ padding: "2px 8px 4px" }}>追加指示にできない理由: {steerWhy}</div> : null}
                   </>
                 )}
@@ -1011,6 +996,12 @@ export function CenterPane(p: CenterProps) {
   // 作業フォルダの帯はチャットごと。開いているチャットのIDを持ち、別のチャットへ切り替えたら自然に閉じる（描画中の書き換えはしない）。
   const [cwdOpenFor, setCwdOpenFor] = useState<string | null>(null);
   const cwdOpen = cwdOpenFor === chat.key.id;
+  // 上部メニュー「作業フォルダの確認と変更…」（App が "agentdock:cwd-toggle" を送る）。ヘッダーのボタンと同じ開閉。
+  useEffect(() => {
+    const h = () => setCwdOpenFor((id) => (id === chat.key.id ? null : chat.key.id));
+    window.addEventListener("agentdock:cwd-toggle", h);
+    return () => window.removeEventListener("agentdock:cwd-toggle", h);
+  }, [chat.key.id]);
   // 会話内検索（Ctrl+F。Appが "agentdock:find" を送る）。チャットを切り替えても開いたまま同じ語で検索し直す。
   const [findOpen, setFindOpen] = useState(false);
   const [findQuery, setFindQuery] = useState("");

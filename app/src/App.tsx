@@ -21,7 +21,9 @@ import { LeftPane, type ChatOp } from "./ui/LeftPane";
 import { CenterPane, EmptyCenter, type FileActions, type SendNotice } from "./ui/CenterPane";
 import { fenceCode, insertBlock } from "./ui/attach";
 import { DockPane, MiniWindow } from "./ui/Dock";
-import { commandViews } from "./ui/commands";
+import { commandViews } from "./ui/commandViews";
+import { cwdOpenWhy } from "./ui/commands";
+import { matchShortcut } from "./ui/shortcuts";
 import { recheckSummary } from "./ui/chatState";
 import { gitKindOf, ownerMarkVisible, type GitKind } from "./ui/revertView";
 import { CommandPalette } from "./ui/CommandPalette";
@@ -93,6 +95,8 @@ export default function App() {
   const [lNarrow, setLNarrow] = useState(false);
   const [rNarrow, setRNarrow] = useState(false);
   const [mini, setMini] = useState(false);
+  /** 実接続での監視窓の開閉（ホストの通知とメニューを開いたときの確認で更新。不明は false＝✓なし）。 */
+  const [monitorOpen, setMonitorOpen] = useState(false);
   // 最前面。実接続ではホストの設定（再起動後も保持）、モックでは画面内だけ。
   const [mockMainTop, setMockMainTop] = useState(false);
   const [mockMiniTop, setMockMiniTop] = useState(false);
@@ -337,7 +341,6 @@ export default function App() {
   }, [live, gitCwd, selId]);
   // 入口の印: 作業フォルダが所有者違いで、「記録しない」も許可も選んでいないとき、「変更を確認」に中立の小さな印を付ける。
   const changesMark = live && !!gitCwd && ownerMarkVisible(gitKinds[gitCwd], snap.settings.baselines.repos, gitRoots[gitCwd], gitCwd);
-  const cmdViews = commandViews(snap, chat, connected, !!gitCwd && gitKinds[gitCwd] === "notRepo", changesMark ? { changeList: "記録できません" } : {});
   const goalSupported = snap.opCapabilities.some((c) => c.op === "goal" && c.support === "supported");
   const workModeSupported = snap.opCapabilities.some((c) => c.op === "workMode" && c.support === "supported");
   /** 目標を読む（読取りのみ。会話は再開しない）。読めなければ未取得のまま表示する。 */
@@ -881,6 +884,28 @@ export default function App() {
   // ヘッダーの作業フォルダの実在確認（読取りのメタデータだけ。開くのは押したときだけ）
   const headCwd = chat ? knownValue(chat.cwd) : null;
   useEffect(() => { if (live && headCwd) requestPath(headCwd); }, [live, headCwd, chat?.key.id, requestPath]);
+
+  // メニュー・ヘッダー・Ctrl+K が使う可否（台帳から。✓ と「作業フォルダを開けない理由」もここで渡す）。
+  const checked = {
+    toggleLeft: leftTemp ? lNarrow : leftOpen, toggleRight: rightTemp ? rNarrow : rightOpen, toggleMonitor: live ? monitorOpen : mini,
+    toggleDone: scope.kind === "allChats" && scope.showFinished, toggleMainTop: mainTop, toggleMiniTop: miniTop,
+    workMode: !!chat && bundle.modelSettings[chat.key.id]?.workMode === "plan",
+  };
+  const cmdViews = commandViews(snap, chat, connected, !!gitCwd && gitKinds[gitCwd] === "notRepo", changesMark ? { changeList: "記録できません" } : {},
+    { checked, folderCount: snap.chatLocals.find((l) => l.chat.id === chat?.key.id)?.nextFolders?.folders.length ?? 0, cwdWhy: cwdOpenWhy(headCwd, headCwd ? pathInfo(headCwd)?.kind : undefined, live) });
+  // 監視窓の開閉の通知（ホストの開閉・×・トレイすべて）。実接続のみ。
+  useEffect(() => {
+    if (!live) return;
+    let un: (() => void) | undefined;
+    let alive = true;
+    host.subscribeMonitorWindow(setMonitorOpen).then((u) => { if (alive) un = u; else u(); }).catch(() => undefined);
+    return () => { alive = false; un?.(); };
+  }, [live]);
+  // 「表示」メニューを開いたとき1回だけ監視窓の開閉を確認する（失敗は不明＝✓なし）。
+  const setMenuOpen = (m: string | null) => {
+    setMenu(m);
+    if (m === "表示" && live) host.monitorWindowOpen().then(setMonitorOpen).catch(() => setMonitorOpen(false));
+  };
   const refActions: RefActions = {
     chatTitle: (id) => { const c = snap.chats.find((x) => x.key.id.toLowerCase() === id.toLowerCase()); return c ? chatName(c) : undefined; },
     openChat: (id) => { const c = snap.chats.find((x) => x.key.id.toLowerCase() === id.toLowerCase()); if (c) selectChat(c.key.id); },
@@ -1241,10 +1266,15 @@ export default function App() {
       case "retrySave": void retrySave(); break;
       case "toggleLeft": if (leftTemp) setLNarrow((v) => !v); else setLeftOpen((v) => !v); break;
       case "toggleRight": if (rightTemp) setRNarrow((v) => !v); else setRightOpen((v) => !v); break;
-      case "toggleMini":
-        // 実接続では別窓の監視窓を開く（なければ作る）。モックでは画面内の仮の窓。
-        if (live) host.openMonitorWindow().catch((e) => sayErr("監視窓を開けませんでした", e)); else setMini((v) => !v);
+      case "find": if (chat && !dialog) window.dispatchEvent(new Event("agentdock:find")); break;
+      case "toggleMini": case "toggleMonitor":
+        // 実接続では別窓の監視窓を開閉する（開いていれば閉じる。開くときフォーカスは奪わない）。モックでは画面内の仮の窓。
+        if (live) host.toggleMonitorWindow().then(setMonitorOpen).catch((e) => sayErr("監視窓を開閉できませんでした", e)); else setMini((v) => !v);
         break;
+      case "cwdChange": if (chat && chat.kind === "development") window.dispatchEvent(new Event("agentdock:cwd-toggle")); else say("開発チャットだけで使えます。"); break;
+      case "shortcuts": setDialog({ type: "shortcuts" }); break;
+      case "howto": setDialog({ type: "howto" }); break;
+      case "about": setDialog({ type: "about" }); break;
       case "closeMini": setMini(false); break;
       case "miniTop": case "toggleMiniTop": setTop("monitor", !miniTop); break;
       case "toggleMainTop": setTop("main", !mainTop); break;
@@ -1254,48 +1284,31 @@ export default function App() {
     }
   };
 
-  // Ctrl+K でコマンドメニュー。入力欄の送信キー（Ctrl+Enter／Enter）とは別のキー。ダイアログの表示中は開かない。
+  // キー処理は shortcuts.ts の matchShortcut に集約（変換中は無視。capture で WebView 既定の動作より先に受ける）。
+  // Ctrl+Shift+M（監視窓の開閉）は画面の状態を変えないので、ダイアログ・コマンドメニューの表示中も効く。
+  // それ以外は、ダイアログ・コマンドメニューの表示中は動かさない（Ctrl+K だけは開いているコマンドメニューを閉じられる）。
+  const findable = !!chat && !dialog && !palette;
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
-      if (!e.ctrlKey || e.shiftKey || e.altKey || e.metaKey || e.key.toLowerCase() !== "k" || e.isComposing) return;
-      e.preventDefault();
-      if (dialog) return;
-      setMenu(null);
-      setPalette((v) => !v);
-    };
-    window.addEventListener("keydown", h);
-    return () => window.removeEventListener("keydown", h);
-  }, [dialog]);
-
-  // Ctrl+B で左ペイン（チャット一覧）、Ctrl+Alt+B で右ペイン（ドック）の表示切替。入力欄にフォーカスがあっても動く。ダイアログ・コマンドメニューの表示中は動かさない。
-  const blockedPane = !!dialog || palette;
-  useEffect(() => {
-    const h = (e: KeyboardEvent) => {
-      if (!e.ctrlKey || e.shiftKey || e.metaKey || e.isComposing || e.code !== "KeyB") return;
-      e.preventDefault();
-      if (blockedPane) return;
-      act(e.altKey ? "toggleRight" : "toggleLeft");
+      if (matchShortcut(e, "toggleMonitor")) { e.preventDefault(); act("toggleMonitor"); return; }
+      if (matchShortcut(e, "palette")) {
+        e.preventDefault();
+        if (dialog) return;
+        setMenu(null);
+        setPalette((v) => !v);
+        return;
+      }
+      if (matchShortcut(e, "newChat")) { e.preventDefault(); if (!dialog && !palette) { setMenu(null); act("newChat"); } return; }
+      if (matchShortcut(e, "toggleLeft") || matchShortcut(e, "toggleRight")) {
+        e.preventDefault();
+        if (!dialog && !palette) act(matchShortcut(e, "toggleRight") ? "toggleRight" : "toggleLeft");
+        return;
+      }
+      if (matchShortcut(e, "find")) { e.preventDefault(); if (findable) window.dispatchEvent(new Event("agentdock:find")); }
     };
     window.addEventListener("keydown", h, true);
     return () => window.removeEventListener("keydown", h, true);
   });
-
-  // Ctrl+F で会話内検索（capture で WebView 既定の検索より先に受ける）。会話画面の表示中だけ。実体は CenterPane。
-  const findable = !!chat && !dialog && !palette;
-  useEffect(() => {
-    const h = (e: KeyboardEvent) => {
-      if (!e.ctrlKey || e.shiftKey || e.altKey || e.metaKey || e.key.toLowerCase() !== "f" || e.isComposing) return;
-      e.preventDefault();
-      if (findable) window.dispatchEvent(new Event("agentdock:find"));
-    };
-    window.addEventListener("keydown", h, true);
-    return () => window.removeEventListener("keydown", h, true);
-  }, [findable]);
-
-  const checked = {
-    toggleLeft: leftTemp ? lNarrow : leftOpen, toggleRight: rightTemp ? rNarrow : rightOpen, toggleMini: mini,
-    toggleDone: scope.kind === "allChats" && scope.showFinished, toggleMainTop: mainTop, toggleMiniTop: miniTop, togglePin: !!chat?.pinned,
-  };
 
   // 確認済みの失敗。実接続ではホストの記録（chatLocals）と現在の失敗turnの一致で判定し、左一覧と揃える。モックは画面内の集合。
   const confirmedKeys: Set<string> = live
@@ -1331,7 +1344,7 @@ export default function App() {
         <defs><pattern id="hatch" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="2" height="4" style={{ fill: "var(--unk)" }} /></pattern></defs>
       </svg>
       <div className="window" role="application" aria-label="AgentDock" onClick={() => { if (menu) setMenu(null); if (mockOpen) setMockOpen(false); }}>
-        <MenuBar open={menu} setOpen={setMenu} checked={checked} views={cmdViews} onAct={act} tag={modeTag} live={live} />
+        <MenuBar open={menu} setOpen={setMenuOpen} views={cmdViews} onAct={act} tag={modeTag} live={live} />
         <GlobalBanner source={src} onAct={act} />
         {live && quit.kind !== "idle" && dialog?.type !== "quit" && dialog?.type !== "force" ? (
           <div className="gbanner warn" role="status">

@@ -363,6 +363,24 @@ pub async fn open_monitor_window(app: tauri::AppHandle, host: Hs<'_>) -> R<()> {
     crate::win::window::open_monitor(&app, host.inner()).map_err(|e| io_err(format!("監視窓を開けませんでした: {e}")))
 }
 
+/// 監視窓のトグル（開いていれば閉じ、閉じていれば開く。開くときはフォーカスを奪わない）。操作後に開いているかを返す。
+#[tauri::command]
+pub async fn toggle_monitor_window(app: tauri::AppHandle, host: Hs<'_>) -> R<bool> {
+    crate::win::window::toggle_monitor(&app, host.inner()).map_err(|e| io_err(format!("監視窓を切り替えられませんでした: {e}")))
+}
+
+/// 監視窓が開いている（表示中・最小化でない）か。
+#[tauri::command]
+pub async fn monitor_window_open(app: tauri::AppHandle) -> R<bool> {
+    Ok(crate::win::window::monitor_is_open(&app))
+}
+
+/// 監視窓を閉じる（`monitor` ラベルの窓だけ。作業・収集・保存は続く）。
+#[tauri::command]
+pub async fn close_monitor_window(app: tauri::AppHandle) -> R<()> {
+    crate::win::window::close_monitor(&app).map_err(|e| io_err(format!("監視窓を閉じられませんでした: {e}")))
+}
+
 #[tauri::command]
 pub async fn set_monitor_window_scope(host: Hs<'_>, args: SetMonitorWindowScopeArgs) -> R<()> {
     host.inner().clone().set_monitor_window_scope(args.scope)

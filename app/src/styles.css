@@ -197,10 +197,16 @@ label{display:inline-flex;align-items:center;gap:6px}
 .menu{position:relative}
 .menu > button{height:26px}
 .menu > button[aria-expanded=true]{background:var(--accent-weak)}
-.dropdown{position:absolute;left:0;top:28px;z-index:30;min-width:250px}
-.dropdown button{width:100%;justify-content:space-between;height:30px}
+.dropdown{position:absolute;left:0;top:28px;z-index:30;min-width:250px;max-width:min(380px,calc(100vw - 16px));max-height:calc(100vh - 80px);overflow-y:auto}
+.dropdown button{width:100%;justify-content:space-between;gap:12px;height:auto;min-height:30px;text-align:left}
+.dropdown button>span:first-child{white-space:normal;overflow-wrap:anywhere}
+.dropdown .kbd,.dropdown .tag{flex:none;white-space:nowrap}
 .dropdown .kbd{color:var(--ink3);font-size:var(--fs-xs)}
+.dropdown button:focus-visible{outline-offset:-2px}
 .dropdown hr{border:0;border-top:1px solid var(--line2);margin:4px 2px}
+.menu-h{padding:6px 10px 2px;font-size:var(--fs-xs);color:var(--ink3);cursor:default;user-select:none}
+.dropdown button.danger{color:var(--fail-ink)}
+.dropdown button.danger:disabled{color:var(--ink3)}
 
 /* global banner */
 .gbanner{display:flex;align-items:center;gap:10px;padding:6px 12px;border-bottom:1px solid var(--b-line);background:var(--b-bg);color:var(--b-ink);font-size:var(--fs-s)}
@@ -393,7 +399,7 @@ textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;paddin
    >=1280px: 3領域。960〜1279px: 右（ドック）を一時パネル。<960px: 左右とも一時パネル。中央を優先する。 */
 .panel-scrim{display:none}
 .only-narrow-l,.only-narrow-r{display:none!important}
-.dropdown button.has-why{height:auto;min-height:30px;flex-wrap:wrap;padding-top:4px;padding-bottom:4px}
+.dropdown button.has-why{flex-wrap:wrap;padding-top:4px;padding-bottom:4px}
 .dropdown .why{flex-basis:100%;font-size:var(--fs-xs);color:var(--ink3);text-align:left;white-space:normal}
 .dropdown button:disabled{color:var(--ink3);cursor:default}
 @media (max-width:1279px){
@@ -592,9 +598,13 @@ textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;paddin
 .palette-q{width:100%;height:30px}
 .palette-list{list-style:none;margin:0;padding:4px;overflow:auto;max-height:50vh}
 .palette-list li{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:5px 8px;border-radius:var(--r1);cursor:pointer}
-.palette-list li.cur{background:var(--accent-weak)}
+.palette-list li.cur{background:var(--accent-weak);box-shadow:inset 0 0 0 1px var(--accent-line)}
 .palette-list li.off{color:var(--ink3);cursor:default}
-.palette-list .kbd{color:var(--ink3);font-size:var(--fs-xs)}
+.palette-list .pal-label{min-width:0;white-space:normal;overflow-wrap:anywhere}
+.palette-list .pal-group{flex:none;font-size:var(--fs-xs);color:var(--ink2);border:1px solid var(--line);border-radius:var(--r1);padding:0 5px;line-height:1.45;white-space:nowrap}
+.palette-list .kbd{flex:none;white-space:nowrap;color:var(--ink3);font-size:var(--fs-xs)}
+@media (max-width:959px){.palette{margin-top:4vh}}
+.tbl .kbd{white-space:normal}
 .palette-list .why{flex-basis:100%;font-size:var(--fs-xs);color:var(--ink3);text-align:left;white-space:normal}
 .palette-none{padding:8px}
 .quit-list{margin:6px 0;padding-left:18px}
@@ -765,3 +775,12 @@ button.uchip:hover{background:var(--accent-weak)}
 @media (max-width:959px){.uchips{margin-left:20px;max-width:calc(100% - 20px)}}
 .resend-atts{margin:2px 0;padding-left:18px;font-size:var(--fs-s)}
 .resend-atts li.lost{color:var(--fail-ink)}
+
+/* M4: 「…」メニュー（.pop）でも MenuList の見出し・無効理由・危険色を使う */
+.pop .menu-h{padding:6px 10px 2px;font-size:var(--fs-xs);color:var(--ink3);cursor:default;user-select:none}
+.pop[role=menu] button.has-why{height:auto;min-height:30px;flex-wrap:wrap;padding-top:4px;padding-bottom:4px}
+.pop[role=menu] button .why{flex-basis:100%;font-size:var(--fs-xs);color:var(--ink3);text-align:left;white-space:normal}
+.pop[role=menu] button:disabled{color:var(--ink3);cursor:default}
+.pop[role=menu] button.danger{color:var(--fail-ink)}
+.pop[role=menu] button.danger:disabled{color:var(--ink3)}
+.chead .pop[role=menu]{min-width:260px}

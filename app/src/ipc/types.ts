@@ -552,6 +552,9 @@ export interface CommandMap {
   force_kill: { args: ForceKillArgs; result: StopRecord[] };
   set_always_on_top: { args: SetAlwaysOnTopArgs; result: null };
   open_monitor_window: { args: Record<string, never>; result: null };
+  toggle_monitor_window: { args: Record<string, never>; result: boolean };
+  monitor_window_open: { args: Record<string, never>; result: boolean };
+  close_monitor_window: { args: Record<string, never>; result: null };
   set_monitor_window_scope: { args: SetMonitorWindowScopeArgs; result: null };
   show_main_window: { args: ShowMainWindowArgs; result: null };
   touch_chat_used: { args: ChatArgs; result: null };

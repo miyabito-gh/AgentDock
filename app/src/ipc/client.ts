@@ -109,6 +109,16 @@ export const previewForceKill = (source: string): Promise<ForceKillPreview> => i
 export const forceKill = (source: string): Promise<StopRecord[]> => invokeCmd("force_kill", { source });
 export const setAlwaysOnTop = (window: WindowKind, on: boolean): Promise<null> => invokeCmd("set_always_on_top", { window, on });
 export const openMonitorWindow = (): Promise<null> => invokeCmd("open_monitor_window", {});
+/** 監視窓のトグル（開いていれば閉じ、閉じていれば開く。開くときフォーカスは奪わない）。操作後に開いているかを返す。 */
+export const toggleMonitorWindow = (): Promise<boolean> => invokeCmd("toggle_monitor_window", {});
+/** 監視窓が開いているか（「表示」メニューを開くたびに1回）。失敗は不明として扱い、✓なしにする。 */
+export const monitorWindowOpen = (): Promise<boolean> => invokeCmd("monitor_window_open", {});
+/** 監視窓を閉じる（監視窓内のCtrl+Shift+M用）。 */
+export const closeMonitorWindow = (): Promise<null> => invokeCmd("close_monitor_window", {});
+/** 監視窓の開閉通知（payload: 開いているか）。ホストの開閉・×・トレイすべてで届く。 */
+export const MONITOR_WINDOW_EVENT = "agentdock://monitor-window";
+export const subscribeMonitorWindow = (handler: (open: boolean) => void): Promise<UnlistenFn> =>
+  listen<boolean>(MONITOR_WINDOW_EVENT, (ev) => handler(ev.payload));
 export const setMonitorWindowScope = (scope: MonitorWindowScope): Promise<null> => invokeCmd("set_monitor_window_scope", { scope });
 /** 通常画面を前面に出す。chat があればそのチャットを開く（表示だけ）。 */
 export const showMainWindow = (chat: ChatKey | null): Promise<null> => invokeCmd("show_main_window", { chat });

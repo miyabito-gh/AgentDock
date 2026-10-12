@@ -7,6 +7,7 @@ import { applyHostEvent, createEventPipeline, emptyBundle, replaceSnapshot, seqA
 import type { Bundle } from "./mock/data";
 import { DockPane } from "./ui/Dock";
 import { keyStr } from "./ui/format";
+import { matchShortcut } from "./ui/shortcuts";
 import { applyAppearance, watchSystemTheme } from "./ui/appearance";
 
 export default function MonitorApp() {
@@ -68,6 +69,17 @@ export default function MonitorApp() {
       } catch (e) { ready = true; sayErr("ホストに接続できませんでした", e); }
     })();
     return () => { alive = false; unlisten.forEach((u) => u()); pipe.dispose(); };
+  }, [sayErr]);
+
+  // Ctrl+Shift+M で監視窓を閉じる（通常画面の同じキーと往復できる。作業・収集・保存は続く。変換中は無視）。
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if (!matchShortcut(e, "monitorClose")) return;
+      e.preventDefault();
+      host.closeMonitorWindow().catch((er) => sayErr("監視窓を閉じられませんでした", er));
+    };
+    window.addEventListener("keydown", h, true);
+    return () => window.removeEventListener("keydown", h, true);
   }, [sayErr]);
 
   const snap = bundle.snapshot;

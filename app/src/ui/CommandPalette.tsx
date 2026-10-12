@@ -19,7 +19,7 @@ export function CommandPalette({ views, onRun, onClose }: { views: CommandView[]
   const run = (v: CommandView | undefined) => {
     if (!v || v.state.kind === "disabled") return;
     onClose();
-    onRun(v.cmd.act);
+    onRun(v.act);
   };
   const onKey = (e: React.KeyboardEvent) => {
     if (e.nativeEvent.isComposing) return;
@@ -33,7 +33,7 @@ export function CommandPalette({ views, onRun, onClose }: { views: CommandView[]
     <div className="scrim" onClick={onClose}>
       <div className="dialog palette" role="dialog" aria-modal="true" aria-label="コマンドメニュー" onClick={(e) => e.stopPropagation()} onKeyDown={onKey}>
         <header>
-          <input ref={input} type="text" className="palette-q" value={q} placeholder="操作を検索" aria-label="操作を検索" onChange={(e) => { setQ(e.target.value); setPos(0); }} />
+          <input ref={input} type="text" className="palette-q" value={q} placeholder="操作を検索（名前・別名・メニュー名）" aria-label="操作を検索" onChange={(e) => { setQ(e.target.value); setPos(0); }} />
         </header>
         <ul className="palette-list" role="listbox" aria-label="操作の一覧">
           {items.length === 0 ? <li className="small muted palette-none">一致する操作はありません</li> : null}
@@ -43,15 +43,17 @@ export function CommandPalette({ views, onRun, onClose }: { views: CommandView[]
             return (
               <li key={v.cmd.id} role="option" aria-selected={i === cur} aria-disabled={off} className={`${i === cur ? "cur" : ""} ${off ? "off" : ""}`}
                 title={off ? st.reason : undefined} onMouseEnter={() => setPos(i)} onClick={() => run(v)}>
-                <span className="grow">{v.cmd.label}</span>
+                <span className="grow pal-label">{v.checked ? "✓ " : ""}{v.label}</span>
+                {v.mark ? <span className="tag" title="押すと対処の案内を表示します">{v.mark}</span> : null}
                 {st.kind === "enabled" && st.unverified ? <span className="unv">未確認</span> : null}
+                <span className="pal-group" title={`${v.cmd.group}メニュー`}>{v.cmd.group}</span>
                 {v.cmd.kbd ? <span className="kbd">{v.cmd.kbd}</span> : null}
                 {off ? <span className="why">{st.reason}</span> : null}
               </li>
             );
           })}
         </ul>
-        <footer><span className="small muted grow">↑↓ で選択、Enter で実行、Esc で閉じる</span></footer>
+        <footer><span className="small muted grow">↑↓ で選択、Enter で実行、Esc で閉じる。使えない操作は理由を表示します</span></footer>
       </div>
     </div>
   );
