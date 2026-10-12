@@ -90,6 +90,12 @@ pub fn carried_extras(f: Option<&ChatLocalFile>) -> Vec<String> {
     list.map(|l| l.into_iter().skip(1).collect()).unwrap_or_default()
 }
 
+/// 分岐先へ引き継ぐ作業フォルダの並び。分岐元の「次の送信から使う値」があればそれ、なければ読込み済みの直接取得、なければ送信記録（受理済み）。
+/// 追加フォルダ（2件以上）があるときだけ（プライマリだけなら cwd の継承に任せる）。
+pub fn pick_fork_folders(next: Option<Vec<String>>, direct: Option<Vec<String>>, accepted: Option<Vec<String>>) -> Option<Vec<String>> {
+    next.or(direct).or(accepted).filter(|l| l.len() >= 2)
+}
+
 /// `[cwd] ＋ 追加分`。cwdと同じもの・重複は除く。
 pub fn compose_with_primary(cwd: &str, extras: &[String]) -> Vec<String> {
     let mut out = vec![cwd.trim().to_string()];
@@ -299,6 +305,46 @@ impl Host {
         })
     }
 
+    /// 分岐先へ、分岐元の作業フォルダ一式を「次の送信から使う値」として引き継ぐ（thread/fork は追加フォルダを継承しない。実測M6）。
+    /// 既存の検査（UNC・システム・強い確認など）を通らない並びは、確認なしに引き継がず、外して送ることもしない（理由を返す）。
+    /// 接続が追加フォルダを使えないときも引き継がず、そのことを返す。分岐先に既に値があれば何もしない。
+    pub(super) async fn inherit_fork_folders(self: &Arc<Self>, src: &ChatKey, dst: &ChatKey) -> Option<String> {
+        let (next, accepted, dst_has) = self.read(|d| {
+            (
+                d.locals.get(src).and_then(|l| l.next_folders.clone()),
+                d.locals.get(src).and_then(|l| l.accepted_folders.as_ref().map(|a| a.folders.folders.clone())),
+                d.locals.get(dst).is_some_and(|l| l.next_folders.is_some()),
+            )
+        });
+        if dst_has {
+            return None;
+        }
+        let supported = self.backend.capabilities().workspace_roots == Support::Supported;
+        // 次の送信用の値がなければ、読込み済みのときだけ直接取得する（resumeしない）。
+        let direct = if next.is_none() && supported {
+            match self.backend.read_work_folders(src).await {
+                Ok(Known::Value { value, .. }) => Some(value.folders),
+                _ => None,
+            }
+        } else {
+            None
+        };
+        let list = pick_fork_folders(next, direct, accepted)?;
+        if !supported {
+            return Some("分岐元には追加の作業フォルダがありますが、この接続では使えないため引き継ぎませんでした（プライマリだけの分岐です）".into());
+        }
+        let l2 = list.clone();
+        let verified = tokio::task::spawn_blocking(move || verify_folder_set(&l2, &[], &FolderEnv::from_os(), &os_probe)).await;
+        match verified {
+            Ok(Ok(w)) => {
+                self.update_local(dst, true, Duration::ZERO, |f| f.next_folders = Some(w.folders));
+                None
+            }
+            Ok(Err(r)) => Some(format!("分岐元の追加の作業フォルダを引き継げませんでした（{}）。「作業フォルダ」から指定し直してください", set_reject_message(&list, &r))),
+            Err(_) => Some("分岐元の追加の作業フォルダを確認できず、引き継ぎませんでした。「作業フォルダ」から指定し直してください".into()),
+        }
+    }
+
     /// 追加前の1件の検査（読取りのみ）。
     pub async fn check_work_folder(&self, args: CheckWorkFolderArgs) -> Result<FolderCheck, IpcError> {
         tokio::task::spawn_blocking(move || check_folder(&args.path, &args.current, &FolderEnv::from_os(), &os_probe))
@@ -365,6 +411,17 @@ mod tests {
         assert_eq!(sent.folders, v(&["C:\\a", "C:\\b"]));
         assert!(f.accepted_folders.is_some() && f.next_folders.is_none() && f.unconfirmed_folders.is_none());
         assert_eq!(promote_unconfirmed(&mut f, UnixMillis(10)), None, "nothing to promote twice");
+    }
+
+    #[test]
+    fn fork_picks_pending_then_direct_then_accepted_and_only_with_extras() {
+        let (a, b, c) = (Some(v(&["C:/a", "C:/n"])), Some(v(&["C:/a", "C:/d"])), Some(v(&["C:/a", "C:/r"])));
+        assert_eq!(pick_fork_folders(a.clone(), b.clone(), c.clone()), a);
+        assert_eq!(pick_fork_folders(None, b.clone(), c.clone()), b);
+        assert_eq!(pick_fork_folders(None, None, c.clone()), c);
+        assert_eq!(pick_fork_folders(None, None, None), None);
+        // プライマリだけなら引き継がない（cwd の継承に任せる）。
+        assert_eq!(pick_fork_folders(Some(v(&["C:/a"])), None, c), None);
     }
 
     #[test]

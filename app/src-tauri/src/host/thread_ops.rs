@@ -294,6 +294,11 @@ impl Host {
         };
         let origin = ForkOrigin { chat: chat.clone(), through_turn, purpose };
         let (found, note) = self.register_forked_chat(&new_key, origin).await;
+        // 追加の作業フォルダは分岐に継承されない（実測M6）。検査を通したものだけ、分岐先の次の送信から使う値として引き継ぐ。
+        let note = match (note, self.inherit_fork_folders(chat, &new_key).await) {
+            (Some(a), Some(b)) => Some(format!("{a}。{b}")),
+            (a, b) => a.or(b),
+        };
         self.rename_best_effort(&new_key, format!("{title}（{name_suffix}）"), confirmed).await;
         let found = self.read(|d| d.chat(&new_key).cloned()).or(found);
         Ok(ForkResult { ack: OpAck::Accepted, chat: found, attempted_at, note })
@@ -510,6 +515,9 @@ impl Host {
                 let title = self.chat_title(&args.chat);
                 let origin = ForkOrigin { chat: args.chat.clone(), through_turn: args.through_turn.clone(), purpose: args.purpose };
                 let (chat, _) = self.adopt_forked(&key, origin, Some((Some(s.chat.clone()), s.root.clone(), s.status.clone())));
+                if let Some(m) = self.inherit_fork_folders(&args.chat, &key).await {
+                    self.warn(m);
+                }
                 if !registered && args.purpose != ForkPurpose::Fork {
                     self.rename_best_effort(&key, format!("{title}（{}）", fork_name_suffix(args.purpose)), confirmed).await;
                 }

@@ -614,6 +614,9 @@ impl Host {
                 Err(r) => return Err(err(IpcErrorCode::InvalidArgs, work_folders::set_reject_message(&all, &r))),
             }
         };
+        // 追加フォルダ付きで作ったチャットは、最初の送信にも作業フォルダの並びを付ける（`next_folders`）。thread/start の指定だけでは
+        // 書込み範囲（承認なしで書ける場所）に反映されなかった実機結果があり、turn/start の指定は反映される（実測M4・M5）。
+        let created_folders: Option<Vec<String>> = (!extra_folders.is_empty()).then(|| std::iter::once(cwd.clone()).chain(extra_folders.iter().cloned()).collect());
         let params = StartChatParams {
             kind,
             cwd,
@@ -638,6 +641,7 @@ impl Host {
             f.hosted = true;
             f.cached_meta = Some(meta);
             f.worktree = args.worktree.clone();
+            f.next_folders = created_folders.clone();
             // 開始の応答が示した作業フォルダ（追加を求めたときだけ記録）。バックエンドの現在値とは断定しない送信記録として持つ。
             if !args.extra_folders.is_empty() {
                 if let Known::Value { value, .. } = &started.accepted_folders {
@@ -693,7 +697,8 @@ impl Host {
                 // スレッド開始時に権限・作業フォルダを渡し済み。
                 permission: None,
                 cwd: None,
-                work_folders: None,
+                // 追加フォルダ付きで作ったときは、最初のturnにも並びを付ける（上の `next_folders`。付けないとcwdだけで送られる）。
+                work_folders: self.work_folders_for_send(&key, true),
                 work_mode: None,
                 client_message_id: self.local_id("cm").0,
             };

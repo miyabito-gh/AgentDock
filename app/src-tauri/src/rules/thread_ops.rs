@@ -239,8 +239,6 @@ pub struct ForkInherit {
     pub work_mode: Option<WorkMode>,
     pub worktree: Option<LocalId>,
     pub next_cwd: Option<String>,
-    /// 次の送信から使う作業フォルダの並び（`accepted_folders`・`unconfirmed_folders` は別スレッドの記録ではないので写さない）。
-    pub next_folders: Option<Vec<String>>,
 }
 
 impl ForkInherit {
@@ -252,7 +250,6 @@ impl ForkInherit {
             work_mode: work_mode.or_else(|| local.and_then(|l| l.work_mode)),
             worktree: local.and_then(|l| l.worktree.clone()),
             next_cwd: local.and_then(|l| l.next_cwd.clone()),
-            next_folders: local.and_then(|l| l.next_folders.clone()),
         }
     }
 
@@ -272,9 +269,6 @@ impl ForkInherit {
         }
         if f.next_cwd.is_none() {
             f.next_cwd = self.next_cwd.clone();
-        }
-        if f.next_folders.is_none() {
-            f.next_folders = self.next_folders.clone();
         }
     }
 }
@@ -487,7 +481,8 @@ mod tests {
         assert_eq!(dst.work_mode, Some(WorkMode::Plan));
         assert_eq!(dst.worktree, Some(LocalId("wt".into())));
         assert_eq!(dst.next_cwd.as_deref(), Some("C:\\work"));
-        assert_eq!(dst.next_folders, Some(vec!["C:\\work".to_string(), "D:\\lib".to_string()]));
+        // 作業フォルダの並びは検査つきの別経路（host の inherit_fork_folders）で引き継ぐ。ここでは写さない。
+        assert!(dst.next_folders.is_none());
         assert!(dst.accepted_folders.is_none() && dst.unconfirmed_folders.is_none(), "records of the source thread are not inherited");
     }
 
