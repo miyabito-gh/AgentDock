@@ -265,6 +265,11 @@ pub struct AppliedSettings {
     #[serde(default)]
     #[cfg_attr(test, ts(optional))]
     pub work_mode: Option<WorkMode>,
+    /// 送信時点で、状態不明のまま送った子孫の件数（親の完了を確認済みのため送った。注記「子N件の状態は未確認のまま送ります」用）。
+    /// None・0は注記なし。子孫の状態そのものは不明のまま別に表示する。
+    #[serde(default)]
+    #[cfg_attr(test, ts(optional))]
+    pub unconfirmed_descendants: Option<u32>,
 }
 
 /// キュー全体の進行。項目の状態とは別に持つ。

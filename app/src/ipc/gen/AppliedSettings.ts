@@ -12,4 +12,9 @@ export type AppliedSettings = { model: ModelChoice | null, permission: Permissio
 /**
  * 送信時点の計画／実行の選択（None＝指定なし）。速度の選択は `model.speed_tier` に含まれる。
  */
-workMode?: WorkMode, };
+workMode?: WorkMode, 
+/**
+ * 送信時点で、状態不明のまま送った子孫の件数（親の完了を確認済みのため送った。注記「子N件の状態は未確認のまま送ります」用）。
+ * None・0は注記なし。子孫の状態そのものは不明のまま別に表示する。
+ */
+unconfirmedDescendants?: number, };

@@ -9,7 +9,7 @@ import { Popover } from "./Popover";
 import { Markdown, PathText, COPY_LABEL, useCopy } from "./Markdown";
 import { PENDING_TEXT } from "./ManageDialogs";
 import { TENTATIVE_HINT, TENTATIVE_STYLE, chatAgents, chatDisplay, chatName, chatRequests, chatTitle, chatStatusText, chatStops, isRunning, rootView, stopOpen } from "./derive";
-import { FRESH, STATE, STOP_LABEL, hms, holdText, keyStr, knownValue, showKnown, stopCauseText, targetList } from "./format";
+import { FRESH, STATE, STOP_LABEL, hms, holdText, keyStr, knownValue, showKnown, stopCauseText, targetList, unconfirmedNote } from "./format";
 import { baseName, clipboardImageName, mimeOf } from "./attach";
 import { FOLD_KEEP, createFoldMemory, isLongBody, messageTexts, needsExpand, splitFold, workFold, workFoldLabel } from "./fold";
 import { assignSends, chipKey, chipModel, matchLocal, splitChips, type SentLocal } from "./chips";
@@ -728,7 +728,7 @@ export function RequestCard({ r, onRespond, agentName }: { r: PendingRequest; on
   );
 }
 
-function EntryRow({ n, e, qact, steerWhy, holdAttempt }: { n: number; e: QueueEntry; qact: QueueActions; steerWhy: string | null; holdAttempt: string | null }) {
+function EntryRow({ n, e, qact, steerWhy, holdAttempt, holdHint }: { n: number; e: QueueEntry; qact: QueueActions; steerWhy: string | null; holdAttempt: string | null; holdHint: string | null }) {
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(e.text);
   const [steering, setSteering] = useState(false);
@@ -737,7 +737,7 @@ function EntryRow({ n, e, qact, steerWhy, holdAttempt }: { n: number; e: QueueEn
   const steerUnk = qact.steerUnknown[e.id] && qact.steerUnknown[e.id] === holdAttempt ? qact.steerUnknown[e.id] : undefined;
   const why = steerUnk ? "追加指示として送りましたが、受理されたか確認できません。この依頼は残しています（再送しません）。履歴と照合して確定してください"
     : s.kind === "acceptanceUnknown" ? "受理不明: 送信したか確認できません。履歴と照合して確定するまで、再送しません"
-    : s.kind === "sending" ? "送信中"
+    : s.kind === "sending" ? (e.applied?.unconfirmedDescendants ? `送信中（${unconfirmedNote(e.applied.unconfirmedDescendants)}）` : "送信中")
     : s.kind === "notAccepted" ? `受理されていません（${s.message}）。自動では再送しません`
     : null;
   const save = async () => { if (await qact.edit(e.id, text)) setEditing(false); };
@@ -752,7 +752,7 @@ function EntryRow({ n, e, qact, steerWhy, holdAttempt }: { n: number; e: QueueEn
       <div style={{ display: "flex", gap: 2 }}>
         {s.kind === "waiting" && !editing ? (() => {
           // 追加指示（実行中のturnへ今すぐ）。条件を満たさないとき・受理不明の確認中は押せない（理由はツールチップ）
-          const block = steerUnk ? "追加指示の受理を確認中です。先に「履歴と照合」で確定してください" : steering ? "送信中です" : steerWhy;
+          const block = steerUnk ? "追加指示の受理を確認中です。先に「履歴と照合」で確定してください" : steering ? "送信中です" : steerWhy ? (holdHint ? `${steerWhy}（${holdHint}）` : steerWhy) : null;
           return <button className="small" aria-label="追加指示として今すぐ送る（実行中のturnへ割り込んで送ります）" aria-disabled={block ? true : undefined}
             title={block ?? "追加指示として今すぐ送る（実行中のturnへ割り込んで送ります。受理されたらこの依頼は取り消します）"}
             onClick={() => { if (block) return; setSteering(true); void qact.steerEntry(e).finally(() => setSteering(false)); }}><Icon name="send" />追加指示</button>;
@@ -782,7 +782,7 @@ function HoldExit({ q, head, nameOf, qact }: { q: ChatQueue; head: QueueEntry | 
   return (
     <div style={{ padding: "2px 10px" }}>
       <div className="acts">
-        <button className="small" title="保留中の子孫の履歴を読み直します（読み取りのみ。再開はしません）。終端を確認できれば、自動で送信に進みます" onClick={qact.recheck}>状態を再確認</button>
+        <button className={h.kind === "stateUnknown" ? "btn-main" : "small"} title="保留中の子孫の履歴を読み直します（読み取りのみ。再開はしません）。終端を確認できれば、自動で送信に進みます" onClick={qact.recheck}>状態を再確認</button>
         {canSend ? <button className="small" onClick={() => setConfirming(true)}>確認して今すぐ送る…</button> : null}
       </div>
       {confirming && head ? (
@@ -810,6 +810,8 @@ function Queue({ q, nameOf, qact, steerWhy }: { q: ChatQueue | undefined; nameOf
   if (!items.length) return null;
   const unknown = items.some((e) => e.state.kind === "acceptanceUnknown");
   const stopped = q.run.kind !== "active";
+  const unkKids = !stopped && q.hold?.kind === "stateUnknown" ? q.hold.targets.filter((t) => t.agent.id !== q.chat.id).length : 0;
+  const holdHint = unkKids ? `子${unkKids}件の状態が不明です。下の「状態を再確認」で確認できます` : null;
   return (
     <div className="queue">
       {stopped ? (
@@ -823,10 +825,10 @@ function Queue({ q, nameOf, qact, steerWhy }: { q: ChatQueue | undefined; nameOf
       ) : null}
       <details open>
         <summary title={!stopped && !q.hold ? "親と子孫の作業が終わると、登録順に1件ずつ送ります" : undefined}><Icon name="list" /><b>完了後に送る依頼 {items.length}件</b>
-          <span className="muted">{stopped ? "停止中" : q.hold ? holdText(q.hold, nameOf) : ""}</span>
+          <span className="muted" title={!stopped && q.hold && (q.hold.kind === "stateUnknown" || q.hold.kind === "notLive") && q.hold.targets.length ? targetList(q.hold.targets, nameOf) : undefined}>{stopped ? "停止中" : q.hold ? holdText(q.hold, nameOf, q.chat.id) : ""}</span>
           <span className="muted small qnote" title="送信待ちの依頼は、送信する時点のモデル・権限・作業フォルダで送ります。">送信時の設定で送信</span></summary>
         <HoldExit q={q} head={items[0]} nameOf={nameOf} qact={qact} />
-        {items.map((e, i) => <EntryRow key={e.id + e.state.kind} n={i + 1} e={e} qact={qact} steerWhy={steerWhy} holdAttempt={q.hold?.kind === "acceptanceUnknown" ? q.hold.attempt : null} />)}
+        {items.map((e, i) => <EntryRow key={e.id + e.state.kind} n={i + 1} e={e} qact={qact} steerWhy={steerWhy} holdAttempt={q.hold?.kind === "acceptanceUnknown" ? q.hold.attempt : null} holdHint={holdHint} />)}
       </details>
     </div>
   );

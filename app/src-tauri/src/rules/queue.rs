@@ -57,7 +57,8 @@ pub enum GateDecision {
     /// キューが止まっている（Stopped・PausedAfterRestart）。明示の再開を待つ。
     Paused,
     /// 先頭の Waiting を送ってよい。
-    Send { entry: LocalId },
+    /// `unconfirmed_descendants` は、状態不明のまま送る子孫の件数（注記用。0なら注記なし）。
+    Send { entry: LocalId, unconfirmed_descendants: u32 },
     Hold(QueueHold),
     /// 失敗・中断を検出したので止める（[`stop`] を呼ぶ）。
     Stop(QueueStopCause),
@@ -143,7 +144,8 @@ fn classify_descendant(f: &AgentFact, baseline: Option<UnixMillis>) -> Class {
 /// 3. 親・子孫の `baseline_at` 以降の failed / interrupted → `Stop`。
 /// 4. 親が作業中（または自動送信したturnの終端が未確認） → `Hold(ParentWorking)`。親の状態が不明 → `Hold(StateUnknown)`。
 ///    子孫に running / waiting / initializing → `Hold(DescendantsActive)`。
-/// 5. 子孫に unknown・走査未完了 → `Hold(StateUnknown)`。
+/// 5. 走査未完了 → `Hold(StateUnknown)`。子孫に unknown → `Hold(StateUnknown)`。ただし親が live かつ完了を確認済みなら
+///    unknown の子孫は止めず、件数を `Send.unconfirmed_descendants` に入れる（子孫は不明のまま。完了・失敗にしない）。
 /// 6. 鮮度: 親は live 必須。子孫は live、または終端を明示的に確認済み（`terminal_explicit`）かつ
 ///    `observed_at >= baseline_at` の履歴取得済みなら可。それ以外 → `Hold(NotLive)`（DESIGN_P2 §2.3）。
 /// 7. すべて満たせば先頭の Waiting を `Send`。
@@ -206,9 +208,17 @@ pub fn evaluate(queue: &ChatQueue, input: &GateInput) -> GateDecision {
     }
     let skip_unconfirmed = input.user_confirmed_unknown;
     let unknown = of(Class::Unknown);
-    if !skip_unconfirmed && (!unknown.is_empty() || !input.descendant_scan_complete) {
-        return GateDecision::Hold(QueueHold::StateUnknown { targets: unknown, descendant_scan_incomplete: !input.descendant_scan_complete });
+    // 親が live で完了を確認できているなら、状態不明の子孫は送信を止めない（2026-10-12合意）。
+    // 子孫は不明のまま扱い、送る件数を注記用に返す。走査未完了（未発見の子孫の可能性）は従来どおり保留する。
+    let root_completed = root.freshness == Freshness::Live && matches!(root.latest_end, Some((TurnEnd::Completed, _)));
+    let relax_unknown = skip_unconfirmed || root_completed;
+    if !input.descendant_scan_complete && !skip_unconfirmed {
+        return GateDecision::Hold(QueueHold::StateUnknown { targets: unknown, descendant_scan_incomplete: true });
     }
+    if !relax_unknown && !unknown.is_empty() {
+        return GateDecision::Hold(QueueHold::StateUnknown { targets: unknown, descendant_scan_incomplete: false });
+    }
+    let unconfirmed_descendants = unknown.len() as u32;
     let mut not_live = if skip_unconfirmed { Vec::new() } else { of(Class::NotLive) };
     if root.freshness != Freshness::Live {
         not_live.insert(0, target(root));
@@ -216,7 +226,7 @@ pub fn evaluate(queue: &ChatQueue, input: &GateInput) -> GateDecision {
     if !not_live.is_empty() {
         return GateDecision::Hold(QueueHold::NotLive { targets: not_live });
     }
-    GateDecision::Send { entry: first.id.clone() }
+    GateDecision::Send { entry: first.id.clone(), unconfirmed_descendants }
 }
 
 /// 空のキュー。
@@ -598,13 +608,13 @@ mod tests {
         SendAttempt { attempt_id: lid(id), client_message_id: format!("cm-{id}"), at: UnixMillis(3000), state: SendState::Sending }
     }
     fn applied() -> AppliedSettings {
-        AppliedSettings { model: None, permission: PermissionPreset::WorkspaceWriteOnRequest, cwd: Known::NotFetched, decided_at: UnixMillis(3000), work_mode: None }
+        AppliedSettings { model: None, permission: PermissionPreset::WorkspaceWriteOnRequest, cwd: Known::NotFetched, decided_at: UnixMillis(3000), work_mode: None, unconfirmed_descendants: None }
     }
 
     #[test]
     fn sends_head_when_parent_completed_and_no_descendants() {
         let q = queue_with(&["a", "b"], 1500);
-        assert_eq!(evaluate(&q, &input()), GateDecision::Send { entry: lid("q0") });
+        assert_eq!(evaluate(&q, &input()), GateDecision::Send { entry: lid("q0"), unconfirmed_descendants: 0 });
     }
 
     #[test]
@@ -628,7 +638,7 @@ mod tests {
         assert_eq!(evaluate(&q, &i), GateDecision::Hold(QueueHold::OperationUnconfirmed { op: lid("op-1") }));
         // 解決（照合）後は送れる。
         i.unresolved_op = None;
-        assert_eq!(evaluate(&q, &i), GateDecision::Send { entry: lid("q0") });
+        assert_eq!(evaluate(&q, &i), GateDecision::Send { entry: lid("q0"), unconfirmed_descendants: 0 });
     }
 
     #[test]
@@ -656,10 +666,55 @@ mod tests {
         assert!(matches!(evaluate(&q, &i), GateDecision::Hold(QueueHold::DescendantsActive { .. })));
     }
 
+    /// 親は live・状態は完了だが、完了の終端を確認できていない入力。
+    fn input_root_unconfirmed() -> GateInput {
+        let mut i = input();
+        i.root = Some(fact("root", AgentState::Done, Freshness::Live));
+        i
+    }
+
+    #[test]
+    fn completed_live_parent_sends_despite_unknown_descendants_and_reports_the_count() {
+        let q = queue_with(&["a"], 1500);
+        let mut i = input();
+        i.descendants = vec![fact("c1", AgentState::Unknown, Freshness::Live), fact("c2", AgentState::Unknown, Freshness::HistoryOnly), fact("c3", AgentState::Idle, Freshness::Live)];
+        assert_eq!(evaluate(&q, &i), GateDecision::Send { entry: lid("q0"), unconfirmed_descendants: 2 });
+        // 作業中の子孫・走査未完了は従来どおり保留する。
+        let mut w = i.clone();
+        w.descendants.push(fact("c4", AgentState::Running, Freshness::Live));
+        assert!(matches!(evaluate(&q, &w), GateDecision::Hold(QueueHold::DescendantsActive { .. })));
+        let mut s = i.clone();
+        s.descendant_scan_complete = false;
+        assert!(matches!(evaluate(&q, &s), GateDecision::Hold(QueueHold::StateUnknown { descendant_scan_incomplete: true, .. })));
+        // 親が live でない（履歴のみ）なら緩めない。
+        let mut n = i.clone();
+        n.root = Some(ended(fact("root", AgentState::Done, Freshness::HistoryOnly), TurnEnd::Completed, 2000));
+        assert!(matches!(evaluate(&q, &n), GateDecision::Hold(QueueHold::StateUnknown { .. })));
+    }
+
+    #[test]
+    fn running_or_unknown_parent_with_unknown_descendants_still_holds() {
+        let q = queue_with(&["a"], 1500);
+        let mut i = input();
+        i.descendants = vec![fact("c1", AgentState::Unknown, Freshness::Live)];
+        i.root = Some(fact("root", AgentState::Running, Freshness::Live));
+        assert_eq!(evaluate(&q, &i), GateDecision::Hold(QueueHold::ParentWorking));
+        i.root = Some(fact("root", AgentState::Unknown, Freshness::Live));
+        assert!(matches!(evaluate(&q, &i), GateDecision::Hold(QueueHold::StateUnknown { .. })));
+        // 完了の終端を確認できていない親も緩めない。
+        i.root = Some(fact("root", AgentState::Done, Freshness::Live));
+        assert!(matches!(evaluate(&q, &i), GateDecision::Hold(QueueHold::StateUnknown { .. })));
+        // 受理不明は親が完了でも保留。
+        let mut a = input();
+        a.descendants = vec![fact("c1", AgentState::Unknown, Freshness::Live)];
+        a.unresolved_attempt = Some(lid("at1"));
+        assert_eq!(evaluate(&q, &a), GateDecision::Hold(QueueHold::AcceptanceUnknown { attempt: lid("at1") }));
+    }
+
     #[test]
     fn unknown_descendant_holds_as_state_unknown() {
         let q = queue_with(&["a"], 1500);
-        let mut i = input();
+        let mut i = input_root_unconfirmed();
         i.descendants = vec![fact("c1", AgentState::Unknown, Freshness::Live)];
         match evaluate(&q, &i) {
             GateDecision::Hold(QueueHold::StateUnknown { targets, descendant_scan_incomplete }) => {
@@ -681,7 +736,7 @@ mod tests {
     #[test]
     fn history_only_child_is_ok_only_with_explicit_terminal_confirmed_after_baseline() {
         let q = queue_with(&["a"], 1500);
-        let mut i = input();
+        let mut i = input_root_unconfirmed();
         // 履歴取得済み・終端の明示なし → 鮮度不足で保留。
         i.descendants = vec![fact("c1", AgentState::Idle, Freshness::HistoryOnly)];
         match evaluate(&q, &i) {
@@ -693,7 +748,7 @@ mod tests {
         done.terminal_explicit = true;
         done.observed_at = UnixMillis(2500);
         i.descendants = vec![done.clone()];
-        assert_eq!(evaluate(&q, &i), GateDecision::Send { entry: lid("q0") });
+        assert_eq!(evaluate(&q, &i), GateDecision::Send { entry: lid("q0"), unconfirmed_descendants: 0 });
         // 確認がbaselineより前（古い確認）なら信用しない。
         done.observed_at = UnixMillis(1400);
         i.descendants = vec![done];
@@ -709,7 +764,7 @@ mod tests {
         i.descendant_scan_complete = false;
         assert!(matches!(evaluate(&q, &i), GateDecision::Hold(QueueHold::StateUnknown { .. })));
         i.user_confirmed_unknown = true;
-        assert_eq!(evaluate(&q, &i), GateDecision::Send { entry: lid("q0") });
+        assert_eq!(evaluate(&q, &i), GateDecision::Send { entry: lid("q0"), unconfirmed_descendants: 1 });
         // 作業中の子孫・親の条件は緩めない。
         let mut w = i.clone();
         w.descendants.push(fact("c3", AgentState::Running, Freshness::Live));
@@ -742,7 +797,7 @@ mod tests {
         let mut i = input();
         // baseline前（1000）の失敗は無視して送れる。
         i.descendants = vec![ended(fact("c1", AgentState::Failed, Freshness::Live), TurnEnd::Failed, 1000)];
-        assert_eq!(evaluate(&q, &i), GateDecision::Send { entry: lid("q0") });
+        assert_eq!(evaluate(&q, &i), GateDecision::Send { entry: lid("q0"), unconfirmed_descendants: 0 });
         // baseline以降の子の失敗・中断は止める。
         i.descendants = vec![ended(fact("c1", AgentState::Failed, Freshness::Live), TurnEnd::Failed, 1600)];
         assert_eq!(evaluate(&q, &i), GateDecision::Stop(QueueStopCause::DescendantFailed { agent: ak("c1") }));
@@ -790,7 +845,7 @@ mod tests {
         assert_eq!(evaluate(&q, &i), GateDecision::Paused);
         resume(&mut q, UnixMillis(1800)).unwrap();
         // 失敗した依頼そのものは再実行せず、残りの先頭を送る。
-        assert_eq!(evaluate(&q, &i), GateDecision::Send { entry: lid("q0") });
+        assert_eq!(evaluate(&q, &i), GateDecision::Send { entry: lid("q0"), unconfirmed_descendants: 0 });
         // 再開後の新しい失敗では、また止まる。
         i.root = Some(ended(fact("root", AgentState::Failed, Freshness::Live), TurnEnd::Failed, 1900));
         assert!(matches!(evaluate(&q, &i), GateDecision::Stop(_)));
@@ -828,7 +883,7 @@ mod tests {
         assert_eq!(evaluate(&q, &input()), GateDecision::Nothing);
         // ユーザーが取り消せば、次の項目へ進む。
         cancel(&mut q, &lid("q0")).unwrap();
-        assert_eq!(evaluate(&q, &input()), GateDecision::Send { entry: lid("q1") });
+        assert_eq!(evaluate(&q, &input()), GateDecision::Send { entry: lid("q1"), unconfirmed_descendants: 0 });
     }
 
     #[test]
@@ -842,7 +897,7 @@ mod tests {
         assert_eq!(evaluate(&q, &input()), GateDecision::Hold(QueueHold::ParentWorking));
         assert!(!turn_ended(&mut q, &tk("root", "other"), TurnEnd::Completed, UnixMillis(3500)));
         assert!(turn_ended(&mut q, &tk("root", "t2"), TurnEnd::Completed, UnixMillis(3500)));
-        assert_eq!(evaluate(&q, &input()), GateDecision::Send { entry: lid("q1") });
+        assert_eq!(evaluate(&q, &input()), GateDecision::Send { entry: lid("q1"), unconfirmed_descendants: 0 });
     }
 
     #[test]
@@ -855,7 +910,7 @@ mod tests {
         resume(&mut q, UnixMillis(3600)).unwrap();
         assert!(q.awaiting.is_none());
         assert_eq!(q.entries[0].state, QueueEntryState::Sent { turn: tk("root", "t2") }, "the failed request itself is not rerun");
-        assert_eq!(evaluate(&q, &input()), GateDecision::Send { entry: lid("q1") });
+        assert_eq!(evaluate(&q, &input()), GateDecision::Send { entry: lid("q1"), unconfirmed_descendants: 0 });
     }
 
     #[test]
@@ -1009,7 +1064,7 @@ mod tests {
         i.manual_turn_pending = true;
         assert_eq!(evaluate(&q, &i), GateDecision::Hold(QueueHold::ParentWorking));
         i.manual_turn_pending = false;
-        assert_eq!(evaluate(&q, &i), GateDecision::Send { entry: lid("q0") });
+        assert_eq!(evaluate(&q, &i), GateDecision::Send { entry: lid("q0"), unconfirmed_descendants: 0 });
     }
 
     #[test]

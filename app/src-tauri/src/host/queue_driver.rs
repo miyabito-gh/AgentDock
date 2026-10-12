@@ -357,7 +357,7 @@ impl Host {
         };
         let decision = self.read(|d| d.queues.get(chat).map(|f| q::evaluate(&f.queue, &gate_input(d, chat, &terminals, scan_complete, unresolved, ctx, false))));
         match decision {
-            Some(q::GateDecision::Send { entry }) => self.send_queue_entry(chat, entry).await,
+            Some(q::GateDecision::Send { entry, unconfirmed_descendants }) => self.send_queue_entry(chat, entry, unconfirmed_descendants).await,
             Some(q::GateDecision::Hold(h)) => self.set_hold(chat, Some(h)),
             Some(q::GateDecision::Stop(cause)) => {
                 self.mutate(|d| {
@@ -576,8 +576,8 @@ impl Host {
         let decision = self.read(|d| d.queues.get(&chat).map(|f| q::evaluate(&f.queue, &gate_input(d, &chat, &terminals, scan_complete, unresolved, ctx, true))));
         match decision {
             None => Err(err(IpcErrorCode::NotFound, "送信待ちがありません")),
-            Some(q::GateDecision::Send { entry }) if entry == args.entry => {
-                self.send_queue_entry(&chat, entry).await;
+            Some(q::GateDecision::Send { entry, unconfirmed_descendants }) if entry == args.entry => {
+                self.send_queue_entry(&chat, entry, unconfirmed_descendants).await;
                 self.read(|d| d.queues.get(&chat).map(|f| f.queue.clone())).ok_or_else(|| err(IpcErrorCode::NotFound, "送信待ちがありません"))
             }
             Some(q::GateDecision::Send { .. }) => Err(err(IpcErrorCode::InvalidArgs, "先頭の送信待ちの依頼ではないため、今すぐ送れません")),
@@ -617,7 +617,7 @@ impl Host {
     }
 
     /// 項目を Sending にして、送信時点の設定を記録する。送れない状態の項目なら None。
-    fn begin_entry_send(&self, chat: &ChatKey, entry: &LocalId, attempt: SendAttempt) -> Option<Plan> {
+    fn begin_entry_send(&self, chat: &ChatKey, entry: &LocalId, attempt: SendAttempt, unconfirmed: u32) -> Option<Plan> {
         let now = attempt.at;
         self.mutate(|d| {
             let (model, permission, cwd_override, work_mode) = {
@@ -636,7 +636,7 @@ impl Host {
                 Some(c) => Known::direct(c.clone()),
                 None => d.chat(chat).map(|c| c.cwd.clone()).unwrap_or(Known::NotFetched),
             };
-            let applied = AppliedSettings { model: model.clone(), permission: permission.unwrap_or(PermissionPreset::WorkspaceWriteOnRequest), cwd: cwd_known, decided_at: now, work_mode };
+            let applied = AppliedSettings { model: model.clone(), permission: permission.unwrap_or(PermissionPreset::WorkspaceWriteOnRequest), cwd: cwd_known, decided_at: now, work_mode, unconfirmed_descendants: (unconfirmed > 0).then_some(unconfirmed) };
             let Some(f) = d.queues.get_mut(chat) else { return (None, vec![]) };
             let Some((text, attachments)) = f.queue.entries.iter().find(|e| &e.id == entry).map(|e| (e.text.clone(), e.attachments.clone())) else { return (None, vec![]) };
             if !q::begin_send(&mut f.queue, entry, attempt, applied) {
@@ -647,9 +647,13 @@ impl Host {
     }
 
     /// 自動送信（評価が `Send` を返した先頭の項目）。
-    async fn send_queue_entry(self: &Arc<Self>, chat: &ChatKey, entry: LocalId) {
+    async fn send_queue_entry(self: &Arc<Self>, chat: &ChatKey, entry: LocalId, unconfirmed: u32) {
         let attempt = SendAttempt { attempt_id: self.local_id("att"), client_message_id: self.local_id("cm").0, at: now_ms(), state: SendState::Sending };
-        let Some(plan) = self.begin_entry_send(chat, &entry, attempt.clone()) else { return };
+        let Some(plan) = self.begin_entry_send(chat, &entry, attempt.clone(), unconfirmed) else { return };
+        if unconfirmed > 0 {
+            // 子孫の状態は不明のまま（完了・失敗にしない）。親の完了を確認済みのため送る旨を送信ログに残す。
+            self.warn(format!("子{unconfirmed}件の状態は未確認のまま送ります（親の完了は確認済み）"));
+        }
         let attachments = match self.prepare_attachments(chat, &plan.attachments).await {
             Ok(a) => a,
             Err(e) => {
@@ -692,7 +696,7 @@ impl Host {
                 _ => None,
             })
         });
-        let Some(plan) = self.begin_entry_send(chat, &entry, attempt.clone()) else {
+        let Some(plan) = self.begin_entry_send(chat, &entry, attempt.clone(), 0) else {
             return Err(err(IpcErrorCode::NotFound, "再送できる依頼がありません"));
         };
         // 送信時点で有効な設定を使う。
@@ -1391,12 +1395,14 @@ mod history_gate_tests {
         let mut terms = HashMap::new();
         // 履歴の最新turnに終端あり。子の最新turn（走査では未取得）が無くても確認済みとして扱う。
         terms.insert(ak("luna"), fact_of(Some("c1"), Some(TurnEnd::Completed)));
-        assert_eq!(decide(&d, &terms, false), q::GateDecision::Send { entry: LocalId("e1".into()) });
+        assert_eq!(decide(&d, &terms, false), q::GateDecision::Send { entry: LocalId("e1".into()), unconfirmed_descendants: 0 });
     }
 
     #[test]
     fn not_loaded_child_without_a_history_terminal_stays_on_hold() {
-        let d = data();
+        let mut d = data();
+        // 親の終端が確認できていない間は、状態不明の子で保留する（親が完了なら止めない: 別のテスト）。
+        d.last_end.clear();
         let mut terms = HashMap::new();
         // 履歴に終端がない（途中で止まっている）・読めなかった・未確認は、いずれも保留。
         terms.insert(ak("luna"), fact_of(Some("c1"), None));
@@ -1408,14 +1414,23 @@ mod history_gate_tests {
     }
 
     #[test]
+    fn completed_live_parent_sends_with_an_unknown_child_and_counts_it() {
+        let d = data();
+        let terms = HashMap::new();
+        // 親は live で完了を確認済み。状態不明の子は止めず、件数を注記用に返す（子は不明のまま）。
+        assert_eq!(decide(&d, &terms, false), q::GateDecision::Send { entry: LocalId("e1".into()), unconfirmed_descendants: 1 });
+    }
+
+    #[test]
     fn history_terminal_of_an_older_turn_is_not_used_once_the_child_has_a_newer_turn() {
         let mut d = data();
+        d.last_end.clear();
         d.agents[1].agent.latest_turn = Some(ExternalId("c2".into()));
         let mut terms = HashMap::new();
         terms.insert(ak("luna"), fact_of(Some("c1"), Some(TurnEnd::Completed)));
         assert!(matches!(decide(&d, &terms, false), q::GateDecision::Hold(_)));
         terms.insert(ak("luna"), fact_of(Some("c2"), Some(TurnEnd::Completed)));
-        assert_eq!(decide(&d, &terms, false), q::GateDecision::Send { entry: LocalId("e1".into()) });
+        assert_eq!(decide(&d, &terms, false), q::GateDecision::Send { entry: LocalId("e1".into()), unconfirmed_descendants: 0 });
     }
 
     #[test]
@@ -1431,10 +1446,11 @@ mod history_gate_tests {
     #[test]
     fn send_now_confirmation_covers_one_evaluation_and_the_next_entry_returns_to_normal() {
         let mut d = data();
+        d.last_end.clear();
         let terms = HashMap::new();
-        // 終端を確認できない状態不明の子。通常は保留、ユーザー確認つきの評価だけ送れる。
+        // 親の終端が未確認で、終端を確認できない状態不明の子。通常は保留、ユーザー確認つきの評価だけ送れる。
         assert!(matches!(decide(&d, &terms, false), q::GateDecision::Hold(QueueHold::StateUnknown { .. })));
-        assert_eq!(decide(&d, &terms, true), q::GateDecision::Send { entry: LocalId("e1".into()) });
+        assert_eq!(decide(&d, &terms, true), q::GateDecision::Send { entry: LocalId("e1".into()), unconfirmed_descendants: 1 });
         // 1件目を送った後（送信済み・次の依頼が先頭）。指定は持ち越されず、通常の判定は保留のまま。
         {
             let f = d.queues.get_mut(&ck()).unwrap();

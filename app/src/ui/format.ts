@@ -49,13 +49,16 @@ export const targetList = (ts: HoldTarget[], nameOf: (a: AgentKey) => string): s
   ts.map((t) => `${nameOf(t.agent)}（${STATE[t.state].t}／${FRESH[t.freshness].t}）`).join("、");
 
 /** 自動送信を待っている理由。対象があるものは対象も示す（§3.7）。 */
-export function holdText(h: QueueHold, nameOf: (a: AgentKey) => string): string {
+export function holdText(h: QueueHold, nameOf: (a: AgentKey) => string, rootId?: string): string {
   switch (h.kind) {
     case "parentWorking": return "親が作業中のため、完了を待っています";
     case "descendantsActive": return `子・孫が作業中・待機中のため保留: ${targetList(h.targets, nameOf)}`;
     case "stateUnknown": {
-      const parts = [h.targets.length ? targetList(h.targets, nameOf) : "", h.descendantScanIncomplete ? "子孫の探索が完了していません" : ""].filter(Boolean);
-      return `状態を確認できないため保留${parts.length ? `: ${parts.join("／")}` : ""}`;
+      // 詳細（名前・状態・鮮度）はツールチップ側に出す。ここは短く言い切る。
+      const kids = h.targets.filter((t) => t.agent.id !== rootId).length;
+      if (h.descendantScanIncomplete) return "子孫の探索が終わるまで、送らずに待っています";
+      if (kids > 0 && kids === h.targets.length) return `子${kids}件の状態が不明のため、送らずに待っています`;
+      return "親の状態を確認できないため、送らずに待っています";
     }
     case "notLive": return `受信（ライブ監視）が戻っていないため保留: ${targetList(h.targets, nameOf)}`;
     case "stopUnconfirmed": return "停止を確認できていないため保留";
@@ -67,6 +70,9 @@ export function holdText(h: QueueHold, nameOf: (a: AgentKey) => string): string 
     case "saveFailed": return "送信前の保存に失敗したため、送っていません。保存を再試行して成功してから送ります";
   }
 }
+
+/** 状態不明の子孫を残したまま送るときの注記（親の完了を確認済み）。 */
+export const unconfirmedNote = (n: number): string => `子${n}件の状態は未確認のまま送ります`;
 
 /** キューを止めた原因。 */
 export function stopCauseText(c: QueueStopCause, nameOf: (a: AgentKey) => string): string {
