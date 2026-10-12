@@ -275,6 +275,7 @@ label{display:inline-flex;align-items:center;gap:6px}
 .req .t{margin:6px 0;font-size:var(--fs-s)}
 .req code{display:block;background:var(--surface);border:1px solid var(--wait-line);border-radius:var(--r1);padding:6px 8px;font:var(--fs-s)/1.5 var(--mono);overflow-wrap:anywhere}
 .req .opts{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.req .req-na{margin-top:8px;padding:6px 8px;border:1px dashed var(--line-strong);border-radius:var(--r1);color:var(--ink2);font-size:var(--fs-s)}
 .req .scope{font-size:var(--fs-s);color:var(--wait-ink);margin-top:6px}
 
 /* composer */

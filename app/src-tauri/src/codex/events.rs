@@ -313,6 +313,7 @@ fn base_detail(summary: &str) -> RequestDetail {
         files: Known::Unsupported,
         extra_permissions: Known::Unsupported,
         url: Known::Unsupported,
+        server: Known::Unsupported,
         questions: Vec::new(),
     }
 }
@@ -355,14 +356,59 @@ fn permissions_options() -> Vec<DecisionOption> {
     ]
 }
 
+/// formモード系の `requestedSchema` が「入力項目なし・必須項目なし」の許可確認型か。
+/// 判定できない形（型が明示されない・未知のキーがある等）は false（承諾を出さない側へ倒す）。
+pub fn elicitation_schema_is_empty(params: &Value) -> bool {
+    if !matches!(s(params, "mode"), Some("form" | "openai/form" | "openaiForm")) {
+        return false;
+    }
+    let Some(o) = params.get("requestedSchema").and_then(Value::as_object) else { return false };
+    if o.get("type").and_then(Value::as_str) != Some("object") {
+        return false;
+    }
+    if !o.keys().all(|k| matches!(k.as_str(), "type" | "properties" | "required" | "$schema" | "title" | "description" | "additionalProperties")) {
+        return false;
+    }
+    let no_props = match o.get("properties") {
+        None => true,
+        Some(p) => p.as_object().is_some_and(|m| m.is_empty()),
+    };
+    let no_required = match o.get("required") {
+        None => true,
+        Some(r) => r.as_array().is_some_and(|a| a.is_empty()),
+    };
+    no_props && no_required
+}
+
+/// 診断ログ用の要約（modeとスキーマの構造だけ。メッセージ・URL・項目名・値は含めない）。
+pub fn elicitation_shape(params: &Value) -> String {
+    let mode = s(params, "mode").unwrap_or("?");
+    let schema = params.get("requestedSchema");
+    let Some(o) = schema.and_then(Value::as_object) else {
+        return format!("mode={mode} schema={}", if schema.is_some() { "non-object" } else { "none" });
+    };
+    let props = o.get("properties").and_then(Value::as_object);
+    let types: Vec<&str> = props.map(|m| m.values().map(|v| v.get("type").and_then(Value::as_str).unwrap_or("?")).collect()).unwrap_or_default();
+    let required = o.get("required").and_then(Value::as_array).map_or(0, Vec::len);
+    format!(
+        "mode={mode} schemaType={} properties={} required={required} propTypes=[{}] keys=[{}] empty={}",
+        o.get("type").and_then(Value::as_str).unwrap_or("?"),
+        props.map_or(0, |m| m.len()),
+        types.join(","),
+        o.keys().cloned().collect::<Vec<_>>().join(","),
+        elicitation_schema_is_empty(params)
+    )
+}
+
 fn elicitation_options(params: &Value) -> Vec<DecisionOption> {
     let mut v = Vec::new();
-    // formモードは入力内容の組立てが未対応のため、acceptを提示しない（空の内容で承諾しない）。
-    if s(params, "mode") == Some("url") {
-        v.push(opt("accept", "承諾", DecisionEffect::Allow, DecisionScope::Once, None));
+    // 承諾は「入力項目なしの許可確認型」だけ（ユーザーが押したときだけ空contentで返す）。
+    // 入力項目のあるform・url・形が判定できないものは出さない（内容の組立て・URLを開くことが未対応）。
+    if elicitation_schema_is_empty(params) {
+        v.push(opt("accept", "許可する", DecisionEffect::Allow, DecisionScope::Once, None));
     }
-    v.push(opt("decline", "辞退", DecisionEffect::Deny, DecisionScope::Once, None));
-    v.push(opt("cancel", "キャンセル", DecisionEffect::Cancel, DecisionScope::Once, None));
+    v.push(opt("decline", "今回は許可しない", DecisionEffect::Deny, DecisionScope::Once, Some("明示的に拒否します")));
+    v.push(opt("cancel", "取りやめる", DecisionEffect::Cancel, DecisionScope::Once, Some("許可も拒否もせず取りやめます")));
     v
 }
 
@@ -443,12 +489,10 @@ pub fn server_request_to_event(key: &RequestKey, method: &str, p: &Value, ctx: &
         "mcpServer/elicitation/request" => {
             let server = s(p, "serverName").unwrap_or("?");
             let mut d = base_detail(s(p, "message").unwrap_or("MCPサーバーからの入力要求"));
-            d.reason = Known::direct(format!("MCPサーバー: {server}"));
-            d.cwd = Known::NotFetched; // この要求には作業フォルダが含まれない（「非対応」ではなく「未確認」）
+            d.server = Known::direct(server.to_string());
+            d.cwd = Known::Unsupported; // この要求には作業フォルダがない（画面では出さない）
             if s(p, "mode") == Some("url") {
                 d.url = known_opt_str(s(p, "url"));
-            } else {
-                d.reason = Known::direct(format!("MCPサーバー: {server}（入力フォームは未対応。辞退またはキャンセルのみ可能）"));
             }
             (RequestKind::ToolElicitation, elicitation_options(p), d)
         }
@@ -567,7 +611,9 @@ pub fn build_response(stored: &StoredRequest, answer: &RequestAnswer) -> Result<
             if !elicitation_options(p).iter().any(|o| &o.id == option_id) {
                 return Err(protocol(format!("option {option_id} was not offered")));
             }
-            Ok(json!({"action": option_id, "content": Value::Null, "_meta": Value::Null}))
+            // 承諾は入力項目なしの型だけ（選択肢に出るのもその場合のみ）。空のcontentで返す。
+            let content = if option_id == "accept" { json!({}) } else { Value::Null };
+            Ok(json!({"action": option_id, "content": content, "_meta": Value::Null}))
         }
         ("item/tool/requestUserInput", RequestAnswer::Answers { answers }) => {
             let qs = questions(p);
@@ -799,18 +845,43 @@ mod tests {
     }
 
     #[test]
-    fn elicitation_form_offers_no_accept() {
-        let c = req("mcpServer/elicitation/request", json!({"threadId": "a", "turnId": null, "serverName": "srv", "mode": "form", "message": "need", "requestedSchema": {}}));
-        let BackendEvent::RequestOpened { request } = &c.event else { panic!() };
-        assert!(request.options.iter().all(|o| o.id != "accept"));
-        assert!(request.turn.is_none());
-        let st = c.stored.unwrap();
-        assert!(build_response(&st, &RequestAnswer::Decision { option_id: "accept".into() }).is_err());
-        assert_eq!(build_response(&st, &RequestAnswer::Decision { option_id: "decline".into() }).unwrap()["action"], "decline");
+    fn elicitation_accept_only_for_empty_schema() {
+        // 入力項目あり・必須あり・型不明・未知キー・url型は承諾を出さない
+        for schema in [
+            json!({}),
+            json!({"type": "object", "properties": {"a": {"type": "string"}}}),
+            json!({"type": "object", "properties": {}, "required": ["a"]}),
+            json!({"type": "object", "properties": {}, "oneOf": []}),
+        ] {
+            let c = req("mcpServer/elicitation/request", json!({"threadId": "a", "turnId": null, "serverName": "srv", "mode": "form", "message": "need", "requestedSchema": schema}));
+            let BackendEvent::RequestOpened { request } = &c.event else { panic!() };
+            assert!(request.options.iter().all(|o| o.id != "accept"));
+            assert!(request.turn.is_none());
+            let st = c.stored.unwrap();
+            assert!(build_response(&st, &RequestAnswer::Decision { option_id: "accept".into() }).is_err());
+            assert_eq!(build_response(&st, &RequestAnswer::Decision { option_id: "decline".into() }).unwrap()["action"], "decline");
+        }
         let c = req("mcpServer/elicitation/request", json!({"threadId": "a", "serverName": "srv", "mode": "url", "message": "m", "url": "http://x", "elicitationId": "e"}));
         let BackendEvent::RequestOpened { request } = &c.event else { panic!() };
-        assert!(request.options.iter().any(|o| o.id == "accept"));
+        assert!(request.options.iter().all(|o| o.id != "accept"));
         assert_eq!(request.detail.url.value().map(String::as_str), Some("http://x"));
+        // 入力項目なしの許可確認型（openai系のmodeも同様）は承諾を出し、押されたときだけ空contentで返す
+        for mode in ["form", "openai/form", "openaiForm"] {
+            let c = req("mcpServer/elicitation/request", json!({"threadId": "a", "serverName": "srv", "mode": mode, "message": "ok?", "requestedSchema": {"type": "object", "properties": {}}}));
+            let BackendEvent::RequestOpened { request } = &c.event else { panic!() };
+            assert!(request.options.iter().any(|o| o.id == "accept"));
+            let r = build_response(&c.stored.unwrap(), &RequestAnswer::Decision { option_id: "accept".into() }).unwrap();
+            assert_eq!(r["action"], "accept");
+            assert_eq!(r["content"], json!({}));
+        }
+    }
+
+    #[test]
+    fn elicitation_shape_has_no_values() {
+        let p = json!({"mode": "form", "message": "secret msg", "requestedSchema": {"type": "object", "properties": {"token": {"type": "string"}}, "required": ["token"]}});
+        let t = super::elicitation_shape(&p);
+        assert!(t.contains("properties=1") && t.contains("required=1") && t.contains("propTypes=[string]"));
+        assert!(!t.contains("secret") && !t.contains("token"));
     }
 
     #[test]

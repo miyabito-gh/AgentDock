@@ -9,4 +9,8 @@ export type RequestDetail = { summary: string, reason: Known<string>, command: K
 /**
  * 追加権限の説明（原文要約）。
  */
-extraPermissions: Known<string>, url: Known<string>, questions: Array<Question>, };
+extraPermissions: Known<string>, url: Known<string>, 
+/**
+ * 要求元のMCPサーバー名（elicitationのみ）。
+ */
+server: Known<string>, questions: Array<Question>, };

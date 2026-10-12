@@ -394,6 +394,9 @@ async fn pump(shared: Arc<Shared>, source: SourceId, mut rx: mpsc::Receiver<RpcE
                 let chat_of = |a: &AgentKey| shared.chat_of(a);
                 let ctx = EventCtx { source: &source, now: now_ms(), chat_of: &chat_of };
                 let conv = server_request_to_event(&key, &method, &params, &ctx);
+                if method == "mcpServer/elicitation/request" {
+                    crate::diag::log("elicitation-request", &super::events::elicitation_shape(&params));
+                }
                 if let BackendEvent::RequestOpened { request } = &conv.event {
                     if matches!(request.kind, RequestKind::Other { .. }) {
                         crate::diag::log("unsupported-server-request", &format!("{method} {}", crate::diag::shape(&params)));

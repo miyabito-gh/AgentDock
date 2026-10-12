@@ -212,14 +212,14 @@ export function makeBundle(name: string): Bundle {
     const unk = <X,>(): Known<X> => ({ kind: "notFetched" });
     const r1: PendingRequest = {
       key: T("r1"), chat: ck("a"), agent: ak("a3"), turn: "t1", item: null, kind: { kind: "commandApproval" },
-      detail: { summary: "コマンドの実行を許可しますか", reason: unk(), command: val("cargo test reconnect -- --nocapture"), cwd: val("C:\\Users\\wmasa\\Documents\\Rust\\Sample"), files: unk(), extraPermissions: unk(), url: unk(), questions: [] },
+      detail: { summary: "コマンドの実行を許可しますか", reason: unk(), command: val("cargo test reconnect -- --nocapture"), cwd: val("C:\\Users\\wmasa\\Documents\\Rust\\Sample"), files: unk(), extraPermissions: unk(), url: unk(), server: unk(), questions: [] },
       options: [nonDeny("o1", "1回だけ許可", "allow", "once"), nonDeny("o2", "このセッション中は許可", "allow", "session"), nonDeny("o3", "拒否", "deny", "once")],
       state: { kind: "pending" }, receivedAt: ago(30),
     };
     const qopts = ["メジャー更新して修正も行う", "マイナー更新だけにする", "今回は見送る"].map((l, i) => nonDeny(`q${i}`, l, "allow", "unknown"));
     const r2: PendingRequest = {
       key: T("r2"), chat: ck("c"), agent: ak("c0"), turn: "t1", item: null, kind: { kind: "userInput" },
-      detail: { summary: "質問に回答してください", reason: unk(), command: unk(), cwd: unk(), files: unk(), extraPermissions: unk(), url: unk(),
+      detail: { summary: "質問に回答してください", reason: unk(), command: unk(), cwd: unk(), files: unk(), extraPermissions: unk(), url: unk(), server: unk(),
         questions: [{ id: "qq", header: null, text: "tokio をメジャー更新すると API 変更が必要です。どうしますか？", options: qopts, allowsFreeText: false, secret: false }] },
       options: qopts, state: { kind: "pending" }, receivedAt: ago(20),
     };

@@ -1023,6 +1023,8 @@ pub struct RequestDetail {
     /// 追加権限の説明（原文要約）。
     pub extra_permissions: Known<String>,
     pub url: Known<String>,
+    /// 要求元のMCPサーバー名（elicitationのみ）。
+    pub server: Known<String>,
     pub questions: Vec<Question>,
 }
 
