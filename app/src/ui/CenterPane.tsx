@@ -267,7 +267,7 @@ function targetName(snap: HostSnapshot, c: Chat, t: StopRecord["targets"][number
   const ref = t.target;
   if (ref.kind === "turn") {
     const v = chatAgents(snap, c).find((x) => keyStr(x.agent.key) === keyStr(ref.turn.agent));
-    return v ? showKnown(v.agent.displayName) : ref.turn.agent.id;
+    return v ? showKnown(v.agent.displayName) : "エージェント";
   }
   if (ref.kind === "managedExec") return `${showKnown(chatAgents(snap, c).find((x) => keyStr(x.agent.key) === keyStr(ref.agent))?.agent.displayName ?? { kind: "notFetched" })} の管理実行（${ref.execId}）`;
   return `OSプロセス PID ${ref.pid}`;
@@ -666,7 +666,7 @@ function ElicitationCard({ r, onRespond, agentName }: { r: PendingRequest; onRes
   const d = r.detail;
   const server = d.server.kind === "value" ? d.server.value : null;
   const canAccept = r.options.some((o) => o.id === "accept");
-  const who = agentName ? agentName(r.agent) : r.agent.id;
+  const who = agentName ? agentName(r.agent) : "エージェント";
   return (
     <div className="req" role="group" aria-label="MCPの許可確認">
       <div className="h"><Icon name="alert" />{server ? `MCPサーバー「${server}」からの許可の確認です` : "MCPサーバーからの許可の確認です"}</div>
@@ -696,7 +696,7 @@ export function RequestCard({ r, onRespond, agentName }: { r: PendingRequest; on
   return (
     <div className="req" role="group" aria-label={isQuestion ? "質問" : "承認要求"}>
       <div className="h"><Icon name={isQuestion ? "chat" : "alert"} />{d.summary}</div>
-      <div className="t">要求元: {r.agent.id}　作業フォルダ: <span className="mono">{showKnown(d.cwd)}</span></div>
+      <div className="t">要求元: <span title={`ID: ${r.agent.id}`}>{agentName ? agentName(r.agent) : "エージェント"}</span>　作業フォルダ: <span className="mono">{showKnown(d.cwd)}</span></div>
       {d.command.kind === "value" ? <code>{d.command.value}</code> : null}
       {d.files.kind === "value" ? <code>{d.files.value.join("\n")}</code> : null}
       {isQuestion ? d.questions.map((q) => (

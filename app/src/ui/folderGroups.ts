@@ -130,7 +130,7 @@ export function collapseAll(current: string[], shownKeys: string[]): string[] {
 }
 
 /** 窓表示・描画用の平らな並び。見出しと行を交互に並べる（折りたたみ中の見出しは行を持たない）。 */
-export type FlatItem = { type: "group"; group: FolderGroup } | { type: "chat"; chat: Chat; group: FolderGroup };
+export type FlatItem = { type: "group"; group: FolderGroup } | { type: "chat"; chat: Chat; /** グループ表示でない一覧（アーカイブなど）では null。 */ group: FolderGroup | null };
 export function flattenGroups(groups: FolderGroup[], collapsed: (key: string) => boolean): FlatItem[] {
   const out: FlatItem[] = [];
   for (const g of groups) {

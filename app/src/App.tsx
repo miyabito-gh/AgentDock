@@ -946,7 +946,9 @@ export default function App() {
         if (src.cwd.kind !== "value" && src.kind === "development") throw new Error("元の作業フォルダを確認できないため、新しいチャットを作れません");
         const local = snap.chatLocals.find((l) => l.chat.id === src.key.id);
         const model = bundle.modelSettings[src.key.id]?.selected ?? local?.model ?? null;
-        const cwd = src.cwd.kind === "value" ? src.cwd.value : null;
+        // 元が一般チャットなら新しい一般チャット（cwd なし。管理領域のパスは使わない）。開発チャットは同じフォルダ。
+        // 強い確認の対象のフォルダ（ドライブ直下・ホーム直下など）はホストが止め、理由を出す（確認UIは足さない）。
+        const cwd = src.kind === "general" ? null : src.cwd.kind === "value" ? src.cwd.value : null;
         // AgentDock が作った worktree の場所なら、新しいチャットも同じ記録に結び付ける（削除確認に出るように）。
         const norm = (p: string) => p.replace(/\//g, "\\").replace(/\\+$/, "").toLowerCase();
         const wt = cwd ? snap.worktrees.find((w) => norm(w.path) === norm(cwd))?.id ?? null : null;

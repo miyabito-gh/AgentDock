@@ -176,11 +176,26 @@ impl Host {
 
     /// 同じ作業フォルダ・モデル・権限で新しい会話を作る（レビューの別チャット）。名前はレビューの開始後に付ける。
     async fn create_review_chat(self: &Arc<Self>, origin: &ChatKey, confirmed: &UserConfirmed) -> Result<ChatKey, IpcError> {
-        let (cwd, model, permission) = self.read(|d| {
-            (d.chat(origin).and_then(|c| c.cwd.value().cloned()), d.model_settings.get(origin).and_then(|s| s.selected.clone()), d.locals.get(origin).and_then(|l| l.permission))
+        let (cwd, model, permission, kind) = self.read(|d| {
+            (d.chat(origin).and_then(|c| c.cwd.value().cloned()), d.model_settings.get(origin).and_then(|s| s.selected.clone()), d.locals.get(origin).and_then(|l| l.permission), d.chat(origin).map(|c| c.kind))
         });
-        let Some(cwd) = cwd else { return Err(err(IpcErrorCode::InvalidArgs, "作業フォルダが分からないため、別チャットを作れません")) };
-        let started = self.start_chat(StartChatArgs { backend: origin.backend, cwd: Some(cwd), model, permission, first_message: None, worktree: None, extra_folders: Vec::new(), confirmed_strong: Vec::new() }, confirmed).await?;
+        // 元が一般チャットなら、新しい一般チャット（アプリ管理の作業領域を新しく割り当てる）。元の管理領域のパスは使わない。
+        // 開発チャットなら同じ作業フォルダのプライマリだけで作る（追加フォルダは引き継がない。仕様として許容）。
+        // 元のフォルダが強い確認の対象（ドライブ直下・ホーム直下など）なら、確認なしでは作らず止める（確認UIは足さない。外部作成の会話でも勝手に広げない）。
+        let cwd = if kind == Some(ChatKind::General) {
+            None
+        } else {
+            Some(cwd.ok_or_else(|| err(IpcErrorCode::InvalidArgs, "作業フォルダが分からないため、別チャットを作れません"))?)
+        };
+        let started = self
+            .start_chat(StartChatArgs { backend: origin.backend, cwd, model, permission, first_message: None, worktree: None, extra_folders: Vec::new(), confirmed_strong: Vec::new() }, confirmed)
+            .await
+            .map_err(|mut e| {
+                if e.code == IpcErrorCode::InvalidArgs {
+                    e.message = format!("元の作業フォルダでは新しいチャットを作れません: {}", e.message);
+                }
+                e
+            })?;
         let key = started.chat.key;
         self.update_local(&key, true, std::time::Duration::ZERO, |f| f.review_of = Some(origin.clone()));
         Ok(key)

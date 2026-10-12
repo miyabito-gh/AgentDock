@@ -4,11 +4,11 @@
 //       閉じた後・再起動後は「終了（再開不可）」の記録として読み取り専用で開く。
 import { useEffect, useState } from "react";
 import * as host from "../ipc/client";
-import type { HostSnapshot, OpCapability, PendingRequest, RequestAnswer, SideEntry, SideSessionMeta } from "../ipc/types";
+import type { AgentKey, HostSnapshot, OpCapability, PendingRequest, RequestAnswer, SideEntry, SideSessionMeta } from "../ipc/types";
 import { RequestCard } from "./CenterPane";
 import { Icon } from "./Icon";
 import { UnverifiedTag } from "./PrefsDialogs";
-import { STATE } from "./format";
+import { STATE, keyStr } from "./format";
 
 const errText = (e: unknown) => host.asIpcError(e).message;
 
@@ -34,6 +34,12 @@ export function SidePanel({ snap, side, live, cap, onClose, onRespond, onInsertM
   const [picked, setPicked] = useState<number[]>([]);
   const open = side.state.kind === "open";
   const view = snap.agents.find((a) => a.agent.key.id === side.thread.id);
+  // 要求元の表示名（取得済みの表示名。無ければ「sideのエージェント」。生のIDは出さない）。
+  const nameOf = (a: AgentKey): string => {
+    const v = snap.agents.find((x) => keyStr(x.agent.key) === keyStr(a));
+    const n = v?.agent.displayName.kind === "value" ? v.agent.displayName.value : "";
+    return n || "sideのエージェント";
+  };
   const reqs = snap.requests.filter((r) => r.chat.id === side.thread.id && r.state.kind === "pending");
   // 状態・活動・要求が変わったら取り直す（確定した発言の記録は、ホストが作る）。
   const stamp = `${side.state.kind}|${view?.status.state ?? ""}|${view?.status.turn ?? ""}|${view?.currentActivity?.key.itemId ?? ""}|${reqs.length}`;
@@ -103,7 +109,7 @@ export function SidePanel({ snap, side, live, cap, onClose, onRespond, onInsertM
             <div className="sp-text">{e.text}</div>
           </div>
         ))}
-        {reqs.map((r) => <RequestCard key={`${r.key.source}:${r.key.requestId}`} r={r} onRespond={onRespond} />)}
+        {reqs.map((r) => <RequestCard key={`${r.key.source}:${r.key.requestId}`} r={r} onRespond={onRespond} agentName={nameOf} />)}
       </div>
       {picked.length > 0 ? (
         <div className="sp-act"><button className="btn-line" onClick={() => void handoff()}>選んだ{picked.length}件を主会話の入力欄へ（送信しません）</button></div>

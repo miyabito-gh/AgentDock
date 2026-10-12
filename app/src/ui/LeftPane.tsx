@@ -81,7 +81,7 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct,
   const isCollapsed = (key: string) => q === "" && chatList.collapsedFolders.includes(key);
   const items: FlatItem[] = grouped
     ? flattenGroups(groups, isCollapsed)
-    : rest.map((c) => ({ type: "chat" as const, chat: c, group: null as unknown as FolderGroup }));
+    : rest.map((c) => ({ type: "chat" as const, chat: c, group: null }));
   const heights = items.map((it) => (it.type === "group" ? GROUP_HEADER_HEIGHT : rowH));
 
   // 200件を超えたら固定行高の窓表示（見える範囲＋少しだけ描く）。スクロール位置は一覧の先頭からの相対で持つ。見出し行は別の固定高さ。

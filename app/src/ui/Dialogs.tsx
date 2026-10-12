@@ -224,7 +224,7 @@ const nameOf = (chats: Chat[], k: ChatKey): string => {
 
 function targetText(t: StopRecord["targets"][number]): string {
   const r = t.target;
-  return r.kind === "turn" ? `エージェント ${r.turn.agent.id}` : r.kind === "managedExec" ? `管理実行 ${r.execId}` : `OSプロセス ${r.pid}`;
+  return r.kind === "turn" ? "エージェント" : r.kind === "managedExec" ? `管理実行 ${r.execId}` : `OSプロセス ${r.pid}`;
 }
 
 /** 完全終了の確認・進行。閉じる操作（トレイ格納）ではここを出さない。停止は証拠で確認し、時間経過だけでは確認にしない。 */
@@ -290,7 +290,7 @@ function QuitDialog({ q, chats, onClose, onAct }: { q: QuitProps; chats: Chat[];
               {recs.map((r) => (
                 <li key={r.id}><b>{nameOf(chats, r.chat)}</b>
                   {r.targets.filter((t) => !CONFIRMED_STOP.includes(t.summary) || t.ownership === "unknown").map((t, i) => (
-                    <span className="sub" key={i}>{targetText(t)}: {STOP_TEXT[t.summary]}</span>
+                    <span className="sub" key={i} title={t.target.kind === "turn" ? `ID: ${t.target.turn.agent.id}` : undefined}>{targetText(t)}: {STOP_TEXT[t.summary]}</span>
                   ))}
                 </li>
               ))}
@@ -434,12 +434,12 @@ export function Dialogs({ workspaceRoots, d, onClose, chats, source, models, ent
     const primary = cwd.trim();
     let strong = confirmedStrongPaths(extras);
     setNcErr(null);
-    if (dev && extras.length) {
+    if (dev) {
       const why = saveBlockReason([{ path: primary, strong: [], confirmed: false }, ...extras], workspaceRoots);
       if (why) { setNcErr(why); return; }
       setCreating(true);
       try {
-        // プライマリも、追加フォルダと並べた状態で検査する（強い確認・重複）。ホストも同じ検査をやり直す。
+        // プライマリも（追加フォルダなしでも）、並べた状態で検査する（強い確認・重複）。ホストも同じ検査をやり直す。
         const c = await host.checkWorkFolder(primary, extras.map((e) => e.path));
         if (c.kind === "rejected") { setNcErr(`プライマリ: ${REJECT_TEXT[c.reason]}`); return; }
         if (c.kind === "needsStrongConfirm") {

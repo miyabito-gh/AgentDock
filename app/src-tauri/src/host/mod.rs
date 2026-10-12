@@ -588,12 +588,13 @@ impl Host {
             }
         };
         // 追加の作業フォルダ（experimental）。UIの確認結果は信用せず、ここで集合ごと再検査する（強い確認は confirmedStrong に無ければ拒否）。
-        let (cwd, extra_folders) = if args.extra_folders.is_empty() {
-            (cwd, Vec::new())
-        } else {
-            if kind == ChatKind::General {
+        // 主フォルダだけの作成も同じ検査を通す（UNC・ネットワークドライブ・システム・~/.codex・AgentDockの領域。一般チャットのアプリ管理領域は対象外）。
+        let (cwd, extra_folders) = if kind == ChatKind::General {
+            if !args.extra_folders.is_empty() {
                 return Err(err(IpcErrorCode::InvalidArgs, "一般チャットには追加の作業フォルダを指定できません"));
             }
+            (cwd, Vec::new())
+        } else {
             let all = work_folders::compose_with_primary(&cwd, &args.extra_folders);
             let confirmed = args.confirmed_strong.clone();
             let checked = {
