@@ -1009,6 +1009,9 @@ export function CenterPane(p: CenterProps) {
   const reqs = chatRequests(snap, chat);
   const hasOpenStop = chatStops(snap, chat).some(stopOpen);
   const [cwdOpen, setCwdOpen] = useState(false);
+  // 作業フォルダの帯はチャットごと。CenterPane はチャット切替で再生成されないので、切替のたびに閉じる。
+  const cwdChat = useRef(chat.key.id);
+  if (cwdChat.current !== chat.key.id) { cwdChat.current = chat.key.id; if (cwdOpen) setCwdOpen(false); }
   // 会話内検索（Ctrl+F。Appが "agentdock:find" を送る）。チャットを切り替えても開いたまま同じ語で検索し直す。
   const [findOpen, setFindOpen] = useState(false);
   const [findQuery, setFindQuery] = useState("");

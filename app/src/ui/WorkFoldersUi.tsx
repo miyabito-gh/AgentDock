@@ -113,7 +113,7 @@ export function WorkFoldersPanel({ api, lockReason, permissionText, fallback, on
     if (strongPending > prevPending.current) rootRef.current?.querySelector<HTMLInputElement>("input[type=checkbox]:not(:checked)")?.focus();
     prevPending.current = strongPending;
   }, [strongPending]);
-  if (!api) return <div className="cbanner info"><h4>作業フォルダ</h4><div>モックでは動きません。</div><div className="acts"><button className="btn-line" onClick={onClose}>閉じる</button></div></div>;
+  if (!api) return <div className="cbanner info wfpanel"><h4>作業フォルダ</h4><div>モックでは動きません。</div><div className="acts"><button className="btn-line" onClick={onClose}>閉じる</button></div></div>;
   const support: Support = view?.support ?? "unknown";
   const cancelEdit = () => { setItems(null); setConfirmStep(false); setQueueNeed(null); setMsg(null); };
   const startEdit = async () => {
@@ -149,7 +149,7 @@ export function WorkFoldersPanel({ api, lockReason, permissionText, fallback, on
   const dropped = view ? droppedExtrasNote(view.next, support) : null;
   const added = items ? items.filter((i) => !before.some((b) => folderKey(b) === folderKey(i.path))) : [];
   return (
-    <div className="cbanner info" role="region" aria-label="作業フォルダ" ref={rootRef}
+    <div className="cbanner info wfpanel" role="region" aria-label="作業フォルダ" ref={rootRef}
       onKeyDown={(e) => { if (items !== null && e.key === "Escape" && !e.nativeEvent.isComposing) { e.preventDefault(); e.stopPropagation(); cancelEdit(); } }}>
       <h4>作業フォルダ</h4>
       {loadErr ? <div className="why err">{loadErr}</div> : null}

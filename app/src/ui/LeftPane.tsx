@@ -276,12 +276,10 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct,
     const label = labelOf(g);
     const open = menu?.kind === "group" && menu.key === g.key;
     const guessN = g.kind === "project" ? g.guessedCount ?? 0 : 0;
-    const dupN = g.kind === "project" ? g.chats.filter((c) => multi.has(c.key.id)).length : 0;
     const title = g.kind === "folder" ? g.path
       : g.kind === "project"
         ? [`プロジェクト「${label}」`, g.roots && g.roots.length ? `フォルダ（先頭をプライマリと推定）:${NL}${g.roots.join(NL)}` : "フォルダなし",
-          guessN ? `フォルダ一致による推測で入ったチャット: ${guessN}件（推測であり、確定ではありません）` : "",
-          dupN ? `複数のプロジェクトに一致するチャット ${dupN}件は、一致したすべての見出しに重複して表示し、各見出しの件数に含みます` : ""].filter((x) => x).join(NL)
+          guessN ? `フォルダ一致による推測で入ったチャット: ${guessN}件（推測であり、確定ではありません）` : ""].filter((x) => x).join(NL)
       : g.kind === "noProject" ? "どのプロジェクトのフォルダにも一致しないチャットです（一般チャットを含む）"
       : g.kind === "unknown" ? "作業フォルダを取得できていないチャットです" : "作業フォルダを持たない一般チャットです";
     return (
@@ -333,8 +331,8 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct,
           <span className="nm" style={chatTitle(c).confirmed ? undefined : TENTATIVE_STYLE} title={chatTitle(c).confirmed ? kindTitle : TENTATIVE_HINT}>{chatName(c)}</span>
           {c.origin === "external" ? <span className="tag" title="Codex 側で作られた会話（AgentDock が起動したものではない）">外部</span> : null}
           {c.noHistory ? <span className="tag" title="Codex に記録がありません">履歴なし</span> : null}
-          {multi.has(c.key.id) ? <span className="tag" title={`複数のプロジェクトのフォルダに一致しています（フォルダ一致による推測）: ${multi.get(c.key.id)!.join("、")}
-どれか一つに決めず、各見出しに表示しています`}>複数</span> : null}
+          {multi.has(c.key.id) ? <span className="tag" title={`他に一致: ${multi.get(c.key.id)!.join("、")}
+（フォルダ一致による推測。表示は先頭のプロジェクトにだけ置いています）`}>複数</span> : null}
           {wt ? <span className="tag" title={`AgentDock が作った worktree（ブランチ ${wt.branch}）\n${wt.path}`}>worktree</span> : null}
           {archived(c) && (!showArch || arc.text !== "アーカイブ") ? <span className="tag" title={arc.title || undefined}>{arc.text}</span> : null}
           {localOf(c)?.deletePending ? <span className="tag unv" title={PENDING_TEXT(localOf(c)!.deletePending!.reason)}>削除保留</span> : null}

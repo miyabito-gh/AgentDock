@@ -45,19 +45,19 @@ test("cwd不明は判定不能（なしにしない）、一般チャットは�
   assert.deepEqual(matchProjects(chat(null, { kind: "general" }), ps), { projectIds: [], confirmed: false });
 });
 
-test("グループ化: 複数一致は両方の見出しに出る・件数・推測の数・なし・不明・空プロジェクトは作らない", () => {
+test("グループ化: 複数一致は先頭の見出しにだけ出る・件数・推測の数・なし・不明・空プロジェクトは作らない", () => {
   const ps = [proj("a", "A", ["C:\\r"], 0), proj("b", "B", ["C:\\r"], 1), proj("c", "C", ["C:\\c"], 2), proj("e", "E", ["C:\\e"], 3)];
   const both = chat("C:\\r"), onlyC = chat("C:\\c\\x"), conf = chat("C:\\zzz", { projectId: "c" }), none = chat("D:\\x"), unk = chat(null);
   const { groups, multi } = groupByProject([both, onlyC, conf, none, unk], ps, []);
   const by = (k: string) => groups.find((g) => g.key === k);
   assert.equal(by("project:a")!.chats.length, 1);
-  assert.equal(by("project:b")!.chats.length, 1);
+  assert.equal(by("project:b"), undefined);
   assert.equal(by("project:c")!.chats.length, 2);
   assert.equal(by("project:c")!.guessedCount, 1);
   assert.equal(by("project:e"), undefined);
   assert.equal(by(NO_PROJECT_KEY)!.chats.length, 1);
   assert.equal(by(UNKNOWN_KEY)!.chats.length, 1);
-  assert.deepEqual(multi.get(both.key.id), ["A", "B"]);
+  assert.deepEqual(multi.get(both.key.id), ["B"]);
   assert.equal(groups.at(-1)!.key, UNKNOWN_KEY);
   assert.equal(groups.at(-2)!.key, NO_PROJECT_KEY);
 });

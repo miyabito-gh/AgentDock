@@ -246,6 +246,8 @@ label{display:inline-flex;align-items:center;gap:6px}
 .goal b{color:var(--accent-text)}
 .goal-obj{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cbanner{margin:10px 16px 0;border:1px solid var(--b-line);background:var(--b-bg);border-radius:var(--r2);padding:10px 12px;font-size:var(--fs-s)}
+/* 作業フォルダの帯: 縦が長くても会話欄を潰さず、帯の中で縮めてスクロールし、ボタンを他の要素の下に隠さない */
+.cbanner.wfpanel{position:relative;z-index:3;flex:0 1 auto;max-height:55%;overflow:auto}
 .cbanner h4{margin:0 0 4px;font-size:var(--fs)}
 .cbanner.slim{display:flex;align-items:center;gap:8px;margin-top:4px;padding:2px 10px;min-height:24px}
 .cbanner.slim .grow,.cbanner.row .grow{flex:1;min-width:0}

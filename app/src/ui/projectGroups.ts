@@ -1,6 +1,6 @@
 // 左一覧の「プロジェクトごと」表示のグルーピング。純粋関数。画面（LeftPane.tsx）から使う。
 // 所属の決め方: ①チャットの projectId（バックエンドが示す確定値）、②無ければ cwd と各プロジェクトのフォルダの一致による推測。
-// 推測は、フォルダ自体または内側で一致するもののうち最も深いフォルダのプロジェクト。同じ深さで複数一致したら決めつけず、すべての見出しに出す。
+// 推測は、フォルダ自体または内側で一致するもののうち最も深いフォルダのプロジェクト。同じ深さで複数一致したら、プロジェクト順（position、同じなら一覧順）で最初の1つの見出しにだけ置き、他の一致は multi で示す。
 import type { Chat, ProjectSummary } from "../ipc/types";
 import { UNKNOWN_KEY, UNKNOWN_LABEL, folderKey, usedTime, type FolderGroup } from "./folderGroups.ts";
 
@@ -42,7 +42,7 @@ export function matchProjects(chat: Chat, projects: ProjectSummary[]): ProjectMa
 
 export interface ProjectGrouping {
   groups: FolderGroup[];
-  /** 複数のプロジェクトに一致したチャットのID → プロジェクト名（見出しごとに重複して出る）。 */
+  /** 複数のプロジェクトに一致したチャットのID → 見出しに置かなかった他の一致プロジェクト名。 */
   multi: Map<string, string[]>;
 }
 
@@ -51,6 +51,8 @@ export function groupByProject(chats: Chat[], projects: ProjectSummary[], pinned
   const byId = new Map(projects.map((p) => [p.id, p]));
   const map = new Map<string, FolderGroup>();
   const multi = new Map<string, string[]>();
+  const order = new Map(projects.map((p) => [p.id, p.position ?? 0]));
+  const idx = new Map(projects.map((p, i) => [p.id, i]));
   const add = (key: string, make: () => Pick<FolderGroup, "kind" | "path" | "label" | "roots">, c: Chat, guessed: boolean) => {
     const t = usedTime(c);
     let g = map.get(key);
@@ -63,11 +65,10 @@ export function groupByProject(chats: Chat[], projects: ProjectSummary[], pinned
     const m = matchProjects(c, projects);
     if (!m) { add(UNKNOWN_KEY, () => ({ kind: "unknown", path: UNKNOWN_LABEL }), c, false); continue; }
     if (m.projectIds.length === 0) { add(NO_PROJECT_KEY, () => ({ kind: "noProject", path: NO_PROJECT_LABEL }), c, false); continue; }
-    if (m.projectIds.length > 1) multi.set(c.key.id, m.projectIds.map((id) => byId.get(id)!.name));
-    for (const id of m.projectIds) {
-      const p = byId.get(id)!;
-      add(PROJECT_KEY_PREFIX + id, () => ({ kind: "project", path: p.name, label: p.name, roots: p.roots }), c, !m.confirmed);
-    }
+    const ids = m.projectIds.length > 1 ? [...m.projectIds].sort((a, b) => (order.get(a)! - order.get(b)!) || (idx.get(a)! - idx.get(b)!)) : m.projectIds;
+    if (ids.length > 1) multi.set(c.key.id, ids.slice(1).map((id) => byId.get(id)!.name));
+    const p = byId.get(ids[0])!;
+    add(PROJECT_KEY_PREFIX + p.id, () => ({ kind: "project", path: p.name, label: p.name, roots: p.roots }), c, !m.confirmed);
   }
   const position = (g: FolderGroup) => byId.get(g.key.slice(PROJECT_KEY_PREFIX.length))?.position ?? 0;
   const rank = (g: FolderGroup) => (g.kind === "unknown" ? 3 : g.kind === "noProject" ? 2 : g.pinned ? 0 : 1);
