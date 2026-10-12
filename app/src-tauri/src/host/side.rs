@@ -203,6 +203,7 @@ impl Host {
             model: None,
             permission: None,
             cwd: None,
+            work_folders: None,
             work_mode: None,
             speed_tier: None,
             client_message_id: self.local_id("cm").0,

@@ -169,6 +169,9 @@ pub struct StartChatParams {
     pub cwd: String,
     pub model: Option<ModelChoice>,
     pub permission: PermissionPreset,
+    /// 追加の作業フォルダ（プライマリ `cwd` を除く）。空なら指定しない（バックエンド側の既定のまま）。
+    #[serde(default)]
+    pub extra_folders: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -178,6 +181,8 @@ pub struct ChatStarted {
     pub root: Agent,
     /// 開始時点で受理された設定（確認できなければ NotFetched）。
     pub accepted_model: Known<ModelChoice>,
+    /// 開始時点で応答から読めた作業フォルダ（確認できなければ NotFetched・Missing）。
+    pub accepted_folders: Known<WorkFolders>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -328,6 +333,8 @@ pub struct SendRequest {
     pub permission: Option<PermissionPreset>,
     /// 送信時点で有効な作業フォルダ。None＝上書きしない。追加指示（Steer）では使わない。
     pub cwd: Option<String>,
+    /// 送信時点で有効な作業フォルダの並び（先頭＝プライマリ）。None＝上書きしない（サーバー側の現状維持）。空の並びは送らず拒否される。追加指示（Steer）では使わない。
+    pub work_folders: Option<WorkFolders>,
     /// 送信時点の計画／実行の選択。None＝上書きしない。追加指示（Steer）では使わない。
     pub work_mode: Option<WorkMode>,
     /// 送信時点の速度の選択（バックエンドが示す不透明ID）。None＝上書きしない。追加指示（Steer）では使わない。
@@ -379,6 +386,7 @@ impl UnconfirmedSend {
                 model: None,
                 permission: None,
                 cwd: None,
+                work_folders: None,
                 work_mode: None,
                 speed_tier: None,
                 client_message_id,
@@ -497,6 +505,8 @@ pub trait AiBackend: Send + Sync {
     async fn list_projects(&self) -> BackendResult<Vec<ProjectSummary>>;
 
     async fn list_loaded(&self) -> BackendResult<Vec<AgentKey>>;
+    /// チャットの作業フォルダの直接取得（読込み済みのときだけ読む。未読込みは通信せず `NotFetched`、非対応は `Unsupported`。resumeしない）。
+    async fn read_work_folders(&self, chat: &ChatKey) -> BackendResult<Known<WorkFolders>>;
     /// 子孫の再発見（能力 `descendant_search` 依存）。
     async fn scan_descendants(&self, root: AgentKey) -> BackendResult<DescendantScan>;
 

@@ -1,0 +1,200 @@
+{
+  "version": "codex-cli 0.160.0",
+  "startedAt": "2026-10-12T00:36:28.952Z",
+  "M": {
+    "M1": {
+      "accepted": true,
+      "respRoots": [
+        "<base>\\a",
+        "<base>\\b"
+      ],
+      "respCwd": [
+        "<base>\\a"
+      ],
+      "respKeys": [
+        "thread",
+        "model",
+        "modelProvider",
+        "serviceTier",
+        "disabledPluginIds",
+        "cwd",
+        "runtimeWorkspaceRoots",
+        "instructionSources",
+        "approvalPolicy",
+        "approvalsReviewer",
+        "sandbox",
+        "activePermissionProfile",
+        "reasoningEffort",
+        "multiAgentMode"
+      ],
+      "threadEnvironments": [
+        {
+          "cwd": "<base>\\a",
+          "roots": [
+            "<base>\\a",
+            "<base>\\b"
+          ],
+          "envIdPresent": true
+        }
+      ],
+      "sandbox": "workspaceWrite",
+      "instructionSources": [
+        "c:\\users\\wmasa\\.codex\\agents.md",
+        "<base>\\a\\agents.md"
+      ]
+    },
+    "M8": {
+      "instructionSources": [
+        "c:\\users\\wmasa\\.codex\\agents.md",
+        "<base>\\a\\agents.md"
+      ],
+      "includesA": true,
+      "includesB": false
+    },
+    "M2": {
+      "environments": [
+        {
+          "cwd": "<base>\\a",
+          "roots": [
+            "<base>\\a",
+            "<base>\\b"
+          ],
+          "envIdPresent": true
+        }
+      ],
+      "threadKeysWithRoots": [
+        "environments"
+      ]
+    },
+    "M3": {
+      "rootsBOnly": {
+        "respRoots": [
+          "<base>\\b"
+        ],
+        "env": [
+          {
+            "cwd": "<base>\\a",
+            "roots": [
+              "<base>\\b"
+            ],
+            "envIdPresent": true
+          }
+        ]
+      },
+      "rootsOmitted": {
+        "respRoots": [
+          "<base>\\a"
+        ],
+        "env": [
+          {
+            "cwd": "<base>\\a",
+            "roots": [
+              "<base>\\a"
+            ],
+            "envIdPresent": true
+          }
+        ]
+      }
+    },
+    "M4": {
+      "turn": {
+        "completed": true,
+        "status": "completed",
+        "error": null,
+        "itemTypes": [
+          "userMessage",
+          "agentMessage"
+        ],
+        "items": [],
+        "replyShort": "OK"
+      },
+      "readAfterTurn1": [
+        {
+          "cwd": "<base>\\a",
+          "roots": [
+            "<base>\\a",
+            "<base>\\b",
+            "<base>\\c"
+          ],
+          "envIdPresent": true
+        }
+      ]
+    },
+    "M5": {
+      "turn": {
+        "completed": true,
+        "status": "completed",
+        "error": null,
+        "itemTypes": [
+          "userMessage",
+          "agentMessage",
+          "commandExecution"
+        ],
+        "items": [
+          {
+            "type": "commandExecution",
+            "status": "completed",
+            "cwd": "C:\\Users\\wmasa\\AppData\\Local\\Temp\\ad-wf-1791765388949\\A"
+          }
+        ],
+        "replyShort": "作成したよ。"
+      },
+      "aTxtCreatedInB": true,
+      "approvalRequestsDeclined": [],
+      "readAfterTurn2Omitted": [
+        {
+          "cwd": "<base>\\a",
+          "roots": [
+            "<base>\\a",
+            "<base>\\b",
+            "<base>\\c"
+          ],
+          "envIdPresent": true
+        }
+      ]
+    },
+    "M6": {
+      "error": {
+        "code": -32600,
+        "message": "no rollout found for thread id 01a12d8a-1ef5-7833-ae55-853684da8af9"
+      }
+    },
+    "M7": {
+      "experimentalOff": {
+        "code": -32600,
+        "message": "thread/start.runtimeWorkspaceRoots requires experimentalApi capability"
+      },
+      "unc": {
+        "accepted": true,
+        "roots": [
+          "<base>\\a",
+          "\\\\probe-nonexistent-host\\share\\x"
+        ]
+      },
+      "missing": {
+        "accepted": true,
+        "roots": [
+          "<base>\\a",
+          "<base>\\does-not-exist"
+        ]
+      },
+      "relative": {
+        "code": -32600,
+        "message": "Invalid request: AbsolutePathBuf deserialized without a base path"
+      },
+      "fileNotDir": {
+        "accepted": true,
+        "roots": [
+          "<base>\\a",
+          "<base>\\a\\agents.md"
+        ]
+      }
+    }
+  },
+  "configUnchanged": true,
+  "authUnchanged": true,
+  "stderrTail": [
+    ""
+  ],
+  "tempRemoved": true
+}

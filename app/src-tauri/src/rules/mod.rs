@@ -8,6 +8,7 @@
 //! - [`diff`]・[`baseline`]: 統一diffの分割・status解析と、Git基準の控えによる変更を戻す判定（段階③ P3-1、P3B）
 //! - [`thread_ops`]: レビュー対象の可否・分岐の照合・受理不明の操作の照合（段階③ P3-2）
 //! - [`worktree`]: worktree一覧の解析・名前の組立て・削除可否の判定（段階③ P3-7）
+//! - [`work_folders`]: 作業フォルダ（複数）の正規化・拒否・強い確認の判定（項目39 WF-1）
 //! - [`compose`]・[`side`]: 参考ブロックの組立て、side相談の停止範囲・引渡し（段階③ P3-4）
 
 pub mod baseline;
@@ -21,4 +22,5 @@ pub mod queue;
 pub mod side;
 pub mod thread_ops;
 pub mod window;
+pub mod work_folders;
 pub mod worktree;

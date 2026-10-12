@@ -680,6 +680,7 @@ impl Host {
             model: plan.model,
             permission: plan.permission,
             cwd: plan.cwd,
+            work_folders: None,
             work_mode: plan.work_mode,
             client_message_id: attempt.client_message_id.clone(),
         };

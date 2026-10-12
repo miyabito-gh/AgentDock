@@ -29,6 +29,10 @@ managedExecControl: Support,
  */
 projects: Support, 
 /**
+ * 複数の作業フォルダ（プライマリ＋追加）の指定と確認（`app/DESIGN_WORKFOLDERS.md`）。
+ */
+workspaceRoots: Support, 
+/**
  * VS Code拡張との同等性の操作ごとの能力（段階③、`app/DESIGN_P3.md` §2.1）。
  */
 ops: Array<OpCapability>, };

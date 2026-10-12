@@ -10,6 +10,7 @@ pub mod adapter;
 pub mod cli;
 pub mod convert;
 pub mod events;
+pub mod folders;
 pub mod id;
 pub mod outbox;
 pub mod parity;

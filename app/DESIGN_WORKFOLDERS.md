@@ -189,3 +189,16 @@ WF-1 と WF-0 は並行可。WF-0 の M5 結果で Q2 を確定してから WF-2
 ## 決定（2026-10-11 ユーザー）
 
 Q1=runtimeWorkspaceRoots＋cwd／Q2=権限に従う（M5実測で確定）／Q3=一部追加不可（Windows・Program Files・~/.codex・AgentDockデータ領域は不可、ドライブ直下・ホーム直下は強い確認）／Q4=送信記録を直接取得と区別して表示／Q5=プロジェクトの全フォルダを既定で並べる・上限8件。実装は次のバッチ（WF-0〜）。
+
+## 実測結果（2026-10-12）
+
+`probes/app-server/workfolders-probe.mjs`（codex-cli 0.160.0、実turnは M4・M5 の各1回のみ、使い捨て `%TEMP%\ad-wf-*\{A,B,C}`、スレッドは全て ephemeral、承認要求は辞退する実装）。実行後に `config.toml`・`auth.json` のハッシュ不変、実験フォルダ削除済み、`a.txt` 削除済み。以下の「roots」は `runtimeWorkspaceRoots`。
+
+- **M1 受理される。** `experimentalApi:true` で `thread/start{cwd:A, runtimeWorkspaceRoots:[A,B]}` は受理。応答に `runtimeWorkspaceRoots=[A,B]`・`cwd=A`・`instructionSources` が出る。`thread.environments` は1件で `{environmentId(非空), cwd:A, runtimeWorkspaceRoots:[A,B]}`。結論: 主方針（runtimeWorkspaceRoots）は可。`environmentId` の取得元は `thread.environments[0]`（保存・照合はしない方針のまま）。
+- **M2 取れる。** 読み込み済みスレッドの `thread/read(includeTurns:false)` で `thread.environments` が non-null、roots はM1と同じ。結論: 「直接取得」は read で可能（resume不要）。
+- **M3 先頭は自動では残らない。** `roots:[B]`（cwd=A）→応答もenvironmentsも `[B]` のみで、Aは入らない。roots省略→`[A]`（cwd）になる。結論: 送るリストには**先頭（cwd）を必ず含める**。
+- **M4 turn/startのrootsは持続する（sticky）。** `turn/start{roots:[A,B,C]}` 後の read は `[A,B,C]`。次のturnでrootsを省略した後の read も `[A,B,C]` のまま。結論: 「次の送信から」変更が反映され、省略は「現状維持」。外すには省略ではなく新しい一覧を送る。
+- **M5 書ける。** `sandboxPolicy: workspaceWrite, writableRoots:[]`、roots=[A,B,C]（M4で設定済み・このturnでは省略）、`approvalPolicy:on-request` で「Bに a.txt」を依頼すると、承認要求は**来ず**（辞退件数0）、a.txt がBに作成された（削除済み）。commandExecution の `cwd` はA。**Q2確定: 追加フォルダは「作業フォルダ内で書込み」権限のとき、roots に入っていれば書込み可。`writableRoots` に入れる必要はない（空で書けた）。** 注意: 「rootsに無いBへ書けるか」の対照は未実施（turn1回の制約）。承認要求の `cwd`／`environmentId` は発生せず未確認。
+- **M6 未確定。** ephemeral スレッドの `thread/fork` は `-32600 no rollout found`。継承の有無は不明。実装は既定どおり fork に roots を付けず、継承の確認は非ephemeralで実機確認（WF-S）に回す。
+- **M7 拒否の形。** experimental無効: `-32600 "thread/start.runtimeWorkspaceRoots requires experimentalApi capability"`（`is_experimental_rejection` が拾う「requires experimentalApi capability」文言）。相対パス: `-32600 "Invalid request: AbsolutePathBuf deserialized without a base path"`。**UNC・存在しないパス・ファイル（AGENTS.md）は拒否されずそのまま受理**。結論: サーバーはパス検証をしないので、存在・フォルダであること・Q3の不可リストはAgentDock側で事前に検査する。
+- **M8 追加フォルダのAGENTS.mdは入らない。** `instructionSources` は `~/.codex/AGENTS.md` と A（cwd）の `AGENTS.md` のみで、B（追加フォルダ）のものは含まれない。結論: 「AGENTS.mdはプライマリ基準」の説明文は正しい。

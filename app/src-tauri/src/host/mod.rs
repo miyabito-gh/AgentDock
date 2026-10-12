@@ -589,6 +589,7 @@ impl Host {
             cwd,
             model: args.model.clone(),
             permission: args.permission.unwrap_or(PermissionPreset::WorkspaceWriteOnRequest),
+            extra_folders: Vec::new(),
         };
         let started = match self.backend.start_chat(params).await {
             Ok(s) => s,
@@ -656,6 +657,7 @@ impl Host {
                 // スレッド開始時に権限・作業フォルダを渡し済み。
                 permission: None,
                 cwd: None,
+                work_folders: None,
                 work_mode: None,
                 client_message_id: self.local_id("cm").0,
             };
@@ -840,6 +842,7 @@ impl Host {
             model,
             permission,
             cwd,
+            work_folders: None,
             work_mode,
             client_message_id: self.local_id("cm").0,
         };

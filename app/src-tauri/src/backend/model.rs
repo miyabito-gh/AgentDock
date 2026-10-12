@@ -389,9 +389,118 @@ pub struct Capabilities {
     /// プロジェクト（名前＋作業フォルダの集合）の一覧の読取り。
     #[serde(default = "support_unknown")]
     pub projects: Support,
+    /// 複数の作業フォルダ（プライマリ＋追加）の指定と確認（`app/DESIGN_WORKFOLDERS.md`）。
+    #[serde(default = "support_unknown")]
+    pub workspace_roots: Support,
     /// VS Code拡張との同等性の操作ごとの能力（段階③、`app/DESIGN_P3.md` §2.1）。
     #[serde(default)]
     pub ops: Vec<OpCapability>,
+}
+
+// ───────────────────────────── 作業フォルダ（`app/DESIGN_WORKFOLDERS.md` (f)） ─────────────────────────────
+
+/// チャットが使う作業フォルダの並び。先頭がプライマリ。パスはOSの絶対パス（`\\?\` を外した表示形）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct WorkFolders {
+    pub folders: Vec<String>,
+}
+
+/// 作業フォルダの値の出どころ。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub enum WorkFoldersBasis {
+    /// バックエンドから直接取得した。
+    Direct,
+    /// AgentDockが送って受理を確認した指定（バックエンドの現在値とは断定しない）。
+    AgentDockAcceptedSend,
+}
+
+/// AgentDockが送って受理を確認した作業フォルダ。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct AcceptedFolders {
+    pub folders: WorkFolders,
+    pub accepted_at: UnixMillis,
+}
+
+/// プロジェクトの作業フォルダとの一致（推定。`inferred` を消さない）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectFolderMatch {
+    pub project_name: String,
+    pub matched: u32,
+    pub total: u32,
+    pub missing: Vec<String>,
+    pub inferred: bool,
+}
+
+/// 確認表示用（`get_work_folders` の戻り値）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct WorkFoldersView {
+    /// 直接取得した値のみ。未読込み＝NotFetched、非対応＝Unsupported。
+    pub current: Known<WorkFolders>,
+    pub last_accepted: Option<AcceptedFolders>,
+    /// 受理不明の送信に含まれた指定。
+    pub unconfirmed: Option<WorkFolders>,
+    /// 次の送信から使う（未送信）。
+    pub next: Option<WorkFolders>,
+    pub project_match: Option<ProjectFolderMatch>,
+    pub support: Support,
+}
+
+/// フォルダ1件の検査結果（`rules/work_folders.rs`）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum FolderCheck {
+    Ok { normalized: String },
+    NeedsStrongConfirm { normalized: String, reasons: Vec<StrongReason> },
+    Rejected { reason: FolderReject },
+}
+
+/// 強い確認が要る理由。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub enum StrongReason {
+    DriveRoot,
+    HomeRoot,
+    AppDataRoot,
+    ProgramData,
+    /// 既に並べた他のフォルダの親（入れ子で範囲が実質広がる）。
+    ContainsOtherFolder,
+}
+
+/// 追加できない理由。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub enum FolderReject {
+    Unc,
+    NetworkDrive,
+    NotAbsolute,
+    NotFound,
+    NotDirectory,
+    Duplicate,
+    SystemFolder,
+    AppDataOfAgentDock,
+    CodexHome,
+    TooMany,
 }
 
 // ───────────────────────────── 同等性の操作（段階③、DESIGN_P3 §0・§2） ─────────────────────────────

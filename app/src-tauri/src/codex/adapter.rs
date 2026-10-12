@@ -78,6 +78,8 @@ pub fn codex_capabilities_for(experimental: bool, version: Option<&str>) -> Capa
         managed_exec_control: exp,
         // project/list はexperimental。
         projects: exp,
+        // thread/start・turn/start の runtimeWorkspaceRoots はexperimental。
+        workspace_roots: exp,
         ops: super::parity::op_capabilities(version, experimental),
     }
 }
@@ -101,6 +103,7 @@ fn unknown_capabilities() -> Capabilities {
         attachment_kinds: Vec::new(),
         managed_exec_control: Support::Unknown,
         projects: Support::Unknown,
+        workspace_roots: Support::Unknown,
         // 接続前でも一覧できるよう、宣言と確認状況（版不明＝すべて未確認）を持つ。
         ops: super::parity::op_capabilities(None, true),
     }
@@ -157,6 +160,10 @@ pub fn build_send_call(req: &SendRequest) -> BackendResult<(&'static str, Value)
             }
             if let Some(cwd) = &req.cwd {
                 p["cwd"] = json!(cwd);
+            }
+            // 作業フォルダの並び（cwd＝先頭、runtimeWorkspaceRoots＝全件）。cwd単独の指定より優先。空の並びは送らず拒否。
+            if let Some(f) = &req.work_folders {
+                super::folders::apply_turn_folders(&mut p, f)?;
             }
             // 速度の選択（不透明ID）。指定がなければ上書きしない。
             if let Some(tier) = &req.speed_tier {
@@ -531,6 +538,11 @@ impl CodexBackend {
         }
     }
 
+    /// 作業フォルダ指定（experimental）が拒否された接続では、能力を `Unsupported` に落とす（以後の指定は送らず拒否する。自動で外して出し直さない）。
+    pub(super) fn degrade_workspace_roots(&self) {
+        self.shared.caps.lock().unwrap().workspace_roots = Support::Unsupported;
+    }
+
     /// 接続した実行ファイルと確認できた版（状態表示用）。
     pub(super) fn launched_info(&self) -> (Option<String>, Option<String>) {
         let l = self.shared.launched.lock().unwrap();
@@ -754,7 +766,22 @@ impl AiBackend for CodexBackend {
         if let Some(m) = &params.model {
             p["model"] = json!(m.model);
         }
-        let r = self.call("thread/start", p, WRITE_TIMEOUT).await?;
+        if !params.extra_folders.is_empty() {
+            // 追加フォルダはexperimental。使えない接続では、外さず、何も作らずに拒否する。
+            if self.shared.caps.lock().unwrap().workspace_roots != Support::Supported {
+                return Err(BackendError::Unsupported { capability: "workspace_roots".into() });
+            }
+            super::folders::apply_start_folders(&mut p, &params.cwd, &params.extra_folders)?;
+        }
+        let r = match self.call("thread/start", p, WRITE_TIMEOUT).await {
+            Ok(r) => r,
+            Err(e) => {
+                if !params.extra_folders.is_empty() && super::folders::is_roots_unsupported(&e) {
+                    self.degrade_workspace_roots();
+                }
+                return Err(e);
+            }
+        };
         log_source("thread/start", &r);
         let t = thread_of(&r)?;
         let chat = thread_to_chat(&t, self.app_dir().as_deref(), Known::Value { value: false, basis: Basis::Derived });
@@ -762,7 +789,8 @@ impl AiBackend for CodexBackend {
         let root = thread_to_agent(&t, chat_key(&t.id));
         self.shared.remember(&root);
         let accepted_model = accepted_model_of(&r);
-        Ok(ChatStarted { chat, root, accepted_model })
+        let accepted_folders = if self.shared.caps.lock().unwrap().workspace_roots == Support::Supported { super::folders::folders_of_response(&r) } else { Known::Unsupported };
+        Ok(ChatStarted { chat, root, accepted_model, accepted_folders })
     }
 
     async fn list_chats(&self, query: ListChatsQuery) -> BackendResult<Page<ChatSummary>> {
@@ -855,6 +883,28 @@ impl AiBackend for CodexBackend {
         Ok(data.iter().filter_map(Value::as_str).map(agent_key).collect())
     }
 
+    async fn read_work_folders(&self, chat: &ChatKey) -> BackendResult<Known<WorkFolders>> {
+        let (_, experimental) = self.client()?;
+        // experimentalが無い・拒否済みの接続では、environmentsも取れない。通信せず「非対応」。
+        if !experimental || self.shared.caps.lock().unwrap().workspace_roots != Support::Supported {
+            return Ok(Known::Unsupported);
+        }
+        // 読み込み済みのときだけ読む（読むためにresumeしない。未読込みは通信せず未確認）。
+        if !self.list_loaded().await?.iter().any(|a| a.id == chat.id) {
+            return Ok(Known::NotFetched);
+        }
+        let r = match self.call("thread/read", json!({"threadId": chat.id.0, "includeTurns": false}), READ_TIMEOUT).await {
+            Ok(r) => r,
+            Err(e) if super::folders::is_roots_unsupported(&e) => {
+                self.degrade_workspace_roots();
+                return Ok(Known::Unsupported);
+            }
+            Err(e) => return Err(e),
+        };
+        let Some(thread) = r.get("thread") else { return Err(BackendError::Protocol { message: "thread/read: response without thread".into() }) };
+        Ok(super::folders::folders_of_thread(thread))
+    }
+
     async fn scan_descendants(&self, root: AgentKey) -> BackendResult<DescendantScan> {
         let (_, experimental) = self.client()?;
         let mut base = json!({"sourceKinds": SUBAGENT_KINDS});
@@ -903,6 +953,21 @@ impl AiBackend for CodexBackend {
             let error = BackendError::Rejected { code: None, message: "計画／実行の切替はこの Codex 接続では使えません。選択を外してから送ってください".into() };
             return SendOutcome::Rejected { error, request: NotAccepted::new(request) };
         }
+        let mut request = request;
+        // 作業フォルダの並び（experimental）。使えない接続で追加フォルダを含むなら、黙って外さず何も送らずに拒否する。
+        // プライマリだけなら従来どおりcwd指定で送る（experimentalの項目を付けない）。追加指示（Steer）には付けない。
+        if matches!(request.mode, SendMode::Steer { .. }) {
+            request.work_folders = None;
+        }
+        if request.work_folders.is_some() && self.shared.caps.lock().unwrap().workspace_roots != Support::Supported {
+            let primary_only = request.work_folders.as_ref().is_some_and(|f| f.folders.len() == 1 && !f.folders[0].trim().is_empty());
+            if primary_only {
+                request.cwd = request.work_folders.take().map(|f| f.folders.into_iter().next().unwrap_or_default());
+            } else {
+                let error = BackendError::Rejected { code: None, message: "複数の作業フォルダはこの Codex 接続では使えません（experimental API が無効または非対応）。".into() };
+                return SendOutcome::Rejected { error, request: NotAccepted::new(request) };
+            }
+        }
         // 送る前に確定できる失敗は、何も送っていないので明示拒否。
         let (method, params) = match build_send_call(&request) {
             Ok(x) => x,
@@ -926,6 +991,10 @@ impl AiBackend for CodexBackend {
                 // 計画／実行を付けた送信が experimental の拒否なら、能力を非対応へ降格して出し直す（送信は受理されていない）。
                 if request.work_mode.is_some() && super::parity::is_experimental_rejection(&error) {
                     self.degrade_op(ParityOp::WorkMode, "experimental API の利用を Codex が拒否しました");
+                }
+                // 作業フォルダの並びを付けた送信が拒否されたなら、能力を非対応へ降格する（受理されていない。外して自動で送り直さない）。
+                if request.work_folders.is_some() && super::folders::is_roots_unsupported(&error) {
+                    self.degrade_workspace_roots();
                 }
                 SendOutcome::Rejected { error, request: NotAccepted::new(request) }
             }
@@ -1013,6 +1082,7 @@ mod tests {
             model: Some(ModelChoice { model: "m".into(), effort: Some("low".into()), speed_tier: None }),
             permission: None,
             cwd: None,
+            work_folders: None,
             work_mode: None,
             speed_tier: None,
             client_message_id: "cm1".into(),
@@ -1059,6 +1129,24 @@ mod tests {
         let (m, p) = build_send_call(&s).unwrap();
         assert_eq!(m, "turn/steer");
         assert!(p.get("sandboxPolicy").is_none() && p.get("cwd").is_none());
+    }
+
+    #[test]
+    fn work_folders_go_to_new_turn_only_with_cwd_first_and_empty_is_rejected() {
+        let mut r = req(SendMode::NewTurn);
+        let (_, p) = build_send_call(&r).unwrap();
+        assert!(p.get("runtimeWorkspaceRoots").is_none(), "unset means omitted (server keeps its current roots)");
+        r.cwd = Some("C:/ignored".into());
+        r.work_folders = Some(WorkFolders { folders: vec!["C:/a".into(), "C:/b".into()] });
+        let (_, p) = build_send_call(&r).unwrap();
+        assert_eq!(p["cwd"], "C:/a");
+        assert_eq!(p["runtimeWorkspaceRoots"], json!(["C:/a", "C:/b"]));
+        r.work_folders = Some(WorkFolders { folders: vec![] });
+        assert!(matches!(build_send_call(&r), Err(BackendError::Rejected { .. })));
+        let mut s = req(SendMode::Steer { turn: turn_key("th", "t9") });
+        s.work_folders = Some(WorkFolders { folders: vec!["C:/a".into(), "C:/b".into()] });
+        let (_, p) = build_send_call(&s).unwrap();
+        assert!(p.get("runtimeWorkspaceRoots").is_none() && p.get("cwd").is_none());
     }
 
     #[test]
