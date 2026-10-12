@@ -228,6 +228,12 @@ pub fn new_queue(chat: ChatKey) -> ChatQueue {
 /// 失敗・中断の監視の基準（`baseline_at`）は、キューが空いている（待っている依頼も送信済みturnの待ちもない）間の登録で
 /// 登録時刻にする。登録前に終わった失敗では止めない。待っている依頼があるときは動かさない。
 pub fn enqueue(queue: &mut ChatQueue, id: LocalId, text: String, attachments: Vec<LocalId>, now: UnixMillis) -> QueueEntry {
+    // 再起動後の停止でも、再開の確認対象になる再起動前の項目（未送信・受理不明）も待っているturnも無いなら、通常へ戻す。
+    // 新しく積む項目は、ユーザーがこの起動中に登録したものだから。既存の項目は触らない・送らない。
+    if queue.run == QueueRun::PausedAfterRestart && !has_pending(queue) && queue.awaiting.is_none() {
+        queue.run = QueueRun::Active;
+        queue.hold = None;
+    }
     if queue.baseline_at.is_none() || (!has_pending(queue) && queue.awaiting.is_none()) {
         queue.baseline_at = Some(now);
     }
@@ -929,6 +935,25 @@ mod tests {
         assert!(matches!(q.entries[1].state, QueueEntryState::Sending { .. }));
         // 受理なしの確定では何もしないので、項目は待機のまま（保留が解ければ通常どおり送信対象に戻る）。
         assert_eq!(q.entries[2].state, QueueEntryState::Waiting);
+    }
+
+    #[test]
+    fn enqueue_returns_empty_paused_after_restart_to_active() {
+        // 中身が空（または送信済み・取消のみ）なら、積むと通常に戻る。
+        let mut q = new_queue(chat());
+        q.run = QueueRun::PausedAfterRestart;
+        enqueue(&mut q, lid("n1"), "x".into(), vec![], UnixMillis(5));
+        assert_eq!(q.run, QueueRun::Active);
+        // 再起動前の待機項目が残っているときは停止のまま（既存項目を勝手に送らない）。
+        let mut p = queue_with(&["a"], 1500);
+        p.run = QueueRun::PausedAfterRestart;
+        enqueue(&mut p, lid("n2"), "y".into(), vec![], UnixMillis(5));
+        assert_eq!(p.run, QueueRun::PausedAfterRestart);
+        // 手動停止（Stopped）は戻さない。
+        let mut s = new_queue(chat());
+        stop(&mut s, QueueStopCause::SendRejected { entry: lid("q0") }, UnixMillis(1));
+        enqueue(&mut s, lid("n3"), "z".into(), vec![], UnixMillis(5));
+        assert!(matches!(s.run, QueueRun::Stopped { .. }));
     }
 
     #[test]

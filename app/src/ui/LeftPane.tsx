@@ -255,7 +255,7 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct,
     };
   };
 
-  const renderItem = (it: FlatItem, idx: number) => (it.type === "group" ? groupHeader(it.group, idx) : row(it.chat, idx, it.group.key));
+  const renderItem = (it: FlatItem, idx: number) => (it.type === "group" ? groupHeader(it.group, idx) : row(it.chat, idx, it.group?.key));
 
   const moreBtn = (kind: "chat" | "group", id: string, label: string, open: boolean, onOpen: (el: HTMLElement) => void) => (
     <button type="button" className="row-more" data-more={`${kind}:${id}`} aria-label={label} aria-haspopup="menu" aria-expanded={open}

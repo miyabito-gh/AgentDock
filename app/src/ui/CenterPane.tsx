@@ -510,7 +510,8 @@ function UserBubble({ text, forceOpen, open, onToggle }: { text: string; forceOp
   );
 }
 
-function Messages({ chatId, turns, reqs, running, onRespond, onAct, extra, find, resend, locals, files, sends }: {
+function Messages({ chatId, turns, reqs, running, onRespond, onAct, extra, find, resend, locals, files, sends, agentName }: {
+  agentName?: (a: AgentKey) => string;
   turns: TurnRecord[]; reqs: PendingRequest[]; running: boolean; onRespond: CenterProps["onRespond"]; onAct: (a: string) => void; extra?: ReactNode; find: FindState; resend: ResendView;
   locals: AttachmentEntry[]; files: FileActions; sends: SentLocal[]; chatId: string;
 }) {
@@ -654,7 +655,7 @@ function Messages({ chatId, turns, reqs, running, onRespond, onAct, extra, find,
         );
       })}
       {extra}
-      {reqs.map((r) => <RequestCard key={keyStr({ backend: r.key.backend, id: r.key.requestId })} r={r} onRespond={onRespond} />)}
+      {reqs.map((r) => <RequestCard key={keyStr({ backend: r.key.backend, id: r.key.requestId })} r={r} onRespond={onRespond} agentName={agentName} />)}
       {running && reqs.length === 0 ? <div className="msg ai"><div className="who">Codex</div><div className="activity">作業中…</div></div> : null}
     </div>
     {away ? <button className="jump" onClick={toBottom}>最新へ</button> : null}
@@ -667,8 +668,37 @@ function optClass(o: DecisionOption, first: boolean): string {
   return first ? "btn-main" : "btn-line";
 }
 
-export function RequestCard({ r, onRespond }: { r: PendingRequest; onRespond: CenterProps["onRespond"] }) {
-  const isQuestion = r.kind.kind === "userInput" || r.kind.kind === "toolElicitation";
+/** MCPの許可確認（elicitation）。承諾は「入力項目なし」の型だけ（ホストが選択肢に出す）。出せないものは灰色の破線で理由と案内を示す。 */
+function ElicitationCard({ r, onRespond, agentName }: { r: PendingRequest; onRespond: CenterProps["onRespond"]; agentName?: (a: AgentKey) => string }) {
+  const d = r.detail;
+  const server = d.server.kind === "value" ? d.server.value : null;
+  const canAccept = r.options.some((o) => o.id === "accept");
+  const who = agentName ? agentName(r.agent) : r.agent.id;
+  return (
+    <div className="req" role="group" aria-label="MCPの許可確認">
+      <div className="h"><Icon name="alert" />{server ? `MCPサーバー「${server}」からの許可の確認です` : "MCPサーバーからの許可の確認です"}</div>
+      <div className="t">要求元: <span title={`ID: ${r.agent.id}`}>{who}</span>（この確認が終わるまで、一覧の子の表示は「承認待ち」、ヘッダーは「対応待ち」になります）</div>
+      <div className="t small muted" lang="en" title="MCPサーバーが示した原文です">原文: {d.summary}</div>
+      {d.url.kind === "value" ? <code>{d.url.value}</code> : null}
+      <div className="opts">
+        {r.options.map((o, i) => (
+          <button key={o.id} className={optClass(o, i === 0)} title={o.description ?? undefined} onClick={() => onRespond(r, { kind: "decision", optionId: o.id })}>{o.label}</button>
+        ))}
+      </div>
+      {!canAccept ? (
+        <div className="req-na" role="note">
+          <b>許可する: ここでは選べません</b>
+          <div>入力項目のある確認、またはURLを開く確認のため、AgentDockでは許可できません。許可するときは、Codexのアプリ／CLIで許可してください。</div>
+        </div>
+      ) : null}
+      <div className="scope">辞退は「今回は許可しない」（明示的に拒否）、取りやめは「許可も拒否もせず取りやめる」です。どちらもこの確認にだけ作用します。</div>
+    </div>
+  );
+}
+
+export function RequestCard({ r, onRespond, agentName }: { r: PendingRequest; onRespond: CenterProps["onRespond"]; agentName?: (a: AgentKey) => string }) {
+  if (r.kind.kind === "toolElicitation") return <ElicitationCard r={r} onRespond={onRespond} agentName={agentName} />;
+  const isQuestion = r.kind.kind === "userInput";
   const d = r.detail;
   return (
     <div className="req" role="group" aria-label={isQuestion ? "質問" : "承認要求"}>
@@ -686,14 +716,14 @@ export function RequestCard({ r, onRespond }: { r: PendingRequest; onRespond: Ce
           </div>
         </div>
       )) : null}
-      {!isQuestion || (r.kind.kind === "toolElicitation" && r.options.length > 0) ? (
+      {!isQuestion ? (
         <div className="opts">
           {r.options.map((o, i) => (
             <button key={o.id} className={optClass(o, i === 0)} title={SCOPE_TEXT[o.scope]} onClick={() => onRespond(r, { kind: "decision", optionId: o.id })}>{o.label}</button>
           ))}
         </div>
       ) : null}
-      {!isQuestion || (r.kind.kind === "toolElicitation" && r.options.length > 0) ? <div className="scope" title="選択肢と効力範囲は Codex が示したものを表示します。">効力範囲: {r.options.map((o) => `${o.label}=${SCOPE_TEXT[o.scope]}`).join("／")}</div> : null}
+      {!isQuestion ? <div className="scope" title="選択肢と効力範囲は Codex が示したものを表示します。">効力範囲: {r.options.map((o) => `${o.label}=${SCOPE_TEXT[o.scope]}`).join("／")}</div> : null}
     </div>
   );
 }
@@ -970,7 +1000,7 @@ function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock
           {/* 受理の根拠は、問題があるときだけ1行目に出す（全文は title と「⋯」） */}
           {!accepted ? <span className="small acc" title={`${acceptLine}\n${acceptTip}`}>受理未確認</span> : changed ? <span className="small acc" title={acceptLine}>未受理</span> : null}
           {wmSelected && wmAccepted !== wmSelected ? <span className="small acc" title={wmLine ?? undefined}>{wmShort(wmSelected)}: 未受理</span> : null}
-          {!wmSelected && wmAccepted ? <span className="small acc" title={wmLine ?? undefined}>計画／実行 {wmShort(wmAccepted)} のまま</span> : null}
+          {!wmSelected && wmAccepted === "plan" ? <span className="small acc" title={wmLine ?? undefined}>計画／実行 {wmShort(wmAccepted)} のまま</span> : null}
           {speedKept ? <span className="small why" title={speedKeptLine ?? undefined}>速度 {speedKept} のまま</span> : null}
           </div>
           {/* 右端は折り返さない（送信・中断・送信方法）。設定部品は左の群で折り返す */}
@@ -1044,7 +1074,7 @@ export function CenterPane(p: CenterProps) {
       <Header snap={snap} chat={chat} onAct={p.onAct} commands={p.commands} local={p.local} onCwdToggle={() => setCwdOpen((o) => !o)} cwdLock={cwdLock} wasLive={p.wasLive} externalLabel={p.externalLabel} cwdInfo={p.cwdInfo} />
       {cwdOpen && !cwdLock ? <CwdPanel current={p.local?.nextCwd ?? knownValue(chat.cwd) ?? ""} onCwd={p.onCwd} onClose={() => setCwdOpen(false)} /> : null}
       <Banners p={p} />
-      <Messages key={chat.key.id} chatId={chat.key.id} turns={p.turns} reqs={reqs} running={running} onRespond={p.onRespond} onAct={p.onAct} find={find}
+      <Messages key={chat.key.id} chatId={chat.key.id} agentName={nameOf} turns={p.turns} reqs={reqs} running={running} onRespond={p.onRespond} onAct={p.onAct} find={find}
         locals={snap.attachments.filter((a) => keyStr(a.chat) === keyStr(chat.key))} files={p.files} sends={p.sends}
         resend={{ ctx: resendCtxOf(snap, chat, snap.sources.some((x) => x.connection.kind === "connected"), p.turns), rootAgentId: rootView(snap, chat)?.agent.key.id }}
         extra={<FilesBlock chatId={chat.key.id} sent={snap.attachments.filter((a) => keyStr(a.chat) === keyStr(chat.key) && a.usedBy.length > 0)} artifacts={snap.artifacts.filter((a) => keyStr(a.chat) === keyStr(chat.key))} files={p.files} />} />
