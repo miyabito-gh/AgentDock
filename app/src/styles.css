@@ -105,6 +105,8 @@ label{display:inline-flex;align-items:center;gap:6px}
 .btn.subtle{border-color:transparent;background:transparent}
 .btn.subtle:hover{background:var(--hover)}
 .btn.icon{width:var(--ctl);padding:0;justify-content:center}
+.btn.panebtn[aria-pressed=true],.btn.panebtn[aria-pressed=true]:hover{color:var(--accent)}
+.btn.panebtn[aria-pressed=false]{color:var(--ink3)}
 .btn.sm{height:24px;padding:0 8px;font-size:var(--fs-s)}
 .btn:disabled,.btn.primary:disabled,.btn.danger:disabled,.btn.danger-line:disabled,.btn-line:disabled,.btn-main:disabled,.btn-danger:disabled,
 .btn:disabled:hover,.btn.primary:disabled:hover,.btn.danger:disabled:hover,.btn-main:disabled:hover{background:var(--disabled-bg);color:var(--disabled-ink);border-color:var(--disabled-line);opacity:1;filter:none;font-weight:400;cursor:not-allowed}

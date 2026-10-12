@@ -1,32 +1,10 @@
 // 実行: node --test src/ui/fold.test.ts （tscの対象外）
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { formatWorkDuration, workFold, workFoldLabel, createFoldMemory, isLongBody, messageTexts, needsExpand, splitFold } from "./fold.ts";
+import { formatWorkDuration, workFold, workFoldLabel, createFoldMemory, isLongBody, messageTexts, needsExpand } from "./fold.ts";
 import { assignSends, chipKey, chipModel, classifyCarry, matchLocal, splitChips, UNDETERMINED_LABEL } from "./chips.ts";
 
 const e = (k: string, text = "x") => ({ kind: { kind: k }, text: { kind: "value", value: text } });
-const turn = (...ks: string[]) => ({ entries: ks.map((k) => e(k)) });
-const pair = () => turn("userMessage", "agentMessage");
-
-test("20件以内は折りたたまない", () => {
-  assert.deepEqual(splitFold(Array.from({ length: 10 }, pair), 20), { hiddenTurns: 0, hiddenMessages: 0 });
-  assert.deepEqual(splitFold([], 20), { hiddenTurns: 0, hiddenMessages: 0 });
-});
-
-test("直近20件を含む末尾のturn群を残し、境目はturnの間", () => {
-  // 12turn=24件: 末尾10turn(20件)を表示、先頭2turn(4件)を折りたたむ
-  assert.deepEqual(splitFold(Array.from({ length: 12 }, pair), 20), { hiddenTurns: 2, hiddenMessages: 4 });
-});
-
-test("作業の記録・要求は発言として数えない", () => {
-  const t = turn("userMessage", "command", "command", "reasoning", "agentMessage");
-  assert.deepEqual(splitFold(Array.from({ length: 11 }, () => t), 20), { hiddenTurns: 1, hiddenMessages: 2 });
-});
-
-test("折りたたまれる側に発言が無ければ折りたたまない", () => {
-  const ts = [turn("command"), ...Array.from({ length: 10 }, pair)];
-  assert.deepEqual(splitFold(ts, 20), { hiddenTurns: 0, hiddenMessages: 0 });
-});
 
 test("検索語が折りたたみ内にあるときだけ展開が要る（英字は大文字小文字無視、装飾をまたぐ一致も）", () => {
   assert.equal(needsExpand(["foo bar", "Hello World"], "world"), true);
@@ -117,14 +95,14 @@ test("再送の添付: 保持済みで使えるものだけ付け、欠損・復
 
 test("展開状態の記憶は、戻ったとき保たれ、上限を超えると古いチャットから忘れる", () => {
   const m = createFoldMemory(2);
-  assert.deepEqual(m.get("a"), { expanded: false, openMsgs: [], openWork: [] });
-  m.set("a", { expanded: true, openMsgs: ["i1"], openWork: [] });
-  m.set("b", { expanded: true, openMsgs: [], openWork: [] });
-  assert.equal(m.get("a").expanded, true); // 使うと新しい側へ
-  m.set("c", { expanded: true, openMsgs: [], openWork: [] });
+  assert.deepEqual(m.get("a"), { openMsgs: [], openWork: [] });
+  m.set("a", { openMsgs: ["i1"], openWork: [] });
+  m.set("b", { openMsgs: ["i2"], openWork: [] });
+  assert.deepEqual(m.get("a").openMsgs, ["i1"]); // 使うと新しい側へ
+  m.set("c", { openMsgs: ["i3"], openWork: [] });
   assert.equal(m.size(), 2);
-  assert.equal(m.get("b").expanded, false); // 最も古い b を忘れた
-  assert.equal(m.get("a").expanded, true);
+  assert.deepEqual(m.get("b").openMsgs, []); // 最も古い b を忘れた
+  assert.deepEqual(m.get("a").openMsgs, ["i1"]);
 });
 
 const we = (id: string, kind: string, messagePhase = "unknown", phase = "completed") => ({ key: { itemId: id }, kind: { kind }, phase, messagePhase });

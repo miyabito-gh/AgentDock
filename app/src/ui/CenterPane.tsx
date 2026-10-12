@@ -11,7 +11,7 @@ import { PENDING_TEXT } from "./ManageDialogs";
 import { TENTATIVE_HINT, TENTATIVE_STYLE, chatAgents, chatDisplay, chatName, chatRequests, chatTitle, chatStatusText, chatStops, isRunning, rootView, stopOpen } from "./derive";
 import { FRESH, STATE, STOP_LABEL, hms, holdText, keyStr, knownValue, showKnown, stopCauseText, targetList, unconfirmedNote } from "./format";
 import { baseName, clipboardImageName, mimeOf } from "./attach";
-import { FOLD_KEEP, createFoldMemory, isLongBody, messageTexts, needsExpand, splitFold, workFold, workFoldLabel } from "./fold";
+import { createFoldMemory, isLongBody, messageTexts, needsExpand, workFold, workFoldLabel } from "./fold";
 import { assignSends, chipKey, chipModel, matchLocal, splitChips, type SentLocal } from "./chips";
 import type { CommandView } from "./commands";
 import { GoalBar, UnverifiedTag, WORK_MODE_TEXT } from "./PrefsDialogs";
@@ -21,6 +21,9 @@ import { PURPOSE_TAG, resendAvailability, type ResendCtx } from "./resend";
 const SCOPE_TEXT = { once: "1回だけ", session: "このセッション中", persistent: "以後ずっと（永続）", unknown: "効力範囲は不明" } as const;
 
 export interface CenterProps {
+  /** 左（チャット一覧）・右（ドック）が今見えているか（狭い画面では一時表示の開閉）。ヘッダーの開閉ボタンの見た目に使う。 */
+  leftShown: boolean;
+  rightShown: boolean;
   snap: HostSnapshot;
   chat: Chat;
   turns: TurnRecord[];
@@ -180,7 +183,8 @@ function freshnessText(root: AgentView | undefined, wasLive: boolean): string {
     : `アプリの再起動後のため、保存履歴から表示しています。送信すると続きから再開します（再開するまでライブ監視はしません）。保存履歴から取得した状態です（${t}）。${STALE_TAIL}`;
 }
 
-function Header({ snap, chat, onAct, commands, local, onCwdToggle, cwdLock, wasLive, externalLabel, cwdInfo }: {
+function Header({ snap, chat, onAct, commands, local, onCwdToggle, cwdLock, wasLive, externalLabel, cwdInfo, leftShown, rightShown }: {
+  leftShown: boolean; rightShown: boolean;
   snap: HostSnapshot; chat: Chat; onAct: (a: string) => void; commands: CommandView[]; local: ChatLocalView | undefined; cwdInfo: PathInfo | undefined;
   onCwdToggle: () => void; cwdLock: string | null; wasLive: boolean; externalLabel: string | undefined;
 }) {
@@ -193,7 +197,7 @@ function Header({ snap, chat, onAct, commands, local, onCwdToggle, cwdLock, wasL
   const freshTip = freshnessText(root, wasLive);
   return (
     <div className="chead">
-      <button className="only-narrow-l" aria-label="チャット一覧を開く" onClick={() => onAct("toggleLeft")}><Icon name="list" /></button>
+      <button className="btn subtle icon panebtn" aria-label="チャット一覧" aria-pressed={leftShown} title={`チャット一覧を${leftShown ? "閉じる" : "開く"}（Ctrl+B）`} onClick={() => onAct("toggleLeft")}><Icon name="list" /></button>
       <span className="ttl" style={ttl.confirmed ? undefined : TENTATIVE_STYLE} title={`${ttl.text}（Codex）${ttl.confirmed ? "" : `\n${TENTATIVE_HINT}`}`}>{ttl.text}</span>
       {/* 状態と鮮度は別表示。片方から他方を導かない */}
       <span className={`st ${chatChipClass(snap, chat)}`}><i />{chatStatusText(snap, chat)}</span>
@@ -250,7 +254,7 @@ function Header({ snap, chat, onAct, commands, local, onCwdToggle, cwdLock, wasL
           </>
         )}
       </Popover>
-      <button className="only-narrow-r" aria-label="エージェントのドックを開く" onClick={() => onAct("toggleRight")}><Icon name="dock" /></button>
+      <button className="btn subtle icon panebtn" aria-label="エージェントのドック" aria-pressed={rightShown} title={`エージェントのドックを${rightShown ? "閉じる" : "開く"}（Ctrl+Alt+B）`} onClick={() => onAct("toggleRight")}><Icon name="dock" /></button>
     </div>
   );
 }
@@ -518,38 +522,16 @@ function Messages({ chatId, turns, reqs, running, onRespond, onAct, extra, find,
   const ref = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   const [away, setAway] = useState(false);
-  // 折りたたみ（既定は直近の発言だけ。展開はこのチャットの間だけ覚え、新しい発言で勝手に折りたたまない）
-  const [expanded, setExpandedRaw] = useState(() => foldMem.get(chatId).expanded);
+  // 長い依頼文の展開状態（依頼の項目単位。チャット別に覚える）
   const [openMsgs, setOpenMsgs] = useState<string[]>(() => foldMem.get(chatId).openMsgs);
   // 完了したturnの「作業の経過」の展開状態（turn単位。チャット別に覚える）
   const [openWork, setOpenWork] = useState<string[]>(() => foldMem.get(chatId).openWork);
-  const memo = useRef({ expanded, openMsgs, openWork });
+  const memo = useRef({ openMsgs, openWork });
   const remember = (p: Partial<typeof memo.current>) => { memo.current = { ...memo.current, ...p }; foldMem.set(chatId, memo.current); };
-  const setExpanded = (f: (v: boolean) => boolean) => setExpandedRaw((v) => { const n = f(v); remember({ expanded: n }); return n; });
   const toggleMsg = (id: string) => setOpenMsgs((o) => { const n = o.includes(id) ? o.filter((x) => x !== id) : [...o, id]; remember({ openMsgs: n }); return n; });
   const toggleWork = (id: string) => setOpenWork((o) => { const n = o.includes(id) ? o.filter((x) => x !== id) : [...o, id]; remember({ openWork: n }); return n; });
-  const fold = useMemo(() => splitFold(turns, FOLD_KEEP), [turns]);
   // 送った直後（履歴・live通知がまだ添付を運ばない間）は、送信時のローカルの記録から添付を出す
   const sentMap = useMemo(() => assignSends(turns, sends), [turns, sends]);
-  const folded = fold.hiddenTurns > 0;
-  // 検索の語が折りたたみ内にあれば自動で展開する（件数が折りたたみの有無で変わらないように）
-  const findForce = folded && find.open && !!find.query && needsExpand(messageTexts(turns.slice(0, fold.hiddenTurns)), find.query);
-  const open = expanded || findForce;
-  const lastH = useRef(0);
-  const prevOpen = useRef(open);
-  // 展開・折りたたみで古い側の高さが変わっても、いま見ている位置が飛ばないように補正する
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    if (prevOpen.current !== open) {
-      prevOpen.current = open;
-      const d = el.scrollHeight - lastH.current;
-      if (d !== 0) el.scrollTop += d;
-    }
-    lastH.current = el.scrollHeight;
-  });
-  const toggleFold = () => { if (ref.current) lastH.current = ref.current.scrollHeight; setExpanded((v) => !v); };
-  const visible = folded && !open ? turns.slice(fold.hiddenTurns) : turns;
   const toBottom = () => { const el = ref.current; if (el) el.scrollTop = el.scrollHeight; stick.current = true; setAway(false); };
   const onScroll = () => {
     const el = ref.current;
@@ -566,15 +548,7 @@ function Messages({ chatId, turns, reqs, running, onRespond, onAct, extra, find,
     <div className="msgs-wrap">
     {find.open ? <FindBar root={ref} query={find.query} setQuery={find.setQuery} focusTick={find.tick} partial={find.partial} onClose={find.close} /> : null}
     <div className="msgs" id="msgs" aria-live="polite" ref={ref} onScroll={onScroll}>
-      {folded ? (
-        <div className="foldrow">
-          <button type="button" className="foldbtn" aria-expanded={open} disabled={open && !expanded}
-            title={open && !expanded ? "検索の一致が過去のメッセージにあるため、展開しています" : undefined} onClick={toggleFold}>
-            {open ? "過去のメッセージを折りたたむ" : `${fold.hiddenMessages}件の過去のメッセージ ›`}
-          </button>
-        </div>
-      ) : null}
-      {visible.map((t) => {
+      {turns.map((t) => {
         // 完了したturnの途中経過と作業の記録は「作業の経過」に畳む（実行中・失敗・中断・phase不明は畳まない）
         const wf = workFold(t);
         const wfSet = new Set(wf?.ids ?? []);
@@ -1073,7 +1047,7 @@ export function CenterPane(p: CenterProps) {
     : chat.origin === "external" && rootView(snap, chat)?.freshness !== "live" ? "再開するまで送信できません（上の案内から再開）" : null;
   return (
     <>
-      <Header snap={snap} chat={chat} onAct={p.onAct} commands={p.commands} local={p.local} onCwdToggle={() => setCwdOpen((o) => !o)} cwdLock={cwdLock} wasLive={p.wasLive} externalLabel={p.externalLabel} cwdInfo={p.cwdInfo} />
+      <Header snap={snap} chat={chat} onAct={p.onAct} commands={p.commands} local={p.local} onCwdToggle={() => setCwdOpen((o) => !o)} cwdLock={cwdLock} wasLive={p.wasLive} externalLabel={p.externalLabel} cwdInfo={p.cwdInfo} leftShown={p.leftShown} rightShown={p.rightShown} />
       {cwdOpen && !cwdLock ? <CwdPanel current={p.local?.nextCwd ?? knownValue(chat.cwd) ?? ""} onCwd={p.onCwd} onClose={() => setCwdOpen(false)} /> : null}
       <Banners p={p} />
       <Messages key={chat.key.id} chatId={chat.key.id} agentName={nameOf} turns={p.turns} reqs={reqs} running={running} onRespond={p.onRespond} onAct={p.onAct} find={find}

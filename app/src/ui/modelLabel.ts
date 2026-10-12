@@ -34,9 +34,9 @@ export function modelBadge(model: Known<string>, effort: Known<string>): string 
 
 const absent = (k: Known<string>): string => (k.kind === "unsupported" ? "非対応" : "未確認");
 
-/** 親の履歴に記録された起動時の指定の1行。親が未読込みなど確定できないときは「未確認」（空や既定で代用しない）。 */
-export function spawnSpecLine(spec: Known<SpawnSpec> | undefined): string {
-  if (!spec || spec.kind !== "value") return "起動時の指定: 未確認";
+/** 親の履歴に記録された起動時の指定の1行。値が取れたときだけ返し、取れないとき（未確認・非対応・中身が空）は null（行を出さない）。 */
+export function spawnSpecLine(spec: Known<SpawnSpec> | undefined): string | null {
+  if (!spec || spec.kind !== "value") return null;
   const v = spec.value;
   const parts = [
     v.taskName ? `名前 ${v.taskName}` : null,
@@ -44,15 +44,16 @@ export function spawnSpecLine(spec: Known<SpawnSpec> | undefined): string {
     v.effort ? `推論強度 ${v.effort}` : null,
     v.forkTurns ? `引き継ぎ ${v.forkTurns}` : null,
   ].filter((x): x is string => x !== null);
-  return parts.length === 0 ? "起動時の指定: 未確認" : `起動時の指定（記録値）: ${parts.join("・")}`;
+  return parts.length === 0 ? null : `起動時の指定（記録値）: ${parts.join("・")}`;
 }
 
 /** ツールチップの全文。記録値であることを必ず添える。`spawn` を渡すと起動時の指定を続ける。 */
 export function modelTooltip(model: Known<string>, effort: Known<string>, spawn?: Known<SpawnSpec>): string {
   const m = valueOf(model);
   const e = valueOf(effort);
-  const tail = spawn === undefined ? "" : `
-${spawnSpecLine(spawn)}`;
+  const line = spawnSpecLine(spawn);
+  const tail = line === null ? "" : `
+${line}`;
   if (m === null && e === null) return `モデル: ${absent(model)}${tail}`;
   const parts = [`モデル: ${m ?? absent(model)}`, `推論強度: ${e ?? absent(effort)}`];
   return `${parts.join("・")}（記録値。いま使用中とは限りません）${tail}`;

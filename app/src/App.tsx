@@ -6,7 +6,6 @@ import type { RepoRecordChoice, AgentKey, AppSettings, AttachmentEntry, Chat, Ch
 import * as host from "./ipc/client";
 import { LinkContext, RefContext, type PathAction, type RefActions } from "./ui/Markdown";
 import { copyText } from "./ui/markdown/parts";
-import { baseNameOf } from "./ui/markdown/refs";
 import { usePathStats } from "./ui/usePathStats";
 import { applyHostEvent, createEventPipeline, emptyBundle, replaceSnapshot, seqAction, UNKNOWN_CAPS } from "./ipc/live";
 import type { Bundle } from "./mock/data";
@@ -841,8 +840,6 @@ export default function App() {
     switch (act) {
       case "attach": void addFiles(chat.key, [abs]); break;
       case "copyAbs": copy(abs, "絶対パス"); break;
-      case "copyRel": if (info.relative) copy(info.relative, "相対パス"); break;
-      case "copyName": copy(baseNameOf(abs), "ファイル名"); break;
       case "reveal": host.revealPath(chat.key, path).catch((e) => sayErr("表示できませんでした", e)); break;
       case "open": openWithConfirm(chat.key, path); break;
     }
@@ -1335,6 +1332,7 @@ export default function App() {
                 queue={snap.queues.find((q) => q.chat.id === chat.key.id)} local={snap.chatLocals.find((l) => l.chat.id === chat.key.id)}
                 qact={qact} onPermission={onPermission} onCwd={onCwd} sends={sends[chat.key.id] ?? NO_SENDS}
                 cwdInfo={headCwd ? pathInfo(headCwd) : undefined}
+                leftShown={leftTemp ? lNarrow : leftOpen} rightShown={rightTemp ? rNarrow : rightOpen}
               />
             ) : <EmptyCenter onAct={act} />}
           </main>

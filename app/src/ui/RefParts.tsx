@@ -7,7 +7,7 @@ import { ExtLink } from "./markdown/parts";
 import { linkPolicy } from "./markdown/plugins";
 import { baseNameOf, pathCandidate, pathFromHref, type PathCandidate } from "./markdown/refs";
 
-export type PathAction = "attach" | "copyAbs" | "copyRel" | "copyName" | "open" | "reveal";
+export type PathAction = "attach" | "copyAbs" |"open" | "reveal";
 
 export interface RefActions {
   /** 一覧にあるチャットの表示名。一覧になければ undefined。 */
@@ -144,9 +144,7 @@ function PathRef({ cand, plain, label }: { cand: PathCandidate | null; plain: Re
             return (
               <>
                 {ok.kind === "file" ? <button role="menuitem" disabled={!ctx.canAttach} title={ctx.canAttach ? "入力欄の添付に追加します（コピーして保持）" : "チャットを選ぶと使えます"} onClick={act("attach")}><span>コンテキストとして添付</span></button> : null}
-                <button role="menuitem" onClick={act("copyAbs")}><span>コピー › 絶対パス</span></button>
-                {ok.relative ? <button role="menuitem" onClick={act("copyRel")}><span>コピー › 相対パス</span></button> : null}
-                <button role="menuitem" onClick={act("copyName")}><span>コピー › ファイル名</span></button>
+                <button role="menuitem" onClick={act("copyAbs")}><span>絶対パスをコピー</span></button>
                 <hr />
                 <button role="menuitem" onClick={act("open")}><span>{ok.kind === "folder" ? "フォルダを開く" : "開く"}</span></button>
                 <button role="menuitem" onClick={act("reveal")}><span>エクスプローラーで表示</span></button>
