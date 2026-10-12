@@ -1008,10 +1008,9 @@ export function CenterPane(p: CenterProps) {
   const running = isRunning(snap, chat);
   const reqs = chatRequests(snap, chat);
   const hasOpenStop = chatStops(snap, chat).some(stopOpen);
-  const [cwdOpen, setCwdOpen] = useState(false);
-  // 作業フォルダの帯はチャットごと。CenterPane はチャット切替で再生成されないので、切替のたびに閉じる。
-  const cwdChat = useRef(chat.key.id);
-  if (cwdChat.current !== chat.key.id) { cwdChat.current = chat.key.id; if (cwdOpen) setCwdOpen(false); }
+  // 作業フォルダの帯はチャットごと。開いているチャットのIDを持ち、別のチャットへ切り替えたら自然に閉じる（描画中の書き換えはしない）。
+  const [cwdOpenFor, setCwdOpenFor] = useState<string | null>(null);
+  const cwdOpen = cwdOpenFor === chat.key.id;
   // 会話内検索（Ctrl+F。Appが "agentdock:find" を送る）。チャットを切り替えても開いたまま同じ語で検索し直す。
   const [findOpen, setFindOpen] = useState(false);
   const [findQuery, setFindQuery] = useState("");
@@ -1047,8 +1046,8 @@ export function CenterPane(p: CenterProps) {
     : chat.origin === "external" && rootView(snap, chat)?.freshness !== "live" ? "再開するまで送信できません（上の案内から再開）" : null;
   return (
     <>
-      <Header snap={snap} chat={chat} onAct={p.onAct} commands={p.commands} local={p.local} onCwdToggle={() => setCwdOpen((o) => !o)} wasLive={p.wasLive} externalLabel={p.externalLabel} cwdInfo={p.cwdInfo} leftShown={p.leftShown} rightShown={p.rightShown} />
-      {cwdOpen ? <WorkFoldersPanel key={chat.key.id} api={p.wf} lockReason={cwdLock} permissionText={PERMISSION_FULL[p.local?.permission ?? "workspaceWriteOnRequest"]} fallback={p.local?.nextFolders?.folders ?? [p.local?.nextCwd ?? knownValue(chat.cwd) ?? ""].filter(Boolean)} onClose={() => setCwdOpen(false)} /> : null}
+      <Header snap={snap} chat={chat} onAct={p.onAct} commands={p.commands} local={p.local} onCwdToggle={() => setCwdOpenFor((id) => (id === chat.key.id ? null : chat.key.id))} wasLive={p.wasLive} externalLabel={p.externalLabel} cwdInfo={p.cwdInfo} leftShown={p.leftShown} rightShown={p.rightShown} />
+      {cwdOpen ? <WorkFoldersPanel key={`wf-${chat.key.id}`} api={p.wf} lockReason={cwdLock} permissionText={PERMISSION_FULL[p.local?.permission ?? "workspaceWriteOnRequest"]} fallback={p.local?.nextFolders?.folders ?? [p.local?.nextCwd ?? knownValue(chat.cwd) ?? ""].filter(Boolean)} onClose={() => setCwdOpenFor(null)} /> : null}
       <Banners p={p} />
       <Messages key={chat.key.id} chatId={chat.key.id} agentName={nameOf} decisions={p.decisions} turns={p.turns} reqs={reqs} running={running} onRespond={p.onRespond} onAct={p.onAct} find={find}
         locals={snap.attachments.filter((a) => keyStr(a.chat) === keyStr(chat.key))} files={p.files} sends={p.sends}
