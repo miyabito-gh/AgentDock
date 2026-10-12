@@ -16,7 +16,7 @@ AgentDockプロジェクトのClaude Code向け作業指示。毎ターン読み
 ## プロジェクト
 
 - **AgentDock**: Windows 11上でCodexを使う個人用の独立クライアント。アプリ内で起動・チャット・承認・質問・中断・履歴を扱い、子・孫エージェントを常時監視する。
-- 要件の正本: `AgentDock_Requirements.md`（1.0）。要件変更はこのファイルを版更新する。`Agent_Monitor_Requirements.md`以下の旧資料・レビューは経緯・証拠記録で、**実装中は読まない**。
+- 要件の正本: `AgentDock_Requirements.md`（1.5）。要件変更はこのファイルを版更新する。`Agent_Monitor_Requirements.md`以下の旧資料・レビューは経緯・証拠記録で、**実装中は読まない**。
 - 画面の基準: `AgentDock_Mock.html`（旧`Agent_Monitor_Mock.html`は変更しない）。
 - 技術: Tauri 2＋React＋TypeScript、Rustホスト。Codex App Serverへstdio（JSON-RPC）で接続。codex.exeは設定でパス指定、既存`~/.codex`を共有。
 - 将来の他AI接続に備え、ホストに**AIバックエンド境界**を置く。Codex固有の型をUI・保存形式へ持ち込まない（正本§2.3）。
@@ -172,6 +172,4 @@ AgentDockプロジェクトのClaude Code向け作業指示。毎ターン読み
 - Markdownは react-markdown＋remark-gfm だけ例外として追加。生HTMLは文字で表示、リンクは確認後に http・https だけ開く、リモート画像は読み込まない、依頼は整形しない。
 - 設定以外のダイアログもEscで閉じる（IME変換中は閉じない）。実行中のチャットでは編集・再生成を許さない。再送は押したときだけ1回、自動再送なし。
 
-**現状（2026-10-10）: 段階③＋Git基準の戻す完了、GUIデザイン案の選択待ち。引き継ぎは `app/HANDOFF.md` 冒頭を最初に読む。** 以下は2026-10-07時点の記述。
-
-**旧現状（2026-10-07）: 段階③まで実装完了（修正バッチ・P3-0〜P3-10・R3、NSIS作成済み）。実機確認は `app/LIVE_CHECK_P3.md` と段階②の残り。段階②: 実装完了、実機確認は途中。残りの実機確認は後でまとめて行い、実装を先に進める。引き継ぎは `app/HANDOFF.md` を最初に読む。** 次は段階②持ち越しの修正バッチ → 段階③（18操作）の分解・実装。
+**現状（2026-10-12）: 段階①〜⑤・UI・第4段（修正バッチ）・メニュー再設計（`app/DESIGN_MENUS.md`）まで実装・コミット済み（最新 f3db435、未プッシュ。NSIS 2026-10-12 19:09）。実機確認待ちは `app/LIVE_CHECK_B4.md`（メニュー再設計は §13、項目19、未確認の49・46・50）。引き継ぎは `app/HANDOFF.md` 冒頭を最初に読む。** 実機確認はユーザーが行う。
