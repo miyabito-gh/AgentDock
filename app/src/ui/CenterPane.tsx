@@ -6,6 +6,7 @@ import type {
 import { Icon } from "./Icon";
 import { FindBar } from "./FindBar";
 import { Popover } from "./Popover";
+import { WorkFoldersPanel, type WorkFoldersApi } from "./WorkFoldersUi";
 import { Markdown, PathText, COPY_LABEL, useCopy } from "./Markdown";
 import { PENDING_TEXT } from "./ManageDialogs";
 import { TENTATIVE_HINT, TENTATIVE_STYLE, chatAgents, chatDisplay, chatName, chatRequests, chatTitle, chatStatusText, chatStops, isRunning, rootView, stopOpen } from "./derive";
@@ -69,7 +70,8 @@ export interface CenterProps {
   local: ChatLocalView | undefined;
   qact: QueueActions;
   onPermission: (p: PermissionPreset) => void;
-  onCwd: (cwd: string, confirmed: boolean) => Promise<CwdResult>;
+  /** 作業フォルダの確認・変更（実接続のときだけ。モックは null）。 */
+  wf: WorkFoldersApi | null;
   /** このチャットで送った発言のローカルの記録（送信直後の添付チップ用）。 */
   sends: SentLocal[];
   /** ヘッダーの作業フォルダの実在確認（読取りのメタデータ）。未取得は undefined。 */
@@ -131,7 +133,6 @@ function modelChanged(s: ChatModelSettings | undefined): boolean {
   return acc.model !== sel.model || (acc.effort ?? "") !== (sel.effort ?? "") || (acc.speedTier ?? "") !== ((sel.speedTier ?? "") === "default" ? "" : (sel.speedTier ?? ""));
 }
 
-export type CwdResult = { kind: "ok" } | { kind: "needsConfirm"; waiting: number } | { kind: "error"; message: string };
 
 const PERMISSION_LABEL: Record<PermissionPreset, string> = {
   workspaceWriteOnRequest: "作業領域＋要確認",
@@ -186,10 +187,10 @@ function freshnessText(root: AgentView | undefined, wasLive: boolean): string {
     : `アプリの再起動後のため、保存履歴から表示しています。送信すると続きから再開します（再開するまでライブ監視はしません）。保存履歴から取得した状態です（${t}）。${STALE_TAIL}`;
 }
 
-function Header({ snap, chat, onAct, commands, local, onCwdToggle, cwdLock, wasLive, externalLabel, cwdInfo, leftShown, rightShown }: {
+function Header({ snap, chat, onAct, commands, local, onCwdToggle, wasLive, externalLabel, cwdInfo, leftShown, rightShown }: {
   leftShown: boolean; rightShown: boolean;
   snap: HostSnapshot; chat: Chat; onAct: (a: string) => void; commands: CommandView[]; local: ChatLocalView | undefined; cwdInfo: PathInfo | undefined;
-  onCwdToggle: () => void; cwdLock: string | null; wasLive: boolean; externalLabel: string | undefined;
+  onCwdToggle: () => void; wasLive: boolean; externalLabel: string | undefined;
 }) {
   const root = rootView(snap, chat);
   const fresh = FRESH[root?.freshness ?? "needsReconcile"];
@@ -217,8 +218,8 @@ function Header({ snap, chat, onAct, commands, local, onCwdToggle, cwdLock, wasL
         </Popover>
       )}
       {cwd ? (
-        dev && !cwdLock
-          ? <button className="cwd mono" title={`作業フォルダ: ${cwd}\n押すと、次の送信から使う作業フォルダを変更します`} onClick={onCwdToggle}>{cwd}</button>
+        dev
+          ? <button className="cwd mono" title={`作業フォルダ: ${cwd}\n押すと、作業フォルダの確認と変更を開きます`} onClick={onCwdToggle}>{cwd}</button>
           : <span className="cwd mono" title={`作業フォルダ: ${cwd}`}>{cwd}</span>
       ) : <span className="cwd" title="一般チャット（作業フォルダなし）">一般</span>}
       {cwd ? (() => {
@@ -250,7 +251,7 @@ function Header({ snap, chat, onAct, commands, local, onCwdToggle, cwdLock, wasL
               );
             })}
             <hr />
-            {dev ? <button role="menuitem" disabled={!!cwdLock} title={cwdLock ?? "次の送信から使う作業フォルダを変更します"} onClick={() => { close(); onCwdToggle(); }}><span>作業フォルダを変更</span></button> : null}
+            {dev ? <button role="menuitem" title="作業フォルダの確認と、次の送信から使う作業フォルダの変更" onClick={() => { close(); onCwdToggle(); }}><span>作業フォルダ{(local?.nextFolders?.folders.length ?? 0) > 1 ? `（${local?.nextFolders?.folders.length}）` : ""}</span></button> : null}
             {!isLive ? <button role="menuitem" title="保存履歴を読み直して状態を取り直します（読み取りのみ）" onClick={() => { close(); onAct("reloadHistory"); }}><span>状態を再照合</span></button> : null}
             <hr />
             <button role="menuitem" title="すべての操作を検索（Ctrl+K）" onClick={() => { close(); onAct("palette"); }}><span>すべての操作…</span><span className="kbd">Ctrl+K</span></button>
@@ -826,28 +827,6 @@ function Queue({ q, nameOf, qact, steerWhy }: { q: ChatQueue | undefined; nameOf
   );
 }
 
-function CwdPanel({ current, onCwd, onClose }: { current: string; onCwd: CenterProps["onCwd"]; onClose: () => void }) {
-  const [path, setPath] = useState(current);
-  const [need, setNeed] = useState<number | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
-  const apply = async (confirmed: boolean) => {
-    const r = await onCwd(path.trim(), confirmed);
-    if (r.kind === "ok") onClose(); else if (r.kind === "needsConfirm") setNeed(r.waiting); else setMsg(r.message);
-  };
-  return (
-    <div className="cbanner info">
-      <h4>次の送信から使う作業フォルダを変更</h4>
-      <input aria-label="作業フォルダ" className="mono" style={{ width: "100%" }} value={path} onChange={(e) => { setPath(e.target.value); setNeed(null); }} />
-      {need !== null ? <div style={{ marginTop: 4 }}><b>送信待ちの依頼 {need}件も、新しいフォルダが対象になります。</b></div> : null}
-      {msg ? <div className="why err" style={{ marginTop: 4 }}>{msg}</div> : null}
-      <div className="acts">
-        <button className="btn-main" disabled={!path.trim()} onClick={() => void apply(need !== null)}>{need !== null ? "確認して変更" : "変更"}</button>
-        <button className="btn-line" onClick={onClose}>やめる</button>
-      </div>
-    </div>
-  );
-}
-
 function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock: string | null }) {
   const { settings, models, attachments } = p;
   const dflt = models.find((m) => m.isDefault) ?? models[0];
@@ -1065,8 +1044,8 @@ export function CenterPane(p: CenterProps) {
     : chat.origin === "external" && rootView(snap, chat)?.freshness !== "live" ? "再開するまで送信できません（上の案内から再開）" : null;
   return (
     <>
-      <Header snap={snap} chat={chat} onAct={p.onAct} commands={p.commands} local={p.local} onCwdToggle={() => setCwdOpen((o) => !o)} cwdLock={cwdLock} wasLive={p.wasLive} externalLabel={p.externalLabel} cwdInfo={p.cwdInfo} leftShown={p.leftShown} rightShown={p.rightShown} />
-      {cwdOpen && !cwdLock ? <CwdPanel current={p.local?.nextCwd ?? knownValue(chat.cwd) ?? ""} onCwd={p.onCwd} onClose={() => setCwdOpen(false)} /> : null}
+      <Header snap={snap} chat={chat} onAct={p.onAct} commands={p.commands} local={p.local} onCwdToggle={() => setCwdOpen((o) => !o)} wasLive={p.wasLive} externalLabel={p.externalLabel} cwdInfo={p.cwdInfo} leftShown={p.leftShown} rightShown={p.rightShown} />
+      {cwdOpen ? <WorkFoldersPanel key={chat.key.id} api={p.wf} lockReason={cwdLock} permissionText={PERMISSION_FULL[p.local?.permission ?? "workspaceWriteOnRequest"]} fallback={p.local?.nextFolders?.folders ?? [p.local?.nextCwd ?? knownValue(chat.cwd) ?? ""].filter(Boolean)} onClose={() => setCwdOpen(false)} /> : null}
       <Banners p={p} />
       <Messages key={chat.key.id} chatId={chat.key.id} agentName={nameOf} decisions={p.decisions} turns={p.turns} reqs={reqs} running={running} onRespond={p.onRespond} onAct={p.onAct} find={find}
         locals={snap.attachments.filter((a) => keyStr(a.chat) === keyStr(chat.key))} files={p.files} sends={p.sends}

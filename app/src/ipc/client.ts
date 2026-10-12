@@ -14,6 +14,7 @@ import {
   type ChatLocalView, type DeleteOutcome, type DeletePreview, type UsageReport, type ManageOutcome,
   type ChangeList, type ChangeScope, type ChangeSource, type ExternalId, type RevertPlan, type RevertResult, type SegmentStatus, type UnifiedDiff,
   type PathInfo, type BackendStatus, type Goal, type GoalUpdate, type Known, type MemoryStatus, type OpAck, type ResetMemoryResult, type WorkMode, type WorkModeInfo,
+  type FolderCheck, type WorkFoldersView,
   type GitInfo, type WorktreeRecord, type WorktreeRemoveOutcome, type WorktreeRemovePreview,
   type HandoffText, type InstructionFiles, type InstructionTemplateResult, type OpenSideResult, type ReferenceBlock, type ReferenceTurns, type SideSessionMeta, type SideTranscript, type SkillList,
   type DecisionRecord, type ExtensionOp, type ExtensionOpRecord, type ExtensionView, type ToolServerList, type ToolServerLoginStart,
@@ -44,8 +45,9 @@ export const listChats = (cursor: string | null = null, includeArchived = false)
   invokeCmd("list_chats", { cursor, limit: null, search: null, includeArchived });
 export const openChat = (chat: ChatKey): Promise<AgentHistory> => invokeCmd("open_chat", { chat });
 /** worktree は、作業フォルダ（cwd）がAgentDockが作ったworktreeの場所のとき、その記録のID（チャットに結び付ける）。 */
-export const startChat = (cwd: string | null, model: ModelChoice | null, firstMessage: string | null, permission: PermissionPreset | null = null, worktree: LocalId | null = null): Promise<StartChatResult> =>
-  invokeCmd("start_chat", { backend: "codex", cwd, model, permission, firstMessage, worktree, extraFolders: [], confirmedStrong: [] });
+/** extraFolders は追加の作業フォルダ（cwd以外）。confirmedStrong は強い確認を済ませたパス（ホストが再検査する）。 */
+export const startChat = (cwd: string | null, model: ModelChoice | null, firstMessage: string | null, permission: PermissionPreset | null = null, worktree: LocalId | null = null, extraFolders: string[] = [], confirmedStrong: string[] = []): Promise<StartChatResult> =>
+  invokeCmd("start_chat", { backend: "codex", cwd, model, permission, firstMessage, worktree, extraFolders, confirmedStrong });
 export const sendMessage = (chat: ChatKey, text: string, intent: SendIntent, attachments: LocalId[] = [], steerEntry: LocalId | null = null): Promise<SendAttempt> =>
   invokeCmd("send_message", { chat, text, attachments, intent, steerEntry });
 export const retrySend = (chat: ChatKey, attempt: LocalId): Promise<SendAttempt> => invokeCmd("retry_send", { chat, attempt });
@@ -80,8 +82,15 @@ export const sendQueueEntryNow = (chat: ChatKey, entry: LocalId): Promise<ChatQu
 export const reconcileSend = (chat: ChatKey, attempt: LocalId): Promise<SendAttempt> => invokeCmd("reconcile_send", { chat, attempt });
 export const setChatPermission = (chat: ChatKey, permission: PermissionPreset): Promise<SettingsImpact> =>
   invokeCmd("set_chat_permission", { chat, permission });
-export const setChatCwd = (chat: ChatKey, cwd: string, queueRetargetConfirmed: boolean): Promise<SettingsImpact> =>
-  invokeCmd("set_chat_cwd", { chat, cwd, queueRetargetConfirmed, confirmedStrong: [] });
+export const setChatCwd = (chat: ChatKey, cwd: string, queueRetargetConfirmed: boolean, confirmedStrong: string[] = []): Promise<SettingsImpact> =>
+  invokeCmd("set_chat_cwd", { chat, cwd, queueRetargetConfirmed, confirmedStrong });
+/** 作業フォルダの並び（先頭＝プライマリ）を次の送信から使う値として保存する。送信までは何も送らない。 */
+export const setNextWorkFolders = (chat: ChatKey, folders: string[], confirmedStrong: string[], queueRetargetConfirmed: boolean): Promise<SettingsImpact> =>
+  invokeCmd("set_next_work_folders", { chat, folders, confirmedStrong, queueRetargetConfirmed });
+/** 作業フォルダの確認表示（読込み済みのときだけ直接取得。resumeしない）。 */
+export const getWorkFolders = (chat: ChatKey): Promise<WorkFoldersView> => invokeCmd("get_work_folders", { chat });
+/** 追加前の1件の検査（読取りのみ）。current は既に並んでいるフォルダ。 */
+export const checkWorkFolder = (path: string, current: string[]): Promise<FolderCheck> => invokeCmd("check_work_folder", { path, current });
 /** アプリ設定の保存（通知設定など。ホストが保存し、`settingsUpdated` で返る）。 */
 export const setAppSettings = (settings: AppSettings): Promise<AppSettings> => invokeCmd("set_app_settings", { settings });
 /** 起動時の保存データ警告を確認済みにする（reset=true で解除）。設定へ保存するだけで、領域のファイルは触らない。 */

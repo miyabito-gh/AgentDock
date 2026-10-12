@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Chat, ChatKey, ChatLocalView, ChatPendingOp, ChatQueue, ChatModelSettings, ForceKillPreview, Goal, GoalUpdate, Known, ModelInfo, NotificationSettings, OpCapability, QuitDecision, QuitPhase, RevertResult, SaveStatus, SideSessionMeta, SourceInfo, StopRecord, StopSummary, WorktreeRecord, CloudTaskRecord } from "../ipc/types";
-import type { AppearanceSettings, BodyTextSize, ChatListView, ThemePref, UiTextSize } from "../ipc/types";
+import type { AppearanceSettings, BodyTextSize, ChatListView, StrongReason, ThemePref, UiTextSize, Support } from "../ipc/types";
 import { chatName } from "./derive";
 import { SCOPE_TEXT } from "./Chrome";
 import { Icon } from "./Icon";
@@ -19,6 +19,8 @@ import { ExtensionsBody } from "./ExtensionsDialogs";
 import { InstructionBody, ReferenceBody, SkillsBody, type ComposeProps } from "./ComposeDialogs";
 import { WorkspaceChoice, WorktreesBody } from "./WorktreeDialogs";
 import { CloudBody } from "./CloudDialogs";
+import { FolderListEditor } from "./WorkFoldersUi";
+import { addBlockReason, applyCheck, confirmedStrongPaths, MAX_FOLDERS, projectDefaults, REJECT_TEXT, saveBlockReason, strongText, type FolderItem } from "./workFolders";
 
 export type DialogState =
   | { type: "settings"; tab: string }
@@ -360,10 +362,12 @@ function RenameDialog({ chat, onClose, run }: { chat: Chat | undefined; onClose:
 }
 
 /** isolate は「分離」（worktreeを作成してから開始）。worktree は既存のAgentDock作成worktreeの記録ID（チャットに結び付ける）。 */
-export interface NewChatInput { cwd: string | null; model: string; firstMessage: string | null; isolate: boolean; worktree: string | null }
+export interface NewChatInput { cwd: string | null; model: string; firstMessage: string | null; isolate: boolean; worktree: string | null; /** 追加の作業フォルダ（プライマリ以外）。 */ extraFolders: string[]; /** 強い確認を済ませたパス（ホストが再検査する）。 */ confirmedStrong: string[] }
 
-export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnterMode, top, setTab, onAct, exe, onCreateChat, notify, autostart, appearance, quit, force, manage, onRename, opCaps, live, changesTick, onRevertDone, prefs, threadOps, worktree, cloudTasks, compose, resend }: {
+export function Dialogs({ workspaceRoots, d, onClose, chats, source, models, enterMode, setEnterMode, top, setTab, onAct, exe, onCreateChat, notify, autostart, appearance, quit, force, manage, onRename, opCaps, live, changesTick, onRevertDone, prefs, threadOps, worktree, cloudTasks, compose, resend }: {
   compose: ComposeDialogProps;
+  /** 複数の作業フォルダの指定の能力（新しいチャットの「フォルダを追加」の可否）。 */
+  workspaceRoots: Support;
   /** 編集して再送・再生成（M50）。state は種類「resend」のときだけ App が組み立てる。 */
   resend: { state: ResendState | null; handlers: ResendHandlers };
   opCaps: OpCapability[];
@@ -394,6 +398,62 @@ export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnter
   const [wt, setWt] = useState<string | null>(null);
   const [model, setModel] = useState(models.find((m) => m.isDefault)?.id ?? models[0]?.id ?? "");
   const [first, setFirst] = useState("");
+  // 追加の作業フォルダ（新しいチャット）。プロジェクトから作るときは、プロジェクトの全フォルダを既定で並べる（外せる。上限8件）。
+  const [extras, setExtras] = useState<FolderItem[]>([]);
+  const [ncNote, setNcNote] = useState<string | null>(null);
+  const [ncErr, setNcErr] = useState<string | null>(null);
+  const [primaryStrong, setPrimaryStrong] = useState<{ path: string; reasons: StrongReason[]; confirmed: boolean } | null>(null);
+  const [creating, setCreating] = useState(false);
+  const projectChoices = d.type === "newChat" ? d.cwdChoices : undefined;
+  useEffect(() => {
+    if (!projectChoices || projectChoices.length < 2 || !live) return;
+    const def = projectDefaults(projectChoices);
+    const block = addBlockReason(workspaceRoots);
+    if (block) { setNcNote(`プロジェクトの他のフォルダは並べていません: ${block}`); return; }
+    let alive = true;
+    void (async () => {
+      let list: FolderItem[] = [];
+      const skipped: string[] = [];
+      for (const p of def.extras) {
+        try {
+          const r = applyCheck(list, await host.checkWorkFolder(p, [def.primary, ...list.map((i) => i.path)]), 1);
+          if (r.error) skipped.push(`${p}（${r.error}）`); else list = r.items;
+        } catch { skipped.push(`${p}（検査できませんでした）`); }
+      }
+      if (!alive) return;
+      setExtras(list);
+      const notes = [def.omitted ? `上限${MAX_FOLDERS}件のため、残り${def.omitted}件は並べていません。` : "", skipped.length ? `並べられなかったフォルダ: ${skipped.join("、")}` : ""].filter(Boolean);
+      setNcNote(notes.length ? notes.join(" ") : null);
+    })();
+    return () => { alive = false; };
+    // 開いたときに1回だけ（プロジェクトの候補は開いている間変わらない）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const createNewChat = async () => {
+    const dev = kind === "dev";
+    const primary = cwd.trim();
+    let strong = confirmedStrongPaths(extras);
+    setNcErr(null);
+    if (dev && extras.length) {
+      const why = saveBlockReason([{ path: primary, strong: [], confirmed: false }, ...extras], workspaceRoots);
+      if (why) { setNcErr(why); return; }
+      setCreating(true);
+      try {
+        // プライマリも、追加フォルダと並べた状態で検査する（強い確認・重複）。ホストも同じ検査をやり直す。
+        const c = await host.checkWorkFolder(primary, extras.map((e) => e.path));
+        if (c.kind === "rejected") { setNcErr(`プライマリ: ${REJECT_TEXT[c.reason]}`); return; }
+        if (c.kind === "needsStrongConfirm") {
+          if (!primaryStrong || primaryStrong.path !== c.normalized || !primaryStrong.confirmed) {
+            setPrimaryStrong({ path: c.normalized, reasons: c.reasons, confirmed: false });
+            setNcErr("プライマリのフォルダの確認が必要です。内容を確認してチェックを入れてください。");
+            return;
+          }
+          strong = [...strong, c.normalized];
+        }
+      } catch (e) { setNcErr(e instanceof Error ? e.message : "検査できませんでした"); return; } finally { setCreating(false); }
+    }
+    onCreateChat({ cwd: dev ? primary : null, model, firstMessage: first.trim() || null, isolate: dev && isolate, worktree: dev && !isolate ? wt : null, extraFolders: dev ? extras.map((e) => e.path) : [], confirmedStrong: dev ? strong : [] });
+  };
   const [resendRunning, setResendRunning] = useState(false);
   void chats;
   switch (d.type) {
@@ -403,15 +463,19 @@ export function Dialogs({ d, onClose, chats, source, models, enterMode, setEnter
         <div className="content"><SettingsBody tab={d.tab} enterMode={enterMode} setEnterMode={setEnterMode} top={top} source={source} models={models} exe={exe} notify={notify} autostart={autostart} appearance={appearance} manage={manage} chats={chats} compose={compose} opCaps={opCaps} /></div>
       </Shell>);
     case "newChat": return (
-      <Shell title="新しいチャット" onClose={onClose} foot={<><button className="btn" onClick={onClose}>キャンセル</button><button className="btn primary" disabled={kind === "dev" && !cwd.trim()} onClick={() => onCreateChat({ cwd: kind === "dev" ? cwd.trim() : null, model, firstMessage: first.trim() || null, isolate: kind === "dev" && isolate, worktree: kind === "dev" && !isolate ? wt : null })}>{kind === "dev" && isolate ? "worktreeを作って開始" : "作成"}</button></>}>
+      <Shell title="新しいチャット" onClose={onClose} foot={<><button className="btn" onClick={onClose}>キャンセル</button><button className="btn primary" disabled={(kind === "dev" && !cwd.trim()) || creating} onClick={() => void createNewChat()}>{kind === "dev" && isolate ? "worktreeを作って開始" : "作成"}</button></>}>
         <div className="content">
           <div className="field"><span>AI</span><div><label><input type="radio" defaultChecked />Codex</label><div className="small muted">他の AI は今後追加できるようにする予定です。</div></div></div>
           <div className="field"><span>作業フォルダ</span><div><label><input type="radio" name="k" checked={kind === "general"} onChange={() => setKind("general")} />指定しない（一般チャット）</label><br /><label><input type="radio" name="k" checked={kind === "dev"} onChange={() => setKind("dev")} />フォルダを指定する</label>
-            {kind === "dev" ? <input type="text" className="mono" style={{ width: "100%", marginTop: 4 }} value={cwd} onChange={(e) => { setCwd(e.target.value); setIsolate(false); setWt(null); }} placeholder="作業フォルダのフルパス" aria-label="作業フォルダのパス" /> : null}
-            {kind === "dev" && d.cwdChoices && d.cwdChoices.length > 1 ? (
-              <div className="small" style={{ marginTop: 4 }} role="group" aria-label="プロジェクトのフォルダ候補">
-                <div className="muted">このプロジェクトのフォルダ（先頭をプライマリと推定）</div>
-                {d.cwdChoices.map((p) => <label key={p} style={{ display: "block" }}><input type="radio" name="cwd-choice" checked={cwd === p} onChange={() => { setCwd(p); setIsolate(false); setWt(null); }} /> <span className="mono">{p}</span></label>)}
+            {kind === "dev" ? <input type="text" className="mono" style={{ width: "100%", marginTop: 4 }} value={cwd} onChange={(e) => { setCwd(e.target.value); setIsolate(false); setWt(null); setPrimaryStrong(null); setNcErr(null); }} placeholder="作業フォルダのフルパス" aria-label="作業フォルダのパス" /> : null}
+            {kind === "dev" ? (
+              <div className="small" style={{ marginTop: 6 }}>
+                <div className="muted">追加の作業フォルダ（上のフォルダがプライマリ。Codex が検索・読取り・編集できる範囲が広がります）</div>
+                {projectChoices && projectChoices.length > 1 ? <div className="muted">プロジェクトのフォルダを並べました（先頭をプライマリと推定しています）。不要なものは外せます。</div> : null}
+                {live ? <FolderListEditor items={extras} setItems={(v) => { setExtras(v); setNcErr(null); }} support={workspaceRoots} check={host.checkWorkFolder} minItems={0} primaryFixed /> : <div className="muted">モックでは動きません。</div>}
+                {primaryStrong ? <label style={{ display: "block", marginTop: 4 }}><input type="checkbox" checked={primaryStrong.confirmed} onChange={(e) => setPrimaryStrong({ ...primaryStrong, confirmed: e.target.checked })} /> プライマリのフォルダ全体を許可することを理解しました（{strongText(primaryStrong.reasons)}）</label> : null}
+                {ncNote ? <div className="muted" style={{ marginTop: 2 }}>{ncNote}</div> : null}
+                {ncErr ? <div className="why err" role="alert" style={{ marginTop: 4 }}>{ncErr}</div> : null}
               </div>) : null}</div></div>
           {kind === "dev" ? <WorkspaceChoice live={live} cwd={cwd} isolate={isolate} setIsolate={setIsolate} onUse={(p, r) => { setCwd(p); setWt(r); setIsolate(false); }} /> : null}
           <div className="field"><span>モデル</span><div style={{ display: "flex", gap: 6 }}><select value={model} onChange={(e) => setModel(e.target.value)}>{models.map((m) => <option key={m.id} value={m.id}>{m.displayName}</option>)}</select></div><span className="note">このチャットの最初の選択です。Codex から取得した一覧です。</span></div>

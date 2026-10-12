@@ -18,7 +18,7 @@ const loadMock = async () => {
 };
 import { GlobalBanner, MenuBar, SaveBanner } from "./ui/Chrome";
 import { LeftPane, type ChatOp } from "./ui/LeftPane";
-import { CenterPane, EmptyCenter, type CwdResult, type FileActions, type SendNotice } from "./ui/CenterPane";
+import { CenterPane, EmptyCenter, type FileActions, type SendNotice } from "./ui/CenterPane";
 import { fenceCode, insertBlock } from "./ui/attach";
 import { DockPane, MiniWindow } from "./ui/Dock";
 import { commandViews } from "./ui/commands";
@@ -26,6 +26,7 @@ import { recheckSummary } from "./ui/chatState";
 import { gitKindOf, ownerMarkVisible, type GitKind } from "./ui/revertView";
 import { CommandPalette } from "./ui/CommandPalette";
 import { Dialogs, type DialogState, type NewChatInput } from "./ui/Dialogs";
+import type { SaveResult, WorkFoldersApi } from "./ui/WorkFoldersUi";
 import { ackText } from "./ui/PrefsDialogs";
 import { SidePanel } from "./ui/SidePanel";
 import { fromLocal, type SentLocal } from "./ui/chips";
@@ -619,17 +620,21 @@ export default function App() {
     host.setChatPermission(chat.key, p).then((r) => say(impactText("権限", r))).catch((e) => sayErr("権限を変更できませんでした", e));
   };
 
-  const onCwd = async (cwd: string, confirmed: boolean): Promise<CwdResult> => {
-    if (!chat || !live) return { kind: "error", message: "モックでは動きません" };
-    try {
-      say(impactText("作業フォルダ", await host.setChatCwd(chat.key, cwd, confirmed)));
-      return { kind: "ok" };
-    } catch (e) {
-      const er = host.asIpcError(e);
-      if (er.blocked?.kind === "queueRetargetUnconfirmed") return { kind: "needsConfirm", waiting: er.blocked.waiting };
-      return { kind: "error", message: er.message };
-    }
-  };
+  /** 作業フォルダの確認・変更（ホストが検査し直す。強い確認は確認済みのパスだけ渡す）。モックでは動かさない。 */
+  const wf: WorkFoldersApi | null = chat && live ? {
+    load: () => host.getWorkFolders(chat.key),
+    check: (path, current) => host.checkWorkFolder(path, current),
+    save: async (folders, confirmedStrong, queueConfirmed): Promise<SaveResult> => {
+      try {
+        say(impactText("作業フォルダ", await host.setNextWorkFolders(chat.key, folders, confirmedStrong, queueConfirmed)));
+        return { kind: "ok" };
+      } catch (e) {
+        const er = host.asIpcError(e);
+        if (er.blocked?.kind === "queueRetargetUnconfirmed") return { kind: "needsQueueConfirm", waiting: er.blocked.waiting };
+        return { kind: "error", message: er.message };
+      }
+    },
+  } : null;
 
   const onRetrySend = async () => {
     if (!chat || !live) return;
@@ -703,7 +708,7 @@ export default function App() {
         worktree = rec.id;
         say(`worktreeを作成しました（ブランチ ${rec.branch}）。`);
       }
-      const r = await host.startChat(cwd, i.model ? { model: i.model, effort: m?.defaultEffort ?? null } : null, i.firstMessage, null, worktree);
+      const r = await host.startChat(cwd, i.model ? { model: i.model, effort: m?.defaultEffort ?? null } : null, i.firstMessage, null, worktree, i.extraFolders, i.confirmedStrong);
       setDialog(null);
       setSelId(r.chat.key.id);
       if (r.firstSend) noteAttempt(r.chat.key.id, r.firstSend);
@@ -1344,7 +1349,7 @@ export default function App() {
                 decisions={decisions[chat.key.id] ?? NO_DECISIONS} goal={goals[chat.key.id]} goalBusy={goalBusy} onGoalReload={() => void loadGoal(chat.key)} onGoalClear={clearGoal}
                 notice={live ? noticeOf(attempts[chat.key.id], steerOf[chat.key.id] ? { attemptId: steerOf[chat.key.id].attemptId, queueInstead: () => { void onSend(steerOf[chat.key.id].text, false, steerOf[chat.key.id].attachments); } } : null) : null} onRetrySend={() => void onRetrySend()}
                 queue={snap.queues.find((q) => q.chat.id === chat.key.id)} local={snap.chatLocals.find((l) => l.chat.id === chat.key.id)}
-                qact={qact} onPermission={onPermission} onCwd={onCwd} sends={sends[chat.key.id] ?? NO_SENDS}
+                qact={qact} onPermission={onPermission} wf={wf} sends={sends[chat.key.id] ?? NO_SENDS}
                 cwdInfo={headCwd ? pathInfo(headCwd) : undefined}
                 leftShown={leftTemp ? lNarrow : leftOpen} rightShown={rightTemp ? rNarrow : rightOpen}
               />
@@ -1363,7 +1368,7 @@ export default function App() {
       {mini && !live ? <MiniWindow {...dockProps} top={miniTop} /> : null}
       {palette && !dialog ? <CommandPalette views={cmdViews} onRun={act} onClose={() => setPalette(false)} /> : null}
       {dialog ? (
-        <Dialogs d={dialog} onClose={closeDialog} opCaps={snap.opCapabilities} resend={{ state: resendState, handlers: resendHandlers }} chats={snap.chats} source={src} models={models}
+        <Dialogs d={dialog} workspaceRoots={snap.workspaceRoots} onClose={closeDialog} opCaps={snap.opCapabilities} resend={{ state: resendState, handlers: resendHandlers }} chats={snap.chats} source={src} models={models}
           prefs={{ goal: dialog.type === "goal" ? goals[dialog.chatId] : undefined, saveGoal,
             settings: dialog.type === "status" && dialog.chatId ? bundle.modelSettings[dialog.chatId] : undefined,
             local: dialog.type === "status" && dialog.chatId ? snap.chatLocals.find((l) => l.chat.id === dialog.chatId) : undefined }}
