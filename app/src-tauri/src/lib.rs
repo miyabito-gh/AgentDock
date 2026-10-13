@@ -276,6 +276,7 @@ pub fn run() {
             commands::read_side,
             commands::handoff_side,
             commands::pick_codex_executable,
+            commands::pick_folder,
             commands::pick_save_file,
         ])
         .build(tauri::generate_context!())

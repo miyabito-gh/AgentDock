@@ -47,6 +47,7 @@ export type { SideTranscript } from "./gen/SideTranscript";
 export type { SkillInfo } from "./gen/SkillInfo";
 export type { SkillList } from "./gen/SkillList";
 export type { RecentSkill } from "./gen/RecentSkill";
+export type { WorkFolderSet } from "./gen/WorkFolderSet";
 export type { SkillPreview } from "./gen/SkillPreview";
 export type { SkillPreviewArgs } from "./gen/SkillPreviewArgs";
 export type { SideState } from "./gen/SideState";
@@ -571,6 +572,7 @@ export interface CommandMap {
   export_markdown: { args: ExportMarkdownArgs; result: null };
   get_usage: { args: GetUsageArgs; result: UsageReport };
   pick_codex_executable: { args: Record<string, never>; result: string | null };
+  pick_folder: { args: Record<string, never>; result: string | null };
   pick_save_file: { args: PickSaveFileArgs; result: string | null };
   add_attachment_file: { args: AddAttachmentFileArgs; result: AttachmentEntry };
   carry_attachment: { args: CarryAttachmentArgs; result: AttachmentEntry };

@@ -6,6 +6,43 @@ use crate::backend::model::{FolderCheck, FolderReject, StrongReason, WorkFolders
 /// プライマリを含めた上限件数。
 pub const MAX_FOLDERS: usize = 8;
 
+/// 作業フォルダのセットの上限件数。
+pub const MAX_FOLDER_SETS: usize = 50;
+/// セット名の上限文字数。
+pub const MAX_SET_NAME_CHARS: usize = 60;
+
+/// 保存するセット一覧の形の検査（件数・名前・フォルダ数）。フォルダの実在・許可は検査しない（使うたびに check_work_folder を通す）。
+/// 直せない形の不正は理由を返し、保存させない（黙って切り詰めない）。
+pub fn validate_folder_sets(sets: &[crate::backend::local::WorkFolderSet]) -> Result<(), String> {
+    if sets.len() > MAX_FOLDER_SETS {
+        return Err(format!("作業フォルダのセットは{MAX_FOLDER_SETS}件までです"));
+    }
+    let mut ids = std::collections::HashSet::new();
+    let mut names = std::collections::HashSet::new();
+    for s in sets {
+        let name = s.name.trim();
+        if name.is_empty() {
+            return Err("セット名が空です".into());
+        }
+        if name.chars().count() > MAX_SET_NAME_CHARS {
+            return Err(format!("セット名は{MAX_SET_NAME_CHARS}文字までです: {name}"));
+        }
+        if s.id.trim().is_empty() || !ids.insert(s.id.clone()) {
+            return Err(format!("セットの識別子が重複または空です: {name}"));
+        }
+        if !names.insert(name.to_lowercase()) {
+            return Err(format!("同じ名前のセットがあります: {name}"));
+        }
+        if s.folders.is_empty() || s.folders.len() > MAX_FOLDERS {
+            return Err(format!("セット「{name}」のフォルダは1〜{MAX_FOLDERS}件にしてください"));
+        }
+        if s.folders.iter().any(|f| f.trim().is_empty()) {
+            return Err(format!("セット「{name}」に空のパスがあります"));
+        }
+    }
+    Ok(())
+}
+
 /// 検査に使うOS側の特別なフォルダ（すべて絶対パス。取得できなかったものは None／空）。
 #[derive(Debug, Clone, Default)]
 pub struct FolderEnv {
@@ -314,6 +351,33 @@ mod tests {
             FolderCheck::Rejected { reason } => Some(reason),
             _ => None,
         }
+    }
+
+    fn set(id: &str, name: &str, n: usize) -> crate::backend::local::WorkFolderSet {
+        crate::backend::local::WorkFolderSet {
+            id: id.into(),
+            name: name.into(),
+            folders: (0..n).map(|i| format!("C:\\w\\{i}")).collect(),
+            updated_at: crate::backend::model::UnixMillis(1),
+        }
+    }
+
+    #[test]
+    fn validates_folder_sets() {
+        assert!(validate_folder_sets(&[]).is_ok());
+        assert!(validate_folder_sets(&[set("1", "a", 1), set("2", "B", MAX_FOLDERS)]).is_ok());
+        // 件数・名前・フォルダ数の不正は保存させない。
+        let many: Vec<_> = (0..=MAX_FOLDER_SETS).map(|i| set(&i.to_string(), &format!("n{i}"), 1)).collect();
+        assert!(validate_folder_sets(&many).is_err());
+        assert!(validate_folder_sets(&[set("1", "  ", 1)]).is_err());
+        assert!(validate_folder_sets(&[set("1", &"あ".repeat(MAX_SET_NAME_CHARS + 1), 1)]).is_err());
+        assert!(validate_folder_sets(&[set("1", "a", 0)]).is_err());
+        assert!(validate_folder_sets(&[set("1", "a", MAX_FOLDERS + 1)]).is_err());
+        assert!(validate_folder_sets(&[set("1", "a", 1), set("1", "b", 1)]).is_err());
+        assert!(validate_folder_sets(&[set("1", "Ab", 1), set("2", "aB", 1)]).is_err());
+        let mut blank = set("1", "a", 2);
+        blank.folders[1] = " ".into();
+        assert!(validate_folder_sets(&[blank]).is_err());
     }
 
     #[test]

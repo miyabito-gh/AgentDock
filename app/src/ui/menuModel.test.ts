@@ -132,6 +132,9 @@ test("無効理由: 削除保留・一般チャット・live・再照合", () =>
   assert.deepEqual(by("deleteChat", ctx({ deletePending: true })).state, { kind: "disabled", reason: "削除保留中です" });
   assert.deepEqual(by("cwdChange", ctx({ isGeneral: true })).state, { kind: "disabled", reason: "開発チャットだけで使えます" });
   assert.deepEqual(by("openCwd", ctx({ isGeneral: true })).state, { kind: "disabled", reason: "一般チャット（作業フォルダなし）です" });
+  assert.deepEqual(by("newChatSameFolder", ctx({ isGeneral: true })).state, { kind: "disabled", reason: "一般チャット（作業フォルダなし）です" });
+  assert.equal(by("newChatSameFolder", ctx()).state.kind, "enabled");
+  assert.deepEqual(by("newChatSameFolder", ctx({ hasChat: false })).state, { kind: "disabled", reason: "チャットを選んでください" });
   assert.deepEqual(by("openCwd", ctx({ cwdWhy: "フォルダが見つかりません" })).state, { kind: "disabled", reason: "フォルダが見つかりません" });
   assert.equal(by("openCwd", ctx()).state.kind, "enabled");
   assert.deepEqual(by("reloadHistory", ctx({ isLive: true })).state, { kind: "disabled", reason: "最新の状態です" });

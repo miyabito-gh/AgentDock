@@ -212,6 +212,10 @@ export const APP_COMMANDS: Command[] = [
     dynamicLabel: (ctx) => (ctx.archived ? "アーカイブを解除" : "アーカイブ"), dynamicAct: (ctx) => (ctx.archived ? "unarchiveChat" : "archiveChat"), keywords: ["アーカイブを解除", "隠す"],
   }),
   app("exportMd", "exportMd", { label: "Markdown にエクスポート…", group: "チャット", needsChat: true, keywords: ["書き出し", "保存"] }),
+  app("newChatSameFolder", "newChatSameFolder", {
+    label: "同じ作業フォルダで新しいチャット…", group: "チャット", needsChat: true, keywords: ["複製", "同じフォルダ", "新規", "追加フォルダ"],
+    why: (ctx) => (ctx.isGeneral ? "一般チャット（作業フォルダなし）です" : null),
+  }),
   app("openCwd", "openCwd", {
     label: "作業フォルダを開く", group: "チャット", needsChat: true,
     why: (ctx) => (ctx.isGeneral ? "一般チャット（作業フォルダなし）です" : ctx.cwdWhy),

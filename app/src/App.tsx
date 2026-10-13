@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { readText } from "@tauri-apps/plugin-clipboard-manager";
-import type { RepoRecordChoice, AgentKey, AppSettings, AttachmentEntry, Chat, ChatKey, Goal, GoalUpdate, Known, WorkMode, WorkModeInfo, DeleteOutcome, DeletePreview, UsageReport, ForceKillPreview, HostEvent, HostEventEnvelope, HostSnapshot, ModelInfo, PathInfo, ProjectsOutcome, MonitorScope, PendingRequest, PermissionPreset, QuitDecision, QuitPhase, RequestAnswer, SendAttempt, SettingsImpact, SkillInfo, SourceInfo } from "./ipc/types";
+import type { RepoRecordChoice, AgentKey, AppSettings, AttachmentEntry, Chat, ChatKey, Goal, GoalUpdate, Known, WorkMode, WorkModeInfo, WorkFoldersView, DeleteOutcome, DeletePreview, UsageReport, ForceKillPreview, HostEvent, HostEventEnvelope, HostSnapshot, ModelInfo, PathInfo, ProjectsOutcome, MonitorScope, PendingRequest, PermissionPreset, QuitDecision, QuitPhase, RequestAnswer, SendAttempt, SettingsImpact, SkillInfo, SourceInfo } from "./ipc/types";
 import * as host from "./ipc/client";
 import { LinkContext, RefContext, type PathAction, type RefActions } from "./ui/Markdown";
 import { copyText } from "./ui/markdown/parts";
@@ -32,6 +32,8 @@ import { gitKindOf, ownerMarkVisible, type GitKind } from "./ui/revertView";
 import { CommandPalette } from "./ui/CommandPalette";
 import { Dialogs, type DialogState, type NewChatInput } from "./ui/Dialogs";
 import type { SaveResult, WorkFoldersApi } from "./ui/WorkFoldersUi";
+import type { FolderTools } from "./ui/WorkFolderSetsUi";
+import { SAME_FOLDER_UNCONFIRMED_NOTE, sameFolderInit } from "./ui/workFolderSets";
 import { ackText } from "./ui/PrefsDialogs";
 import { SidePanel } from "./ui/SidePanel";
 import { fromLocal, type SentLocal } from "./ui/chips";
@@ -511,18 +513,22 @@ export default function App() {
 
   /** 設定の更新（直列化）。`setAppSettings` は全置換なので、前の保存の完了（結果）を待ってからその最新値に `f` を適用して送る。連続操作で古い値に戻らない。
    *  失敗したらトースト（画面の表示は戻さない。保存されていないので次回起動で保存値に戻る）。モックは画面内だけ。 */
-  const updateSettings = (f: (s: AppSettings) => AppSettings, failText: string) => {
-    if (!live) { updateSnap((s) => ({ ...s, settings: f(s.settings) })); return; }
+  const updateSettings = (f: (s: AppSettings) => AppSettings, failText: string): Promise<boolean> => {
+    if (!live) { updateSnap((s) => ({ ...s, settings: f(s.settings) })); return Promise.resolve(true); }
     settingsPending.current++;
-    settingsQueue.current = settingsQueue.current.then(async () => {
+    const run = settingsQueue.current.then(async (): Promise<boolean> => {
       try {
         settingsRef.current = await host.setAppSettings(f(settingsRef.current));
+        return true;
       } catch (e) {
         sayErr(failText, e);
+        return false;
       } finally {
         settingsPending.current--;
       }
     });
+    settingsQueue.current = run.then(() => undefined);
+    return run;
   };
   // 表示設定（テーマ・文字サイズ）の反映。ホストの設定を受け取るまで（既定値のまま）は写しを上書きしない。
   const appearance = snap.settings.appearance;
@@ -680,8 +686,29 @@ ${cur}` : p.text);
     host.setChatPermission(chat.key, p).then((r) => say(impactText("権限", r))).catch((e) => sayErr("権限を変更できませんでした", e));
   };
 
+  /** 作業フォルダのセットの保存と「参照…」（新しいチャットと作業フォルダの帯で共有）。保存は設定の直列更新に乗せ、保存できたときだけ true を返す。 */
+  const folderTools: FolderTools = {
+    sets: snap.settings.workFolderSets ?? [],
+    update: async (f) => {
+      if (!live) {
+        const n = f(snap.settings.workFolderSets ?? []);
+        if (!n) return false;
+        updateSnap((s) => ({ ...s, settings: { ...s.settings, workFolderSets: n } }));
+        return true;
+      }
+      let applied = false;
+      const ok = await updateSettings((s) => { const n = f(s.workFolderSets ?? []); if (!n) return s; applied = true; return { ...s, workFolderSets: n }; }, "作業フォルダのセットを保存できませんでした");
+      return ok && applied;
+    },
+    browse: async () => {
+      if (!live) { say("モックでは動きません。"); return null; }
+      try { return await host.pickFolder(); } catch (e) { sayErr("フォルダを選択できませんでした", e); return null; }
+    },
+  };
+
   /** 作業フォルダの確認・変更（ホストが検査し直す。強い確認は確認済みのパスだけ渡す）。モックでは動かさない。 */
   const wf: WorkFoldersApi | null = chat && live ? {
+    tools: folderTools,
     load: () => host.getWorkFolders(chat.key),
     check: (path, current) => host.checkWorkFolder(path, current),
     save: async (folders, confirmedStrong, queueConfirmed): Promise<SaveResult> => {
@@ -1297,7 +1324,20 @@ ${cur}` : p.text);
       case "unarchive": archiveOp(false, chatId); break;
       case "export": openExport(chatId); break;
       case "delete": openDelete(chatId); break;
+      case "sameFolderNew": void sameFolderNew(chatId); break;
     }
+  };
+
+  /** 「同じ作業フォルダで新しいチャット…」。そのチャットの作業フォルダ一式を初期値に、新しいチャットのダイアログを開くだけ（送信は引き継がない。検査はダイアログが行う）。 */
+  const sameFolderNew = async (chatId: string | undefined) => {
+    const c = snap.chats.find((x) => x.key.id === chatId);
+    if (!c) { say("チャットを選んでください。"); return; }
+    if (c.kind === "general") { say("一般チャット（作業フォルダなし）では使えません。"); return; }
+    let view: WorkFoldersView | null = null;
+    if (live) { try { view = await host.getWorkFolders(c.key); } catch { view = null; } }
+    const init = sameFolderInit(view, knownValue(c.cwd));
+    if (!init) { say("作業フォルダを取得できていません。"); return; }
+    setDialog({ type: "newChat", dev: true, cwd: init.folders[0], initialFolders: init.folders, folderNote: init.extrasUnconfirmed ? SAME_FOLDER_UNCONFIRMED_NOTE : undefined });
   };
 
   const act = (a: string) => {
@@ -1318,6 +1358,7 @@ ${cur}` : p.text);
         break;
       case "newChat": setDialog({ type: "newChat" }); break;
       case "newChatWorktree": setDialog({ type: "newChat", dev: true }); break;
+      case "newChatSameFolder": void sameFolderNew(chat?.key.id); break;
       case "worktrees": setDialog({ type: "worktrees" }); break;
       case "cloud": setDialog({ type: "cloud", chatId: chat?.key.id ?? null }); break;
       case "parity": setDialog({ type: "parity" }); break;
@@ -1494,7 +1535,7 @@ ${cur}` : p.text);
       {mini && !live ? <MiniWindow {...dockProps} top={miniTop} /> : null}
       {palette && !dialog ? <CommandPalette views={cmdViews} onRun={act} onClose={() => setPalette(false)} /> : null}
       {dialog ? (
-        <Dialogs d={dialog} workspaceRoots={snap.workspaceRoots} onClose={closeDialog} opCaps={snap.opCapabilities} resend={{ state: resendState, handlers: resendHandlers }} chats={snap.chats} source={src} models={models}
+        <Dialogs d={dialog} folderTools={folderTools} workspaceRoots={snap.workspaceRoots} onClose={closeDialog} opCaps={snap.opCapabilities} resend={{ state: resendState, handlers: resendHandlers }} chats={snap.chats} source={src} models={models}
           prefs={{ goal: dialog.type === "goal" ? goals[dialog.chatId] : undefined, saveGoal,
             settings: dialog.type === "status" && dialog.chatId ? bundle.modelSettings[dialog.chatId] : undefined,
             local: dialog.type === "status" && dialog.chatId ? snap.chatLocals.find((l) => l.chat.id === dialog.chatId) : undefined }}

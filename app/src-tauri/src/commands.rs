@@ -474,6 +474,16 @@ pub async fn pick_codex_executable(app: tauri::AppHandle) -> R<Option<String>> {
     picked_path(picked)
 }
 
+/// 作業フォルダの「参照…」（フォルダ選択）。選ぶだけで、検査（check_work_folder）も設定の変更もしない。キャンセルなら None。
+#[tauri::command]
+pub async fn pick_folder(app: tauri::AppHandle) -> R<Option<String>> {
+    use tauri_plugin_dialog::DialogExt;
+    let picked = tauri::async_runtime::spawn_blocking(move || app.dialog().file().set_title("作業フォルダを選択").blocking_pick_folder())
+        .await
+        .map_err(|e| io_err(format!("ダイアログが異常終了しました: {e}")))?;
+    picked_path(picked)
+}
+
 /// 保存先の選択（同名ファイルがあればOSが上書きを確認する）。キャンセルなら None。
 #[tauri::command]
 pub async fn pick_save_file(app: tauri::AppHandle, args: PickSaveFileArgs) -> R<Option<String>> {

@@ -85,6 +85,7 @@ pub mod command_names {
     pub const EXPORT_MARKDOWN: &str = "export_markdown";
     pub const GET_USAGE: &str = "get_usage";
     pub const PICK_CODEX_EXECUTABLE: &str = "pick_codex_executable";
+    pub const PICK_FOLDER: &str = "pick_folder";
     pub const PICK_SAVE_FILE: &str = "pick_save_file";
     pub const GET_CHANGE_LIST: &str = "get_change_list";
     pub const GET_FILE_DIFF: &str = "get_file_diff";

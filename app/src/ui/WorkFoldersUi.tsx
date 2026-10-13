@@ -1,12 +1,14 @@
 // 作業フォルダ（複数）の画面部品（DESIGN_WORKFOLDERS.md）。判定は ui/workFolders.ts（純粋）、検査と保存はホスト。
 // 追加不可は理由つきで足せず、強い確認は確認チェックのあとにだけ confirmedStrong へ渡る（ホストも再検査する）。
 import { useEffect, useRef, useState } from "react";
-import type { FolderCheck, Support, WorkFoldersView } from "../ipc/types";
+import type { FolderCheck, Support, WorkFolderSet, WorkFoldersView } from "../ipc/types";
 import {
   addBlockReason, applyCheck, REJECT_TEXT, confirmedStrongPaths, droppedExtrasNote, folderKey, makePrimary, moveItem, needsAddConfirm,
   projectMatchText, saveBlockReason, strongText, toItems, unconfirmedStrong, viewRows, type FolderItem,
 } from "./workFolders";
 import { PROJECTS_ENABLED } from "./features";
+import { FolderSetBar, type FolderTools } from "./WorkFolderSetsUi";
+import { inspectFolders, replaceItemAt } from "./workFolderSets";
 
 export type SaveResult = { kind: "ok" } | { kind: "needsQueueConfirm"; waiting: number } | { kind: "error"; message: string };
 
@@ -15,10 +17,12 @@ export interface WorkFoldersApi {
   load: () => Promise<WorkFoldersView>;
   check: (path: string, current: string[]) => Promise<FolderCheck>;
   save: (folders: string[], confirmedStrong: string[], queueConfirmed: boolean) => Promise<SaveResult>;
+  /** セット・参照…（モックでは null）。 */
+  tools: FolderTools | null;
 }
 
 /** フォルダの並び。先頭＝プライマリ。追加は検査してから（拒否は理由つき、強い確認は確認チェックが済むまで保存不可）。 */
-export function FolderListEditor({ items, setItems, support, check, disabledReason, minItems = 1, primaryFixed = false }: {
+export function FolderListEditor({ items, setItems, support, check, disabledReason, minItems = 1, primaryFixed = false, browse }: {
   items: FolderItem[]; setItems: (v: FolderItem[]) => void; support: Support; check: (path: string, current: string[]) => Promise<FolderCheck>;
   /** 編集できない理由（作業中など）。あれば全操作を止めて理由を出す。 */
   disabledReason?: string | null;
@@ -26,6 +30,8 @@ export function FolderListEditor({ items, setItems, support, check, disabledReas
   minItems?: number;
   /** 先頭はこの一覧では扱わない（新しいチャットの追加分）。ラベルは付けず、プライマリへの昇格もしない。 */
   primaryFixed?: boolean;
+  /** 「参照…」（フォルダ選択）。選んだパスは検査を通す。渡さなければ参照ボタンは出さない。 */
+  browse?: () => Promise<string | null>;
 }) {
   const [path, setPath] = useState("");
   const [err, setErr] = useState<string | null>(null);
@@ -36,8 +42,8 @@ export function FolderListEditor({ items, setItems, support, check, disabledReas
   const off = !!disabledReason || busy;
   // 追加できない接続では、追加専用の一覧（新しいチャットの追加分）は追加を止める。
   const addOff = off || (blocked !== null && primaryFixed);
-  const add = async () => {
-    const p = path.trim();
+  const add = async (given?: string) => {
+    const p = (given ?? path).trim();
     if (!p || addOff) return;
     setBusy(true); setErr(null);
     try {
@@ -46,12 +52,29 @@ export function FolderListEditor({ items, setItems, support, check, disabledReas
       if (r.error) setErr(r.error); else { setItems(r.items); setPath(""); }
     } catch (e) { setErr(e instanceof Error ? e.message : "検査できませんでした"); } finally { setBusy(false); }
   };
+  /** 使えないと分かった行を、参照…で選んだフォルダに置き換える（検査を通る）。 */
+  const replaceAt = async (i: number) => {
+    if (!browse || off) return;
+    setBusy(true); setErr(null);
+    try {
+      const p = await browse();
+      if (!p) return;
+      const c = await check(p, items.filter((_, j) => j !== i).map((x) => x.path));
+      const r = replaceItemAt(items, i, c);
+      if (r.error) setErr(r.error); else setItems(r.items);
+    } catch (e) { setErr(e instanceof Error ? e.message : "検査できませんでした"); } finally { setBusy(false); }
+  };
+  const browseAdd = async () => {
+    if (!browse || addOff) return;
+    setErr(null);
+    try { const p = await browse(); if (p) { setPath(p); await add(p); } } catch (e) { setErr(e instanceof Error ? e.message : "フォルダを選択できませんでした"); }
+  };
   return (
     <div>
       {disabledReason ? <div className="why" style={{ marginBottom: 4 }}>{disabledReason}</div> : null}
       <ol style={{ listStyle: "none", margin: 0, padding: 0 }} aria-label="作業フォルダの並び">
         {items.map((it, i) => (
-          <li key={it.path} style={{ padding: "3px 0", borderBottom: "1px dashed var(--line)" }}>
+          <li key={`${i}:${it.path}`} style={{ padding: "3px 0", borderBottom: "1px dashed var(--line)" }}>
             <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
               {primaryFixed ? null : <span className={`tag ${i === 0 ? "ai" : ""}`}>{i === 0 ? "プライマリ" : "追加"}</span>}
               <span className="mono grow" style={{ wordBreak: "break-all" }}>{it.path}</span>
@@ -60,6 +83,12 @@ export function FolderListEditor({ items, setItems, support, check, disabledReas
               {!primaryFixed && i > 0 ? <button className="btn subtle sm" disabled={off || blocked !== null} title={blocked ?? "このフォルダをプライマリ（先頭）にします"} onClick={() => setItems(makePrimary(items, i))}>プライマリにする</button> : null}
               <button className="btn subtle sm" disabled={off || items.length <= minItems} title={items.length <= minItems ? "プライマリは外せません（別のフォルダに置き換えてください）" : "並びから外します（フォルダ自体は削除されません）"} onClick={() => setItems(items.filter((_, j) => j !== i))}>外す</button>
             </div>
+            {it.rejected ? (
+              <div className="why err" role="alert" style={{ marginTop: 2 }}>
+                いまは使えません: {it.rejected}
+                {browse ? <>{" "}<button className="btn sm" disabled={off} onClick={() => void replaceAt(i)}>参照…</button></> : null}
+              </div>
+            ) : null}
             {it.strong.length > 0 ? (
               <label className="small" style={{ display: "block", marginTop: 2 }}>
                 <input type="checkbox" checked={it.confirmed} disabled={off} onChange={(e) => setItems(items.map((x, j) => (j === i ? { ...x, confirmed: e.target.checked } : x)))} />{" "}
@@ -72,6 +101,7 @@ export function FolderListEditor({ items, setItems, support, check, disabledReas
       <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
         <input className="mono grow" aria-label={replaceMode ? "新しいプライマリのパス" : "追加するフォルダのパス"} placeholder={replaceMode ? "置き換えるフォルダのフルパス" : "追加するフォルダのフルパス"} value={path} disabled={off}
           onChange={(e) => { setPath(e.target.value); setErr(null); }} onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing) { e.preventDefault(); void add(); } }} />
+        {browse ? <button className="btn sm" disabled={addOff} title={blocked !== null && primaryFixed ? blocked : "フォルダを選んで検査します"} onClick={() => void browseAdd()}>参照…</button> : null}
         <button className="btn sm" disabled={addOff || !path.trim()} title={blocked !== null && primaryFixed ? blocked : undefined} onClick={() => void add()}>{replaceMode ? "置き換え" : "フォルダを追加"}</button>
       </div>
       {blocked ? <div className="small muted" style={{ marginTop: 2 }}>{blocked}{primaryFixed ? "" : "（プライマリだけ置き換えできます）"}</div> : null}
@@ -145,6 +175,12 @@ export function WorkFoldersPanel({ api, lockReason, permissionText, fallback, on
       else setMsg(r.message);
     } finally { setBusy(false); }
   };
+  /** 保存したセットを編集中の並びへ入れる（検査し直す。使えないものは理由つきで残す。保存・送信はしない）。 */
+  const pickSet = async (set: WorkFolderSet) => {
+    setConfirmStep(false); setQueueNeed(null); setMsg(null);
+    const checked = await inspectFolders(set.folders, api.check);
+    setItems((cur) => (cur ? checked : cur));
+  };
   const onSave = () => { if (needsAddConfirm(before, paths) && !confirmStep) setConfirmStep(true); else void save(); };
   const rows = view ? viewRows(view, at) : [];
   const dropped = view ? droppedExtrasNote(view.next, support) : null;
@@ -176,7 +212,8 @@ export function WorkFoldersPanel({ api, lockReason, permissionText, fallback, on
       ) : (
         <>
           <div className="small muted">次の送信から使う作業フォルダ（上から順。先頭がプライマリ）。送信するまで何も送りません。</div>
-          <FolderListEditor items={items} setItems={(v) => { setItems(v); setConfirmStep(false); setQueueNeed(null); }} support={support} check={api.check} disabledReason={lockReason} />
+          {api.tools ? <FolderSetBar tools={api.tools} current={paths} saveBlock={items.some((i) => i.rejected) ? "使えないフォルダがあります（外すか置き換えてから保存してください）" : null} onPick={(set) => void pickSet(set)} disabledReason={lockReason} /> : null}
+          <FolderListEditor items={items} setItems={(v) => { setItems(v); setConfirmStep(false); setQueueNeed(null); }} support={support} check={api.check} disabledReason={lockReason} browse={api.tools?.browse} />
           {confirmStep ? (
             <div role="alertdialog" aria-label="作業フォルダの追加の確認" className="why" style={{ marginTop: 6 }}>
               <div><b>Codex の読取り・編集の範囲が広がります。</b></div>

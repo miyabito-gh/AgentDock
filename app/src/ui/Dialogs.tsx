@@ -21,11 +21,13 @@ import { InstructionBody, ReferenceBody, SkillsBody, type ComposeProps } from ".
 import { WorkspaceChoice, WorktreesBody } from "./WorktreeDialogs";
 import { CloudBody } from "./CloudDialogs";
 import { FolderListEditor } from "./WorkFoldersUi";
+import { FolderSetBar, type FolderTools } from "./WorkFolderSetsUi";
+import { inspectFolders, splitForNewChat } from "./workFolderSets";
 import { addBlockReason, applyCheck, confirmedStrongPaths, MAX_FOLDERS, projectDefaults, REJECT_TEXT, saveBlockReason, strongText, type FolderItem } from "./workFolders";
 
 export type DialogState =
   | { type: "settings"; tab: string }
-  | { type: "newChat"; dev?: boolean; cwd?: string; cwdChoices?: string[] }
+  | { type: "newChat"; dev?: boolean; cwd?: string; cwdChoices?: string[]; /** 「同じ作業フォルダで新規」: 先頭＝プライマリ。開いたとき検査して並べる。 */ initialFolders?: string[]; folderNote?: string }
   | { type: "worktrees" }
   | { type: "cloud"; chatId: string | null }
   | { type: "quit" }
@@ -368,8 +370,10 @@ function RenameDialog({ chat, onClose, run }: { chat: Chat | undefined; onClose:
 /** isolate は「分離」（worktreeを作成してから開始）。worktree は既存のAgentDock作成worktreeの記録ID（チャットに結び付ける）。 */
 export interface NewChatInput { cwd: string | null; model: string; firstMessage: string | null; isolate: boolean; worktree: string | null; /** 追加の作業フォルダ（プライマリ以外）。 */ extraFolders: string[]; /** 強い確認を済ませたパス（ホストが再検査する）。 */ confirmedStrong: string[] }
 
-export function Dialogs({ workspaceRoots, d, onClose, chats, source, models, enterMode, setEnterMode, top, setTab, onAct, exe, onCreateChat, notify, autostart, appearance, quit, force, manage, onRename, opCaps, live, changesTick, turnRecords, onRevertDone, prefs, threadOps, worktree, cloudTasks, compose, resend }: {
+export function Dialogs({ folderTools, workspaceRoots, d, onClose, chats, source, models, enterMode, setEnterMode, top, setTab, onAct, exe, onCreateChat, notify, autostart, appearance, quit, force, manage, onRename, opCaps, live, changesTick, turnRecords, onRevertDone, prefs, threadOps, worktree, cloudTasks, compose, resend }: {
   compose: ComposeDialogProps;
+  /** 作業フォルダのセットの保存・「参照…」。 */
+  folderTools: FolderTools;
   /** 複数の作業フォルダの指定の能力（新しいチャットの「フォルダを追加」の可否）。 */
   workspaceRoots: Support;
   /** 編集して再送・再生成（M50）。state は種類「resend」のときだけ App が組み立てる。 */
@@ -435,6 +439,38 @@ export function Dialogs({ workspaceRoots, d, onClose, chats, source, models, ent
     // 開いたときに1回だけ（プロジェクトの候補は開いている間変わらない）
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  /** 並び（先頭＝プライマリ）を検査して入れる。使えないものは理由つきで残し、強い確認は未確認のまま。保存・作成・送信はしない。 */
+  const applyFolders = async (folders: string[], note: string | null) => {
+    setNcErr(null); setPrimaryStrong(null);
+    const { primary, extras: rest } = splitForNewChat(await inspectFolders(folders, host.checkWorkFolder));
+    if (!primary) return;
+    setCwd(primary.path); setIsolate(false); setWt(null);
+    setExtras(rest);
+    if (primary.strong.length) setPrimaryStrong({ path: primary.path, reasons: primary.strong, confirmed: false });
+    if (primary.rejected) setNcErr(`プライマリ: ${primary.rejected}: ${primary.path}`);
+    const block = rest.length > 0 ? addBlockReason(workspaceRoots) : null;
+    const notes = [note, block].filter(Boolean).join(" ");
+    setNcNote(notes || null);
+  };
+  useEffect(() => {
+    if (d.type !== "newChat" || !d.initialFolders) return;
+    if (live) void applyFolders(d.initialFolders, d.folderNote ?? null); else setNcNote(d.folderNote ?? null);
+    // 開いたときに1回だけ
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  /** プライマリの「参照…」。選んだパスはすぐ検査する（拒否は理由を出し、強い確認はチェックを出す）。 */
+  const browsePrimary = async () => {
+    const p = await folderTools.browse();
+    if (!p) return;
+    setCwd(p); setIsolate(false); setWt(null); setPrimaryStrong(null); setNcErr(null);
+    if (!live) return;
+    try {
+      const c = await host.checkWorkFolder(p, extras.map((e) => e.path));
+      if (c.kind === "rejected") { setNcErr(`プライマリ: ${REJECT_TEXT[c.reason]}`); return; }
+      setCwd(c.normalized);
+      if (c.kind === "needsStrongConfirm") setPrimaryStrong({ path: c.normalized, reasons: c.reasons, confirmed: false });
+    } catch (e) { setNcErr(e instanceof Error ? e.message : "検査できませんでした"); }
+  };
   const createNewChat = async () => {
     const dev = kind === "dev";
     const primary = cwd.trim();
@@ -473,12 +509,22 @@ export function Dialogs({ workspaceRoots, d, onClose, chats, source, models, ent
         <div className="content">
           <div className="field"><span>AI</span><div><label><input type="radio" defaultChecked />Codex</label><div className="small muted">他の AI は今後追加できるようにする予定です。</div></div></div>
           <div className="field"><span>作業フォルダ</span><div><label><input type="radio" name="k" checked={kind === "general"} onChange={() => setKind("general")} />指定しない（一般チャット）</label><br /><label><input type="radio" name="k" checked={kind === "dev"} onChange={() => setKind("dev")} />フォルダを指定する</label>
-            {kind === "dev" ? <input type="text" className="mono" style={{ width: "100%", marginTop: 4 }} value={cwd} onChange={(e) => { setCwd(e.target.value); setIsolate(false); setWt(null); setPrimaryStrong(null); setNcErr(null); }} placeholder="作業フォルダのフルパス" aria-label="作業フォルダのパス" /> : null}
+            {kind === "dev" && live ? (
+              <div style={{ marginTop: 4 }}>
+                <FolderSetBar tools={folderTools} current={[cwd.trim(), ...extras.map((e) => e.path)]}
+                  saveBlock={!cwd.trim() ? "プライマリのフォルダを指定してください" : extras.some((e) => e.rejected) ? "使えないフォルダがあります（外すか置き換えてから保存してください）" : null}
+                  onPick={(set) => void applyFolders(set.folders, null)} />
+              </div>) : null}
+            {kind === "dev" ? (
+              <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
+                <input type="text" className="mono grow" value={cwd} onChange={(e) => { setCwd(e.target.value); setIsolate(false); setWt(null); setPrimaryStrong(null); setNcErr(null); }} placeholder="作業フォルダのフルパス" aria-label="作業フォルダのパス" />
+                <button type="button" className="btn sm" title="フォルダを選んで検査します" onClick={() => void browsePrimary()}>参照…</button>
+              </div>) : null}
             {kind === "dev" ? (
               <div className="small" style={{ marginTop: 6 }}>
                 <div className="muted">追加の作業フォルダ（上のフォルダがプライマリ。Codex が検索・読取り・編集できる範囲が広がります）</div>
                 {projectChoices && projectChoices.length > 1 ? <div className="muted">プロジェクトのフォルダを並べました（先頭をプライマリと推定しています）。不要なものは外せます。</div> : null}
-                {live ? <FolderListEditor items={extras} setItems={(v) => { setExtras(v); setNcErr(null); }} support={workspaceRoots} check={host.checkWorkFolder} minItems={0} primaryFixed /> : <div className="muted">モックでは動きません。</div>}
+                {live ? <FolderListEditor items={extras} setItems={(v) => { setExtras(v); setNcErr(null); }} support={workspaceRoots} check={host.checkWorkFolder} minItems={0} primaryFixed browse={folderTools.browse} /> : <div className="muted">モックでは動きません。</div>}
                 {primaryStrong ? <label style={{ display: "block", marginTop: 4 }}><input type="checkbox" checked={primaryStrong.confirmed} onChange={(e) => setPrimaryStrong({ ...primaryStrong, confirmed: e.target.checked })} /> プライマリのフォルダ全体を許可することを理解しました（{strongText(primaryStrong.reasons)}）</label> : null}
                 {ncNote ? <div className="muted" style={{ marginTop: 2 }}>{ncNote}</div> : null}
                 {ncErr ? <div className="why err" role="alert" style={{ marginTop: 4 }}>{ncErr}</div> : null}

@@ -534,6 +534,23 @@ pub struct AppSettings {
     /// 最近指定したSkill（新しい順・最大5件。チャット共通）。古い `settings.json` は空で読む。Skillの定義・~/.codex は変更しない。
     #[serde(default)]
     pub recent_skills: Vec<RecentSkill>,
+    /// 名前つきの作業フォルダの組（先頭＝プライマリ、順序つき）。古い `settings.json` は空で読む。
+    /// 中身は検査済みの保証ではない（使うたびに check_work_folder を通す）。
+    #[serde(default)]
+    pub work_folder_sets: Vec<WorkFolderSet>,
+}
+
+/// 作業フォルダのセット1件。`id` で見分ける（名前は変えられる）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct WorkFolderSet {
+    pub id: String,
+    pub name: String,
+    /// 先頭がプライマリ。1〜8件。
+    pub folders: Vec<String>,
+    pub updated_at: UnixMillis,
 }
 
 /// 最近指定したSkillの記録（`path` で見分ける）。
@@ -739,6 +756,7 @@ impl Default for AppSettings {
             appearance: AppearanceSettings::default(),
             dismissed_version_notice: None,
             recent_skills: Vec::new(),
+            work_folder_sets: Vec::new(),
         }
     }
 }

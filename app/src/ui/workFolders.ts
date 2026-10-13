@@ -6,7 +6,11 @@ import type { FolderCheck, FolderReject, StrongReason, Support, WorkFolders, Wor
 export const MAX_FOLDERS = 8;
 
 /** 並べているフォルダ1件。`strong` は強い確認が要る理由、`confirmed` はユーザーが確認したか。 */
-export interface FolderItem { path: string; strong: StrongReason[]; confirmed: boolean }
+export interface FolderItem {
+  path: string; strong: StrongReason[]; confirmed: boolean;
+  /** 保存済みのセットなどを復元して検査したとき、いまは使えない理由（外すか置き換えるまで保存・作成できない）。 */
+  rejected?: string;
+}
 
 /** 比較用の鍵（区切り統一・小文字・末尾の区切りなし）。重複判定の目安で、最終判定はホスト。 */
 export const folderKey = (p: string): string => p.trim().replace(/^\\\\\?\\/, "").replace(/\//g, "\\").replace(/\\+$/, "").toLowerCase();
@@ -88,6 +92,8 @@ export function needsAddConfirm(before: string[], after: string[]): boolean {
 export function saveBlockReason(items: FolderItem[], support: Support): string | null {
   if (items.length === 0) return "作業フォルダ（プライマリ）が必要です";
   if (items.length > MAX_FOLDERS) return REJECT_TEXT.tooMany;
+  const bad = items.find((i) => i.rejected);
+  if (bad) return `使えないフォルダがあります（外すか置き換えてください）: ${bad.path}（${bad.rejected}）`;
   if (items.length > 1 && support !== "supported") return addBlockReason(support);
   const u = unconfirmedStrong(items);
   if (u.length) return `確認が必要なフォルダがあります: ${u[0].path}`;

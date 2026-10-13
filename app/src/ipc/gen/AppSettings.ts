@@ -10,6 +10,7 @@ import type { RecentSkill } from "./RecentSkill";
 import type { SendKey } from "./SendKey";
 import type { ToolSettings } from "./ToolSettings";
 import type { WindowPrefs } from "./WindowPrefs";
+import type { WorkFolderSet } from "./WorkFolderSet";
 
 /**
  * アプリ設定。`%LOCALAPPDATA%` 配下の専用領域に保存する。`~/.codex` には書かない。
@@ -64,4 +65,9 @@ dismissedVersionNotice: string | null,
 /**
  * 最近指定したSkill（新しい順・最大5件。チャット共通）。古い `settings.json` は空で読む。Skillの定義・~/.codex は変更しない。
  */
-recentSkills: Array<RecentSkill>, };
+recentSkills: Array<RecentSkill>, 
+/**
+ * 名前つきの作業フォルダの組（先頭＝プライマリ、順序つき）。古い `settings.json` は空で読む。
+ * 中身は検査済みの保証ではない（使うたびに check_work_folder を通す）。
+ */
+workFolderSets: Array<WorkFolderSet>, };

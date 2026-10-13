@@ -12,7 +12,7 @@ import { PROJECTS_ENABLED } from "./features";
 import { UNKNOWN_KEY, collapseAll, flattenGroups, groupChats, shortNames, worktreeOf, type FlatItem, type FolderGroup } from "./folderGroups";
 
 /** 行の「…」メニューで選べる操作（App.tsx の onChatAct が対象チャットIDつきで受ける）。 */
-export type ChatOp = "rename" | "pin" | "archive" | "unarchive" | "export" | "delete";
+export type ChatOp = "rename" | "pin" | "archive" | "unarchive" | "export" | "delete" | "sameFolderNew";
 
 /** 一覧の状態文字（chatStatusText）から状態チップの色クラスを引く。対応が無い文言（履歴なし等）は色なしの控えめな文字。 */
 function statusClass(text: string): string {
@@ -25,7 +25,7 @@ function statusClass(text: string): string {
 }
 
 const NL = "\n";
-interface MenuItem { act: string; label: string; danger?: boolean; sep?: boolean; title?: string; /** 2行目の小さな補足（長いときは省略表示。全文は title） */ sub?: string }
+interface MenuItem { act: string; label: string; danger?: boolean; sep?: boolean; title?: string; /** 押せない項目（理由は sub に出す） */ disabled?: boolean; /** 2行目の小さな補足（長いときは省略表示。全文は title） */ sub?: string }
 /** 開いているメニュー（行の「…」・見出しの「…」で共通）。位置は「…」ボタンに寄せる。 */
 type OpenMenu = { kind: "chat"; id: string } | { kind: "group"; key: string };
 
@@ -250,6 +250,9 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct,
           { act: "pin", label: c.pinned ? "ピン留めを外す" : "ピン留め" },
           { act: archived(c) ? "unarchive" : "archive", label: archived(c) ? "アーカイブを解除" : "アーカイブ" },
           { act: "export", label: "Markdown にエクスポート…" },
+          c.kind === "general"
+            ? { act: "sameFolderNew", label: "同じ作業フォルダで新しいチャット…", disabled: true, sub: "一般チャット（作業フォルダなし）です", title: "一般チャット（作業フォルダなし）です" }
+            : { act: "sameFolderNew", label: "同じ作業フォルダで新しいチャット…" },
           { act: "-", label: "", sep: true },
           { act: "delete", label: "削除…", danger: true },
         ],
@@ -478,7 +481,7 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct,
       {mi ? (
         <div ref={menuRef} className="pop row-menu" role="menu" aria-label={mi.label} tabIndex={-1} style={{ visibility: "hidden" }} onKeyDown={onMenuKey}>
           {mi.items.map((it, i) => it.sep ? <hr key={i} /> : (
-            <button key={it.act} type="button" role="menuitem" className={it.danger ? "danger" : it.sub ? "has-sub" : undefined} title={it.title} onClick={() => pick(it.act)}>{it.sub ? <><span>{it.label}</span><span className="sub">{it.sub}</span></> : it.label}</button>
+            <button key={it.act} type="button" role="menuitem" className={it.danger ? "danger" : it.sub ? "has-sub" : undefined} title={it.title} disabled={it.disabled} onClick={() => pick(it.act)}>{it.sub ? <><span>{it.label}</span><span className="sub">{it.sub}</span></> : it.label}</button>
           ))}
         </div>
       ) : null}

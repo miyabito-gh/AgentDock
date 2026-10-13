@@ -151,6 +151,8 @@ export const exportMarkdown = (chat: ChatKey, includeMonitorActivity: boolean, d
 export const getUsage = (chat: ChatKey | null): Promise<UsageReport> => invokeCmd("get_usage", { chat });
 /** codex.exe の「参照…」。選ぶだけで設定は変えない。キャンセルなら null。 */
 export const pickCodexExecutable = (): Promise<string | null> => invokeCmd("pick_codex_executable", {});
+/** 作業フォルダの「参照…」。選ぶだけで検査も設定の変更もしない。キャンセルなら null。 */
+export const pickFolder = (): Promise<string | null> => invokeCmd("pick_folder", {});
 /** 保存先の選択（同名があればOSが上書きを確認する）。キャンセルなら null。 */
 export const pickSaveFile = (defaultName: string): Promise<string | null> => invokeCmd("pick_save_file", { defaultName });
 
