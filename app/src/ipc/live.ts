@@ -174,6 +174,7 @@ export function applyHostEvent(b: Bundle, e: HostEvent): Bundle {
     case "goalUpdated": // 画面側（App）が目標の表示を置き換える（状態は変えない）
     case "changesUpdated": // 開いている差分表示が画面側で取り直す（状態は変えない）
     case "sendUpdated":
+    case "sendPhaseUpdated": // 送信中の段階（画面側Appが表示する一時情報）
     case "quitPrompt":
     case "quitUpdated": // 終了手順の進行は画面側（App）が保持する（表示用の一時状態）
     case "systemResumed": // 画面側で履歴を取り直す（状態は変えない。復帰の通知・再送はしない）

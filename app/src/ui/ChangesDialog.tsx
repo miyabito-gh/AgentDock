@@ -10,7 +10,7 @@ import { About, ConfirmBlock, FootActions } from "./DialogParts";
 import { RepoRecordPanel, type SetRepoFn } from "./RepoRecordPanel";
 import type { BaselineContext } from "./revertView";
 import { failureText, gitKindOf, noBaselineReason, ownerCardShown, ownerExplainsNoBaseline, repoPanelVisible, sameReason } from "./revertView";
-import { allState, confirmSummary, defaultRequest, fileKey, headline, keepChosen, mergeRows, planChanged, requestName, requestOptions, resultText, setChecked, statusSlot, STATE_LABEL, STATE_MARK, toggleAll, type Row } from "./changesView";
+import { allState, confirmSummary, defaultRequest, DIFF_ROW_LIMIT, diffRows, fileKey, headline, keepChosen, mergeRows, planChanged, requestName, requestOptions, resultText, setChecked, splitPath, statusSlot, STATE_LABEL, STATE_MARK, toggleAll, type Row } from "./changesView";
 
 const SOURCE_TEXT: Record<ChangeSource, string> = { baseline: "このチャット", git: "Git（HEAD比較）" };
 
@@ -54,16 +54,19 @@ export function UnverifiedNote({ cap }: { cap: OpCapability | undefined }) {
   return <p className="small muted"><span className="unv">未確認</span> {UNVERIFIED_TEXT}</p>;
 }
 
-/** 統一diffの表示。行頭で色分けするだけで、内容は加工しない。 */
+/** 統一diffの表示。行番号（旧・新）と記号の列つき。本文は加工しない。巨大な差分は先頭だけ。 */
 function DiffText({ text }: { text: string }) {
-  const lines = text.split("\n");
-  if (lines[lines.length - 1] === "") lines.pop();
+  const rows = diffRows(text);
+  const shown = rows.length > DIFF_ROW_LIMIT ? rows.slice(0, DIFF_ROW_LIMIT) : rows;
   return (
     <div className="diffview" role="region" aria-label="差分" tabIndex={0}>
-      {lines.map((l, i) => {
-        const c = l.startsWith("@@") ? "hunk" : l.startsWith("#") ? "meta" : l.startsWith("+") && !l.startsWith("+++") ? "add" : l.startsWith("-") && !l.startsWith("---") ? "del" : "";
-        return <div key={i} className={`ln ${c}`}>{l === "" ? " " : l}</div>;
-      })}
+      {shown.map((r, i) => (
+        <div key={i} className={`ln ${r.kind}`}>
+          <span className="no" aria-hidden="true">{r.old ?? ""}</span><span className="no" aria-hidden="true">{r.new ?? ""}</span>
+          <span className="sg" aria-hidden="true">{r.kind === "add" ? "+" : r.kind === "del" ? "−" : ""}</span>
+          <span className="tx">{r.kind === "hunk" || r.kind === "meta" ? r.text : r.text === "" ? " " : r.text}</span>
+        </div>))}
+      {rows.length > shown.length ? <div className="ln meta"><span className="tx">先頭 {shown.length} 行のみ表示しています（全 {rows.length} 行）。</span></div> : null}
     </div>
   );
 }
@@ -74,7 +77,10 @@ function kindIcon(f: ChangedFile): { letter: string; cls: string; title: string 
   return f.kind === "added" ? { letter: "A", cls: "add", title: "追加" } : f.kind === "deleted" ? { letter: "D", cls: "del", title: "削除" } : { letter: "M", cls: "mod", title: "変更" };
 }
 const pathText = (f: ChangedFile) => `${f.path}${f.moveTo ? ` → ${f.moveTo}` : ""}`;
-const countText = (f: ChangedFile) => (f.binary ? "バイナリ" : `${showKnown(f.additions, (v) => `+${v}`)} ${showKnown(f.deletions, (v) => `−${v}`)}`);
+function Counts({ f }: { f: ChangedFile }) {
+  if (f.binary) return <span className="chg-num muted">バイナリ</span>;
+  return <span className="chg-num"><span className="chg-add">{showKnown(f.additions, (v) => `+${v}`)}</span> <span className="chg-del">{showKnown(f.deletions, (v) => `−${v}`)}</span></span>;
+}
 
 export interface ChangesProps {
   chat: Chat | undefined;
@@ -265,18 +271,17 @@ export function ChangesPanel({ chat, live, tick, caps, turnRecords, baselinesEna
                 <option value="">すべての依頼</option>
                 {opts.map((o) => <option key={o.turn} value={o.turn} disabled={o.disabled} title={o.turn}>{o.label}</option>)}
               </select></label>) : <span className="chg-req small muted">Gitの作業ツリーとHEADの現在の差分</span>}
+          <span className="chg-count small">{head && list?.status.kind === "ready" ? (
+            <><b>{head.count}</b> ファイル
+              {head.additions !== null && head.deletions !== null ? <>　<span className="chg-add">+{head.additions}</span> <span className="chg-del">−{head.deletions}</span></> : <span className="muted">　行数は未確認</span>}</>
+          ) : " "}</span>
           <div className="seg" role="tablist" aria-label="出所">
             {(["baseline", "git"] as ChangeSource[]).map((s) => <button key={s} role="tab" aria-selected={tab === s} disabled={lockedUi} onClick={() => { setTab(s); resetView(); }}>{SOURCE_TEXT[s]}</button>)}
           </div>
           {unverified ? <span className="unv" title={UNVERIFIED_TEXT}>未確認</span> : null}
         </div>
-        {head && list?.status.kind === "ready" ? (
-          <p className="small chg-count">{head.count} ファイル
-            {head.additions !== null && head.deletions !== null ? <>　<span className="chg-add">+{head.additions}</span> <span className="chg-del">−{head.deletions}</span></> : <span className="muted">　行数は未確認</span>}</p>
-        ) : !list && !listErr ? <p className="small muted">取得しています…</p> : null}
-
-        {slot ? (
-          <div className="chg-slot">
+        <div className="chg-slot">{slot ? (
+          <>
             {slot.kind === "owner" ? <RepoRecordPanel chat={chat} segs={segs} prefs={repoPrefs} onSet={onSetRepo} ownerRepo={ownerRepo} compact />
               : slot.kind === "notes" ? <p className="small muted">{slot.text}</p>
                 : slot.kind === "result" ? (
@@ -288,7 +293,7 @@ export function ChangesPanel({ chat, live, tick, caps, turnRecords, baselinesEna
                     : (
                       <div className={`banner ${slot.tone}`} role={slot.tone === "err" ? "alert" : "status"}><div>{slot.text}</div>
                         {slot.kind === "listError" || slot.kind === "planError" || slot.kind === "resultError" ? <button className="btn-line" disabled={busy} onClick={recheck}>再確認</button> : null}</div>)}
-          </div>) : null}
+          </>) : null}</div>
 
         {list && list.files.length > 0 ? (
           <div className="chg-split" data-pane={pane}>
@@ -299,18 +304,20 @@ export function ChangesPanel({ chat, live, tick, caps, turnRecords, baselinesEna
               <ul className="chg-list" aria-label="変更されたファイル" onKeyDown={onListKey}>
                 {rows.map((r) => {
                   const k = kindIcon(r.file);
+                  const sp = splitPath(r.file.path);
                   const why = r.reasons.map((x) => `${x.label}: ${x.message}`).join("\n");
                   return (
                     <li key={r.key} className={`chg-row ${r.state}${r.key === sel ? " sel" : ""}${changedPaths.includes(r.file.path) ? " changed" : ""}`}>
                       {showChecks ? (r.selectable
                         ? <input type="checkbox" className="chg-ck" aria-label={`${r.file.path} を戻す`} checked={r.checked} disabled={lockedUi} onChange={(e) => setChosen((c) => setChecked(rows, c, r.file.path, e.target.checked))} />
                         : <span className="chg-ck" role="img" aria-label={r.state === "needsOverride" ? (r.checked ? "それでも戻す対象に入っています" : "一覧では選べません") : "戻す対象にできません"}>{r.state === "needsOverride" && r.checked ? "☑" : ""}</span>) : null}
-                      <button className="chg-rowbtn" aria-current={r.key === sel} title={why ? `${pathText(r.file)}\n${why}` : pathText(r.file)} onKeyDown={(e) => onRowKey(e, r)} onClick={() => { setSel(r.key); setPane("diff"); }}>
-                        <span className={`chg-k ${k.cls}`} title={k.title} aria-label={k.title}>{k.letter}</span>
-                        <span className="mono chg-path">{pathText(r.file)}</span>
-                        <span className="chg-num small muted">{countText(r.file)}</span>
-                        {r.state !== "revertible" ? <span className={`tag chg-st ${r.state}`}><span aria-hidden="true">{STATE_MARK[r.state]} </span>{STATE_LABEL[r.state]}</span> : null}
-                        {r.includes.length > 0 ? <span className="chg-inc" aria-label={`後の依頼の変更も戻ります（${r.includes.length}）`}>↺{r.includes.length}</span> : null}
+                      <button className="chg-rowbtn" aria-current={r.key === sel} title={why ? `${pathText(r.file)}
+${why}` : pathText(r.file)} onKeyDown={(e) => onRowKey(e, r)} onClick={() => { setSel(r.key); setPane("diff"); }}>
+                        <span className={`chg-k ${k.cls}`} title={k.title}><span aria-hidden="true">{k.letter}</span><span className="sr">{k.title}</span></span>
+                        <span className="chg-nm"><span className="chg-name mono">{sp.name}{r.file.moveTo ? ` → ${splitPath(r.file.moveTo).name}` : ""}</span>{sp.dir ? <span className="chg-dir muted">{sp.dir}</span> : null}</span>
+                        <Counts f={r.file} />
+                        <span className="chg-stc">{r.state !== "revertible" ? <span className={`tag chg-st ${r.state}`}><span aria-hidden="true">{STATE_MARK[r.state]} </span>{STATE_LABEL[r.state]}</span> : null}
+                          {r.includes.length > 0 ? <span className="chg-inc" aria-label={`後の依頼の変更も戻ります（${r.includes.length}）`}>↺{r.includes.length}</span> : null}</span>
                       </button>
                     </li>);
                 })}
@@ -320,7 +327,7 @@ export function ChangesPanel({ chat, live, tick, caps, turnRecords, baselinesEna
               <button className="btn subtle chg-back" onClick={() => setPane("list")}>← 一覧</button>
               {file && row ? (
                 <>
-                  <div className="chg-fh"><span className={`chg-k ${kindIcon(file).cls}`} aria-label={kindIcon(file).title}>{kindIcon(file).letter}</span> <span className="mono chg-path">{pathText(file)}</span> <span className="small muted">{countText(file)}</span></div>
+                  <div className="chg-fh"><span className={`chg-k ${kindIcon(file).cls}`} aria-label={kindIcon(file).title}>{kindIcon(file).letter}</span> <span className="mono chg-path">{pathText(file)}</span> <Counts f={file} /></div>
                   {row.reasons.length > 0 ? (
                     <details className="chg-why">
                       <summary>{row.reasons.map((x, i) => <span key={i} className={`tag ${row.state === "needsOverride" ? "need" : "block"}`}><span aria-hidden="true">{STATE_MARK[row.state]} </span>{x.label}</span>)}</summary>
@@ -336,7 +343,7 @@ export function ChangesPanel({ chat, live, tick, caps, turnRecords, baselinesEna
                 </>) : <p className="small muted">ファイルを選ぶと差分を表示します。</p>}
             </div>
           </div>
-        ) : list && list.status.kind === "ready" ? <p>{tab === "git" ? "Git上の変更はありません（取得済み）。" : noBase ? "控えがないため、表示できる変更はありません。" : "記録した変更はありません。"}</p> : null}
+        ) : <div className="chg-empty small muted" role="status">{!list ? (listErr ? "一覧を表示できません" : "取得しています…") : list.status.kind !== "ready" ? "表示できる変更はありません" : tab === "git" ? "Git上の変更はありません（取得済み）" : noBase ? "控えがないため、表示できる変更はありません" : "記録した変更はありません"}</div>}
 
         {confirm && summary && plan ? (
           <ConfirmBlock label="戻す確認" actions={<>

@@ -1207,6 +1207,21 @@ pub enum SendState {
     NotFoundAfterReconcile,
 }
 
+/// 送信中にホストが実際に行っている段階（表示用。状態機械ではなく、`SendState::Sending` の間の補足）。
+/// 取れない段階は通知しない。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub enum SendPhase {
+    /// 送信前の確認（添付・作業フォルダ・送信前の保存・変更の控え）。
+    Preparing,
+    /// 履歴だけの会話を再開している（thread/resume の応答待ち）。
+    Resuming,
+    /// 送信要求を出し、Codex の受理の応答を待っている。
+    AwaitingAcceptance,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]

@@ -242,3 +242,34 @@ export function resultText(r: RevertResult): string {
   if (r.failed.length > 0) return `一部のみ戻しました（戻せた ${r.reverted.length}・戻せなかった ${r.failed.length}）`;
   return r.reverted.length > 0 ? `${r.reverted.length} 件を戻しました` : "書き換えたファイルはありません";
 }
+
+// ───────────────────────────── 差分・パスの表示 ─────────────────────────────
+
+/** パスを「ファイル名」と「フォルダ部」に分ける（区切りは / と \）。フォルダ部がなければ空文字。 */
+export function splitPath(p: string): { name: string; dir: string } {
+  const i = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
+  return i < 0 ? { name: p, dir: "" } : { name: p.slice(i + 1), dir: p.slice(0, i) };
+}
+
+export type DiffKind = "add" | "del" | "ctx" | "hunk" | "meta";
+export interface DiffRow { kind: DiffKind; old: number | null; new: number | null; text: string }
+
+/** 統一diffを行に分ける（行番号つき）。本文は加工しない（先頭の +/-/空白だけ記号として分ける）。ハンクの前の行・`#` 行・`\` 行は meta。 */
+export function diffRows(text: string): DiffRow[] {
+  const lines = text.split("\n");
+  if (lines[lines.length - 1] === "") lines.pop();
+  const out: DiffRow[] = [];
+  let o = 0, n = 0, inHunk = false;
+  for (const l of lines) {
+    const h = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(l);
+    if (h) { o = Number(h[1]); n = Number(h[2]); inHunk = true; out.push({ kind: "hunk", old: null, new: null, text: l }); continue; }
+    if (!inHunk || l.startsWith("#") || l.startsWith("\\")) { out.push({ kind: "meta", old: null, new: null, text: l }); continue; }
+    if (l.startsWith("+")) out.push({ kind: "add", old: null, new: n++, text: l.slice(1) });
+    else if (l.startsWith("-")) out.push({ kind: "del", old: o++, new: null, text: l.slice(1) });
+    else out.push({ kind: "ctx", old: o++, new: n++, text: l.startsWith(" ") ? l.slice(1) : l });
+  }
+  return out;
+}
+
+/** 巨大な差分は先頭だけ描画する（超えた分は件数を示す）。 */
+export const DIFF_ROW_LIMIT = 4000;

@@ -718,6 +718,7 @@ impl Host {
             None => return Err(err(IpcErrorCode::NotFound, "チャットが一覧にありません")),
             _ => {}
         }
+        self.emit_send_phase(chat, SendPhase::Resuming);
         match self.backend.resume(chat.clone(), confirmed).await? {
             ResumeOutcome::Resumed { history, accepted_model } => {
                 self.apply_resumed(chat, history, accepted_model);
@@ -835,6 +836,7 @@ impl Host {
         let lock = self.queue_rt.send_lock(&args.chat);
         let _send_guard = lock.lock().await;
         self.check_sendable(&args.chat)?;
+        self.emit_send_phase(&args.chat, SendPhase::Preparing);
         // 作業フォルダを書き換える操作（変更を戻す・取込み等）の実行中は、終わるまで送信しない（turnが書換え中のファイルを編集し始めないように）。
         if self.folder_op_active(&args.chat) {
             return Err(blocked(BlockedReason::ChatBusy, "作業フォルダを書き換える操作（変更を戻す等）の実行中です。完了してから送信してください"));
@@ -929,6 +931,7 @@ impl Host {
         let chat = request.chat.clone();
         let mut attempt = SendAttempt { attempt_id: attempt_id.clone(), client_message_id: request.client_message_id.clone(), at: now_ms(), state: SendState::Sending };
         self.emit_send(&chat, &attempt);
+        self.emit_send_phase(&chat, SendPhase::Preparing);
         let sent_cwd = if matches!(request.mode, SendMode::NewTurn) { request.cwd.clone() } else { None };
         let sent_folders = if matches!(request.mode, SendMode::NewTurn) { request.work_folders.clone() } else { None };
         // 作業フォルダの並びは送信の直前にも存在を確かめる。消えていたら外して送らず、理由を出して止める（再送権は残す）。
@@ -951,6 +954,7 @@ impl Host {
         if matches!(request.mode, SendMode::NewTurn) {
             self.baseline_take_base(&chat, &attempt_id, request.cwd.clone().or_else(|| request.work_folders.as_ref().and_then(|f| f.folders.first().cloned()))).await;
         }
+        self.emit_send_phase(&chat, SendPhase::AwaitingAcceptance);
         let state = match self.backend.send(request).await {
             SendOutcome::Accepted { turn, .. } => {
                 self.drop_unresolved_record(&chat, &attempt_id);
@@ -1002,6 +1006,12 @@ impl Host {
         let now = now_ms();
         self.mutate(|d| ((), d.mark_used(chat, now)));
         self.update_local(chat, true, Duration::ZERO, |f| f.last_used_at = Some(now));
+    }
+
+    /// 送信中の段階を通知する（表示用。状態は変えない・保存しない）。
+    fn emit_send_phase(&self, chat: &ChatKey, phase: SendPhase) {
+        let chat = chat.clone();
+        self.mutate(|_| ((), vec![HostEvent::SendPhaseUpdated { chat, phase }]));
     }
 
     fn emit_send(&self, chat: &ChatKey, attempt: &SendAttempt) {

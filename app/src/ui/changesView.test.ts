@@ -106,3 +106,13 @@ test("結果の文: 一部のみは完了と書かない", () => {
   assert.equal(resultText({ reverted: ["a"], forced: [], failed: [{ path: "z", reason: "r" }], backupDir: null }), "一部のみ戻しました（戻せた 1・戻せなかった 1）");
   assert.equal(resultText({ reverted: [], forced: [], failed: [], backupDir: null }), "書き換えたファイルはありません");
 });
+
+test("差分の行分け: 行番号・記号・ハンク前はmeta", async () => {
+  const { diffRows, splitPath } = await import("./changesView.ts");
+  const text = ["--- a/x", "+++ b/x", "@@ -10,3 +10,4 @@", " a", "-b", "+c", "+d", " e", "\\ No newline at end of file"].join("\n");
+  const r = diffRows(text);
+  assert.deepEqual(r.map((x) => x.kind), ["meta", "meta", "hunk", "ctx", "del", "add", "add", "ctx", "meta"]);
+  assert.deepEqual(r.slice(3, 8).map((x) => [x.old, x.new, x.text]), [[10, 10, "a"], [11, null, "b"], [null, 11, "c"], [null, 12, "d"], [12, 13, "e"]]);
+  assert.deepEqual(splitPath("src\\ui/a.ts"), { name: "a.ts", dir: "src\\ui" });
+  assert.deepEqual(splitPath("a.ts"), { name: "a.ts", dir: "" });
+});

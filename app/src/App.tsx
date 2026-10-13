@@ -9,6 +9,7 @@ import { copyText } from "./ui/markdown/parts";
 import { usePathStats } from "./ui/usePathStats";
 import { MAX_FETCH_PAGES, countFetched, fetchAllPages, loadMoreMessage, projectFetchMessage } from "./ui/listFetch";
 import { addDecision, mergeDecisions, type DecisionItem } from "./ui/decisions";
+import { ACCEPTED_HOLD_MS, hasInFlight, outcomeOfAttempt, rebindPending, reconcilePending, setPhase, type PendingOutcome, type PendingSend } from "./ui/pendingSend";
 import { applyHostEvent, createEventPipeline, emptyBundle, replaceSnapshot, seqAction, UNKNOWN_CAPS } from "./ipc/live";
 import type { Bundle } from "./mock/data";
 
@@ -62,6 +63,13 @@ const failedSource = (message: string): SourceInfo => ({
 /** 送信の受理状態の案内。受理不明は失敗とも成功とも言わない。 */
 const NO_SENDS: SentLocal[] = [];
 const NO_DECISIONS: DecisionItem[] = [];
+const NO_PENDING: PendingSend[] = [];
+/** 「もう一度送る」で再送できる試行（最新の試行が未受理）の行には、「入力欄へ戻す」を出さない。 */
+function markRetryable(list: PendingSend[] | undefined, a: SendAttempt | undefined): PendingSend[] {
+  if (!list) return NO_PENDING;
+  const can = a && (a.state.kind === "rejected" || a.state.kind === "notFoundAfterReconcile") ? a.attemptId : null;
+  return can ? list.map((p) => (p.outcome?.kind === "rejected" && p.outcome.attemptId === can ? { ...p, retryable: true } : p)) : list;
+}
 
 function noticeOf(a: SendAttempt | undefined, steer: { attemptId: string; queueInstead: () => void } | null = null): SendNotice | null {
   if (!a) return null;
@@ -125,6 +133,9 @@ export default function App() {
   // 送った発言のローカルの記録（送信直後の添付チップ用。メモリのみ。再読込み・再起動後は履歴から復元する）
   const [sends, setSends] = useState<Record<string, SentLocal[]>>({});
   /** キュー項目から追加指示で送り、受理不明のままの項目（項目ID→送信の試行ID）。 */
+  /** 送信ボタンを押した直後からの依頼（チャット別。画面内の一時表示。受理されたものは本文に現れるまでの間だけ置く）。 */
+  const [pendingSends, setPendingSends] = useState<Record<string, PendingSend[]>>({});
+  const pendingSeq = useRef(0);
   const [steerUnknown, setSteerUnknown] = useState<Record<string, string>>({});
   const [warnHidden, setWarnHidden] = useState(false);
   const [listStatus, setListStatus] = useState<{ ok: boolean; text: string } | null>(null);
@@ -183,6 +194,13 @@ export default function App() {
 
   const noteAttempt = useCallback((chatId: string, a: SendAttempt) => {
     setAttempts((m) => ({ ...m, [chatId]: a }));
+    // 受理不明だった依頼の行は、照合で確定したときにここで更新する（同じ試行の結果だけ）。
+    setPendingSends((m) => {
+      const cur = m[chatId];
+      if (!cur) return m;
+      const next = reconcilePending(cur, a);
+      return next === cur ? m : { ...m, [chatId]: next };
+    });
   }, []);
 
   /** 接続し、一覧とモデルを取得する。起動失敗は接続エラーとして表示する（作業の失敗にしない）。 */
@@ -248,6 +266,7 @@ export default function App() {
     const effects = (e: HostEvent) => {
       if (e.kind === "turnUpdated" && e.end !== null && e.turn.agent.id === selRef.current) void loadChat(e.turn.agent.id);
       else if (e.kind === "sendUpdated") noteAttempt(e.chat.id, e.attempt);
+      else if (e.kind === "sendPhaseUpdated") setPendingSends((m) => { const cur = m[e.chat.id]; if (!cur) return m; const next = setPhase(cur, e.phase); return next === cur ? m : { ...m, [e.chat.id]: next }; }); // 送信中の段階（表示だけ）
       else if (e.kind === "changesUpdated") setChangesTick((n) => n + 1); // 開いている差分表示が取り直す（読取りのみ）
       else if (e.kind === "decisionRecorded") setDecisions((m) => ({ ...m, [e.record.chat.id]: addDecision(m[e.record.chat.id] ?? [], { record: e.record, save: e.save }) })); // 応答の記録（表示だけ。応答の代行・再送はしない）
       else if (e.kind === "goalUpdated") setGoals((m) => ({ ...m, [e.chat.id]: e.goal ? { kind: "value", value: e.goal, basis: "direct" } : { kind: "missing" } })); // 目標の表示を置き換える（エージェント状態には使わない）
@@ -537,20 +556,50 @@ export default function App() {
       // 完了後に送る依頼として登録する（送信はホストが条件を判断して1件ずつ行う）。
       try { await host.enqueue(chat.key, text, attachments); say("完了後に送る依頼として登録しました。"); return true; } catch (e) { sayErr("依頼を登録できませんでした", e); return false; }
     }
+    // 応答待ちの送信がある間は、同じ入力を二重に送らない（下書きは残す）。
+    const chatId = chat.key.id;
+    if (hasInFlight(pendingSends[chatId] ?? [])) return false;
     // 送る添付の名前・種類・コピー先を、送信前の台帳から控える（送信で下書きから外れる前）
     const sentAtts = attachments.map((id) => snap.attachments.find((x) => x.id === id)).filter((x): x is AttachmentEntry => !!x).map(fromLocal);
-    try {
-      const a = await host.sendMessage(chat.key, text, running ? "steer" : "newTurn", attachments);
-      noteAttempt(chat.key.id, a);
-      // 受理を確認できた送信だけを、添付なしも含めて控える（同じ本文の別の発言に他の送信の添付が付かないように）
-      if (a.state.kind === "accepted") setSends((m) => ({ ...m, [chat.key.id]: [...(m[chat.key.id] ?? []), { text, at: a.at, atts: sentAtts, steer: running }].slice(-30) }));
-      if (running) {
-        setSteerOf((m) => ({ ...m, [chat.key.id]: { attemptId: a.attemptId, text, attachments } }));
-        if (a.state.kind === "accepted") say("追加指示を Codex が受理しました。現在のturnへの反映は会話の表示で確認してください（受理と反映は別です）。");
+    // 押した直後に、会話へ「送信中」の依頼として出す（入力欄は空になる）。結果は下の応答で確定する。
+    const pid = `ps${++pendingSeq.current}`;
+    const setOutcome = (outcome: PendingOutcome) => {
+      setPendingSends((m) => ({ ...m, [chatId]: (m[chatId] ?? []).map((x) => (x.id === pid ? { ...x, outcome } : x)) }));
+      // 受理後は、会話の本文に現れるのを待つ。現れなくても一定時間で仮の行は外す（受理済みの記録はホストと履歴が持つ）。
+      if (outcome.kind === "accepted") window.setTimeout(() => setPendingSends((m) => ({ ...m, [chatId]: (m[chatId] ?? []).filter((x) => x.id !== pid) })), ACCEPTED_HOLD_MS);
+    };
+    setPendingSends((m) => ({ ...m, [chatId]: [...(m[chatId] ?? []), { id: pid, text, startedAt: Date.now(), steer: running, phase: null, outcome: null }] }));
+    void (async () => {
+      try {
+        const a = await host.sendMessage(chat.key, text, running ? "steer" : "newTurn", attachments);
+        noteAttempt(chatId, a);
+        const o = outcomeOfAttempt(a);
+        if (o) setOutcome(o);
+        // 受理を確認できた送信だけを、添付なしも含めて控える（同じ本文の別の発言に他の送信の添付が付かないように）
+        if (a.state.kind === "accepted") setSends((m) => ({ ...m, [chatId]: [...(m[chatId] ?? []), { text, at: a.at, atts: sentAtts, steer: running }].slice(-30) }));
+        if (running) {
+          setSteerOf((m) => ({ ...m, [chatId]: { attemptId: a.attemptId, text, attachments } }));
+          if (a.state.kind === "accepted") say("追加指示を Codex が受理しました。現在のturnへの反映は会話の表示で確認してください（受理と反映は別です）。");
+        }
+      } catch (e) {
+        // ホストが送る前に止めた（何も送っていない）。入力した文は仮の行に残し、入力欄へ戻せる。
+        setOutcome({ kind: "failed", message: host.asIpcError(e).message });
+        sayErr("送信できませんでした", e);
       }
-      return true;
-    } catch (e) { sayErr("送信できませんでした", e); return false; }
+    })();
+    return true;
   };
+
+  const pendingRestore = (c: Chat, p: PendingSend) => {
+    // 入力欄に別の文があれば、その前に戻した文を置く（どちらも失わない）。
+    const cur = drafts[c.key.id] ?? "";
+    onDraft(c, cur.trim() ? `${p.text}
+
+${cur}` : p.text);
+    pendingDismiss(c, p);
+    composerRef.current?.focus();
+  };
+  const pendingDismiss = (c: Chat, p: PendingSend) => setPendingSends((m) => ({ ...m, [c.key.id]: (m[c.key.id] ?? []).filter((x) => x.id !== p.id) }));
 
   const qact = {
     edit: async (id: string, text: string): Promise<boolean> => {
@@ -648,7 +697,13 @@ export default function App() {
     if (!chat || !live) return;
     const a = attempts[chat.key.id];
     if (!a) return;
-    try { noteAttempt(chat.key.id, await host.retrySend(chat.key, a.attemptId)); } catch (e) { sayErr("再送できませんでした", e); }
+    try {
+      const r = await host.retrySend(chat.key, a.attemptId);
+      noteAttempt(chat.key.id, r);
+      // 再送の結果を元の仮の行へ結び付ける（受理されたのに「未送信」と残さない）
+      const id = chat.key.id;
+      setPendingSends((m) => { const cur = m[id]; if (!cur) return m; const n = rebindPending(cur, a.attemptId, r); return n === cur ? m : { ...m, [id]: n }; });
+    } catch (e) { sayErr("再送できませんでした", e); }
   };
 
   const onModel = (model: string, effort: string, speed: string) => {
@@ -1399,7 +1454,7 @@ export default function App() {
                 draft={curDraft} setDraft={(v) => onDraft(chat, v)}
                 onAct={act} commands={cmdViews} onRespond={(r, a) => void onRespond(r, a)}
                 onSend={onSend} onModel={onModel} onWorkMode={onWorkMode} workModes={workModes}
-                decisions={decisions[chat.key.id] ?? NO_DECISIONS} goal={goals[chat.key.id]} goalBusy={goalBusy} onGoalReload={() => void loadGoal(chat.key)} onGoalClear={clearGoal}
+                decisions={decisions[chat.key.id] ?? NO_DECISIONS} pending={markRetryable(pendingSends[chat.key.id], attempts[chat.key.id])} onPendingRestore={(p) => pendingRestore(chat, p)} onPendingDismiss={(p) => pendingDismiss(chat, p)} goal={goals[chat.key.id]} goalBusy={goalBusy} onGoalReload={() => void loadGoal(chat.key)} onGoalClear={clearGoal}
                 notice={live ? noticeOf(attempts[chat.key.id], steerOf[chat.key.id] ? { attemptId: steerOf[chat.key.id].attemptId, queueInstead: () => { void onSend(steerOf[chat.key.id].text, false, steerOf[chat.key.id].attachments); } } : null) : null} onRetrySend={() => void onRetrySend()}
                 queue={snap.queues.find((q) => q.chat.id === chat.key.id)} local={snap.chatLocals.find((l) => l.chat.id === chat.key.id)}
                 qact={qact} onPermission={onPermission} wf={wf} sends={sends[chat.key.id] ?? NO_SENDS}

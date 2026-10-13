@@ -1189,6 +1189,8 @@ pub enum HostEvent {
     /// 応答した承認・質問・MCP許可の記録を1件追記した（項目51）。`save` が失敗なら、再起動後には残らない。
     DecisionRecorded { record: super::decision::DecisionRecord, save: super::decision::DecisionSave },
     SendUpdated { chat: ChatKey, attempt: SendAttempt },
+    /// 送信中の段階（表示用の一時情報。保存しない・送信の状態は変えない）。
+    SendPhaseUpdated { chat: ChatKey, phase: SendPhase },
     /// チャット1件分のキュー全体（項目・進行・保留理由）で置き換える。
     ChatQueueUpdated { queue: ChatQueue },
     StopUpdated { record: StopRecord },

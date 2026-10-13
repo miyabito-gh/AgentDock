@@ -21,6 +21,8 @@ import { MenuList } from "./MenuList";
 import { shortcutById, tipWithKey } from "./shortcuts";
 import { GoalBar, UnverifiedTag, WORK_MODE_TEXT } from "./PrefsDialogs";
 import { resendCtxOf, resendTargetOf } from "./ResendDialog";
+import { PendingSendRow } from "./PendingSendRow";
+import { appearsInTurns, type PendingSend } from "./pendingSend";
 import { PURPOSE_TAG, resendAvailability, type ResendCtx } from "./resend";
 
 const SCOPE_TEXT = { once: "1回だけ", session: "このセッション中", persistent: "以後ずっと（永続）", unknown: "効力範囲は不明" } as const;
@@ -81,6 +83,10 @@ export interface CenterProps {
   cwdInfo: PathInfo | undefined;
   /** 応答した承認・質問・MCP許可の記録（AgentDockが保存したもの。Codexの履歴には載らない）。 */
   decisions: DecisionItem[];
+  /** 送信ボタンを押した直後からの依頼（送信中・未送信・受理不明・受理後の本文待ち）。 */
+  pending: PendingSend[];
+  onPendingRestore: (p: PendingSend) => void;
+  onPendingDismiss: (p: PendingSend) => void;
 }
 
 export interface FileActions {
@@ -503,8 +509,9 @@ function UserBubble({ text, forceOpen, open, onToggle }: { text: string; forceOp
   );
 }
 
-function Messages({ chatId, turns, reqs, running, onRespond, onAct, extra, find, resend, locals, files, sends, agentName, decisions }: {
+function Messages({ chatId, turns, reqs, running, onRespond, onAct, extra, find, resend, locals, files, sends, agentName, decisions, pending, onPendingRestore, onPendingDismiss }: {
   agentName?: (a: AgentKey) => string; decisions: DecisionItem[];
+  pending: PendingSend[]; onPendingRestore: (p: PendingSend) => void; onPendingDismiss: (p: PendingSend) => void;
   turns: TurnRecord[]; reqs: PendingRequest[]; running: boolean; onRespond: CenterProps["onRespond"]; onAct: (a: string) => void; extra?: ReactNode; find: FindState; resend: ResendView;
   locals: AttachmentEntry[]; files: FileActions; sends: SentLocal[]; chatId: string;
 }) {
@@ -533,7 +540,7 @@ function Messages({ chatId, turns, reqs, running, onRespond, onAct, extra, find,
   // 更新（新しい本文・逐次表示）のたびに、最下部付近にいるときだけ追従する。過去を読んでいるときは動かさず「最新へ」を出す。
   useEffect(() => {
     if (stick.current) toBottom(); else setAway(true);
-  }, [turns, reqs.length, running]);
+  }, [turns, reqs.length, running, pending.length]);
   return (
     <div className="msgs-wrap">
     {find.open ? <FindBar root={ref} query={find.query} setQuery={find.setQuery} focusTick={find.tick} partial={find.partial} onClose={find.close} /> : null}
@@ -620,6 +627,7 @@ function Messages({ chatId, turns, reqs, running, onRespond, onAct, extra, find,
           </div>
         );
       })}
+      {pending.filter((x) => !appearsInTurns(x, turns)).map((x) => <PendingSendRow key={x.id} p={x} onRestore={onPendingRestore} onDismiss={onPendingDismiss} />)}
       {extra}
       {reqs.map((r) => <RequestCard key={keyStr({ backend: r.key.backend, id: r.key.requestId })} r={r} onRespond={onRespond} agentName={agentName} />)}
       {running && reqs.length === 0 ? <div className="msg ai"><div className="who">Codex</div><div className="activity">作業中…</div></div> : null}
@@ -1042,6 +1050,7 @@ export function CenterPane(p: CenterProps) {
       <Banners p={p} />
       <Messages key={chat.key.id} chatId={chat.key.id} agentName={nameOf} decisions={p.decisions} turns={p.turns} reqs={reqs} running={running} onRespond={p.onRespond} onAct={p.onAct} find={find}
         locals={snap.attachments.filter((a) => keyStr(a.chat) === keyStr(chat.key))} files={p.files} sends={p.sends}
+        pending={p.pending} onPendingRestore={p.onPendingRestore} onPendingDismiss={p.onPendingDismiss}
         resend={{ ctx: resendCtxOf(snap, chat, snap.sources.some((x) => x.connection.kind === "connected"), p.turns), rootAgentId: rootView(snap, chat)?.agent.key.id }}
         extra={<FilesBlock chatId={chat.key.id} sent={snap.attachments.filter((a) => keyStr(a.chat) === keyStr(chat.key) && a.usedBy.length > 0)} artifacts={snap.artifacts.filter((a) => keyStr(a.chat) === keyStr(chat.key))} files={p.files} />} />
       <Queue q={snap.queues.find((q) => keyStr(q.chat) === keyStr(chat.key))} nameOf={nameOf} qact={p.qact} steerWhy={steerBlockReason(running, modelChanged(p.settings), p.local)} />

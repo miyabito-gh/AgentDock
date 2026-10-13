@@ -290,6 +290,7 @@ export type { SaveScope } from "./gen/SaveScope";
 export type { SaveState } from "./gen/SaveState";
 export type { SaveStatus } from "./gen/SaveStatus";
 export type { SendAttempt } from "./gen/SendAttempt";
+export type { SendPhase } from "./gen/SendPhase";
 export type { SendIntent } from "./gen/SendIntent";
 export type { SendKey } from "./gen/SendKey";
 export type { SendMessageArgs } from "./gen/SendMessageArgs";
