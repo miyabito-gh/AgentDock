@@ -2,6 +2,7 @@
 
 **最新状態（まずここだけ読む）**
 - コード: 第4段（44・45・47・50・49・46・42・43・30変更・48・51・39［WF-0〜4］）と**メニュー再設計（M1〜M5、`app/DESIGN_MENUS.md`）**は実装・検証・コミット済み。最新コミット **f3db435**。**プッシュ未実施**（依頼されたときだけ、force禁止）。NSIS = **2026-10-12 19:09**。
+**改善事項（2026-10-13 記録のみ・まだ直さない）**: 「AgentDock作成チャット」の判定を Codex の `originator`（AgentDock作成は `agentdock`）でも行う。現状は `chat.json` の hosted 印と wire の source（実測は全て vscode）に頼るため、`chat.json` を失った・別PCで開いたAgentDock作成チャットが「外部」扱い（再開の確認が要る）になる。対象: codex/convert.rs chat_origin、codex/wire.rs に originator の読取り（CRLFファイル）、テスト。実測: originator=agentdock のスレッドは17件。着手は、自分で作ったチャットに「外部」印が付いている実例が確認できたときか、ユーザーの指示があったとき。
 **既知の挙動（2026-10-13）**: AgentDockで作ったチャットは、VS Code拡張の一覧には出るが、ChatGPT（Codex）アプリの「最近のチャット」には出ず検索で出る。実測（読取りのみ）: 作成元 source=vscode・name/section/projectId はアプリ側作成と同じで、差は originator のみ（agentdock／アプリ側は Codex Desktop 等）。Codex側の一覧には含まれるのでAgentDock側の不具合ではなく、アプリ側の絞り込み（originator）か内部状態への登録待ちと推定（未確定）。対処しない方針: originator の偽装はしない、アプリの内部状態ファイル(.codex-global-state.json)は書かない。convert.rs の「AppManaged」判定（source.custom==CLIENT_NAME）は実測の source=vscode では成立しない可能性あり（要確認）。
 - 正本は版1.5（2026-10-12。1.4の49・キュー鮮度緩和＋第4段・メニュー再設計の事実反映）。CLAUDE.md の現状行も更新済み。
 - **第4段の実機結果**（LIVE_CHECK_B4.md）: ○＝44・43・42・45・30・48・47・51・39（作成時の追加フォルダ・分岐での引き継ぎ・作業フォルダ帯）。分岐でrootsは継承されない（M6）ため AgentDock が次の送信設定へ引き継ぐ実装は実機OK。追加フォルダは roots 入りなら書込み可（M5）。
