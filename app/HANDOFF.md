@@ -1,5 +1,11 @@
 # 引き継ぎ（2026-10-12 夜、第4段（修正バッチ）・メニュー再設計 実装完了・実機確認待ち）
 
+**プロジェクト機能の一時停止（2026-10-14 ユーザー決定・正本1.9）**: 「仕様が怪しいのでいったんプロジェクトは扱わない」。コードは残し定数で止めた。
+- 再有効化: `app/src/ui/features.ts` の `PROJECTS_ENABLED` と `app/src-tauri/src/host/work_folders.rs` の同名定数を `true` にする（保存値は触っていないのでそのまま戻る）。
+- 止めた箇所: ①左一覧「並べ方」の「プロジェクトごと」「プロジェクト一覧を更新」（LeftPane.tsx。保存値 ByProject は表示時に作業フォルダごとへ読み替え）②プロジェクト見出し・「…」・「複数」印・推定印・0件見出し（①の読み替えで出ない）③見出しからのプロジェクト新規作成・チャット取得（fetchProjectChats は no-op）④project/list の呼び出し全部（App.tsx の refreshProjects・reclassify。ホストの list_projects コマンドは残置、UI から呼ばない）⑤作業フォルダ帯の「プロジェクト一致 N/M」（WorkFoldersUi.tsx、host/work_folders.rs の project_match=None）。「続きを読み込む」・cwdフィルタ付き取得・全件取得は残す。Skillの出所「プロジェクト」は別物で変更なし。
+- 調査結果: project/list は12件、threadの projectId は全件 null、所属はアプリ内部（.codex-global-state.json）にある可能性、保存先は未確定。
+- 関連文書（DESIGN_MENUS.md・LIVE_CHECK_B4.md の項目19ほか）は停止中の注記付き。
+
 **Codex 0.162.1 対応（2026-10-14）**: 実PCのcodex.exeが0.162.1に更新。schema再生成（`probes/app-server/schema/0.162.1/`）・差分は追加のみ・読取り系スモーク（scratchpad）で応答形に問題なし。対応: goal set/clear に origin=user、MessagePhase partial_answer は不明扱い。TARGET_VERSION=0.162.1（正本1.8）。parity_table（操作の確認済み表）は0.160.0分のみで、0.162.1は全操作「未確認」から始まる＝実機で確認後に表へ0.162.1を足す。利用枠を使う操作（送信・承認・Skill呼出し・Goal設定・変更を戻す等）は未実施。0.160.0のままのユーザーは版不一致バナーが出る。
 
 **最新状態（まずここだけ読む）**

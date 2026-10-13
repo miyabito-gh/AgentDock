@@ -8,6 +8,7 @@ import { PENDING_TEXT, archiveTag } from "./ManageDialogs";
 import { GROUP_HEADER_HEIGHT, WINDOW_THRESHOLD, cumulativeTops, rowHeight, scrollTopToRevealVar, windowRangeVar } from "./listWindow";
 import { BASIS_TEXT, groupByProject, type MatchBasis } from "./projectGroups";
 import { projectUpdateMessage } from "./listFetch";
+import { PROJECTS_ENABLED } from "./features";
 import { UNKNOWN_KEY, collapseAll, flattenGroups, groupChats, shortNames, worktreeOf, type FlatItem, type FolderGroup } from "./folderGroups";
 
 /** 行の「…」メニューで選べる操作（App.tsx の onChatAct が対象チャットIDつきで受ける）。 */
@@ -69,7 +70,8 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct,
   const rest = visible.filter((c) => !c.pinned || showArch);
 
   // 「プロジェクトごと」は、プロジェクト一覧を読めたときだけ。読めない間は作業フォルダごとで表示する（保存した設定は変えない）。
-  const loadedProjects = projects?.kind === "loaded" ? projects.projects : null;
+  // PROJECTS_ENABLED=false の間は常に読めていない扱い（保存値の ByProject は表示時に作業フォルダごとへ読み替える）。
+  const loadedProjects = PROJECTS_ENABLED && projects?.kind === "loaded" ? projects.projects : null;
   const projectsOff = projects?.kind === "unsupported" ? projects.reason : null;
   const view: ChatListView = chatList.view === "ByProject" && !loadedProjects ? "ByFolder" : chatList.view;
   const byFolder = view === "ByFolder" && !showArch;
@@ -108,7 +110,7 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct,
   const shorts = shortNames(groups.filter((g) => g.kind === "folder").map((g) => ({ key: g.key, path: g.path })));
   const labelOf = (g: FolderGroup) => (g.kind === "folder" ? shorts.get(g.key) ?? g.path : g.kind === "project" ? g.label ?? g.path : g.path);
   /** 一覧で「プロジェクトごと」を選んでいるのに読めていないときの案内（読めない理由が「非対応」のときはメニューの項目に出す）。 */
-  const projectsNote = chatList.view === "ByProject" && !showArch && !loadedProjects
+  const projectsNote = PROJECTS_ENABLED && chatList.view === "ByProject" && !showArch && !loadedProjects
     ? projects === null ? { text: "プロジェクト情報を取得中です（作業フォルダごとで表示中）", bad: false }
       : projects.kind === "failed" ? { text: "プロジェクト情報を取得できませんでした（作業フォルダごとで表示中）", bad: true } : null
     : null;
@@ -412,14 +414,14 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct,
           <Popover role="menu" align="right" triggerClassName="btn lt-view" label={`一覧の並べ方（現在: ${viewLabel}）`} title={`一覧の並べ方: ${viewLabel}`} trigger={<>並べ方 <span aria-hidden="true">▾</span></>}>
             {(close) => (
               <>
-                {(["Recent", "ByFolder", "ByProject"] as ChatListView[]).map((v) => (
-                  <button key={v} type="button" role="menuitemradio" aria-checked={chatList.view === v} disabled={v === "ByProject" && projectsOff !== null}
+                {((PROJECTS_ENABLED ? ["Recent", "ByFolder", "ByProject"] : ["Recent", "ByFolder"]) as ChatListView[]).map((v) => (
+                  <button key={v} type="button" role="menuitemradio" aria-checked={view === v} disabled={v === "ByProject" && projectsOff !== null}
                     title={v === "ByProject" ? projectsOff ?? "プロジェクト（名前とフォルダの集合）ごとにまとめます。所属はフォルダ一致による推測を含みます" : undefined}
                     onClick={() => { setView(v); close(); }}>
-                    <span>{VIEW_LABEL[v]}</span><span aria-hidden="true">{chatList.view === v ? "✓" : ""}</span>
+                    <span>{VIEW_LABEL[v]}</span><span aria-hidden="true">{view === v ? "✓" : ""}</span>
                   </button>
                 ))}
-                {chatList.view === "ByProject" ? (
+                {PROJECTS_ENABLED && chatList.view === "ByProject" ? (
                   <>
                     <hr />
                     <button type="button" role="menuitem" disabled={!onReclassify || reclass === "busy" || !loadedProjects}
@@ -429,7 +431,7 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct,
                     </button>
                   </>
                 ) : null}
-                {chatList.view !== "Recent" ? (
+                {view !== "Recent" ? (
                   <>
                     <hr />
                     <button type="button" role="menuitem" disabled={groups.length === 0}

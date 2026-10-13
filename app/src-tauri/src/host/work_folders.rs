@@ -18,6 +18,10 @@ use crate::rules::queue as q;
 use crate::rules::work_folders::{check_folder, is_same_or_under, normalize_path, os_probe, path_key, verify_folder_set, FolderEnv, PathFacts, SetReject};
 use crate::store::records::ChatLocalFile;
 
+/// プロジェクト機能の一時停止スイッチ（2026-10-14。UI側 `src/ui/features.ts` の `PROJECTS_ENABLED` と合わせる）。
+/// false の間は作業フォルダ帯のためにも project/list を呼ばない。
+const PROJECTS_ENABLED: bool = false;
+
 // ───────────────────────────── 純粋ロジック ─────────────────────────────
 
 fn key_of(p: &str) -> String {
@@ -287,7 +291,7 @@ impl Host {
             (_, _, Some(c)) => vec![c.clone()],
             _ => Vec::new(),
         };
-        let project_match = if support == Support::Supported && !known.is_empty() {
+        let project_match = if PROJECTS_ENABLED && support == Support::Supported && !known.is_empty() {
             match self.backend.list_projects().await {
                 Ok(p) => match_project(&p, project_id.as_deref(), &known),
                 Err(_) => None,

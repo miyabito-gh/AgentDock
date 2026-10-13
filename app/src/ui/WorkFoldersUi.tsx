@@ -6,6 +6,7 @@ import {
   addBlockReason, applyCheck, REJECT_TEXT, confirmedStrongPaths, droppedExtrasNote, folderKey, makePrimary, moveItem, needsAddConfirm,
   projectMatchText, saveBlockReason, strongText, toItems, unconfirmedStrong, viewRows, type FolderItem,
 } from "./workFolders";
+import { PROJECTS_ENABLED } from "./features";
 
 export type SaveResult = { kind: "ok" } | { kind: "needsQueueConfirm"; waiting: number } | { kind: "error"; message: string };
 
@@ -163,7 +164,7 @@ export function WorkFoldersPanel({ api, lockReason, permissionText, fallback, on
               {r.note ? <div className="small muted">{r.note}</div> : null}
             </div>
           ))}
-          {view?.projectMatch ? <div className="small" style={{ marginTop: 4 }}>{projectMatchText(view.projectMatch)}</div> : null}
+          {PROJECTS_ENABLED && view?.projectMatch ?<div className="small" style={{ marginTop: 4 }}>{projectMatchText(view.projectMatch)}</div> : null}
           {dropped ? <div className="why err" style={{ marginTop: 4 }}>{dropped}</div> : null}
           <div className="small muted" style={{ marginTop: 4 }}>AGENTS.md はプライマリのフォルダ基準です。「変更を戻す」の対象もプライマリだけです。</div>
           {lockReason ? <div className="why" style={{ marginTop: 4 }}>{lockReason}</div> : null}

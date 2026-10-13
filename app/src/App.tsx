@@ -7,6 +7,7 @@ import * as host from "./ipc/client";
 import { LinkContext, RefContext, type PathAction, type RefActions } from "./ui/Markdown";
 import { copyText } from "./ui/markdown/parts";
 import { usePathStats } from "./ui/usePathStats";
+import { PROJECTS_ENABLED } from "./ui/features";
 import { MAX_FETCH_PAGES, countFetched, fetchAllPages, loadMoreMessage, projectFetchMessage } from "./ui/listFetch";
 import { addDecision, mergeDecisions, type DecisionItem } from "./ui/decisions";
 import { ACCEPTED_HOLD_MS, hasInFlight, outcomeOfAttempt, rebindPending, reconcilePending, setPhase, type PendingOutcome, type PendingSend } from "./ui/pendingSend";
@@ -182,6 +183,7 @@ export default function App() {
   /** 保存履歴から会話本文を読み込む（resumeしない）。 */
   /** プロジェクト一覧を取り直す（読取りのみ。一覧の更新と同時に呼ぶ）。通信などで取れなかったときは「取得できなかった」と記録する。 */
   const refreshProjects = useCallback(async () => {
+    if (!PROJECTS_ENABLED) return; // プロジェクト機能の一時停止中は project/list を呼ばない
     try { setProjects(await host.listProjects()); }
     catch (e) { setProjects({ kind: "failed", reason: host.asIpcError(e).message }); }
   }, []);
@@ -892,7 +894,7 @@ ${cur}` : p.text);
           if (b?.kind !== "openNeedsConfirm") { sayErr("開けませんでした", e); return; }
           const why = [
             b.executable ? "実行形式のファイルです。開くとプログラムが実行されることがあります。" : "",
-            b.outsideProject ? "このチャットのプロジェクト（作業フォルダ）の外にあるファイルです。" : "",
+            b.outsideProject ? "このチャットの作業フォルダの外にあるファイルです。" : "",
           ].filter(Boolean).join("\n");
           if (!window.confirm(`${why}\n${b.path}\n\n内容を確認したうえで、開きますか？`)) { say("開くのをやめました。"); return; }
           try { await host.openFile(t, true); } catch (e2) { sayErr("開けませんでした", e2); }
@@ -947,7 +949,7 @@ ${cur}` : p.text);
         if (b?.kind !== "openNeedsConfirm") { sayErr("開けませんでした", e); return; }
         const why = [
           b.executable ? "実行形式のファイルです。開くとプログラムが実行されることがあります。" : "",
-          b.outsideProject ? "このチャットのプロジェクト（作業フォルダ）の外にあるファイルです。" : "",
+          b.outsideProject ? "このチャットの作業フォルダの外にあるファイルです。" : "",
         ].filter(Boolean).join("\n");
         if (!window.confirm(`${why}\n${b.path}\n\n内容を確認したうえで、開きますか？`)) { say("開くのをやめました。"); return; }
         try { await host.openPath(chatKey, path, true); } catch (e2) { sayErr("開けませんでした", e2); }
@@ -1244,6 +1246,7 @@ ${cur}` : p.text);
   };
   /** プロジェクト一覧を更新して振り分け直す（project/list の再取得だけ。チャット一覧は取らない。押したときだけ）。取れなかったときは前の振り分けを残す。戻り値は失敗の理由（成功は null）。 */
   const reclassify = async (): Promise<string | null> => {
+    if (!PROJECTS_ENABLED) return null; // 一時停止中は通信しない
     if (!live) return "この操作はモックでは動きません。";
     try {
       const o = await host.listProjects();
@@ -1265,6 +1268,7 @@ ${cur}` : p.text);
   };
   /** プロジェクト見出しの「このプロジェクトのチャットを取得」。roots を cwd 条件にして、続きも上限ページまで取得する（読み取りのみ）。 */
   const fetchProjectChats = async (label: string, roots: string[]) => {
+    if (!PROJECTS_ENABLED) return; // 一時停止中（見出しメニューも出さない）
     if (!live) { say("この操作はモックでは動きません。"); return; }
     const known = new Set(snap.chats.map((c) => c.key.id));
     const r = await fetchAllPages((cursor) => host.listChats(cursor, false, roots), MAX_FETCH_PAGES, (e) => host.asIpcError(e).message);
