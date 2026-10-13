@@ -121,6 +121,7 @@ struct WireThreadRaw {
     created_at: Option<i64>,
     updated_at: Option<i64>,
     source: Option<Value>,
+    originator: Option<String>,
     agent_nickname: Option<String>,
     agent_role: Option<String>,
     model: Option<String>,
@@ -142,6 +143,8 @@ pub struct WireThread {
     pub created_at: Option<i64>,
     pub updated_at: Option<i64>,
     pub source: Option<Value>,
+    /// 作成したクライアントの記録名（clientInfo.name）。無い・nullなら None。
+    pub originator: Option<String>,
     pub agent_nickname: Option<String>,
     pub agent_role: Option<String>,
     /// スレッドに記録されたモデル・推論強度（記録値。いま使用中とは限らない）。
@@ -171,6 +174,7 @@ impl WireThread {
             created_at: raw.created_at,
             updated_at: raw.updated_at,
             source: raw.source,
+            originator: raw.originator,
             agent_nickname: raw.agent_nickname,
             agent_role: raw.agent_role,
             model: raw.model,

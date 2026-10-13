@@ -54,4 +54,9 @@ chatList: ChatListSettings,
 /**
  * 表示（テーマ・文字サイズ。M51）。古い `settings.json` は既定値で読む。
  */
-appearance: AppearanceSettings, };
+appearance: AppearanceSettings, 
+/**
+ * 版の注意（版の不一致・版不明の全体バナー）を閉じたときの版の識別子。同じ版のあいだは出さず、版が変わるとまた出す。
+ * 識別子の形は画面側が決める（版不明は専用の値）。None＝閉じていない。古い `settings.json` は None で読む。
+ */
+dismissedVersionNotice: string | null, };

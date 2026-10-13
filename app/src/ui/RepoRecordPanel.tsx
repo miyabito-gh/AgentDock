@@ -1,7 +1,7 @@
 // 所有者違い（dubious ownership）のリポジトリの案内と、リポジトリ別の「変更を記録するか」の選択（変更ダイアログ内）。
 // 規則: トーストにしない。最初は「記録するか」だけ聞く。記録しないを選んだら以後Gitを呼ばず、ここに中立の一行だけ出す。
 //       AgentDockはユーザーのgit設定・.gitの所有者を変えない（コマンド例はユーザーが自分で実行する）。許可は確認の後だけ。
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import type { Chat, RepoBaselinePref, RepoRecordChoice, SegmentStatus } from "../ipc/types";
 import { useCopy } from "./markdown/parts";
 import { cleanRepoPath, currentOwnerProblem, ownerCardProblem, ownerCommands, ownerFailedCount, prefFor, safeDirectoryCommand } from "./revertView";
@@ -18,12 +18,18 @@ function CopyLine({ text }: { text: string }) {
   );
 }
 
+/** 案内①〜④。compact のときだけ「対処のしかた」に畳む。 */
+function Guide({ compact, children }: { compact?: boolean; children: ReactNode }) {
+  return compact ? <details className="about"><summary>対処のしかた</summary><div>{children}</div></details> : <>{children}</>;
+}
+
 /** 許可の確認（行き先のパスを表示）。 */
 const confirmAllow = (repo: string): boolean =>
   window.confirm(`次のリポジトリを、AgentDockのgit操作だけに許可します。\n\n${cleanRepoPath(repo)}\n\nAgentDockが呼ぶgitにだけ safe.directory として渡します。あなたのgit設定（.gitconfig）は変更しません。このフォルダのGit管理は別のユーザーの所有です。内容を信頼できる場合だけ許可してください。許可はいつでも解除できます。`);
 
 /** `ownerRepo`: 作業フォルダのリポジトリが、いま所有者違いでGitに拒否されているときの場所（`git_info` の所有者違い。控えの失敗記録がなくても案内を出す）。 */
-export function RepoRecordPanel({ chat, segs, prefs, onSet, ownerRepo }: { chat: Chat | undefined; segs: SegmentStatus[] | null; prefs: RepoBaselinePref[] | undefined; onSet: SetRepoFn | undefined; ownerRepo?: string | null }) {
+/** `compact`: 変更を確認の状態スロット用。見出し1行＋ボタンにし、案内①〜④は「対処のしかた」に畳む（文は同じ）。 */
+export function RepoRecordPanel({ chat, segs, prefs, onSet, ownerRepo, compact }: { chat: Chat | undefined; segs: SegmentStatus[] | null; prefs: RepoBaselinePref[] | undefined; onSet: SetRepoFn | undefined; ownerRepo?: string | null; compact?: boolean }) {
   const [busy, setBusy] = useState(false);
   const [guide, setGuide] = useState(false);
   const cwd = chat?.cwd.kind === "value" ? chat.cwd.value : null;
@@ -66,7 +72,7 @@ export function RepoRecordPanel({ chat, segs, prefs, onSet, ownerRepo }: { chat:
         <div className="gbanner warn" style={{ display: "block" }}>
           <p><b>{segProblem ? "この発言の前の状態を保存できなかったため、この発言の変更は戻せません。" : problem ? "このフォルダのGit管理が別のユーザーの所有になっているため、差分の確認や変更の記録ができません。" : "このリポジトリの変更を記録します。"}</b>{problem ? `原因: このフォルダのGit管理（.git）が別のユーザー（Codexのサンドボックス）の所有になっていて、Gitが安全のため拒否しています。AgentDockは設定を勝手に変えません。次のどれかを選んでください。` : "所有者の問題があれば、ここに案内を出します。"}</p>
           {problem ? (
-            <>
+            <Guide compact={compact}>
               <p>① 先に自分で <code className="mono">git init</code> する（Codexに作らせない）。今後のリポジトリはこれで防げます。</p>
               <p>② .git の所有者を自分に戻す（管理者のコマンドプロンプトで、自分で実行）:</p>
               {ownerCommands(repo).map((c) => <CopyLine key={c} text={c} />)}
@@ -74,7 +80,7 @@ export function RepoRecordPanel({ chat, segs, prefs, onSet, ownerRepo }: { chat:
               <CopyLine text={safeDirectoryCommand(repo)} />
               <p>④ またはAgentDockが呼ぶgitにだけ許可する（あなたのgit設定は変えません）:</p>
               <div className="acts"><button className="btn-line" disabled={busy || !onSet || allowed} onClick={() => { if (confirmAllow(repo)) void set("Record", true); }}>{allowed ? "許可済み" : "AgentDockのgit操作だけに許可…"}</button></div>
-            </>
+            </Guide>
           ) : null}
         </div>
       ) : null}

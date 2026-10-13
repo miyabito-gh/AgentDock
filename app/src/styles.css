@@ -621,6 +621,64 @@ textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;paddin
 .change-table tbody tr.sel{background:var(--accent-weak)}
 .change-table .linkish{height:auto;padding:0;border:0;background:transparent;text-align:left;white-space:normal;word-break:break-all;color:inherit}
 
+/* 変更を確認（見る→選ぶ→戻す）。左＝ファイル一覧、右＝差分。印の色は既存の .tag と同じトークン。 */
+.dialog.wide:has(.chg-content){width:min(1040px,100%)}
+.chg-content{display:flex;flex-direction:column;overflow:hidden}
+.chg-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 6px}
+.chg-req{display:flex;align-items:center;gap:6px;flex:1 1 280px;min-width:0}
+.chg-req select{flex:1;min-width:0}
+.seg{display:inline-flex;border:1px solid var(--line-strong);border-radius:var(--r2);overflow:hidden}
+.seg button{border:0;border-radius:0;height:var(--ctl);background:var(--surface);padding:0 10px}
+.seg button+button{border-left:1px solid var(--line-strong)}
+.seg button[aria-selected=true]{background:var(--accent-weak);color:var(--accent-text);font-weight:700}
+.chg-count{margin:0 0 6px}
+.chg-add{color:var(--done)}
+.chg-del{color:var(--fail-ink)}
+.chg-slot{margin:0 0 8px}
+.chg-slot .banner{margin:0;align-items:center}
+.chg-slot .banner>.btn-line{flex:none}
+.chg-slot>.small{margin:0}
+.chg-split{display:grid;grid-template-columns:minmax(220px,38%) minmax(0,1fr);gap:8px;height:clamp(240px,52vh,520px);min-height:0;margin:0 0 8px}
+.chg-left,.chg-right{border:1px solid var(--line);border-radius:var(--r2);min-width:0;min-height:0;overflow:auto;background:var(--surface)}
+.chg-right{padding:8px 10px;display:flex;flex-direction:column;gap:6px}
+.chg-right .diffview{flex:1;max-height:none;min-height:80px}
+.chg-right p{margin:0}
+.chg-back{display:none;align-self:flex-start}
+.chg-all{display:flex;align-items:center;gap:6px;padding:4px 10px;border-bottom:1px solid var(--line2);font-size:var(--fs-s);position:sticky;top:0;background:var(--surface);z-index:1}
+.chg-list{list-style:none;margin:0;padding:0}
+.chg-row{display:flex;align-items:center;gap:4px;padding:0 6px;border-bottom:1px solid var(--line2)}
+.chg-row.sel{background:var(--accent-weak)}
+.chg-row.changed{outline:2px solid var(--wait-solid);outline-offset:-2px}
+.chg-row.reverted,.chg-row.blocked{color:var(--ink3)}
+.chg-ck{flex:none;width:18px;text-align:center;font-size:var(--fs-s)}
+.chg-rowbtn{flex:1;min-width:0;display:flex;align-items:center;gap:6px;flex-wrap:wrap;height:auto;min-height:30px;padding:3px 2px;border:0;background:transparent;text-align:left;color:inherit;white-space:normal}
+.chg-path{overflow-wrap:anywhere;min-width:0}
+.chg-rowbtn .chg-path{flex:1 1 8em}
+.chg-num{white-space:nowrap}
+.chg-inc{font-size:var(--fs-xs);color:var(--accent-text);white-space:nowrap}
+.chg-k{flex:none;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:var(--r1);font:700 var(--fs-xs)/1 var(--mono);color:var(--ink2);background:var(--idle-bg)}
+.chg-k.add{color:var(--done);background:var(--done-bg)}
+.chg-k.del{color:var(--fail-ink);background:var(--fail-bg)}
+.chg-k.mod{color:var(--accent-text);background:var(--accent-weak)}
+.tag.chg-st.needsOverride{color:var(--wait-ink);background:var(--wait-bg);border-color:var(--wait-line);font-weight:600}
+.tag.chg-st.blocked{color:var(--ink2);background:var(--idle-bg)}
+.tag.chg-st.reverted{color:var(--done);background:var(--done-bg);border-color:currentColor}
+.tag.chg-st.failed{color:var(--fail-ink);background:var(--fail-bg);border-color:var(--fail-line);font-weight:600}
+.chg-fh{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.chg-why summary{cursor:pointer;display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+.chg-why>div{margin-top:2px}
+.chg-includes{color:var(--accent-text)}
+.chg-override{border:1px solid var(--fail-line);border-radius:var(--r2);padding:6px 10px;margin:6px 0;background:var(--surface)}
+.chg-override p{margin:0 0 4px}
+@media (max-width:1279px){
+  .chg-split{grid-template-columns:minmax(0,1fr);height:auto;flex:1;min-height:200px}
+  .chg-content{overflow:auto}
+  .chg-split[data-pane=list] .chg-right{display:none}
+  .chg-split[data-pane=diff] .chg-left{display:none}
+  .chg-back{display:inline-flex}
+  .chg-right .diffview{max-height:60vh}
+}
+
 /* side相談のパネル（P3-4）。主会話を見ながら使う、右側の浮かぶパネル。狭い画面では幅を縮める。 */
 .sidepanel{position:fixed;right:12px;top:76px;bottom:12px;width:min(380px,92vw);z-index:22;background:var(--surface);border:1px solid var(--line);border-radius:var(--r3);box-shadow:var(--sh-3);display:flex;flex-direction:column;min-height:0}
 .sidepanel header{display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid var(--line2)}

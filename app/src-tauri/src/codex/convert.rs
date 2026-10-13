@@ -216,6 +216,10 @@ pub fn chat_kind(cwd: Option<&str>, app_data_dir: Option<&str>) -> ChatKind {
 }
 
 pub fn chat_origin(t: &WireThread) -> ChatOrigin {
+    // originator は作成したクライアント名。source が "vscode" 等でも AgentDock 作成と判別できる。
+    if t.originator.as_deref() == Some(super::process::CLIENT_NAME) {
+        return ChatOrigin::AppManaged;
+    }
     match t.source.as_ref() {
         Some(Value::String(s)) => match s.as_str() {
             "appServer" => ChatOrigin::AppManaged,
@@ -772,6 +776,12 @@ mod tests {
         let t = thread(json!({"id": "me", "source": {"custom": "agentdock"}}));
         assert_eq!(chat_origin(&t), ChatOrigin::AppManaged);
         let t = thread(json!({"id": "o", "source": {"custom": "other-client"}}));
+        assert_eq!(chat_origin(&t), ChatOrigin::External);
+        let t = thread(json!({"id": "v", "source": "vscode", "originator": "agentdock"}));
+        assert_eq!(chat_origin(&t), ChatOrigin::AppManaged);
+        let t = thread(json!({"id": "v", "source": "vscode", "originator": "Codex Desktop"}));
+        assert_eq!(chat_origin(&t), ChatOrigin::External);
+        let t = thread(json!({"id": "v", "source": "vscode"}));
         assert_eq!(chat_origin(&t), ChatOrigin::External);
         let t = thread(json!({"id": "r", "source": "appServer"}));
         assert_eq!(parent_link(&t), ParentLink::Root);

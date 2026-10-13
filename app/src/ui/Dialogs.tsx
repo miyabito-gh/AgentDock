@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import type { Chat, ChatKey, ChatLocalView, ChatPendingOp, ChatQueue, ChatModelSettings, ForceKillPreview, Goal, GoalUpdate, Known, ModelInfo, NotificationSettings, OpCapability, QuitDecision, QuitPhase, RevertResult, SaveStatus, SideSessionMeta, SourceInfo, StopRecord, StopSummary, WorktreeRecord, CloudTaskRecord } from "../ipc/types";
+import type { Chat, ChatKey, ChatLocalView, ChatPendingOp, ChatQueue, ChatModelSettings, ForceKillPreview, Goal, GoalUpdate, Known, ModelInfo, NotificationSettings, OpCapability, QuitDecision, QuitPhase, RevertResult, SaveStatus, SideSessionMeta, SourceInfo, StopRecord, StopSummary, TurnRecord, WorktreeRecord, CloudTaskRecord } from "../ipc/types";
 import type { AppearanceSettings, BodyTextSize, ChatListView, StrongReason, ThemePref, UiTextSize, Support } from "../ipc/types";
 import { chatName } from "./derive";
 import { SCOPE_TEXT } from "./Chrome";
@@ -11,7 +11,7 @@ import { copyText } from "./markdown/parts";
 import { hostOf, isIdnHost, textMismatchesUrl } from "./markdown/plugins";
 import { ParityBody } from "./ParityDialog";
 import { AboutBody, HowtoBody, ShortcutsBody } from "./HelpDialogs";
-import { ChangesBody, RevertBody } from "./ChangesDialog";
+import { ChangesPanel } from "./ChangesDialog";
 import { GoalBody, StatusBody } from "./PrefsDialogs";
 import { UsagePanel } from "./UsagePanel";
 import { CompactBody, ForkBody, ReviewBody } from "./ThreadOpsDialogs";
@@ -368,7 +368,7 @@ function RenameDialog({ chat, onClose, run }: { chat: Chat | undefined; onClose:
 /** isolate は「分離」（worktreeを作成してから開始）。worktree は既存のAgentDock作成worktreeの記録ID（チャットに結び付ける）。 */
 export interface NewChatInput { cwd: string | null; model: string; firstMessage: string | null; isolate: boolean; worktree: string | null; /** 追加の作業フォルダ（プライマリ以外）。 */ extraFolders: string[]; /** 強い確認を済ませたパス（ホストが再検査する）。 */ confirmedStrong: string[] }
 
-export function Dialogs({ workspaceRoots, d, onClose, chats, source, models, enterMode, setEnterMode, top, setTab, onAct, exe, onCreateChat, notify, autostart, appearance, quit, force, manage, onRename, opCaps, live, changesTick, onRevertDone, prefs, threadOps, worktree, cloudTasks, compose, resend }: {
+export function Dialogs({ workspaceRoots, d, onClose, chats, source, models, enterMode, setEnterMode, top, setTab, onAct, exe, onCreateChat, notify, autostart, appearance, quit, force, manage, onRename, opCaps, live, changesTick, turnRecords, onRevertDone, prefs, threadOps, worktree, cloudTasks, compose, resend }: {
   compose: ComposeDialogProps;
   /** 複数の作業フォルダの指定の能力（新しいチャットの「フォルダを追加」の可否）。 */
   workspaceRoots: Support;
@@ -386,6 +386,8 @@ export function Dialogs({ workspaceRoots, d, onClose, chats, source, models, ent
   live: boolean;
   /** 変更の報告が更新されるたびに増える。 */
   changesTick: number;
+  /** 変更を確認の依頼名（発言の先頭）に使う、開いているチャットの履歴。 */
+  turnRecords: TurnRecord[];
   onRevertDone: (r: RevertResult | null) => void;
   onRename: (chatId: string, name: string) => Promise<string | null>;
   autostart: AutostartProps; appearance: AppearanceProps; quit: QuitProps; force: ForceProps; manage: ManageProps;
@@ -517,13 +519,9 @@ export function Dialogs({ workspaceRoots, d, onClose, chats, source, models, ent
       <Shell title="この操作はまだ使えません" onClose={onClose} close="閉じる">
         <div className="content"><p>{d.why}。</p><p className="small muted">Codex 側の経路と動作を確認できるまで、成功したように見せることはしません。</p></div>
       </Shell>);
-    case "changes": return (
-      <Shell title="変更の確認" wide full onClose={onClose} close="閉じる">
-        <ChangesBody chat={chats.find((x) => x.key.id === d.chatId)} live={live} tick={changesTick} cap={opCaps.find((c) => c.op === "changeList")} onRevert={() => onAct("revert")} baselinesEnabled={manage.baselines.enabled} repoPrefs={manage.baselines.repos} onSetRepo={manage.baselines.setRepo} />
-      </Shell>);
-    case "revert": return (
-      <Shell title="変更を戻す" wide full onClose={onClose} close="閉じる">
-        <RevertBody chat={chats.find((x) => x.key.id === d.chatId)} live={live} cap={opCaps.find((c) => c.op === "revertChanges")} onDone={onRevertDone} baselinesEnabled={manage.baselines.enabled} />
+    case "changes": case "revert": return (
+      <Shell title="変更を確認" wide full onClose={onClose} close="閉じる">
+        <ChangesPanel chat={chats.find((x) => x.key.id === d.chatId)} live={live} tick={changesTick} caps={[opCaps.find((c) => c.op === "changeList"), opCaps.find((c) => c.op === "revertChanges")]} turnRecords={turnRecords} onDone={onRevertDone} baselinesEnabled={manage.baselines.enabled} repoPrefs={manage.baselines.repos} onSetRepo={manage.baselines.setRepo} />
       </Shell>);
     case "review": case "compact": case "fork": {
       const c = chats.find((x) => x.key.id === d.chatId);

@@ -206,6 +206,13 @@ export function ownerCardShown(status: SegmentStatus[] | null, ownerRepo: string
   return !!(problem || pref?.path || cwd) && pref?.choice !== "Skip";
 }
 
+/** RepoRecordPanel が何かを表示するか（案内・「記録しない」の一行・許可済みの一行）。状態スロットの出し分けに使う。 */
+export function repoPanelVisible(status: SegmentStatus[] | null, ownerRepo: string | null | undefined, prefs: readonly RepoBaselinePref[] | undefined, cwd: string | null | undefined): boolean {
+  const problem = ownerCardProblem(status, ownerRepo);
+  const pref = prefFor(prefs, problem, cwd);
+  return !!(problem || pref?.path || cwd) && (!!problem || !!pref);
+}
+
 /** 控えがない理由（`noBaselineReason`）の原因が所有者違いで、案内カードがすでに同じ原因を説明しているか（その帯は重ねて出さない）。 */
 export function ownerExplainsNoBaseline(status: SegmentStatus[] | null, ctx?: BaselineContext): boolean {
   if (!status) return false;

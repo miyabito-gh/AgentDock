@@ -5,6 +5,7 @@ import { Popover } from "./Popover";
 import { MenuList, moveInMenu } from "./MenuList";
 import { MENUBAR, resolveMenu } from "./menuModel";
 import { UsagePanel } from "./UsagePanel";
+import { isConnectionProblem, showVersionNotice, versionNoticeKey } from "./versionNotice";
 import type { SaveScope, SaveStatus, SourceInfo, StartupWarning } from "../ipc/types";
 
 export function TitleBar({ title, tag, mini, top, onAct }: { title: string; tag?: string; mini?: boolean; top?: boolean; onAct: (a: string) => void }) {
@@ -89,21 +90,32 @@ export function MenuBar({ open, setOpen, views, onAct, tag, live }: {
 }
 
 /** 全体バナー。接続状態と版の不一致をSourceInfoから作る。 */
-export function GlobalBanner({ source, onAct }: { source: SourceInfo | undefined; onAct: (a: string) => void }) {
+export function GlobalBanner({ source, dismissed, onDismiss, onAct }: {
+  source: SourceInfo | undefined;
+  /** 閉じた版の識別子（AppSettings.dismissedVersionNotice）。 */
+  dismissed: string | null | undefined;
+  /** 版の注意を閉じる（接続断・起動失敗のバナーには付けない）。 */
+  onDismiss: (key: string) => void;
+  onAct: (a: string) => void;
+}) {
   if (!source) return null;
   const c = source.connection;
   let text: string | null = null;
   let cls = "warn";
+  let dismissKey: string | null = null;
   if (c.kind === "launchFailed") { text = `Codex を起動できませんでした。${c.message}`; cls = "err"; }
   else if (c.kind === "disconnected") { text = `Codex との接続が切れています${c.message ? `（${c.message}）` : ""}。状態は最後に受信した内容のままで、完了・失敗を意味しません。`; cls = "err"; }
+  else if (!showVersionNotice(source.version, dismissed)) return null;
   else if (source.version.kind === "mismatch") text = `Codex は ${source.version.actual} です。対象版は ${source.version.expected} のため、一部の機能が動かない可能性があります。`;
   else if (source.version.kind === "unknown") text = `Codex の版を確認できません（${source.version.message}）。`;
   if (!text) return null;
+  if (!isConnectionProblem(c)) dismissKey = versionNoticeKey(source.version);
   return (
     <div className={`gbanner ${cls}`} role="alert">
       <Icon name="alert" /><span className="grow">{text}</span>
       <button className="btn-line" onClick={() => onAct("settings:codex")}>Codex の設定を開く</button>
-      {c.kind === "launchFailed" || c.kind === "disconnected" ? <button className="btn-line" onClick={() => onAct("retryLaunch")}>再試行</button> : null}
+      {isConnectionProblem(c) ? <button className="btn-line" onClick={() => onAct("retryLaunch")}>再試行</button> : null}
+      {dismissKey ? <button className="btn-line" title="同じ版のあいだは出しません。Codex の版が変わるとまた出します（接続先の表示・設定・ヘルプには残ります）" onClick={() => onDismiss(dismissKey!)}>閉じる</button> : null}
     </div>
   );
 }

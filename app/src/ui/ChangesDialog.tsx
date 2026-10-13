@@ -1,26 +1,26 @@
-// 変更の確認（変更ファイルと差分の表示。#1）と「変更を戻す」（#2）の本体（段階③ P3-1）。外枠（Shell）と下部ボタンは Dialogs.tsx 側。
-// 規則: 「この会話の変更（記録）」と「Gitの現在の差分」は出所を分けて表示する。取れていない値は「未確認」と書き、0や空で代用しない。
-//       戻す操作は確認の後だけ。戻せない理由はそのまま出し、部分的にしか戻せなかったときは完了と書かない。
-import { useEffect, useState } from "react";
+// 変更を確認（見る→選ぶ→戻す を1画面で。#1・#2。DESIGN_CHANGES_UI）。外枠（Shell）と下部の閉じるボタンは Dialogs.tsx 側。
+// 規則: 「このチャット」と「Git（HEAD比較）」は出所を分けて表示する。取れていない値は「未確認」と書き、0や空で代用しない。
+//       戻す操作は利用者が押したときだけ（チェックの既定はすべてオフ）。確認の後だけ実行し、計画の期限切れは取り直して、判定が変わっていれば実行しない。
+//       戻せない理由・要確認の理由は消さない。部分的にしか戻せなかったときは完了と書かない。通信断・取得不能を成功と書かない。
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import * as host from "../ipc/client";
-import type { Chat, ChangeKind, GitInfo, RepoBaselinePref, ChangeList, ChangedFile, ChangeSource, ListStatus, OpCapability, RevertPlan, RevertResult, SegmentStatus, UnifiedDiff } from "../ipc/types";
-import { chatName } from "./derive";
+import type { Chat, ChangedFile, ChangeList, ChangeSource, GitInfo, ListStatus, OpCapability, RepoBaselinePref, RevertPlan, RevertResult, SegmentStatus, TurnRecord, UnifiedDiff } from "../ipc/types";
 import { showKnown } from "./format";
-import { About, ConfirmBlock, FootActions, ShortId } from "./DialogParts";
+import { About, ConfirmBlock, FootActions } from "./DialogParts";
 import { RepoRecordPanel, type SetRepoFn } from "./RepoRecordPanel";
-import { Icon } from "./Icon";
 import type { BaselineContext } from "./revertView";
-import { ownerCardShown, failureText, forcedPaths, gitKindOf, groupOf, initialChosen, noBaselineReason, ownerExplainsNoBaseline, sameReason, pickedPaths, reasonLines, resultKind, sortedItems, turnOptions } from "./revertView";
+import { failureText, gitKindOf, noBaselineReason, ownerCardShown, ownerExplainsNoBaseline, repoPanelVisible, sameReason } from "./revertView";
+import { allState, confirmSummary, defaultRequest, fileKey, headline, keepChosen, mergeRows, planChanged, requestName, requestOptions, resultText, setChecked, statusSlot, STATE_LABEL, STATE_MARK, toggleAll, type Row } from "./changesView";
 
-const KIND_TEXT: Record<ChangeKind, string> = { added: "追加", deleted: "削除", modified: "変更" };
-const SOURCE_TEXT: Record<ChangeSource, string> = { baseline: "この会話の変更（記録）", git: "Gitの現在の差分（HEAD比較）" };
+const SOURCE_TEXT: Record<ChangeSource, string> = { baseline: "このチャット", git: "Git（HEAD比較）" };
 
 const NOTE_BASELINE = "turnの開始時と終了時にAgentDockがGitで控えた内容の差です。Codexがコマンドで編集した変更も含みます（Codexの報告には依存しません）。Gitリポジトリのみで、.gitignore 対象・サブモジュール・作業フォルダ外は含みません。turnの最中に別のツールで変えた内容も含まれます。控えは自動削除されません。";
 const NOTE_GIT = "Gitの作業ツリーとHEADの現在の差分です（turnの区切りはありません）。Gitリポジトリのみ。";
+const NOTE_REVERT = "turnの開始時にAgentDockがGitで控えた内容へ、ファイルを書き戻します。現在の内容がこのチャットのturnによる変更だけのファイルはそのまま戻せます。turnの後や間に別の変更がある・終了時の控えがない・別の会話と同時に作業していたファイルは、理由を表示して止めます。内容を確認したうえで、ファイルごとに「それでも戻す」を選べます。コミットなどでHEADが変わった後のファイルは戻せません。戻す前の内容は、このチャット用の領域に控えとして保存します（自動では削除しません）。";
+const UNVERIFIED_TEXT = "この操作は実際のCodexで動作を確認していません。表示は受け取った報告と、読み取ったファイルの内容だけに基づきます。";
 
 /** 「記録しない」を選んだリポジトリの表示（専用の一行で見せるので、控えがない帯には重ねない）。 */
 const SKIPPED_TEXT = failureText({ kind: "skipped" });
-const fileKey = (f: ChangedFile) => `${f.path}|${f.moveTo ?? ""}`;
 const errText = (e: unknown) => host.asIpcError(e).message;
 
 function statusText(s: ListStatus): string | null {
@@ -51,7 +51,7 @@ function baselineContextOf(info: GitInfo | null, baselinesEnabled: boolean | und
 
 export function UnverifiedNote({ cap }: { cap: OpCapability | undefined }) {
   if (cap?.verification !== "unverified") return null;
-  return <p className="small muted"><span className="unv">未確認</span> この操作は実際のCodexで動作を確認していません。表示は受け取った報告と、読み取ったファイルの内容だけに基づきます。</p>;
+  return <p className="small muted"><span className="unv">未確認</span> {UNVERIFIED_TEXT}</p>;
 }
 
 /** 統一diffの表示。行頭で色分けするだけで、内容は加工しない。 */
@@ -68,55 +68,102 @@ function DiffText({ text }: { text: string }) {
   );
 }
 
+/** 種類アイコン（A/M/D/R）。色は追加=緑、削除=赤、変更=青、移動=灰。 */
+function kindIcon(f: ChangedFile): { letter: string; cls: string; title: string } {
+  if (f.moveTo) return { letter: "R", cls: "mov", title: "移動" };
+  return f.kind === "added" ? { letter: "A", cls: "add", title: "追加" } : f.kind === "deleted" ? { letter: "D", cls: "del", title: "削除" } : { letter: "M", cls: "mod", title: "変更" };
+}
+const pathText = (f: ChangedFile) => `${f.path}${f.moveTo ? ` → ${f.moveTo}` : ""}`;
+const countText = (f: ChangedFile) => (f.binary ? "バイナリ" : `${showKnown(f.additions, (v) => `+${v}`)} ${showKnown(f.deletions, (v) => `−${v}`)}`);
+
 export interface ChangesProps {
   chat: Chat | undefined;
   live: boolean;
   /** 変更の報告が更新されるたびに増える（開いている表示が取り直す）。 */
   tick: number;
-  cap: OpCapability | undefined;
-  onRevert: () => void;
+  /** 一覧・戻す操作の能力（どちらかが未確認なら見出しに「未確認」を出す）。 */
+  caps: Array<OpCapability | undefined>;
+  /** 依頼の表示名（発言の先頭）を作る材料。手元になければ `#n` だけで示す。 */
+  turnRecords: TurnRecord[];
   /** 設定で控えの記録がオンか（控えがない理由の判定に使う）。 */
   baselinesEnabled?: boolean;
-  /** リポジトリ別の選択（所有者違いの案内。変更ダイアログだけで使う）。 */
+  /** リポジトリ別の選択（所有者違いの案内）。 */
   repoPrefs?: RepoBaselinePref[];
   onSetRepo?: SetRepoFn;
+  /** 実行の完了を親へ伝える（トースト用）。結果が得られなければ null。呼ぶたびに親が差分表示の再取得を促す。 */
+  onDone: (r: RevertResult | null) => void;
 }
 
-export function ChangesBody({ chat, live, tick, cap, onRevert, baselinesEnabled, repoPrefs, onSetRepo }: ChangesProps) {
+export function ChangesPanel({ chat, live, tick, caps, turnRecords, baselinesEnabled, repoPrefs, onSetRepo, onDone }: ChangesProps) {
   const [tab, setTab] = useState<ChangeSource>("baseline");
-  const [turn, setTurn] = useState("");
+  /** 依頼。null＝未決定（依頼の一覧を読むまで）、""＝すべての依頼。 */
+  const [turn, setTurn] = useState<string | null>(null);
   const [segs, setSegs] = useState<SegmentStatus[] | null>(null);
   const [list, setList] = useState<ChangeList | null>(null);
-  const [err, setErr] = useState<string | null>(null);
+  const [listErr, setListErr] = useState<string | null>(null);
+  const [plan, setPlan] = useState<RevertPlan | null>(null);
+  const [planErr, setPlanErr] = useState<string | null>(null);
+  const [chosen, setChosen] = useState<Record<string, boolean>>({});
   const [sel, setSel] = useState<string | null>(null);
   const [diff, setDiff] = useState<UnifiedDiff | null>(null);
   const [diffErr, setDiffErr] = useState<string | null>(null);
+  const [confirm, setConfirm] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState<RevertResult | null>(null);
+  const [resultErr, setResultErr] = useState<string | null>(null);
+  const [changedPaths, setChangedPaths] = useState<string[]>([]);
+  const [nonce, setNonce] = useState(0);
+  /** 狭い画面で表示する側（一覧 or 差分）。 */
+  const [pane, setPane] = useState<"list" | "diff">("list");
+  const planRef = useRef<RevertPlan | null>(null);
+  planRef.current = plan;
   const chatKey = chat?.key;
   const chatId = chatKey?.id;
   const gitInfo = useGitInfo(live, chat);
   const bctx = baselineContextOf(gitInfo, baselinesEnabled);
   /** 作業フォルダのリポジトリが所有者違いでGitが拒否している（案内を出すリポジトリの場所）。 */
   const ownerRepo = gitInfo?.ownerMismatch ? gitInfo.root ?? "" : null;
+  const cwd = chat?.cwd.kind === "value" ? chat.cwd.value : null;
 
+  // 依頼の一覧（控えの区間）。最初に読めたとき、最新の依頼を選ぶ。
   useEffect(() => {
     if (!live || !chatKey) return;
     let alive = true;
+    host.getBaselineStatus(chatKey).then((s) => {
+      if (!alive) return;
+      setSegs(s);
+      setTurn((t) => t ?? defaultRequest(requestOptions(s, turnRecords)) ?? "");
+    }).catch(() => { if (alive) { setSegs(null); setTurn((t) => t ?? ""); } });
+    return () => { alive = false; };
+  }, [live, chatId, tick, nonce]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ファイル一覧 → 戻せるかの判定（読むだけ。ファイルは変えない）。
+  useEffect(() => {
+    if (!live || !chatKey) return;
+    if (tab === "baseline" && turn === null) return;
+    let alive = true;
+    setListErr(null);
     const scope = tab === "baseline" && turn ? { kind: "turn" as const, turn } : { kind: "chat" as const };
-    setErr(null);
-    host.getChangeList(chatKey, scope, tab).then((l) => {
+    void (async () => {
+      let l: ChangeList;
+      try { l = await host.getChangeList(chatKey, scope, tab); } catch (e) {
+        if (alive) { setList(null); setPlan(null); setPlanErr(null); setChosen({}); setListErr(errText(e)); }
+        return;
+      }
       if (!alive) return;
       setList(l);
-      setSel((s) => (s && l.files.some((f) => fileKey(f) === s) ? s : null));
-    }).catch((e) => { if (alive) { setList(null); setErr(errText(e)); } });
+      setSel((s) => (s && l.files.some((f) => fileKey(f) === s) ? s : l.files[0] ? fileKey(l.files[0]) : null));
+      if (tab !== "baseline" || l.status.kind !== "ready" || l.files.length === 0) { setPlan(null); setPlanErr(null); setChosen({}); return; }
+      try {
+        const p = await host.previewRevert(chatKey, turn || null, l.files.map((f) => f.path));
+        if (!alive) return;
+        setPlanErr(null);
+        setChosen((c) => keepChosen(c, planRef.current, p));
+        setPlan(p);
+      } catch (e) { if (alive) { setPlan(null); setChosen({}); setPlanErr(errText(e)); } }
+    })();
     return () => { alive = false; };
-  }, [live, chatId, tab, turn, tick]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    if (!live || !chatKey) return;
-    let alive = true;
-    host.getBaselineStatus(chatKey).then((s) => { if (alive) setSegs(s); }).catch(() => { if (alive) setSegs(null); });
-    return () => { alive = false; };
-  }, [live, chatId, tick]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [live, chatId, tab, turn, tick, nonce]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const file = list?.files.find((f) => fileKey(f) === sel) ?? null;
   useEffect(() => {
@@ -126,220 +173,193 @@ export function ChangesBody({ chat, live, tick, cap, onRevert, baselinesEnabled,
     const path = tab === "git" ? file.moveTo ?? file.path : file.path;
     host.getFileDiff(chatKey, path, tab, tab === "baseline" && turn ? turn : null).then((d) => { if (alive) setDiff(d); }).catch((e) => { if (alive) setDiffErr(errText(e)); });
     return () => { alive = false; };
-  }, [live, chatId, tab, turn, sel, tick]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [live, chatId, tab, turn, sel, tick, nonce]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!chat) return <div className="content"><p>チャットを選んでください。</p></div>;
   if (!live) return <div className="content"><p>モックでは動きません（実接続で使えます）。</p></div>;
-  const st = list ? statusText(list.status) : null;
-  const turns = segs ? turnOptions(segs) : [];
+
+  const opts = segs ? requestOptions(segs, turnRecords) : [];
   const noBase = noBaselineReason(segs, bctx);
-  // 同じ原因（控えがない）の帯は1本にする。文が一致したときだけ重複とみなし、原因が違うときは両方出す。
-  const sameCause = list?.status.kind === "notSupported" && sameReason(list.status.message, noBase);
-  // 所有者違いで案内カードが実際に出ているときだけ、カードが原因を説明する（「記録しない」の一行表示のときは隠さない）。控えがない帯と「非対応」の帯は重ねて出さない。
-  const ownerCase = ownerCardShown(segs, ownerRepo, repoPrefs, chat.cwd.kind === "value" ? chat.cwd.value : null);
+  const ownerCase = ownerCardShown(segs, ownerRepo, repoPrefs, cwd);
+  const ownerPanel = repoPanelVisible(segs, ownerRepo, repoPrefs, cwd);
   const ownerExplained = tab === "baseline" && ownerCase && ownerExplainsNoBaseline(segs, bctx);
   const hideStatus = tab === "baseline" && ownerCase && list?.status.kind === "notSupported";
-  return (
-    <>
-      <div className="tabs" role="tablist">
-        {(["baseline", "git"] as ChangeSource[]).map((s) => <button key={s} role="tab" aria-selected={tab === s} onClick={() => { setTab(s); setSel(null); }}>{SOURCE_TEXT[s]}</button>)}
-      </div>
-      <div className="content">
-        <p className="small muted">{chatName(chat)}</p>
-        <UnverifiedNote cap={cap} />
-        {tab === "baseline" ? <p className="small">コミット・ブランチ切替の後は控えへ戻せません。</p> : null}
-        <About><p>{tab === "baseline" ? NOTE_BASELINE : NOTE_GIT}</p></About>
-        {tab === "baseline" && noBase && !sameCause && !ownerExplained && noBase !== SKIPPED_TEXT ? <p className="gbanner warn" role="status">{noBase}</p> : null}
-        {tab === "baseline" ? <RepoRecordPanel chat={chat} segs={segs} prefs={repoPrefs} onSet={onSetRepo} ownerRepo={ownerRepo} /> : null}
-        {tab === "baseline" && turns.length > 0 ? (
-          <div className="field"><span>対象</span>
-            <select value={turn} onChange={(e) => setTurn(e.target.value)} aria-label="対象のturn">
-              <option value="">このチャットの控えのある変更すべて</option>
-              {turns.map((t) => <option key={t.turn} value={t.turn}>{t.label}</option>)}
-            </select></div>) : null}
-        {err ? <p style={{ color: "var(--fail)" }}>{err}</p> : !list ? <p>取得しています…</p> : (
-          <>
-            {st && !hideStatus ? <p className="gbanner warn" role="status">{st}</p> : null}
-            {tab === "git" && ownerRepo !== null ? <div className="acts"><button className="btn-line" onClick={() => { setTab("baseline"); setSel(null); }}>対処の案内を見る（「この会話の変更（記録）」タブ）</button></div> : null}
-            {list.notes.map((n, i) => <p key={i} className="small muted">{n}</p>)}
-            {list.status.kind === "ready" && list.files.length === 0 ? <p>{tab === "git" ? "Git上の変更はありません（取得済み）。" : noBase ? "控えがないため、表示できる変更はありません。" : "記録した変更はありません。"}</p> : null}
-            {list.files.length > 0 ? (
-              <table className="tbl change-table">
-                <thead><tr><th>種類</th><th>ファイル</th><th>追加</th><th>削除</th><th>{tab === "git" ? "" : "turn"}</th></tr></thead>
-                <tbody>
-                  {list.files.map((f) => (
-                    <tr key={fileKey(f)} className={fileKey(f) === sel ? "sel" : ""} onClick={() => setSel(fileKey(f))}>
-                      <td>{f.moveTo ? "移動" : KIND_TEXT[f.kind]}</td>
-                      <td className="mono"><button className="linkish" aria-pressed={fileKey(f) === sel} onClick={() => setSel(fileKey(f))}>{f.path}{f.moveTo ? ` → ${f.moveTo}` : ""}</button>{f.reverted ? <> <span className="tag reverted"><Icon name="check" />戻し済み</span></> : null}</td>
-                      {f.binary ? <td colSpan={2} className="small muted">バイナリ（行数なし）</td> : <>
-                        <td>{showKnown(f.additions, (v) => `+${v}`)}</td>
-                        <td>{showKnown(f.deletions, (v) => `−${v}`)}</td></>}
-                      <td className="small">{f.turn ? <ShortId id={f.turn} /> : ""}</td>
-                    </tr>))}
-                </tbody>
-              </table>) : null}
-            {file ? (
-              <div style={{ marginTop: 8 }}>
-                <p className="small"><b>{SOURCE_TEXT[tab]}</b>: <span className="mono">{file.path}</span></p>
-                {file.binary ? <p>バイナリのため表示できません。</p> : diffErr ? <p style={{ color: "var(--fail)" }}>{diffErr}</p> : !diff ? <p>差分を取得しています…</p>
-                  : diff.status.kind !== "ready" ? <p className="gbanner warn" role="status">{statusText(diff.status)}</p>
-                    : diff.text.trim() === "" ? <p>差分の本文はありません（空）。</p> : <DiffText text={diff.text} />}
-              </div>) : list.files.length > 0 ? <p className="small muted">ファイルを選ぶと差分を表示します。</p> : null}
-          </>)}
-      </div>
-      {tab === "baseline" ? <FootActions main={<button className="btn primary" disabled={!!noBase} title={noBase ? "控えがないため戻せません。" : undefined} onClick={onRevert}>変更を戻す…</button>} /> : null}
-    </>
-  );
-}
+  // 同じ原因（控えがない）の帯は1本にする。文が一致したときだけ重複とみなし、原因が違うときは両方を1行に並べる。
+  const sameCause = list?.status.kind === "notSupported" && sameReason(list.status.message, noBase);
+  const notSup = list?.status.kind === "notSupported" && !hideStatus ? statusText(list.status) : null;
+  const baseParts = [
+    tab === "baseline" && noBase && !sameCause && !ownerExplained && noBase !== SKIPPED_TEXT ? noBase : null,
+    notSup,
+  ].filter((x): x is string => !!x);
+  const baseText = tab === "git" && ownerPanel ? null : baseParts.length > 0 ? baseParts.join(" ／ ") : null;
+  const listError = listErr ?? (list?.status.kind === "notFetched" ? statusText(list.status) : null);
 
-// ───────────────────────────── 変更を戻す ─────────────────────────────
+  // 控えがない・所有者違いで取れていないときは、チェック列・主ボタンを出さない。
+  const canRevert = tab === "baseline" && !noBase && !!plan;
+  const rows = list ? mergeRows(list.files, tab === "baseline" ? plan : null, chosen, result) : [];
+  const row = rows.find((r) => r.key === sel) ?? null;
+  const summary = plan ? confirmSummary(plan.items, chosen) : null;
+  const busy = running;
+  const lockedUi = running || confirm;
+  const head = list ? headline(list.files) : null;
+  const slot = statusSlot({
+    listError, changedPaths, baseText, ownerPanel,
+    planError: planErr ? `戻せるか確認できませんでした: ${planErr}` : null, result, resultError: resultErr ? `戻す操作でエラーになりました: ${resultErr}。実際の状態は「再確認」で取り直してください。` : null,
+    notes: list?.notes ?? [],
+  });
+  const recheck = () => { setResult(null); setResultErr(null); setChangedPaths([]); setConfirm(false); setNonce((n) => n + 1); };
+  const resetView = () => { setSel(null); setChosen({}); setConfirm(false); setResult(null); setResultErr(null); setChangedPaths([]); setPane("list"); };
+  const unverified = caps.some((c) => c?.verification === "unverified");
 
-export interface RevertProps {
-  chat: Chat | undefined;
-  live: boolean;
-  cap: OpCapability | undefined;
-  baselinesEnabled?: boolean;
-  /** リポジトリ別の選択（所有者違いの案内。変更ダイアログだけで使う）。 */
-  repoPrefs?: RepoBaselinePref[];
-  onSetRepo?: SetRepoFn;
-  /** 実行の完了を親へ伝える（トースト用。結果の本文はこのダイアログに残す）。結果が得られなければ null。呼ぶたびに親が差分表示の再取得を促す。 */
-  onDone: (r: RevertResult | null) => void;
-}
-
-const GROUP_TAG = { revertible: "戻せる", needsOverride: "要確認", blocked: "止める" } as const;
-
-export function RevertBody({ chat, live, cap, onDone, baselinesEnabled }: RevertProps) {
-  const [segs, setSegs] = useState<SegmentStatus[] | null>(null);
-  const [from, setFrom] = useState("");
-  const [plan, setPlan] = useState<RevertPlan | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-  const [chosen, setChosen] = useState<Record<string, boolean>>({});
-  /** 0: 確認なし、1: 1段目（書き換える件数）、2: 2段目（強制するファイルの確認）。 */
-  const [stage, setStage] = useState<0 | 1 | 2>(0);
-  const [running, setRunning] = useState(false);
-  const [result, setResult] = useState<RevertResult | null>(null);
-  const [nonce, setNonce] = useState(0);
-  const chatKey = chat?.key;
-  const chatId = chatKey?.id;
-  const bctx = baselineContextOf(useGitInfo(live, chat), baselinesEnabled);
-
-  useEffect(() => {
-    if (!live || !chatKey) return;
-    let alive = true;
-    host.getBaselineStatus(chatKey).then((s) => { if (alive) setSegs(s); }).catch(() => { if (alive) setSegs(null); });
-    return () => { alive = false; };
-  }, [live, chatId]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    if (!live || !chatKey) return;
-    let alive = true;
-    setPlan(null); setErr(null); setStage(0); setResult(null);
-    host.previewRevert(chatKey, from || null, null).then((p) => {
-      if (!alive) return;
-      setPlan(p);
-      setChosen(initialChosen(p.items)); // 要確認は初期オフ
-    }).catch((e) => { if (alive) setErr(errText(e)); });
-    return () => { alive = false; };
-  }, [live, chatId, from, nonce]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  if (!chat) return <div className="content"><p>チャットを選んでください。</p></div>;
-  if (!live) return <div className="content"><p>モックでは動きません（実接続で使えます）。</p></div>;
-  const items = plan ? sortedItems(plan.items) : [];
-  const picked = plan ? pickedPaths(plan.items, chosen) : [];
-  const forced = plan ? forcedPaths(plan.items, chosen) : [];
-  const total = picked.length + forced.length;
-  const forcedItems = items.filter((i) => forced.includes(i.path));
-  const turns = segs ? turnOptions(segs) : [];
-  const noBase = noBaselineReason(segs, bctx);
-  const busy = running || stage !== 0;
   const run = async () => {
-    if (!chatKey || !plan) return;
-    setRunning(true); setErr(null);
+    if (!chatKey || !plan || !list || !summary) return;
+    setRunning(true); setResultErr(null);
+    let attempted = false;
     let r: RevertResult | null = null;
     try {
-      r = await host.revertChanges(chatKey, plan.id, [...picked, ...forced], forced);
-      setResult(r); setStage(0);
-    } catch (e) { setErr(errText(e)); setStage(0); } finally {
-      // 成功・失敗・一部のみのどれでも、実際の状態を取り直す（差分一覧の「戻し済み」・turn選択を古いまま残さない）。
-      host.getBaselineStatus(chatKey).then(setSegs).catch(() => setSegs(null));
-      onDone(r);
-      setRunning(false);
+      let p = plan;
+      if (Date.now() >= p.expiresAt) {
+        // 計画の期限切れ: 同じファイルで取り直し、選んだファイルの判定が1件でも変わっていたら実行しない。
+        const np = await host.previewRevert(chatKey, turn || null, list.files.map((f) => f.path));
+        const changed = planChanged(p, np, summary.paths);
+        setPlan(np);
+        if (changed.length > 0) { setChosen(keepChosen(chosen, p, np)); setChangedPaths(changed); return; }
+        p = np;
+      }
+      const s = confirmSummary(p.items, chosen);
+      attempted = true;
+      r = await host.revertChanges(chatKey, p.id, s.paths, s.forced);
+      setResult(r); setChangedPaths([]);
+    } catch (e) { setResultErr(errText(e)); } finally {
+      // 成功・失敗・例外のどれでも、実際の状態を取り直す（一覧・計画を古いまま残さない）。選択は戻さない。
+      setConfirm(false); setChosen({}); setRunning(false); setNonce((n) => n + 1);
+      if (attempted) onDone(r);
     }
   };
-  const kind = result ? resultKind(result) : null;
-  // 同じ原因（控えがない）の帯は1本にする。計画の取得が「控え」の不足を理由に失敗したときは、そちらを残す。
-  const sameCause = !!noBase && !!err && err.trim() === noBase.trim();
-  const canPlan = !!plan && !result && plan.items.length > 0;
+
+  const onListKey = (e: KeyboardEvent<HTMLUListElement>) => {
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    if (e.target instanceof HTMLInputElement) return;
+    e.preventDefault();
+    const i = rows.findIndex((r) => r.key === sel);
+    const n = Math.min(rows.length - 1, Math.max(0, i + (e.key === "ArrowDown" ? 1 : -1)));
+    const next = rows[n];
+    if (!next) return;
+    setSel(next.key);
+    e.currentTarget.querySelectorAll<HTMLElement>("button.chg-rowbtn")[n]?.focus();
+  };
+  const onRowKey = (e: KeyboardEvent<HTMLButtonElement>, r: Row) => {
+    if (e.key === " " && r.selectable && canRevert && !lockedUi) { e.preventDefault(); setChosen((c) => setChecked(rows, c, r.file.path, !r.checked)); }
+  };
+
+  const all = allState(rows);
+  const showChecks = canRevert && tab === "baseline";
+
   return (
     <>
-    <div className="content">
-      <p><b>{chatName(chat)}</b> の変更を、turnの開始時の控えへ戻します。</p>
-      <UnverifiedNote cap={cap} />
-      <About><p>turnの開始時にAgentDockがGitで控えた内容へ、ファイルを書き戻します。現在の内容がこのチャットのturnによる変更だけのファイルはそのまま戻せます。turnの後や間に別の変更がある・終了時の控えがない・別の会話と同時に作業していたファイルは、理由を表示して止めます。内容を確認したうえで、ファイルごとに「別の変更も含めて戻す」を選べます。コミットなどでHEADが変わった後のファイルは戻せません。戻す前の内容は、このチャット用の領域に控えとして保存します（自動では削除しません）。</p></About>
-      {noBase && !sameCause ? <p className="gbanner warn" role="status">{noBase}</p> : null}
-      {turns.length > 0 && !result ? (
-        <div className="field"><span>戻す範囲</span>
-          <select value={from} onChange={(e) => setFrom(e.target.value)} disabled={busy} aria-label="戻す範囲">
-            <option value="">このチャットの控えのある変更すべて</option>
-            {turns.map((t) => <option key={t.turn} value={t.turn}>{t.label} 以降の変更（同じファイルの、より後の変更も一緒に戻ります）</option>)}
-          </select></div>) : null}
-      {err ? <p className="gbanner err" role="alert">{err}</p> : null}
-      {!plan && !err ? <p>戻せるか確認しています…（ファイルは変更しません）</p> : null}
-      {plan && !result ? (
-        plan.items.length === 0 ? <p>戻す対象の変更はありません（控えのある変更がない、または戻し済みです）。</p> : (
-          <>
-            <ul className="fcards">
-              {items.map((i) => {
-                const g = groupOf(i.verdict);
-                const reasons = reasonLines(i.verdict);
-                return (
-                  <li key={i.path} className={`fcard ${g === "needsOverride" ? "need" : g === "blocked" ? "block" : ""}`}>
-                    <div className="fcard-h"><span className={`tag ${g === "needsOverride" ? "need" : g === "blocked" ? "block" : ""}`}><span aria-hidden="true">{g === "needsOverride" ? "◆ " : g === "blocked" ? "■ " : ""}</span>{GROUP_TAG[g]}</span> <span className="mono">{i.path}</span></div>
-                    {i.verdict.kind === "revertible" ? (
-                      <label className="small"><input type="checkbox" checked={!!chosen[i.path]} disabled={busy} onChange={(e) => setChosen((c) => ({ ...c, [i.path]: e.target.checked }))} /> 戻す
-                        <span className="muted"> — {i.verdict.summary}</span></label>
-                    ) : null}
-                    {g === "needsOverride" ? (
-                      <label className="small"><input type="checkbox" checked={!!chosen[i.path]} disabled={busy} onChange={(e) => setChosen((c) => ({ ...c, [i.path]: e.target.checked }))} /> 別の変更も含めて控えの内容に戻す（確認が必要）</label>
-                    ) : null}
-                    {reasons.map((r, k) => <div key={k} className="small muted">・{r.label}: {r.message}</div>)}
-                    {g === "blocked" ? <div className="small muted">強制しても戻せません。</div> : null}
-                    {i.includesTurns.length > 0 ? <div className="small muted">一緒に戻る後続の変更: turn {i.includesTurns.map((t, k) => <span key={t}>{k > 0 ? ", " : ""}<ShortId id={t} /></span>)}</div> : null}
-                  </li>);
-              })}
-            </ul>
-            {stage === 1 ? (
-              <ConfirmBlock label="戻す確認" actions={<>
-                <button className="btn" disabled={running} onClick={() => setStage(0)}>やめる</button>
-                <button className="btn danger" disabled={running} onClick={() => (forced.length > 0 ? setStage(2) : void run())}>{running ? "戻しています…" : forced.length > 0 ? "次へ" : "戻す"}</button></>}>
-                <p>{total} 件のファイルを書き換えます（戻す前の内容は控えに保存します）。{forced.length > 0 ? `うち ${forced.length} 件は「別の変更も含めて戻す」で、次の画面でもう一度確認します。` : ""}よろしいですか？</p>
-              </ConfirmBlock>
-            ) : stage === 2 ? (
-              <ConfirmBlock label="別の変更も含めて戻す確認" actions={<>
-                <button className="btn" disabled={running} onClick={() => setStage(0)}>やめる（何も変えません）</button>
-                <button className="btn danger" disabled={running} onClick={() => void run()}>{running ? "戻しています…" : "別の変更も含めて戻す"}</button></>}>
-                <p><b>別の変更も含めて、{forcedItems.length} 件を控えの内容に戻します。</b></p>
-                <ul className="check-list">{forcedItems.map((i) => (
-                  <li key={i.path}><span className="mono">{i.path}</span>{reasonLines(i.verdict).map((r, k) => <div key={k} className="small">・{r.label}: {r.message}</div>)}</li>))}</ul>
-                <p className="small">これらのファイルでは、別の会話・エディタによる変更や時期の分からない変更も消えます。ファイルは、選んだ区間の開始時の控えの内容になります。書き換える前の内容は控えに保存します（戻した後も控えから確認できます）。</p>
-              </ConfirmBlock>
-            ) : null}
-          </>)) : null}
-      {result ? (
-        <div role="status">
-          {kind === "partial"
-            ? <p className="banner err">一部のみ戻しました（戻せたもの {result.reverted.length} 件、戻せなかったもの {result.failed.length} 件）。完了ではありません。</p>
-            : kind === "allReverted" ? <p className="banner info">{result.reverted.length} 件のファイルを書き換えました。</p>
-              : <p className="banner info">書き換えたファイルはありません。</p>}
-          {result.reverted.length > 0 ? <><p className="small">戻したファイル:</p><ul className="check-list">{result.reverted.map((p) => <li key={p} className="mono">{p}</li>)}</ul></> : null}
-          {result.forced.length > 0 ? <><p className="small">うち、別の変更も含めて（強制で）戻したファイル:</p><ul className="check-list">{result.forced.map((p) => <li key={p} className="mono">{p}</li>)}</ul></> : null}
-          {result.failed.length > 0 ? <><p className="small">戻せなかったファイル:</p><ul className="check-list">{result.failed.map((f) => <li key={f.path}><span className="mono">{f.path}</span><div className="small muted">{f.reason}</div></li>)}</ul></> : null}
-          {result.backupDir ? <p className="small muted">戻す前の内容の控え: <span className="mono">{result.backupDir}</span></p> : null}
-        </div>) : null}
-    </div>
-    <FootActions
-      left={canPlan || result ? <button className="btn" disabled={stage !== 0 || running} onClick={() => setNonce((n) => n + 1)}>{result ? "もう一度確認する" : "計画を作り直す"}</button> : null}
-      main={canPlan ? <button className="btn primary" disabled={total === 0 || running || stage !== 0} onClick={() => setStage(1)}>選んだ {total} 件を戻す…</button> : null} />
+      <div className="content chg-content">
+        <div className="chg-head">
+          {tab === "baseline" ? (
+            <label className="chg-req"><span className="small muted">依頼</span>
+              <select value={turn ?? ""} disabled={lockedUi} aria-label="依頼" onChange={(e) => { setTurn(e.target.value); resetView(); }}>
+                <option value="">すべての依頼</option>
+                {opts.map((o) => <option key={o.turn} value={o.turn} disabled={o.disabled} title={o.turn}>{o.label}</option>)}
+              </select></label>) : <span className="chg-req small muted">Gitの作業ツリーとHEADの現在の差分</span>}
+          <div className="seg" role="tablist" aria-label="出所">
+            {(["baseline", "git"] as ChangeSource[]).map((s) => <button key={s} role="tab" aria-selected={tab === s} disabled={lockedUi} onClick={() => { setTab(s); resetView(); }}>{SOURCE_TEXT[s]}</button>)}
+          </div>
+          {unverified ? <span className="unv" title={UNVERIFIED_TEXT}>未確認</span> : null}
+        </div>
+        {head && list?.status.kind === "ready" ? (
+          <p className="small chg-count">{head.count} ファイル
+            {head.additions !== null && head.deletions !== null ? <>　<span className="chg-add">+{head.additions}</span> <span className="chg-del">−{head.deletions}</span></> : <span className="muted">　行数は未確認</span>}</p>
+        ) : !list && !listErr ? <p className="small muted">取得しています…</p> : null}
+
+        {slot ? (
+          <div className="chg-slot">
+            {slot.kind === "owner" ? <RepoRecordPanel chat={chat} segs={segs} prefs={repoPrefs} onSet={onSetRepo} ownerRepo={ownerRepo} compact />
+              : slot.kind === "notes" ? <p className="small muted">{slot.text}</p>
+                : slot.kind === "result" ? (
+                  <div className={`banner ${slot.tone}`} role="status"><div>{resultText(slot.result)}
+                    {slot.result.backupDir ? <span className="small muted" title={slot.result.backupDir}>　戻す前の内容: <span className="mono">{slot.result.backupDir}</span></span> : null}</div></div>)
+                  : slot.kind === "changed" ? (
+                    <div className="banner warn" role="alert"><div>確認の間に判定が変わったため、実行しませんでした（{slot.paths.length} 件）。強調した行を確認してください。</div>
+                      <button className="btn-line" onClick={recheck}>再確認</button></div>)
+                    : (
+                      <div className={`banner ${slot.tone}`} role={slot.tone === "err" ? "alert" : "status"}><div>{slot.text}</div>
+                        {slot.kind === "listError" || slot.kind === "planError" || slot.kind === "resultError" ? <button className="btn-line" disabled={busy} onClick={recheck}>再確認</button> : null}</div>)}
+          </div>) : null}
+
+        {list && list.files.length > 0 ? (
+          <div className="chg-split" data-pane={pane}>
+            <div className="chg-left">
+              {showChecks ? (
+                <label className="chg-all"><input type="checkbox" disabled={lockedUi || all === "empty"} checked={all === "all"} ref={(el) => { if (el) el.indeterminate = all === "some"; }}
+                  onChange={() => setChosen((c) => toggleAll(rows, c))} /> すべて</label>) : null}
+              <ul className="chg-list" aria-label="変更されたファイル" onKeyDown={onListKey}>
+                {rows.map((r) => {
+                  const k = kindIcon(r.file);
+                  const why = r.reasons.map((x) => `${x.label}: ${x.message}`).join("\n");
+                  return (
+                    <li key={r.key} className={`chg-row ${r.state}${r.key === sel ? " sel" : ""}${changedPaths.includes(r.file.path) ? " changed" : ""}`}>
+                      {showChecks ? (r.selectable
+                        ? <input type="checkbox" className="chg-ck" aria-label={`${r.file.path} を戻す`} checked={r.checked} disabled={lockedUi} onChange={(e) => setChosen((c) => setChecked(rows, c, r.file.path, e.target.checked))} />
+                        : <span className="chg-ck" role="img" aria-label={r.state === "needsOverride" ? (r.checked ? "それでも戻す対象に入っています" : "一覧では選べません") : "戻す対象にできません"}>{r.state === "needsOverride" && r.checked ? "☑" : ""}</span>) : null}
+                      <button className="chg-rowbtn" aria-current={r.key === sel} title={why ? `${pathText(r.file)}\n${why}` : pathText(r.file)} onKeyDown={(e) => onRowKey(e, r)} onClick={() => { setSel(r.key); setPane("diff"); }}>
+                        <span className={`chg-k ${k.cls}`} title={k.title} aria-label={k.title}>{k.letter}</span>
+                        <span className="mono chg-path">{pathText(r.file)}</span>
+                        <span className="chg-num small muted">{countText(r.file)}</span>
+                        {r.state !== "revertible" ? <span className={`tag chg-st ${r.state}`}><span aria-hidden="true">{STATE_MARK[r.state]} </span>{STATE_LABEL[r.state]}</span> : null}
+                        {r.includes.length > 0 ? <span className="chg-inc" aria-label={`後の依頼の変更も戻ります（${r.includes.length}）`}>↺{r.includes.length}</span> : null}
+                      </button>
+                    </li>);
+                })}
+              </ul>
+            </div>
+            <div className="chg-right">
+              <button className="btn subtle chg-back" onClick={() => setPane("list")}>← 一覧</button>
+              {file && row ? (
+                <>
+                  <div className="chg-fh"><span className={`chg-k ${kindIcon(file).cls}`} aria-label={kindIcon(file).title}>{kindIcon(file).letter}</span> <span className="mono chg-path">{pathText(file)}</span> <span className="small muted">{countText(file)}</span></div>
+                  {row.reasons.length > 0 ? (
+                    <details className="chg-why">
+                      <summary>{row.reasons.map((x, i) => <span key={i} className={`tag ${row.state === "needsOverride" ? "need" : "block"}`}><span aria-hidden="true">{STATE_MARK[row.state]} </span>{x.label}</span>)}</summary>
+                      {row.reasons.map((x, i) => <div key={i} className="small muted">・{x.label}: {x.message}</div>)}
+                      {row.state === "blocked" ? <div className="small muted">強制しても戻せません。</div> : null}
+                    </details>) : row.state === "unknown" && tab === "baseline" ? <p className="small muted"><span className="tag"><span aria-hidden="true">？ </span>未確認</span> 戻せるかを確認できていません。</p> : null}
+                  {row.state === "needsOverride" && showChecks ? (
+                    <label className="small chg-force"><input type="checkbox" checked={row.checked} disabled={lockedUi} onChange={(e) => setChosen((c) => setChecked(rows, c, file.path, e.target.checked))} /> それでも戻す</label>) : null}
+                  {row.includes.length > 0 ? <p className="small chg-includes" title={row.includes.map((t) => requestName(t, opts)).join("\n")}>↺ 後の依頼の変更も戻ります（{row.includes.length}）</p> : null}
+                  {file.binary ? <p>バイナリのため表示できません。</p> : diffErr ? <p style={{ color: "var(--fail)" }}>{diffErr}</p> : !diff ? <p className="small muted">差分を取得しています…</p>
+                    : diff.status.kind !== "ready" ? <p className="banner warn" role="status"><span>{statusText(diff.status)}</span></p>
+                      : diff.text.trim() === "" ? <p>差分の本文はありません（空）。</p> : <DiffText text={diff.text} />}
+                </>) : <p className="small muted">ファイルを選ぶと差分を表示します。</p>}
+            </div>
+          </div>
+        ) : list && list.status.kind === "ready" ? <p>{tab === "git" ? "Git上の変更はありません（取得済み）。" : noBase ? "控えがないため、表示できる変更はありません。" : "記録した変更はありません。"}</p> : null}
+
+        {confirm && summary && plan ? (
+          <ConfirmBlock label="戻す確認" actions={<>
+            <button className="btn" disabled={running} onClick={() => setConfirm(false)}>やめる</button>
+            <button className="btn danger" disabled={running} onClick={() => void run()}>{running ? "戻しています…" : summary.actionLabel}</button></>}>
+            <p>次の {summary.total} 件を{turn ? `「${requestName(turn, opts)}」の前の内容` : "このチャットの変更の前の内容"}に戻します（戻す前の内容は控えに保存します）。</p>
+            {summary.normal.length > 0 ? (
+              <ul className="check-list">{summary.normal.map((n) => (
+                <li key={n.path}><span className="mono">{n.path}</span>{n.includes > 0 ? <span title="後の依頼の変更も戻ります">　↺{n.includes}</span> : null}{n.deletes ? "（削除されます）" : ""}</li>))}</ul>) : null}
+            {summary.override.length > 0 ? (
+              <div className="chg-override">
+                <p><b>◆ 別の変更も消えます（{summary.override.length}）</b></p>
+                <ul className="check-list">{summary.override.map((o) => (
+                  <li key={o.path}><span className="mono">{o.path}</span>{o.reasons.map((r, k) => <div key={k} className="small">・{r.label}: {r.message}</div>)}</li>))}</ul>
+                <p className="small">これらのファイルでは、別の会話・エディタによる変更や時期の分からない変更も消えます。</p>
+              </div>) : null}
+          </ConfirmBlock>) : null}
+
+        <About><p>{tab === "baseline" ? NOTE_BASELINE : NOTE_GIT}</p>{tab === "baseline" ? <p>{NOTE_REVERT}</p> : null}</About>
+      </div>
+      <FootActions
+        left={canRevert ? <button className="btn" disabled={lockedUi} onClick={recheck}>再確認</button> : null}
+        main={canRevert && summary && summary.total > 0 && !confirm ? <button className="btn primary" disabled={lockedUi} onClick={() => setConfirm(true)}>{summary.total} 件を戻す…</button> : null} />
     </>
   );
 }
