@@ -488,6 +488,29 @@ pub fn spawn_spec(item: &Value) -> Option<(AgentKey, SpawnSpec)> {
     (!spec.is_empty()).then_some((agent_key(&child), spec))
 }
 
+/// 親の `subAgentActivity`（kind=started）が記録した、子の起動時に解決されたモデル・推論強度（Codex 0.162.1 以降）。
+/// 古い版は項目や値が無い（null）ので None＝値なし。子は agentThreadId で1件に確定できるときだけ。補わない。
+pub fn sub_agent_spec(item: &Value) -> Option<(AgentKey, SpawnSpec)> {
+    if str_of(item, "type") != Some("subAgentActivity") || str_of(item, "kind") != Some("started") {
+        return None;
+    }
+    let child = str_of(item, "agentThreadId").map(str::trim).filter(|c| !c.is_empty())?;
+    let pick = |k: &str| str_of(item, k).map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
+    let spec = SpawnSpec { task_name: None, model: pick("model"), effort: pick("reasoningEffort"), fork_turns: None };
+    (!spec.is_empty()).then_some((agent_key(child), spec))
+}
+
+/// 起動時の指定の統合。`primary`（collabAgentToolCallの記録）を優先し、`supplement`（subAgentActivity）は
+/// primary に無い項目だけ足す。食い違う項目は primary のまま（supplement の値で上書き・併記しない）。
+pub fn merge_spawn_spec(primary: &SpawnSpec, supplement: &SpawnSpec) -> SpawnSpec {
+    SpawnSpec {
+        task_name: primary.task_name.clone().or_else(|| supplement.task_name.clone()),
+        model: primary.model.clone().or_else(|| supplement.model.clone()),
+        effort: primary.effort.clone().or_else(|| supplement.effort.clone()),
+        fork_turns: primary.fork_turns.clone().or_else(|| supplement.fork_turns.clone()),
+    }
+}
+
 /// itemの `status` から進行段階を決める。status無しは `default`。
 pub fn item_phase(item: &Value, default: ActivityPhase) -> ActivityPhase {
     match str_of(item, "status") {
@@ -849,6 +872,30 @@ mod tests {
         assert_eq!(thread_to_agent(&root, chat_key("r")).assignment, Known::NotFetched);
         let empty = thread(json!({"id": "c2", "preview": "  ", "status": {"type": "idle"}, "source": {"subAgent": {"thread_spawn": {"parent_thread_id": "p"}}}}));
         assert_eq!(thread_to_agent(&empty, chat_key("p")).assignment, Known::NotFetched);
+    }
+
+    #[test]
+    fn sub_agent_spec_and_merge() {
+        let sa = |v: Value| { let mut o = json!({"type": "subAgentActivity", "kind": "started", "id": "i", "agentThreadId": "c1", "agentPath": "/root/a"}); for (k, x) in v.as_object().unwrap() { o[k] = x.clone(); } o };
+        // 古い版: model・reasoningEffort が null、または項目なし → 値なし。
+        assert_eq!(sub_agent_spec(&sa(json!({"model": null, "reasoningEffort": null}))), None);
+        assert_eq!(sub_agent_spec(&sa(json!({}))), None);
+        assert_eq!(sub_agent_spec(&json!({"type": "collabAgentToolCall", "model": "m"})), None);
+        // あり / 一部のみ。
+        let (k, s) = sub_agent_spec(&sa(json!({"model": "m1", "reasoningEffort": "low"}))).unwrap();
+        assert_eq!(k, agent_key("c1"));
+        assert_eq!(s, SpawnSpec { task_name: None, model: Some("m1".into()), effort: Some("low".into()), fork_turns: None });
+        let (_, s) = sub_agent_spec(&sa(json!({"model": "m1", "reasoningEffort": null}))).unwrap();
+        assert_eq!(s, SpawnSpec { task_name: None, model: Some("m1".into()), effort: None, fork_turns: None });
+        // 結び付けが曖昧（子ID無し・空・started以外）は使わない。
+        assert_eq!(sub_agent_spec(&sa(json!({"model": "m1", "agentThreadId": ""}))), None);
+        assert_eq!(sub_agent_spec(&sa(json!({"model": "m1", "agentThreadId": null}))), None);
+        assert_eq!(sub_agent_spec(&sa(json!({"model": "m1", "kind": "interacted"}))), None);
+        // 統合: 足りない項目だけ補い、食い違いは primary のまま。
+        let p = SpawnSpec { task_name: Some("t".into()), model: Some("m1".into()), effort: None, fork_turns: None };
+        let q = SpawnSpec { task_name: None, model: Some("m2".into()), effort: Some("high".into()), fork_turns: None };
+        assert_eq!(merge_spawn_spec(&p, &q), SpawnSpec { task_name: Some("t".into()), model: Some("m1".into()), effort: Some("high".into()), fork_turns: None });
+        assert_eq!(merge_spawn_spec(&SpawnSpec::default(), &SpawnSpec::default()), SpawnSpec::default());
     }
 
     #[test]

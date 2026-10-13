@@ -105,6 +105,8 @@ pub struct HostData {
     assignments: HashMap<AgentKey, String>,
     /// 親の履歴・spawn項目から確定できた子の起動時の指定（記録値。既存の読取りで得た値だけ保持）。
     spawn_specs: HashMap<AgentKey, SpawnSpec>,
+    /// subAgentActivity から得たモデル・推論強度（補足）。spawn_specs に無い項目だけ表示へ足す。
+    spawn_supplements: HashMap<AgentKey, SpawnSpec>,
     /// 実行中と分かっているturn（中断・追加指示の対象）。
     pub running_turn: HashMap<AgentKey, ExternalId>,
     /// 開始を観測した最新turn（古いturnの後着を捨てる基準）。
@@ -150,6 +152,7 @@ impl Default for HostData {
             side_threads: HashMap::new(),
             assignments: HashMap::new(),
             spawn_specs: HashMap::new(),
+            spawn_supplements: HashMap::new(),
             running_turn: HashMap::new(),
             latest_turn_start: HashMap::new(),
             last_end: HashMap::new(),
@@ -288,12 +291,50 @@ impl HostData {
                 continue;
             }
             self.spawn_specs.insert(agent.clone(), spec.clone());
-            if let Some(v) = self.view_mut(agent) {
-                v.agent.spawn_spec = Known::direct(spec.clone());
-                out.push(HostEvent::AgentUpdated { view: v.clone() });
-            }
+            out.extend(self.apply_spawn_spec(agent));
         }
         out
+    }
+
+    /// subAgentActivity の記録値（補足）を保持する。同じ子で値が食い違うものは先に入れた値を残す。
+    pub fn record_spawn_supplements(&mut self, specs: &[(AgentKey, SpawnSpec)]) -> Vec<HostEvent> {
+        let mut out = Vec::new();
+        for (agent, spec) in specs {
+            if spec.is_empty() {
+                continue;
+            }
+            let merged = match self.spawn_supplements.get(agent) {
+                Some(prev) => crate::codex::convert::merge_spawn_spec(prev, spec),
+                None => spec.clone(),
+            };
+            if self.spawn_supplements.get(agent) == Some(&merged) {
+                continue;
+            }
+            self.spawn_supplements.insert(agent.clone(), merged);
+            out.extend(self.apply_spawn_spec(agent));
+        }
+        out
+    }
+
+    /// 表示用の起動時の指定（記録の collab を優先し、無い項目だけ補足で足す）。
+    fn effective_spawn_spec(&self, agent: &AgentKey) -> Option<SpawnSpec> {
+        let merged = match (self.spawn_specs.get(agent), self.spawn_supplements.get(agent)) {
+            (Some(p), Some(s)) => crate::codex::convert::merge_spawn_spec(p, s),
+            (Some(p), None) => p.clone(),
+            (None, Some(s)) => s.clone(),
+            (None, None) => return None,
+        };
+        (!merged.is_empty()).then_some(merged)
+    }
+
+    fn apply_spawn_spec(&mut self, agent: &AgentKey) -> Option<HostEvent> {
+        let spec = self.effective_spawn_spec(agent)?;
+        let v = self.view_mut(agent)?;
+        if v.agent.spawn_spec.value() == Some(&spec) {
+            return None;
+        }
+        v.agent.spawn_spec = Known::direct(spec);
+        Some(HostEvent::AgentUpdated { view: v.clone() })
     }
 
     /// 担当が未取得なら、確定済みの担当を入れる。
@@ -305,8 +346,8 @@ impl HostData {
                 a.assignment = Known::direct(t.clone());
             }
         }
-        if let Some(s) = self.spawn_specs.get(&a.key) {
-            a.spawn_spec = Known::direct(s.clone());
+        if let Some(s) = self.effective_spawn_spec(&a.key) {
+            a.spawn_spec = Known::direct(s);
         }
         // 記録値のモデル・推論強度は、今回の読取りに無ければ以前に読めた値を残す（未取得への巻き戻しを避ける）。
         if let Some(prev) = self.view(&a.key) {
@@ -847,6 +888,9 @@ impl HostData {
             BackendEvent::AgentSpawnSpec { agent, spec } => {
                 out.extend(self.record_spawn_specs(&[(agent.clone(), spec.clone())]));
             }
+            BackendEvent::AgentSpawnSupplement { agent, spec } => {
+                out.extend(self.record_spawn_supplements(&[(agent.clone(), spec.clone())]));
+            }
             BackendEvent::AgentDiscovered { agent } => {
                 let agent = &self.with_assignment(agent.clone());
                 if self.view(&agent.key).is_none() {
@@ -1142,7 +1186,7 @@ mod tests {
             ck("root"),
             ChatModelSettings { selected: Some(selected.clone()), ..ChatModelSettings::blank(ApplyTiming::NextTurn) },
         );
-        let history = AgentHistory { agent: agent("root", true), chat: None, status: status(AgentState::Idle, None, StateScope::Agent), turns: vec![], spawns: vec![] };
+        let history = AgentHistory { agent: agent("root", true), chat: None, status: status(AgentState::Idle, None, StateScope::Agent), turns: vec![], spawns: vec![], spawn_supplements: vec![] };
         // 応答が会話のモデルを示さなければ、未取得のまま（受理済みにしない）。
         let ev = d.apply_resumed(&ck("root"), history.clone(), Known::NotFetched);
         assert!(!ev.iter().any(|e| matches!(e, HostEvent::ModelSettingsUpdated { .. })));

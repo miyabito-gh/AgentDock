@@ -269,6 +269,9 @@ impl Host {
         if !h.spawns.is_empty() {
             self.mutate(|d| ((), d.record_spawn_specs(&h.spawns)));
         }
+        if !h.spawn_supplements.is_empty() {
+            self.mutate(|d| ((), d.record_spawn_supplements(&h.spawn_supplements)));
+        }
         Ok(h)
     }
 

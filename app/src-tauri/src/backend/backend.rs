@@ -66,6 +66,8 @@ pub enum BackendEvent {
     AgentAssignment { agent: AgentKey, assignment: String },
     /// 子エージェントの起動時の指定（親のspawn項目の記録値）。対応が確定できたものだけ。
     AgentSpawnSpec { agent: AgentKey, spec: SpawnSpec },
+    /// 子の起動時のモデル・推論強度（subAgentActivity の記録値）。collab の記録に無い項目だけを補う。
+    AgentSpawnSupplement { agent: AgentKey, spec: SpawnSpec },
     /// 活動itemの開始・更新・完了。
     Activity { activity: Activity },
     /// 逐次本文（agentMessage等のdelta）。順序は `seq` に従う。
@@ -255,6 +257,9 @@ pub struct AgentHistory {
     /// このエージェントの履歴に記録された、子の起動時の指定（対応が確定できたものだけ）。UIへは出さない。
     #[serde(skip)]
     pub spawns: Vec<(AgentKey, SpawnSpec)>,
+    /// 同、subAgentActivity の記録値（Codex 0.162.1 以降。無ければ空）。
+    #[serde(skip)]
+    pub spawn_supplements: Vec<(AgentKey, SpawnSpec)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

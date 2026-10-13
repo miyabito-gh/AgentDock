@@ -639,6 +639,7 @@ impl CodexBackend {
             status: derive_status(&t.status, t.latest_turn(), self.ev(src, label)),
             turns: if include_turns { t.turns.iter().map(|x| turn_to_record(&t.id, x)).collect() } else { Vec::new() },
             spawns: if include_turns { t.turns.iter().flat_map(|x| x.raw.items.iter()).filter_map(super::convert::spawn_spec).collect() } else { Vec::new() },
+            spawn_supplements: if include_turns { t.turns.iter().flat_map(|x| x.raw.items.iter()).filter_map(super::convert::sub_agent_spec).collect() } else { Vec::new() },
             agent,
         }
     }
