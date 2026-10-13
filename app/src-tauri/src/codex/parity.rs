@@ -167,7 +167,8 @@ impl ParityOps for CodexBackend {
         ack_of(self.call("thread/goal/set", params, WRITE_TIMEOUT).await)
     }
     async fn clear_goal(&self, chat: ChatKey, _confirmed: &UserConfirmed) -> BackendResult<OpAck> {
-        ack_of(self.call("thread/goal/clear", json!({"threadId": chat.id.0}), WRITE_TIMEOUT).await)
+        // 0.162.1: origin を示さない変更は利用者の操作として扱われない。操作は利用者の確認済みなので "user" を付ける。
+        ack_of(self.call("thread/goal/clear", json!({"threadId": chat.id.0, "origin": "user"}), WRITE_TIMEOUT).await)
     }
 
     // ── 計画／実行の切替（P3-3） ──
@@ -591,7 +592,8 @@ pub fn goal_from_wire(g: &Value) -> Option<Goal> {
 /// `thread/goal/set` の引数。何も変えない更新・設定できない状態は、送らずに拒否する。
 pub fn goal_set_params(thread_id: &str, u: &GoalUpdate) -> BackendResult<Value> {
     let reject = |m: &str| BackendError::Rejected { code: None, message: m.into() };
-    let mut p = json!({"threadId": thread_id});
+    // 0.162.1: origin を示さない変更は利用者の操作として扱われない（利用者が確認した操作なので "user"）。
+    let mut p = json!({"threadId": thread_id, "origin": "user"});
     let mut any = false;
     if let Some(o) = &u.objective {
         if o.trim().is_empty() {
@@ -977,7 +979,7 @@ mod tests {
         assert!(goal_set_params("t", &upd(Some("  "), None, None)).is_err());
         assert!(goal_set_params("t", &upd(None, Some(GoalStatus::Unknown { raw: "x".into() }), None)).is_err());
         let p = goal_set_params("t", &upd(Some("do it"), Some(GoalStatus::Paused), Some(100))).unwrap();
-        assert_eq!(p, json!({"threadId": "t", "objective": "do it", "status": "paused", "tokenBudget": 100}));
+        assert_eq!(p, json!({"threadId": "t", "origin": "user", "objective": "do it", "status": "paused", "tokenBudget": 100}));
     }
 
     #[test]

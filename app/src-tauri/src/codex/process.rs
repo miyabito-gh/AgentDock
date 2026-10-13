@@ -19,7 +19,7 @@ use tokio::sync::mpsc;
 /// 対象版（要件§1.2）。
 /// initialize の clientInfo.name。App Serverはこの名前を thread の `source`（`{"custom": name}`）に記録する。
 pub const CLIENT_NAME: &str = "agentdock";
-pub const TARGET_VERSION: &str = "0.160.0";
+pub const TARGET_VERSION: &str = "0.162.1";
 const STDERR_KEEP_LINES: usize = 500;
 const VERSION_TIMEOUT: Duration = Duration::from_secs(10);
 const INIT_TIMEOUT: Duration = Duration::from_secs(30);
@@ -197,7 +197,7 @@ mod tests {
 
     #[test]
     fn classifies_version() {
-        assert!(matches!(classify_version("codex-cli 0.160.0", None), VersionCheck::Match { .. }));
+        assert!(matches!(classify_version("codex-cli 0.162.1", None), VersionCheck::Match { .. }));
         assert!(matches!(classify_version("codex-cli 0.159.0-alpha.3", None), VersionCheck::Mismatch { .. }));
         assert!(matches!(classify_version("", None), VersionCheck::Unknown { .. }));
     }

@@ -1437,7 +1437,7 @@ mod tests {
             backend: BackendKind::Codex,
             pid: Known::NotFetched,
             started_at: UnixMillis(0),
-            version: VersionCheck::Match { version: "0.160.0".into() },
+            version: VersionCheck::Match { version: "0.162.1".into() },
             capabilities: caps(),
             connection: ConnectionState::Connected,
         });

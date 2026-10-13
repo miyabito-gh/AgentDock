@@ -20,8 +20,8 @@ AgentDockプロジェクトのClaude Code向け作業指示。毎ターン読み
 - 画面の基準: `AgentDock_Mock.html`（旧`Agent_Monitor_Mock.html`は変更しない）。
 - 技術: Tauri 2＋React＋TypeScript、Rustホスト。Codex App Serverへstdio（JSON-RPC）で接続。codex.exeは設定でパス指定、既存`~/.codex`を共有。
 - 将来の他AI接続に備え、ホストに**AIバックエンド境界**を置く。Codex固有の型をUI・保存形式へ持ち込まない（正本§2.3）。
-- 対象版schema: `probes/app-server/schema/0.160.0/`（`ts-stable/v2/*.ts`が読みやすい。メソッド一覧は`methods-*.txt`）。使う型のファイルだけを開く。
-- 実PCのcodex.exe: `C:\Users\wmasa\AppData\Local\Programs\OpenAI\Codex\bin\codex.exe`（0.160.0）。
+- 対象版schema: `probes/app-server/schema/0.162.1/`（旧0.160.0も同フォルダ群に保存）（`ts-stable/v2/*.ts`が読みやすい。メソッド一覧は`methods-*.txt`）。使う型のファイルだけを開く。
+- 実PCのcodex.exe: `C:\Users\wmasa\AppData\Local\Programs\OpenAI\Codex\bin\codex.exe`（0.162.1。2026-10-14に0.160.0から更新）。
 - git: リモート`origin`＝https://github.com/miyabito-gh/AgentDock 、ブランチ`master`。
 
 ## 守ること（再質問しない合意）

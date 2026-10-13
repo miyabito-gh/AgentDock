@@ -43,7 +43,7 @@ fn now_ms() -> UnixMillis {
     UnixMillis(SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0))
 }
 
-/// 対象版（0.160.0）で確認できた能力。`enable_experimental` が偽なら実験的な操作は使えない。
+/// 対象版（0.162.1）で確認できた能力。`enable_experimental` が偽なら実験的な操作は使えない。
 pub fn codex_capabilities(experimental: bool) -> Capabilities {
     codex_capabilities_for(experimental, None)
 }

@@ -1043,6 +1043,7 @@ mod tests {
         assert_eq!(message_phase_of(&m(json!("final_answer"))), MessagePhase::Final);
         assert_eq!(message_phase_of(&m(json!(null))), MessagePhase::Unknown);
         assert_eq!(message_phase_of(&m(json!("other"))), MessagePhase::Unknown);
+        assert_eq!(message_phase_of(&m(json!("partial_answer"))), MessagePhase::Unknown); // 0.162.1で追加。途中経過とも最終回答とも断定しない
         assert_eq!(message_phase_of(&json!({"type": "agentMessage", "id": "i", "text": "x"})), MessagePhase::Unknown);
         assert_eq!(message_phase_of(&json!({"type": "plan", "phase": "commentary"})), MessagePhase::Unknown);
     }
