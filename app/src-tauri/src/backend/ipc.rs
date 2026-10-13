@@ -938,6 +938,27 @@ pub struct ListSkillsArgs {
     pub force_reload: bool,
 }
 
+/// Skill定義の冒頭の読取り（プレビュー）。`path` はそのチャットのSkill一覧に含まれるものだけ。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct SkillPreviewArgs {
+    pub chat: ChatKey,
+    pub path: String,
+}
+
+/// Skill定義の冒頭（文字として表示する。Markdown・HTMLとして解釈しない）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct SkillPreview {
+    pub text: String,
+    /// 続きがある（行数・容量の上限で切った）。
+    pub truncated: bool,
+}
+
 /// Skillを入力欄の指定（チップ）にする。`path` は一覧が示したSkill定義のパス。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]

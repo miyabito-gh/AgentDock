@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { readText } from "@tauri-apps/plugin-clipboard-manager";
-import type { RepoRecordChoice, AgentKey, AppSettings, AttachmentEntry, Chat, ChatKey, Goal, GoalUpdate, Known, WorkMode, WorkModeInfo, DeleteOutcome, DeletePreview, UsageReport, ForceKillPreview, HostEvent, HostEventEnvelope, HostSnapshot, ModelInfo, PathInfo, ProjectsOutcome, MonitorScope, PendingRequest, PermissionPreset, QuitDecision, QuitPhase, RequestAnswer, SendAttempt, SettingsImpact, SourceInfo } from "./ipc/types";
+import type { RepoRecordChoice, AgentKey, AppSettings, AttachmentEntry, Chat, ChatKey, Goal, GoalUpdate, Known, WorkMode, WorkModeInfo, DeleteOutcome, DeletePreview, UsageReport, ForceKillPreview, HostEvent, HostEventEnvelope, HostSnapshot, ModelInfo, PathInfo, ProjectsOutcome, MonitorScope, PendingRequest, PermissionPreset, QuitDecision, QuitPhase, RequestAnswer, SendAttempt, SettingsImpact, SkillInfo, SourceInfo } from "./ipc/types";
 import * as host from "./ipc/client";
 import { LinkContext, RefContext, type PathAction, type RefActions } from "./ui/Markdown";
 import { copyText } from "./ui/markdown/parts";
@@ -40,6 +40,7 @@ import { PaneSplitter } from "./ui/PaneSplitter";
 import { displayWidths, loadSaved, type PaneKind } from "./ui/paneWidth";
 import { chatName, isRunning, isWorkingForDock, stopOpen } from "./ui/derive";
 import { hms, keyStr, knownValue } from "./ui/format";
+import { pushRecent } from "./ui/skillPick";
 import { applyAppearance, watchSystemTheme } from "./ui/appearance";
 
 type Mode = "live" | "mock";
@@ -849,9 +850,21 @@ ${cur}` : p.text);
     try {
       const e = await host.addSkillAttachment(c, name, path);
       msg = `Skill「${e.displayName}」を指定しました（入力欄のチップ。送信時に明示的に呼び出します）。`;
+      // 最近使ったSkill（チャット共通・最大5件）。指定できたものだけ記録する。
+      updateSettings((st) => ({ ...st, recentSkills: pushRecent(st.recentSkills ?? [], { name, path }) }), "最近使ったSkillを保存できませんでした");
     } catch (er) { msg = `Skillを指定できませんでした: ${host.asIpcError(er).message}`; }
     say(msg);
     return msg;
+  };
+
+  // 入力欄の `$` 候補用の、チャット別の取得済みSkill一覧。無ければ初回の `$` 入力時に読取りで取得する（resumeしない。失敗しても繰り返さない）。
+  const [skillLists, setSkillLists] = useState<Record<string, SkillInfo[]>>({});
+  const skillTried = useRef(new Set<string>());
+  const noteSkills = useCallback((chatId: string, skills: SkillInfo[]) => { skillTried.current.add(chatId); setSkillLists((m) => ({ ...m, [chatId]: skills })); }, []);
+  const loadSkills = (c: ChatKey) => {
+    if (!live || skillTried.current.has(c.id)) return;
+    skillTried.current.add(c.id);
+    host.listSkills(c, false).then((l) => noteSkills(c.id, l.skills)).catch(() => { /* 取れなければ候補を出さない（通常の入力を妨げない） */ });
   };
 
   /** side相談を開く（読み取り専用の一時的な分岐）。開けたか不明のときは再送せず、状況を知らせる。 */
@@ -1449,6 +1462,7 @@ ${cur}` : p.text);
               <CenterPane
                 snap={snap} chat={chat} turns={bundle.turns[chat.key.id] ?? []}
                 attachments={draftAttachments} files={files} inputRef={composerRef}
+                skillPick={live ? { skills: skillLists[chat.key.id], load: () => loadSkills(chat.key), recent: snap.settings.recentSkills ?? [], pick: (sk) => { void pickSkill(chat.key, sk.name, sk.path); } } : null}
                 settings={bundle.modelSettings[chat.key.id]} models={models} save={chatSave}
                 externalLabel={bundle.externalLabel[chat.key.id]} wasLive={liveSeen.current.has(chat.key.id)} enterMode={enterMode}
                 draft={curDraft} setDraft={(v) => onDraft(chat, v)}
@@ -1483,7 +1497,7 @@ ${cur}` : p.text);
           worktree={{ records: snap.worktrees, cwd: chat?.cwd.kind === "value" ? chat.cwd.value : null }}
           cloudTasks={snap.cloudTasks}
           compose={{
-            chat: chat ?? undefined, live, insertText: insertIntoDraft, pickSkill,
+            chat: chat ?? undefined, live, insertText: insertIntoDraft, pickSkill, recentSkills: snap.settings.recentSkills ?? [], noteSkills,
             sides: chat ? snap.sideSessions.filter((x) => x.main.id === chat.key.id).slice().sort((a, b) => (b.openedAt ?? 0) - (a.openedAt ?? 0)) : [],
             onOpenSide: () => void openSide(),
             onShowSide: (id) => { setDialog(null); setSideId(id); },

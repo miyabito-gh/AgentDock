@@ -65,6 +65,23 @@ impl Host {
         Ok(self.backend.list_skills(cwd, args.force_reload).await?)
     }
 
+    /// Skill定義の冒頭（読取りのみ）。そのチャットのSkill一覧に含まれるパスだけを読む（一覧にない任意パスは拒否）。
+    pub async fn read_skill_preview(self: &Arc<Self>, args: SkillPreviewArgs) -> Result<SkillPreview, IpcError> {
+        self.require_op(ParityOp::Skills)?;
+        self.require_chat(&args.chat)?;
+        let Some(cwd) = cwd_of(self, &args.chat) else {
+            return Err(err(IpcErrorCode::InvalidArgs, "作業フォルダが分からないため、Skillを読めません"));
+        };
+        let list = self.backend.list_skills(cwd, false).await?;
+        let path = args.path;
+        if !list.skills.iter().any(|s| s.path == path) {
+            return Err(err(IpcErrorCode::InvalidArgs, "このチャットのSkill一覧にない場所は読めません"));
+        }
+        tokio::task::spawn_blocking(move || skill_preview_read(Path::new(&path)))
+            .await
+            .map_err(|e| err(IpcErrorCode::Io, format!("プレビューの読取りが中断されました: {e}")))?
+    }
+
     /// Skillを入力欄の指定（チップ）にする。コピーはせず、定義ファイルの実在を確認して台帳に載せる。同じSkillが下書きにあればそれを返す。
     pub async fn add_skill_attachment(self: &Arc<Self>, args: AddSkillArgs) -> Result<AttachmentEntry, IpcError> {
         self.require_op(ParityOp::Skills)?;
@@ -192,5 +209,76 @@ impl Host {
             }
             Err(e) => Err(err(IpcErrorCode::Io, format!("雛形を作れませんでした: {e}"))),
         }
+    }
+}
+
+const PREVIEW_MAX_BYTES: usize = 4096;
+const PREVIEW_MAX_LINES: usize = 30;
+
+/// 先頭 `PREVIEW_MAX_BYTES` までのバイト列を、最大 `PREVIEW_MAX_LINES` 行の文字列へ切り詰める（純粋関数）。
+/// `more_bytes` は読んだ範囲の後ろにまだバイトがあること。末尾の不完全なUTF-8は落とす。UTF-8として読めなければ None。
+pub(crate) fn preview_cut(bytes: &[u8], more_bytes: bool) -> Option<SkillPreview> {
+    let (text, mut truncated) = match std::str::from_utf8(bytes) {
+        Ok(t) => (t, more_bytes),
+        // 容量の境目で切れた末尾だけは許す（途中で壊れているものは不可）
+        Err(e) if e.error_len().is_none() && more_bytes => (std::str::from_utf8(&bytes[..e.valid_up_to()]).ok()?, true),
+        Err(_) => return None,
+    };
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    let mut out = String::new();
+    for (n, line) in text.lines().enumerate() {
+        if n >= PREVIEW_MAX_LINES {
+            truncated = true;
+            break;
+        }
+        if n > 0 {
+            out.push('\n');
+        }
+        out.push_str(line);
+    }
+    Some(SkillPreview { text: out, truncated })
+}
+
+fn skill_preview_read(path: &Path) -> Result<SkillPreview, IpcError> {
+    use std::io::Read;
+    if !path.is_absolute() || path.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+        return Err(err(IpcErrorCode::InvalidArgs, "Skillの場所が正しくありません"));
+    }
+    let meta = std::fs::symlink_metadata(path).map_err(|e| match e.kind() {
+        std::io::ErrorKind::NotFound => err(IpcErrorCode::NotFound, "Skillの定義ファイルが見つかりません"),
+        _ => err(IpcErrorCode::Io, format!("Skillの定義ファイルを確認できません: {e}")),
+    })?;
+    if meta.file_type().is_symlink() || !meta.is_file() {
+        return Err(err(IpcErrorCode::InvalidArgs, "通常のファイルではないため、プレビューしません"));
+    }
+    let f = std::fs::File::open(path).map_err(|e| err(IpcErrorCode::Io, format!("Skillの定義ファイルを開けません: {e}")))?;
+    let mut buf = Vec::new();
+    f.take(PREVIEW_MAX_BYTES as u64 + 1).read_to_end(&mut buf).map_err(|e| err(IpcErrorCode::Io, format!("Skillの定義ファイルを読めません: {e}")))?;
+    let more = buf.len() > PREVIEW_MAX_BYTES;
+    buf.truncate(PREVIEW_MAX_BYTES);
+    preview_cut(&buf, more).ok_or_else(|| err(IpcErrorCode::InvalidArgs, "表示できません（UTF-8の文章として読めません）"))
+}
+
+#[cfg(test)]
+mod preview_tests {
+    use super::*;
+
+    #[test]
+    fn cuts_lines_and_bytes() {
+        let many: String = (0..40).map(|i| format!("l{i}\n")).collect();
+        let p = preview_cut(many.as_bytes(), false).unwrap();
+        assert!(p.truncated);
+        assert_eq!(p.text.lines().count(), 30);
+        let short = preview_cut(b"a\nb\n", false).unwrap();
+        assert_eq!((short.text.as_str(), short.truncated), ("a\nb", false));
+    }
+
+    #[test]
+    fn utf8_boundary_and_invalid() {
+        let s = "あい".as_bytes(); // 6バイト
+        let p = preview_cut(&s[..4], true).unwrap();
+        assert_eq!((p.text.as_str(), p.truncated), ("あ", true));
+        assert!(preview_cut(&s[..4], false).is_none());
+        assert!(preview_cut(&[0xff, 0x41], true).is_none());
     }
 }

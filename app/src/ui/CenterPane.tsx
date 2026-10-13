@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import type {
-  AgentKey, AgentView, ArtifactEntry, AttachmentEntry, EntryAttachment, Chat, ChatKey, ChatLocalView, ChatModelSettings, ChatQueue, DecisionOption, FileRef, Goal, HostSnapshot, Known, ModelInfo, PendingRequest, PathInfo,
+  AgentKey, AgentView, ArtifactEntry, AttachmentEntry, EntryAttachment, Chat, ChatKey, ChatLocalView, ChatModelSettings, ChatQueue, DecisionOption, FileRef, Goal, HostSnapshot, Known, ModelInfo, PendingRequest, PathInfo, SkillInfo,
   PermissionPreset, QueueEntry, RequestAnswer, ActivityKind, SaveState, StopRecord, TurnRecord, WorkMode, WorkModeInfo,
 } from "../ipc/types";
 import { Icon } from "./Icon";
@@ -21,6 +21,8 @@ import { MenuList } from "./MenuList";
 import { shortcutById, tipWithKey } from "./shortcuts";
 import { GoalBar, UnverifiedTag, WORK_MODE_TEXT } from "./PrefsDialogs";
 import { resendCtxOf, resendTargetOf } from "./ResendDialog";
+import { SkillSuggest, type SkillPickApi } from "./SkillPicker";
+import { filterSkills, isDisabled, originLabel, queryTerms, removeTrigger, skillTrigger } from "./skillPick";
 import { PendingSendRow } from "./PendingSendRow";
 import { appearsInTurns, type PendingSend } from "./pendingSend";
 import { PURPOSE_TAG, resendAvailability, type ResendCtx } from "./resend";
@@ -38,6 +40,8 @@ export interface CenterProps {
   attachments: AttachmentEntry[];
   /** 添付・成果物の操作（ホストが判断・保存する。UIは意図を伝えるだけ）。 */
   files: FileActions;
+  /** 入力欄の `$` 候補の窓口（実接続のときだけ。モックは null）。 */
+  skillPick: SkillPickApi | null;
   /** 入力欄（選択範囲の貼り付けでカーソル位置を使う）。 */
   inputRef: RefObject<HTMLTextAreaElement>;
   settings: ChatModelSettings | undefined;
@@ -820,6 +824,14 @@ function Queue({ q, nameOf, qact, steerWhy }: { q: ChatQueue | undefined; nameOf
   );
 }
 
+/** Skillのチップの出所（取得済みの一覧にあるときだけ。無ければ出さない）。 */
+function skillOrigin(f: AttachmentEntry, api: SkillPickApi | null): string | null {
+  if (f.source.kind !== "skill") return null;
+  const path = f.source.path;
+  const s = api?.skills?.find((x) => x.path === path);
+  return s ? originLabel(s) : null;
+}
+
 function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock: string | null }) {
   const { settings, models, attachments } = p;
   const dflt = models.find((m) => m.isDefault) ?? models[0];
@@ -862,6 +874,31 @@ function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
   }, [p.draft, p.inputRef]);
+  // ── `$`・`/skill ` で開くSkill候補（IME変換中は反応しない。候補が無い・未取得・モックは出さない）──
+  const [caret, setCaret] = useState(0);
+  const [composing, setComposing] = useState(false);
+  const [suppress, setSuppress] = useState<number | null>(null);
+  const [sugActive, setSugActive] = useState(0);
+  const sugId = useId();
+  const trig = useMemo(() => (p.skillPick && !lock ? skillTrigger(p.draft, caret) : null), [p.draft, caret, p.skillPick, lock]);
+  useEffect(() => { if (!trig) setSuppress(null); }, [trig]);
+  useEffect(() => { if (trig && !composing) p.skillPick?.load(); }, [!!trig, composing]); // eslint-disable-line react-hooks/exhaustive-deps
+  const sugItems = useMemo(
+    () => (trig && p.skillPick?.skills ? filterSkills(p.skillPick.skills.filter((x) => !isDisabled(x)), trig.query, p.skillPick.recent).items : []),
+    [trig?.query, !!trig, p.skillPick?.skills, p.skillPick?.recent], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  const sugOpen = !!trig && !composing && suppress !== trig.start && sugItems.length > 0;
+  useEffect(() => { setSugActive(0); }, [trig?.query]);
+  const sugCur = Math.min(sugActive, Math.max(sugItems.length - 1, 0));
+  /** 候補を指定する。入力した `$語` の部分は消えてチップになる（送信はしない）。 */
+  const pickSuggest = (s: SkillInfo) => {
+    if (!trig || !p.skillPick) return;
+    const r = removeTrigger(p.draft, trig);
+    p.setDraft(r.text);
+    setCaret(r.cursor);
+    window.requestAnimationFrame(() => { const el = p.inputRef.current; if (el) { el.focus(); el.setSelectionRange(r.cursor, r.cursor); } });
+    p.skillPick.pick(s);
+  };
   const enterHint = p.enterMode === "ctrl" ? "Ctrl＋Enter で送信、Enter で改行" : "Enter で送信、Shift＋Enter で改行";
   // 受理の根拠。全文は title と「⋯」に常に置き、1行目には問題があるとき（未受理・受理未確認・不一致）だけ短く出す。
   const acceptLine = `${changed ? `選択: ${model}／${effort}${speed ? `／速度 ${speed}` : ""}（未受理。次のターンから適用）　` : ""}受理済み: ${settings ? (accepted ? `${accepted.model}／${accepted.effort ?? "既定"}${accepted.speedTier ? `／速度 ${accepted.speedTier}` : ""}` : showKnown(settings.accepted)) : "未確認"}${!accepted ? "（受け取るまで確認不可）" : ""}`;
@@ -884,9 +921,9 @@ function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock
               const st = attachmentStatus(f);
               const target: FileRef = { kind: "attachment", chat: f.chat, id: f.id };
               return (
-                <span key={f.id} className={`chip ${st.bad ? "bad" : ""}`}>
+                <span key={f.id} className={`chip ${st.bad ? "bad" : ""}`} title={f.source.kind === "skill" ? f.source.path : undefined}>
                   {f.kind === "image" && f.state.kind === "ready" ? <Thumb target={target} name={f.displayName} load={p.files.preview} /> : <Icon name="clip" />}
-                  <span>{f.displayName}</span><span className="st">{st.text}</span>
+                  <span>{f.displayName}</span>{skillOrigin(f, p.skillPick) ? <span className="tag">{skillOrigin(f, p.skillPick)}</span> : null}<span className="st">{st.text}</span>
                   {f.state.kind === "ready" && f.kind !== "skill" ? <button className="small" aria-label={`${f.displayName}を関連アプリで開く`} onClick={() => p.files.open(target)}>開く</button> : null}
                   <button aria-label={`${f.displayName}を取り外す`} disabled={f.state.kind === "copying"} onClick={() => p.files.remove(f.id)}><Icon name="x" /></button>
                 </span>
@@ -900,7 +937,11 @@ function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock
         {wmSelected && !wmUsable ? (
           <div className="lockmsg">計画／実行（{WORK_MODE_TEXT[wmSelected]}）を選んだままですが、この Codex 接続では使えないため、送信は止まります。<button className="small" onClick={() => p.onWorkMode(null)}>選択を外す</button></div>
         ) : null}
-        <textarea aria-label="メッセージ" disabled={!!lock} value={p.draft} onChange={(e) => p.setDraft(e.target.value)} ref={p.inputRef}
+        {sugOpen && p.skillPick?.skills ? <SkillSuggest items={sugItems} all={p.skillPick.skills} terms={queryTerms(trig!.query)} active={sugCur} listId={sugId} onHover={setSugActive} onPick={pickSuggest} /> : null}
+        <textarea aria-label="メッセージ" disabled={!!lock} value={p.draft} onChange={(e) => { p.setDraft(e.target.value); setCaret(e.target.selectionStart); }} ref={p.inputRef}
+          onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
+          onCompositionStart={() => setComposing(true)} onCompositionEnd={(e) => { setComposing(false); setCaret(e.currentTarget.selectionStart); }}
+          aria-controls={sugOpen ? sugId : undefined} aria-expanded={sugOpen || undefined} aria-activedescendant={sugOpen ? `${sugId}-${sugCur}` : undefined}
           placeholder={`${running ? "完了後に送る次の依頼" : "メッセージを入力"}（${enterHint}${running ? "／Ctrl＋Shift＋Enter で追加指示" : ""}）`}
           onPaste={(e) => {
             // クリップボードの画像は添付にする（生バイトでホストへ）。文章だけの貼り付けは通常どおり。
@@ -910,6 +951,12 @@ function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock
             void img.arrayBuffer().then((buf) => p.files.pasteImage(clipboardImageName(new Date()), buf));
           }}
           onKeyDown={(e) => {
+            if (sugOpen && !e.nativeEvent.isComposing) {
+              const n = sugItems.length;
+              if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); setSugActive((sugCur + (e.key === "ArrowDown" ? 1 : -1) + n) % n); return; }
+              if ((e.key === "Enter" && !e.ctrlKey && !e.shiftKey && !e.altKey) || (e.key === "Tab" && !e.shiftKey)) { e.preventDefault(); pickSuggest(sugItems[sugCur]); return; }
+              if (e.key === "Escape") { e.preventDefault(); setSuppress(trig!.start); return; }
+            }
             if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
             // 追加指示で送る（実行中のみ。条件を満たさないときは何も送らない。理由は▾メニューの項目に出る）
             if (e.ctrlKey && e.shiftKey) { e.preventDefault(); if (running) void send(true); return; }

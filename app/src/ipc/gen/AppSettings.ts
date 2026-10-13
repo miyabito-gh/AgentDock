@@ -6,6 +6,7 @@ import type { LayoutSettings } from "./LayoutSettings";
 import type { ModelChoice } from "./ModelChoice";
 import type { MonitorWindowScope } from "./MonitorWindowScope";
 import type { NotificationSettings } from "./NotificationSettings";
+import type { RecentSkill } from "./RecentSkill";
 import type { SendKey } from "./SendKey";
 import type { ToolSettings } from "./ToolSettings";
 import type { WindowPrefs } from "./WindowPrefs";
@@ -59,4 +60,8 @@ appearance: AppearanceSettings,
  * 版の注意（版の不一致・版不明の全体バナー）を閉じたときの版の識別子。同じ版のあいだは出さず、版が変わるとまた出す。
  * 識別子の形は画面側が決める（版不明は専用の値）。None＝閉じていない。古い `settings.json` は None で読む。
  */
-dismissedVersionNotice: string | null, };
+dismissedVersionNotice: string | null, 
+/**
+ * 最近指定したSkill（新しい順・最大5件。チャット共通）。古い `settings.json` は空で読む。Skillの定義・~/.codex は変更しない。
+ */
+recentSkills: Array<RecentSkill>, };

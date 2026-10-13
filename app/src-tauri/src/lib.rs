@@ -252,6 +252,7 @@ pub fn run() {
             commands::list_reference_turns,
             commands::build_reference,
             commands::list_skills,
+            commands::read_skill_preview,
             commands::add_skill_attachment,
             commands::get_instruction_files,
             commands::create_instruction_template,

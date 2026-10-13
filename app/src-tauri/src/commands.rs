@@ -695,6 +695,12 @@ pub async fn list_skills(host: Hs<'_>, args: ListSkillsArgs) -> R<crate::backend
     host.inner().clone().list_skills(args).await
 }
 
+/// Skill定義の冒頭の読取り（プレビュー。一覧にあるパスだけ）。
+#[tauri::command]
+pub async fn read_skill_preview(host: Hs<'_>, args: SkillPreviewArgs) -> R<SkillPreview> {
+    host.inner().clone().read_skill_preview(args).await
+}
+
 /// Skillを入力欄の指定（チップ）にする（コピーしない。送信時に明示呼出しになる）。
 #[tauri::command]
 pub async fn add_skill_attachment(host: Hs<'_>, args: AddSkillArgs) -> R<AttachmentEntry> {

@@ -13,7 +13,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   mainWindow: { alwaysOnTop: false, bounds: null }, monitorWindow: { alwaysOnTop: false, bounds: null },
   monitorScope: "selectedChat", defaultModel: null, sendKey: "ctrlEnter", acknowledgedWarnings: [], tools: { git: null }, cloudEnvByRepo: {}, baselines: { enabled: true, repos: [] }, layout: { leftWidth: null, dockWidth: null },
   chatList: { view: "Recent", pinnedFolders: [], collapsedFolders: [] }, appearance: { theme: "System", uiText: "Normal", bodyText: "Normal" },
-  dismissedVersionNotice: null,
+  dismissedVersionNotice: null, recentSkills: [],
 };
 
 const emptySnapshot = (): HostSnapshot => ({

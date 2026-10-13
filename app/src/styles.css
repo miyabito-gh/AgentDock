@@ -872,3 +872,23 @@ button.uchip:hover{background:var(--accent-weak)}
 .msg.pend .pstat.bad .muted{max-width:min(420px,100%);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .spinner{width:11px;height:11px;border:2px solid var(--line-strong);border-top-color:var(--accent);border-radius:50%;animation:pend-spin .8s linear infinite;flex:none}
 @keyframes pend-spin{to{transform:rotate(360deg)}}
+
+/* Skill選択（検索・行・プレビュー・入力欄の候補） */
+.skbar{display:flex;gap:6px;align-items:center;margin:6px 0}
+.skbar input{min-width:0}
+.skpick{display:flex;gap:10px;align-items:flex-start;margin-top:4px}
+.sklist{flex:1 1 55%;min-width:0;max-height:52vh;overflow:auto;border:1px solid var(--line);border-radius:var(--r1)}
+.skprev{flex:1 1 45%;min-width:0;max-height:52vh;overflow:auto;border:1px solid var(--line);border-radius:var(--r1);padding:6px 8px;background:var(--surface2)}
+.skprev-text{margin:4px 0;white-space:pre-wrap;overflow-wrap:anywhere;font-size:var(--fs-s)}
+.skrow{display:flex;align-items:center;gap:8px;padding:4px 8px;border-top:1px solid var(--line);cursor:pointer;border-left:3px solid transparent}
+.skrow:first-child{border-top:0}
+.skrow.active{background:var(--accent-weak);border-left-color:var(--accent-line)}
+.skrow.off{opacity:.6}
+.skname{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px}
+.skdesc{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.skpath{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.8}
+.skhl{background:var(--wait-bg);color:inherit;border-radius:2px}
+.sklist .menu-h{padding:4px 8px}
+.composer{position:relative}
+.pop.skpop{top:auto;bottom:calc(100% - 4px);left:16px;right:16px;max-width:none;max-height:40vh;overflow:auto;padding:0}
+@media (max-width:760px){.skpick{flex-direction:column}.skprev,.sklist{flex:none;width:100%;max-height:36vh}}

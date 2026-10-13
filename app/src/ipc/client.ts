@@ -16,7 +16,7 @@ import {
   type PathInfo, type BackendStatus, type Goal, type GoalUpdate, type Known, type MemoryStatus, type OpAck, type ResetMemoryResult, type WorkMode, type WorkModeInfo,
   type FolderCheck, type WorkFoldersView,
   type GitInfo, type WorktreeRecord, type WorktreeRemoveOutcome, type WorktreeRemovePreview,
-  type HandoffText, type InstructionFiles, type InstructionTemplateResult, type OpenSideResult, type ReferenceBlock, type ReferenceTurns, type SideSessionMeta, type SideTranscript, type SkillList,
+  type HandoffText, type InstructionFiles, type InstructionTemplateResult, type OpenSideResult, type ReferenceBlock, type ReferenceTurns, type SideSessionMeta, type SideTranscript, type SkillList, type SkillPreview,
   type DecisionRecord, type ExtensionOp, type ExtensionOpRecord, type ExtensionView, type ToolServerList, type ToolServerLoginStart,
   type CloudApplyResult, type CloudCommandOutput, type CloudEnvHint, type CloudTaskList, type CloudTaskRecord,
   type CompactChatResult, type CompactionSnapshot, type ForkPurpose, type ForkReconcile, type ForkResult, type RecheckAgentsResult, type ResendAsForkResult, type OpReconcile, type ParityOp, type ReviewChoices, type ReviewDelivery, type ReviewOutcome, type ReviewTarget,
@@ -261,6 +261,8 @@ export const listReferenceTurns = (chat: ChatKey): Promise<ReferenceTurns> => in
 export const buildReference = (chat: ChatKey, turns: ExternalId[]): Promise<ReferenceBlock> => invokeCmd("build_reference", { chat, turns });
 /** 作業フォルダのSkill一覧（読取りのみ）。forceReload はディスクの再走査（明示操作のときだけ）。 */
 export const listSkills = (chat: ChatKey, forceReload: boolean): Promise<SkillList> => invokeCmd("list_skills", { chat, forceReload });
+/** Skill定義の冒頭の読取り（プレビュー。そのチャットの一覧にあるパスだけ。読取りのみ）。 */
+export const readSkillPreview = (chat: ChatKey, path: string): Promise<SkillPreview> => invokeCmd("read_skill_preview", { chat, path });
 /** Skillを入力欄の指定（チップ）にする（コピーしない。送信時に明示呼出しの入力になる）。 */
 export const addSkillAttachment = (chat: ChatKey, name: string, path: string): Promise<AttachmentEntry> => invokeCmd("add_skill_attachment", { chat, name, path });
 /** 指示ファイル（AGENTS.md等）の確認（読取りのみ）。読み込み済みの一覧は、会話を開始・再開・分岐した応答にだけ載る（なければ未取得）。 */

@@ -1,12 +1,14 @@
 // 過去会話の参考指定（#8）・Skillの指定と指示ファイル（#11）の本体（段階③ P3-4）。外枠（Shell）は Dialogs.tsx 側。
 // 規則: 参考・一覧・確認は読取りだけ（会話を再開しない・参照先を変更しない）。入力欄へ入れるだけで自動送信しない（要約もしない）。
 //       取得できなかったものは「未取得」と書き、空・0で代用しない。雛形の作成は確認の後だけで、既存のファイルは上書きしない。
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as host from "../ipc/client";
-import type { Chat, ChatKey, ExternalId, InstructionFiles, Known, OpCapability, ReferenceBlock, ReferenceTurns, SkillInfo, SkillList } from "../ipc/types";
+import type { Chat, ChatKey, ExternalId, InstructionFiles, OpCapability, RecentSkill, ReferenceBlock, ReferenceTurns, SkillInfo, SkillList } from "../ipc/types";
 import { UnverifiedTag } from "./PrefsDialogs";
 import { chatName } from "./derive";
 import { showKnown } from "./format";
+import { SkillPreviewPane, SkillRow, useSkillPreview } from "./SkillPicker";
+import { filterSkills, isDisabled, queryTerms } from "./skillPick";
 import { About, FootActions } from "./DialogParts";
 
 const errText = (e: unknown) => host.asIpcError(e).message;
@@ -18,6 +20,10 @@ export interface ComposeProps {
   insertText: (text: string) => void;
   /** Skillを入力欄の指定（チップ）にする。戻り値は表示する文。 */
   pickSkill: (chat: ChatKey, name: string, path: string) => Promise<string>;
+  /** 最近指定したSkill（AppSettings.recentSkills）。 */
+  recentSkills: RecentSkill[];
+  /** ダイアログで取得したSkill一覧を入力欄の候補の元（チャット別の取得済み一覧）へ渡す。 */
+  noteSkills: (chat: string, skills: SkillInfo[]) => void;
 }
 
 // ───────────────────────────── 過去の会話を参考に ─────────────────────────────
@@ -100,56 +106,82 @@ export function ReferenceBody({ chat, chats, live, cap, insertText, onDone }: { 
 
 // ───────────────────────────── Skill・指示ファイル ─────────────────────────────
 
-const scopeText = (k: Known<string>): string => {
-  if (k.kind !== "value") return showKnown(k);
-  return ({ user: "ユーザー", repo: "このリポジトリ", system: "システム", admin: "管理者" } as Record<string, string>)[k.value] ?? k.value;
-};
-
-function SkillRows({ skills, pick }: { skills: SkillInfo[]; pick?: (s: SkillInfo) => void }) {
-  if (skills.length === 0) return <p className="small muted">この作業フォルダで使えるSkillはありません。</p>;
-  return (
-    <div>
-      {skills.map((s) => {
-        const off = s.enabled.kind === "value" && !s.enabled.value;
-        return (
-          <div className="frow" key={s.path}>
-            <div className="grow">
-              <b>{s.name}</b>　<span className="small muted">{scopeText(s.scope)}{off ? "・無効" : s.enabled.kind !== "value" ? "・有効かは未確認" : ""}</span>
-              <div className="small">{s.description.kind === "value" ? s.description.value : `説明: ${showKnown(s.description)}`}</div>
-              <div className="mono small muted">{s.path}</div>
-            </div>
-            {pick ? <button className="small" disabled={off} title={off ? "無効のSkillは指定できません" : "入力欄の指定（チップ）にします。送信時に明示的に呼び出します"} onClick={() => pick(s)}>指定</button> : null}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-/** 作業フォルダのSkillの一覧。`pick` があれば「指定」（入力欄のチップ）を出す。確認だけなら省略。有効・無効の切替は提供しない。 */
-export function SkillsBody({ chat, live, cap, pickSkill, onDone }: { chat: Chat | undefined; live: boolean; cap: OpCapability | undefined; pickSkill?: ComposeProps["pickSkill"]; onDone?: () => void }) {
+/** 作業フォルダのSkillの一覧。`pick` があれば「指定」（入力欄のチップ）を出す。確認だけなら省略。有効・無効の切替は提供しない。
+ *  検索（名前・説明・場所。複数語はAND）、↑↓で行の移動、Enterで指定、選択中のSKILL.mdの冒頭の表示（読取りのみ）を持つ。 */
+export function SkillsBody({ chat, live, cap, pickSkill, onDone, recent, onList }: { chat: Chat | undefined; live: boolean; cap: OpCapability | undefined; pickSkill?: ComposeProps["pickSkill"]; onDone?: () => void; recent: RecentSkill[]; onList?: (chat: string, skills: SkillInfo[]) => void }) {
   const [list, setList] = useState<SkillList | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [active, setActive] = useState(0);
+  const input = useRef<HTMLInputElement>(null);
+  const listBox = useRef<HTMLDivElement>(null);
   const key = chat?.key;
   const chatId = key?.id;
   const load = (force: boolean) => {
     if (!key) return;
     setBusy(true); setErr(null);
-    host.listSkills(key, force).then(setList).catch((e) => setErr(errText(e))).finally(() => setBusy(false));
+    host.listSkills(key, force).then((l) => { setList(l); onList?.(key.id, l.skills); }).catch((e) => setErr(errText(e))).finally(() => setBusy(false));
   };
   useEffect(() => { if (live && key) load(false); }, [live, chatId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { input.current?.focus(); }, [live, chatId]);
+  useEffect(() => { setActive(0); }, [query]);
+  const skills = list?.skills ?? [];
+  const view = useMemo(() => filterSkills(skills, query, recent), [list, query, recent]); // eslint-disable-line react-hooks/exhaustive-deps
+  const terms = useMemo(() => queryTerms(query), [query]);
+  const cur = view.items[Math.min(active, view.items.length - 1)];
+  const preview = useSkillPreview(live ? key : undefined, cur?.path ?? null);
+  useEffect(() => { listBox.current?.querySelector<HTMLElement>(".skrow.active")?.scrollIntoView({ block: "nearest" }); }, [active, view]);
   if (!chat) return <div className="content"><p>チャットを選んでください（そのチャットの作業フォルダのSkillを表示します）。</p></div>;
   if (!live) return <div className="content"><p>モックでは動きません（実接続で使えます）。</p></div>;
   const pick = pickSkill ? async (s: SkillInfo) => { setMsg(await pickSkill(chat.key, s.name, s.path)); onDone?.(); } : undefined;
+  const canPick = (s: SkillInfo | undefined): s is SkillInfo => !!pick && !!s && !isDisabled(s);
+  const onKey = (e: React.KeyboardEvent) => {
+    if (e.nativeEvent.isComposing) return;
+    // 検索語が入っているときの Esc は消去だけ（ダイアログは閉じない）。空なら従来どおり閉じる。
+    if (e.key === "Escape" && query) { e.preventDefault(); e.stopPropagation(); setQuery(""); return; }
+    const n = view.items.length;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      if (n === 0) return;
+      e.preventDefault();
+      setActive((i) => (Math.min(i, n - 1) + (e.key === "ArrowDown" ? 1 : -1) + n) % n);
+    } else if (e.key === "Enter" && canPick(cur)) {
+      e.preventDefault();
+      void pick!(cur);
+    }
+  };
+  const rowId = (i: number) => `skill-row-${i}`;
   return (
     <div className="content">
       <p>作業フォルダのSkillです。{pickSkill ? "指定すると、入力欄のチップになり、送信時にそのSkillを明示的に呼び出します。" : ""} <UnverifiedTag cap={cap} /></p>
       <About><p>Skillの定義は読むだけで、変更や有効・無効の切替はしません（~/.codex 配下も同じです）。</p></About>
-      <div style={{ marginBottom: 6 }}><button className="btn-line" disabled={busy} onClick={() => load(true)}>{busy ? "読み込んでいます…" : "再読み込み（ディスクを再走査）"}</button></div>
+      <div className="skbar">
+        <input ref={input} type="text" className="grow" value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={onKey} placeholder="名前・説明・場所で絞り込み（空白で複数語）" aria-label="Skillを絞り込み"
+          role="combobox" aria-expanded="true" aria-controls="skill-list" aria-activedescendant={cur ? rowId(Math.min(active, view.items.length - 1)) : undefined} />
+        <button className="btn-line" disabled={busy} onClick={() => load(true)}>{busy ? "読み込んでいます…" : "再読み込み（ディスクを再走査）"}</button>
+      </div>
       {err ? <div className="why err">Skillを取得できませんでした（未取得）: {err}</div> : null}
-      {list ? <SkillRows skills={list.skills} pick={pick ? (s) => void pick(s) : undefined} /> : null}
+      {list ? (
+        <>
+          <div className="small muted" aria-live="polite">{query.trim() ? `${skills.length}件中${view.items.length}件` : `${skills.length}件`}</div>
+          {skills.length === 0 ? <p className="small muted">この作業フォルダで使えるSkillはありません。</p> : view.items.length === 0 ? <p className="small muted">一致するSkillはありません。</p> : (
+            <div className="skpick">
+              <div className="sklist" id="skill-list" role="listbox" aria-label="Skillの一覧" ref={listBox}>
+                {view.items.map((s, i) => (
+                  <div key={s.path}>
+                    {i === 0 && view.recentCount > 0 ? <div className="menu-h" role="presentation">最近</div> : null}
+                    {i === view.recentCount && view.recentCount > 0 ? <div className="menu-h" role="presentation">すべて</div> : null}
+                    <SkillRow s={s} all={skills} terms={terms} active={i === Math.min(active, view.items.length - 1)} id={rowId(i)} onSelect={() => setActive(i)}
+                      trailing={pick ? <button className="small" disabled={isDisabled(s)} title={isDisabled(s) ? "無効のSkillは指定できません" : "入力欄の指定（チップ）にします。送信時に明示的に呼び出します"} onClick={(e) => { e.stopPropagation(); void pick(s); }}>指定</button> : undefined} />
+                  </div>
+                ))}
+              </div>
+              <SkillPreviewPane state={preview} skill={cur} />
+            </div>
+          )}
+        </>
+      ) : null}
       {list && list.errors.length > 0 ? <div className="why err" style={{ marginTop: 6 }}>読み込めなかったSkillの定義があります:<ul>{list.errors.map((e, i) => <li key={i} className="mono small">{e}</li>)}</ul></div> : null}
       {msg ? <p className="small" style={{ marginTop: 6 }}>{msg}</p> : null}
     </div>

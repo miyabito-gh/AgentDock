@@ -201,7 +201,7 @@ function SettingsBody({ tab, enterMode, setEnterMode, top, source, models, exe, 
       return (
         <>
           <p className="small muted">{c ? `対象のチャット: ${chatName(c)}` : "チャットを選ぶと、その作業フォルダのSkillと指示ファイルを表示します。"}</p>
-          <SkillsBody chat={c} live={compose.live} cap={opCaps.find((x) => x.op === "skills")} />
+          <SkillsBody chat={c} live={compose.live} cap={opCaps.find((x) => x.op === "skills")} recent={compose.recentSkills} onList={compose.noteSkills} />
           <hr />
           <InstructionBody chat={c} live={compose.live} cap={opCaps.find((x) => x.op === "instructionFiles")} insertText={compose.insertText} openFile={compose.openPath} />
         </>);
@@ -586,7 +586,7 @@ export function Dialogs({ workspaceRoots, d, onClose, chats, source, models, ent
       </Shell>);
     case "skills": return (
       <Shell title="Skill を指定" wide onClose={onClose} close="閉じる">
-        <SkillsBody key={d.chatId} chat={chats.find((x) => x.key.id === d.chatId)} live={live} cap={opCaps.find((c) => c.op === "skills")} pickSkill={compose.pickSkill} onDone={onClose} />
+        <SkillsBody key={d.chatId} chat={chats.find((x) => x.key.id === d.chatId)} live={live} cap={opCaps.find((c) => c.op === "skills")} pickSkill={compose.pickSkill} onDone={onClose} recent={compose.recentSkills} onList={compose.noteSkills} />
       </Shell>);
     case "instructions": return (
       <Shell title="指示ファイル（AGENTS.md）" wide onClose={onClose} close="閉じる">

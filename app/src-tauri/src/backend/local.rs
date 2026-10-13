@@ -531,6 +531,19 @@ pub struct AppSettings {
     /// 識別子の形は画面側が決める（版不明は専用の値）。None＝閉じていない。古い `settings.json` は None で読む。
     #[serde(default)]
     pub dismissed_version_notice: Option<String>,
+    /// 最近指定したSkill（新しい順・最大5件。チャット共通）。古い `settings.json` は空で読む。Skillの定義・~/.codex は変更しない。
+    #[serde(default)]
+    pub recent_skills: Vec<RecentSkill>,
+}
+
+/// 最近指定したSkillの記録（`path` で見分ける）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct RecentSkill {
+    pub name: String,
+    pub path: String,
 }
 
 /// 左一覧の並び。
@@ -725,6 +738,7 @@ impl Default for AppSettings {
             chat_list: ChatListSettings::default(),
             appearance: AppearanceSettings::default(),
             dismissed_version_notice: None,
+            recent_skills: Vec::new(),
         }
     }
 }
