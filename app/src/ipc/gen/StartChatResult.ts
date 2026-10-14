@@ -2,4 +2,8 @@
 import type { Chat } from "./Chat";
 import type { SendAttempt } from "./SendAttempt";
 
-export type StartChatResult = { chat: Chat, firstSend: SendAttempt | null, };
+export type StartChatResult = { chat: Chat, 
+/**
+ * 最初の依頼の送信試行。戻った時点では送信中（`Sending`）で、確定（受理・拒否・受理不明）は `sendUpdated` で届く。
+ */
+firstSend: SendAttempt | null, };

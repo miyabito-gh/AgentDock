@@ -205,6 +205,8 @@ pub enum BlockedReason {
     WorktreeInUse,
     /// worktreeに未コミットの変更がある。
     WorktreeDirty,
+    /// 作成直後の最初の依頼の送信が確定していない間、同じチャットへの別の送信（手動・キュー）を止めている。
+    FirstSendInFlight,
 }
 
 /// 保存先の選択ダイアログ（ファイルの書込みはしない）。
@@ -368,6 +370,7 @@ pub struct StartChatArgs {
 #[serde(rename_all = "camelCase")]
 pub struct StartChatResult {
     pub chat: Chat,
+    /// 最初の依頼の送信試行。戻った時点では送信中（`Sending`）で、確定（受理・拒否・受理不明）は `sendUpdated` で届く。
     pub first_send: Option<SendAttempt>,
 }
 

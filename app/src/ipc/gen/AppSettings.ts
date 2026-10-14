@@ -5,6 +5,7 @@ import type { ChatListSettings } from "./ChatListSettings";
 import type { LayoutSettings } from "./LayoutSettings";
 import type { ModelChoice } from "./ModelChoice";
 import type { MonitorWindowScope } from "./MonitorWindowScope";
+import type { NewChatDefaults } from "./NewChatDefaults";
 import type { NotificationSettings } from "./NotificationSettings";
 import type { RecentSkill } from "./RecentSkill";
 import type { SendKey } from "./SendKey";
@@ -70,4 +71,9 @@ recentSkills: Array<RecentSkill>,
  * 名前つきの作業フォルダの組（先頭＝プライマリ、順序つき）。古い `settings.json` は空で読む。
  * 中身は検査済みの保証ではない（使うたびに check_work_folder を通す）。
  */
-workFolderSets: Array<WorkFolderSet>, };
+workFolderSets: Array<WorkFolderSet>, 
+/**
+ * クイック新規の既定値（前回の作成で選んだモデル）。作成に成功したときだけ画面が更新する。
+ * 作業フォルダは持ち越さない（クイック新規は常に一般チャット）。古い `settings.json` は None で読む。
+ */
+lastNewChat: NewChatDefaults | null, };

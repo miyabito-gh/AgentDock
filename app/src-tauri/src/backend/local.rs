@@ -538,6 +538,19 @@ pub struct AppSettings {
     /// 中身は検査済みの保証ではない（使うたびに check_work_folder を通す）。
     #[serde(default)]
     pub work_folder_sets: Vec<WorkFolderSet>,
+    /// クイック新規の既定値（前回の作成で選んだモデル）。作成に成功したときだけ画面が更新する。
+    /// 作業フォルダは持ち越さない（クイック新規は常に一般チャット）。古い `settings.json` は None で読む。
+    #[serde(default)]
+    pub last_new_chat: Option<NewChatDefaults>,
+}
+
+/// クイック新規の既定値。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct NewChatDefaults {
+    pub model: Option<ModelChoice>,
 }
 
 /// 作業フォルダのセット1件。`id` で見分ける（名前は変えられる）。
@@ -757,6 +770,7 @@ impl Default for AppSettings {
             dismissed_version_notice: None,
             recent_skills: Vec::new(),
             work_folder_sets: Vec::new(),
+            last_new_chat: None,
         }
     }
 }
@@ -1284,6 +1298,14 @@ mod settings_tests {
         let s: AppSettings = serde_json::from_value(v).unwrap();
         assert_eq!(s.layout, LayoutSettings::default());
         assert_eq!(s.layout.left_width, None);
+    }
+
+    #[test]
+    fn settings_without_last_new_chat_load_as_none() {
+        let mut v = serde_json::to_value(AppSettings::default()).unwrap();
+        v.as_object_mut().unwrap().remove("lastNewChat");
+        let s: AppSettings = serde_json::from_value(v).unwrap();
+        assert_eq!(s.last_new_chat, None);
     }
 
     #[test]

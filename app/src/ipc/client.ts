@@ -46,6 +46,7 @@ export const listChats = (cursor: string | null = null, includeArchived = false,
   invokeCmd("list_chats", { cursor, limit: null, search: null, includeArchived, cwd });
 export const openChat = (chat: ChatKey): Promise<AgentHistory> => invokeCmd("open_chat", { chat });
 /** worktree は、作業フォルダ（cwd）がAgentDockが作ったworktreeの場所のとき、その記録のID（チャットに結び付ける）。 */
+/** 戻り値の firstSend は送信中（Sending）の試行。確定（受理・拒否・受理不明）は sendUpdated だけで扱う。 */
 /** extraFolders は追加の作業フォルダ（cwd以外）。confirmedStrong は強い確認を済ませたパス（ホストが再検査する）。 */
 export const startChat = (cwd: string | null, model: ModelChoice | null, firstMessage: string | null, permission: PermissionPreset | null = null, worktree: LocalId | null = null, extraFolders: string[] = [], confirmedStrong: string[] = []): Promise<StartChatResult> =>
   invokeCmd("start_chat", { backend: "codex", cwd, model, permission, firstMessage, worktree, extraFolders, confirmedStrong });

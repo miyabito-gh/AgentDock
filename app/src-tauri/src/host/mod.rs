@@ -192,6 +192,20 @@ pub struct Host {
     read_limit: read_limit::ReadLimiter,
     /// 実行中の「編集して再送・再生成」（チャットごとの二重実行防止。`thread_ops.rs`）。
     resend_inflight: thread_ops::ResendInflight,
+    /// 作成直後の最初の依頼の送信が確定していないチャット（同じチャットへの別の送信を止める）。
+    first_sends: Mutex<HashSet<ChatKey>>,
+}
+
+/// 最初の依頼の送信が確定（または後続タスクが終了）したら、同じチャットの送信停止を解く。
+struct FirstSendRelease {
+    host: Arc<Host>,
+    chat: ChatKey,
+}
+
+impl Drop for FirstSendRelease {
+    fn drop(&mut self) {
+        self.host.first_sends.lock().unwrap().remove(&self.chat);
+    }
 }
 
 impl Host {
@@ -221,6 +235,7 @@ impl Host {
             cloud_rt: cloud::CloudRuntime::default(),
             read_limit: read_limit::ReadLimiter::default(),
             resend_inflight: thread_ops::ResendInflight::default(),
+            first_sends: Mutex::new(HashSet::new()),
         }
     }
 
@@ -574,7 +589,7 @@ impl Host {
 
     // ── 会話の開始・再開 ──
 
-    pub async fn start_chat(self: &Arc<Self>, args: StartChatArgs, confirmed: &UserConfirmed) -> Result<StartChatResult, IpcError> {
+    pub async fn start_chat(self: &Arc<Self>, args: StartChatArgs, _confirmed: &UserConfirmed) -> Result<StartChatResult, IpcError> {
         let mut area: Option<LocalId> = None;
         self.check_worktree_binding(&args.worktree, args.cwd.as_deref().map(str::trim))?;
         let (kind, cwd) = match args.cwd.as_deref().map(str::trim).filter(|c| !c.is_empty()) {
@@ -679,18 +694,7 @@ impl Host {
         self.touch_chat_used(&key);
         let mut first_send = None;
         if let Some(text) = args.first_message.filter(|t| !t.trim().is_empty()) {
-            if let Some(name) = derive_chat_name(&text) {
-                if self.backend.manage_chat(key.clone(), ManageOp::Rename { name: name.clone() }, confirmed).await.is_ok() {
-                    self.mutate(|d| {
-                        if let Some(c) = d.chats.iter_mut().find(|c| c.key == key) {
-                            c.name = Known::direct(name);
-                            let c = c.clone();
-                            return ((), vec![HostEvent::ChatUpdated { chat: c }]);
-                        }
-                        ((), vec![])
-                    });
-                }
-            }
+            let name = derive_chat_name(&text);
             let request = SendRequest {
                 chat: key.clone(),
                 mode: SendMode::NewTurn,
@@ -706,7 +710,32 @@ impl Host {
                 work_mode: None,
                 client_message_id: self.local_id("cm").0,
             };
-            first_send = Some(self.dispatch_send(request).await);
+            // 名前付けと最初の送信は後続タスクで行う（thread/start の応答で戻る）。確定は `SendUpdated` で届く。
+            // 確定までは同じチャットへの別の送信を止める（`FirstSendInFlight`）。
+            let attempt_id = self.local_id("att");
+            let sending = SendAttempt { attempt_id: attempt_id.clone(), client_message_id: request.client_message_id.clone(), at: now_ms(), state: SendState::Sending };
+            self.first_sends.lock().unwrap().insert(key.clone());
+            first_send = Some(sending.clone());
+            let host = self.clone();
+            let task_key = key.clone();
+            tokio::spawn(async move {
+                let _release = FirstSendRelease { host: host.clone(), chat: task_key.clone() };
+                if let Some(name) = name {
+                    // 起動した利用者の作成操作に続く処理。名前付けの失敗は送信を止めない。
+                    let confirmed = UserConfirmed::from_user_command();
+                    if host.backend.manage_chat(task_key.clone(), ManageOp::Rename { name: name.clone() }, &confirmed).await.is_ok() {
+                        host.mutate(|d| {
+                            if let Some(c) = d.chats.iter_mut().find(|c| c.key == task_key) {
+                                c.name = Known::direct(name);
+                                let c = c.clone();
+                                return ((), vec![HostEvent::ChatUpdated { chat: c }]);
+                            }
+                            ((), vec![])
+                        });
+                    }
+                }
+                host.dispatch_send_as(request, sending).await;
+            });
         }
         Ok(StartChatResult { chat: self.read(|d| d.chat(&key).cloned()).unwrap_or(chat), first_send })
     }
@@ -810,6 +839,7 @@ impl Host {
 
     /// 送信を止める条件（停止未確認・受理不明・外部実行の可能性）。
     fn check_sendable(&self, chat: &ChatKey) -> Result<(), IpcError> {
+        self.check_first_send_settled(chat)?;
         self.check_not_delete_pending(chat)?;
         if let Some(rec) = self.read(|d| d.open_stop(chat).map(|r| r.id.clone())) {
             return Err(blocked(BlockedReason::StopUnconfirmed { record: rec }, "停止を確認できるまで、このチャットへの新しい送信は止めています"));
@@ -822,6 +852,18 @@ impl Host {
         });
         if ext_not_live {
             return Err(blocked(BlockedReason::RunningElsewhere, "外部で作成された会話です。外部の実行が終わったことを確認して再開してください"));
+        }
+        Ok(())
+    }
+
+    /// 作成直後の最初の依頼が確定するまで、同じチャットへの別の送信（手動・キュー）を止める。
+    fn first_send_in_flight(&self, chat: &ChatKey) -> bool {
+        self.first_sends.lock().unwrap().contains(chat)
+    }
+
+    pub(super) fn check_first_send_settled(&self, chat: &ChatKey) -> Result<(), IpcError> {
+        if self.first_send_in_flight(chat) {
+            return Err(blocked(BlockedReason::FirstSendInFlight, "最初の依頼を送信しています。確定してから送信してください"));
         }
         Ok(())
     }
@@ -930,9 +972,14 @@ impl Host {
 
     /// 送信を1回だけ行い、結果を `SendUpdated` で通知する。Errを返さず3値に分類する。
     async fn dispatch_send(self: &Arc<Self>, request: SendRequest) -> SendAttempt {
-        let attempt_id = self.local_id("att");
+        let attempt = SendAttempt { attempt_id: self.local_id("att"), client_message_id: request.client_message_id.clone(), at: now_ms(), state: SendState::Sending };
+        self.dispatch_send_as(request, attempt).await
+    }
+
+    /// `dispatch_send` の本体。試行IDと開始時刻を呼び出し側が先に決めたもの（`Sending`）で送る（最初の依頼を後続タスクで送るため）。
+    async fn dispatch_send_as(self: &Arc<Self>, request: SendRequest, mut attempt: SendAttempt) -> SendAttempt {
+        let attempt_id = attempt.attempt_id.clone();
         let chat = request.chat.clone();
-        let mut attempt = SendAttempt { attempt_id: attempt_id.clone(), client_message_id: request.client_message_id.clone(), at: now_ms(), state: SendState::Sending };
         self.emit_send(&chat, &attempt);
         self.emit_send_phase(&chat, SendPhase::Preparing);
         let sent_cwd = if matches!(request.mode, SendMode::NewTurn) { request.cwd.clone() } else { None };
@@ -1243,6 +1290,18 @@ mod tests {
         let snap = host.snapshot();
         assert!(snap.chats.is_empty());
         assert!(snap.agents.is_empty());
+    }
+
+    #[tokio::test]
+    async fn first_send_in_flight_blocks_other_sends_until_released() {
+        let host = Arc::new(Host::new(std::env::temp_dir()));
+        let chat = ChatKey { backend: BackendKind::Codex, id: ExternalId("c1".into()) };
+        assert!(host.check_first_send_settled(&chat).is_ok());
+        host.first_sends.lock().unwrap().insert(chat.clone());
+        let e = host.check_first_send_settled(&chat).unwrap_err();
+        assert_eq!(e.blocked, Some(BlockedReason::FirstSendInFlight));
+        drop(FirstSendRelease { host: host.clone(), chat: chat.clone() });
+        assert!(host.check_first_send_settled(&chat).is_ok());
     }
 
     #[test]

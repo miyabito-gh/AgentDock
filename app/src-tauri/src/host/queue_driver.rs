@@ -322,6 +322,10 @@ impl Host {
         // 手動送信（再開を含む）の最中は評価しない（同時に `turn/start` を送らない）。次の周期で見る。
         let send_lock = self.queue_rt.send_lock(chat);
         let Ok(_send_guard) = send_lock.try_lock() else { return };
+        // 作成直後の最初の依頼が確定するまで自動送信しない（次の周期で見る）。
+        if self.check_first_send_settled(chat).is_err() {
+            return;
+        }
         self.settle_awaiting(chat).await;
         let (active, pending) = self.read(|d| d.queues.get(chat).map(|f| (f.queue.run == QueueRun::Active, q::has_pending(&f.queue))).unwrap_or((false, false)));
         if !(active && pending) {
@@ -561,6 +565,7 @@ impl Host {
         // 手動送信・自動送信と同時に `turn/start` を送らない。
         let send_lock = self.queue_rt.send_lock(&chat);
         let _send_guard = send_lock.lock().await;
+        self.check_first_send_settled(&chat)?;
         self.check_not_delete_pending(&chat)?;
         self.precheck_space()?;
         let root = agent_key_of(&chat);
