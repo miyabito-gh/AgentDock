@@ -23,7 +23,9 @@ import { GlobalBanner, MenuBar, SaveBanner } from "./ui/Chrome";
 import { LeftPane, type ChatOp } from "./ui/LeftPane";
 import { CenterPane, EmptyCenter, type FileActions, type SendNotice } from "./ui/CenterPane";
 import { fenceCode, insertBlock } from "./ui/attach";
-import { DockPane, MiniWindow } from "./ui/Dock";
+import { DockPane, MiniWindow, type DockActions, type DockFocus } from "./ui/Dock";
+import { sendLockReason } from "./ui/CenterPane";
+import { pendingView } from "./ui/pendingSend";
 import { commandViews } from "./ui/commandViews";
 import { cwdOpenWhy } from "./ui/commands";
 import { matchShortcut } from "./ui/shortcuts";
@@ -132,6 +134,8 @@ export default function App() {
   const [toast, setToast] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState<Set<string>>(new Set());
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  // 通知を押したチャットをドックのカードへ知らせる（スクロール・展開はドック側が入力中でないときだけ行う）
+  const [dockFocus, setDockFocus] = useState<DockFocus | null>(null);
   const [enterMode, setEnterMode] = useState<"ctrl" | "enter">("ctrl");
   const [mockOpen, setMockOpen] = useState(false);
   const [connectError, setConnectError] = useState<string | null>(null);
@@ -280,7 +284,7 @@ export default function App() {
       else if (e.kind === "changesUpdated") setChangesTick((n) => n + 1); // 開いている差分表示が取り直す（読取りのみ）
       else if (e.kind === "decisionRecorded") setDecisions((m) => ({ ...m, [e.record.chat.id]: addDecision(m[e.record.chat.id] ?? [], { record: e.record, save: e.save }) })); // 応答の記録（表示だけ。応答の代行・再送はしない）
       else if (e.kind === "goalUpdated") setGoals((m) => ({ ...m, [e.chat.id]: e.goal ? { kind: "value", value: e.goal, basis: "direct" } : { kind: "missing" } })); // 目標の表示を置き換える（エージェント状態には使わない）
-      else if (e.kind === "navigateToChat") { setSelId(e.chat.id); setQuick((q) => (q.open ? { ...q, open: false } : q)); void loadChat(e.chat.id); } // 通知を開いた操作。表示だけで、回答・再実行はしない
+      else if (e.kind === "navigateToChat") { setSelId(e.chat.id); setQuick((q) => (q.open ? { ...q, open: false } : q)); void loadChat(e.chat.id); setDockFocus((f) => ({ id: e.chat.id, tick: (f?.tick ?? 0) + 1 })); } // 通知を開いた操作。表示だけで、回答・再実行はしない
       else if (e.kind === "quitPrompt") { quitKindRef.current = e.phase.kind; setQuit(e.phase); setDialog((d) => (d?.type === "force" ? d : { type: "quit" })); } // もう一度「終了」が要求された。確認画面を開き直す
       else if (e.kind === "quitUpdated") {
         // 終了手順の進行（確認・停止照合・保存）。段階が変わったときだけ確認画面を開く（「待つ」で閉じた後に開き直さない）。
@@ -567,8 +571,8 @@ export default function App() {
     } catch (e) { sayErr("回答を送れませんでした", e); }
   };
 
-  const onSend = async (text: string, steer: boolean, attachments: string[]): Promise<boolean> => {
-    if (!chat) return false;
+  /** 送信（対象チャットを引数で受ける。中央の入力欄とドックの指示欄が同じ判定を通る）。 */
+  const sendTo = async (chat: Chat, text: string, steer: boolean, attachments: string[]): Promise<boolean> => {
     if (!live) { void loadMock().then((m) => m.client.sendMessage(chat.key, text, steer ? "steer" : "newTurn")); say("送信を依頼しました（モック）。"); return true; }
     const running = isRunning(snap, chat);
     if (running && !steer) {
@@ -608,8 +612,9 @@ export default function App() {
     })();
     return true;
   };
+  const onSend = async (text: string, steer: boolean, attachments: string[]): Promise<boolean> => (chat ? sendTo(chat, text, steer, attachments) : false);
 
-  const pendingRestore = (c: Chat, p: PendingSend) => {
+  const pendingRestore =(c: Chat, p: PendingSend) => {
     // 入力欄に別の文があれば、その前に戻した文を置く（どちらも失わない）。
     const cur = drafts[c.key.id] ?? "";
     onDraft(c, cur.trim() ? `${p.text}
@@ -1517,8 +1522,33 @@ ${cur}` : p.text);
     }).map((a) => keyStr(a.agent.key)))
     : confirmed;
 
+  // ドックのカードの指示欄・回答（中央と同じ onSend／onRespond を通す。対象は押したカード1件）
+  const dockActions: DockActions = {
+    draftOf: (c) => drafts[c.key.id] ?? snap.chatLocals.find((l) => l.chat.id === c.key.id)?.draft.text ?? c.draft ?? "",
+    onDraft,
+    send: (c, text) => sendTo(c, text, false, []),
+    block: (c) => {
+      const lock = sendLockReason(snap, c, snap.chatLocals.find((l) => l.chat.id === c.key.id));
+      if (lock) return lock;
+      const atts = live ? (snap.chatLocals.find((l) => l.chat.id === c.key.id)?.draft.attachments.length ?? 0) : snap.attachments.filter((a) => a.chat.id === c.key.id).length;
+      if (atts > 0) return "添付は中央で送ってください";
+      if (hasInFlight(pendingSends[c.key.id] ?? [])) return "送信の応答を待っています";
+      return null;
+    },
+    note: (c) => {
+      const list = markRetryable(pendingSends[c.key.id], attempts[c.key.id]);
+      const p = list[list.length - 1];
+      if (!p) return null;
+      const v = pendingView(p, Date.now());
+      return v.kind === "sending" ? "送信中…（結果を待っています）"
+        : v.kind === "accepted" ? "Codex が受理しました"
+        : v.kind === "unsent" ? `送信できませんでした（${v.reason}）。中央で入力欄へ戻せます`
+        : "受理を確認できません。再送はしません（中央で履歴と照合できます）";
+    },
+    respond: (r, a) => void onRespond(r, a),
+  };
   const dockProps = {
-    snap, scope, selId, confirmed: confirmedKeys, onScope, onAct: act,
+    snap, scope, selId, confirmed: confirmedKeys, onScope, onAct: act, actions: dockActions, focusReq: dockFocus,
     onOpen: (id: string) => { selectChat(id); },
     onConfirmFail: (k: string) => {
       if (!live) setConfirmed((s) => new Set(s).add(k));

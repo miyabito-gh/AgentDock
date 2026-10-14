@@ -179,7 +179,7 @@ function Help({ text }: { text: string }) {
 }
 
 /** 会話ヘッダーの状態チップの色種別（表示だけ。判定はホストの状態から）。 */
-function chatChipClass(snap: HostSnapshot, chat: Chat): string {
+export function chatChipClass(snap: HostSnapshot, chat: Chat): string {
   if (chatRequests(snap, chat).length) return "wait";
   const root = rootView(snap, chat);
   if (chat.noHistory || !root || chat.origin === "external") return "unk";
@@ -1045,6 +1045,14 @@ function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock
   );
 }
 
+/** 送信を止める理由（無ければ null）。中央の入力欄とドックの指示欄で同じ判定を使う。 */
+export function sendLockReason(snap: HostSnapshot, chat: Chat, local: CenterProps["local"]): string | null {
+  const delPending = local?.deletePending ?? null;
+  return delPending ? `削除を保留中のため、送信できません。${PENDING_TEXT(delPending.reason)}`
+    : chatStops(snap, chat).some(stopOpen) ? "停止を確認できるまで、このチャットへの新しい送信は止めています。"
+    : chat.origin === "external" && rootView(snap, chat)?.freshness !== "live" ? "再開するまで送信できません（上の案内から再開）" : null;
+}
+
 export function CenterPane(p: CenterProps) {
   const { snap, chat } = p;
   const running = isRunning(snap, chat);
@@ -1088,10 +1096,7 @@ export function CenterPane(p: CenterProps) {
     const v = chatAgents(snap, chat).find((x) => keyStr(x.agent.key) === keyStr(a));
     return v ? showKnown(v.agent.displayName) : a.id;
   };
-  const delPending = p.local?.deletePending ?? null;
-  const lock = delPending ? `削除を保留中のため、送信できません。${PENDING_TEXT(delPending.reason)}`
-    : hasOpenStop ? "停止を確認できるまで、このチャットへの新しい送信は止めています。"
-    : chat.origin === "external" && rootView(snap, chat)?.freshness !== "live" ? "再開するまで送信できません（上の案内から再開）" : null;
+  const lock = sendLockReason(snap, chat, p.local);
   return (
     <>
       <Header snap={snap} chat={chat} onAct={p.onAct} commands={p.commands} local={p.local} onCwdToggle={() => setCwdOpenFor((id) => (id === chat.key.id ? null : chat.key.id))} wasLive={p.wasLive} externalLabel={p.externalLabel} cwdInfo={p.cwdInfo} leftShown={p.leftShown} rightShown={p.rightShown} />

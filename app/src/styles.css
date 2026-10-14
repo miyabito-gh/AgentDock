@@ -528,6 +528,38 @@ textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;paddin
 .dock-scroll{overflow-x:hidden}
 .empty-note{font-size:var(--fs-s);color:var(--ink3);padding:14px 4px;text-align:center}
 
+/* ドックの「タスク」表示（DESIGN_IMPROVE §4）。scroll anchoring は既定のまま（overflow-anchor を指定しない） */
+.dock-band{position:sticky;top:0;z-index:2;max-height:calc(var(--dock-h, 600px) / 2);overflow:auto;margin:0 -4px 8px;padding:4px;background:var(--dock-bg);border-bottom:2px solid var(--wait-line)}
+.dock-band-h{font-size:var(--fs-s);font-weight:700;color:var(--wait-ink);margin:0 0 4px}
+.tcard{border:1px solid var(--card-line);border-left:3px solid var(--done);border-radius:var(--r1);padding:6px 8px;margin:0 0 8px;background:var(--surface);min-width:0;overflow-wrap:anywhere}
+.tcard.run{border-left-color:var(--run)} .tcard.wait{border-left-color:var(--wait-solid);background:var(--wait-bg)}
+.tcard.fail{border-left-color:var(--fail)} .tcard.int{border-left-color:var(--int)} .tcard.idle{border-left-color:var(--idle)}
+.tcard.unk{border-left-color:var(--unk);border-left-style:dashed}
+.tcard.working:not(.line):not(.band){max-height:calc(var(--dock-h, 600px) / 3);overflow:auto}
+.tcard.ended:not(.line){min-height:0}
+.tc-h{display:flex;align-items:center;gap:6px;min-width:0}
+.tc-h .tc-name,.tc-line .tc-name{flex:1 1 auto;min-width:0;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tc-h .st,.tc-line .st{flex:none}
+.tc-h button.small{flex:none;height:22px}
+.tc-at{flex:none;font-size:var(--fs-xs);color:var(--ink3)}
+.tc-mark{flex:none;color:var(--accent);font-size:var(--fs-s)}
+.tc-line{display:flex;align-items:center;gap:6px;flex:1 1 auto;min-width:0;width:100%;height:auto;min-height:24px;padding:2px 4px;border-color:transparent;background:transparent;text-align:left}
+.tc-line:hover{background:var(--hover)}
+.tcard.line{padding:3px 6px;margin-bottom:4px}
+.tc-fresh{font-size:var(--fs-xs);color:var(--stale);margin-top:2px}
+.tc-act{font-size:var(--fs-s);margin-top:4px;color:var(--ink2);overflow-wrap:anywhere}
+.tc-act.clamp{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.tc-kids{margin-top:4px}
+.tc-reqs{margin-top:6px}
+.tc-reqs .req{margin:0 0 6px;max-width:none}
+.tc-req-mini{display:flex;gap:6px;align-items:center;font-size:var(--fs-s);color:var(--wait-ink);margin:4px 0}
+.tc-send{display:flex;flex-wrap:wrap;gap:4px;align-items:flex-end;margin-top:6px}
+.tc-send textarea{flex:1 1 120px;min-width:0;resize:none;min-height:24px;font:inherit;font-size:var(--fs-s)}
+.tc-note{flex:1 0 100%;font-size:var(--fs-xs);color:var(--ink2)}
+.dock-more{margin-top:4px}
+.dock-more-h{font-size:var(--fs-s);font-weight:700;color:var(--ink2);margin:6px 0 2px}
+.tc-over{border:1px solid var(--card-line);border-radius:var(--r1);margin:0 0 3px;background:var(--surface)}
+
 /* コンパクト監視窓（別窓）。右パネルと同じ DockPane を、窓いっぱいに表示する */
 .monitor-win{position:fixed;inset:0;display:flex;flex-direction:column;background:var(--surface);overflow:hidden}
 .monitor-head{display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--line2)}
