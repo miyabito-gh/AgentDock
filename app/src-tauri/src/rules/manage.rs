@@ -112,6 +112,19 @@ pub fn save_blocks_chat(statuses: &[SaveStatus], chat: &ChatKey) -> Option<SaveS
         .map(|s| s.scope.clone())
 }
 
+/// 終了確認で「作業中」と数えるエージェントか。実行中・待機・初期化中だけ。
+/// 状態不明（notLoaded・履歴のみ・外部）は、このホストが実行中のturnを把握している（`has_running_turn`）ときだけ数える。
+/// 目的は、AgentDock が起動した App Server を閉じると止まる作業を知らせること。履歴末尾が進行中に読めるだけの外部・履歴のみの会話は、AgentDock の終了では止まらないので対象外。
+/// 再接続後の Unknown も、切断で実行中turnの記録が消えるため旧プロセスの turn は残らず対象外。
+/// 読み込んでいない会話を数えると、一覧の取得範囲に比例して確認が増えるため。
+pub fn agent_unfinished_for_quit(state: AgentState, has_running_turn: bool) -> bool {
+    match state {
+        AgentState::Initializing | AgentState::Running | AgentState::Waiting => true,
+        AgentState::Unknown => has_running_turn,
+        _ => false,
+    }
+}
+
 /// 完全終了の確認対象（作業中・停止未確認・受理不明・キュー送信待ちのチャット）。
 pub fn busy_for_quit(works: &[ChatWork]) -> Vec<ChatKey> {
     works
@@ -340,6 +353,16 @@ mod tests {
         assert_eq!(save_blocks_chat(&st, &ck("a")), Some(SaveScope::Queue { chat: ck("a") }));
         let unsaved = vec![SaveStatus { scope: SaveScope::ChatLocal { chat: ck("a") }, state: SaveState::Unsaved, last_attempt_at: None, retries: 0 }];
         assert_eq!(save_blocks_chat(&unsaved, &ck("a")), None);
+    }
+
+    #[test]
+    fn quit_counts_unknown_only_with_a_known_running_turn() {
+        assert!(agent_unfinished_for_quit(AgentState::Running, false));
+        assert!(agent_unfinished_for_quit(AgentState::Waiting, false));
+        assert!(agent_unfinished_for_quit(AgentState::Initializing, false));
+        assert!(!agent_unfinished_for_quit(AgentState::Unknown, false));
+        assert!(agent_unfinished_for_quit(AgentState::Unknown, true));
+        assert!(!agent_unfinished_for_quit(AgentState::Done, true));
     }
 
     #[test]

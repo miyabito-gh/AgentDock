@@ -89,3 +89,17 @@ test("推定の印と非対応での追加分の案内", () => {
   assert.equal(droppedExtrasNote({ folders: ["C:\\a"] }, "unsupported"), null);
   assert.equal(droppedExtrasNote(null, "unsupported"), null);
 });
+
+import { multiFolderMark } from "./workFolders.ts";
+test("複数フォルダ印: 2件以上の既知の指定だけ・取れないものは出さない・根拠を添える", () => {
+  assert.equal(multiFolderMark(null), null);
+  assert.equal(multiFolderMark({ acceptedFolders: null, nextFolders: null }), null);
+  assert.equal(multiFolderMark({ acceptedFolders: { folders: { folders: ["D:xa"] } }, nextFolders: { folders: ["D:xb"] } }), null);
+  const m = multiFolderMark({ acceptedFolders: { folders: { folders: ["D:xa", "D:xb"] } }, nextFolders: null });
+  assert.equal(m?.text, "複数フォルダ");
+  assert.match(m!.title, /送信記録/);
+  assert.match(m!.title, /主: D:xa\n追加: D:xb/);
+  const n = multiFolderMark({ nextFolders: { folders: ["D:xa", "D:xb", "D:xc"] } });
+  assert.match(n!.title, /未送信/);
+  assert.doesNotMatch(n!.title, /送信記録/);
+});

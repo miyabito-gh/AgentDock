@@ -1,3 +1,4 @@
+import { multiFolderMark } from "./workFolders";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Chat, ChatListSettings, ChatListView, HostSnapshot, ProjectsOutcome, UiTextSize } from "../ipc/types";
 import { Icon } from "./Icon";
@@ -369,6 +370,7 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct,
     const statusText = chatStatusText(snap, c);
     const statusCls = statusClass(statusText);
     const arc = archiveTag(localOf(c));
+    const mfm = multiFolderMark(localOf(c));
     const cwdText = c.kind !== "general" && c.cwd.kind === "value" ? c.cwd.value : null;
     const kindTitle = `${c.kind === "general" ? "一般チャット" : "作業フォルダのチャット"}${cwdText ? `（${cwdText}）` : ""}\n状態: ${statusText}`;
     return (
@@ -384,6 +386,7 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct,
           {c.noHistory ? <span className="tag" title="Codex に記録がありません">履歴なし</span> : null}
           {multi.has(c.key.id) ? <span className="tag" title={`他に一致: ${multi.get(c.key.id)!.join("、")}
 （フォルダ一致による推測${basisOf.has(c.key.id) ? `: ${BASIS_TEXT[basisOf.get(c.key.id)!]}` : ""}。表示は先頭のプロジェクトにだけ置いています）`}>複数</span> : null}
+          {mfm ? <span className="tag" title={mfm.title}>{mfm.text}</span> : null}
           {wt ? <span className="tag" title={`AgentDock が作った worktree（ブランチ ${wt.branch}）\n${wt.path}`}>worktree</span> : null}
           {archived(c) && (!showArch || arc.text !== "アーカイブ") ? <span className="tag" title={arc.title || undefined}>{arc.text}</span> : null}
           {localOf(c)?.deletePending ? <span className="tag unv" title={PENDING_TEXT(localOf(c)!.deletePending!.reason)}>削除保留</span> : null}

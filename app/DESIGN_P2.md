@@ -126,7 +126,7 @@
 | 最前面 | 窓ごとに `set_always_on_top`。初期値オフ。設定時にフォーカスを移さない |
 | 監視窓 | 別の `WebviewWindow`（label `monitor`、同じ `index.html` に `?view=monitor`、`focused(false)`）。範囲は選択中／全チャット（初期値は選択中）。承認・質問は「通常画面で開く」だけ |
 | 位置・サイズ | `windows.json` に窓ごと保存。復元時に `rules::window::fit_to_monitors`（`available_monitors()` の作業領域と64px以上重ならなければ主モニター中央へ）。`tauri-plugin-window-state` は使わない（画面外補正を自前で保証するため） |
-| 完全終了 | トレイ・メニューの「終了」→ `request_quit` → 作業中（未終端・停止未確認・受理不明・送信待ち）があれば `Confirming{busy}`。「作業を中断して終了」→各チャットへ停止手順→10秒で未確認なら `StopUnconfirmed`（待つ／中断を再試行／終了を取り消す＋強制終了）→全確認後 `Flushing`（保存）→保存失敗なら `SaveFailed`（正常終了と表示しない）→成功で `app.exit(0)` |
+| 完全終了 | トレイ・メニューの「終了」→ `request_quit` → 作業中（AgentDock が起動した App Server で実行中と把握しているturn、停止未確認・受理不明・送信待ち。状態不明で実行中turnのない外部・履歴のみの会話は対象外。2026-10-14）があれば `Confirming{busy}`。「作業を中断して終了」→各チャットへ停止手順→10秒で未確認なら `StopUnconfirmed`（待つ／中断を再試行／終了を取り消す＋強制終了）→全確認後 `Flushing`（保存）→保存失敗なら `SaveFailed`（正常終了と表示しない）→成功で `app.exit(0)` |
 | 強制終了 | `win::job::ProcessJob`。App Server起動直後・initialize前に Job へ入れる。`KILL_ON_JOB_CLOSE` は付けない（異常終了で作業を無断停止しない）。`preview_force_kill` で同じ監視元の影響チャットを全部示し、明示確認後に `TerminateJobObject`。`active_processes()==0` を確認できたら各対象に OS実体確認の証拠を付ける。それまでは停止未確認 |
 | sleep/wake | `win::power`（`PowerRegisterSuspendResumeNotification` のコールバック型）＋壁時計の飛び（予備）。復帰で live を要照合へ（状態は変えない）、`systemResumed` を出し、各ルートを read して対象集合を照合、接続が生きていれば live に戻す。復帰だけでは通知・再送・resumeをしない |
 | インストーラー | `tauri.conf.json` の `bundle.active=true`、`targets=["nsis"]`、正式アイコン。実機確認はNSISで導入して行う |

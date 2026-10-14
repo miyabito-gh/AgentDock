@@ -1,3 +1,4 @@
+import { multiFolderMark } from "./workFolders";
 import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import type {
   AgentKey, AgentView, ArtifactEntry, AttachmentEntry, EntryAttachment, Chat, ChatKey, ChatLocalView, ChatModelSettings, ChatQueue, DecisionOption, FileRef, Goal, HostSnapshot, Known, ModelInfo, PendingRequest, PathInfo, SkillInfo,
@@ -243,6 +244,7 @@ function Header({ snap, chat, onAct, commands, local, onCwdToggle, wasLive, exte
         return <button className="btn subtle icon cwdopen" aria-label="作業フォルダを開く" aria-disabled={why ? true : undefined}
           title={why ?? `作業フォルダをエクスプローラーで開く\n${cwd}`} onClick={() => { if (!why) onAct("openCwd"); }}><Icon name="folderOpen" /></button>;
       })() : null}
+      {(() => { const m = multiFolderMark(local); return m ? <span className="tag" title={m.title}>{m.text}</span> : null; })()}
       {local?.nextCwd ? <span className="tag mono" title={`次の送信から使う作業フォルダ（まだ適用していません）: ${local.nextCwd}`}>次: {baseName(local.nextCwd)}</span> : null}
       {local?.reviewOf ? <span className="tag" title={`このチャットはレビュー用に作られました（レビュー元: ${origName(snap, local.reviewOf)}）`}>レビュー</span> : null}
       {local?.forkOf ? <span className="tag" title={`このチャットは${local.forkOf.purpose === "editResend" ? "依頼を編集して送り直すために" : local.forkOf.purpose === "regenerate" ? "応答を作り直すために" : ""}分岐で作られました（AgentDockの記録）。分岐元: ${origName(snap, local.forkOf.chat)}${local.forkOf.throughTurn ? `（turn ${local.forkOf.throughTurn} まで）` : ""}`}>{PURPOSE_TAG[local.forkOf.purpose ?? "fork"]}</span> : null}

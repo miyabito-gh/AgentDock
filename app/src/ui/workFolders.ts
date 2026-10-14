@@ -146,3 +146,16 @@ export function droppedExtrasNote(next: WorkFolders | null, support: Support): s
   if (!next || next.folders.length < 2 || support === "supported") return null;
   return "非対応のため追加フォルダは送られません。プライマリだけにしてから送信してください";
 }
+
+/** 一覧の「複数フォルダ」印（既存の保存値だけで判定。通信しない）。既知の作業フォルダ一式のどれかが2件以上のときだけ出す。取れないチャットには出さない（単一とは断定しない）。 */
+export function multiFolderMark(local: { acceptedFolders?: { folders: WorkFolders } | null; nextFolders?: WorkFolders | null } | null | undefined): { text: string; title: string } | null {
+  if (!local) return null;
+  const accepted = local.acceptedFolders?.folders.folders ?? null;
+  const next = local.nextFolders?.folders ?? null;
+  const parts: string[] = [];
+  const list = (fs: string[]) => fs.map((f, i) => `${i === 0 ? "主" : "追加"}: ${f}`).join("\n");
+  if (accepted && accepted.length >= 2) parts.push(`AgentDockの送信記録（受理済み）\n${list(accepted)}`);
+  if (next && next.length >= 2) parts.push(`次の送信から使う指定（未送信）\n${list(next)}`);
+  if (!parts.length) return null;
+  return { text: "複数フォルダ", title: `${parts.join("\n\n")}\n（保存されている記録による表示。現在の状態を取得して確認したものではありません）` };
+}

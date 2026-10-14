@@ -18,7 +18,7 @@ use crate::backend::ipc::*;
 use crate::backend::local::*;
 use crate::backend::model::*;
 use crate::rules::queue as q;
-use crate::rules::manage::{agents_to_mark_on_resume, busy_for_quit, looks_like_resume, new_work_for_quit, next_quit_phase, ChatWork};
+use crate::rules::manage::{agent_unfinished_for_quit, agents_to_mark_on_resume, busy_for_quit, looks_like_resume, new_work_for_quit, next_quit_phase, ChatWork};
 use crate::store::records::{WindowsFile, SCHEMA_VERSION};
 use crate::win::power::{PowerEvent, PowerWatcher};
 
@@ -90,6 +90,23 @@ pub(super) fn work_of(d: &HostData, chat: &ChatKey) -> ChatWork {
         }),
         unresolved_send: false,
     }
+}
+
+/// 終了確認用の作業状況。目的は「AgentDock が起動した App Server を閉じると止まる作業」を知らせること。
+/// - 外す: 状態 Unknown で `running_turn` がないもの（notLoaded・履歴のみ・外部で動いている可能性のある会話）。AgentDock の終了では止まらない。
+///   再接続後の Unknown も、切断で `running_turn` を消すので旧プロセスの turn が残らず対象外。
+/// - `ownership_unknown` は停止記録の所有不明だけ（履歴末尾が進行中に読めるだけでは立てない）。
+/// - `work_of` は削除・アーカイブ用で、状態不明を未完了とみなす保守的な判断のまま。ここでは使い分けて上書きする。
+pub(super) fn quit_work_of(d: &HostData, chat: &ChatKey) -> ChatWork {
+    let mut w = work_of(d, chat);
+    let scope = d.stop_scope(chat);
+    w.has_unfinished = d
+        .agents
+        .iter()
+        .filter(|v| scope.contains(&v.agent.chat))
+        .any(|v| agent_unfinished_for_quit(v.status.state, d.running_turn.contains_key(&v.agent.key)));
+    w.ownership_unknown = d.stops.iter().any(|r| scope.contains(&r.chat) && r.targets.iter().any(|t| t.ownership == Ownership::Unknown));
+    w
 }
 
 /// チャットの実行中turn（中断の対象）。
@@ -237,7 +254,7 @@ impl Host {
                     keys.push(v.agent.chat.clone());
                 }
             }
-            keys.iter().map(|k| work_of(d, k)).collect::<Vec<_>>()
+            keys.iter().map(|k| quit_work_of(d, k)).collect::<Vec<_>>()
         });
         // 受理不明の送信は別のロックで持つ（データのロックを保持したまま取らない）。
         let unresolved = self.unresolved.lock().unwrap();
@@ -643,6 +660,28 @@ mod tests {
             evidence: Evidence { source: EvidenceSource::LiveEvent, raw_label: None, source_time: None, observed_at: UnixMillis(0) },
         };
         d.upsert_history_agent(agent, status);
+    }
+
+    #[test]
+    fn quit_counts_only_work_this_host_knows_is_running() {
+        let mut d = HostData::default();
+        unknown_root(&mut d);
+        let root = ck("root");
+        assert!(!quit_work_of(&d, &root).has_unfinished, "unknown without a running turn: not counted");
+        assert!(work_of(&d, &root).has_unfinished, "delete/archive judgement stays conservative");
+        d.note_history_tail(&ak("root"), HistoryTail::NotTerminal, UnixMillis(1));
+        let w = quit_work_of(&d, &root);
+        assert!(!w.has_unfinished && !w.ownership_unknown, "history tail in progress alone is not a quit target");
+        assert!(busy_for_quit(&[w]).is_empty());
+        d.running_turn.insert(ak("root"), ExternalId("t1".into()));
+        assert!(quit_work_of(&d, &root).has_unfinished, "unknown with a known running turn: counted");
+        d.running_turn.clear();
+        d.agents[0].status.state = AgentState::Running;
+        assert!(quit_work_of(&d, &root).has_unfinished, "running: counted");
+        d.agents[0].status.state = AgentState::Unknown;
+        let mut w = quit_work_of(&d, &root);
+        w.stop_unconfirmed = Some(LocalId("s1".into()));
+        assert_eq!(busy_for_quit(&[w]), vec![root]);
     }
 
     #[test]
