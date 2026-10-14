@@ -1,7 +1,7 @@
 // 実行: node --test src/ui/paneWidth.test.ts （tscの対象外）
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { clampPane, loadSaved, displayWidths, CENTER_MIN } from "./paneWidth.ts";
+import { clampPane, loadSaved, displayWidths, paneModes, CENTER_MIN } from "./paneWidth.ts";
 
 test("丸めと範囲", () => {
   assert.equal(clampPane("left", 200.6), 201);
@@ -57,4 +57,29 @@ test("既定は240/320", () => {
   const w = displayWidths({ winW: 1920, left: null, dock: null, leftShown: true, dockShown: true });
   assert.equal(w.left, 240);
   assert.equal(w.dock, 320);
+});
+
+test("paneModes: 境界", () => {
+  const m = (winW: number, leftOpen: boolean, rightOpen: boolean, left: number | null = null) => paneModes({ winW, leftOpen, rightOpen, left });
+  // 左折りたたみ・右開
+  assert.equal(m(740, false, true).rightTemp, false);
+  assert.equal(m(739, false, true).rightTemp, true);
+  // 左開（既定240）
+  assert.equal(m(980, true, true).rightTemp, false);
+  assert.equal(m(979, true, true).rightTemp, true);
+  // 左保存幅300
+  assert.equal(m(1040, true, true, 300).rightTemp, false);
+  assert.equal(m(1039, true, true, 300).rightTemp, true);
+  // 左開: 660で左並置、659で両方一時
+  assert.deepEqual(m(660, true, true), { leftTemp: false, rightTemp: true });
+  assert.deepEqual(m(659, true, true), { leftTemp: true, rightTemp: true });
+  // 左折りたたみ＋右並置: 920未満は左を開くと一時パネル
+  assert.equal(m(920, false, true).leftTemp, false);
+  assert.equal(m(919, false, true).leftTemp, true);
+  // 左折りたたみ＋右閉: 660で左は並置
+  assert.equal(m(660, false, false).leftTemp, false);
+  assert.equal(m(659, false, false).leftTemp, true);
+  // 右閉・左開: 左の表示幅＋740で判定
+  assert.equal(m(980, true, false).rightTemp, false);
+  assert.equal(m(979, true, false).rightTemp, true);
 });

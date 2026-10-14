@@ -54,3 +54,38 @@ export function displayWidths(i: WidthInput): Widths {
   const leftMax = i.leftShown ? Math.max(PANE.left.min, Math.min(PANE.left.max, i.winW - dock - CENTER_MIN)) : 0;
   return { left, dock, leftMax, dockMax };
 }
+
+export interface ModeInput {
+  winW: number;
+  leftOpen: boolean;
+  rightOpen: boolean;
+  /** 左の保存幅（null＝既定）。一時パネルでない左の表示幅の判定に使う（縮めない）。 */
+  left: number | null;
+}
+
+export interface PaneModes {
+  /** 左を並置できない（開くと一時パネル。折りたたみ中は「開いたら」の判定）。 */
+  leftTemp: boolean;
+  /** 右（ドック）を並置できない（同上）。 */
+  rightTemp: boolean;
+}
+
+/**
+ * 並置か一時パネルかの判定（DESIGN_IMPROVE §5）。中央480・ドック最小260・左最小180。
+ * 右は「窓幅−左の表示幅 ≥ 480+260」、左は「窓幅 ≥ 480+180（右が並置ならさらに+260）」。
+ */
+export function paneModes(i: ModeInput): PaneModes {
+  const need = CENTER_MIN + PANE.dock.min;
+  const leftMin = CENTER_MIN + PANE.left.min;
+  const sl = clampPane("left", i.left);
+  if (i.leftOpen) {
+    const leftSide = i.winW >= leftMin;
+    const leftW = leftSide ? sl : 0;
+    return { leftTemp: !leftSide, rightTemp: !(i.winW - leftW >= need) };
+  }
+  const rightSide = i.rightOpen && i.winW >= need;
+  return {
+    leftTemp: !(i.winW >= leftMin + (rightSide ? PANE.dock.min : 0)),
+    rightTemp: !(i.winW >= need),
+  };
+}

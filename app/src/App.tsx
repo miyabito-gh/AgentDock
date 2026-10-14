@@ -40,7 +40,7 @@ import { fromLocal, type SentLocal } from "./ui/chips";
 import { resendCtxOf, resendTargetOf, rootTurns, type ResendHandlers, type ResendState } from "./ui/ResendDialog";
 import { resendAvailability } from "./ui/resend";
 import { PaneSplitter } from "./ui/PaneSplitter";
-import { displayWidths, loadSaved, type PaneKind } from "./ui/paneWidth";
+import { displayWidths, loadSaved, paneModes, type PaneKind } from "./ui/paneWidth";
 import { chatName, isRunning, isWorkingForDock, stopOpen } from "./ui/derive";
 import { hms, keyStr, knownValue } from "./ui/format";
 import { pushRecent } from "./ui/skillPick";
@@ -162,19 +162,14 @@ export default function App() {
   const dropRef = useRef<(paths: string[]) => void>(() => undefined);
   const live = mode === "live";
 
-  // 画面幅の区分（D07）。1280px以上は3領域、960〜1279pxは右を一時パネル、960px未満は左右とも一時パネル。中央を優先する。
-  // 境界は styles.css の @media と同じ値。一時パネルの開閉は通知・新しい活動では変えない（利用者の操作だけ）。
+  // 画面幅の区分（D07）。並置か一時パネルかは paneModes（中央480・ドック最小260・左の表示幅から判定）。
+  // 一時パネルの開閉は通知・新しい活動では変えない（利用者の操作だけ）。保存幅は変えない。
   const [winW, setWinW] = useState(() => window.innerWidth);
   useEffect(() => {
     const h = () => setWinW(window.innerWidth);
     window.addEventListener("resize", h);
     return () => window.removeEventListener("resize", h);
   }, []);
-  const leftTemp = winW < 960;
-  const rightTemp = winW < 1280;
-  // 広い幅へ戻ったら、一時パネルの「開いた」状態は持ち越さない（次に狭くなったとき勝手に開かない）。
-  useEffect(() => { if (!leftTemp) setLNarrow(false); }, [leftTemp]);
-  useEffect(() => { if (!rightTemp) setRNarrow(false); }, [rightTemp]);
   const say = useCallback((t: string, ms = 3200) => {
     setToast(t);
     window.clearTimeout(toastTimer.current);
@@ -422,6 +417,10 @@ export default function App() {
     const l = snap.settings.layout;
     setLayoutOv((o) => (o && o.leftWidth === l.leftWidth && o.dockWidth === l.dockWidth ? null : o));
   }, [snap.settings.layout.leftWidth, snap.settings.layout.dockWidth]); // eslint-disable-line react-hooks/exhaustive-deps
+  const { leftTemp, rightTemp } = paneModes({ winW, leftOpen, rightOpen, left: loadSaved("left", savedLayout.leftWidth) });
+  // 広い幅へ戻ったら、一時パネルの「開いた」状態は持ち越さない（次に狭くなったとき勝手に開かない）。
+  useEffect(() => { if (!leftTemp) setLNarrow(false); }, [leftTemp]);
+  useEffect(() => { if (!rightTemp) setRNarrow(false); }, [rightTemp]);
   const paneW = displayWidths({
     winW, left: loadSaved("left", savedLayout.leftWidth), dock: loadSaved("dock", savedLayout.dockWidth),
     leftShown: !leftTemp && leftOpen, dockShown: !rightTemp && rightOpen,
@@ -1494,6 +1493,7 @@ ${cur}` : p.text);
         <SaveBanner failed={failedSaves.filter((s) => !forChat(s))} warnings={warnHidden ? [] : snap.startupWarnings} onDismissWarnings={dismissWarnings} onAct={act} />
         <div
           className={`body ${leftOpen ? "" : "l-off"} ${rightOpen ? "" : "r-off"} ${lNarrow ? "n-l" : ""} ${rNarrow ? "n-r" : ""}`}
+          data-left-temp={leftTemp ? "" : undefined} data-right-temp={rightTemp ? "" : undefined}
           style={{ ...(!leftTemp && leftOpen ? { "--lw": `${paneW.left}px` } : {}), ...(!rightTemp && rightOpen ? { "--rw": `${paneW.dock}px` } : {}) } as CSSProperties}
         >
           <aside className="left" id="pane-left" aria-label="チャット一覧">

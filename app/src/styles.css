@@ -395,27 +395,23 @@ textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;paddin
 .mockctl .panel button{width:100%;justify-content:flex-start;height:28px}
 .mockctl .panel button[aria-current=true]{background:var(--accent-weak);font-weight:700}
 
-/* 画面幅の区分（D07、App.tsx の leftTemp／rightTemp と同じ境界）。
-   >=1280px: 3領域。960〜1279px: 右（ドック）を一時パネル。<960px: 左右とも一時パネル。中央を優先する。 */
+/* 画面幅の区分（D07）。並置か一時パネルかは App.tsx の paneModes が決め、.body の data-left-temp／data-right-temp で切り替える。
+   一時パネル側は幅0（グリッドは常に3列）で、重ねて表示する。中央を優先する。 */
 .panel-scrim{display:none}
 .only-narrow-l,.only-narrow-r{display:none!important}
 .dropdown button.has-why{flex-wrap:wrap;padding-top:4px;padding-bottom:4px}
 .dropdown .why{flex-basis:100%;font-size:var(--fs-xs);color:var(--ink3);text-align:left;white-space:normal}
 .dropdown button:disabled{color:var(--ink3);cursor:default}
-@media (max-width:1279px){
-  .body{grid-template-columns:var(--lw,240px) minmax(0,1fr)!important}
-  .body>.right{position:fixed;top:0;bottom:0;right:0;z-index:25;width:min(300px,86vw);display:none;box-shadow:var(--sh-3)}
-  .body.n-r>.right{display:flex}
-  .body.n-l .panel-scrim,.body.n-r .panel-scrim{display:block;position:fixed;inset:0;z-index:24;background:var(--scrim-light)}
-  .only-narrow-r{display:inline-flex!important}
-}
+.body[data-left-temp]{--lw:0px}
+.body[data-right-temp]{--rw:0px}
+.body[data-left-temp]>.left{position:fixed;top:0;bottom:0;left:0;z-index:25;width:min(300px,86vw);display:none;box-shadow:var(--sh-3)}
+.body[data-right-temp]>.right{position:fixed;top:0;bottom:0;right:0;z-index:25;width:min(300px,86vw);display:none;box-shadow:var(--sh-3)}
+.body[data-left-temp].n-l>.left{display:flex}
+.body[data-right-temp].n-r>.right{display:flex}
+.body[data-left-temp].n-l .panel-scrim,.body[data-right-temp].n-r .panel-scrim{display:block;position:fixed;inset:0;z-index:24;background:var(--scrim-light)}
+.body[data-left-temp] .only-narrow-l,.body[data-right-temp] .only-narrow-r{display:inline-flex!important}
 @media (max-width:959px){
   .window{inset:0;border-radius:0;border:0}
-  .body{grid-template-columns:minmax(0,1fr)!important}
-  .body>.left{position:fixed;top:0;bottom:0;left:0;z-index:25;width:min(300px,86vw);display:none;box-shadow:var(--sh-3)}
-  .center{grid-column:1}
-  .body.n-l>.left{display:flex}
-  .only-narrow-l{display:inline-flex!important}
   .winbtn{width:38px}
   .chead{padding:6px 10px;flex-wrap:wrap;row-gap:2px}
   .chead .cwd{order:9;flex:1 0 calc(100% - 30px)}
