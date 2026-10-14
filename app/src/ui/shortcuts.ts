@@ -17,7 +17,8 @@ export interface Shortcut {
 }
 
 export const SHORTCUTS: Shortcut[] = [
-  { id: "newChat", keys: "Ctrl+N", label: "新しいチャット…", where: "通常画面", act: "newChat" },
+  { id: "quickNew", keys: "Ctrl+N", label: "新しいチャット（すぐ始める）", where: "通常画面", act: "newChatQuick" },
+  { id: "newChat", keys: "Ctrl+Shift+N", label: "新しいチャット（詳細を指定）…", where: "通常画面", act: "newChat" },
   { id: "palette", keys: "Ctrl+K", label: "すべての操作…", where: "通常画面", act: "palette" },
   { id: "find", keys: "Ctrl+F／F3／Shift+F3", kbd: "Ctrl+F", label: "会話内を検索／次／前", where: "通常画面", act: "find" },
   { id: "toggleLeft", keys: "Ctrl+B", label: "チャット一覧の表示切替", where: "通常画面", act: "toggleLeft" },
@@ -54,7 +55,8 @@ const plain = (e: KeyLike, shift: boolean, alt: boolean) => e.ctrlKey && e.shift
 const letter = (e: KeyLike, ch: string) => e.key.toLowerCase() === ch;
 
 const MATCHERS: Record<string, Matcher> = {
-  newChat: (e) => plain(e, false, false) && letter(e, "n"),
+  quickNew: (e) => plain(e, false, false) && letter(e, "n"),
+  newChat: (e) => plain(e, true, false) && letter(e, "n"),
   palette: (e) => plain(e, false, false) && letter(e, "k"),
   find: (e) => plain(e, false, false) && letter(e, "f"),
   findNext: (e) => e.key === "F3" && !e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey,

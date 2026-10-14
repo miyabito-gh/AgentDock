@@ -1117,7 +1117,7 @@ export function EmptyCenter({ onAct }: { onAct: (a: string) => void }) {
         <h2 style={{ fontSize: "calc(var(--fs) + 4px)", margin: "0 0 8px" }}>最初のチャットを始めましょう</h2>
         <p className="muted" style={{ margin: "0 0 12px" }}>作業フォルダを選ばずに、相談や文章作成から始められます。コードを扱うときはフォルダを指定します。</p>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button className="btn-main" onClick={() => onAct("newChat")}><Icon name="chat" />一般チャットを始める</button>
+          <button className="btn-main" onClick={() => onAct("newChatQuick")}><Icon name="chat" />一般チャットをすぐ始める</button>
           <button className="btn-line" onClick={() => onAct("newChat")}><Icon name="folder" />フォルダを指定して始める</button>
         </div>
         <p className="small muted" style={{ marginTop: 14 }}>CLI や VS Code で作った会話は、左の一覧から開けます（外部で実行中なら閲覧のみ）。</p>

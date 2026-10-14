@@ -31,6 +31,8 @@ import { recheckSummary } from "./ui/chatState";
 import { gitKindOf, ownerMarkVisible, type GitKind } from "./ui/revertView";
 import { CommandPalette } from "./ui/CommandPalette";
 import { Dialogs, type DialogState, type NewChatInput } from "./ui/Dialogs";
+import { QuickNewPane } from "./ui/QuickNewPane";
+import { pickQuickModel } from "./ui/quickNew";
 import { addCreating, creatingLabel, removeCreating, resolveCreating, resultOfError, setCreatingPhase, type CreatingChat } from "./ui/creating";
 import type { SaveResult, WorkFoldersApi } from "./ui/WorkFoldersUi";
 import type { FolderTools } from "./ui/WorkFolderSetsUi";
@@ -145,6 +147,9 @@ export default function App() {
   const [creating, setCreating] = useState<CreatingChat<NewChatInput>[]>([]);
   const creatingKeys = useRef(new Set<string>());
   const creatingSeq = useRef(0);
+  /** クイック新規の下書き（まだ会話を作っていない。メモリだけ）。 */
+  const [quick, setQuick] = useState<{ open: boolean; text: string; model: string | null }>({ open: false, text: "", model: null });
+  const quickRef = useRef<HTMLTextAreaElement>(null);
   const [steerUnknown, setSteerUnknown] = useState<Record<string, string>>({});
   const [warnHidden, setWarnHidden] = useState(false);
   const [listStatus, setListStatus] = useState<{ ok: boolean; text: string } | null>(null);
@@ -275,7 +280,7 @@ export default function App() {
       else if (e.kind === "changesUpdated") setChangesTick((n) => n + 1); // 開いている差分表示が取り直す（読取りのみ）
       else if (e.kind === "decisionRecorded") setDecisions((m) => ({ ...m, [e.record.chat.id]: addDecision(m[e.record.chat.id] ?? [], { record: e.record, save: e.save }) })); // 応答の記録（表示だけ。応答の代行・再送はしない）
       else if (e.kind === "goalUpdated") setGoals((m) => ({ ...m, [e.chat.id]: e.goal ? { kind: "value", value: e.goal, basis: "direct" } : { kind: "missing" } })); // 目標の表示を置き換える（エージェント状態には使わない）
-      else if (e.kind === "navigateToChat") { setSelId(e.chat.id); void loadChat(e.chat.id); } // 通知を開いた操作。表示だけで、回答・再実行はしない
+      else if (e.kind === "navigateToChat") { setSelId(e.chat.id); setQuick((q) => (q.open ? { ...q, open: false } : q)); void loadChat(e.chat.id); } // 通知を開いた操作。表示だけで、回答・再実行はしない
       else if (e.kind === "quitPrompt") { quitKindRef.current = e.phase.kind; setQuit(e.phase); setDialog((d) => (d?.type === "force" ? d : { type: "quit" })); } // もう一度「終了」が要求された。確認画面を開き直す
       else if (e.kind === "quitUpdated") {
         // 終了手順の進行（確認・停止照合・保存）。段階が変わったときだけ確認画面を開く（「待つ」で閉じた後に開き直さない）。
@@ -465,6 +470,7 @@ export default function App() {
 
   const selectChat = (id: string | null) => {
     setSelId(id);
+    setQuick((q) => (q.open ? { ...q, open: false } : q)); // 下書きは隠すだけ（文は残る）
     // 履歴のないチャット（記録だけの表示）は、読み込みを試みない。
     if (live && id && !snap.chats.find((c) => c.key.id === id)?.noHistory) void loadChat(id);
   };
@@ -823,6 +829,8 @@ ${cur}` : p.text);
       const r = await host.startChat(cwd, i.model ? { model: i.model, effort: m?.defaultEffort ?? null } : null, i.firstMessage, null, worktree, i.extraFolders, i.confirmedStrong);
       setCreating((l) => removeCreating(l, tempId));
       setSelId(r.chat.key.id);
+      // 作成に成功したときだけ、モデルを次のクイック新規へ引き継ぐ（作業フォルダ・権限は持ち越さない）。
+      if (i.model) void updateSettings((s) => ({ ...s, lastNewChat: { model: { model: i.model, effort: m?.defaultEffort ?? null } } }), "前回のモデルを保存できませんでした");
       // 戻り値は送信中（Sending）。確定が先に届いていれば mergeAttempt が確定を残す。
       if (r.firstSend) noteAttempt(r.chat.key.id, r.firstSend);
     } catch (e) {
@@ -834,6 +842,14 @@ ${cur}` : p.text);
     } finally { creatingKeys.current.delete(key); }
   };
   /** 仮行の操作。「入力し直す」は同じ値でダイアログを開くだけ（送らない）。「一覧を更新」は読み取りのみ。 */
+  /** クイック新規の送信: 一般チャット・worktreeなし・権限は初期値で作成する（最初の依頼とともに）。 */
+  const quickSend = () => {
+    const text = quick.text;
+    if (!text.trim()) return;
+    const model = quick.model ?? pickQuickModel(models, snap.settings.lastNewChat);
+    setQuick({ open: false, text: "", model: null });
+    void createChat({ cwd: null, model, firstMessage: text, isolate: false, worktree: null, extraFolders: [], confirmedStrong: [] });
+  };
   const creatingAct = (id: string, op: "retry" | "dismiss" | "refresh") => {
     const c = creating.find((x) => x.tempId === id);
     if (!c) return;
@@ -1120,7 +1136,7 @@ ${cur}` : p.text);
         key = r.chat.key;
       }
       // 作った後の保存の失敗は例外にしない（押し直しで空のチャットが増えないよう、呼び出し側は作ったチャットを使い回す）。
-      setSelId(key.id);
+      setSelId(key.id); setQuick((q) => (q.open ? { ...q, open: false } : q));
       setDrafts((d) => ({ ...d, [key.id]: text }));
       // 元の依頼の添付を、新しいチャットの送信前の添付へ新しいコピーとして付ける（送らない）。元の台帳のIDだけをホストへ渡し、ホストが台帳からコピーする。
       // 失敗は黙って落とさず知らせる。付け終えた分は返し、押し直しで二重に付けない。
@@ -1393,6 +1409,11 @@ ${cur}` : p.text);
         // 通常画面の閉じる＝トレイへ格納（確認なし。作業・収集・保存は続く）。終了は「AgentDock を終了」。
         if (live) host.closeThisWindow().catch((e) => sayErr("窓を閉じられませんでした", e)); else say("モックではトレイへ格納しません。");
         break;
+      case "newChatQuick":
+        if (!live) { say("この操作はモックでは動きません。"); break; }
+        setQuick((q) => ({ ...q, open: true }));
+        window.requestAnimationFrame(() => quickRef.current?.focus());
+        break;
       case "newChat": setDialog({ type: "newChat" }); break;
       case "newChatWorktree": setDialog({ type: "newChat", dev: true }); break;
       case "newChatSameFolder": void sameFolderNew(chat?.key.id); break;
@@ -1473,6 +1494,7 @@ ${cur}` : p.text);
         setPalette((v) => !v);
         return;
       }
+      if (matchShortcut(e, "quickNew")) { e.preventDefault(); if (!dialog && !palette) { setMenu(null); act("newChatQuick"); } return; }
       if (matchShortcut(e, "newChat")) { e.preventDefault(); if (!dialog && !palette) { setMenu(null); act("newChat"); } return; }
       if (matchShortcut(e, "toggleLeft") || matchShortcut(e, "toggleRight")) {
         e.preventDefault();
@@ -1541,7 +1563,11 @@ ${cur}` : p.text);
               onChatList={(f) => updateSettings((s) => ({ ...s, chatList: f(s.chatList) }), "一覧の表示設定を保存できませんでした。次回の起動では保存されている値に戻ります")} listStatus={listStatus} uiSize={snap.settings.appearance.uiText} />
           </aside>
           <main className="center">
-            {chat ? (
+            {quick.open ? (
+              <QuickNewPane models={models} model={quick.model ?? pickQuickModel(models, snap.settings.lastNewChat)} setModel={(id) => setQuick((q) => ({ ...q, model: id }))}
+                text={quick.text} setText={(v) => setQuick((q) => ({ ...q, text: v }))} enterMode={enterMode} busy={false} inputRef={quickRef}
+                onSend={quickSend} onDetail={() => { setDialog({ type: "newChat", prefill: { model: quick.model ?? pickQuickModel(models, snap.settings.lastNewChat), first: quick.text, isolate: false, worktree: null } }); setQuick({ open: false, text: "", model: null }); }} />
+            ) : chat ? (
               <CenterPane
                 snap={snap} chat={chat} turns={bundle.turns[chat.key.id] ?? []}
                 attachments={draftAttachments} files={files} inputRef={composerRef}

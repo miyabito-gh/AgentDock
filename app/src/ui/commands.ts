@@ -200,7 +200,8 @@ const notPending = (ctx: CommandContext) => (ctx.deletePending ? "削除保留�
 
 /** チャット管理・表示・ツール・ヘルプの台帳。act 名は既存の App の switch に合わせる（新規は find・cwdChange・toggleMonitor・shortcuts・howto・about）。 */
 export const APP_COMMANDS: Command[] = [
-  app("newChat", "newChat", { label: "新しいチャット…", group: "チャット", keywords: ["作成", "新規"] }),
+  app("newChatQuick", "newChatQuick", { label: "新しいチャット（すぐ始める）", group: "チャット", keywords: ["作成", "新規", "クイック"] }),
+  app("newChat", "newChat", { label: "新しいチャット（詳細を指定）…", group: "チャット", keywords: ["作成", "新規", "フォルダ"] }),
   app("renameChat", "renameChat", { label: "名前を変更…", group: "チャット", needsChat: true, why: notPending }),
   app("togglePin", "togglePin", {
     label: "ピン留め", group: "チャット", needsChat: true,

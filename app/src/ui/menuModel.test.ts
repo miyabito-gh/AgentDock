@@ -62,7 +62,8 @@ test("メニュー・Ctrl+K に出る kbd は SHORTCUTS にある表記だけ", 
   }
   // 嘘のショートカット表示は出さない（中断に Esc は付けない）。
   assert.equal(ALL_COMMANDS.find((c) => c.id === "interrupt")?.kbd, undefined);
-  assert.equal(kbdForAct("newChat"), "Ctrl+N");
+  assert.equal(kbdForAct("newChatQuick"), "Ctrl+N");
+  assert.equal(kbdForAct("newChat"), "Ctrl+Shift+N");
   assert.equal(kbdForAct("toggleMonitor"), "Ctrl+Shift+M");
   assert.equal(kbdForAct("find"), "Ctrl+F");
 });
@@ -89,12 +90,12 @@ test("matchShortcut: Ctrl+Shift+M / Ctrl+N / Ctrl+B と Ctrl+Alt+B を取り違�
   const m = key({ key: "M", code: "KeyM", ctrlKey: true, shiftKey: true });
   assert.ok(matchShortcut(m, "toggleMonitor"));
   assert.ok(matchShortcut(m, "monitorClose"));
-  assert.ok(!matchShortcut(m, "newChat") && !matchShortcut(m, "toggleLeft"));
+  assert.ok(!matchShortcut(m, "newChat") && !matchShortcut(m, "quickNew") && !matchShortcut(m, "toggleLeft"));
   assert.ok(!matchShortcut({ ...m, shiftKey: false }, "toggleMonitor"));
   assert.ok(!matchShortcut({ ...m, altKey: true }, "toggleMonitor"));
   const n = key({ key: "n", code: "KeyN", ctrlKey: true });
-  assert.ok(matchShortcut(n, "newChat"));
-  assert.ok(!matchShortcut({ ...n, shiftKey: true }, "newChat"));
+  assert.ok(matchShortcut(n, "quickNew") && !matchShortcut(n, "newChat"));
+  assert.ok(matchShortcut({ ...n, shiftKey: true }, "newChat") && !matchShortcut({ ...n, shiftKey: true }, "quickNew"));
   const b = key({ key: "b", code: "KeyB", ctrlKey: true });
   assert.ok(matchShortcut(b, "toggleLeft") && !matchShortcut(b, "toggleRight"));
   const ab = { ...b, altKey: true };

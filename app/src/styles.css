@@ -893,3 +893,9 @@ button.uchip:hover{background:var(--accent-weak)}
 .row-creating .rc-title{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .row-creating .rc-sub{font-size:var(--fs-s);color:var(--ink3);display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .row-creating .rc-act{display:flex;gap:6px}
+.quick-new{display:flex;align-items:center;justify-content:center}
+.quick-new-in{width:min(640px,100%);display:flex;flex-direction:column;gap:8px}
+.quick-new-in h2{font-size:calc(var(--fs) + 4px);margin:0}
+.quick-new-in p{margin:0}
+.quick-new-in textarea{min-height:140px;resize:vertical}
+.quick-new-ctl{display:flex;gap:8px;align-items:center;justify-content:flex-end;flex-wrap:wrap}

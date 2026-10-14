@@ -4,6 +4,7 @@ import type { CreatingChat } from "./creating";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Chat, ChatListSettings, ChatListView, HostSnapshot, ProjectsOutcome, UiTextSize } from "../ipc/types";
 import { Icon } from "./Icon";
+import { tipWithKey } from "./shortcuts";
 import { Popover } from "./Popover";
 import { TENTATIVE_HINT, TENTATIVE_STYLE, chatAgents, chatName, chatRequests, chatStatusText, chatTitle, isRunning, sortChats } from "./derive";
 import { STATE, keyStr, knownValue } from "./format";
@@ -420,7 +421,8 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct,
     <>
       <div className="left-top">
         <div className="lt-row">
-          <button className="btn-line grow" onClick={() => onAct("newChat")}><Icon name="plus" />新しいチャット</button>
+          <button className="btn-line grow" onClick={() => onAct("newChat")} title={tipWithKey("作業フォルダなどを指定して作成", "newChat")}><Icon name="plus" />新しいチャット</button>
+          <button className="btn icon" aria-label="クイック新規（すぐ入力して始める）" title={tipWithKey("クイック新規（一般チャットですぐ始める）", "quickNew")} onClick={() => onAct("newChatQuick")}><Icon name="chat" /></button>
           <Popover role="menu" align="right" triggerClassName="btn lt-view" label={`一覧の並べ方（現在: ${viewLabel}）`} title={`一覧の並べ方: ${viewLabel}`} trigger={<>並べ方 <span aria-hidden="true">▾</span></>}>
             {(close) => (
               <>

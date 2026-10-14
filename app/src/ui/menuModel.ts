@@ -12,7 +12,7 @@ export const MENUBAR: MenuSpec[] = [
   {
     title: "チャット",
     entries: [
-      h("新規"), id("newChat"), id("worktree"),
+      h("新規"), id("newChatQuick"), id("newChat"), id("worktree"),
       "-", h("選択中のチャット"), id("renameChat"), id("togglePin"), id("archive"), id("exportMd"), id("newChatSameFolder"),
       "-", h("作業フォルダ"), id("openCwd"), id("cwdChange"),
       "-", h("一覧"), id("refreshList"),
