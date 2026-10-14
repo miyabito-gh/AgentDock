@@ -682,6 +682,11 @@ impl Host {
             wait: None,
             evidence: Evidence { source: EvidenceSource::Response, raw_label: Some("thread/start".into()), source_time: None, observed_at: now },
         };
+        // 最初の依頼があるときは、実チャットを一覧へ出す前に「送信が未確定」を登録する（削除・別の送信・turn操作の窓を作らない）。
+        let first_message = args.first_message.clone().filter(|t| !t.trim().is_empty());
+        if first_message.is_some() {
+            self.first_sends.lock().unwrap().insert(key.clone());
+        }
         let chat = self.mutate(|d| {
             d.hosted.insert(key.clone());
             let mut ev = d.upsert_chat(started.chat.clone());
@@ -693,7 +698,7 @@ impl Host {
         // 作成も利用として扱う（発話の有無にかかわらず、作成時刻を最近利用時刻とする）。
         self.touch_chat_used(&key);
         let mut first_send = None;
-        if let Some(text) = args.first_message.filter(|t| !t.trim().is_empty()) {
+        if let Some(text) = first_message {
             let name = derive_chat_name(&text);
             let request = SendRequest {
                 chat: key.clone(),
@@ -714,7 +719,6 @@ impl Host {
             // 確定までは同じチャットへの別の送信を止める（`FirstSendInFlight`）。
             let attempt_id = self.local_id("att");
             let sending = SendAttempt { attempt_id: attempt_id.clone(), client_message_id: request.client_message_id.clone(), at: now_ms(), state: SendState::Sending };
-            self.first_sends.lock().unwrap().insert(key.clone());
             first_send = Some(sending.clone());
             let host = self.clone();
             let task_key = key.clone();
@@ -733,6 +737,14 @@ impl Host {
                             ((), vec![])
                         });
                     }
+                }
+                // 名前付けの間に削除が始まったら送らない（削除済み・削除中のチャットへturnを出さない）。拒否として確定し、再送は利用者の操作に任せる。
+                if let Err(e) = host.check_not_delete_pending(&task_key) {
+                    let mut attempt = sending;
+                    host.rejected.lock().unwrap().insert(attempt.attempt_id.clone(), NotAccepted::new(request));
+                    attempt.state = SendState::Rejected { message: e.message };
+                    host.emit_send(&task_key, &attempt);
+                    return;
                 }
                 host.dispatch_send_as(request, sending).await;
             });
@@ -866,6 +878,11 @@ impl Host {
             return Err(blocked(BlockedReason::FirstSendInFlight, "最初の依頼を送信しています。確定してから送信してください"));
         }
         Ok(())
+    }
+
+    /// 送信の結果が未確定か（受理不明、または作成直後の最初の送信が確定前）。turnを始める操作・作業フォルダを書き換える操作を止める共通の判定。
+    pub(super) fn send_unsettled(&self, chat: &ChatKey) -> bool {
+        self.unknown_attempt(chat).is_some() || self.first_send_in_flight(chat)
     }
 
     fn unknown_attempt(&self, chat: &ChatKey) -> Option<LocalId> {
@@ -1302,6 +1319,22 @@ mod tests {
         assert_eq!(e.blocked, Some(BlockedReason::FirstSendInFlight));
         drop(FirstSendRelease { host: host.clone(), chat: chat.clone() });
         assert!(host.check_first_send_settled(&chat).is_ok());
+    }
+
+    #[tokio::test]
+    async fn first_send_in_flight_counts_as_unsettled_and_as_work() {
+        let host = Arc::new(Host::new(std::env::temp_dir()));
+        let chat = ChatKey { backend: BackendKind::Codex, id: ExternalId("c2".into()) };
+        assert!(!host.send_unsettled(&chat));
+        assert!(!host.chat_work(&chat).first_send_in_flight);
+        host.first_sends.lock().unwrap().insert(chat.clone());
+        assert!(host.send_unsettled(&chat), "turn-starting operations must be blocked");
+        let w = host.chat_work(&chat);
+        assert!(w.first_send_in_flight);
+        assert!(!crate::rules::manage::archive_ready(&w));
+        assert_eq!(crate::rules::manage::delete_decision(&w, None), crate::rules::manage::DeleteDecision::Pend(crate::backend::local::DeletePendingReason::StopUnconfirmed));
+        drop(FirstSendRelease { host: host.clone(), chat: chat.clone() });
+        assert!(!host.send_unsettled(&chat));
     }
 
     #[test]

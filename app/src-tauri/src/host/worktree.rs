@@ -344,7 +344,7 @@ impl Host {
                 .collect()
         });
         for (k, u) in uses.iter_mut() {
-            u.unknown_send = self.unknown_attempt(k).is_some();
+            u.unknown_send = self.send_unsettled(k);
         }
         uses.sort_by(|a, b| a.0.id.0.cmp(&b.0.id.0));
         let busy = uses.iter().any(|(_, u)| u.blocks_removal());

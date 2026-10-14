@@ -1061,7 +1061,7 @@ impl Host {
         if ext {
             return Some(blocked(BlockedReason::ExternalRunning, "外部で作成された会話は閲覧のみです。再開して状態を確認するまで、変更は戻せません"));
         }
-        if this_busy || self.unknown_attempt(chat).is_some() {
+        if this_busy || self.send_unsettled(chat) {
             return Some(blocked(BlockedReason::ChatBusy, "作業中・停止未確認、または送信の受理が未確認のため、変更は戻せません。完了または停止の確認後に実行してください"));
         }
         if others_busy {

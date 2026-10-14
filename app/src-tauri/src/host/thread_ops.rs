@@ -101,7 +101,7 @@ impl Host {
             return Some(blocked(BlockedReason::DeletePending, "このチャットは削除中のため、この操作はできません"));
         }
         let busy = self.read(|d| d.agents.iter().any(|v| &v.agent.chat == chat && d.running_turn.contains_key(&v.agent.key)) || d.open_stop(chat).is_some());
-        if busy || self.unknown_attempt(chat).is_some() {
+        if busy || self.send_unsettled(chat) {
             return Some(blocked(BlockedReason::ChatBusy, "作業中・停止未確認、または送信の受理が未確認のため、この操作はできません。完了または停止の確認後に実行してください"));
         }
         None
@@ -391,7 +391,7 @@ impl Host {
             let unknown = d.root_view(chat).is_none_or(|v| v.status.state == AgentState::Unknown && !d.unknown_confirmed_idle(v));
             (elsewhere, d.open_stop(chat).is_some(), busy, unknown)
         });
-        let busy = agents_busy || self.unknown_attempt(chat).is_some() || self.read(|d| d.locals.get(chat).is_some_and(|l| !l.pending_ops.is_empty()));
+        let busy = agents_busy || self.send_unsettled(chat) || self.read(|d| d.locals.get(chat).is_some_and(|l| !l.pending_ops.is_empty()));
         ResendCtx {
             capability_problem,
             connected: self.is_connected(),

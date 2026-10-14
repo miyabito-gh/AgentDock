@@ -220,7 +220,7 @@ impl Host {
         if kind == ChatKind::General {
             return Err(err(IpcErrorCode::InvalidArgs, "一般チャットの作業フォルダは変更できません"));
         }
-        let busy = busy || self.unknown_attempt(&args.chat).is_some();
+        let busy = busy || self.send_unsettled(&args.chat);
         let queue = self.read(|d| d.queues.get(&args.chat).map(|f| f.queue.clone())).unwrap_or_else(|| q::new_queue(args.chat.clone()));
         match q::check_cwd_change(&queue, busy, args.queue_retarget_confirmed) {
             q::CwdChangeCheck::Busy => {

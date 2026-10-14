@@ -146,9 +146,10 @@ impl Host {
     }
 
     /// 作業状況（受理不明の送信を含む）。
-    fn chat_work(&self, chat: &ChatKey) -> ChatWork {
+    pub(super) fn chat_work(&self, chat: &ChatKey) -> ChatWork {
         let mut w = self.read(|d| work_of(d, chat));
         w.unresolved_send = self.unresolved.lock().unwrap().blocking(chat).is_some();
+        w.first_send_in_flight = self.first_send_in_flight(chat);
         w
     }
 
@@ -416,7 +417,7 @@ impl Host {
         loop {
             self.mutate(|d| ((), d.refresh_stops(now_ms())));
             let w = self.chat_work(chat);
-            if !w.has_unfinished && w.stop_unconfirmed.is_none() && !w.ownership_unknown && !w.unresolved_send && !w.queue_in_flight {
+            if !w.has_unfinished && w.stop_unconfirmed.is_none() && !w.ownership_unknown && !w.unresolved_send && !w.first_send_in_flight && !w.queue_in_flight {
                 return w;
             }
             if Instant::now() >= deadline {

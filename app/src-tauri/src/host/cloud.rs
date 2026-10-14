@@ -232,7 +232,7 @@ impl Host {
         if busy {
             return Some(blocked(BlockedReason::ChatBusy, "取込み先の作業フォルダで作業中（または停止未確認）のチャットがあるため、取り込めません。完了または停止の確認後に実行してください"));
         }
-        if overlapping.iter().any(|k| self.unknown_attempt(k).is_some()) {
+        if overlapping.iter().any(|k| self.send_unsettled(k)) {
             return Some(blocked(BlockedReason::ChatBusy, "取込み先の作業フォルダのチャットに、送信の受理が未確認のものがあるため、取り込めません"));
         }
         None

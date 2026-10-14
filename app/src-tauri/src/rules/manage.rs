@@ -17,11 +17,13 @@ pub struct ChatWork {
     /// キューの送信中（Sending）・受理不明・自動送信したturnの終端待ち。送信待ち（Waiting）だけのときは false。
     pub queue_in_flight: bool,
     pub unresolved_send: bool,
+    /// 作成直後の最初の依頼の送信が未確定（`turn/start` が出るか、出た結果が未確定）。実行が始まるかどうかを確認できない。
+    pub first_send_in_flight: bool,
 }
 
 /// Codexへ `archive` を送ってよいか（M43。作業完了・停止確認・キュー消化の後）。
 pub fn archive_ready(work: &ChatWork) -> bool {
-    !work.has_unfinished && work.stop_unconfirmed.is_none() && !work.ownership_unknown && !work.queue_pending && !work.unresolved_send
+    !work.has_unfinished && work.stop_unconfirmed.is_none() && !work.ownership_unknown && !work.queue_pending && !work.unresolved_send && !work.first_send_in_flight
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -41,7 +43,7 @@ pub fn delete_decision(work: &ChatWork, pending: Option<&DeletePending>) -> Dele
     if work.ownership_unknown || work.unresolved_send {
         return DeleteDecision::Pend(DeletePendingReason::OwnershipUnknown);
     }
-    if work.stop_unconfirmed.is_some() {
+    if work.stop_unconfirmed.is_some() || work.first_send_in_flight {
         return DeleteDecision::Pend(DeletePendingReason::StopUnconfirmed);
     }
     if work.has_unfinished || work.queue_pending {
@@ -57,7 +59,7 @@ pub fn delete_decision(work: &ChatWork, pending: Option<&DeletePending>) -> Dele
 fn unconfirmed_reason(work: &ChatWork) -> Option<DeletePendingReason> {
     if work.ownership_unknown || work.unresolved_send {
         Some(DeletePendingReason::OwnershipUnknown)
-    } else if work.stop_unconfirmed.is_some() || work.has_unfinished || work.queue_in_flight {
+    } else if work.stop_unconfirmed.is_some() || work.has_unfinished || work.queue_in_flight || work.first_send_in_flight {
         Some(DeletePendingReason::StopUnconfirmed)
     } else {
         None
@@ -129,7 +131,7 @@ pub fn agent_unfinished_for_quit(state: AgentState, has_running_turn: bool) -> b
 pub fn busy_for_quit(works: &[ChatWork]) -> Vec<ChatKey> {
     works
         .iter()
-        .filter(|w| w.has_unfinished || w.stop_unconfirmed.is_some() || w.ownership_unknown || w.queue_pending || w.unresolved_send)
+        .filter(|w| w.has_unfinished || w.stop_unconfirmed.is_some() || w.ownership_unknown || w.queue_pending || w.unresolved_send || w.first_send_in_flight)
         .map(|w| w.chat.clone())
         .collect()
 }
@@ -140,7 +142,7 @@ pub fn new_work_for_quit(works: &[ChatWork], handled: &[ChatKey]) -> Vec<ChatKey
     works
         .iter()
         .filter(|w| !handled.contains(&w.chat))
-        .filter(|w| w.has_unfinished || w.stop_unconfirmed.is_some() || w.ownership_unknown || w.queue_in_flight || w.unresolved_send)
+        .filter(|w| w.has_unfinished || w.stop_unconfirmed.is_some() || w.ownership_unknown || w.queue_in_flight || w.unresolved_send || w.first_send_in_flight)
         .map(|w| w.chat.clone())
         .collect()
 }
@@ -222,7 +224,7 @@ mod tests {
         AgentKey { backend: BackendKind::Codex, id: ExternalId(s.into()) }
     }
     fn work(c: &str) -> ChatWork {
-        ChatWork { chat: ck(c), has_unfinished: false, stop_unconfirmed: None, ownership_unknown: false, queue_pending: false, queue_in_flight: false, unresolved_send: false }
+        ChatWork { chat: ck(c), has_unfinished: false, stop_unconfirmed: None, ownership_unknown: false, queue_pending: false, queue_in_flight: false, unresolved_send: false, first_send_in_flight: false }
     }
     fn target(summary: StopSummary, ownership: Ownership) -> StopTarget {
         StopTarget {
@@ -262,6 +264,22 @@ mod tests {
         let mut w = work("a");
         w.unresolved_send = true;
         assert!(!archive_ready(&w));
+        let mut w = work("a");
+        w.first_send_in_flight = true;
+        assert!(!archive_ready(&w));
+    }
+
+    #[test]
+    fn first_send_in_flight_blocks_delete_and_counts_for_quit() {
+        let mut w = work("a");
+        w.first_send_in_flight = true;
+        assert_eq!(delete_decision(&w, None), DeleteDecision::Pend(DeletePendingReason::StopUnconfirmed));
+        assert_eq!(busy_for_quit(&[w.clone()]), vec![ck("a")]);
+        assert_eq!(new_work_for_quit(&[w.clone()], &[]), vec![ck("a")]);
+        // 確定したら（解除されたら）止めない。
+        w.first_send_in_flight = false;
+        assert_eq!(delete_decision(&w, None), DeleteDecision::Proceed);
+        assert!(busy_for_quit(&[w]).is_empty());
     }
 
     #[test]

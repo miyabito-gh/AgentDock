@@ -89,6 +89,7 @@ pub(super) fn work_of(d: &HostData, chat: &ChatKey) -> ChatWork {
             q.queue.awaiting.is_some() || q.queue.entries.iter().any(|e| matches!(e.state, QueueEntryState::Sending { .. } | QueueEntryState::AcceptanceUnknown { .. }))
         }),
         unresolved_send: false,
+        first_send_in_flight: false,
     }
 }
 
@@ -260,6 +261,7 @@ impl Host {
         let unresolved = self.unresolved.lock().unwrap();
         for w in &mut works {
             w.unresolved_send = unresolved.blocking(&w.chat).is_some();
+            w.first_send_in_flight = self.first_send_in_flight(&w.chat);
         }
         works
     }

@@ -822,7 +822,7 @@ impl Host {
         let _q = queue.lock().await;
         let busy = self.read(|d| !chat_quiescent(d, &chat) || d.open_stop(&chat).is_some() || d.locals.get(&chat).is_some_and(|l| !l.pending_ops.is_empty()))
             || self.baseline_rt.running_segs(&chat).len() > 0
-            || self.unknown_attempt(&chat).is_some();
+            || self.send_unsettled(&chat);
         if busy {
             return Err(blocked(BlockedReason::ChatBusy, "作業中、または送信の受理が未確認のため、控えは削除できません。完了または停止の確認後に実行してください"));
         }
