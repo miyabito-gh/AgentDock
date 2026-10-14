@@ -35,7 +35,7 @@ import { CommandPalette } from "./ui/CommandPalette";
 import { Dialogs, type DialogState, type NewChatInput } from "./ui/Dialogs";
 import { QuickNewPane } from "./ui/QuickNewPane";
 import { pickQuickModel } from "./ui/quickNew";
-import { addCreating, creatingLabel, removeCreating, resolveCreating, resultOfError, setCreatingPhase, type CreatingChat } from "./ui/creating";
+import { addCreating, creatingLabel, foundSince, removeCreating, resolveCreating, resultOfError, setCheckedNote, setCreatingPhase, type CreatingChat } from "./ui/creating";
 import type { SaveResult, WorkFoldersApi } from "./ui/WorkFoldersUi";
 import type { FolderTools } from "./ui/WorkFolderSetsUi";
 import { SAME_FOLDER_UNCONFIRMED_NOTE, sameFolderInit } from "./ui/workFolderSets";
@@ -151,6 +151,8 @@ export default function App() {
   const [creating, setCreating] = useState<CreatingChat<NewChatInput>[]>([]);
   const creatingKeys = useRef(new Set<string>());
   const creatingSeq = useRef(0);
+  const lastListItems = useRef<Chat[]>([]);
+  const attemptsRef = useRef<Record<string, SendAttempt>>({});
   /** クイック新規の下書き（まだ会話を作っていない。メモリだけ）。 */
   const [quick, setQuick] = useState<{ open: boolean; text: string; model: string | null }>({ open: false, text: "", model: null });
   const quickRef = useRef<HTMLTextAreaElement>(null);
@@ -207,6 +209,9 @@ export default function App() {
   }, [sayErr]);
 
   const noteAttempt = useCallback((chatId: string, a: SendAttempt) => {
+    attemptsRef.current = { ...attemptsRef.current, [chatId]: mergeAttempt(attemptsRef.current[chatId], a) };
+    // 最初の依頼の行は、受理後に一定時間で外す（本文に現れれば先に外れる）。
+    if (a.state.kind === "accepted") window.setTimeout(() => setPendingSends((m) => (m[chatId]?.some((x) => x.attemptId === a.attemptId) ? { ...m, [chatId]: m[chatId].filter((x) => x.attemptId !== a.attemptId) } : m)), ACCEPTED_HOLD_MS);
     setAttempts((m) => ({ ...m, [chatId]: mergeAttempt(m[chatId], a) }));
     // 受理不明だった依頼の行は、照合で確定したときにここで更新する（同じ試行の結果だけ）。
     setPendingSends((m) => {
@@ -805,7 +810,7 @@ ${cur}` : p.text);
     if (creatingKeys.current.has(key)) return; // 二重押し（同じ入力）では作らない
     creatingKeys.current.add(key);
     const tempId = `creating-${++creatingSeq.current}`;
-    setCreating((l) => addCreating(l, { tempId, label: creatingLabel(i.firstMessage, i.cwd), startedAt: Date.now(), phase: i.isolate && i.cwd ? "worktree" : "starting", input: i, result: null }));
+    setCreating((l) => addCreating(l, { tempId, label: creatingLabel(i.firstMessage, i.cwd), startedAt: Date.now(), phase: i.isolate && i.cwd ? "worktree" : "starting", input: i, result: null, body: i.firstMessage }));
     // 検査は済んでいる。以後は一覧の仮行で示す（閉じても作成は続く。取り消せる操作には見せない）。
     setDialog(null);
     const m = models.find((x) => x.id === i.model);
@@ -837,7 +842,16 @@ ${cur}` : p.text);
       // 作成に成功したときだけ、モデルを次のクイック新規へ引き継ぐ（作業フォルダ・権限は持ち越さない）。
       if (i.model) void updateSettings((s) => ({ ...s, lastNewChat: { model: { model: i.model, effort: m?.defaultEffort ?? null } } }), "前回のモデルを保存できませんでした");
       // 戻り値は送信中（Sending）。確定が先に届いていれば mergeAttempt が確定を残す。
-      if (r.firstSend) noteAttempt(r.chat.key.id, r.firstSend);
+      if (r.firstSend) {
+        const chatId = r.chat.key.id;
+        noteAttempt(chatId, r.firstSend);
+        // 最初の依頼を「送信中」の行として出す。確定が先に届いていればその結果で出す。確定までは入力欄を無効にする。
+        const cur = attemptsRef.current[chatId] ?? r.firstSend;
+        if (i.firstMessage) {
+          const row: PendingSend = { id: `ps${++pendingSeq.current}`, text: i.firstMessage, startedAt: Date.now(), steer: false, phase: null, outcome: outcomeOfAttempt(cur), attemptId: cur.attemptId, first: true };
+          setPendingSends((m) => ({ ...m, [chatId]: [...(m[chatId] ?? []), row] }));
+        }
+      }
     } catch (e) {
       const er = host.asIpcError(e);
       const res = resultOfError(er.code, er.message);
@@ -858,7 +872,16 @@ ${cur}` : p.text);
   const creatingAct = (id: string, op: "retry" | "dismiss" | "refresh") => {
     const c = creating.find((x) => x.tempId === id);
     if (!c) return;
-    if (op === "refresh") { void refreshList().then((ok) => { if (ok) setCreating((l) => removeCreating(l, id)); }); return; }
+    if (op === "refresh") {
+      void refreshList().then((ok) => {
+        if (!ok) return;
+        // 見つかったか（作成開始以降のチャット）を示す。見つからなくても「作られていない」とは断定しない。
+        const n = foundSince(lastListItems.current, c.startedAt, c.input.cwd);
+        if (n > 0) { setCreating((l) => removeCreating(l, id)); say(`一覧に作成されたチャットが見つかりました（${n}件）。`); }
+        else setCreating((l) => setCheckedNote(l, id, "一覧に見つかりませんでした。作られていないとは断定できません（反映が遅れている場合があります）。必要なら入力し直してください（自動では送りません）。"));
+      });
+      return;
+    }
     setCreating((l) => removeCreating(l, id));
     if (op === "retry") {
       const i = c.input;
@@ -1316,6 +1339,7 @@ ${cur}` : p.text);
     const at = hms(Date.now());
     try {
       const page = await host.listChats();
+      lastListItems.current = page.items.map((s) => s.chat);
       setListCursor(page.nextCursor);
       if (!skipProjects) void refreshProjects();
       const text = `一覧を更新しました（Codex から${page.items.length}件${page.nextCursor ? "、続きあり" : ""}）`;
@@ -1532,6 +1556,7 @@ ${cur}` : p.text);
       if (lock) return lock;
       const atts = live ? (snap.chatLocals.find((l) => l.chat.id === c.key.id)?.draft.attachments.length ?? 0) : snap.attachments.filter((a) => a.chat.id === c.key.id).length;
       if (atts > 0) return "添付は中央で送ってください";
+      if ((pendingSends[c.key.id] ?? []).some((x) => x.first && x.outcome === null)) return "最初の依頼を送信しています";
       if (hasInFlight(pendingSends[c.key.id] ?? [])) return "送信の応答を待っています";
       return null;
     },

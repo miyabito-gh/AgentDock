@@ -1,7 +1,7 @@
 // 実行: node --test src/ui/dockTasks.test.ts （tscの対象外）
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { cardDensity, chatSignature, mayRedirect, orderByRecency, pickRecentDescendants, selectTasks, stableOrder, trackRecency } from "./dockTasks.ts";
+import { cardDensity, chatSignature, mayRedirect, orderByRecency, pickRecentDescendants, selectTasks, stableOrder, stableMembership, trackRecency } from "./dockTasks.ts";
 
 const chat = (id: string, o: any = {}): any => ({ key: { backend: "codex", id }, lastUsedAt: null, createdAt: { kind: "notFetched" }, archived: { kind: "value", value: false }, ...o });
 const agent = (cid: string, id: string, state: string, o: any = {}): any => ({
@@ -107,4 +107,17 @@ test("mayRedirect: 入力欄にフォーカスし、変換中か文字ありな�
 test("stableOrder: 凍結中は前回の並びを保ち、消えたものを除き新規は末尾", () => {
   assert.deepEqual(stableOrder(["a", "b", "c"], ["c", "x", "a"], false), ["c", "x", "a"]);
   assert.deepEqual(stableOrder(["a", "b", "c"], ["c", "x", "a"], true), ["a", "c", "x"]);
+});
+
+test("stableMembership: 入力中は帯・タスクの所属を保つ（帯へ移さない・5件から押し出さない）", () => {
+  const ex = new Set(["a", "b", "c", "d", "e", "f", "g"]);
+  // 入力中のカード b に対応待ちが来ても、タスク列に残す
+  assert.deepEqual(stableMembership([], ["a", "b", "c"], ["b"], ["a", "c"], true, ex), { band: [], task: ["a", "b", "c"] });
+  // 上位5件が入れ替わっても、前回のカードは残り、新規は上限まで
+  assert.deepEqual(stableMembership([], ["a", "b", "c", "d", "e"], [], ["f", "a", "b", "c", "d"], true, ex), { band: [], task: ["a", "b", "c", "d", "e"] });
+  assert.deepEqual(stableMembership([], ["a", "b"], [], ["f", "g", "a", "b"], true, ex, 4), { band: [], task: ["a", "b", "f", "g"] });
+  // 新しい対応待ち（タスクに無い）は帯へ。無くなったチャットは外す
+  assert.deepEqual(stableMembership(["x"], ["a"], ["g"], ["a"], true, new Set(["a", "g"])), { band: ["g"], task: ["a"] });
+  // 凍結しなければ next
+  assert.deepEqual(stableMembership([], ["a", "b"], ["b"], ["a"], false, ex), { band: ["b"], task: ["a"] });
 });

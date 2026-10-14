@@ -25,7 +25,7 @@ import { resendCtxOf, resendTargetOf } from "./ResendDialog";
 import { SkillSuggest, type SkillPickApi } from "./SkillPicker";
 import { filterSkills, isDisabled, originLabel, queryTerms, removeTrigger, skillTrigger } from "./skillPick";
 import { PendingSendRow } from "./PendingSendRow";
-import { appearsInTurns, type PendingSend } from "./pendingSend";
+import { appearsInTurns, firstSendLockReason, type PendingSend } from "./pendingSend";
 import { PURPOSE_TAG, resendAvailability, type ResendCtx } from "./resend";
 
 const SCOPE_TEXT = { once: "1回だけ", session: "このセッション中", persistent: "以後ずっと（永続）", unknown: "効力範囲は不明" } as const;
@@ -1096,7 +1096,7 @@ export function CenterPane(p: CenterProps) {
     const v = chatAgents(snap, chat).find((x) => keyStr(x.agent.key) === keyStr(a));
     return v ? showKnown(v.agent.displayName) : a.id;
   };
-  const lock = sendLockReason(snap, chat, p.local);
+  const lock = sendLockReason(snap, chat, p.local) ?? firstSendLockReason(p.pending);
   return (
     <>
       <Header snap={snap} chat={chat} onAct={p.onAct} commands={p.commands} local={p.local} onCwdToggle={() => setCwdOpenFor((id) => (id === chat.key.id ? null : chat.key.id))} wasLive={p.wasLive} externalLabel={p.externalLabel} cwdInfo={p.cwdInfo} leftShown={p.leftShown} rightShown={p.rightShown} />

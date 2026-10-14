@@ -122,6 +122,26 @@ export function mayRedirect(s: { focusInInput: boolean; composing: boolean; hasT
 }
 
 /**
+ * 帯とタスク列の所属の凍結。frozen（入力中）の間は、前回その容器にあった（今も有る）チャットを同じ容器に保つ。
+ * 入力中のカードが帯・タスク列・「ほか」へ移ると React がカードを作り直し、フォーカスと IME 変換が失われるため。
+ * 新しい対応待ちは、すでにタスク列にあるチャットなら移さない（印だけ。呼び出し側）。タスク列の新規は上限までだけ足す（残りは「ほか」）。
+ * frozen でなければ next をそのまま返す。
+ */
+export function stableMembership(
+  prevBand: string[], prevTask: string[], nextBand: string[], nextTask: string[],
+  frozen: boolean, exists: ReadonlySet<string>, limit: number = TASK_LIMIT,
+): { band: string[]; task: string[] } {
+  if (!frozen) return { band: nextBand, task: nextTask };
+  const band = prevBand.filter((id) => exists.has(id));
+  const bandSet = new Set(band);
+  const task = prevTask.filter((id) => exists.has(id) && !bandSet.has(id));
+  const known = new Set([...band, ...task]);
+  for (const id of nextBand) if (!known.has(id)) { band.push(id); known.add(id); }
+  for (const id of nextTask) if (!known.has(id) && task.length < limit) { task.push(id); known.add(id); }
+  return { band, task };
+}
+
+/**
  * 並びの凍結。frozen の間は前回の並び（今も有る ID）を保ち、新しい ID は末尾に足す。frozen でなければ next。
  */
 export function stableOrder(prev: string[], next: string[], frozen: boolean): string[] {

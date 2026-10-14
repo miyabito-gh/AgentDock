@@ -19,7 +19,29 @@ export interface CreatingChat<I = unknown> {
   /** 入力し直すための元の値（失敗のときだけ使う）。 */
   input: I;
   result: CreatingResult | null;
+  /** 最初の依頼の本文（不明のときにコピーで取り戻す用。送らない）。 */
+  body?: string | null;
+  /** 「一覧を更新」で確認した結果（見つからなかったときだけ残す。作られていないとは断定しない）。 */
+  checkedNote?: string;
 }
+
+/** 一覧を更新して、作成開始以降に作られたチャットがあるか。cwd 指定があれば同じフォルダのものだけ。時刻が取れないチャットは数えない。 */
+export function foundSince(
+  items: Array<{ createdAt: { kind: string; value?: number }; cwd: { kind: string; value?: string } }>,
+  startedAt: number,
+  cwd: string | null,
+): number {
+  const norm = (s: string) => s.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+  const want = cwd ? norm(cwd) : null;
+  return items.filter((c) => {
+    if (c.createdAt.kind !== "value" || typeof c.createdAt.value !== "number" || c.createdAt.value < startedAt - 5000) return false;
+    if (want === null) return true;
+    return c.cwd.kind === "value" && typeof c.cwd.value === "string" && norm(c.cwd.value) === want;
+  }).length;
+}
+
+export const setCheckedNote = <I,>(list: CreatingChat<I>[], id: string, note: string): CreatingChat<I>[] =>
+  list.some((c) => c.tempId === id) ? list.map((c) => (c.tempId === id ? { ...c, checkedNote: note } : c)) : list;
 
 export function phaseText(phase: CreatingPhase): string {
   return phase === "worktree" ? "worktreeを作成しています" : "チャットを作成しています";

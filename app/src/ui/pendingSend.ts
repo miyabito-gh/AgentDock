@@ -28,6 +28,14 @@ export interface PendingSend {
   outcome: PendingOutcome | null;
   /** 「もう一度送る」で再送できる間は true（画面側が付ける）。再送と「入力欄へ戻す」を両立させない（二重送信を避ける）。 */
   retryable?: boolean;
+  /** 最初の依頼（チャット作成と同時の送信）の行。結果は attemptId の sendUpdated で確定する。 */
+  attemptId?: string;
+  first?: boolean;
+}
+
+/** 最初の依頼の送信が確定していない間は、入力欄を無効にする理由。 */
+export function firstSendLockReason(list: PendingSend[] | undefined): string | null {
+  return list?.some((p) => p.first && p.outcome === null) ? "最初の依頼を送信しています。結果が分かるまでお待ちください" : null;
 }
 
 export type PendingView =
@@ -75,9 +83,12 @@ export function outcomeOfAttempt(a: SendAttempt): PendingOutcome | null {
 /** 受理不明だった行へ、後の照合の結果（sendUpdated）を反映する。同じ試行の確定だけを受ける。 */
 export function reconcilePending(list: PendingSend[], a: SendAttempt): PendingSend[] {
   const next = outcomeOfAttempt(a);
-  if (!next || next.kind === "unknown") return list;
+  if (!next) return list;
   let changed = false;
   const out = list.map((p) => {
+    // 最初の依頼の行（応答待ち）は、同じ試行の確定をそのまま受ける（不明も含む）。
+    if (p.first && p.outcome === null && p.attemptId === a.attemptId) { changed = true; return { ...p, outcome: next }; }
+    if (next.kind === "unknown") return p;
     if (p.outcome?.kind === "unknown" && p.outcome.attemptId === a.attemptId) { changed = true; return { ...p, outcome: next }; }
     return p;
   });

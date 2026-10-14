@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AgentKey, AgentView, Chat, ChatKey, HistoryOutcome, HostSnapshot, MonitorScope, PendingRequest, RequestAnswer } from "../ipc/types";
 import { RequestCard, chatChipClass } from "./CenterPane";
-import { cardDensity, chatSignature, mayRedirect, orderByRecency, pickRecentDescendants, selectTasks, stableOrder, trackRecency, type Recency } from "./dockTasks";
+import { cardDensity, chatSignature, mayRedirect, orderByRecency, pickRecentDescendants, selectTasks, stableMembership, stableOrder, trackRecency, type Recency } from "./dockTasks";
 import { Icon } from "./Icon";
 import { Popover } from "./Popover";
 import type { Known } from "../ipc/types";
@@ -428,13 +428,13 @@ export function DockPane({ snap, scope, selId, mini, confirmed, onScope, onOpen,
     () => (isTask ? selectTasks(snap, rec, closed, (c) => isWorkingForDock(snap, c)) : { attention: [], tasks: [], overflow: [] }),
     [isTask, snap, rec, closed],
   );
-  const bandIds = stableOrder(bandOrder.current, sel.attention.map(cid), typing);
-  const taskIds = stableOrder(taskOrder.current, sel.tasks.map(cid), typing);
+  // 入力中は、並びだけでなく所属（帯・タスク列）も保つ（カードを作り直さない＝フォーカス・変換を保つ）。
+  const { band: bandIds, task: taskIds } = stableMembership(bandOrder.current, taskOrder.current, sel.attention.map(cid), sel.tasks.map(cid), typing, new Set(allById.keys()));
   useEffect(() => { bandOrder.current = bandIds; taskOrder.current = taskIds; allOrder.current = allIds; });
   const inTask = new Set([...bandIds, ...taskIds]);
   const bandChats = bandIds.flatMap((id) => allById.get(id) ?? []);
   const taskChats = taskIds.flatMap((id) => allById.get(id) ?? []);
-  const overflow = sel.overflow.filter((c) => !inTask.has(cid(c)));
+  const overflow = [...sel.tasks, ...sel.overflow].filter((c) => !inTask.has(cid(c)));
   // 入力中に新しい対応待ちが来たら、位置は動かさず印だけ付ける
   const seenBand = useRef<Set<string>>(new Set());
   useEffect(() => {

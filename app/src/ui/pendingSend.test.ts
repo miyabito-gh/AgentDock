@@ -1,7 +1,7 @@
 // 実行: node --test src/ui/pendingSend.test.ts （tscの対象外）
 import test from "node:test";
 import assert from "node:assert/strict";
-import { rebindPending, pendingView, stageLabel, outcomeOfAttempt, reconcilePending, setPhase, hasInFlight, appearsInTurns, SLOW_AFTER_MS, type PendingSend } from "./pendingSend.ts";
+import { rebindPending, pendingView, stageLabel, outcomeOfAttempt, reconcilePending, setPhase, hasInFlight, appearsInTurns, firstSendLockReason, SLOW_AFTER_MS, type PendingSend } from "./pendingSend.ts";
 
 const base = (o: Partial<PendingSend> = {}): PendingSend => ({ id: "p1", text: "こんにちは", startedAt: 1000, steer: false, phase: null, outcome: null, ...o });
 const att = (state: unknown, id = "att1") => ({ attemptId: id, clientMessageId: "cm", at: 1, state }) as never;
@@ -91,4 +91,16 @@ test("mergeAttempt: 確定が先に届いても、同じ試行のSendingで戻�
   assert.equal(mergeAttempt(done, other), other);
   assert.equal(mergeAttempt(sending, done), done);
   assert.equal(mergeAttempt(undefined, sending), sending);
+});
+
+test("最初の依頼の行: 応答待ちの間は入力を無効にし、同じ試行の確定（不明も）を受ける", () => {
+  const list = [base({ first: true, attemptId: "att1" })];
+  assert.ok(firstSendLockReason(list));
+  assert.equal(firstSendLockReason([base()]), null);
+  const unk = reconcilePending(list, att({ kind: "acceptanceUnknown", since: 1 }));
+  assert.equal(unk[0].outcome?.kind, "unknown");
+  assert.equal(firstSendLockReason(unk), null);
+  assert.equal(reconcilePending(list, att({ kind: "rejected", message: "m" }, "other")), list);
+  const ok = reconcilePending(list, att({ kind: "accepted", turn: { agent: { backend: "codex", id: "t" }, turnId: "u1" } }));
+  assert.equal(ok[0].outcome?.kind, "accepted");
 });
