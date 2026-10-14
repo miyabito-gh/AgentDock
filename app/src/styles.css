@@ -888,3 +888,8 @@ button.uchip:hover{background:var(--accent-weak)}
 .composer{position:relative}
 .pop.skpop{top:auto;bottom:calc(100% - 4px);left:16px;right:16px;max-width:none;max-height:40vh;overflow:auto;padding:0}
 @media (max-width:760px){.skpick{flex-direction:column}.skprev,.sklist{flex:none;width:100%;max-height:36vh}}
+/* 作成中の仮行（左一覧の先頭） */
+.row-creating{margin:2px 0 6px;padding:6px 8px;border:1px dashed var(--line-strong);border-radius:var(--r2);display:flex;flex-direction:column;gap:3px}
+.row-creating .rc-title{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row-creating .rc-sub{font-size:var(--fs-s);color:var(--ink3);display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.row-creating .rc-act{display:flex;gap:6px}

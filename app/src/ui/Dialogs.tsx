@@ -27,7 +27,7 @@ import { addBlockReason, applyCheck, confirmedStrongPaths, MAX_FOLDERS, projectD
 
 export type DialogState =
   | { type: "settings"; tab: string }
-  | { type: "newChat"; dev?: boolean; cwd?: string; cwdChoices?: string[]; /** 「同じ作業フォルダで新規」: 先頭＝プライマリ。開いたとき検査して並べる。 */ initialFolders?: string[]; folderNote?: string }
+  | { type: "newChat"; dev?: boolean; cwd?: string; cwdChoices?: string[]; /** 「同じ作業フォルダで新規」: 先頭＝プライマリ。開いたとき検査して並べる。 */ initialFolders?: string[]; folderNote?: string; /** 作成に失敗したときの「入力し直す」: 同じ値を入れて開くだけ（送らない）。 */ prefill?: { model: string; first: string; isolate: boolean; worktree: string | null } }
   | { type: "worktrees" }
   | { type: "cloud"; chatId: string | null }
   | { type: "quit" }
@@ -397,17 +397,18 @@ export function Dialogs({ folderTools, workspaceRoots, d, onClose, chats, source
   autostart: AutostartProps; appearance: AppearanceProps; quit: QuitProps; force: ForceProps; manage: ManageProps;
   notify: NotifyProps;
   d: DialogState; onClose: () => void; chats: Chat[]; source: SourceInfo | undefined; models: ModelInfo[];
-  exe: CodexExe; onCreateChat: (i: NewChatInput) => void;
+  exe: CodexExe; onCreateChat: (i: NewChatInput) => Promise<void>;
   enterMode: "ctrl" | "enter"; setEnterMode: (m: "ctrl" | "enter") => void;
   top: { main: boolean; mini: boolean; setMain: (b: boolean) => void; setMini: (b: boolean) => void };
   setTab: (t: string) => void; onAct: (a: string) => void;
 }) {
   const [kind, setKind] = useState(d.type === "newChat" && (d.dev || d.cwd) ? "dev" : "general");
   const [cwd, setCwd] = useState(d.type === "newChat" ? d.cwd ?? "" : "");
-  const [isolate, setIsolate] = useState(false);
-  const [wt, setWt] = useState<string | null>(null);
-  const [model, setModel] = useState(models.find((m) => m.isDefault)?.id ?? models[0]?.id ?? "");
-  const [first, setFirst] = useState("");
+  const pre = d.type === "newChat" ? d.prefill : undefined;
+  const [isolate, setIsolate] = useState(pre?.isolate ?? false);
+  const [wt, setWt] = useState<string | null>(pre?.worktree ?? null);
+  const [model, setModel] = useState(pre && models.some((m) => m.id === pre.model) ? pre.model : models.find((m) => m.isDefault)?.id ?? models[0]?.id ?? "");
+  const [first, setFirst] = useState(pre?.first ?? "");
   // 追加の作業フォルダ（新しいチャット）。プロジェクトから作るときは、プロジェクトの全フォルダを既定で並べる（外せる。上限8件）。
   const [extras, setExtras] = useState<FolderItem[]>([]);
   const [ncNote, setNcNote] = useState<string | null>(null);
@@ -472,29 +473,32 @@ export function Dialogs({ folderTools, workspaceRoots, d, onClose, chats, source
     } catch (e) { setNcErr(e instanceof Error ? e.message : "検査できませんでした"); }
   };
   const createNewChat = async () => {
+    if (creating) return; // 二重押し
     const dev = kind === "dev";
     const primary = cwd.trim();
     let strong = confirmedStrongPaths(extras);
     setNcErr(null);
+    setCreating(true);
     if (dev) {
       const why = saveBlockReason([{ path: primary, strong: [], confirmed: false }, ...extras], workspaceRoots);
-      if (why) { setNcErr(why); return; }
-      setCreating(true);
+      if (why) { setNcErr(why); setCreating(false); return; }
       try {
         // プライマリも（追加フォルダなしでも）、並べた状態で検査する（強い確認・重複）。ホストも同じ検査をやり直す。
         const c = await host.checkWorkFolder(primary, extras.map((e) => e.path));
-        if (c.kind === "rejected") { setNcErr(`プライマリ: ${REJECT_TEXT[c.reason]}`); return; }
+        if (c.kind === "rejected") { setNcErr(`プライマリ: ${REJECT_TEXT[c.reason]}`); setCreating(false); return; }
         if (c.kind === "needsStrongConfirm") {
           if (!primaryStrong || primaryStrong.path !== c.normalized || !primaryStrong.confirmed) {
             setPrimaryStrong({ path: c.normalized, reasons: c.reasons, confirmed: false });
             setNcErr("プライマリのフォルダの確認が必要です。内容を確認してチェックを入れてください。");
+            setCreating(false);
             return;
           }
           strong = [...strong, c.normalized];
         }
-      } catch (e) { setNcErr(e instanceof Error ? e.message : "検査できませんでした"); return; } finally { setCreating(false); }
+      } catch (e) { setNcErr(e instanceof Error ? e.message : "検査できませんでした"); setCreating(false); return; }
     }
-    onCreateChat({ cwd: dev ? primary : null, model, firstMessage: first.trim() || null, isolate: dev && isolate, worktree: dev && !isolate ? wt : null, extraFolders: dev ? extras.map((e) => e.path) : [], confirmedStrong: dev ? strong : [] });
+    // 以後は呼び出し側が仮行で示す。作成が終わるまでボタンは押せないまま（完了で閉じる）。
+    try { await onCreateChat({ cwd: dev ? primary : null, model, firstMessage: first.trim() || null, isolate: dev && isolate, worktree: dev && !isolate ? wt : null, extraFolders: dev ? extras.map((e) => e.path) : [], confirmedStrong: dev ? strong : [] }); } finally { setCreating(false); }
   };
   const [resendRunning, setResendRunning] = useState(false);
   void chats;
@@ -505,7 +509,7 @@ export function Dialogs({ folderTools, workspaceRoots, d, onClose, chats, source
         <div className="content"><SettingsBody tab={d.tab} enterMode={enterMode} setEnterMode={setEnterMode} top={top} source={source} models={models} exe={exe} notify={notify} autostart={autostart} appearance={appearance} manage={manage} chats={chats} compose={compose} opCaps={opCaps} /></div>
       </Shell>);
     case "newChat": return (
-      <Shell title="新しいチャット" onClose={onClose} foot={<><button className="btn" onClick={onClose}>キャンセル</button><button className="btn primary" disabled={(kind === "dev" && !cwd.trim()) || creating} onClick={() => void createNewChat()}>{kind === "dev" && isolate ? "worktreeを作って開始" : "作成"}</button></>}>
+      <Shell title="新しいチャット" onClose={onClose} foot={<><button className="btn" onClick={onClose}>キャンセル</button><button className="btn primary" disabled={(kind === "dev" && !cwd.trim()) || creating} onClick={() => void createNewChat()}>{creating ? <><span className="spinner" aria-hidden="true" /> 作成中…</> : kind === "dev" && isolate ? "worktreeを作って開始" : "作成"}</button></>}>
         <div className="content">
           <div className="field"><span>AI</span><div><label><input type="radio" defaultChecked />Codex</label><div className="small muted">他の AI は今後追加できるようにする予定です。</div></div></div>
           <div className="field"><span>作業フォルダ</span><div><label><input type="radio" name="k" checked={kind === "general"} onChange={() => setKind("general")} />指定しない（一般チャット）</label><br /><label><input type="radio" name="k" checked={kind === "dev"} onChange={() => setKind("dev")} />フォルダを指定する</label>

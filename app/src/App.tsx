@@ -10,7 +10,7 @@ import { usePathStats } from "./ui/usePathStats";
 import { PROJECTS_ENABLED } from "./ui/features";
 import { MAX_FETCH_PAGES, countFetched, fetchAllPages, loadMoreMessage, projectFetchMessage } from "./ui/listFetch";
 import { addDecision, mergeDecisions, type DecisionItem } from "./ui/decisions";
-import { ACCEPTED_HOLD_MS, hasInFlight, outcomeOfAttempt, rebindPending, reconcilePending, setPhase, type PendingOutcome, type PendingSend } from "./ui/pendingSend";
+import { ACCEPTED_HOLD_MS, hasInFlight, mergeAttempt, outcomeOfAttempt, rebindPending, reconcilePending, setPhase, type PendingOutcome, type PendingSend } from "./ui/pendingSend";
 import { applyHostEvent, createEventPipeline, emptyBundle, replaceSnapshot, seqAction, UNKNOWN_CAPS } from "./ipc/live";
 import type { Bundle } from "./mock/data";
 
@@ -31,6 +31,7 @@ import { recheckSummary } from "./ui/chatState";
 import { gitKindOf, ownerMarkVisible, type GitKind } from "./ui/revertView";
 import { CommandPalette } from "./ui/CommandPalette";
 import { Dialogs, type DialogState, type NewChatInput } from "./ui/Dialogs";
+import { addCreating, creatingLabel, removeCreating, resolveCreating, resultOfError, setCreatingPhase, type CreatingChat } from "./ui/creating";
 import type { SaveResult, WorkFoldersApi } from "./ui/WorkFoldersUi";
 import type { FolderTools } from "./ui/WorkFolderSetsUi";
 import { SAME_FOLDER_UNCONFIRMED_NOTE, sameFolderInit } from "./ui/workFolderSets";
@@ -140,6 +141,10 @@ export default function App() {
   /** 送信ボタンを押した直後からの依頼（チャット別。画面内の一時表示。受理されたものは本文に現れるまでの間だけ置く）。 */
   const [pendingSends, setPendingSends] = useState<Record<string, PendingSend[]>>({});
   const pendingSeq = useRef(0);
+  /** 新しいチャットの作成中の仮行（左一覧の先頭）。作成中の同じ入力の多重呼出しは creatingKeys で止める。 */
+  const [creating, setCreating] = useState<CreatingChat<NewChatInput>[]>([]);
+  const creatingKeys = useRef(new Set<string>());
+  const creatingSeq = useRef(0);
   const [steerUnknown, setSteerUnknown] = useState<Record<string, string>>({});
   const [warnHidden, setWarnHidden] = useState(false);
   const [listStatus, setListStatus] = useState<{ ok: boolean; text: string } | null>(null);
@@ -193,7 +198,7 @@ export default function App() {
   }, [sayErr]);
 
   const noteAttempt = useCallback((chatId: string, a: SendAttempt) => {
-    setAttempts((m) => ({ ...m, [chatId]: a }));
+    setAttempts((m) => ({ ...m, [chatId]: mergeAttempt(m[chatId], a) }));
     // 受理不明だった依頼の行は、照合で確定したときにここで更新する（同じ試行の結果だけ）。
     setPendingSends((m) => {
       const cur = m[chatId];
@@ -785,26 +790,59 @@ ${cur}` : p.text);
 
   const createChat = async (i: NewChatInput) => {
     if (!live) { setDialog(null); say("この操作はモックでは動きません。"); return; }
+    const key = JSON.stringify(i);
+    if (creatingKeys.current.has(key)) return; // 二重押し（同じ入力）では作らない
+    creatingKeys.current.add(key);
+    const tempId = `creating-${++creatingSeq.current}`;
+    setCreating((l) => addCreating(l, { tempId, label: creatingLabel(i.firstMessage, i.cwd), startedAt: Date.now(), phase: i.isolate && i.cwd ? "worktree" : "starting", input: i, result: null }));
+    // 検査は済んでいる。以後は一覧の仮行で示す（閉じても作成は続く。取り消せる操作には見せない）。
+    setDialog(null);
     const m = models.find((x) => x.id === i.model);
+    let retryInput: NewChatInput = i;
     try {
       let cwd = i.cwd;
       let worktree = i.worktree;
       if (i.isolate && i.cwd) {
         // 「分離」を選んだときだけ、worktreeを作ってから開始する（作れなければチャットは作らない。作られた分は自動削除しない）。
         const rec = await host.createWorktree(i.cwd, null, null, i.firstMessage?.split(/\r?\n/).find((l) => l.trim())?.trim().slice(0, 40) ?? null);
+        if (rec.state.kind === "failed") {
+          setCreating((l) => resolveCreating(l, tempId, { kind: "failed", message: `worktreeを作成できませんでした: ${rec.state.kind === "failed" ? rec.state.message : ""}（メニュー「作業 → worktree を管理」で確認できます）` }));
+          return;
+        }
         if (rec.state.kind !== "ready") {
-          say(rec.state.kind === "failed" ? `worktreeを作成できませんでした: ${rec.state.message}（メニュー「作業 → worktree を管理」で確認できます）` : "worktreeの作成を確認できませんでした。メニュー「作業 → worktree を管理」で確認してください。");
+          setCreating((l) => resolveCreating(l, tempId, { kind: "unknown", message: "worktreeの作成を確認できません。メニュー「作業 → worktree を管理」で確認してください。" }));
           return;
         }
         cwd = rec.path;
         worktree = rec.id;
+        // 入力し直すときは、作られたworktreeを使う（もう一度作らない）。
+        retryInput = { ...i, cwd: rec.path, worktree: rec.id, isolate: false };
         say(`worktreeを作成しました（ブランチ ${rec.branch}）。`);
+        setCreating((l) => setCreatingPhase(l, tempId, "starting"));
       }
       const r = await host.startChat(cwd, i.model ? { model: i.model, effort: m?.defaultEffort ?? null } : null, i.firstMessage, null, worktree, i.extraFolders, i.confirmedStrong);
-      setDialog(null);
+      setCreating((l) => removeCreating(l, tempId));
       setSelId(r.chat.key.id);
+      // 戻り値は送信中（Sending）。確定が先に届いていれば mergeAttempt が確定を残す。
       if (r.firstSend) noteAttempt(r.chat.key.id, r.firstSend);
-    } catch (e) { sayErr("チャットを作成できませんでした", e); }
+    } catch (e) {
+      const er = host.asIpcError(e);
+      const res = resultOfError(er.code, er.message);
+      setCreating((l) => resolveCreating(l, tempId, res.kind === "failed" ? { kind: "failed", message: `チャットを作成できませんでした: ${er.message}` } : { kind: "unknown", message: er.message }));
+      // 入力し直しの値だけ差し替える（worktreeを作った後の失敗）。
+      if (retryInput !== i) setCreating((l) => l.map((c) => (c.tempId === tempId ? { ...c, input: retryInput } : c)));
+    } finally { creatingKeys.current.delete(key); }
+  };
+  /** 仮行の操作。「入力し直す」は同じ値でダイアログを開くだけ（送らない）。「一覧を更新」は読み取りのみ。 */
+  const creatingAct = (id: string, op: "retry" | "dismiss" | "refresh") => {
+    const c = creating.find((x) => x.tempId === id);
+    if (!c) return;
+    if (op === "refresh") { void refreshList().then((ok) => { if (ok) setCreating((l) => removeCreating(l, id)); }); return; }
+    setCreating((l) => removeCreating(l, id));
+    if (op === "retry") {
+      const i = c.input;
+      setDialog({ type: "newChat", dev: i.cwd !== null, cwd: i.cwd ?? undefined, initialFolders: i.cwd ? [i.cwd, ...i.extraFolders] : undefined, prefill: { model: i.model, first: i.firstMessage ?? "", isolate: i.isolate, worktree: i.worktree } });
+    }
   };
 
   const retryLaunch = (path: string) => {
@@ -1497,7 +1535,7 @@ ${cur}` : p.text);
           style={{ ...(!leftTemp && leftOpen ? { "--lw": `${paneW.left}px` } : {}), ...(!rightTemp && rightOpen ? { "--rw": `${paneW.dock}px` } : {}) } as CSSProperties}
         >
           <aside className="left" id="pane-left" aria-label="チャット一覧">
-            <LeftPane snap={snap} sel={chat ? keyStr(chat.key) : null} onSelect={(id) => { selectChat(id); setLNarrow(false); }} onAct={act} onAcknowledge={(c) => onAcknowledge(c.key, null)}
+            <LeftPane creating={creating} onCreatingAct={creatingAct} snap={snap} sel={chat ? keyStr(chat.key) : null} onSelect={(id) => { selectChat(id); setLNarrow(false); }} onAct={act} onAcknowledge={(c) => onAcknowledge(c.key, null)}
               onChatAct={chatAct} chatList={snap.settings.chatList} projects={projects} onNotice={say} onReclassify={reclassify} onFetchProjectChats={fetchProjectChats} onLoadMore={listCursor ? loadMoreChats : undefined}
               onNewChatIn={(cwd, choices) => { setDialog({ type: "newChat", dev: true, cwd, cwdChoices: choices.length > 1 ? choices : undefined }); setLNarrow(false); }}
               onChatList={(f) => updateSettings((s) => ({ ...s, chatList: f(s.chatList) }), "一覧の表示設定を保存できませんでした。次回の起動では保存されている値に戻ります")} listStatus={listStatus} uiSize={snap.settings.appearance.uiText} />
@@ -1580,7 +1618,7 @@ ${cur}` : p.text);
             },
           }}
           exe={{ path: exePath, setPath: setExePath, placeholder: DEFAULT_EXE, connect: retryLaunch, browse: browseExe, openDiag: () => { host.openDiagDir().then((p) => say(`診断ログの場所: ${p}`)).catch((e) => sayErr("診断ログの場所を開けませんでした", e)); }, live: live && snap.sources.every((s) => s.connection.kind !== "connected") }}
-          onCreateChat={(i) => void createChat(i)} onRename={renameChat}
+          onCreateChat={createChat} onRename={renameChat}
           setTab={(t) => setDialog({ type: "settings", tab: t })} onAct={act} />
       ) : null}
       {dragging ? <div className="dropzone" role="status">ここにドロップすると、このチャット用にコピーして添付します（元のファイルは変更しません。フォルダは添付できません）</div> : null}

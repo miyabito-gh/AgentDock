@@ -1,4 +1,6 @@
 import { multiFolderMark } from "./workFolders";
+import { CreatingRows } from "./CreatingRows";
+import type { CreatingChat } from "./creating";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Chat, ChatListSettings, ChatListView, HostSnapshot, ProjectsOutcome, UiTextSize } from "../ipc/types";
 import { Icon } from "./Icon";
@@ -30,7 +32,9 @@ interface MenuItem { act: string; label: string; danger?: boolean; sep?: boolean
 /** 開いているメニュー（行の「…」・見出しの「…」で共通）。位置は「…」ボタンに寄せる。 */
 type OpenMenu = { kind: "chat"; id: string } | { kind: "group"; key: string };
 
-export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct, chatList, onChatList, projects = null, onNotice, listStatus, uiSize = "Normal", onNewChatIn, onReclassify, onFetchProjectChats, onLoadMore }: {
+export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct, chatList, onChatList, projects = null, onNotice, listStatus, uiSize = "Normal", onNewChatIn, onReclassify, onFetchProjectChats, onLoadMore, creating = [], onCreatingAct }: {
+  /** 作成中の仮行（先頭。ピンより上）と、その操作。 */
+  creating?: CreatingChat[]; onCreatingAct?: (id: string, op: "retry" | "dismiss" | "refresh") => void;
   /** プロジェクト見出しの「このプロジェクトのチャットを取得」。roots を cwd 条件に読む（読み取りのみ）。結果の通知は呼び出し側が出す。 */
   onFetchProjectChats?: (label: string, roots: string[]) => Promise<void>;
   /** 一覧末尾の「続きを読み込む」。続きがあるときだけ渡される（読み取りのみ）。 */
@@ -468,6 +472,7 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct,
           </>
         ) : (
           <>
+            {creating.length && onCreatingAct ? <CreatingRows items={creating} onAct={onCreatingAct} /> : null}
             {pinned.length ? <><div className="list-h"><span>ピン留め</span></div>{pinned.map((c) => row(c))}</> : null}
             <div className="list-h"><span>{viewLabel}</span></div>
             {rest.length ? listRows() : <div className="empty-note">{q ? "一致するチャットはありません" : "まだチャットがありません"}</div>}

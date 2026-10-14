@@ -81,3 +81,14 @@ test("再送の結果は元の仮の行へ結び付く（受理なら未送信�
   assert.equal((pendingView({ ...rej, retryable: true }, 5000) as { canRestore: boolean }).canRestore, false);
   assert.equal((pendingView(rej, 5000) as { canRestore: boolean }).canRestore, true);
 });
+
+test("mergeAttempt: 確定が先に届いても、同じ試行のSendingで戻さない", async () => {
+  const { mergeAttempt } = await import("./pendingSend.ts");
+  const sending = { attemptId: "a1", state: { kind: "sending" } } as never;
+  const done = { attemptId: "a1", state: { kind: "rejected", message: "x" } } as never;
+  const other = { attemptId: "a2", state: { kind: "sending" } } as never;
+  assert.equal(mergeAttempt(done, sending), done);
+  assert.equal(mergeAttempt(done, other), other);
+  assert.equal(mergeAttempt(sending, done), done);
+  assert.equal(mergeAttempt(undefined, sending), sending);
+});

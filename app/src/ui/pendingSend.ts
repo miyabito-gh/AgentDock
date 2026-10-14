@@ -102,6 +102,12 @@ export function setPhase(list: PendingSend[], phase: SendPhase): PendingSend[] {
   return list.map((p) => (p.outcome === null ? { ...p, phase } : p));
 }
 
+/** 試行の保持。sendUpdated（確定）が戻り値（Sending）より先に届いても、同じ attemptId の確定を送信中へ戻さない。 */
+export function mergeAttempt(prev: SendAttempt | undefined, next: SendAttempt): SendAttempt {
+  if (prev && prev.attemptId === next.attemptId && prev.state.kind !== "sending" && next.state.kind === "sending") return prev;
+  return next;
+}
+
 /** 二重に送らないため、応答待ちの送信があるか。 */
 export const hasInFlight = (list: PendingSend[]): boolean => list.some((p) => p.outcome === null);
 
