@@ -20,3 +20,21 @@ test("本文が空白だけ・作成中は送れない", () => {
   assert.ok(!canQuickSend("  \n", false));
   assert.ok(!canQuickSend("x", true));
 });
+
+import { isNewChatSubmitKey } from "./quickNew.ts";
+const k = (o: Partial<{ key: string; ctrlKey: boolean; shiftKey: boolean; isComposing: boolean }> = {}) => ({ key: "Enter", ctrlKey: false, shiftKey: false, ...o });
+test("isNewChatSubmitKey: ctrl方式は Ctrl+Enter と Shift+Enter で送る・Enterは改行", () => {
+  assert.equal(isNewChatSubmitKey(k({ ctrlKey: true }), "ctrl"), true);
+  assert.equal(isNewChatSubmitKey(k({ shiftKey: true }), "ctrl"), true);
+  assert.equal(isNewChatSubmitKey(k(), "ctrl"), false);
+});
+test("isNewChatSubmitKey: enter方式は Enter だけ送る・Shift+Enterは改行", () => {
+  assert.equal(isNewChatSubmitKey(k(), "enter"), true);
+  assert.equal(isNewChatSubmitKey(k({ shiftKey: true }), "enter"), false);
+  assert.equal(isNewChatSubmitKey(k({ ctrlKey: true }), "enter"), false);
+});
+test("isNewChatSubmitKey: 変換中と他のキーは送らない", () => {
+  assert.equal(isNewChatSubmitKey(k({ shiftKey: true, isComposing: true }), "ctrl"), false);
+  assert.equal(isNewChatSubmitKey(k({ isComposing: true }), "enter"), false);
+  assert.equal(isNewChatSubmitKey(k({ key: "a", ctrlKey: true }), "ctrl"), false);
+});

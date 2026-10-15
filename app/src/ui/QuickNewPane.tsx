@@ -1,7 +1,7 @@
 import type { RefObject } from "react";
 import type { ModelInfo } from "../ipc/types";
 import { Icon } from "./Icon";
-import { canQuickSend } from "./quickNew";
+import { canQuickSend, isNewChatSubmitKey } from "./quickNew";
 
 /** クイック新規の下書き画面（まだ会話を作っていない）。最初の送信で会話を作る。作業フォルダは一般チャット固定、権限は初期値。 */
 export function QuickNewPane(p: {
@@ -10,7 +10,7 @@ export function QuickNewPane(p: {
   onSend: () => void; onDetail: () => void; inputRef: RefObject<HTMLTextAreaElement>;
 }) {
   const ok = canQuickSend(p.text, p.busy);
-  const hint = p.enterMode === "ctrl" ? "Ctrl＋Enterで送信" : "Enterで送信（Shift＋Enterで改行）";
+  const hint = p.enterMode === "ctrl" ? "Ctrl＋EnterまたはShift＋Enterで送信、Enterで改行" : "Enterで送信（Shift＋Enterで改行）";
   return (
     <div className="msgs quick-new">
       <div className="quick-new-in">
@@ -19,8 +19,7 @@ export function QuickNewPane(p: {
         <textarea aria-label="最初の依頼" ref={p.inputRef} value={p.text} autoFocus placeholder={`最初の依頼を入力（${hint}）`}
           onChange={(e) => p.setText(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
-            if ((p.enterMode === "ctrl" && e.ctrlKey) || (p.enterMode === "enter" && !e.shiftKey && !e.ctrlKey)) { e.preventDefault(); if (ok) p.onSend(); }
+            if (isNewChatSubmitKey({ key: e.key, ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, altKey: e.altKey, metaKey: e.metaKey, isComposing: e.nativeEvent.isComposing }, p.enterMode)) { e.preventDefault(); if (ok) p.onSend(); }
           }} />
         <div className="quick-new-ctl">
           <span className="sel"><select aria-label="モデル" title="モデル" value={p.model} onChange={(e) => p.setModel(e.target.value)}>

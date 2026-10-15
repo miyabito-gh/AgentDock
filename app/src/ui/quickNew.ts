@@ -16,3 +16,17 @@ export function pickQuickModel(models: QuickModel[], last: QuickLast | null | un
 export function canQuickSend(text: string, busy: boolean): boolean {
   return !busy && text.trim().length > 0;
 }
+
+export interface EnterKeyLike { key: string; ctrlKey: boolean; shiftKey: boolean; altKey?: boolean; metaKey?: boolean; isComposing?: boolean }
+
+/**
+ * 新規チャットの最初の依頼欄で、このキーを「作成して送る」とみなすか。
+ * - IME変換中は常に false。
+ * - Ctrl＋Enter 方式: Ctrl＋Enter。さらに追加ショートカットとして Shift＋Enter（この方式では Enter が改行なので、改行手段と衝突しない）。
+ * - Enter 方式: Enter（Shift なし）。Shift＋Enter は改行のままにする（送信にすると改行を入れる手段がなくなるため）。
+ */
+export function isNewChatSubmitKey(e: EnterKeyLike, mode: "ctrl" | "enter"): boolean {
+  if (e.key !== "Enter" || e.isComposing || e.altKey || e.metaKey) return false;
+  if (mode === "ctrl") return e.ctrlKey || e.shiftKey;
+  return !e.shiftKey && !e.ctrlKey;
+}

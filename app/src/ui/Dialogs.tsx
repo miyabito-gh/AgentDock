@@ -1,3 +1,4 @@
+import { isNewChatSubmitKey } from "./quickNew";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Chat, ChatKey, ChatLocalView, ChatPendingOp, ChatQueue, ChatModelSettings, ForceKillPreview, Goal, GoalUpdate, Known, ModelInfo, NotificationSettings, OpCapability, QuitDecision, QuitPhase, RevertResult, SaveStatus, SideSessionMeta, SourceInfo, StopRecord, StopSummary, TurnRecord, WorktreeRecord, CloudTaskRecord } from "../ipc/types";
 import type { AppearanceSettings, BodyTextSize, ChatListView, StrongReason, ThemePref, UiTextSize, Support } from "../ipc/types";
@@ -178,8 +179,8 @@ function SettingsBody({ tab, enterMode, setEnterMode, top, source, models, exe, 
     case "input": return (
       <>
         <div className="field"><span>送信キー</span><div>
-          <label><input type="radio" name="ek" checked={enterMode === "ctrl"} onChange={() => setEnterMode("ctrl")} />Ctrl＋Enter で送信／Enter で改行</label><br />
-          <label><input type="radio" name="ek" checked={enterMode === "enter"} onChange={() => setEnterMode("enter")} />Enter で送信／Shift＋Enter で改行</label></div></div>
+          <label><input type="radio" name="ek" checked={enterMode === "ctrl"} onChange={() => setEnterMode("ctrl")} />Ctrl＋Enter で送信／Enter で改行（新規チャットの最初の依頼は Shift＋Enter でも送信）</label><br />
+          <label><input type="radio" name="ek" checked={enterMode === "enter"} onChange={() => setEnterMode("enter")} />Enter で送信／Shift＋Enter で改行（新規チャットの最初の依頼も同じ）</label></div></div>
         <div className="field"><span>実行中の入力</span><span>初期値は「完了後に送信」</span></div>
       </>);
     case "model": return (
@@ -535,7 +536,13 @@ export function Dialogs({ folderTools, workspaceRoots, d, onClose, chats, source
               </div>) : null}</div></div>
           {kind === "dev" ? <WorkspaceChoice live={live} cwd={cwd} isolate={isolate} setIsolate={setIsolate} onUse={(p, r) => { setCwd(p); setWt(r); setIsolate(false); }} /> : null}
           <div className="field"><span>モデル</span><div style={{ display: "flex", gap: 6 }}><select value={model} onChange={(e) => setModel(e.target.value)}>{models.map((m) => <option key={m.id} value={m.id}>{m.displayName}</option>)}</select></div><span className="note">このチャットの最初の選択です。Codex から取得した一覧です。</span></div>
-          <div className="field"><span>最初の依頼</span><textarea value={first} onChange={(e) => setFirst(e.target.value)} rows={3} style={{ width: "100%" }} placeholder="空欄なら、チャットだけ作成します" aria-label="最初の依頼" /></div>
+          <div className="field"><span>最初の依頼</span><textarea value={first} onChange={(e) => setFirst(e.target.value)} rows={3} style={{ width: "100%" }} placeholder="空欄なら、チャットだけ作成します" aria-label="最初の依頼"
+            onKeyDown={(e) => {
+              if (!isNewChatSubmitKey({ key: e.key, ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, altKey: e.altKey, metaKey: e.metaKey, isComposing: e.nativeEvent.isComposing }, enterMode)) return;
+              e.preventDefault();
+              if (!((kind === "dev" && !cwd.trim()) || creating)) void createNewChat();
+            }} />
+            <span className="note">{enterMode === "ctrl" ? "Ctrl＋EnterまたはShift＋Enterで作成、Enterで改行" : "Enterで作成、Shift＋Enterで改行"}</span></div>
         </div>
       </Shell>);
     case "rename": return <RenameDialog chat={chats.find((x) => x.key.id === d.chatId)} onClose={onClose} run={(n) => onRename(d.chatId, n)} />;

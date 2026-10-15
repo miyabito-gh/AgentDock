@@ -180,6 +180,12 @@ export function SkillsBody({ chat, live, cap, pickSkill, onDone, recent, onList 
               <SkillPreviewPane state={preview} skill={cur} />
             </div>
           )}
+          {pick && view.items.length > 0 ? (
+            <div className="skact">
+              <span className="skact-name small">{cur ? `選択中: ${cur.name}` : "Skillを選んでください"}</span>
+              <button disabled={!canPick(cur)} title={cur && isDisabled(cur) ? "無効のSkillは指定できません" : "選択中のSkillを入力欄の指定（チップ）にします（Enter）"} onClick={() => { if (canPick(cur)) void pick(cur); }}>指定する</button>
+            </div>
+          ) : null}
         </>
       ) : null}
       {list && list.errors.length > 0 ? <div className="why err" style={{ marginTop: 6 }}>読み込めなかったSkillの定義があります:<ul>{list.errors.map((e, i) => <li key={i} className="mono small">{e}</li>)}</ul></div> : null}
