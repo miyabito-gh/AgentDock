@@ -22,13 +22,8 @@ export function PendingSendRow({ p, onRestore, onDismiss }: { p: PendingSend; on
     <div className={`msg user pend ${v.kind}`} data-pending={v.kind}>
       <div className="sr">あなた</div>
       <div className="bubble" data-find="body">{body ?? <span className="muted">（本文なし）</span>}</div>
-      {v.kind === "sending" ? (
-        <div className="pstat" role="status">
-          <span className="spinner" aria-hidden="true" />
-          <b>送信中</b>
-          {v.slow ? <span className="muted">{v.elapsedSec}秒{v.stage ? `　${v.stage}` : ""}</span> : null}
-        </div>
-      ) : v.kind === "unsent" ? (
+      {/* 送信中・受理不明の段階は、入力欄の近くの SendStatusBar が出す（二重にしない）。行には操作だけ置く。 */}
+      {v.kind === "unsent" ? (
         <div className="pstat bad" role="alert">
           <b>未送信</b>
           <span className="muted" title={v.reason}>{v.reason}</span>
@@ -37,8 +32,7 @@ export function PendingSendRow({ p, onRestore, onDismiss }: { p: PendingSend; on
           <button className="small" aria-label="この表示を閉じる" onClick={() => onDismiss(p)}><Icon name="x" /></button>
         </div>
       ) : v.kind === "unknown" ? (
-        <div className="pstat warn" role="alert">
-          <b>受理を確認できません</b>
+        <div className="pstat warn">
           <button className="small" onClick={() => copy(p.text)} aria-live="polite">{state === "idle" ? COPY_LABEL.idle : COPY_LABEL[state]}</button>
         </div>
       ) : null}

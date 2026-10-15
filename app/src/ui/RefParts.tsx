@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import type { PathInfo } from "../ipc/types";
 import { ExtLink } from "./markdown/parts";
 import { linkPolicy } from "./markdown/plugins";
-import { baseNameOf, pathCandidate, pathFromHref, type PathCandidate } from "./markdown/refs";
+import { baseNameOf, pathCandidate, pathFromHref, pathLinkView, type PathCandidate, type PathLinkView } from "./markdown/refs";
 
 export type PathAction = "attach" | "copyAbs" |"open" | "reveal";
 
@@ -20,8 +20,11 @@ export interface RefActions {
   pathInfo: (path: string) => PathInfo | undefined;
   /** パスの実在確認を依頼する（まとめて・間引いて問い合わせる）。 */
   requestPath: (path: string) => void;
-  pathAct: (act: PathAction, path: string, info: PathInfo) => void;
+  /** `strict`＝会話中のリンクから。作業フォルダの外・実行形式は確認でも開かない（ホストも同じ条件で止める）。 */
+  pathAct: (act: PathAction, path: string, info: PathInfo, strict?: boolean) => void;
   canAttach: boolean;
+  /** このチャットの作業フォルダ（リンクの内外判定で、作業フォルダ自身を内にするため）。不明なら null。 */
+  cwd?: string | null;
 }
 export const RefContext = createContext<RefActions | null>(null);
 
@@ -120,7 +123,29 @@ function PathMenu({ label, title, trigger, children }: { label: string; title: s
   );
 }
 
-function PathRef({ cand, plain, label }: { cand: PathCandidate | null; plain: ReactNode; label: ReactNode }) {
+/** 会話中のリンク用。作業フォルダ内のファイルだけ「開く」「保存場所を表示」を出し、外・実行形式は理由を示す。 */
+function LinkPathMenu({ path, info, view, label }: { path: string; info: PathInfo; view: Extract<PathLinkView, { kind: "menu" }>; label: ReactNode }) {
+  const ctx = useContext(RefContext);
+  if (!ctx) return <>{label}</>;
+  return (
+    <PathMenu label={`ファイル操作: ${baseNameOf(path)}`} title={`${info.absolute}（クリックまたは右クリックで操作）`} trigger={label}>
+      {(close) => {
+        const act = (a: PathAction) => () => { close(); ctx.pathAct(a, path, info, true); };
+        return (
+          <>
+            <div className="muted" style={{ padding: "4px 10px", maxWidth: 360, overflowWrap: "anywhere" }}>{info.absolute}</div>
+            {view.reason ? <div className="muted" role="note" style={{ padding: "0 10px 4px", maxWidth: 360 }}>{view.reason}</div> : null}
+            {view.open ? <button role="menuitem" onClick={act("open")}><span>{info.kind === "folder" ? "フォルダを開く（既定のアプリ）" : "開く（既定のアプリ）"}</span></button> : null}
+            {view.reveal ? <button role="menuitem" onClick={act("reveal")}><span>保存場所を表示</span></button> : null}
+            <button role="menuitem" onClick={act("copyAbs")}><span>パスをコピー</span></button>
+          </>
+        );
+      }}
+    </PathMenu>
+  );
+}
+
+function PathRef({ cand, plain, label, strict = false }: { cand: PathCandidate | null; plain: ReactNode; label: ReactNode; strict?: boolean }) {
   const ctx = useContext(RefContext);
   const wrap = useRef<HTMLSpanElement>(null);
   const path = cand?.path;
@@ -135,6 +160,12 @@ function PathRef({ cand, plain, label }: { cand: PathCandidate | null; plain: Re
   }, [request, path]);
   const info = ctx && path ? ctx.pathInfo(path) : undefined;
   const ok = ctx && path && info && (info.kind === "file" || info.kind === "folder") && info.absolute ? info : null;
+  if (strict && ctx && path && info) {
+    const view = pathLinkView(info, ctx.cwd ? ctx.pathInfo(ctx.cwd)?.absolute : null);
+    if (view?.kind === "missing") return <span ref={wrap} className="md-pathwrap"><span className="md-link off" title={`見つかりません: ${path}`}>{label}（見つかりません）</span></span>;
+    if (view?.kind === "unconfirmed") return <span ref={wrap} className="md-pathwrap"><span className="md-link off" title={`確認できません: ${path}`}>{label}（存在を確認できません）</span></span>;
+    if (view?.kind === "menu") return <span ref={wrap} className="md-pathwrap"><LinkPathMenu path={path} info={info} view={view} label={label} /></span>;
+  }
   return (
     <span ref={wrap} className="md-pathwrap">
       {ok && ctx && path ? (
@@ -175,7 +206,7 @@ export function RefSpan(props: Record<string, unknown> & { children?: ReactNode 
 export function RefLink({ href, children }: { href?: string; children?: ReactNode }) {
   const plain = <ExtLink href={href}>{children}</ExtLink>;
   if (linkPolicy(href) === "open") return plain;
-  return <PathRef cand={pathFromHref(href) ?? pathCandidate(textOf(children))} plain={plain} label={<span className="md-link">{children}</span>} />;
+  return <PathRef strict cand={pathFromHref(href) ?? pathCandidate(textOf(children))} plain={plain} label={<span className="md-link">{children}</span>} />;
 }
 
 /** 成果物欄など、パス文字列をそのまま出す場所用。 */

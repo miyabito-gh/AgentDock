@@ -10,6 +10,8 @@ import { CHAT_DISPLAY_TEXT, HISTORY_OUTCOME_TEXT, historyBreakdown, historyBreak
 import { FRESH, SOURCE_LABEL, STATE, hms, keyStr, showKnown } from "./format";
 import { TitleBar } from "./Chrome";
 import { ModelBadge } from "./ModelBadge";
+import { SendStatusBar } from "./SendStatusBar";
+import type { StatusInput } from "./sendStatus";
 
 function waitText(a: AgentView): string | null {
   const w = a.status.wait;
@@ -212,6 +214,8 @@ export interface DockActions {
   block: (c: Chat) => string | null;
   /** 直近の送信の結果（1行）。 */
   note: (c: Chat) => string | null;
+  /** 段階表示の入力（送信した・受理待ち・応答待ち・キュー）。中央の入力欄の表示と同じ規則。 */
+  status: (c: Chat) => StatusInput;
   respond: (r: PendingRequest, a: RequestAnswer) => void;
 }
 /** 通知を押したチャット（tick が変わるたびに1回）。 */
@@ -353,6 +357,8 @@ function TaskCard({ snap, c, band, line, open, marked, mini, at, confirmed, acti
                 onChange={(e) => actions.onDraft(c, e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter" && e.ctrlKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); } }} />
               <button className="btn-main small" disabled={!!block || busy || !draft.trim()} title={block ?? (run ? "完了後に送る依頼として登録します" : "送信")} onClick={() => void send()}>{run ? "完了後に送る" : "送信"}</button>
+              {busy && run ? <div className="tc-note" role="status"><span className="spinner" aria-hidden="true" /> 受け付けました（キューへ登録しています）</div> : null}
+              <SendStatusBar compact input={actions.status(c)} />
               {block ? <div className="tc-note">{block}</div> : null}
               {note ? <div className="tc-note" role="status">{note}</div> : null}
             </div>

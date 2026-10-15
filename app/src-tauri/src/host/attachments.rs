@@ -42,6 +42,18 @@ fn same_path(a: &str, b: &str) -> bool {
     norm(a) == norm(b)
 }
 
+/// 会話中のリンクを開く／表示してよいか。作業フォルダの実体の中（シンボリックリンク・ジャンクション経由の脱出は外）だけ。
+/// 開く場合は実行形式も止める。確認では解除できない。理由は画面にそのまま出す。
+fn workspace_link_verdict(path: &Path, cwd: Option<&str>, for_open: bool) -> Result<(), &'static str> {
+    if for_open && attach::is_executable_path(path) {
+        return Err("実行形式のファイルは、リンクからは開きません（パスのコピーのみできます）");
+    }
+    if !cwd.is_some_and(|root| attach::is_inside_project_resolved(path, root)) {
+        return Err("作業フォルダの外にあるため、リンクからは開きません（パスのコピーのみできます）");
+    }
+    Ok(())
+}
+
 impl Host {
     // ───────────── 台帳の更新 ─────────────
 
@@ -492,6 +504,10 @@ impl Host {
     /// 会話内のパスを開く前の確認。作業フォルダの外、または実行形式は、`confirmed` でなければ止める（成果物の「開く」と同じ条件）。
     pub async fn open_path_target(self: &Arc<Self>, args: &OpenPathArgs) -> Result<PathBuf, IpcError> {
         let path = self.resolve_chat_path(&args.chat, &args.path).await?;
+        if args.workspace_only {
+            workspace_link_verdict(&path, self.chat_cwd(&args.chat).as_deref(), true).map_err(|m| err(IpcErrorCode::InvalidArgs, m))?;
+            return Ok(path);
+        }
         if args.risk_confirmed {
             return Ok(path);
         }
@@ -506,7 +522,11 @@ impl Host {
 
     /// エクスプローラーで表示する対象（実在確認のみ。実行はしないので確認は要らない）。
     pub async fn reveal_path_target(self: &Arc<Self>, args: &RevealPathArgs) -> Result<PathBuf, IpcError> {
-        self.resolve_chat_path(&args.chat, &args.path).await
+        let path = self.resolve_chat_path(&args.chat, &args.path).await?;
+        if args.workspace_only {
+            workspace_link_verdict(&path, self.chat_cwd(&args.chat).as_deref(), false).map_err(|m| err(IpcErrorCode::InvalidArgs, m))?;
+        }
+        Ok(path)
     }
 
     // ───────────── 送信への受け渡し ─────────────
@@ -616,6 +636,26 @@ mod tests {
         assert!(!model_lacks_input(&ms, "vision", AttachmentKind::Image));
         assert!(!model_lacks_input(&ms, "unknown", AttachmentKind::Image), "unknown inputs are not treated as unsupported");
         assert!(!model_lacks_input(&ms, "absent", AttachmentKind::Image));
+    }
+
+    #[test]
+    fn workspace_link_verdict_allows_only_inside_non_executable() {
+        let root = std::env::temp_dir().join(format!("agentdock-wl-{}", std::process::id()));
+        let sub = root.join("work");
+        std::fs::create_dir_all(&sub).unwrap();
+        let (txt, exe, out) = (sub.join("a.txt"), sub.join("run.EXE"), root.join("outside.txt"));
+        for f in [&txt, &exe, &out] {
+            std::fs::write(f, b"x").unwrap();
+        }
+        let cwd = sub.to_string_lossy().into_owned();
+        assert!(workspace_link_verdict(&txt, Some(&cwd), true).is_ok());
+        assert!(workspace_link_verdict(&exe, Some(&cwd), true).is_err());
+        assert!(workspace_link_verdict(&exe, Some(&cwd), false).is_ok(), "revealing an executable does not run it");
+        assert!(workspace_link_verdict(&out, Some(&cwd), true).is_err());
+        assert!(workspace_link_verdict(&out, Some(&cwd), false).is_err());
+        assert!(workspace_link_verdict(&sub.join("..").join("outside.txt"), Some(&cwd), false).is_err());
+        assert!(workspace_link_verdict(&txt, None, true).is_err());
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

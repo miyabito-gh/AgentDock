@@ -67,12 +67,58 @@ export function pathCandidate(raw: string): PathCandidate | null {
   return { path: s, line, col };
 }
 
-/** リンクの href からパス候補を取る（`%20` を戻す）。 */
+/** `file:` URL のパス部分。`file:///C:/a`・`file://localhost/C:/a`・`file:/C:/a` は `/C:/a`、ホスト付き（`file://server/share`＝ネットワーク）と他の形は null。 */
+export function fileUrlPath(href: string): string | null {
+  const m = /^file:(?:\/\/([^/]*))?(\/.*)?$/i.exec(href.trim());
+  if (!m || !m[2]) return null;
+  if (m[1] !== undefined && m[1] !== "" && m[1].toLowerCase() !== "localhost") return null;
+  return m[2];
+}
+
+/** リンクの href からパス候補を取る（`%20` を戻す。`file:` URL も扱う）。 */
 export function pathFromHref(href: string | null | undefined): PathCandidate | null {
   if (!href) return null;
   let h = href;
   try { h = decodeURIComponent(href); } catch { /* そのまま */ }
+  if (/^file:/i.test(h)) {
+    const p = fileUrlPath(h);
+    return p ? pathCandidate(p) : null;
+  }
   return pathCandidate(h);
+}
+
+/** ホストの実行形式判定（attach.rs の一覧）と同じ拡張子。表示用の先読みで、開く可否の決定はホストが行う。 */
+const EXECUTABLE_EXTS = new Set(["exe", "bat", "cmd", "ps1", "vbs", "vbe", "js", "jse", "wsf", "wsh", "msi", "msp", "lnk", "com", "scr", "pif", "cpl", "hta", "reg", "jar", "psm1", "appx", "msix", "url", "chm", "msc"]);
+
+export function isExecutableName(path: string): boolean {
+  const name = baseNameOf(path).replace(/[. ]+$/, "");
+  const i = name.lastIndexOf(".");
+  return i > 0 && EXECUTABLE_EXTS.has(name.slice(i + 1).toLowerCase());
+}
+
+/** 実在確認の結果（PathInfo の必要な部分）。 */
+export interface PathStat { kind: "file" | "folder" | "missing" | "unconfirmed"; absolute: string | null; relative: string | null }
+
+/** 会話中のリンクの出し方。null は確認中（そのまま通常の表示）。 */
+export type PathLinkView =
+  | { kind: "missing" }
+  | { kind: "unconfirmed" }
+  /** メニュー。open／reveal が false の項目は出さず、理由を添える。パスのコピーは常に出す。 */
+  | { kind: "menu"; open: boolean; reveal: boolean; reason: string | null };
+
+/** 作業フォルダ内（相対パスが取れる）のファイルだけ開く・表示する。外は開かずコピーのみ。実行形式は開かない（表示はできる）。
+ *  作業フォルダ自身（フォルダで相対なし）は内とみなす。シンボリックリンク経由の脱出の最終判定はホスト。 */
+export function pathLinkView(info: PathStat | undefined, rootAbs?: string | null): PathLinkView | null {
+  if (!info) return null;
+  if (info.kind === "missing") return { kind: "missing" };
+  if (info.kind === "unconfirmed" || !info.absolute) return { kind: "unconfirmed" };
+  const norm = (s: string) => s.replace(/\//g, "\\").replace(/\\+$/, "").toLowerCase();
+  // 相対パスが無いフォルダは、作業フォルダ自身（実在確認した絶対パスが一致）のときだけ内。それ以外は外。
+  const isRoot = info.kind === "folder" && !!rootAbs && norm(rootAbs) === norm(info.absolute);
+  const inside = info.relative !== null || isRoot;
+  if (!inside) return { kind: "menu", open: false, reveal: false, reason: "作業フォルダの外にあるため、開けません（パスのコピーのみ）" };
+  if (info.kind === "file" && isExecutableName(info.absolute)) return { kind: "menu", open: false, reveal: true, reason: "実行形式のファイルのため、リンクからは開きません" };
+  return { kind: "menu", open: true, reveal: true, reason: null };
 }
 
 /** パスの最後の要素（コピー用のファイル名）。 */

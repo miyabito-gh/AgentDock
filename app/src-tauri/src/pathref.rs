@@ -34,6 +34,9 @@ pub struct OpenPathArgs {
     /// 開く前の確認（作業フォルダ外・実行形式）をユーザーが了承したとき true。
     #[serde(default)]
     pub risk_confirmed: bool,
+    /// 会話中のリンクから開くとき true。作業フォルダの外・実行形式は確認でも開かず、理由を返して止める。
+    #[serde(default)]
+    pub workspace_only: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -43,6 +46,9 @@ pub struct OpenPathArgs {
 pub struct RevealPathArgs {
     pub chat: ChatKey,
     pub path: String,
+    /// 会話中のリンクから表示するとき true。作業フォルダの外は表示せず止める。
+    #[serde(default)]
+    pub workspace_only: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

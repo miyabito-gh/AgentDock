@@ -26,6 +26,7 @@ import { fenceCode, insertBlock } from "./ui/attach";
 import { DockPane, MiniWindow, type DockActions, type DockFocus } from "./ui/Dock";
 import { sendLockReason } from "./ui/CenterPane";
 import { pendingView } from "./ui/pendingSend";
+import { queueCounts } from "./ui/sendStatus";
 import { commandViews } from "./ui/commandViews";
 import { cwdOpenWhy } from "./ui/commands";
 import { matchShortcut } from "./ui/shortcuts";
@@ -1038,15 +1039,18 @@ ${cur}` : p.text);
 
   // ── 会話内のチャットID・ファイルパス（項目5・24・30）。リンク・メニューはユーザーのクリックだけで動く。 ──
   const { pathInfo, requestPath } = usePathStats(live, chat?.key ?? null);
-  const pathAct = (act: PathAction, path: string, info: PathInfo) => {
+  const pathAct = (act: PathAction, path: string, info: PathInfo, strict = false) => {
     if (!chat || !live || !info.absolute) { say("この操作はモックでは動きません。"); return; }
     const abs = info.absolute;
     const copy = (text: string, what: string) => { void copyText(text).then((ok) => say(ok ? `${what}をコピーしました。` : `${what}をコピーできませんでした。`)); };
     switch (act) {
       case "attach": void addFiles(chat.key, [abs]); break;
       case "copyAbs": copy(abs, "絶対パス"); break;
-      case "reveal": host.revealPath(chat.key, path).catch((e) => sayErr("表示できませんでした", e)); break;
-      case "open": openWithConfirm(chat.key, path); break;
+      case "reveal": host.revealPath(chat.key, path, strict).catch((e) => sayErr("表示できませんでした", e)); break;
+      case "open":
+        if (strict) host.openPath(chat.key, path, false, true).catch((e) => sayErr("開けませんでした", e));
+        else openWithConfirm(chat.key, path);
+        break;
     }
   };
   /** 開く（作業フォルダ外・実行形式はホストが止めるので、確認のうえで再実行）。ユーザーのクリックから呼ぶ。 */
@@ -1095,6 +1099,7 @@ ${cur}` : p.text);
     refreshList: async () => { await refreshList(); },
     pathInfo, requestPath, pathAct,
     canAttach: !!chat && live,
+    cwd: headCwd,
   };
 
   /** 完全終了の選択（ホストが中断要求・停止照合・保存を進める）。「待つ」は画面を閉じるだけで、手順は続く。 */
@@ -1565,11 +1570,15 @@ ${cur}` : p.text);
       const p = list[list.length - 1];
       if (!p) return null;
       const v = pendingView(p, Date.now());
-      return v.kind === "sending" ? "送信中…（結果を待っています）"
-        : v.kind === "accepted" ? "Codex が受理しました"
-        : v.kind === "unsent" ? `送信できませんでした（${v.reason}）。中央で入力欄へ戻せます`
-        : "受理を確認できません。再送はしません（中央で履歴と照合できます）";
+      // 送信中・受理・受理不明は、カード内の段階表示（status）が出す。ここは未送信の理由だけ。
+      return v.kind === "unsent" ? `送信できませんでした（${v.reason}）。中央で入力欄へ戻せます` : null;
     },
+    status: (c) => ({
+      pending: markRetryable(pendingSends[c.key.id], attempts[c.key.id]),
+      running: isRunning(snap, c),
+      turnHasOutput: null,
+      queue: queueCounts(snap.queues.find((q) => q.chat.id === c.key.id)?.entries),
+    }),
     respond: (r, a) => void onRespond(r, a),
   };
   const dockProps = {

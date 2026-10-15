@@ -7,7 +7,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { components } from "./markdown/parts.ts";
 import { remarkHtmlAsText } from "./markdown/plugins.ts";
-import { baseNameOf, pathCandidate, pathFromHref, remarkRefs, splitThreadRefs, wholeThreadRef } from "./markdown/refs.ts";
+import { baseNameOf, isExecutableName, pathCandidate, pathFromHref, pathLinkView, remarkRefs, splitThreadRefs, wholeThreadRef, type PathStat } from "./markdown/refs.ts";
 
 const ID = "01a1b2c3-d4e5-7f60-8a9b-0c1d2e3f4a5b";
 const ID2 = "01a1b2c3-d4e5-7f60-8a9b-0c1d2e3f4a5c";
@@ -70,4 +70,42 @@ test("リンクのhrefからパスを取る（%エンコード）", () => {
 test("ファイル名の取り出し", () => {
   assert.equal(baseNameOf("C:\\a\\b\\c.txt"), "c.txt");
   assert.equal(baseNameOf("src/ui/"), "ui");
+});
+
+test("リンク: file URL と /C:/ 形式・行番号つきをパス候補にする。ネットワークは対象外", () => {
+  assert.deepEqual(pathFromHref("file:///C:/work/a%20b.txt"), { path: "C:/work/a b.txt", line: null, col: null });
+  assert.deepEqual(pathFromHref("file://localhost/C:/w/a.rs#L12"), { path: "C:/w/a.rs", line: 12, col: null });
+  assert.equal(pathFromHref("file:///C:/w/a.rs:7")?.line, 7);
+  assert.equal(pathFromHref("file://server/share/a.txt"), null);
+  assert.equal(pathFromHref("file:///etc/passwd"), null);
+  assert.equal(pathFromHref("/C:/w/a.txt")?.path, "C:/w/a.txt");
+  assert.equal(pathFromHref("src/a.rs:12")?.line, 12);
+  assert.equal(pathFromHref("C:\\w\\a.txt")?.path, "C:\\w\\a.txt");
+  assert.equal(pathFromHref("\\\\srv\\sh\\a.txt"), null);
+  assert.equal(pathFromHref("//srv/sh/a.txt"), null);
+  assert.equal(pathFromHref("../x/a.md")?.path, "../x/a.md");
+});
+
+test("リンク: 実行形式の名前判定", () => {
+  for (const n of ["a.exe", "B.CMD", "x.ps1", "s.lnk", "a.exe.", "a.bat "]) assert.equal(isExecutableName(n), true, n);
+  for (const n of ["a.txt", "exe", ".exe", "a.exe.txt", "dir/readme.md"]) assert.equal(isExecutableName(n), false, n);
+});
+
+test("リンク: 作業フォルダ内のファイルだけ開ける。外は開かずコピーのみ、実行形式は表示のみ、無い・不明は理由", () => {
+  const f = (o: Partial<PathStat>): PathStat => ({ kind: "file", absolute: "C:\\w\\a.txt", relative: "a.txt", ...o });
+  assert.equal(pathLinkView(undefined), null);
+  assert.deepEqual(pathLinkView(f({})), { kind: "menu", open: true, reveal: true, reason: null });
+  const out = pathLinkView(f({ relative: null }));
+  assert.equal(out?.kind === "menu" && out.open, false);
+  assert.equal(out?.kind === "menu" && out.reveal, false);
+  const exe = pathLinkView(f({ absolute: "C:\\w\\run.exe", relative: "run.exe" }));
+  assert.equal(exe?.kind === "menu" && exe.open, false);
+  assert.equal(exe?.kind === "menu" && exe.reveal, true);
+  assert.deepEqual(pathLinkView(f({ kind: "missing", absolute: null, relative: null })), { kind: "missing" });
+  assert.deepEqual(pathLinkView(f({ kind: "unconfirmed", absolute: null, relative: null })), { kind: "unconfirmed" });
+  const root = f({ kind: "folder", absolute: "C:\\w", relative: null });
+  assert.equal((pathLinkView(root, "c:/w/") as { open: boolean }).open, true, "作業フォルダ自身は内");
+  assert.equal((pathLinkView(root, "C:\\other") as { open: boolean }).open, false, "外のフォルダは開かない");
+  assert.equal((pathLinkView(root) as { open: boolean }).open, false, "作業フォルダが不明なら外");
+  assert.equal((pathLinkView(f({ kind: "folder", absolute: "C:\\w\\sub", relative: "sub" }), "C:\\w") as { open: boolean }).open, true);
 });

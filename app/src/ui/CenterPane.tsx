@@ -25,6 +25,8 @@ import { resendCtxOf, resendTargetOf } from "./ResendDialog";
 import { SkillSuggest, type SkillPickApi } from "./SkillPicker";
 import { filterSkills, isDisabled, originLabel, queryTerms, removeTrigger, skillTrigger } from "./skillPick";
 import { PendingSendRow } from "./PendingSendRow";
+import { SendStatusBar } from "./SendStatusBar";
+import { queueCounts } from "./sendStatus";
 import { appearsInTurns, firstSendLockReason, type PendingSend } from "./pendingSend";
 import { PURPOSE_TAG, resendAvailability, type ResendCtx } from "./resend";
 
@@ -1110,6 +1112,12 @@ export function CenterPane(p: CenterProps) {
       <Queue q={snap.queues.find((q) => keyStr(q.chat) === keyStr(chat.key))} nameOf={nameOf} qact={p.qact} steerWhy={steerBlockReason(running, modelChanged(p.settings), p.local)} />
       <GoalBar goal={p.goal} live={rootView(snap, chat)?.freshness === "live"} cap={snap.opCapabilities.find((o) => o.op === "goal")} busy={p.goalBusy}
         onEdit={() => p.onAct("goal")} onClear={p.onGoalClear} onReload={p.onGoalReload} />
+      <SendStatusBar input={{
+        pending: p.pending.filter((x) => !appearsInTurns(x, p.turns)), running,
+        // 実行中のturn（終端がない）に、依頼以外の出力が出ているか
+        turnHasOutput: p.turns.some((t) => t.end === null && t.entries.some((e) => e.kind.kind !== "userMessage")),
+        queue: queueCounts(snap.queues.find((q) => keyStr(q.chat) === keyStr(chat.key))?.entries),
+      }} />
       <Composer key={`${chat.key.id}:${p.models.length}`} p={p} running={running} lock={lock} />
     </>
   );

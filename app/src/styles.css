@@ -898,6 +898,10 @@ button.uchip:hover{background:var(--accent-weak)}
 .msg.pend .pstat.bad b{color:var(--fail-ink)}
 .msg.pend .pstat.warn b{color:var(--wait-ink)}
 .msg.pend .pstat.bad .muted{max-width:min(420px,100%);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sendstat{display:flex;flex-direction:column;gap:2px;padding:4px 14px;border-top:1px solid var(--line)}
+.sendstat.compact{padding:2px 0;border-top:0}
+.sendstat .pstat{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:var(--fs-s);color:var(--ink2)}
+.sendstat .pstat.warn b{color:var(--wait-ink)}
 .spinner{width:11px;height:11px;border:2px solid var(--line-strong);border-top-color:var(--accent);border-radius:50%;animation:pend-spin .8s linear infinite;flex:none}
 @keyframes pend-spin{to{transform:rotate(360deg)}}
 

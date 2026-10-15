@@ -38,5 +38,6 @@ export const Markdown = memo(function Markdown({ text, streaming = false }: { te
       </div>
     );
   }
-  return <div className="md"><ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={components}>{shown}</ReactMarkdown></div>;
+  // 既定の urlTransform は file:・`C:\…` を空にする。リンクは href を出さず、開くのはユーザーの確認操作（http・https、作業フォルダ内のパス）だけ。
+  return <div className="md"><ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={components} urlTransform={(u) => u}>{shown}</ReactMarkdown></div>;
 });
