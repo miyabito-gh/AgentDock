@@ -10,7 +10,7 @@ export function QuickNewPane(p: {
   onSend: () => void; onDetail: () => void; inputRef: RefObject<HTMLTextAreaElement>;
 }) {
   const ok = canQuickSend(p.text, p.busy);
-  const hint = p.enterMode === "ctrl" ? "Ctrl＋EnterまたはShift＋Enterで送信、Enterで改行" : "Enterで送信（Shift＋Enterで改行）";
+  const hint = p.enterMode === "ctrl" ? "Ctrl＋Enterで送信、Enterで改行" : "EnterまたはCtrl＋Enterで送信、Shift＋Enterで改行";
   return (
     <div className="msgs quick-new">
       <div className="quick-new-in">

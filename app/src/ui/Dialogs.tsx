@@ -179,8 +179,8 @@ function SettingsBody({ tab, enterMode, setEnterMode, top, source, models, exe, 
     case "input": return (
       <>
         <div className="field"><span>送信キー</span><div>
-          <label><input type="radio" name="ek" checked={enterMode === "ctrl"} onChange={() => setEnterMode("ctrl")} />Ctrl＋Enter で送信／Enter で改行（新規チャットの最初の依頼は Shift＋Enter でも送信）</label><br />
-          <label><input type="radio" name="ek" checked={enterMode === "enter"} onChange={() => setEnterMode("enter")} />Enter で送信／Shift＋Enter で改行（新規チャットの最初の依頼も同じ）</label></div></div>
+          <label><input type="radio" name="ek" checked={enterMode === "ctrl"} onChange={() => setEnterMode("ctrl")} />Ctrl＋Enter で送信／Enter で改行</label><br />
+          <label><input type="radio" name="ek" checked={enterMode === "enter"} onChange={() => setEnterMode("enter")} />Enter で送信／Shift＋Enter で改行（新規チャットの最初の依頼では Ctrl＋Enter でも送信）</label></div></div>
         <div className="field"><span>実行中の入力</span><span>初期値は「完了後に送信」</span></div>
       </>);
     case "model": return (
@@ -542,7 +542,7 @@ export function Dialogs({ folderTools, workspaceRoots, d, onClose, chats, source
               e.preventDefault();
               if (!((kind === "dev" && !cwd.trim()) || creating)) void createNewChat();
             }} />
-            <span className="note">{enterMode === "ctrl" ? "Ctrl＋EnterまたはShift＋Enterで作成、Enterで改行" : "Enterで作成、Shift＋Enterで改行"}</span></div>
+            <span className="note">{enterMode === "ctrl" ? "Ctrl＋Enterで作成、Enterで改行" : "EnterまたはCtrl＋Enterで作成、Shift＋Enterで改行"}</span></div>
         </div>
       </Shell>);
     case "rename": return <RenameDialog chat={chats.find((x) => x.key.id === d.chatId)} onClose={onClose} run={(n) => onRename(d.chatId, n)} />;

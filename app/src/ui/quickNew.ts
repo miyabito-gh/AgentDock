@@ -21,12 +21,12 @@ export interface EnterKeyLike { key: string; ctrlKey: boolean; shiftKey: boolean
 
 /**
  * 新規チャットの最初の依頼欄で、このキーを「作成して送る」とみなすか。
- * - IME変換中は常に false。
- * - Ctrl＋Enter 方式: Ctrl＋Enter。さらに追加ショートカットとして Shift＋Enter（この方式では Enter が改行なので、改行手段と衝突しない）。
- * - Enter 方式: Enter（Shift なし）。Shift＋Enter は改行のままにする（送信にすると改行を入れる手段がなくなるため）。
+ * - IME変換中・Alt付きは常に false（Metaは対象外）。
+ * - Ctrl＋Enter は設定に関わらず常に送る。
+ * - Enter 方式では Enter（Shift なし）も送る。Shift＋Enter は改行のまま。Ctrl＋Enter 方式の Enter は改行。
  */
 export function isNewChatSubmitKey(e: EnterKeyLike, mode: "ctrl" | "enter"): boolean {
   if (e.key !== "Enter" || e.isComposing || e.altKey || e.metaKey) return false;
-  if (mode === "ctrl") return e.ctrlKey || e.shiftKey;
-  return !e.shiftKey && !e.ctrlKey;
+  if (e.ctrlKey) return true;
+  return mode === "enter" && !e.shiftKey;
 }
