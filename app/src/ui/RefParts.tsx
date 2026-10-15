@@ -3,6 +3,7 @@
 import { Children, createContext, isValidElement, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { PathInfo } from "../ipc/types";
+import type { Directive } from "./markdown/directives";
 import { ExtLink } from "./markdown/parts";
 import { linkPolicy } from "./markdown/plugins";
 import { baseNameOf, pathCandidate, pathFromHref, pathLinkView, type PathCandidate, type PathLinkView } from "./markdown/refs";
@@ -25,6 +26,10 @@ export interface RefActions {
   canAttach: boolean;
   /** このチャットの作業フォルダ（リンクの内外判定で、作業フォルダ自身を内にするため）。不明なら null。 */
   cwd?: string | null;
+  /** このチャットの変更確認画面を開く（読取りのみ）。 */
+  openChanges?: () => void;
+  /** 文を入力欄へ入れる（送信しない。入力欄に文があれば確認する）。 */
+  insertPrompt?: (text: string) => void;
 }
 export const RefContext = createContext<RefActions | null>(null);
 
@@ -188,6 +193,100 @@ function PathRef({ cand, plain, label, strict = false }: { cand: PathCandidate |
   );
 }
 
+/** 作業フォルダ内か。画面に見えたときだけ実在確認を依頼する。null は確認中（ボタンを出さない）。 */
+function useInside(path: string | null): { wrap: React.RefObject<HTMLSpanElement>; inside: boolean | null; known: boolean } {
+  const ctx = useContext(RefContext);
+  const wrap = useRef<HTMLSpanElement>(null);
+  const request = ctx?.requestPath;
+  useEffect(() => {
+    if (!request || !path || !wrap.current) return;
+    if (typeof IntersectionObserver === "undefined") { request(path); return; }
+    const io = new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) { request(path); io.disconnect(); } });
+    io.observe(wrap.current);
+    return () => io.disconnect();
+  }, [request, path]);
+  const info = ctx && path ? ctx.pathInfo(path) : undefined;
+  const view = pathLinkView(info, ctx?.cwd ? ctx.pathInfo(ctx.cwd)?.absolute : null);
+  const known = view?.kind === "menu";
+  return { wrap: wrap as React.RefObject<HTMLSpanElement>, inside: view?.kind === "menu" ? view.open || view.reveal : null, known };
+}
+
+const GIT_TEXT = (d: Extract<Directive, { kind: "git" }>): string => {
+  switch (d.op) {
+    case "stage": return "変更をステージ";
+    case "commit": return "コミット";
+    case "create-branch": return `ブランチ作成 ${clip(d.branch ?? "", 40)}`;
+    case "push": return `push ${clip(d.branch ?? "", 40)}`;
+    case "create-pr": return `PR 作成 ${clip(d.branch ?? "", 40)}${d.draft ? "（下書き）" : ""}`;
+  }
+};
+
+/** git 系の指示の記録チップ。Codex の報告として示すだけで、実行・取消はしない。 */
+function GitChip({ d }: { d: Extract<Directive, { kind: "git" }> }) {
+  const ctx = useContext(RefContext);
+  const cand = pathCandidate(d.cwd);
+  const { wrap, inside } = useInside(cand ? cand.path : null);
+  const showChanges = (d.op === "stage" || d.op === "commit") && inside === true && !!ctx?.openChanges;
+  return (
+    <span ref={wrap} className="md-dir md-dir-git" title={d.cwd}>
+      <span className="md-dir-tag">Codex の報告</span> {GIT_TEXT(d)}
+      {!cand || inside === false ? <span className="muted">（作業フォルダ外）</span> : null}
+      {showChanges ? <> <button type="button" className="md-mini" onClick={() => ctx?.openChanges?.()}>変更を確認</button></> : null}
+      {d.url && linkPolicy(d.url) === "open" ? <> <ExtLink href={d.url}>PR を開く</ExtLink></> : null}
+    </span>
+  );
+}
+
+const rangeText = (d: Extract<Directive, { kind: "codeComment" }>): string => `${d.file}:${d.start}${d.end > d.start ? `-${d.end}` : ""}`;
+
+/** code-comment の指摘カード。本文は文字として出す。 */
+function CommentCard({ d }: { d: Extract<Directive, { kind: "codeComment" }> }) {
+  const cand = pathCandidate(d.file);
+  const label = <span className="md-link">{rangeText(d)}</span>;
+  return (
+    <span className="md-dir md-dir-card">
+      <span className="md-dir-head">
+        {d.priority !== null ? <span className="md-dir-prio">[P{d.priority}]</span> : null} <strong>{d.title}</strong>
+      </span>
+      <span className="md-dir-loc">
+        {cand ? <PathRef strict cand={{ path: cand.path, line: d.start, col: null }} plain={<span>{rangeText(d)}</span>} label={label} /> : <span>{rangeText(d)}<span className="muted">（作業フォルダ外・確認できません）</span></span>}
+      </span>
+      <span className="md-dir-body">{d.body}</span>
+    </span>
+  );
+}
+
+function Followup({ d }: { d: Extract<Directive, { kind: "followup" }> }) {
+  const ctx = useContext(RefContext);
+  return (
+    <span className="md-dir md-dir-follow">
+      <span>{d.label}</span>{" "}
+      <button type="button" className="md-mini" disabled={!ctx?.insertPrompt} title={`入力欄に入れます（送信はしません）:\n${clip(d.prompt, 200)}`} onClick={() => ctx?.insertPrompt?.(d.prompt)}>入力欄へ</button>
+    </span>
+  );
+}
+
+function Citation({ d }: { d: Extract<Directive, { kind: "citation" }> }) {
+  const cand = pathCandidate(d.path);
+  const text = d.label ?? d.path;
+  if (!cand) return <span className="md-dir md-dir-cite">{text}<span className="muted">（作業フォルダ外・確認できません）</span></span>;
+  return <PathRef strict cand={cand} plain={<span>{text}</span>} label={<span className="md-link">{text}</span>} />;
+}
+
+/** 解釈した指示を表示にする。JSON が壊れていれば原文（子）のまま。 */
+function DirectiveRef({ json, children }: { json: string; children?: ReactNode }) {
+  let d: Directive | null = null;
+  try { d = JSON.parse(json) as Directive; } catch { d = null; }
+  if (!d) return <>{children}</>;
+  switch (d.kind) {
+    case "git": return <GitChip d={d} />;
+    case "codeComment": return <CommentCard d={d} />;
+    case "followup": return <Followup d={d} />;
+    case "citation": return <Citation d={d} />;
+    default: return <>{children}</>;
+  }
+}
+
 /** react-markdown の `span` の差し替え。参照の印（data-ref）が付いたものだけ部品にし、他はそのまま。 */
 export function RefSpan(props: Record<string, unknown> & { children?: ReactNode }) {
   const { node: _node, children, ...rest } = props;
@@ -195,6 +294,7 @@ export function RefSpan(props: Record<string, unknown> & { children?: ReactNode 
   if (kind === "thread") {
     return <ThreadRef id={String(rest["data-id"] ?? "")} directive={rest["data-directive"] === "1"} code={rest["data-code"] === "1"}>{children}</ThreadRef>;
   }
+  if (kind === "directive") return <DirectiveRef json={String(rest["data-d"] ?? "")}>{children}</DirectiveRef>;
   if (kind === "path") {
     const code = <code>{children}</code>;
     return <PathRef cand={{ path: String(rest["data-path"] ?? ""), line: null, col: null }} plain={code} label={code} />;

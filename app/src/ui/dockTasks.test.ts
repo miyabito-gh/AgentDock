@@ -1,7 +1,7 @@
 // 実行: node --test src/ui/dockTasks.test.ts （tscの対象外）
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { cardDensity, chatSignature, mayRedirect, orderByRecency, pickRecentDescendants, selectTasks, stableOrder, stableMembership, trackRecency } from "./dockTasks.ts";
+import { branchOrder, descendantSummary, descendantSummaryText, cardDensity, chatSignature, mayRedirect, orderByRecency, pickRecentDescendants, selectTasks, stableOrder, stableMembership, trackRecency } from "./dockTasks.ts";
 
 const chat = (id: string, o: any = {}): any => ({ key: { backend: "codex", id }, lastUsedAt: null, createdAt: { kind: "notFetched" }, archived: { kind: "value", value: false }, ...o });
 const agent = (cid: string, id: string, state: string, o: any = {}): any => ({
@@ -120,4 +120,40 @@ test("stableMembership: 入力中は帯・タスクの所属を保つ（帯へ�
   assert.deepEqual(stableMembership(["x"], ["a"], ["g"], ["a"], true, new Set(["a", "g"])), { band: ["g"], task: ["a"] });
   // 凍結しなければ next
   assert.deepEqual(stableMembership([], ["a", "b"], ["b"], ["a"], false, ex), { band: ["b"], task: ["a"] });
+});
+
+const kid = (cid: string, id: string, state: string, parent: string | null, o: any = {}): any =>
+  agent(cid, id, state, { ...o, parent: parent ? { kind: "explicit", parent: { backend: "codex", id: parent } } : { kind: "root" } });
+
+test("descendantSummary: 内訳。状態不明は完了に数えず、履歴確認は別", () => {
+  const c = chat("a");
+  const s = snap([c], [
+    kid("a", "r", "done", null), kid("a", "k1", "running", "r"), kid("a", "k2", "done", "r"), kid("a", "k3", "unknown", "r"),
+    kid("a", "k4", "unknown", "r"), kid("a", "k5", "failed", "k1"), kid("a", "k6", "waiting", "k1"),
+  ]);
+  const d = descendantSummary(s, c, (v) => (v.agent.key.id === "k4" ? "completed" : null));
+  assert.deepEqual([d.total, d.working, d.waiting, d.done, d.failed, d.unknown, d.history, d.notFetched], [6, 1, 1, 1, 1, 1, 1, false]);
+  assert.equal(descendantSummaryText(d), "子 6件（作業中1・対応待ち1・完了1・失敗1・状態不明1・履歴で確認1）");
+});
+test("descendantSummary: 子孫が無ければ未取得（0件とは言わない）", () => {
+  const c = chat("a");
+  const d = descendantSummary(snap([c], [kid("a", "r", "done", null)]), c, () => null);
+  assert.equal(d.notFetched, true);
+  assert.match(descendantSummaryText(d), /未取得/);
+});
+test("branchOrder: 枝に作業中があるものが先、メイン直下だけが根", () => {
+  const c = chat("a");
+  const s = snap([c], [
+    kid("a", "r", "done", null),
+    kid("a", "x", "done", "r", { obs: 100 }),
+    kid("a", "y", "done", "r", { obs: 5 }), kid("a", "y1", "running", "y", { obs: 5 }),
+    kid("a", "z", "done", "r", { obs: 50 }),
+  ]);
+  assert.deepEqual(branchOrder(s, c), ["codex:y", "codex:x", "codex:z"]);
+});
+test("branchOrder: 親が一覧に無い子は根に出し、入力中は stableOrder で並びを保てる", () => {
+  const c = chat("a");
+  const s = snap([c], [kid("a", "r", "done", null), kid("a", "o", "done", "missing", { obs: 1 }), kid("a", "k", "done", "r", { obs: 9 })]);
+  assert.deepEqual(branchOrder(s, c), ["codex:k", "codex:o"]);
+  assert.deepEqual(stableOrder(["codex:o", "codex:k"], branchOrder(s, c), true), ["codex:o", "codex:k"]);
 });

@@ -151,3 +151,86 @@ export function stableOrder(prev: string[], next: string[], frozen: boolean): st
   const have = new Set(kept);
   return [...kept, ...next.filter((id) => !have.has(id))];
 }
+
+/** カード内の子ツリー展開部の高さ上限（ドック高さに対する分母。1/2）。styles.css の .tc-kids-box と揃える。 */
+export const KIDS_BOX_FRACTION = 2;
+
+export type DescendantSummary = {
+  total: number;
+  working: number; waiting: number; idle: number; done: number; interrupted: number; failed: number;
+  /** 状態不明（履歴で終端を確認できていないもの）。完了に数えない。 */
+  unknown: number;
+  /** 状態不明のうち、履歴の読取りで終端を確認したもの（live確認ではない）。 */
+  history: number;
+  /** 子孫がスナップショットに無い。0件と「未取得」は区別できないので、無ければ未取得側に倒す（ドックからは読みに行かない）。 */
+  notFetched: boolean;
+};
+
+/** 子孫（親以外）の内訳。履歴確認済みは完了・失敗に混ぜず別に数える（§3.5・§4.1）。outcomeOf は呼び出し側の historyOutcomeOf。 */
+export function descendantSummary(snap: HostSnapshot, c: Chat, outcomeOf: (v: AgentView) => string | null): DescendantSummary {
+  const s: DescendantSummary = { total: 0, working: 0, waiting: 0, idle: 0, done: 0, interrupted: 0, failed: 0, unknown: 0, history: 0, notFetched: false };
+  for (const v of agentsOf(snap, c)) {
+    if (v.agent.parent.kind === "root") continue;
+    s.total++;
+    switch (v.status.state) {
+      case "running": case "initializing": s.working++; break;
+      case "waiting": s.waiting++; break;
+      case "idle": s.idle++; break;
+      case "done": case "closed": s.done++; break;
+      case "interrupted": s.interrupted++; break;
+      case "failed": s.failed++; break;
+      case "unknown": if (outcomeOf(v)) s.history++; else s.unknown++; break;
+    }
+  }
+  s.notFetched = s.total === 0;
+  return s;
+}
+
+/** 「子 N件（作業中a・対応待ちb…）」。0件の内訳は省く。未取得のときは取得を促す文言（読みには行かない）。 */
+export function descendantSummaryText(s: DescendantSummary): string {
+  if (s.notFetched) return "子孫: 未取得（中央で開くと読み込みます）";
+  const parts: [string, number][] = [
+    ["作業中", s.working], ["対応待ち", s.waiting], ["待機", s.idle], ["完了", s.done], ["中断", s.interrupted],
+    ["失敗", s.failed], ["状態不明", s.unknown], ["履歴で確認", s.history],
+  ];
+  return `子 ${s.total}件（${parts.filter(([, n]) => n > 0).map(([l, n]) => `${l}${n}`).join("・")}）`;
+}
+
+/**
+ * カード内ツリーの根（メイン直下の子。親が一覧に無い・親不明のものも含む）の優先順。
+ * 枝の中に作業中・対応待ちがあるものを先、続けて枝内の最新の観測時刻の新しい順、同じなら元の順。キーの配列を返す。
+ */
+export function branchOrder(snap: HostSnapshot, c: Chat): string[] {
+  const all = agentsOf(snap, c);
+  const inChat = new Set(all.map((a) => chainKey(a.agent.key)));
+  const childrenOf = new Map<string, AgentView[]>();
+  for (const a of all) {
+    if (a.agent.parent.kind !== "explicit") continue;
+    const p = chainKey(a.agent.parent.parent);
+    childrenOf.set(p, [...(childrenOf.get(p) ?? []), a]);
+  }
+  const at = (v: AgentView): number => Math.max(v.currentActivity?.evidence.observedAt ?? 0, v.status.evidence.observedAt);
+  const walk = (v: AgentView, seen: Set<string>): { active: boolean; at: number } => {
+    const k = chainKey(v.agent.key);
+    if (seen.has(k)) return { active: false, at: 0 };
+    seen.add(k);
+    let r = { active: isActive(v), at: at(v) };
+    for (const ch of childrenOf.get(k) ?? []) {
+      const x = walk(ch, seen);
+      r = { active: r.active || x.active, at: Math.max(r.at, x.at) };
+    }
+    return r;
+  };
+  const rootKeys = new Set(all.filter((a) => a.agent.parent.kind === "root").map((a) => chainKey(a.agent.key)));
+  const tops = all.filter((a) => {
+    const p = a.agent.parent;
+    if (p.kind === "root") return false;
+    if (p.kind === "unknown") return true;
+    const pk = chainKey(p.parent);
+    return rootKeys.has(pk) || !inChat.has(pk);
+  });
+  return tops
+    .map((v, i) => ({ k: chainKey(v.agent.key), i, ...walk(v, new Set()) }))
+    .sort((a, b) => Number(b.active) - Number(a.active) || b.at - a.at || a.i - b.i)
+    .map((x) => x.k);
+}

@@ -535,7 +535,7 @@ textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;paddin
 .tcard.run{border-left-color:var(--run)} .tcard.wait{border-left-color:var(--wait-solid);background:var(--wait-bg)}
 .tcard.fail{border-left-color:var(--fail)} .tcard.int{border-left-color:var(--int)} .tcard.idle{border-left-color:var(--idle)}
 .tcard.unk{border-left-color:var(--unk);border-left-style:dashed}
-.tcard.working:not(.line):not(.band){max-height:calc(var(--dock-h, 600px) / 3);overflow:auto}
+.tcard.working:not(.line):not(.band):not(.kopen){max-height:calc(var(--dock-h, 600px) / 3);overflow:auto}
 .tcard.ended:not(.line){min-height:0}
 .tc-h{display:flex;align-items:center;gap:6px;min-width:0}
 .tc-h .tc-name,.tc-line .tc-name{flex:1 1 auto;min-width:0;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -550,6 +550,15 @@ textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;paddin
 .tc-act{font-size:var(--fs-s);margin-top:4px;color:var(--ink2);overflow-wrap:anywhere}
 .tc-act.clamp{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .tc-kids{margin-top:4px}
+.kids-toggle{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left;margin:2px 0}
+.tc-kids-none{margin:2px 0}
+/* 展開部の高さはドックの1/2まで（KIDS_BOX_FRACTION）。超えたら内部スクロール。要求カード（.tc-reqs）は常にこの上 */
+.tc-kids-box{max-height:calc(var(--dock-h, 600px) / 2);overflow:auto;overflow-x:hidden;margin-top:2px}
+.kid-row{position:relative;border-radius:var(--r1);cursor:pointer}
+.kid-row:hover{background:var(--hover)}
+.kid-row.on{outline:1px solid var(--card-line)}
+.kid-row:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.kid-req{margin:2px 0 0;color:var(--wait-ink)}
 .tc-reqs{margin-top:6px}
 .tc-reqs .req{margin:0 0 6px;max-width:none}
 .tc-req-mini{display:flex;gap:6px;align-items:center;font-size:var(--fs-s);color:var(--wait-ink);margin:4px 0}
@@ -830,6 +839,16 @@ textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;paddin
 .md .md-ref:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
 .md .md-ref.off{display:inline-flex;gap:6px;align-items:baseline;flex-wrap:wrap;cursor:default;color:var(--ink2);border-style:dashed;border-color:var(--line-strong);background:transparent}
 .md .md-pathwrap{display:inline}
+/* 応答本文の :: 指示（記録チップ・指摘カード・followup）。表示だけで、押したときだけ動く */
+.md .md-dir{font-size:.95em}
+.md .md-dir-git,.md .md-dir-follow,.md .md-dir-cite{display:inline-flex;gap:6px;align-items:baseline;flex-wrap:wrap;padding:0 8px;border:1px solid var(--line-strong);border-radius:var(--r1);background:var(--surface2);color:var(--ink2)}
+.md .md-dir-follow{border-color:var(--accent-line);background:var(--accent-weak);color:var(--ink)}
+.md .md-dir-tag{font-size:var(--fs-xs);color:var(--ink2)}
+.md .md-dir-card{display:block;margin:4px 0;padding:6px 10px;border:1px solid var(--line-strong);border-left:3px solid var(--accent-line);border-radius:var(--r1);background:var(--surface2)}
+.md .md-dir-card>span{display:block}
+.md .md-dir-prio{font-weight:600;color:var(--accent-text)}
+.md .md-dir-loc{font-size:var(--fs-xs);color:var(--ink2)}
+.md .md-dir-body{margin-top:2px;white-space:pre-wrap;overflow-wrap:anywhere}
 .md .md-path{all:unset;cursor:pointer;display:inline;color:inherit}
 .md .md-path code{text-decoration:underline dotted;text-underline-offset:2px}
 .md .md-path:hover code,.md .md-path[aria-expanded=true] code{background:var(--accent-weak)}

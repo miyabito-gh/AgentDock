@@ -1,5 +1,6 @@
 // 会話内のチャットID・ファイルパスの検出（純粋部分。React・DOMに依存しない。node --test で検証する）。
 // 検出するだけで、リンク・メニューにするかは表示側が「一覧にあるか」「実在を確認できたか」で決める。
+import { splitDirectives, type Directive } from "./directives.ts";
 
 /** セッションID（UUIDv7形式。小文字 8-4-4-4-12）。前後が英数字・ハイフンのものは別の文字列の一部なので対象外。 */
 const SESSION_ID = "(?<![0-9A-Za-z-])[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}(?![0-9A-Za-z-])";
@@ -135,6 +136,13 @@ const refNode = (kind: "thread" | "path", props: Record<string, string>, text: s
   children: [{ type: "text", value: text }],
 });
 
+/** 指示の表示用ノード。解釈結果は JSON で `data-d` に載せ、子には原文を置く（解釈できない表示側では原文のまま出る）。 */
+const directiveNode = (d: Directive, raw: string): MdNode => ({
+  type: "directiveRef",
+  data: { hName: "span", hProperties: { "data-ref": "directive", "data-d": JSON.stringify(d) } },
+  children: [{ type: "text", value: raw }],
+});
+
 const SKIP = new Set(["code", "link", "linkReference", "definition", "inlineCode", "html"]);
 
 /**
@@ -146,14 +154,23 @@ export function remarkRefs() {
   const walk = (node: MdNode): void => {
     if (!node.children) return;
     const next: MdNode[] = [];
-    for (const c of node.children) {
+    node.children.forEach((c, idx) => {
       if (c.type === "text" && c.value) {
-        const pieces = splitThreadRefs(c.value);
-        if (pieces.length === 1 && pieces[0].t === "text") { next.push(c); continue; }
-        for (const p of pieces) {
-          if (p.t === "text") next.push({ type: "text", value: p.v });
-          else next.push(refNode("thread", { "data-id": p.id, ...(p.directive ? { "data-directive": "1" } : {}) }, p.raw));
+        // 指示（::git-… ・ code-comment ・ followup ・ file-citation）を先に取り、残りの文字からチャット参照を探す。
+        const dps = splitDirectives(c.value, node.type === "paragraph" && idx === 0);
+        let changed = dps.length > 1 || dps[0].t !== "text";
+        const flat: MdNode[] = [];
+        for (const dp of dps) {
+          if (dp.t === "directive") { flat.push(directiveNode(dp.d, dp.raw)); continue; }
+          const pieces = splitThreadRefs(dp.v);
+          if (pieces.length === 1 && pieces[0].t === "text") { flat.push({ type: "text", value: dp.v }); continue; }
+          changed = true;
+          for (const p of pieces) {
+            if (p.t === "text") flat.push({ type: "text", value: p.v });
+            else flat.push(refNode("thread", { "data-id": p.id, ...(p.directive ? { "data-directive": "1" } : {}) }, p.raw));
+          }
         }
+        if (changed) next.push(...flat); else next.push(c);
       } else if (c.type === "inlineCode" && c.value) {
         const t = wholeThreadRef(c.value);
         const pc = t ? null : pathCandidate(c.value);
@@ -164,7 +181,7 @@ export function remarkRefs() {
         if (!SKIP.has(c.type)) walk(c);
         next.push(c);
       }
-    }
+    });
     node.children = next;
   };
   return (tree: MdNode) => { walk(tree); };

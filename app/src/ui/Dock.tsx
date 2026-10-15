@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AgentKey, AgentView, Chat, ChatKey, HistoryOutcome, HostSnapshot, MonitorScope, PendingRequest, RequestAnswer } from "../ipc/types";
 import { RequestCard, chatChipClass } from "./CenterPane";
-import { cardDensity, chatSignature, mayRedirect, orderByRecency, pickRecentDescendants, selectTasks, stableMembership, stableOrder, trackRecency, type Recency } from "./dockTasks";
+import { DESCENDANT_LIMIT, branchOrder, cardDensity, chatSignature, descendantSummary, descendantSummaryText, mayRedirect, orderByRecency, selectTasks, stableMembership, stableOrder, trackRecency, type Recency } from "./dockTasks";
 import { Icon } from "./Icon";
 import { Popover } from "./Popover";
 import type { Known } from "../ipc/types";
@@ -33,7 +33,8 @@ function activityText(k: Known<string>): string {
 /** 状態不明カードの「確認済みにして隠す」の署名（新しい活動・turnが届けば変わる）。 */
 const sigOf = (v: AgentView): string => unknownSignature(v.status.raw.label, v.agent.latestTurn, v.currentActivity ? v.currentActivity.evidence.observedAt : null);
 
-function Berth({ a, depth, orphan, mini, confirmed, onConfirmFail, rootName, childNote, onDismiss, outcome, outcomeAt }: {
+function Berth({ a, depth, orphan, mini, confirmed, onConfirmFail, rootName, childNote, onDismiss, outcome, outcomeAt, readOnly }: {
+  /** 監視窓（見るだけ）。詳細を広げても確認済み・隠すのボタンは出さない。 */ readOnly?: boolean;
   outcome?: HistoryOutcome | null; outcomeAt?: number; rootName?: string; childNote?: string; a: AgentView; depth: number; orphan: boolean; mini: boolean; confirmed: boolean; onConfirmFail: (key: string) => void;
   onDismiss?: () => void;
 }) {
@@ -78,10 +79,10 @@ function Berth({ a, depth, orphan, mini, confirmed, onConfirmFail, rootName, chi
               ? <span className="stale-t" title="状態は走査で更新（約3秒間隔）。子エージェントはライブ通知ではなく、走査（約3秒間隔の読み取り）で状態を更新しています">走査で更新</span>
               : <span className="stale-t">{FRESH[a.freshness].t}</span>
           ) : null}
-          {onDismiss && !mini ? (
+          {onDismiss && !mini && !readOnly ? (
             <button className="btn sm" aria-label="確認済みにして隠す" title="この画面の表示だけを隠します。Codexやホストの状態・判定は変わりません。新しい活動が届くと再表示します" onClick={onDismiss}><Icon name="check" />隠す</button>
           ) : null}
-          {failUnconfirmed && !mini ? (
+          {failUnconfirmed && !mini && !readOnly ? (
             <button className="btn sm" aria-label="失敗を確認済みにする" title="失敗を確認済みにする" onClick={() => onConfirmFail(keyStr(a.agent.key))}><Icon name="check" />確認済み</button>
           ) : null}
         </div>
@@ -98,10 +99,33 @@ function parentNote(snap: HostSnapshot, c: Chat): string | undefined {
   return n > 0 ? [base, unknownNote(n)].filter(Boolean).join("／") : base;
 }
 
-function RootBlock({ snap, c, views, showHead, selected, mini, parentOnly, confirmed, dismissed, onDismiss, onOpen, onConfirmFail, onRecheck }: {
+/** カード内の子ツリー表示（compact）の追加指定。メイン行は出さず、メイン直下の子から描く。行を押すと詳細（非 mini の Berth）を広げる（表示だけ）。 */
+interface CompactOpts {
+  /** 根（メイン直下の子）の並び（キー）。入力中は凍結された並びが渡る。 */
+  order: string[];
+  /** 根の上限件数。undefined なら全件。 */
+  topLimit?: number;
+  moreAll: boolean;
+  onMore: (all: boolean) => void;
+  detail: Set<string>;
+  onToggleDetail: (key: string) => void;
+  /** 子に保留中の承認・質問があるときの表示語（無ければ null）。押すと同じカード内の該当要求へスクロールする（回答はしない）。 */
+  pendingLabel: (agentKey: string) => string | null;
+  onJumpReq: (agentKey: string) => void;
+}
+
+/** 「子 N件（…）▸」の開閉ボタン。 */
+function KidsToggle({ text, open, onToggle }: { text: string; open: boolean; onToggle: () => void }) {
+  return <button className="btn-line small kids-toggle" aria-expanded={open} title={`${text}。押すと子の一覧を${open ? "閉じ" : "開き"}ます（表示だけ）`} onClick={onToggle}>{open ? "▼" : "▶"} {text}</button>;
+}
+
+function RootBlock({ snap, c, views, showHead, selected, mini, parentOnly, confirmed, dismissed, onDismiss, onOpen, onConfirmFail, onRecheck, compact, kidsToggle }: {
   snap: HostSnapshot; c: Chat; views: AgentView[]; showHead: boolean; selected: boolean; mini: boolean; parentOnly: boolean;
   confirmed: Set<string>; dismissed: Map<string, string>; onDismiss: (items: AgentView[]) => void; onOpen: (id: string) => void; onConfirmFail: (key: string) => void;
   onRecheck?: (chat: ChatKey, agents: AgentKey[]) => Promise<void>;
+  compact?: CompactOpts;
+  /** 「全」の見出し下に置く、チャット単位の子の開閉。 */
+  kidsToggle?: { text: string; open: boolean; onToggle: () => void };
 }) {
   const [rechecking, setRechecking] = useState(false);
   const [openUnknown, setOpenUnknown] = useState(false);
@@ -137,12 +161,36 @@ function RootBlock({ snap, c, views, showHead, selected, mini, parentOnly, confi
     }
     return d;
   };
+  // カード内では行を押すと詳細（非 mini）を広げる。詳細でも監視窓では確認済み・隠すのボタンは出さない（readOnly）。
+  const rowMini = (v: AgentView) => (compact ? !compact.detail.has(keyStr(v.agent.key)) : mini);
+  const rowWrap = (v: AgentView, el: React.ReactNode) => {
+    if (!compact) return el;
+    const k = keyStr(v.agent.key);
+    const on = compact.detail.has(k);
+    const pl = compact.pendingLabel(k);
+    return (
+      <div className={`kid-row${on ? " on" : ""}`} role="button" tabIndex={0} aria-expanded={on} title="押すとこの子の詳細を広げます・戻します（表示だけ。送信先・回答は変わりません）"
+        onClick={(e) => { if (!(e.target as HTMLElement).closest("button")) compact.onToggleDetail(k); }}
+        onKeyDown={(e) => { if ((e.key === "Enter" || e.key === " ") && e.target === e.currentTarget) { e.preventDefault(); compact.onToggleDetail(k); } }}>
+        {pl ? <button className="btn-line small kid-req" title="このカードの該当する要求へ移動します（回答はしません）" onClick={() => compact.onJumpReq(k)}>{pl} → 要求へ</button> : null}
+        {el}
+      </div>
+    );
+  };
+  // カード内ツリーの根: メイン直下の子（親が一覧に無い子を含む）。並びは凍結済みの order、上限があれば先頭から。
+  const orderIdx = new Map((compact?.order ?? []).map((k, i) => [k, i] as const));
+  const topAll = compact
+    ? roots.flatMap((r) => (r.agent.parent.kind === "root" ? kids(keyStr(r.agent.key)) : [r]))
+        .map((v, i) => ({ v, i })).sort((a, b) => (orderIdx.get(keyStr(a.v.agent.key)) ?? 1e9) - (orderIdx.get(keyStr(b.v.agent.key)) ?? 1e9) || a.i - b.i).map((x) => x.v)
+    : roots;
+  const top = compact?.topLimit !== undefined ? topAll.slice(0, compact.topLimit) : topAll;
+  const rest = topAll.length - top.length;
   const node = (v: AgentView) => {
     const k = keyStr(v.agent.key);
     const ch = parentOnly ? [] : kids(k);
     return (
       <li key={k}>
-        <Berth a={v} outcome={outcomeOf(v)} outcomeAt={atOf(v)} depth={depthOf(v)} orphan={false} mini={mini} confirmed={confirmed.has(k)} onConfirmFail={onConfirmFail} childNote={parentOnly && v.agent.parent.kind === "root" ? parentNote(snap, c) : undefined} rootName={v.agent.parent.kind === "root" ? (v.agent.displayName.kind === "value" ? v.agent.displayName.value : previewTitle(c) ?? "メイン") : undefined} />
+        {rowWrap(v, <Berth a={v} outcome={outcomeOf(v)} outcomeAt={atOf(v)} depth={depthOf(v)} orphan={false} mini={rowMini(v)} readOnly={mini} confirmed={confirmed.has(k)} onConfirmFail={onConfirmFail} childNote={parentOnly && v.agent.parent.kind === "root" ? parentNote(snap, c) : undefined} rootName={v.agent.parent.kind === "root" ? (v.agent.displayName.kind === "value" ? v.agent.displayName.value : previewTitle(c) ?? "メイン") : undefined} />)}
         {ch.length ? <ul className="tree">{ch.map(node)}</ul> : null}
       </li>
     );
@@ -155,7 +203,11 @@ function RootBlock({ snap, c, views, showHead, selected, mini, parentOnly, confi
           {!selected ? <button onClick={() => onOpen(c.key.id)}>開く</button> : null}
         </div>
       ) : null}
-      <ul className="tree">{roots.map(node)}</ul>
+      {kidsToggle ? <KidsToggle {...kidsToggle} /> : null}
+      <ul className="tree">{top.map(node)}</ul>
+      {compact ? (rest > 0
+        ? <button className="btn-line small" onClick={() => compact.onMore(true)}>ほか{rest}件を表示</button>
+        : compact.moreAll && topAll.length > DESCENDANT_LIMIT ? <button className="btn-line small" onClick={() => compact.onMore(false)}>直近{DESCENDANT_LIMIT}件だけにする</button> : null) : null}
       {histAll.length ? (
         <div style={{ margin: "6px 0 0" }}>
           <div className="grp-h">
@@ -165,7 +217,7 @@ function RootBlock({ snap, c, views, showHead, selected, mini, parentOnly, confi
           {openHistory ? (
             <ul className="tree">{histShown.map((v) => (
               <li key={keyStr(v.agent.key)}>
-                <Berth a={v} outcome={outcomeOf(v)} outcomeAt={atOf(v)} depth={depthOf(v)} orphan={v.agent.parent.kind === "unknown"} mini={mini} confirmed={false} onConfirmFail={onConfirmFail} onDismiss={() => onDismiss([v])} />
+                {rowWrap(v, <Berth a={v} outcome={outcomeOf(v)} outcomeAt={atOf(v)} depth={depthOf(v)} orphan={v.agent.parent.kind === "unknown"} mini={rowMini(v)} readOnly={mini} confirmed={false} onConfirmFail={onConfirmFail} onDismiss={() => onDismiss([v])} />)}
               </li>
             ))}</ul>
           ) : null}
@@ -184,7 +236,7 @@ function RootBlock({ snap, c, views, showHead, selected, mini, parentOnly, confi
           {openUnknown ? (
             <ul className="tree">{parkedShown.map((v) => (
               <li key={keyStr(v.agent.key)}>
-                <Berth a={v} depth={depthOf(v)} orphan={v.agent.parent.kind === "unknown"} mini={mini} confirmed={false} onConfirmFail={onConfirmFail} onDismiss={() => onDismiss([v])} />
+                {rowWrap(v, <Berth a={v} depth={depthOf(v)} orphan={v.agent.parent.kind === "unknown"} mini={rowMini(v)} readOnly={mini} confirmed={false} onConfirmFail={onConfirmFail} onDismiss={() => onDismiss([v])} />)}
               </li>
             ))}</ul>
           ) : null}
@@ -257,29 +309,27 @@ function useTyping(): { typing: boolean; now: () => boolean } {
   return { typing, now: () => !mayRedirect(inputState(composing.current)) };
 }
 
-function depthIn(snap: HostSnapshot, c: Chat, v: AgentView): number {
-  let d = 0; let p = v.agent.parent;
-  while (p.kind === "explicit") {
-    d++;
-    const pk = keyStr(p.parent);
-    const next = chatAgents(snap, c).find((x) => keyStr(x.agent.key) === pk);
-    if (!next) break;
-    p = next.agent.parent;
-  }
-  return d;
-}
-
 /** タスクカード（1チャット）。状態は書き換えず、親の状態・活動を既存の文言のまま見せる。 */
-function TaskCard({ snap, c, band, line, open, marked, mini, at, confirmed, actions, onToggle, onClose, onOpen, onConfirmFail }: {
+function TaskCard({ snap, c, band, line, open, marked, mini, at, confirmed, actions, kidsOpen, onToggleKids, kidsOrder, moreAll, onMore, detail, onToggleDetail, dismissed, onDismiss, onRecheck, onToggle, onClose, onOpen, onConfirmFail }: {
   snap: HostSnapshot; c: Chat; band: boolean; line: boolean; open: boolean; marked: boolean; mini: boolean; at: number | undefined; confirmed: Set<string>;
   actions?: DockActions; onToggle: () => void; onClose?: () => void; onOpen: (id: string) => void; onConfirmFail: (key: string) => void;
+  /** 子ツリーの開閉・「ほかN件」・詳細の開いた行は DockPane が持つ（帯とタスク列を移ってカードが作り直されても消えない）。 */
+  kidsOpen: boolean; onToggleKids: () => void; kidsOrder: string[]; moreAll: boolean; onMore: (all: boolean) => void;
+  detail: Set<string>; onToggleDetail: (key: string) => void;
+  dismissed: Map<string, string>; onDismiss: (items: AgentView[]) => void; onRecheck?: (chat: ChatKey, agents: AgentKey[]) => Promise<void>;
 }) {
-  const [allKids, setAllKids] = useState(false);
   const root = rootView(snap, c);
   const working = isWorkingForDock(snap, c);
   const reqs = chatRequests(snap, c);
   const body = !line || open;
-  const kids = pickRecentDescendants(snap, c, allKids ? Infinity : undefined);
+  const sum = descendantSummary(snap, c, (v) => historyOutcomeOf(snap, v));
+  const sumText = descendantSummaryText(sum);
+  const reqsRef = useRef<HTMLDivElement>(null);
+  const reqLabel = (k: string): string | null => { const r = reqs.find((x) => keyStr(x.agent) === k); return r ? (r.kind.kind === "userInput" ? "質問待ち" : "承認待ち") : null; };
+  const jumpReq = (k: string) => {
+    const el = Array.from(reqsRef.current?.querySelectorAll<HTMLElement>("[data-req-agent]") ?? []).find((e) => e.dataset.reqAgent === k) ?? reqsRef.current;
+    el?.scrollIntoView({ block: "nearest" });
+  };
   const act = root?.currentActivity ? activityText(root.currentActivity.summary) : root ? "活動なし" : "未確認";
   const nameOf = (a: AgentKey): string => { const v = chatAgents(snap, c).find((x) => keyStr(x.agent.key) === keyStr(a)); return v ? showKnown(v.agent.displayName) : a.id; };
   const notLive = !!root && root.freshness !== "live";
@@ -305,7 +355,7 @@ function TaskCard({ snap, c, band, line, open, marked, mini, at, confirmed, acti
   const chip = chatChipClass(snap, c);
   const stateText = chatStatusText(snap, c);
   return (
-    <section className={`tcard ${chip} ${band ? "band" : ""} ${working ? "working" : "ended"} ${line ? "line" : ""}`} data-chat={cid(c)} aria-label={`${chatName(c)}のカード`}>
+    <section className={`tcard ${chip} ${band ? "band" : ""} ${working ? "working" : "ended"} ${line ? "line" : ""} ${kidsOpen && body ? "kopen" : ""}`} data-chat={cid(c)} aria-label={`${chatName(c)}のカード`}>
       <div className="tc-h">
         {line ? (
           <button className="tc-line" aria-expanded={open} title={`${stateText}。押すとこのカードだけ展開します`} onClick={onToggle}>
@@ -326,29 +376,26 @@ function TaskCard({ snap, c, band, line, open, marked, mini, at, confirmed, acti
         {onClose ? <button className="small" aria-label={`${chatName(c)}のカードを閉じる`} title="この画面から外します（新しい活動があれば再表示します。会話・作業には影響しません）" onClick={onClose}><Icon name="x" /></button> : null}
       </div>
       {reqs.length ? (
-        <div className="tc-reqs">
+        <div className="tc-reqs" ref={reqsRef}>
           {reqs.map((r) => (mini || !actions
-            ? <div key={`${r.key.source}/${r.key.requestId}`} className="tc-req-mini"><Icon name="alert" />{r.kind.kind === "userInput" ? "質問" : "承認"}の回答待ち: {r.detail.summary}（通常画面で回答します）</div>
-            : <RequestCard key={`${r.key.source}/${r.key.requestId}`} r={r} onRespond={(q, a) => actions.respond(q, a)} agentName={nameOf} />))}
+            ? <div key={`${r.key.source}/${r.key.requestId}`} data-req-agent={keyStr(r.agent)} className="tc-req-mini"><Icon name="alert" />{r.kind.kind === "userInput" ? "質問" : "承認"}の回答待ち: {r.detail.summary}（通常画面で回答します）</div>
+            : <div key={`${r.key.source}/${r.key.requestId}`} data-req-agent={keyStr(r.agent)}><RequestCard r={r} onRespond={(q, a) => actions.respond(q, a)} agentName={nameOf} /></div>))}
         </div>
       ) : null}
       {body ? (
         <>
           {notLive ? <div className="tc-fresh">{FRESH[root.freshness].t}</div> : null}
           <div className={`tc-act ${working ? "" : "clamp"}`} title={act}>{act}</div>
-          {working ? (
-            <div className="tc-kids">
-              {kids.shown.length ? (
-                <ul className="tree">{kids.shown.map((v) => (
-                  <li key={keyStr(v.agent.key)}>
-                    <Berth a={v} outcome={historyOutcomeOf(snap, v)} outcomeAt={snap.historyConfirmations.find((h) => h.agent.id === v.agent.key.id)?.confirmedAt} depth={depthIn(snap, c, v)} orphan={v.agent.parent.kind === "unknown"} mini confirmed={confirmed.has(keyStr(v.agent.key))} onConfirmFail={onConfirmFail} />
-                  </li>
-                ))}</ul>
-              ) : null}
-              {kids.rest > 0 ? <button className="btn-line small" onClick={() => setAllKids(true)}>ほか{kids.rest}件を表示</button> : null}
-              {allKids && kids.shown.length > 3 ? <button className="btn-line small" onClick={() => setAllKids(false)}>直近3件だけにする</button> : null}
-            </div>
-          ) : null}
+          <div className="tc-kids">
+            {sum.notFetched ? <div className="tc-kids-none small muted">{sumText}</div> : <KidsToggle text={sumText} open={kidsOpen} onToggle={onToggleKids} />}
+            {kidsOpen && !sum.notFetched ? (
+              <div className="tc-kids-box">
+                <RootBlock snap={snap} c={c} views={chatAgents(snap, c)} showHead={false} selected parentOnly={false} mini={mini} confirmed={confirmed} dismissed={dismissed}
+                  onDismiss={onDismiss} onOpen={onOpen} onConfirmFail={onConfirmFail} onRecheck={mini ? undefined : onRecheck}
+                  compact={{ order: kidsOrder, topLimit: working && !moreAll ? DESCENDANT_LIMIT : undefined, moreAll, onMore, detail, onToggleDetail, pendingLabel: reqLabel, onJumpReq: jumpReq }} />
+              </div>
+            ) : null}
+          </div>
           {canWrite ? (
             <div className="tc-send">
               <textarea ref={ta} rows={1} aria-label={`${chatName(c)}への次の指示`} value={draft} disabled={!!block}
@@ -388,6 +435,13 @@ export function DockPane({ snap, scope, selId, mini, confirmed, onScope, onOpen,
   const [closed, setClosed] = useState<Map<string, string>>(new Map());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [marks, setMarks] = useState<Set<string>>(new Set());
+  // 子ツリーの開閉（タスク）・「ほかN件」・詳細を開いた行・「全」のチャット別開閉は、帯⇔タスク列でカードが作り直されても消えないよう DockPane が持つ（画面内の記憶。保存しない）。
+  const [kidsOpen, setKidsOpen] = useState<Map<string, boolean>>(new Map());
+  const [moreAll, setMoreAll] = useState<Set<string>>(new Set());
+  const [detail, setDetail] = useState<Set<string>>(new Set());
+  // 「全」: 未指定=開（完了の子は全体の「終了済みも表示」に従う）、true=利用者が展開（このチャットだけ完了の子も出す）、false=畳む
+  const [allOpen, setAllOpen] = useState<Map<string, boolean>>(new Map());
+  const kidOrder = useRef<Map<string, string[]>>(new Map());
   const taskOrder = useRef<string[]>([]);
   const bandOrder = useRef<string[]>([]);
   const allOrder = useRef<string[]>([]);
@@ -419,6 +473,7 @@ export function DockPane({ snap, scope, selId, mini, confirmed, onScope, onOpen,
   const allById = new Map(snap.chats.map((c) => [cid(c), c] as const));
   const chats = isSel ? snap.chats.filter((c) => c.key.id === selId) : allIds.flatMap((id) => allById.get(id) ?? []);
   const visibleOf = (c: Chat) => chatAgents(snap, c).filter((v) => {
+    const showFinished = scope.kind === "allChats" && scope.showFinished || (view === "all" && allOpen.get(cid(c)) === true);
     if (parentOnly) {
       if (v.agent.parent.kind !== "root") return false;
       if (isSel || isWorkingForDock(snap, c)) return true; // 子孫が作業中の親は、親自身が完了でも出す
@@ -429,6 +484,14 @@ export function DockPane({ snap, scope, selId, mini, confirmed, onScope, onOpen,
     return true;
   });
   const blocks = isTask ? [] : chats.map((c) => ({ c, views: visibleOf(c) })).filter((b) => isSel || b.views.length);
+  // 「全」の見出しの開閉用。子の数は内訳の文言（履歴確認・状態不明を含む）で出す。子孫が無いチャットには出さない。
+  const allToggle = (c: Chat) => {
+    if (view !== "all") return undefined;
+    const sum = descendantSummary(snap, c, (v) => historyOutcomeOf(snap, v));
+    if (sum.notFetched) return undefined;
+    const open = allOpen.get(cid(c)) !== false;
+    return { text: descendantSummaryText(sum), open, onToggle: () => setAllOpen((m) => new Map(m).set(cid(c), !open ? true : false)) };
+  };
   // 「タスク」: 帯（対応待ち）＋最近動かした順の最大5件＋ほか（1行）。完了しても消さない（閉じる・アーカイブ・削除だけ）。
   const sel = useMemo(
     () => (isTask ? selectTasks(snap, rec, closed, (c) => isWorkingForDock(snap, c)) : { attention: [], tasks: [], overflow: [] }),
@@ -462,10 +525,22 @@ export function DockPane({ snap, scope, selId, mini, confirmed, onScope, onOpen,
     setMarks((m) => { if (!m.has(id)) return m; const n = new Set(m); n.delete(id); return n; });
   };
   const closeCard = (c: Chat) => setClosed((m) => new Map(m).set(cid(c), rec.get(cid(c))?.sig ?? chatSignature(snap, c)));
-  const card = (c: Chat, band: boolean) => (
+  const kidOrderNow = new Map<string, string[]>();
+  useEffect(() => { kidOrder.current = kidOrderNow; });
+  const toggleIn = <T,>(set: Set<T>, v: T): Set<T> => { const n = new Set(set); if (n.has(v)) n.delete(v); else n.add(v); return n; };
+  const card = (c: Chat, band: boolean) => {
+    const id = cid(c);
+    // 入力中は子の並びも凍結（新しい子は末尾）
+    const order = stableOrder(kidOrder.current.get(id) ?? [], branchOrder(snap, c), typing);
+    kidOrderNow.set(id, order);
+    const isOpen = kidsOpen.get(id) ?? isWorkingForDock(snap, c);
+    return (
     <TaskCard key={cid(c)} snap={snap} c={c} band={band} line={line} open={expanded.has(cid(c))} marked={marks.has(cid(c))} mini={!!mini} at={rec.get(cid(c))?.at}
-      confirmed={confirmed} actions={mini ? undefined : actions} onToggle={() => toggleOpen(cid(c))} onClose={band ? undefined : () => closeCard(c)} onOpen={onOpen} onConfirmFail={onConfirmFail} />
-  );
+      confirmed={confirmed} actions={mini ? undefined : actions} onToggle={() => toggleOpen(cid(c))} onClose={band ? undefined : () => closeCard(c)} onOpen={onOpen} onConfirmFail={onConfirmFail}
+      kidsOpen={isOpen} onToggleKids={() => setKidsOpen((m) => new Map(m).set(id, !isOpen))} kidsOrder={order} moreAll={moreAll.has(id)} onMore={(all) => setMoreAll((s) => (all ? new Set(s).add(id) : toggleIn(s, id)))}
+      detail={detail} onToggleDetail={(k) => setDetail((s) => toggleIn(s, k))} dismissed={dismissed} onDismiss={mini ? () => {} : onDismiss} onRecheck={mini ? undefined : onRecheck} />
+    );
+  };
   return (
     <>
       <div className="dock-top">
@@ -518,7 +593,7 @@ export function DockPane({ snap, scope, selId, mini, confirmed, onScope, onOpen,
             {!bandChats.length && !taskChats.length && !overflow.length ? <div className="empty-note">{snap.chats.length ? "表示するタスクはありません（閉じたものは新しい活動で戻ります）" : "チャットを始めると、ここにタスクが表示されます"}</div> : null}
           </>
         ) : blocks.length ? blocks.map(({ c, views }) => (
-          <RootBlock key={keyStr(c.key)} snap={snap} c={c} views={views} showHead={!isSel || !!mini} selected={c.key.id === selId} mini={!!mini} parentOnly={parentOnly}
+          <RootBlock key={keyStr(c.key)} snap={snap} c={c} views={views} showHead={!isSel || !!mini} selected={c.key.id === selId} mini={!!mini} parentOnly={parentOnly || (view === "all" && allOpen.get(cid(c)) === false)} kidsToggle={parentOnly ? undefined : allToggle(c)}
             confirmed={confirmed} dismissed={dismissed} onDismiss={onDismiss} onOpen={onOpen} onConfirmFail={onConfirmFail} onRecheck={onRecheck} />
         )) : <div className="empty-note">{snap.chats.length ? "作業中・対応待ちのエージェントはありません" : "チャットを始めると、ここにエージェントが表示されます"}</div>}
       </div>

@@ -155,7 +155,7 @@ export default function App() {
   const lastListItems = useRef<Chat[]>([]);
   const attemptsRef = useRef<Record<string, SendAttempt>>({});
   /** クイック新規の下書き（まだ会話を作っていない。メモリだけ）。 */
-  const [quick, setQuick] = useState<{ open: boolean; text: string; model: string | null }>({ open: false, text: "", model: null });
+  const [quick, setQuick] = useState<{ open: boolean; text: string; model: string | null; busy?: boolean }>({ open: false, text: "", model: null });
   const quickRef = useRef<HTMLTextAreaElement>(null);
   const [steerUnknown, setSteerUnknown] = useState<Record<string, string>>({});
   const [warnHidden, setWarnHidden] = useState(false);
@@ -865,10 +865,12 @@ ${cur}` : p.text);
   /** クイック新規の送信: 一般チャット・worktreeなし・権限は初期値で作成する（最初の依頼とともに）。 */
   const quickSend = () => {
     const text = quick.text;
-    if (!text.trim()) return;
+    if (!text.trim() || quick.busy) return;
     const model = quick.model ?? pickQuickModel(models, snap.settings.lastNewChat);
-    setQuick({ open: false, text: "", model: null });
-    void createChat({ cwd: null, model, firstMessage: text, isolate: false, worktree: null, extraFolders: [], confirmedStrong: [] });
+    // 作成が終わる（新チャットへ移る、または一覧の仮行に失敗が出る）まで下書き画面に「作成中」を残し、前の会話へ戻さない。
+    setQuick((q) => ({ ...q, busy: true }));
+    void createChat({ cwd: null, model, firstMessage: text, isolate: false, worktree: null, extraFolders: [], confirmedStrong: [] })
+      .finally(() => setQuick((q) => (q.text === text ? { open: false, text: "", model: null } : { ...q, busy: false })));
   };
   const creatingAct = (id: string, op: "retry" | "dismiss" | "refresh") => {
     const c = creating.find((x) => x.tempId === id);
@@ -1100,6 +1102,12 @@ ${cur}` : p.text);
     pathInfo, requestPath, pathAct,
     canAttach: !!chat && live,
     cwd: headCwd,
+    openChanges: chat ? () => setDialog({ type: "changes", chatId: chat.key.id }) : undefined,
+    insertPrompt: chat ? (text) => {
+      const cur = drafts[chat.key.id] ?? "";
+      if (cur.trim() !== "" && !window.confirm("入力欄に書きかけの文があります。この文に置き換えますか？（送信はしません）")) return;
+      onDraft(chat, text);
+    } : undefined,
   };
 
   /** 完全終了の選択（ホストが中断要求・停止照合・保存を進める）。「待つ」は画面を閉じるだけで、手順は続く。 */
@@ -1445,6 +1453,7 @@ ${cur}` : p.text);
         break;
       case "newChatQuick":
         if (!live) { say("この操作はモックでは動きません。"); break; }
+        setLNarrow(false); // 狭い画面の一時パネルから開いたとき、左を閉じて下書きを見せる
         setQuick((q) => ({ ...q, open: true }));
         window.requestAnimationFrame(() => quickRef.current?.focus());
         break;
@@ -1627,9 +1636,9 @@ ${cur}` : p.text);
               onChatList={(f) => updateSettings((s) => ({ ...s, chatList: f(s.chatList) }), "一覧の表示設定を保存できませんでした。次回の起動では保存されている値に戻ります")} listStatus={listStatus} uiSize={snap.settings.appearance.uiText} />
           </aside>
           <main className="center">
-            {quick.open ? (
+            {quick.open || (!chat && live) ? (
               <QuickNewPane models={models} model={quick.model ?? pickQuickModel(models, snap.settings.lastNewChat)} setModel={(id) => setQuick((q) => ({ ...q, model: id }))}
-                text={quick.text} setText={(v) => setQuick((q) => ({ ...q, text: v }))} enterMode={enterMode} busy={false} inputRef={quickRef}
+                text={quick.text} setText={(v) => setQuick((q) => ({ ...q, text: v }))} enterMode={enterMode} busy={!!quick.busy} inputRef={quickRef}
                 onSend={quickSend} onDetail={() => { setDialog({ type: "newChat", prefill: { model: quick.model ?? pickQuickModel(models, snap.settings.lastNewChat), first: quick.text, isolate: false, worktree: null } }); setQuick({ open: false, text: "", model: null }); }} />
             ) : chat ? (
               <CenterPane
