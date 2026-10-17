@@ -11,6 +11,7 @@
 
 pub mod atomic;
 pub mod layout;
+pub mod org;
 pub mod records;
 
 use std::collections::{HashMap, HashSet};

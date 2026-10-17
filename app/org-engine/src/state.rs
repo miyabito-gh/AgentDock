@@ -1,6 +1,7 @@
 //! State machine. Only listed transitions exist; there is no transition that
 //! turns termination / disconnect / unknown acceptance into cancelled/failed.
 use crate::types::*;
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum K {
@@ -74,7 +75,7 @@ pub fn is_allowed(from: &TaskStatus, to: &TaskStatus) -> bool {
 }
 
 /// Who or what drives the transition.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Cause {
     /// Engine observation (turn result, validation...).
     Engine,

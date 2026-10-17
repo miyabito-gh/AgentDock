@@ -1,8 +1,9 @@
 //! Counters for turns, rework and automatic re-planning. A turn is counted
 //! before sending; format-fix requests and rework each count as one turn.
 use crate::types::*;
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TurnKind {
     Plan,
     Task,
@@ -19,7 +20,7 @@ pub enum LimitError {
     AutoReplanLimit { used: u32, max: u32 },
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Counters {
     pub turns_used: u32,
     pub auto_replans_used: u32,

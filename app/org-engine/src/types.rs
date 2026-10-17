@@ -1,8 +1,10 @@
+use serde::{Deserialize, Serialize};
 use std::fmt;
 
 macro_rules! id_type {
     ($n:ident) => {
-        #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+        #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+        #[serde(transparent)]
         pub struct $n(pub String);
         impl $n {
             pub fn new(s: impl Into<String>) -> Self {
@@ -20,7 +22,7 @@ id_type!(WorkflowId);
 id_type!(TaskId);
 id_type!(RoleId);
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum BlockedReason {
     AwaitingApproval,
     Manual,
@@ -29,7 +31,7 @@ pub enum BlockedReason {
     NeedsAttention,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum FailReason {
     ExecutionFailed,
     InvalidArtifact,
@@ -37,7 +39,7 @@ pub enum FailReason {
 }
 
 /// Business state (axis 1).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum TaskStatus {
     Pending,
     Ready,
@@ -50,7 +52,7 @@ pub enum TaskStatus {
     Cancelled,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ReconcileCause {
     Disconnect,
     Wake,
@@ -58,7 +60,7 @@ pub enum ReconcileCause {
 }
 
 /// Confirmation state (axis 2). Anything but `Confirmed` freezes the task.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ConfirmState {
     Confirmed,
     SendUnknown,
@@ -69,7 +71,7 @@ pub enum ConfirmState {
 
 /// Declared effects of a task (self-reported by the planner; used only to ask
 /// for confirmation, never as the sole basis for auto-approval).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Effect {
     UserTreeWrite,
     PushMergeTag,
@@ -90,13 +92,13 @@ pub struct Role {
     pub max_concurrent: Option<u32>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Dependency {
     pub task: TaskId,
 }
 
 /// A task as proposed by a plan.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlanTask {
     pub id: TaskId,
     pub role: RoleId,
@@ -104,7 +106,7 @@ pub struct PlanTask {
     pub effects: Vec<Effect>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Task {
     pub id: TaskId,
     pub role: RoleId,
@@ -134,7 +136,7 @@ impl Task {
 }
 
 /// Limits. Defaults follow DESIGN_ORG section 0.2 (Q4, Q5, Q11) and 4.3/4.7.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Limits {
     pub max_writers: u32,
     pub max_total: u32,

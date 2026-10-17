@@ -15,3 +15,11 @@ Pure Rust logic for organization runs (DESIGN_ORG 4.1 to 4.9): types, state mach
 - An automatic re-plan is "over the limit" when `auto_replans_used >= max_auto_replans` before it.
 - Declared effects always trigger confirmation (one reason per effect); they are never the sole basis for approval.
 - Turns are counted before sending (`spend_turn`); kind is informational, all kinds cost 1. Raising the turn limit must increase it.
+
+## Persistence (P-ORG-3, `persist.rs`)
+
+- `OrgStore` port (snapshot / events / usage rows). File implementation: host `store/org.rs` (reuses `store/atomic.rs`). Types derive serde; no other new dependency.
+- Restore: snapshot (validated) + events with `seq > last_seq`, replayed through `Task::transition` / `set_confirm` / counters, so a log cannot produce a state the state machine forbids (rejected events are reported). Missing/corrupt/invalid snapshot: full replay from `Created`. A broken last line is dropped and reported (`dropped_tail`); other unreadable lines are skipped and reported (`skipped_lines`).
+- `recover_on_restart`: confirmed `running`/`reviewing` -> `NeedsReconcile(Restart)`; `SendUnknown`/`InterruptRequested`/`StopUnconfirmed`/`NeedsReconcile` kept; terminal and not-in-flight tasks untouched; never cancelled/failed; sets `halt = Restart` (dispatch resumes only by user action). Classification is written as events, then a fresh snapshot.
+- `Task.status` / `confirm` stay `pub`. Do not assign them outside tests; restore goes through `WorkflowState::apply` and `validate` (a dedicated constructor was judged excessive).
+- Usage rows: unknown token counts are `None`, never 0 (`summarize_usage` counts them separately).
