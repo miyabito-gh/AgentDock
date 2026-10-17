@@ -1,5 +1,5 @@
 // P-ORG-1 probe (AI org engine measurements). Run by the user on a real PC; uses a little Codex quota.
-// Usage: node org-probe.mjs 1|2|3|4|all [path-to-codex.exe]
+// Usage: node org-probe.mjs 1|2|2b|3|4|all [path-to-codex.exe]  (2b = extra isolation of item 2, individual run only)
 // Never answers server requests (no approval proxy): the first one is recorded and the probe aborts.
 // Existing CODEX_HOME config/auth are shared as-is and only fingerprinted (never written).
 import { spawn, execFileSync } from 'node:child_process';
@@ -14,7 +14,7 @@ const root = dirname(fileURLToPath(import.meta.url));
 const which = process.argv[2] ?? 'all';
 const exe = process.argv[3] || process.env.CODEX_EXE ||
   'C:\\Users\\wmasa\\AppData\\Local\\Programs\\OpenAI\\Codex\\bin\\codex.exe';
-if (!['1', '2', '3', '4', 'all'].includes(which)) throw new Error('Usage: node org-probe.mjs 1|2|3|4|all [codex.exe]');
+if (!['1', '2', '2b', '3', '4', 'all'].includes(which)) throw new Error('Usage: node org-probe.mjs 1|2|2b|3|4|all [codex.exe] (2b is individual-only)');
 const version = execFileSync(exe, ['--version'], { encoding: 'utf8' }).trim();
 if (version !== 'codex-cli 0.162.1') console.log(`warning: expected codex-cli 0.162.1, got ${version}`);
 
@@ -144,6 +144,42 @@ async function item2() {
   return out;
 }
 
+// ---- item 2b: isolate why item 2 commands failed (individual run only, not part of 'all'; 3 turns)
+async function item2b() {
+  const repo = join(base, 'repo'); mkdirSync(repo);
+  git(repo, 'init', '-q'); git(repo, 'config', 'user.email', 'probe@example.invalid'); git(repo, 'config', 'user.name', 'probe');
+  writeFileSync(join(repo, 'hello.txt'), 'PROBE_FILE_CONTENT_42\n');
+  git(repo, 'add', '.'); git(repo, 'commit', '-q', '-m', 'init');
+  const wt = join(base, 'wt2b'); git(repo, 'worktree', 'add', '-q', '--detach', wt);
+  const cases = [
+    { name: 'a: plain folder, read-only', cwd: repo, sandbox: 'read-only', file: 'write_a.txt' },
+    { name: 'b: worktree, read-only (repro)', cwd: wt, sandbox: 'read-only', file: 'write_b.txt' },
+    { name: 'c: worktree, workspace-write', cwd: wt, sandbox: 'workspace-write', file: 'write_c.txt' },
+  ];
+  const out = { cases: [] };
+  for (const c of cases) {
+    if (aborted) break;
+    const th = await startThread(c.cwd, { sandbox: c.sandbox });
+    const t = await runTurn(th.id, { input: [{ type: 'text', text:
+      `In the current folder: 1) read hello.txt and report its single line. 2) create a file named ${c.file} containing "x". Then say in one short sentence whether each step worked.` }] }, 180000);
+    const cmds = t.events.filter(e => e.method === 'item/completed').map(e => e.params.item)
+      .filter(i => i.type === 'commandExecution')
+      .map(i => ({ status: i.status ?? null, exitCode: i.exitCode ?? null, commandClip: clip(i.command, 160), cwd: i.cwd ?? null,
+        outputHead: clip(i.aggregatedOutput, 300) }));
+    const otherItems = t.events.filter(e => e.method === 'item/completed').map(e => e.params.item)
+      .filter(i => !['agentMessage', 'userMessage', 'reasoning', 'commandExecution'].includes(i.type))
+      .map(i => ({ type: i.type, status: i.status ?? null }));
+    const txt = finalText(t);
+    out.cases.push({ name: c.name, thread: th, turn: { status: t.status, error: t.error, note: t.note, ms: t.ms },
+      commandExecutions: cmds, otherItems, methods: methodCounts(t.events),
+      replyHead: clip(txt, 200), replyMentionsFileContent: txt ? txt.includes('PROBE_FILE_CONTENT_42') : null,
+      writeFileExists: existsSync(join(c.cwd, c.file)), cwdStatusPorcelain: git(c.cwd, 'status', '--porcelain'),
+      serverRequestsSoFar: serverRequests.length });
+    if (t.status === 'unconfirmed') break;
+  }
+  return out;
+}
+
 // ---- item 3: three threads in parallel on one App Server
 async function item3() {
   const markers = ['PAR_A_7', 'PAR_B_7', 'PAR_C_7'];
@@ -200,6 +236,7 @@ try {
   });
   const sel = which === 'all' ? ['1', '2', '3', '4'] : [which];
   const items = { 1: ['1 outputSchema final message', item1], 2: ['2 read-only sandbox + worktree cwd', item2],
+    '2b': ['2b isolate command-launch failure (plain/worktree x sandbox)', item2b],
     3: ['3 three threads in parallel', item3], 4: ['4 thread/tokenUsage/updated', item4] };
   for (const k of sel) { if (aborted) break; await step(items[k][0], items[k][1]); }
 } finally {

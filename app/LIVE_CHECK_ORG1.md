@@ -53,6 +53,36 @@ node probes/app-server/org-probe.mjs all "C:\path\to\codex.exe"
 
 共通: 結果の `configUnchanged` と `authUnchanged` が両方 `true` であること。`false` なら必ず報告。`unconfirmed`（120〜180秒で完了を確認できなかった）は成功でも失敗でもなく「未確認」。再実行して同じなら報告。
 
+## 項目2b: 項目2の失敗原因の切り分け（追加）
+
+前回、項目2のコマンドが全て `exitCode: -1`（起動できず）だった。原因が「worktreeをcwdにしたこと」か「read-only sandbox自体」かを切り分ける。利用枠は3 turn。`all` には含まれないので個別に実行する。
+
+```powershell
+node probes/app-server/org-probe.mjs 2b
+```
+
+同じ使い捨てリポジトリで、次の3ケースを順に1 turnずつ実行する（hello.txtを読み、ファイルを1つ作る依頼）。承認要求が来ても応答せず記録して中断する。
+
+|ケース|cwd|sandbox|
+|---|---|---|
+|a|通常フォルダ（worktreeでない）|read-only|
+|b|worktree|read-only（項目2の再現）|
+|c|worktree|workspace-write（approvalPolicy=never）|
+
+見る欄は各ケースの `commandExecutions`（`status`／`exitCode`／`outputHead`）、`replyHead`、`replyMentionsFileContent`、`writeFileExists`。
+
+### 何が分かれば良いか
+
+|結果|読み方|
+|---|---|
+|a・b・c とも `exitCode: -1`|read-only／worktreeに関係なくこの環境でコマンドが起動していない（sandbox起動失敗など）。`outputHead` のエラー文と `stderrTail` を報告。AgentDockの通常チャットで同じ依頼が動くかも確認したい|
+|a だけ成功（読取り成功、`replyMentionsFileContent: true`）|worktree固有の問題（`.git` がファイルであること等でread-only sandboxが起動できない可能性）|
+|a・b 成功、c 失敗|workspace-writeだけ問題。Worker役の前提に影響|
+|a・b 失敗、c 成功|read-only sandboxだけが問題。Reviewer等はworkspace-write＋指示で読取り専用にする案を検討|
+|a・b・c 成功|項目2は一時的な失敗だった可能性。b の再現性を見て再実行|
+
+共通の確認: aとbで `writeFileExists: false`（書込み拒否）、cで書込みが成功するか、`cwdStatusPorcelain`、`serverRequests`（承認要求の有無）。
+
 ## 結果の渡し方
 
 標準出力の最後の行に保存先が出る。`probes/app-server/runs/org-probe-<日時>.json`。中身は件数と主要フィールドだけで、メールやトークンは含まない（モデルの短い返答の冒頭のみ含む）。

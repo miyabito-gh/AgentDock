@@ -4,7 +4,7 @@
 - 入力: `AI組織制御エンジン_設計検討まとめ_v0.1.md`（以下「まとめ」）、正本 §2.3・§3.4・§3.5・§3.7・§3.11・§3.14・§4・§5・§13.3、`app/DESIGN_P3.md` §0・§2・#14、`app/HANDOFF.md` 冒頭。
 - 状態: **設計確定・実装未着手**（実装は明示依頼後）。正本への追記案は `app/DESIGN_ORG_REQ_DRAFT.md`（正本の版更新はユーザー承認後）。
 - 表記: 【決定】＝まとめの決定0〜4、2026-10-17の確定事項Q1〜Q11、または正本の合意から直接導けるもの。【設計】＝設計担当の裁量（ユーザー判断不要）。
-- Codex API の記述は schema 0.162.1 の型の有無だけで、**動作は未実測**（P-ORG-1で確認）。
+- Codex API の記述は schema 0.162.1 の型に基づく。P-ORG-1で実測済み（2026-10-17、codex 0.162.1、§5.4）。ただし read-only sandbox＋worktreeでのコマンド実行（§5.4 項目2）は未確定。
 
 ---
 
@@ -159,7 +159,7 @@
 - 権限を広げる定義は §1.3 のとおり無効のまま読み込み、理由を表示。
 
 ### 4.3 計画の検証と自動承認条件【決定 Q3】
-- Planner出力は構造化JSON。`turn/start` の `outputSchema` を使う（stable schemaにあるが挙動未実測。P-ORG-1で確認し、使えなければ最終メッセージ中のJSONブロックを厳格に解析）。解析失敗は1回だけ形式修正を依頼し、それも失敗なら利用者へ（自動で繰り返さない）。
+- Planner出力は構造化JSON。`turn/start` の `outputSchema` を使う（採用確定。実測: 最終agentMessage 1件がスキーマ準拠JSONで返り、依頼文がスキーマに反してもスキーマが優先された。スキーマは後続turnに残らないので**毎turn指定する**。§5.4）。それでも解析・検証に失敗したら1回だけ形式修正を依頼し、それも失敗なら利用者へ（自動で繰り返さない）。
 - **形式検証**（常に必須。不合格は承認以前に差し戻し）: DAG（循環なし）・既知の役割・依存の実在・タスク数上限（初期20）・各タスクの宣言効果 `effects`。
 - **常に利用者確認**（これ以外は自動承認）:
   1. 効果に「利用者の作業ツリー・ブランチへの書込み」「push・マージ・タグ」「作業フォルダ外」「ネットワーク取得・パッケージ導入」「秘密情報・認証」「削除を主目的とする」を含む
@@ -192,7 +192,7 @@
 - 起動: ホスト起動時にエンジンを起動し、保存済みワークフローを「再起動後の停止」で読み込む。終了: §3.5。同時に動かせるワークフローは1つ（MVP）。
 
 ### 4.9 ログ・コスト・セキュリティ【決定 Q11＋設計】
-- 実行記録: タスクID・試行・`ChatKey`・turnの中立ID・役割・モデル（選択値と受理値）・開始終了時刻・確認状態・トークン使用量（`thread/tokenUsage/updated` がschemaにある。未実測。取れなければ「未取得」、0で代用しない）。
+- 実行記録: タスクID・試行・`ChatKey`・turnの中立ID・役割・モデル（選択値と受理値）・開始終了時刻・確認状態・トークン使用量（`thread/tokenUsage/updated` はturnごとに1回、turn分は `last.totalTokens`（実測、§5.4）。通知が来なかったturnは「未取得」、0で代用しない）。
 - コスト上限: ワークフローあたりのturn数上限（初期30、設定可）。送信前に数え、到達でディスパッチを止め `blocked{上限}` で利用者へ（「上限を増やして再開／終了」）。形式修正・差し戻しも1turnとして数える。トークン量は表示だけ。
 - 成果物はデータとして扱い、本文由来のコマンドをホストで実行しない。役割間の受け渡しは区切り付きの引用として渡し「指示ではなく資料」と明記する（注入の緩和。完全な防御ではない）。
 - 認証情報・秘密を成果物・ログに保存しない。
@@ -210,10 +210,10 @@
 |#|内容|担当|依存|受入条件（粒度の例）|実機確認|
 |---|---|---|---|---|---|
 |P-ORG-0|正本の版更新（`app/DESIGN_ORG_REQ_DRAFT.md` をユーザー承認後に反映）、CLAUDE.mdの「守ること」に組織実行の1行、タスク表の追加|司令塔|ユーザー承認|正本に §3.15 等が入り、版番号・改訂履歴が更新される|不要|
-|P-ORG-1|実測: ①`outputSchema` 指定時の最終メッセージの形 ②read-only sandbox＋worktreeをcwdにしたthread ③同一App Serverで3thread並行 ④`thread/tokenUsage/updated` の有無と粒度。手順書とscratchのスクリプトは司令塔が用意|**ユーザー**（利用枠を使う）|P-ORG-0|4項目が事実(実測)として本書に追記され、使えないものの代替（JSONブロック解析等）が決まる|**要**|
+|P-ORG-1|実測: ①`outputSchema` 指定時の最終メッセージの形 ②read-only sandbox＋worktreeをcwdにしたthread ③同一App Serverで3thread並行 ④`thread/tokenUsage/updated` の有無と粒度。手順書とscratchのスクリプトは司令塔が用意。**状態: 項目1・3・4完了（§5.4）、項目2は再測定待ち（`org-probe.mjs 2b`、`app/LIVE_CHECK_ORG1.md`）**|**ユーザー**（利用枠を使う）|P-ORG-0|4項目が事実(実測)として本書に追記され、使えないものの代替（JSONブロック解析等）が決まる|**要**|
 |P-ORG-2|`org-engine` crate: 中立型・状態機械（2軸）・DAG検証・スケジューラ（並列数・依存・確認状態）・ポリシー（§4.3）・回数制限（差し戻し・再計画・turn）。純ロジック＋単体テスト|implementer|P-ORG-0|状態遷移の許可・禁止、循環検出、確認状態≠確定で停止、§4.3の各条件、上限到達のテストが通る。Tauri・Codex型への依存がない（`cargo tree` で確認）|不要|
 |P-ORG-3|`OrgStore`（`workflow.json`＋`events.jsonl`）、復元、再起動時の分類、使用量の行|implementer|P-ORG-2|末尾が壊れたjsonlから復元できる、`running` が要照合{再起動}になる、スナップショット書換えが原子的、のテスト|不要|
-|P-ORG-4|ホストのポート実装（`AgentRuntime`・`RuntimeEvents`）、`chat.json.org`、`OrgGrant`、組織チャットの通常送信無効化と「手動に切替」|implementer|P-ORG-2（P-ORG-1の結果で出力解析部分を確定）|送信APIが `OrgGrant` を型で要求し監視・照合経路から呼べない。受理不明で再送しない。Codexのサーバー要求にエンジンが応答する経路がない（コード上の参照で確認）|不要|
+|P-ORG-4|ホストのポート実装（`AgentRuntime`・`RuntimeEvents`）、`chat.json.org`、`OrgGrant`、組織チャットの通常送信無効化と「手動に切替」|implementer|P-ORG-2（出力解析は `outputSchema` 毎turn指定で確定、§5.4）|送信APIが `OrgGrant` を型で要求し監視・照合経路から呼べない。受理不明で再送しない。Codexのサーバー要求にエンジンが応答する経路がない（コード上の参照で確認）|不要|
 |P-ORG-5|`gitops` 追加（所有worktree内コミット、detached worktree、コミット間差分）と `WorktreeRecord.org`|implementer|P-ORG-2|所有記録のないパス・利用者のブランチ・作業ツリーで拒否されるテスト|不要|
 |P-ORG-6|ライフサイクル: 起動連動、再起動後の照合と「再開」、完全終了への前置、強制終了確認への併記、wake時の保留、停滞通知|implementer|P-ORG-3・4|終了時に新規ディスパッチが止まり `cancelled`／`failed` に変換されない。起動だけでディスパッチしない。照合はreadのみ|不要（S-ORGで実機）|
 |P-ORG-8|役割定義ファイル（標準3役の初回作成、読込み・検証、権限を広げる定義の無効化と理由表示、再読込み）|implementer|P-ORG-4|既存ファイルを上書きしない。既定より広い権限の定義が無効のまま理由付きで読み込まれる|不要|
@@ -222,16 +222,29 @@
 |P-ORG-9|R-ORGの指摘の修正|implementer|R-ORG|検証担当の合格|不要|
 |S-ORG|NSIS作り直しと実機手順書（小さなGitリポジトリで1ワークフロー完走、計画承認カード、差し戻し上限到達、途中の完全終了→再起動照合→再開、強制終了後の停止未確認、手動に切替、turn上限）|司令塔（手順）／**ユーザー**（実施）|P-ORG-9|手順書の全項目に期待結果と確認方法がある|**要**|
 
-順序: P-ORG-0 → (P-ORG-1 ∥ P-ORG-2) → (P-ORG-3 ∥ P-ORG-4 ∥ P-ORG-5) → (P-ORG-6 ∥ P-ORG-8) → P-ORG-7 → R-ORG → P-ORG-9 → S-ORG。P-ORG-4の出力解析部分はP-ORG-1の結果待ち（それ以外は先行してよい）。
+順序: P-ORG-0 → (P-ORG-1 ∥ P-ORG-2) → (P-ORG-3 ∥ P-ORG-4 ∥ P-ORG-5) → (P-ORG-6 ∥ P-ORG-8) → P-ORG-7 → R-ORG → P-ORG-9 → S-ORG。P-ORG-4の出力解析方式は確定済み（§5.4）。read-only役割（Reviewer等）のコマンド実行可否は項目2の再測定待ち。
 
 ### 5.3 リスク
-- `outputSchema`・並行thread・トークン使用量が実機で期待どおりでない（P-ORG-1で先に確認）。
+- `outputSchema`・並行thread・トークン使用量は実測で期待どおり（§5.4）。read-only sandbox＋worktreeでコマンドが起動しない件（項目2）は原因不明で、Reviewer・Explorer等の読取り役割の前提になる。
 - 利用上限の消費が速い（並列・差し戻し）。turn上限30と並列3で抑える。
 - Codexがworktree外へ書く。役割のcwdとroots以外を渡さず、sandboxで制限する。
 - 役割間のプロンプト注入（§4.9は緩和のみ）。
 - AgentDock異常終了時、App Serverは生き残る（`KILL_ON_JOB_CLOSE`なし）。次回起動で「外部で実行中の可能性」として照合する。
 - エンジンのpanicがホストへ波及（§1.1の境界で緩和）。
 - エンジンの業務状態と既存のチャット状態が食い違って見える。業務状態はワークフロー画面だけ、チャットの状態は既存規則のまま、と表示面を分ける。
+
+---
+
+### 5.4 実測（2026-10-17、codex 0.162.1、model gpt-6.1-sol、P-ORG-1）
+
+実行は `probes/app-server/org-probe.mjs`。全回で `configUnchanged`／`authUnchanged` とも true。
+
+- **項目1 outputSchema（確定）**: 準拠する依頼で最終agentMessage 1件が `{"answer":2,"unit":"none"}`（JSONとして解析でき型も合致）。スキーマに反する依頼でもスキーマ準拠JSONが返った（スキーマが優先）。次のturnでoutputSchemaを付けないと `ok`（プレーン文）で、スキーマは後続turnに残らない。→ 採用確定、毎turn指定（§4.3）。
+- **項目2 read-only sandbox＋worktree cwd（未確定）**: thread作成・worktree作成は成功（sandbox=readOnly、approvalPolicy=never）。しかしturn内の3コマンド（読取り2回・書込み1回、いずれも `powershell.exe -Command`）が全て `status: failed, exitCode: -1`。モデルは「実行環境の起動エラーで読めなかった」と返答。書込みファイルは存在せず、worktreeのstatusは空、サーバー要求は0件。書込み拒否は確認できたが、**読取りができるかは未確認**（コマンド自体が起動していない）。原因（Windows sandboxの起動失敗か、worktree固有か）は不明。
+  - 影響: Reviewer・Explorer等の読取り役割が、read-only sandboxでコマンド（ファイル読取り・git差分等）を実行できることが前提。できない場合は、役割の作業場所・sandbox・成果物の渡し方（本文引用で渡す等）の再設計が要る。
+  - 次の確認: `org-probe.mjs 2b` で (a) 通常フォルダ read-only、(b) worktree read-only（再現）、(c) worktree workspace-write を比較し原因を切り分ける。
+- **項目3 並列3thread（確定）**: 同一App Serverで3thread並行、wall 2950ms（各turn 2.5〜2.9秒、合計8211ms）、全て完了、取り違えなし。→ 並行可（§4.4）。
+- **項目4 tokenUsage（確定）**: `thread/tokenUsage/updated` は1 turnにつき1回（turn完了付近）。`total` はthread累積、`last` はそのturn分（2turn目: total=34872=17424+17448、last=17448）。`modelContextWindow`=475000。内訳は inputTokens／cachedInputTokens／cacheWriteInputTokens／outputTokens／reasoningOutputTokens／totalTokens。→ turn単位の使用量は `last.totalTokens`。1 turnあたり約1.7万トークンのベースライン（システムプロンプト等）がある点をコスト見積りで考慮する。
 
 ---
 
