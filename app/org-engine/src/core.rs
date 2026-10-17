@@ -18,6 +18,7 @@ use crate::limits::TurnKind;
 use crate::persist::{HaltReason, OrgEvent, OrgEventKind, WorkflowState, SCHEMA_VERSION};
 use crate::policy::{evaluate_plan, ConfirmReason, Decision, PlanKind, PolicyInput};
 use crate::prompt;
+use crate::roledef::LoadedRole;
 use crate::scheduler::{default_dep_ok, next_dispatch_with, promote_ready_with, DispatchGate};
 use crate::schemas::{self, ReviewerVerdict, VerdictKind, WorkerReport, ROLE_PLANNER, ROLE_REVIEWER, ROLE_WORKER};
 use crate::state::Cause;
@@ -212,6 +213,13 @@ pub fn standard_roles() -> Vec<Role> {
 
 // ---------------------------------------------------------------- in-memory bookkeeping
 
+#[derive(Clone, Debug)]
+struct RoleCfg {
+    sandbox: SandboxKind,
+    model: Option<String>,
+    effort: Option<String>,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Launch {
     Worktree,
@@ -259,6 +267,8 @@ enum Sent {
 pub struct OrgCore {
     state: Option<WorkflowState>,
     roles: Vec<Role>,
+    /// Per-role chat settings from the role definition files (empty = standard defaults).
+    role_cfg: HashMap<RoleId, RoleCfg>,
     now_ms: i64,
     granted: bool,
     live: HashMap<ChatRef, bool>,
@@ -287,6 +297,7 @@ impl OrgCore {
         Self {
             state: None,
             roles: standard_roles(),
+            role_cfg: HashMap::new(),
             now_ms,
             granted: false,
             live: HashMap::new(),
@@ -313,6 +324,23 @@ impl OrgCore {
         let mut c = Self::new(now_ms);
         c.state = Some(state);
         c
+    }
+
+    /// Use the loaded role definitions (P-ORG-8). Roles that are not enabled stay in the table, so a
+    /// plan using them needs confirmation (policy) and the scheduler never dispatches them. The three
+    /// standard roles must be present; otherwise nothing changes and the reason is returned.
+    pub fn set_roles(&mut self, loaded: &[LoadedRole]) -> Result<(), String> {
+        for std_id in [ROLE_PLANNER, ROLE_WORKER, ROLE_REVIEWER] {
+            if !loaded.iter().any(|l| l.def.id == std_id) {
+                return Err(format!("標準役割「{std_id}」の定義を読めません"));
+            }
+        }
+        self.roles = loaded.iter().map(LoadedRole::to_role).collect();
+        self.role_cfg = loaded
+            .iter()
+            .map(|l| (RoleId::new(l.def.id.clone()), RoleCfg { sandbox: l.def.sandbox, model: l.def.model.clone(), effort: l.def.effort.clone() }))
+            .collect();
+        Ok(())
     }
 
     pub fn state(&self) -> Option<&WorkflowState> {
@@ -1126,15 +1154,19 @@ impl OrgCore {
     fn begin_chat(&mut self, id: &TaskId, cwd: String) {
         let Some(t) = self.task(id) else { return };
         let role = t.role.clone();
-        let sandbox = match role_kind(&role) {
+        let default_sandbox = match role_kind(&role) {
             Some(RoleKind::Worker) => SandboxKind::WorkspaceWrite,
             _ => SandboxKind::ReadOnly,
+        };
+        let (sandbox, model, effort) = match self.role_cfg.get(&role) {
+            Some(c) => (c.sandbox, c.model.clone(), c.effort.clone()),
+            None => (default_sandbox, None, None),
         };
         if !self.rec(OrgEventKind::ChatRequested { task: id.clone(), cwd: cwd.clone() }) {
             return;
         }
         self.launching.insert(id.clone(), Launch::Chat);
-        self.out.push(OrgAction::CreateRoleChat { task: id.clone(), spec: RoleChatSpec { role, cwd, sandbox, model: None, effort: None } });
+        self.out.push(OrgAction::CreateRoleChat { task: id.clone(), spec: RoleChatSpec { role, cwd, sandbox, model, effort } });
     }
 
     /// The chat exists: check the sandbox (once per App Server), then send.

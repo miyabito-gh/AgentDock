@@ -15,6 +15,7 @@ pub mod driver;
 pub mod grant;
 pub mod observe;
 pub mod ports;
+pub mod roles;
 pub mod stall;
 
 use std::collections::VecDeque;
@@ -52,6 +53,8 @@ pub struct OrgRuntime {
     /// 直近の状態の写し（司令taskが公開する）。
     pub(in crate::host) view: Mutex<Option<OrgSnapshot>>,
     notices: Mutex<VecDeque<OrgHostNotice>>,
+    /// 直近に読んだ役割定義（P-ORG-8）。UI（P-ORG-7）が理由を表示する元。
+    roles: Mutex<Option<roles::RoleReport>>,
 }
 
 impl OrgRuntime {
@@ -190,15 +193,59 @@ impl Host {
         if self.org_rt.driver.lock().unwrap().is_some() {
             return Err(blocked(BlockedReason::ChatBusy, "組織実行はすでに動いています（同時に動かせるのは1件です）"));
         }
+        // 役割定義を読む（初回は標準3役を作る）。有効な役割だけがエンジンに渡る。
+        let mut core = OrgCore::new(now_ms().0);
+        {
+            let report = roles::prepare_roles(&root, now_ms().0);
+            if let Err(msg) = core.set_roles(&report.roles) {
+                *self.org_rt.roles.lock().unwrap() = Some(report);
+                return Err(err(IpcErrorCode::Io, msg));
+            }
+            *self.org_rt.roles.lock().unwrap() = Some(report);
+        }
         let workflow = WorkflowId::new(format!("wf-{}", now_ms().0));
         let store: Arc<dyn OrgStore + Send + Sync> = Arc::new(FileOrgStore::new(workflow_dir(&root, &workflow.0)));
-        let driver = OrgDriver::new(OrgCore::new(now_ms().0), store, Arc::new(self.clone()), self.clone() as Arc<dyn OrgSink>, Box::new(|| now_ms().0));
+        let driver = OrgDriver::new(core, store, Arc::new(self.clone()), self.clone() as Arc<dyn OrgSink>, Box::new(|| now_ms().0));
         let tx = self.spawn_org_driver(workflow.clone(), driver);
         // 送信権 → 開始。順序をチャネルで保つ。
         let grant = OrgGrant::issue(confirmed, workflow.clone(), &self.org_rt.grants);
         let _ = tx.send(DriverMsg::Install(grant));
         let _ = tx.send(DriverMsg::Input(OrgInput::Start { workflow: workflow.clone(), request: args.request, repo: args.repo.trim().to_string(), limits: Limits::default() }));
         Ok(workflow)
+    }
+
+    /// 直近に読んだ役割定義の結果（無効の理由を含む）。まだ読んでいなければ None。
+    pub fn org_roles_report(&self) -> Option<roles::RoleReport> {
+        self.org_rt.roles.lock().unwrap().clone()
+    }
+
+    /// 役割定義を読み直す。動いているワークフローがあるときは変えない（途中で権限が変わらないように）。
+    pub fn org_reload_roles(&self) -> Result<roles::RoleReport, IpcError> {
+        if self.org_rt.driver.lock().unwrap().is_some() {
+            return Err(blocked(BlockedReason::ChatBusy, "組織実行が動いている間は、役割定義を読み直せません"));
+        }
+        let Some(root) = self.persist.store().map(|s| s.root().to_path_buf()) else {
+            return Err(err(IpcErrorCode::Io, "保存先が使えないため、役割定義を読めません"));
+        };
+        let report = roles::prepare_roles(&root, now_ms().0);
+        *self.org_rt.roles.lock().unwrap() = Some(report.clone());
+        Ok(report)
+    }
+
+    /// 権限を広げる役割定義を、利用者の確認のうえで有効にする。確認は今の権限に対してだけ有効。
+    pub fn org_enable_role(&self, id: &str, confirmed: UserConfirmed) -> Result<roles::RoleReport, IpcError> {
+        if self.org_rt.driver.lock().unwrap().is_some() {
+            return Err(blocked(BlockedReason::ChatBusy, "組織実行が動いている間は、役割を有効にできません"));
+        }
+        let Some(root) = self.persist.store().map(|s| s.root().to_path_buf()) else {
+            return Err(err(IpcErrorCode::Io, "保存先が使えないため、役割を有効にできません"));
+        };
+        let mut guard = self.org_rt.roles.lock().unwrap();
+        let Some(report) = guard.as_mut() else {
+            return Err(err(IpcErrorCode::NotFound, "役割定義がまだ読み込まれていません"));
+        };
+        roles::enable_role(&root, report, id, confirmed).map_err(|m| err(IpcErrorCode::InvalidArgs, m))?;
+        Ok(report.clone())
     }
 
     /// ワークフローを再開する。利用者の操作の中でだけ、必要なチャットを resume する（自動 resume はしない）。
@@ -343,7 +390,14 @@ impl Host {
         }
         *self.org_rt.view.lock().unwrap() = Some(driver::snapshot_of(&state));
         let store: Arc<dyn OrgStore + Send + Sync> = Arc::new(store);
-        let driver = OrgDriver::new(OrgCore::restored(state, now_ms().0), store, Arc::new(self.clone()), self.clone() as Arc<dyn OrgSink>, Box::new(|| now_ms().0));
+        // 役割定義は読み直す。読めなければ標準の既定のまま（権限を広げない側）。
+        let mut core = OrgCore::restored(state, now_ms().0);
+        let report = roles::prepare_roles(&root, now_ms().0);
+        if let Err(e) = core.set_roles(&report.roles) {
+            crate::diag::log("org", &format!("roles on restore: {e}"));
+        }
+        *self.org_rt.roles.lock().unwrap() = Some(report);
+        let driver = OrgDriver::new(core, store, Arc::new(self.clone()), self.clone() as Arc<dyn OrgSink>, Box::new(|| now_ms().0));
         let tx = self.spawn_org_driver(workflow, driver);
         for r in recoveries {
             let _ = tx.send(DriverMsg::Input(r));

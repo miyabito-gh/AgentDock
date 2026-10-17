@@ -7,6 +7,7 @@ pub mod limits;
 pub mod persist;
 pub mod policy;
 pub mod prompt;
+pub mod roledef;
 pub mod scheduler;
 pub mod schemas;
 pub mod state;
@@ -19,6 +20,9 @@ pub use core::{
 pub use dag::{isolated_tasks, validate_plan, PlanError};
 pub use limits::{Counters, LimitError, TurnKind};
 pub use policy::{evaluate_plan, ConfirmReason, Decision, PlanKind, PolicyInput};
+pub use roledef::{
+    compare_breadth, load_role, permission_fingerprint, standard_definitions, ApprovalPolicy, Breadth, LoadedRole, RoleDefinition, Workplace,
+};
 pub use scheduler::{next_dispatch, promote_ready, DispatchGate};
 pub use state::{is_allowed, Cause, ConfirmError, TransitionError};
 pub use types::*;
