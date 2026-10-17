@@ -113,7 +113,11 @@ node probes/app-server/org-probe.mjs 2b --no-plugins
 
 ## 診断結果（2026-10-17）と再実行
 
-`thread/start` で `node_repl`（config.toml の `[mcp_servers]`）と `cua_repl`（プラグイン `unified-computer-use` の `.mcp.json`）が起動し、`node_repl.exe` を握ったままsandboxのセットアップ更新が失敗する。モデル呼び出しなしの確認（App Server起動中に `codex sandbox` を実行）で、`features.plugins=false` と `mcp_servers.node_repl.enabled=false` の両方を渡したときだけ成功した（`node_repl` だけ、プラグイン個別の無効化、`features.computer_use` 等の無効化では直らない）。`--no-plugins` はこの2つを渡す。注意: `mcp_servers.cua_repl.*` は未定義名で App Server が起動時に落ちるので渡さない。再実行：
+`thread/start` で `node_repl`（config.toml の `[mcp_servers]`）と `cua_repl`（プラグイン `unified-computer-use` の `.mcp.json`）が起動し、`node_repl.exe` を握ったままsandboxのセットアップ更新が失敗する。モデル呼び出しなしの確認（App Server起動中に `codex sandbox` を実行）で、`features.plugins=false` と `mcp_servers.node_repl.enabled=false` の両方を渡したときだけ成功した（`node_repl` だけ、プラグイン個別の無効化、`features.computer_use` 等の無効化では直らない）。`--no-plugins` はこの2つを渡す。注意: `mcp_servers.cua_repl.*` は未定義名で App Server が起動時に落ちるので渡さない。
+
+**2b結果確定（2026-10-17、`--no-plugins`）**: (a) 通常フォルダ read-only は読取り成功・書込み失敗、(b) worktree read-only も同じ（worktree固有の問題なし）、(c) worktree＋workspace-write は読取り・書込みとも成功。全ケースでserver request 0件。詳細は `app/DESIGN_ORG.md` §5.4・§5.5。
+
+再実行（任意）：
 
 ```powershell
 node probes/app-server/org-probe.mjs 2b --no-plugins

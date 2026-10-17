@@ -4,7 +4,7 @@
 - 入力: `AI組織制御エンジン_設計検討まとめ_v0.1.md`（以下「まとめ」）、正本 §2.3・§3.4・§3.5・§3.7・§3.11・§3.14・§4・§5・§13.3、`app/DESIGN_P3.md` §0・§2・#14、`app/HANDOFF.md` 冒頭。
 - 状態: **設計確定・実装未着手**（実装は明示依頼後）。正本への追記案は `app/DESIGN_ORG_REQ_DRAFT.md`（正本の版更新はユーザー承認後）。
 - 表記: 【決定】＝まとめの決定0〜4、2026-10-17の確定事項Q1〜Q11、または正本の合意から直接導けるもの。【設計】＝設計担当の裁量（ユーザー判断不要）。
-- Codex API の記述は schema 0.162.1 の型に基づく。P-ORG-1で実測済み（2026-10-17、codex 0.162.1、§5.4）。ただし read-only sandbox＋worktreeでのコマンド実行（§5.4 項目2）は未確定。
+- Codex API の記述は schema 0.162.1 の型に基づく。P-ORG-1で実測済み（2026-10-17、codex 0.162.1、§5.4。項目2も確定）。環境上の発見（sandbox競合・trust自動追記）は §5.5、対応設計は §4.10。v0.3: P-ORG-1の結果反映（2026-10-17）。
 
 ---
 
@@ -197,6 +197,12 @@
 - 成果物はデータとして扱い、本文由来のコマンドをホストで実行しない。役割間の受け渡しは区切り付きの引用として渡し「指示ではなく資料」と明記する（注入の緩和。完全な防御ではない）。
 - 認証情報・秘密を成果物・ログに保存しない。
 
+### 4.10 sandbox健全性チェックと起動引数・trust【設計。推奨案を暫定採用、判断は §7】
+- **健全性チェック**【設計】: ワークフロー開始前（計画承認後・最初のWorker/Reviewer送信前）に、App Server上で軽量コマンドを1回実行して exit 0 を確認する。失敗したらワークフローを開始せず（`blocked{要対応}`）、原因候補「node_repl／cua_repl とsandbox更新の競合（`os error 32`）」と、`~/.codex/.sandbox/` のログ確認、回避手順（下記）を示す。自動再試行・自動回避はしない。このチェックは利用者が開始したワークフローの一部で、監視目的の実行ではない。チェック用コマンドもsandbox内の読取り専用の軽いもの（書込みなし）にする。
+- **起動引数の回避**: `-c features.plugins=false -c mcp_servers.node_repl.enabled=false` はApp Server全体に効く。既存のAgentDock用App Serverを共有する（Q1）ので、通常チャットのプラグイン機能（computer-use等）も無効になる。推奨は「設定に回避オプション（既定オフ）を設け、健全性チェックが失敗したときだけオンを案内する」。オンにするとApp Serverの再起動が要り、既存の完全終了／停止確認の手順に従う（実行中の作業があれば止めない）。`mcp_servers.cua_repl.*` は渡さない。`~/.codex` は変更しない。
+- **thread単位の上書きの可否（要検証、P-ORG-4）**: `thread/start` の `config` 等で組織実行のthreadだけ無効にできるなら、それが副作用最小。未検証のため本書は前提にしない。
+- **trustエントリ**: AgentDockは `config.toml` を書かない。Codex本体の追記は許容し、既存の前後照合（正本 §13.3）で `[projects.'<cwd>']` の `trust_level` 追加だけの差分を「Codex本体の自動追記」として区別表示する（変更として警告しない・自動rollbackしない）。それ以外の差分は従来どおり扱う。増加を抑える案として、trust済みの共通親フォルダ配下にworktreeを置けばエントリが増えないかを P-ORG-4 で検証する（未検証。置き場所は `%LOCALAPPDATA%\com.agentdock.app\worktrees\` の合意があるため、検証結果次第でユーザー判断）。
+
 ---
 
 ## 5. MVPと実装タスク
@@ -210,7 +216,7 @@
 |#|内容|担当|依存|受入条件（粒度の例）|実機確認|
 |---|---|---|---|---|---|
 |P-ORG-0|正本の版更新（`app/DESIGN_ORG_REQ_DRAFT.md` をユーザー承認後に反映）、CLAUDE.mdの「守ること」に組織実行の1行、タスク表の追加|司令塔|ユーザー承認|正本に §3.15 等が入り、版番号・改訂履歴が更新される|不要|
-|P-ORG-1|実測: ①`outputSchema` 指定時の最終メッセージの形 ②read-only sandbox＋worktreeをcwdにしたthread ③同一App Serverで3thread並行 ④`thread/tokenUsage/updated` の有無と粒度。手順書とscratchのスクリプトは司令塔が用意。**状態: 項目1・3・4完了（§5.4）、項目2は再測定待ち（`org-probe.mjs 2b`、`app/LIVE_CHECK_ORG1.md`）**|**ユーザー**（利用枠を使う）|P-ORG-0|4項目が事実(実測)として本書に追記され、使えないものの代替（JSONブロック解析等）が決まる|**要**|
+|P-ORG-1|実測: ①`outputSchema` 指定時の最終メッセージの形 ②read-only sandbox＋worktreeをcwdにしたthread ③同一App Serverで3thread並行 ④`thread/tokenUsage/updated` の有無と粒度。手順書とscratchのスクリプトは司令塔が用意。**状態: 完了（4項目確定、§5.4。環境上の発見は §5.5）**|**ユーザー**（利用枠を使う）|P-ORG-0|4項目が事実(実測)として本書に追記され、使えないものの代替（JSONブロック解析等）が決まる|**要**|
 |P-ORG-2|`org-engine` crate: 中立型・状態機械（2軸）・DAG検証・スケジューラ（並列数・依存・確認状態）・ポリシー（§4.3）・回数制限（差し戻し・再計画・turn）。純ロジック＋単体テスト|implementer|P-ORG-0|状態遷移の許可・禁止、循環検出、確認状態≠確定で停止、§4.3の各条件、上限到達のテストが通る。Tauri・Codex型への依存がない（`cargo tree` で確認）|不要|
 |P-ORG-3|`OrgStore`（`workflow.json`＋`events.jsonl`）、復元、再起動時の分類、使用量の行|implementer|P-ORG-2|末尾が壊れたjsonlから復元できる、`running` が要照合{再起動}になる、スナップショット書換えが原子的、のテスト|不要|
 |P-ORG-4|ホストのポート実装（`AgentRuntime`・`RuntimeEvents`）、`chat.json.org`、`OrgGrant`、組織チャットの通常送信無効化と「手動に切替」|implementer|P-ORG-2（出力解析は `outputSchema` 毎turn指定で確定、§5.4）|送信APIが `OrgGrant` を型で要求し監視・照合経路から呼べない。受理不明で再送しない。Codexのサーバー要求にエンジンが応答する経路がない（コード上の参照で確認）|不要|
@@ -222,10 +228,12 @@
 |P-ORG-9|R-ORGの指摘の修正|implementer|R-ORG|検証担当の合格|不要|
 |S-ORG|NSIS作り直しと実機手順書（小さなGitリポジトリで1ワークフロー完走、計画承認カード、差し戻し上限到達、途中の完全終了→再起動照合→再開、強制終了後の停止未確認、手動に切替、turn上限）|司令塔（手順）／**ユーザー**（実施）|P-ORG-9|手順書の全項目に期待結果と確認方法がある|**要**|
 
-順序: P-ORG-0 → (P-ORG-1 ∥ P-ORG-2) → (P-ORG-3 ∥ P-ORG-4 ∥ P-ORG-5) → (P-ORG-6 ∥ P-ORG-8) → P-ORG-7 → R-ORG → P-ORG-9 → S-ORG。P-ORG-4の出力解析方式は確定済み（§5.4）。read-only役割（Reviewer等）のコマンド実行可否は項目2の再測定待ち。
+順序: P-ORG-0 → (P-ORG-1 ∥ P-ORG-2) → (P-ORG-3 ∥ P-ORG-4 ∥ P-ORG-5) → (P-ORG-6 ∥ P-ORG-8) → P-ORG-7 → R-ORG → P-ORG-9 → S-ORG。P-ORG-4の出力解析方式は確定済み（§5.4）。read-only役割（Reviewer等）のコマンド実行は、sandboxが健全なら可（§5.4 項目2）。P-ORG-4には sandbox健全性チェックと起動引数の扱い（§4.10）を含める。
 
 ### 5.3 リスク
-- `outputSchema`・並行thread・トークン使用量は実測で期待どおり（§5.4）。read-only sandbox＋worktreeでコマンドが起動しない件（項目2）は原因不明で、Reviewer・Explorer等の読取り役割の前提になる。
+- `outputSchema`・並行thread・トークン使用量・read-only sandbox＋worktreeでの読取りは実測で期待どおり（§5.4）。worktree固有の問題はない。
+- **sandbox起動の失敗（環境依存）**: `node_repl`／`cua_repl` とsandboxセットアップ更新が競合すると、approvalPolicy=never の組織実行では読取りを含む全コマンドが失敗する（§5.5）。起動前チェックと回避の扱いが前提（§4.10）。回避は通常チャットのプラグイン機能を無効にする副作用がある。
+- **trust自動追記**: worktreeごとにcwdが変わると `~/.codex/config.toml` に `[projects.'<cwd>']` が増え続ける可能性（§5.5、§4.10）。
 - 利用上限の消費が速い（並列・差し戻し）。turn上限30と並列3で抑える。
 - Codexがworktree外へ書く。役割のcwdとroots以外を渡さず、sandboxで制限する。
 - 役割間のプロンプト注入（§4.9は緩和のみ）。
@@ -240,13 +248,39 @@
 実行は `probes/app-server/org-probe.mjs`。全回で `configUnchanged`／`authUnchanged` とも true。
 
 - **項目1 outputSchema（確定）**: 準拠する依頼で最終agentMessage 1件が `{"answer":2,"unit":"none"}`（JSONとして解析でき型も合致）。スキーマに反する依頼でもスキーマ準拠JSONが返った（スキーマが優先）。次のturnでoutputSchemaを付けないと `ok`（プレーン文）で、スキーマは後続turnに残らない。→ 採用確定、毎turn指定（§4.3）。
-- **項目2 read-only sandbox＋worktree cwd（未確定）**: thread作成・worktree作成は成功（sandbox=readOnly、approvalPolicy=never）。しかしturn内の3コマンド（読取り2回・書込み1回、いずれも `powershell.exe -Command`）が全て `status: failed, exitCode: -1`。モデルは「実行環境の起動エラーで読めなかった」と返答。書込みファイルは存在せず、worktreeのstatusは空、サーバー要求は0件。書込み拒否は確認できたが、**読取りができるかは未確認**（コマンド自体が起動していない）。原因（Windows sandboxの起動失敗か、worktree固有か）は不明。
-  - 影響: Reviewer・Explorer等の読取り役割が、read-only sandboxでコマンド（ファイル読取り・git差分等）を実行できることが前提。できない場合は、役割の作業場所・sandbox・成果物の渡し方（本文引用で渡す等）の再設計が要る。
-  - 次の確認: `org-probe.mjs 2b` で (a) 通常フォルダ read-only、(b) worktree read-only（再現）、(c) worktree workspace-write を比較し原因を切り分ける。
+- **項目2 read-only sandbox＋worktree cwd（確定）**: 初回（回避なし）は、turn内の全コマンドが `status: failed, exitCode: -1`（`Failed to create unified exec process: helper_unknown_error: setup refresh had errors`）。原因は §5.5 のsandbox競合で、worktree固有ではなかった。回避を付けて再測定（ユーザー実機、`org-probe.mjs 2b --no-plugins`）した結果:
+  - (a) 通常フォルダ read-only: 読取り成功（exit 0、内容取得）、書込みは read-only 制限で失敗。
+  - (b) worktreeをcwdにした read-only: 同上（読取り成功、書込みは「アクセス拒否」exit 1、ファイル未作成、worktree statusは空）。**worktree固有の問題なし**。
+  - (c) worktree＋workspace-write: 読取りも書込みも成功（`?? write_c.txt` が現れる）。
+  - 全ケースで server request 0件（approvalPolicy=never では承認要求が出ない）。
+  - 結論: Reviewer等の読取り役割は read-only＋detached worktree で成立する。ただし sandbox が起動できる環境が前提（§4.10 の健全性チェック）。
 - **項目3 並列3thread（確定）**: 同一App Serverで3thread並行、wall 2950ms（各turn 2.5〜2.9秒、合計8211ms）、全て完了、取り違えなし。→ 並行可（§4.4）。
 - **項目4 tokenUsage（確定）**: `thread/tokenUsage/updated` は1 turnにつき1回（turn完了付近）。`total` はthread累積、`last` はそのturn分（2turn目: total=34872=17424+17448、last=17448）。`modelContextWindow`=475000。内訳は inputTokens／cachedInputTokens／cacheWriteInputTokens／outputTokens／reasoningOutputTokens／totalTokens。→ turn単位の使用量は `last.totalTokens`。1 turnあたり約1.7万トークンのベースライン（システムプロンプト等）がある点をコスト見積りで考慮する。
+
+### 5.5 環境上の発見（2026-10-17、P-ORG-1。設計への反映は §4.10）
+
+- **sandbox起動失敗**: この環境で App Server を自分で起動して `thread/start` すると、全コマンドが `Failed to create unified exec process: helper_unknown_error: setup refresh had errors` で失敗した。`codex sandbox` 単体は成功し、Codex公式アプリ自体のチャットは動いた。
+- **原因**: `thread/start` で `node_repl`（config.toml の `[mcp_servers.node_repl]`）と `cua_repl`（プラグイン unified-computer-use の `.mcp.json` 由来）が起動する。`~/.codex/.sandbox/` のログでは、sandboxのセットアップ更新が `runtimes\cua_node\...\node_repl.exe` のACL更新で `os error 32`（別プロセスが使用中）になっていた。
+- **回避（検証済み: モデル呼び出しなしの確認＋2b）**: App Server の起動引数に `-c features.plugins=false -c mcp_servers.node_repl.enabled=false`（`~/.codex` は変更しない）。効かなかったもの: `node_repl` だけの無効化、プラグイン個別の無効化、`features.computer_use` 等の無効化。`mcp_servers.cua_repl.*` を渡すと未定義名で "invalid transport" となり App Server が起動時に落ちる（**渡さない**）。
+- **副作用**: `features.plugins=false` は computer-use 等のプラグインを使うチャット機能を無効にする。
+- **trust自動追記**: Codex は新しい cwd で thread を作ると `~/.codex/config.toml` に `[projects.'<cwd>'] trust_level = "trusted"` を自動追記する（プローブで3回観測）。AgentDock が書いたのではなく Codex本体の動作。組織実行が worktree ごとに cwd を変えると増え続ける可能性がある。
+- 注: 通常チャットが承認を挟んで動いていたのは、sandbox失敗で昇格を求められていた可能性がある（未検証）。
 
 ---
 
 ## 6. 正本への追記
 見出し・要件文・受入条件の案は `app/DESIGN_ORG_REQ_DRAFT.md`。正本の版更新（P-ORG-0）はユーザー承認後。
+
+---
+
+## 7. ユーザー判断が要る点（P-ORG-1の結果から。推奨が先頭）
+
+**J1. sandbox競合の回避（§4.10）**
+- A（推奨）: 設定に回避オプション（既定オフ）。健全性チェック失敗時だけ案内し、オンならApp Server再起動（通常チャットのプラグイン機能は無効化）
+- B: 組織実行専用に別のApp Serverを回避引数付きで起動（通常チャットに影響なし。ただしQ1「接続を共有」を変更、同一threadを2接続で扱わない設計の見直しが要る）
+- C: 回避を提供せず、チェック失敗時は案内して終了（利用者が自力で対処）
+
+**J2. trustエントリの扱い（§4.10）**
+- A（推奨）: Codex本体の追記として許容し、前後照合で区別表示。共通親フォルダ案はP-ORG-4で検証して結果を報告
+- B: 検証を待たず、trust済みの共通親フォルダ配下にworktreeを置く方向へ（worktree置き場所の合意の変更を含む）
+- C: 追記を許容せず、組織実行開始時に利用者へ毎回確認
