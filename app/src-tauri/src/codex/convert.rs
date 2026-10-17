@@ -694,6 +694,8 @@ pub fn permission_params(p: PermissionPreset) -> (&'static str, &'static str) {
     match p {
         PermissionPreset::WorkspaceWriteOnRequest => ("on-request", "workspace-write"),
         PermissionPreset::ReadOnly => ("on-request", "read-only"),
+        PermissionPreset::WorkspaceWriteUntrusted => ("untrusted", "workspace-write"),
+        PermissionPreset::ReadOnlyUntrusted => ("untrusted", "read-only"),
         PermissionPreset::FullAccess => ("never", "danger-full-access"),
     }
 }
@@ -702,10 +704,10 @@ pub fn permission_params(p: PermissionPreset) -> (&'static str, &'static str) {
 /// workspaceWrite の書込み範囲は作業フォルダ（追加の書込みルートは足さない）。ネットワークは許可しない。
 pub fn sandbox_policy_json(p: PermissionPreset) -> serde_json::Value {
     match p {
-        PermissionPreset::WorkspaceWriteOnRequest => serde_json::json!({
+        PermissionPreset::WorkspaceWriteOnRequest | PermissionPreset::WorkspaceWriteUntrusted => serde_json::json!({
             "type": "workspaceWrite", "writableRoots": [], "networkAccess": false, "excludeTmpdirEnvVar": false, "excludeSlashTmp": false
         }),
-        PermissionPreset::ReadOnly => serde_json::json!({"type": "readOnly", "networkAccess": false}),
+        PermissionPreset::ReadOnly | PermissionPreset::ReadOnlyUntrusted => serde_json::json!({"type": "readOnly", "networkAccess": false}),
         PermissionPreset::FullAccess => serde_json::json!({"type": "dangerFullAccess"}),
     }
 }
@@ -1081,6 +1083,8 @@ mod tests {
     fn permission_presets_never_escalate_by_default() {
         assert_eq!(permission_params(PermissionPreset::WorkspaceWriteOnRequest), ("on-request", "workspace-write"));
         assert_eq!(permission_params(PermissionPreset::ReadOnly).1, "read-only");
+        assert_eq!(permission_params(PermissionPreset::WorkspaceWriteUntrusted), ("untrusted", "workspace-write"));
+        assert_eq!(permission_params(PermissionPreset::ReadOnlyUntrusted), ("untrusted", "read-only"));
     }
 
     #[test]

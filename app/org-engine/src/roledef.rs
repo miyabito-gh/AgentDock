@@ -122,20 +122,30 @@ struct Baseline {
     workplace: Workplace,
 }
 
-/// Standard roles are held to their own defaults; any other role to the ceiling
+/// The default is decided by the kind of workplace, not by the role id (DESIGN_ORG_GRAPH 8.2):
+/// a role that only reads is held to read-only, a role with its own workplace to the ceiling
 /// (workspace-write + on-request, DESIGN_ORG 1.3).
-fn baseline(id: &str) -> Baseline {
-    let (sandbox, workplace) = match id {
-        ROLE_PLANNER => (SandboxKind::ReadOnly, Workplace::SharedReadOnly),
-        ROLE_REVIEWER => (SandboxKind::ReadOnly, Workplace::DetachedAtCommit),
-        _ => (SandboxKind::WorkspaceWrite, Workplace::OwnWorktree),
+fn baseline(workplace: Workplace) -> Baseline {
+    let sandbox = match workplace {
+        Workplace::SharedReadOnly | Workplace::DetachedAtCommit => SandboxKind::ReadOnly,
+        Workplace::OwnWorktree => SandboxKind::WorkspaceWrite,
     };
     Baseline { sandbox, approval: ApprovalPolicy::OnRequest, workplace }
 }
 
+/// The workplace a standard role must keep (their behaviour is unchanged). Other roles are free.
+fn standard_workplace(id: &str) -> Option<Workplace> {
+    match id {
+        ROLE_PLANNER => Some(Workplace::SharedReadOnly),
+        ROLE_WORKER => Some(Workplace::OwnWorktree),
+        ROLE_REVIEWER => Some(Workplace::DetachedAtCommit),
+        _ => None,
+    }
+}
+
 /// Compares the definition's permissions with its baseline. Narrower is `Within`.
 pub fn compare_breadth(def: &RoleDefinition) -> Breadth {
-    let base = baseline(&def.id);
+    let base = baseline(def.workplace);
     let mut reasons = Vec::new();
     if sandbox_rank(def.sandbox) > sandbox_rank(base.sandbox) {
         reasons.push("sandbox が既定より広い（書込みを許可）".to_string());
@@ -221,13 +231,12 @@ pub fn validate(def: &RoleDefinition, file_stem: &str) -> Result<(), Vec<String>
     }
     // Fields the engine does not apply are refused instead of being silently ignored (R-ORG M4):
     // what the file says must be what the role does.
-    if ![ROLE_PLANNER, ROLE_WORKER, ROLE_REVIEWER].contains(&def.id.as_str()) {
-        e.push("この版では、標準の3役（planner・worker・reviewer）以外の役割は未対応です".to_string());
-    } else if def.workplace != baseline(&def.id).workplace {
-        e.push("この版では、作業場所（workplace）を標準から変えられません（未対応）".to_string());
+    if standard_workplace(&def.id).is_some_and(|w| w != def.workplace) {
+        e.push("この版では、標準の3役の作業場所（workplace）は変えられません（未対応）".to_string());
     }
-    if def.approval != ApprovalPolicy::OnRequest {
-        e.push("この版では、承認方針（approval）は onRequest 以外にできません（未対応）".to_string());
+    // `untrusted` (narrower) is applied to the role chat. `never` widens and has no way to be applied yet.
+    if def.approval == ApprovalPolicy::Never {
+        e.push("この版では、承認方針（approval）に never は使えません（未対応）".to_string());
     }
     if !def.extra_writable_dirs.is_empty() {
         e.push("この版では、追加の作業フォルダ（extraWritableDirs）は未対応です".to_string());
@@ -253,7 +262,7 @@ pub fn load_role(def: RoleDefinition, file_stem: &str, confirmed_fingerprint: Op
     Ok(LoadedRole { def, widened, confirmed })
 }
 
-/// The three standard definitions written on first start.
+/// The standard definitions written on first start (planner, worker, reviewer, verifier, writer).
 pub fn standard_definitions() -> Vec<RoleDefinition> {
     let mk = |id: &str, name: &str, instructions: &str, sandbox, workplace, schema: &str, max: Option<u32>| RoleDefinition {
         schema_version: SCHEMA_VERSION,
@@ -274,6 +283,8 @@ pub fn standard_definitions() -> Vec<RoleDefinition> {
         mk(ROLE_PLANNER, "Planner", "依頼を、依存関係のあるタスクの計画に分解する。", SandboxKind::ReadOnly, Workplace::SharedReadOnly, SCHEMA_PLAN, Some(1)),
         mk(ROLE_WORKER, "Worker", "割り当てられたタスクを自分のworktreeで実装し、完了条件（テストを含む）を確かめる。", SandboxKind::WorkspaceWrite, Workplace::OwnWorktree, SCHEMA_WORKER_REPORT, None),
         mk(ROLE_REVIEWER, "Reviewer", "対象コミットを読み取り専用で検証し、検証項目ごとに合否を報告する。", SandboxKind::ReadOnly, Workplace::DetachedAtCommit, SCHEMA_REVIEWER_VERDICT, None),
+        mk("verifier", "Verifier", "対象の成果物を読み取り専用で確かめ、確認項目ごとに合否を報告する。", SandboxKind::ReadOnly, Workplace::DetachedAtCommit, SCHEMA_REVIEWER_VERDICT, None),
+        mk("writer", "Writer", "割り当てられた文書や成果物を自分の作業場所で書き、完了条件を確かめる。", SandboxKind::WorkspaceWrite, Workplace::OwnWorktree, SCHEMA_WORKER_REPORT, None),
     ]
 }
 
@@ -312,8 +323,7 @@ mod tests {
     #[test]
     fn settings_the_engine_does_not_apply_are_refused_instead_of_ignored() {
         for (name, change) in [
-            ("approval", Box::new(|d: &mut RoleDefinition| d.approval = ApprovalPolicy::Untrusted) as Box<dyn Fn(&mut RoleDefinition)>),
-            ("approval never", Box::new(|d| d.approval = ApprovalPolicy::Never)),
+            ("approval never", Box::new(|d: &mut RoleDefinition| d.approval = ApprovalPolicy::Never) as Box<dyn Fn(&mut RoleDefinition)>),
             ("network", Box::new(|d| d.allow_network = true)),
             ("dirs", Box::new(|d| d.extra_writable_dirs = vec!["C:\\x".into()])),
             ("workplace", Box::new(|d| d.workplace = Workplace::DetachedAtCommit)),
@@ -323,9 +333,41 @@ mod tests {
             let errs = load_role(d, "worker", None).unwrap_err();
             assert!(errs.iter().any(|e| e.contains("未対応")), "{name}: {errs:?}");
         }
-        let mut other = def("worker");
-        other.id = "tester".into();
-        assert!(load_role(other, "tester", None).unwrap_err().iter().any(|e| e.contains("標準の3役")));
+    }
+
+    #[test]
+    fn untrusted_is_accepted_and_narrower_than_the_default() {
+        let mut d = def("worker");
+        d.approval = ApprovalPolicy::Untrusted;
+        let l = load_role(d, "worker", None).unwrap();
+        assert!(l.enabled() && l.widened.is_empty());
+    }
+
+    #[test]
+    fn a_non_standard_role_loads_with_the_baseline_of_its_workplace() {
+        let mut d = def("worker");
+        d.id = "tester".into();
+        assert!(load_role(d.clone(), "tester", None).unwrap().enabled());
+        // a role that only reads is held to read-only: widening it is disabled, with the reason
+        d.workplace = Workplace::DetachedAtCommit;
+        let l = load_role(d.clone(), "tester", None).unwrap();
+        assert!(!l.enabled());
+        assert_eq!(l.widened, vec!["sandbox が既定より広い（書込みを許可）".to_string()]);
+        d.sandbox = SandboxKind::ReadOnly;
+        assert!(load_role(d.clone(), "tester", None).unwrap().enabled());
+        // sharedReadOnly with a writable sandbox is still invalid
+        d.workplace = Workplace::SharedReadOnly;
+        d.sandbox = SandboxKind::WorkspaceWrite;
+        assert!(load_role(d, "tester", None).is_err());
+    }
+
+    #[test]
+    fn verifier_and_writer_are_standard_definitions() {
+        let v = def("verifier");
+        assert_eq!((v.sandbox, v.workplace), (SandboxKind::ReadOnly, Workplace::DetachedAtCommit));
+        let w = def("writer");
+        assert_eq!((w.sandbox, w.workplace), (SandboxKind::WorkspaceWrite, Workplace::OwnWorktree));
+        assert_eq!(standard_definitions().len(), 5);
     }
 
     #[test]

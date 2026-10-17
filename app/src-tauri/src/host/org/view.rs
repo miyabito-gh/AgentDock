@@ -678,7 +678,7 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         let report = super::super::roles::prepare_roles(&root, 1);
         let v = roles_view(Some(&report));
-        assert!(v.loaded && v.roles.len() == 3);
+        assert!(v.loaded && v.roles.len() == 5);
         assert!(v.roles.iter().all(|r| r.enabled && r.widened.is_empty() && !r.fingerprint.is_empty() && r.file.ends_with(".json")));
         let _ = std::fs::remove_dir_all(&root);
     }

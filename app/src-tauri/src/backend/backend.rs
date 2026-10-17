@@ -179,6 +179,9 @@ pub enum PermissionPreset {
     /// 作業領域内の操作を許可＋必要時に確認（初期値）。
     WorkspaceWriteOnRequest,
     ReadOnly,
+    /// 組織の役割チャット用（承認方針 untrusted。確認を増やす側）。画面の選択肢には出さない。
+    WorkspaceWriteUntrusted,
+    ReadOnlyUntrusted,
     /// ユーザーの明示操作でのみ選ぶ。
     FullAccess,
 }

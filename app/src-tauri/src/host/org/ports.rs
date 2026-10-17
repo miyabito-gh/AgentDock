@@ -9,9 +9,10 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use org_engine::{CreateResult, OrgNotice, RoleChatSpec, SandboxKind, TaskId, WorkflowId, WorkspaceAction, WorkspaceOutcome};
+use org_engine::{ApprovalPolicy, CreateResult, OrgNotice, RoleChatSpec, SandboxKind, TaskId, WorkflowId, WorkspaceAction, WorkspaceOutcome};
 
 use super::driver::OrgSink;
+use super::roles::RoleReport;
 use super::grant::{CreatePermit, DispatchPermit, GrantRegistry};
 use crate::backend::backend::*;
 use crate::backend::ipc::HostEvent;
@@ -228,6 +229,21 @@ fn notice_label(n: &OrgHostNotice) -> &'static str {
     }
 }
 
+/// 読み込んだ役割定義の承認方針。定義が見つからない・有効でないときは既定（onRequest）。
+fn role_approval(report: Option<&RoleReport>, role: &str) -> ApprovalPolicy {
+    report.and_then(|r| r.roles.iter().find(|l| l.def.id == role && l.enabled())).map(|l| l.def.approval).unwrap_or(ApprovalPolicy::OnRequest)
+}
+
+/// 役割の sandbox と承認方針 → チャットの権限。untrusted は確認を増やす側だけ写す（never は定義の読込みで拒否済み。ここでも広げない）。
+fn role_permission(sandbox: SandboxKind, approval: ApprovalPolicy) -> PermissionPreset {
+    match (sandbox, approval) {
+        (SandboxKind::ReadOnly, ApprovalPolicy::Untrusted) => PermissionPreset::ReadOnlyUntrusted,
+        (SandboxKind::WorkspaceWrite, ApprovalPolicy::Untrusted) => PermissionPreset::WorkspaceWriteUntrusted,
+        (SandboxKind::ReadOnly, _) => PermissionPreset::ReadOnly,
+        (SandboxKind::WorkspaceWrite, _) => PermissionPreset::WorkspaceWriteOnRequest,
+    }
+}
+
 fn same_path(a: &str, b: &str) -> bool {
     let norm = |s: &str| s.trim().replace('\\', "/").trim_end_matches('/').to_lowercase();
     norm(a) == norm(b)
@@ -250,10 +266,8 @@ impl Host {
         if !std::path::Path::new(&spec.cwd).is_dir() {
             return none(CreateResult::Rejected(format!("作業フォルダが見つかりません: {}", spec.cwd)));
         }
-        let permission = match spec.sandbox {
-            SandboxKind::ReadOnly => PermissionPreset::ReadOnly,
-            SandboxKind::WorkspaceWrite => PermissionPreset::WorkspaceWriteOnRequest,
-        };
+        let approval = role_approval(self.org_roles_report().as_ref(), &spec.role.0);
+        let permission = role_permission(spec.sandbox, approval);
         let model = spec.model.clone().map(|m| ModelChoice { model: m, effort: spec.effort.clone(), speed_tier: None });
         let params = StartChatParams { kind: ChatKind::Development, cwd: spec.cwd.clone(), model: model.clone(), permission, extra_folders: Vec::new() };
 
@@ -370,5 +384,37 @@ impl Host {
         crate::rules::org::drop_terminal_failures(&mut input);
         let decision = crate::rules::queue::evaluate_gate(&input, None, false, &LocalId(String::new()));
         crate::rules::org::descendants_from_gate(&decision, &agent_key_of(chat))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::host::org::roles::{load_roles, prepare_roles, roles_dir};
+
+    #[test]
+    fn an_untrusted_role_makes_an_untrusted_chat() {
+        let root = std::env::temp_dir().join(format!("agentdock-ports-untrusted-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        prepare_roles(&root, 1);
+        // 既定は従来どおり（on-request）。
+        let report = load_roles(&root, 2);
+        assert_eq!(role_permission(SandboxKind::ReadOnly, role_approval(Some(&report), "reviewer")), PermissionPreset::ReadOnly);
+        assert_eq!(role_permission(SandboxKind::WorkspaceWrite, role_approval(Some(&report), "worker")), PermissionPreset::WorkspaceWriteOnRequest);
+        // worker を untrusted にする。
+        let path = roles_dir(&root).join("worker.json");
+        let mut def: org_engine::RoleDefinition = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        def.approval = ApprovalPolicy::Untrusted;
+        std::fs::write(&path, serde_json::to_vec_pretty(&def).unwrap()).unwrap();
+        let report = load_roles(&root, 3);
+        let permission = role_permission(SandboxKind::WorkspaceWrite, role_approval(Some(&report), "worker"));
+        assert_eq!(permission, PermissionPreset::WorkspaceWriteUntrusted);
+        assert_eq!(crate::codex::convert::permission_params(permission), ("untrusted", "workspace-write"));
+        assert_eq!(role_permission(SandboxKind::ReadOnly, ApprovalPolicy::Untrusted), PermissionPreset::ReadOnlyUntrusted);
+        // 定義が見つからない・読み込めていないときは既定。
+        assert_eq!(role_approval(None, "worker"), ApprovalPolicy::OnRequest);
+        assert_eq!(role_approval(Some(&report), "nope"), ApprovalPolicy::OnRequest);
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

@@ -190,11 +190,11 @@ mod tests {
     }
 
     #[test]
-    fn first_start_creates_the_three_roles_and_never_overwrites() {
+    fn first_start_creates_the_standard_roles_and_never_overwrites() {
         let root = temp_root("create");
         let r = prepare_roles(&root, 1);
-        assert_eq!(r.created.len(), 3);
-        assert_eq!(r.roles.len(), 3);
+        assert_eq!(r.created.len(), 5);
+        assert_eq!(r.roles.len(), 5);
         assert!(r.roles.iter().all(|x| x.enabled()));
         // 利用者が書き換えたファイルは、再実行しても変わらない。
         let p = roles_dir(&root).join("worker.json");
@@ -276,7 +276,40 @@ mod tests {
         // 検証に通らない定義は、そのまま残して理由を返す。
         assert!(r.problems.iter().any(|p| p.file == "tester.json" && p.aside.is_none() && !p.reasons.is_empty()));
         assert!(roles_dir(&root).join("tester.json").exists());
-        assert_eq!(r.roles.len(), 3);
+        assert_eq!(r.roles.len(), 5);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn an_older_install_gets_only_the_new_standard_roles() {
+        let root = temp_root("older");
+        let dir = roles_dir(&root);
+        let mut worker = std_def("worker");
+        worker.instructions = "kept".into();
+        for id in ["planner", "worker", "reviewer"] {
+            let mut d = std_def(id);
+            if id == "worker" {
+                d = worker.clone();
+            }
+            write_def(&root, &d);
+        }
+        let before = std::fs::read(dir.join("worker.json")).unwrap();
+        let created = ensure_standard_roles(&dir).unwrap();
+        assert_eq!(created, vec!["verifier".to_string(), "writer".to_string()]);
+        assert_eq!(std::fs::read(dir.join("worker.json")).unwrap(), before);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn an_untrusted_role_definition_loads_enabled_and_keeps_its_approval() {
+        let root = temp_root("untrusted");
+        prepare_roles(&root, 1);
+        let mut d = std_def("verifier");
+        d.approval = ApprovalPolicy::Untrusted;
+        write_def(&root, &d);
+        let r = load_roles(&root, 2);
+        let v = r.roles.iter().find(|x| x.def.id == "verifier").unwrap();
+        assert!(v.enabled() && v.def.approval == ApprovalPolicy::Untrusted);
         let _ = std::fs::remove_dir_all(&root);
     }
 }

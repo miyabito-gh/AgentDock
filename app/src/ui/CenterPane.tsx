@@ -156,12 +156,16 @@ function modelChanged(s: ChatModelSettings | undefined): boolean {
 const PERMISSION_LABEL: Record<PermissionPreset, string> = {
   workspaceWriteOnRequest: "作業領域＋要確認",
   readOnly: "読み取りのみ",
+  workspaceWriteUntrusted: "作業領域＋都度確認（組織）",
+  readOnlyUntrusted: "読み取りのみ＋都度確認（組織）",
   fullAccess: "フルアクセス",
 };
 /** 短い表示名の全文（title とポップアップの項目 title に使う）。 */
 const PERMISSION_FULL: Record<PermissionPreset, string> = {
   workspaceWriteOnRequest: "作業領域内の書込み＋必要時に確認（初期値）",
   readOnly: "読み取りのみ",
+  workspaceWriteUntrusted: "作業領域内の書込み＋信頼できない操作は確認（組織の役割チャット）",
+  readOnlyUntrusted: "読み取りのみ＋信頼できない操作は確認（組織の役割チャット）",
   fullAccess: "フルアクセス（確認なしで実行）",
 };
 
@@ -992,7 +996,7 @@ function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock
                 <select aria-label="権限" className={perm === "fullAccess" ? "danger" : undefined}
                   title={`次の送信から適用。送信待ちの依頼にも送信時に適用されます（現在: ${PERMISSION_FULL[perm]}）`}
                   value={perm} onChange={(e) => p.onPermission(e.target.value as PermissionPreset)}>
-                  {(Object.keys(PERMISSION_LABEL) as PermissionPreset[]).map((k) => <option key={k} value={k} title={PERMISSION_FULL[k]}>{k === "fullAccess" ? "■ " : ""}{PERMISSION_LABEL[k]}</option>)}
+                  {(Object.keys(PERMISSION_LABEL) as PermissionPreset[]).filter((k) => k === perm || !k.endsWith("Untrusted")).map((k) => <option key={k} value={k} title={PERMISSION_FULL[k]}>{k === "fullAccess" ? "■ " : ""}{PERMISSION_LABEL[k]}</option>)}
                 </select>
               </label>
               <label className="eff-pop">
