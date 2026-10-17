@@ -28,6 +28,7 @@ AgentDockプロジェクトのClaude Code向け作業指示。毎ターン読み
 
 - 既存の`~/.codex`の設定・認証を無断で変更・コピーしない。config.tomlはユーザーの明示操作時のみ変更し前後を照合する。
 - 保持期限なし・容量不足で自動削除しない／停止を確認できないまま削除しない／切断・再起動・受理不明で無条件に再送しない／監視目的でresumeしない／監視のためにプロンプト追加・承認代行・停止をしない。
+- 組織実行（エンジン）は利用者が開始したワークフローのready状態のタスクだけを送信し、Codexの承認要求には応答しない。終了・通信断をcancelled/failedに変換しない。正本§3.15。
 - 通信断・取得不能をdone・failedに変換しない。未確認の操作を成功表示しない。
 - 子孫の完了・失敗通知は2秒の固定窓で集約、承認・質問は即時。中断10秒で停止未確認の案内（停止確定ではない）。
 - ユーザーへの確認は細目ごとにせず、選択式でまとめて聞く。
@@ -171,5 +172,31 @@ AgentDockプロジェクトのClaude Code向け作業指示。毎ターン読み
 段階⑤で合意した判断（2026-10-10）:
 - Markdownは react-markdown＋remark-gfm だけ例外として追加。生HTMLは文字で表示、リンクは確認後に http・https だけ開く、リモート画像は読み込まない、依頼は整形しない。
 - 設定以外のダイアログもEscで閉じる（IME変換中は閉じない）。実行中のチャットでは編集・再生成を許さない。再送は押したときだけ1回、自動再送なし。
+
+### 組織実行のタスク（2026-10-17分解。設計は `app/DESIGN_ORG.md`。正本§3.15）
+
+|#|内容|担当|依存|
+|---|---|---|---|
+|P-ORG-0|正本の版更新、CLAUDE.md追記、タスク表（**完了**）|司令塔|—|
+|P-ORG-1|実測（outputSchema・read-only sandbox・3thread並行・tokenUsage）（**完了**、設計§5.4・5.5）|ユーザー|P-ORG-0|
+|P-ORG-2|`org-engine` crate: 状態機械・DAG検証・スケジューラ・ポリシー・回数制限|implementer|P-ORG-0|
+|P-ORG-3|`OrgStore`（workflow.json＋events.jsonl）、復元、再起動時の分類|implementer|P-ORG-2|
+|P-ORG-4|ホストのポート実装、`chat.json.org`、`OrgGrant`、手動に切替、sandbox健全性チェック|implementer|P-ORG-2|
+|P-ORG-5|`gitops`追加（所有worktree内コミット等）、`WorktreeRecord.org`|implementer|P-ORG-2|
+|P-ORG-6|ライフサイクル: 起動連動、再起動後の照合と再開、終了前置、wake保留、停滞通知|implementer|P-ORG-3・4|
+|P-ORG-8|役割定義ファイル（標準3役、読込み・検証）|implementer|P-ORG-4|
+|P-ORG-7|IPC・UI: 一覧の行、ワークフロー画面、計画承認カード、帯、バッジ、通知|implementer|P-ORG-6・8|
+|R-ORG|P-ORG-2・4・6の差分レビュー→`app/REVIEW_ORG.md`|designer|P-ORG-7|
+|P-ORG-9|R-ORGの指摘の修正|implementer|R-ORG|
+|S-ORG|NSIS作り直しと実機手順書|司令塔／ユーザー|P-ORG-9|
+
+順序: P-ORG-0 → (P-ORG-1 ∥ P-ORG-2) → (P-ORG-3 ∥ P-ORG-4 ∥ P-ORG-5) → (P-ORG-6 ∥ P-ORG-8) → P-ORG-7 → R-ORG → P-ORG-9 → S-ORG。
+
+組織実行で確定した判断（2026-10-17、全て推奨案）:
+- Q1 エンジンは別crate `org-engine` をホスト内で動かし既存Codex接続を共有。Q2 役割は定義ファイル拡張型（標準 Planner・Worker・Reviewer）。Q3 常に確認に当たらない計画は自動承認。
+- Q4 並列数はWorker同時2・全体3（設定1〜4）。Q5 差し戻しはタスクごと2回、自動再計画は1ワークフロー1回。Q6 保存は既存方式＋`OrgStore` trait。
+- Q7 自動マージしない（利用者が取り込む）。Q8 再起動後の照合は自動、ディスパッチ再開は利用者操作。Q9 組織チャットへの手入力不可（一時停止して手動に切替のみ）。
+- Q10 長時間・停滞は通知だけ（自動中断なし）。Q11 turn数上限は初期30。
+- J1 sandbox競合の回避は設定の任意オプション（既定オフ）、健全性チェック失敗時だけ案内、接続共有は維持。J2 trust自動追記はCodex本体の追記として許容し前後照合で区別表示（共通親フォルダ案はP-ORG-4で検証）。
 
 **現状（2026-10-15）: 段階①〜⑤・UI・第4段・メニュー再設計・Codex 0.162.1対応・変更確認画面の再設計・Skill選択改善・送信中表示・作業フォルダのセット等まで実装・コミット・プッシュ済み（最新 20508ec 以降は文書のみ。NSIS 2026-10-14 10:40）。プロジェクト表示は停止中（`PROJECTS_ENABLED=false`）。実機確認待ちは `app/LIVE_CHECK_B4.md` ほか。引き継ぎは `app/HANDOFF.md` 冒頭を最初に読む。** 実機確認はユーザーが行う。
