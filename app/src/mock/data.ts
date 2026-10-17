@@ -36,7 +36,7 @@ const caps: Capabilities = {
 
 const source = (connection: SourceInfo["connection"], version?: SourceInfo["version"]): SourceInfo => ({
   source: SOURCE, backend: "codex", pid: val(12840), startedAt: ago(3600),
-  version: version ?? { kind: "match", version: "0.162.1" }, capabilities: caps, connection,
+  version: version ?? { kind: "match", version: "0.162.1" }, capabilities: caps, connection, sandboxWorkaround: false,
 });
 
 function chat(id: string, name: string, over: Partial<Chat> = {}): Chat {

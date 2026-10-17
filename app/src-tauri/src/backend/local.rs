@@ -542,6 +542,10 @@ pub struct AppSettings {
     /// 作業フォルダは持ち越さない（クイック新規は常に一般チャット）。古い `settings.json` は None で読む。
     #[serde(default)]
     pub last_new_chat: Option<NewChatDefaults>,
+    /// sandbox の競合回避（既定オフ）。組織実行の開始前チェックが失敗したときだけ使う。有効になるのは次の App Server 起動から。
+    /// 真偽値だけを持つ（意味はバックエンドが解釈する）。古い `settings.json` はオフで読む。
+    #[serde(default)]
+    pub sandbox_workaround: bool,
 }
 
 /// クイック新規の既定値。
@@ -771,6 +775,7 @@ impl Default for AppSettings {
             recent_skills: Vec::new(),
             work_folder_sets: Vec::new(),
             last_new_chat: None,
+            sandbox_workaround: false,
         }
     }
 }

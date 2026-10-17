@@ -76,4 +76,9 @@ workFolderSets: Array<WorkFolderSet>,
  * クイック新規の既定値（前回の作成で選んだモデル）。作成に成功したときだけ画面が更新する。
  * 作業フォルダは持ち越さない（クイック新規は常に一般チャット）。古い `settings.json` は None で読む。
  */
-lastNewChat: NewChatDefaults | null, };
+lastNewChat: NewChatDefaults | null, 
+/**
+ * sandbox の競合回避（既定オフ）。組織実行の開始前チェックが失敗したときだけ使う。有効になるのは次の App Server 起動から。
+ * 真偽値だけを持つ（意味はバックエンドが解釈する）。古い `settings.json` はオフで読む。
+ */
+sandboxWorkaround: boolean, };

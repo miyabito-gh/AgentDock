@@ -55,7 +55,8 @@ mod tests {
 
     #[test]
     fn only_live_checked_ops_are_verified_on_the_target_version() {
-        const UNVERIFIED: [ParityOp; 4] = [
+        const UNVERIFIED: [ParityOp; 5] = [
+            ParityOp::SandboxCheck,
             ParityOp::CloudDelegation,
             ParityOp::Extensions,
             ParityOp::Memory,

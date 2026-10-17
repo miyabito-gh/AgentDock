@@ -93,7 +93,7 @@ function Shell({ title, children, foot, footLeft, close, wide, full, onClose, lo
 
 const TABS: Array<[string, string]> = [["general", "全般"], ["display", "表示"], ["notify", "通知"], ["input", "入力"], ["model", "モデル"], ["codex", "Codex"], ["mcp", "MCP・Plugins"], ["skills", "Skills"], ["storage", "保存と容量"]];
 
-export interface CodexExe { path: string; setPath: (p: string) => void; placeholder: string; connect: (p: string) => void; openDiag: () => void; browse: () => void; live: boolean }
+export interface CodexExe { path: string; setPath: (p: string) => void; placeholder: string; connect: (p: string) => void; openDiag: () => void; browse: () => void; live: boolean; sandboxWorkaround: { value: boolean; set: (on: boolean) => void } }
 
 /** 削除・エクスポート・使用量（P7）。 */
 export interface ManageProps { del: DeleteProps; exp: ExportProps; usage: UsageProps; baselines: BaselineProps; selectedId: string | null; ackedWarnings: { list: string[]; reset: () => void } }
@@ -194,6 +194,7 @@ function SettingsBody({ tab, enterMode, setEnterMode, top, source, models, exe, 
           <div className="field"><span>codex.exe の場所</span><div style={{ display: "flex", gap: 6 }}><input type="text" className="mono" style={{ flex: 1 }} value={exe.path} placeholder={exe.placeholder} onChange={(e) => exe.setPath(e.target.value)} aria-label="codex.exe のパス" /><button className="btn-line" disabled={!exe.live} onClick={exe.browse}>参照…</button><button className="btn-line" disabled={!exe.live} onClick={() => exe.connect(exe.path)}>この場所で接続</button></div><span className="note">空欄なら既定の場所を使います。接続済みの間は変更できません。~/.codex の設定と認証は共有し、このアプリからは変更しません。</span></div>
           <div className="field"><span>検出結果</span><span>{v?.kind === "match" ? `codex-cli ${v.version}（対象版）` : v?.kind === "mismatch" ? `${v.actual}（対象版 ${v.expected} と不一致）` : v?.kind === "unknown" ? `確認できません（${v.message}）` : "未確認"}</span></div>
           <div className="field"><span>接続</span><span>App Server（stdio）</span></div>
+          <div className="field"><span>sandbox の競合</span><label><input type="checkbox" checked={exe.sandboxWorkaround.value} onChange={(e) => exe.sandboxWorkaround.set(e.target.checked)} />sandbox の競合を回避する（プラグインを無効にして Codex を起動）</label><span className="note">組織実行の開始前チェックが失敗したときだけ使います。オンの間は computer-use などのプラグインが全チャットで使えません。AgentDock の再起動後に有効になります。{source && source.sandboxWorkaround !== exe.sandboxWorkaround.value ? "（現在の接続は、この設定と異なる状態で起動しています）" : ""}</span></div>
           <div className="field"><span>診断ログ</span><div><button className="btn-line" onClick={exe.openDiag}>診断ログの場所を開く</button></div><span className="note">%APPDATA%\com.agentdock.app\diag\diag.log。未対応の通知・項目の形（キー構造のみ。本文・認証情報は記録しません）と、子孫の走査結果などを記録します。</span></div>
         </>);
     }

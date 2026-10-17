@@ -38,7 +38,7 @@ const fn done(op: ParityOp, route: OpRoute, schema_support: Support) -> Declared
 }
 
 /// 0.160.0 のschemaと `DESIGN_P3.md` §1 に基づく宣言。実装したタスクが `implemented` を真にする。
-const DECLARED: [Declared; 20] = [
+const DECLARED: [Declared; 21] = [
     // P3-1 → P3B: 変更の一覧・戻す操作はAgentDock管理（Git基準の控え。バックエンドの報告は使わない）。確認状況は未確認（方式を変えたため）。
     done(ParityOp::ChangeList, OpRoute::AppManaged, Support::Supported),
     done(ParityOp::RevertChanges, OpRoute::AppManaged, Support::Supported),
@@ -67,6 +67,8 @@ const DECLARED: [Declared; 20] = [
     // schema注記: 常に効果なし。操作は置かない。
     Declared { deprecated: true, ..d(ParityOp::Personality, OpRoute::BackendApi, Support::Unsupported) },
     done(ParityOp::Memory, OpRoute::BackendApi, Support::Experimental),
+    // P-ORG-4c: sandbox健全性チェック（windowsSandbox/readiness＋command/exec。安定API。確認状況は未確認のまま）。
+    done(ParityOp::SandboxCheck, OpRoute::BackendApi, Support::Supported),
 ];
 
 /// 操作ごとの能力。`version` は接続先の実際の版（不明なら None＝確認状況はすべて未確認）。
@@ -394,6 +396,57 @@ impl ParityOps for CodexBackend {
     async fn reset_memory(&self, _confirmed: &UserConfirmed) -> BackendResult<OpAck> {
         ack_of(self.call_experimental(ParityOp::Memory, "memory/reset", json!({}), WRITE_TIMEOUT).await)
     }
+
+    // ── sandbox健全性チェック（P-ORG-4c） ──
+    /// `windowsSandbox/readiness`（読取り）→ 準備済みなら `command/exec`（readOnly・ネットワークなし）を1回。
+    /// `setupStart`・`thread/shellCommand` は呼ばない。応答なし・拒否は Err のまま返す（判定は呼び出し側。成功にしない）。
+    async fn sandbox_check(&self, cwd: String) -> BackendResult<SandboxCheck> {
+        if !self.op_supported(ParityOp::SandboxCheck) {
+            return unsupported(ParityOp::SandboxCheck);
+        }
+        let r = self.call("windowsSandbox/readiness", json!({}), STATUS_TIMEOUT).await?;
+        let readiness = match r.get("status").and_then(Value::as_str) {
+            Some(s) => Known::direct(s.to_string()),
+            None => Known::Missing,
+        };
+        if readiness.value().map(String::as_str) != Some("ready") {
+            // 準備できていない（または読めない）なら確認コマンドは出さない。
+            return Ok(SandboxCheck { readiness, exit_code: Known::NotFetched, stderr_head: Known::NotFetched });
+        }
+        let resp = self.call("command/exec", sandbox_check_exec_params(&cwd), SANDBOX_EXEC_WAIT).await?;
+        let exit_code = match resp.get("exitCode").and_then(Value::as_i64).and_then(|c| i32::try_from(c).ok()) {
+            Some(c) => Known::direct(c),
+            None => Known::Missing,
+        };
+        let stderr_head = match resp.get("stderr").and_then(Value::as_str) {
+            Some(s) => Known::direct(head_1kb(s)),
+            None => Known::Missing,
+        };
+        Ok(SandboxCheck { readiness, exit_code, stderr_head })
+    }
+}
+
+/// 確認コマンドの待ち時間（サーバー側の `timeoutMs` 20秒より少し長く取る）。
+const SANDBOX_EXEC_WAIT: Duration = Duration::from_secs(30);
+
+/// `command/exec` の引数（DESIGN_ORG_P4 §5.1）。書込みなし・ネットワークなし・20秒・出力4KBまで。
+pub fn sandbox_check_exec_params(cwd: &str) -> Value {
+    json!({
+        "command": ["cmd.exe", "/d", "/c", "cd"],
+        "cwd": cwd,
+        "sandboxPolicy": {"type": "readOnly", "networkAccess": false},
+        "timeoutMs": 20000,
+        "outputBytesCap": 4096,
+    })
+}
+
+/// 先頭1KB（文字境界で切る）。
+fn head_1kb(s: &str) -> String {
+    let mut end = s.len().min(1024);
+    while !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    s[..end].to_string()
 }
 
 impl CodexBackend {
@@ -918,6 +971,7 @@ mod tests {
             ParityOp::SpeedTier,
             ParityOp::Memory,
             ParityOp::CloudDelegation,
+            ParityOp::SandboxCheck,
         ];
         for c in &caps {
             if implemented.contains(&c.op) {

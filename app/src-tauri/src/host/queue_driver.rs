@@ -1363,6 +1363,7 @@ mod history_gate_tests {
             version: VersionCheck::Unknown { message: "t".into() },
             capabilities: crate::codex::adapter::codex_capabilities(true),
             connection: ConnectionState::Connected,
+            sandbox_workaround: false,
         });
         d.agents.push(view("root", true, AgentState::Done, Freshness::Live));
         // 親は終端を観測済み（t0）。

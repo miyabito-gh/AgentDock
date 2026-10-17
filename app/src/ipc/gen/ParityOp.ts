@@ -3,4 +3,4 @@
 /**
  * VS Code拡張との同等性の操作（正本§3.14）。名前は中立（Codexの用語を使わない）。
  */
-export type ParityOp = "changeList" | "revertChanges" | "codeReview" | "reviewToNewChat" | "workMode" | "fork" | "compact" | "referenceChat" | "goal" | "sideChat" | "skills" | "instructionFiles" | "toolServers" | "extensions" | "cloudDelegation" | "worktree" | "backendStatus" | "speedTier" | "personality" | "memory";
+export type ParityOp = "changeList" | "revertChanges" | "codeReview" | "reviewToNewChat" | "workMode" | "fork" | "compact" | "referenceChat" | "goal" | "sideChat" | "skills" | "instructionFiles" | "toolServers" | "extensions" | "cloudDelegation" | "worktree" | "backendStatus" | "speedTier" | "personality" | "memory" | "sandboxCheck";

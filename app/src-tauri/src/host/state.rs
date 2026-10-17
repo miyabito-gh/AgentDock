@@ -851,6 +851,7 @@ impl HostData {
                             version: VersionCheck::Unknown { message: "確認中".into() },
                             capabilities: caps.clone(),
                             connection: state.clone(),
+                            sandbox_workaround: false,
                         };
                         self.sources.retain(|s| s.source == env.source);
                         self.sources.push(info.clone());
@@ -1484,6 +1485,7 @@ mod tests {
             version: VersionCheck::Match { version: "0.162.1".into() },
             capabilities: caps(),
             connection: ConnectionState::Connected,
+            sandbox_workaround: false,
         });
         assert_eq!(d.sources.len(), 1);
         assert!(matches!(d.sources[0].version, VersionCheck::Match { .. }));
@@ -1523,6 +1525,7 @@ mod tests {
             version: VersionCheck::Unknown { message: String::new() },
             capabilities: caps(),
             connection: ConnectionState::Connected,
+            sandbox_workaround: false,
         };
         d.set_source(src("a"));
         d.set_source(src("b"));

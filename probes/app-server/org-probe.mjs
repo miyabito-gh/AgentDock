@@ -1,5 +1,7 @@
 // P-ORG-1 probe (AI org engine measurements). Run by the user on a real PC; uses a little Codex quota.
 // Usage: node org-probe.mjs 1|2|2b|3|4|all [path-to-codex.exe]  (2b = extra isolation of item 2, individual run only)
+// P-ORG-4c modes (individual run only, no turn / no quota): sandboxcheck [--no-plugins] [--cwd <folder>] [--thread-override]
+//   trust --repo <already-trusted git repo> (V1+V2), trust-v1 --repo <repo> (V1 only, for the V3 re-run)
 // Never answers server requests (no approval proxy): the first one is recorded and the probe aborts.
 // Existing CODEX_HOME config/auth are shared as-is and only fingerprinted (never written).
 import { spawn, execFileSync } from 'node:child_process';
@@ -13,8 +15,12 @@ import { createHash } from 'node:crypto';
 const root = dirname(fileURLToPath(import.meta.url));
 // Launch overrides: --c key=value (repeatable) and/or env ORGPROBE_CODEX_ARGS (space-separated key=value). Startup args only; config.toml is never written.
 const rawArgs = process.argv.slice(2); const positional = []; const launchOverrides = []; let noPlugins = false;
+let repoOpt = null; let cwdOpt = null; let threadOverrideOpt = false; // P-ORG-4c: --repo <trusted git repo> (trust modes), --cwd <folder> (sandboxcheck), --thread-override (thread/start config override)
 for (let i = 0; i < rawArgs.length; i++) {
-  if (rawArgs[i] === '--c' && i + 1 < rawArgs.length) launchOverrides.push(rawArgs[++i]);
+  if (rawArgs[i] === '--repo' && i + 1 < rawArgs.length) repoOpt = rawArgs[++i];
+  else if (rawArgs[i] === '--cwd' && i + 1 < rawArgs.length) cwdOpt = rawArgs[++i];
+  else if (rawArgs[i] === '--thread-override') threadOverrideOpt = true;
+  else if (rawArgs[i] === '--c' && i + 1 < rawArgs.length) launchOverrides.push(rawArgs[++i]);
   else if (rawArgs[i].startsWith('--c=')) launchOverrides.push(rawArgs[i].slice(4));
   else if (rawArgs[i] === '--no-plugins') noPlugins = true;
   else positional.push(rawArgs[i]);
@@ -29,7 +35,7 @@ for (const kv of (process.env.ORGPROBE_CODEX_ARGS ?? '').split(/\s+/)) if (kv) l
 const which = positional[0] ?? 'all';
 const exe = positional[1] || process.env.CODEX_EXE ||
   'C:\\Users\\wmasa\\AppData\\Local\\Programs\\OpenAI\\Codex\\bin\\codex.exe';
-if (!['1', '2', '2b', '3', '4', 'all'].includes(which)) throw new Error('Usage: node org-probe.mjs 1|2|2b|3|4|all [codex.exe] (2b is individual-only)');
+if (!['1', '2', '2b', '3', '4', 'all', 'sandboxcheck', 'trust', 'trust-v1'].includes(which)) throw new Error('Usage: node org-probe.mjs 1|2|2b|3|4|all|sandboxcheck|trust|trust-v1 [codex.exe] (2b and the 4c modes are individual-only)');
 const version = execFileSync(exe, ['--version'], { encoding: 'utf8' }).trim();
 if (version !== 'codex-cli 0.162.1') console.log(`warning: expected codex-cli 0.162.1, got ${version}`);
 
@@ -234,6 +240,75 @@ async function item4() {
   return out;
 }
 
+// ---- P-ORG-4c: sandbox health check (DESIGN_ORG_P4 s5.1). thread/start (MCP starts) -> windowsSandbox/readiness -> command/exec. No turn.
+// windowsSandbox/setupStart and thread/shellCommand are never called.
+const threadOverride = { config: { features: { plugins: false }, mcp_servers: { node_repl: { enabled: false } } } };
+const safeStderrTail = n => stderr.split(/\r?\n/).filter(l => !/token|bearer|authorization|@/i.test(l)).slice(-n);
+async function sandboxcheck() {
+  const cwd = cwdOpt ?? work;
+  const th = await startThread(cwd, threadOverrideOpt ? threadOverride : {});
+  const out = { launchOverrides, threadOverrideUsed: threadOverrideOpt, cwd, thread: th };
+  const readiness = await ok('windowsSandbox/readiness', {}, 20000).catch(e => ({ error: clip(e.message, 300) }));
+  out.readiness = readiness.status ?? null; out.readinessError = readiness.error ?? null;
+  if (out.readiness === 'ready') {
+    const started = Date.now();
+    try {
+      const r = await ok('command/exec', { command: ['cmd.exe', '/d', '/c', 'cd'], cwd, sandboxPolicy: { type: 'readOnly', networkAccess: false },
+        timeoutMs: 20000, outputBytesCap: 4096 }, 30000);
+      out.exec = { exitCode: r.exitCode, stdoutHead: clip(r.stdout, 200), stderrHead: clip(r.stderr, 1024), ms: Date.now() - started };
+      out.passed = r.exitCode === 0;
+    } catch (e) { out.exec = { error: clip(e.message, 500), ms: Date.now() - started }; out.passed = false; }
+  } else { out.exec = 'skipped (readiness is not ready)'; out.passed = false; }
+  out.stderrMentionsSetupRefreshErrors = /setup refresh had errors|os error 32/i.test(stderr);
+  out.stderrTail = safeStderrTail(10);
+  return out;
+}
+
+// ---- P-ORG-4c: trust append check (DESIGN_ORG_P4 s7.1). thread/start only (no turn). config.toml is only READ (headings listed, never written).
+const configTomlPath = join(codexHome, 'config.toml');
+const readHeadings = () => {
+  if (!existsSync(configTomlPath)) return { exists: false, sha256: null, headings: [] };
+  const buf = readFileSync(configTomlPath);
+  const headings = buf.toString('utf8').split(/\r?\n/).map(l => l.trim()).filter(l => /^\[projects\.(".*"|'.*')\]$/.test(l));
+  return { exists: true, sha256: createHash('sha256').update(buf).digest('hex'), headings };
+};
+async function trustCase(name, cwd) {
+  const b = readHeadings();
+  let th; let error = null;
+  try { th = await startThread(cwd, { ephemeral: false, ...(threadOverrideOpt ? threadOverride : {}) }); } catch (e) { error = clip(e.message, 400); }
+  await sleep(500);
+  const a = readHeadings();
+  let archived = null;
+  if (th?.id) archived = await ok('thread/archive', { threadId: th.id }, 15000).then(() => true, e => `failed: ${clip(e.message, 200)}`);
+  return { name, cwd, threadStarted: !!th?.id, error, archived, headingsBefore: b.headings.length, headingsAfter: a.headings.length,
+    addedHeadings: a.headings.filter(h => !b.headings.includes(h)), removedHeadings: b.headings.filter(h => !a.headings.includes(h)),
+    configChanged: b.sha256 !== a.sha256 };
+}
+async function trustProbe(v1only) {
+  if (!repoOpt) throw new Error('--repo <already-trusted git repository> is required');
+  const norm = x => x.replace(/\\\\/g, '\\').replace(/\//g, '\\').toLowerCase();
+  const pre = readHeadings();
+  const repoTrusted = pre.headings.some(h => norm(h).includes(norm(repoOpt)));
+  if (!repoTrusted) throw new Error('the given --repo has no [projects.*] heading in config.toml yet; open it once in Codex so it is trusted, then rerun (nothing was changed)');
+  const parent = join(process.env.LOCALAPPDATA, 'com.agentdock.app', 'worktrees'); mkdirSync(parent, { recursive: true });
+  const out = { repoTrustedInConfig: true, cases: [] };
+  const wt = join(parent, `agentdock-orgprobe-wt-${stamp}`);
+  git(repoOpt, 'worktree', 'add', '-q', '--detach', wt);
+  try { out.cases.push(await trustCase('V1: git worktree of the trusted repo, under LOCALAPPDATA worktrees', wt)); }
+  finally { try { git(repoOpt, 'worktree', 'remove', '--force', wt); git(repoOpt, 'worktree', 'prune'); } catch (e) { out.worktreeCleanupError = clip(e.message, 200); } }
+  if (!v1only) {
+    const plain = join(parent, `agentdock-orgprobe-plain-${stamp}`); mkdirSync(plain);
+    try { out.cases.push(await trustCase('V2: plain (non-git) folder under the same parent', plain)); }
+    finally { try { rmSync(plain, { recursive: true, force: true }); } catch {} }
+  }
+  const v1 = out.cases[0];
+  out.interpretation = v1.addedHeadings.length === 0
+    ? 'V1 added no heading: Codex treats the worktree as the original repo (common-parent folder idea not needed)'
+    : 'V1 added a heading: see V3 in app/LIVE_CHECK_ORG4C.md (hand-add the worktrees parent as trusted, then run trust-v1 again)';
+  out.note = 'Headings containing "agentdock-orgprobe-" were added by this probe run (not written by the probe itself) and may be removed by hand. config.toml was only read.';
+  return out;
+}
+
 const results = []; const t0 = Date.now();
 async function step(name, fn) {
   try { results.push({ name, status: 'done', evidence: await fn() }); }
@@ -252,7 +327,9 @@ try {
   const sel = which === 'all' ? ['1', '2', '3', '4'] : [which];
   const items = { 1: ['1 outputSchema final message', item1], 2: ['2 read-only sandbox + worktree cwd', item2],
     '2b': ['2b isolate command-launch failure (plain/worktree x sandbox)', item2b],
-    3: ['3 three threads in parallel', item3], 4: ['4 thread/tokenUsage/updated', item4] };
+    3: ['3 three threads in parallel', item3], 4: ['4 thread/tokenUsage/updated', item4],
+    sandboxcheck: ['4c sandbox health check (thread/start -> readiness -> command/exec)', sandboxcheck],
+    trust: ['4c trust append check V1+V2', () => trustProbe(false)], 'trust-v1': ['4c trust append check V1 only', () => trustProbe(true)] };
   for (const k of sel) { if (aborted) break; await step(items[k][0], items[k][1]); }
 } finally {
   proc.stdin.end();
