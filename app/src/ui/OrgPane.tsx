@@ -1,0 +1,396 @@
+// 組織実行のワークフロー画面・計画承認カード・左一覧の行・ドックのバッジ（P-ORG-7b。DESIGN_ORG §2）。
+// 選ぶ・開くだけでは何も送らない。再開・一時停止・承認・取消し・手動切替・上限変更は、明示的なボタンだけがホストの命令を呼ぶ（危険なものは確認ブロックを経る）。
+// 状態は文字＋アイコン名で示す（色だけにしない）。取得できない値は「—」「未取得」で、0や完了では代用しない。
+import { Fragment, useEffect, useState, type ReactNode } from "react";
+import type { Chat, ChatKey, ChatLocalView, HostSnapshot, OrgChatCandidate, OrgConfirmView, OrgSnapshotView, OrgStatusView, OrgTaskView, OrgWorkflowView } from "../ipc/types";
+import * as host from "../ipc/client";
+import { Icon, orgIcon } from "./Icon";
+import { Popover } from "./Popover";
+import { ConfirmBlock } from "./DialogParts";
+import { tipWithKey } from "./shortcuts";
+import { CONFIRM_TONE, EFFECT_TEXT, PHASE_TONE, artifactText, attemptText, groupTasks, orgPendingRequests, roleCounts, waitText, workflowSummary, type OrgTone } from "./org";
+
+/** 状態の表示（アイコン＋文字。形・色は `.st.<tone>`）。 */
+function Chip({ tone, icon, label, title }: { tone: OrgTone; icon: string; label: string; title?: string }) {
+  return <span className={`st ${tone}`} title={title}><Icon name={orgIcon(icon)} />{label}</span>;
+}
+const StatusChip = ({ s }: { s: OrgStatusView }) => <Chip tone={PHASE_TONE[s.phase]} icon={s.icon} label={s.label} />;
+const ConfirmChip = ({ c }: { c: OrgConfirmView }) => <Chip tone={CONFIRM_TONE[c.state]} icon={c.icon} label={c.label} />;
+
+/** 左一覧のワークフロー行。選ぶと中央にワークフロー画面を開くだけ。 */
+export function OrgListRow({ wf, selected, onOpen, onStart }: { wf: OrgWorkflowView | null; selected: boolean; onOpen: () => void; onStart: () => void }) {
+  if (!wf) return null;
+  const sum = workflowSummary(wf);
+  const name = wf.title ?? wf.request.slice(0, 30);
+  return (
+    <div className="left-org">
+      <div className={`row-chat org-row${selected ? " sel" : ""}`}>
+        <button type="button" className="row-main" aria-current={selected} onClick={onOpen} title={`組織実行「${name}」\n状態: ${sum.label}`}>
+          <span className="tag ai" title="組織実行（複数の役割のチャットで進める実行）">組織</span>
+          <span className="nm">{name}</span>
+          <span className="marks">
+            {sum.planWaiting ? <span className="mark wait" title="計画の承認待ち。ワークフロー画面で承認します">承認待ち</span> : null}
+            {sum.attention > 0 ? <span className="mark fail" title={`止まっている・要確認のタスク ${sum.attention}件`}>要対応 {sum.attention}</span> : null}
+          </span>
+        </button>
+        <Popover role="menu" align="right" triggerClassName="row-more" label={`組織実行「${name}」の操作`} trigger={<span aria-hidden="true">…</span>}>
+          {(close) => (
+            <>
+              <button type="button" role="menuitem" onClick={() => { close(); onOpen(); }}>ワークフローを開く</button>
+              <button type="button" role="menuitem" disabled={!wf.finished} title={wf.finished ? undefined : "実行中のワークフローがあります"} onClick={() => { close(); onStart(); }}>新しいワークフローを開始…</button>
+            </>
+          )}
+        </Popover>
+      </div>
+      <div className="org-row-st"><Chip tone={sum.tone} icon={sum.icon} label={sum.label} /></div>
+    </div>
+  );
+}
+
+/** ドックのカード用の役割バッジとタスクID（組織実行のチャットだけ）。 */
+export function OrgBadge({ local }: { local: ChatLocalView | undefined }) {
+  const o = local?.org;
+  if (!o) return null;
+  return (
+    <span className="tag ai org-badge" title={`組織実行のチャット（ワークフロー ${o.workflowId}）${o.released ? "。手動に切り替え済み" : ""}`}>
+      {o.roleId}・{o.taskId}{o.released ? "・手動" : ""}
+    </span>
+  );
+}
+
+/** 組織実行のチャットへ手入力できない理由（送信欄の無効理由。ホストも同じ判定で拒否する）。 */
+export const ORG_SEND_LOCK = "組織実行のチャットです。選んで見るだけで、ここからは送信できません。ワークフロー画面で「手動に切り替え」ると、通常のチャットとして送信できます。";
+
+type Confirm =
+  | { kind: "resume" }
+  | { kind: "cancelWorkflow" }
+  | { kind: "replan" }
+  | { kind: "cancelTask"; task: string }
+  | { kind: "acceptManual"; task: string }
+  | { kind: "release"; task: string; chat: ChatKey }
+  | { kind: "raise"; to: string }
+  | { kind: "choose"; task: string; cands: OrgChatCandidate[] | null; error: string | null };
+
+export interface OrgPaneProps {
+  snap: HostSnapshot;
+  /** null＝未取得（空のワークフローとは別）。 */
+  org: OrgSnapshotView | null;
+  error: string | null;
+  live: boolean;
+  leftShown: boolean; rightShown: boolean;
+  onAct: (a: string) => void;
+  onOpenChat: (key: ChatKey) => void;
+  onReload: () => void;
+  /** 命令の実行（App が実接続か確認し、失敗を通知し、成功したら取り直す）。f が文字を返したらそれを通知する。 */
+  run: (label: string, f: () => Promise<string | void>) => Promise<boolean>;
+}
+
+const chatName = (chats: Chat[], k: ChatKey | null | undefined): string => {
+  const c = k ? chats.find((x) => x.key.id === k.id) : undefined;
+  return c ? (c.name.kind === "value" ? c.name.value : "（名前未確認）") : k ? k.id : "—";
+};
+
+export function OrgPane(p: OrgPaneProps) {
+  const { snap, org, run } = p;
+  const wf = org?.workflow ?? null;
+  const [confirm, setConfirm] = useState<Confirm | null>(null);
+  const [busy, setBusy] = useState(false);
+  // 別のワークフローに変わったら確認は閉じる（古い画面からの操作を防ぐ）。
+  const wid = wf?.workflowId ?? null;
+  useEffect(() => { setConfirm(null); }, [wid]);
+  // Esc＝確認をやめる（IME変換中・実行中は閉じない）。
+  useEffect(() => {
+    if (!confirm) return;
+    const h = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.isComposing || e.defaultPrevented || busy) return;
+      e.preventDefault();
+      setConfirm(null);
+    };
+    document.addEventListener("keydown", h);
+    return () => document.removeEventListener("keydown", h);
+  }, [confirm, busy]);
+
+  /** 命令を実行する。成功したら確認ブロックを閉じ、失敗したら理由を通知して開いたままにする。 */
+  const go = async (label: string, f: () => Promise<string | void>) => {
+    setBusy(true);
+    const ok = await run(label, f);
+    setBusy(false);
+    if (ok) setConfirm(null);
+    return ok;
+  };
+
+  const head = (title: string, extra?: ReactNode) => (
+    <div className="chead">
+      <button className="btn subtle icon panebtn" aria-label="チャット一覧" aria-pressed={p.leftShown} title={tipWithKey(`チャット一覧を${p.leftShown ? "閉じる" : "開く"}`, "toggleLeft")} onClick={() => p.onAct("toggleLeft")}><Icon name="list" /></button>
+      <span className="ttl" title={title}>{title}</span>
+      {extra}
+      <span className="grow" />
+      <button className="btn subtle icon panebtn" aria-label="エージェントのドック" aria-pressed={p.rightShown} title={tipWithKey(`エージェントのドックを${p.rightShown ? "閉じる" : "開く"}`, "toggleRight")} onClick={() => p.onAct("toggleRight")}><Icon name="dock" /></button>
+    </div>
+  );
+
+  if (!org || !wf) {
+    return (
+      <>
+        {head("組織実行")}
+        <div className="org-body">
+          {p.error ? (
+            <div className="banner err" role="alert"><Icon name="alert" /><div>組織実行の状態を取得できませんでした（{p.error}）。取得できていないだけで、実行が無いとは限りません。<div className="pop-acts"><button className="btn sm" onClick={p.onReload}>取り直す</button></div></div></div>
+          ) : !org ? (
+            <div className="empty-note">組織実行の状態を取得しています…</div>
+          ) : (
+            <div className="empty-note">
+              <p>組織実行はありません。</p>
+              <button className="btn primary" onClick={() => p.onAct("orgStart")}>組織実行を開始…</button>
+            </div>
+          )}
+        </div>
+      </>
+    );
+  }
+
+  const sum = workflowSummary(wf);
+  const doneN = wf.tasks.filter((t) => t.status.phase === "completed").length;
+  const approvals = orgPendingRequests(snap, wf.workflowId);
+  const canResume = !!wf.halt?.resumable;
+  const lim = wf.limits;
+  const use = wf.usage;
+  const chatExists = (k: ChatKey | null) => !!k && snap.chats.some((c) => c.key.id === k.id);
+
+  const resumeFn = async (): Promise<string> => {
+    const r = await host.orgResume(wf.workflowId);
+    return r.failed.length > 0
+      ? `再開しました。ただし ${r.failed.length} 件のチャットは再開できず、そのタスクは送らずに止まっています（${r.failed[0].message}）。`
+      : `再開しました（チャット ${r.resumed.length} 件）。`;
+  };
+
+  const confirmBlock = () => {
+    if (!confirm) return null;
+    const cancelBtn = <button className="btn" disabled={busy} onClick={() => setConfirm(null)}>やめる</button>;
+    const wrap = (label: string, body: ReactNode, main: ReactNode) => <ConfirmBlock label={label} wide actions={<>{cancelBtn}{main}</>}>{body}</ConfirmBlock>;
+    switch (confirm.kind) {
+      case "resume":
+        return wrap("再開の確認", <p>ワークフローを再開します。必要なチャットを Codex で再開（resume）し、止めていたタスクの送信を始めます。再起動や通信断で状態を確認できていないタスクは、確認できるまで送りません。</p>,
+          <button className="btn primary" disabled={busy} onClick={() => void go("再開", resumeFn)}>{busy ? "再開しています…" : "再開する"}</button>);
+      case "cancelWorkflow":
+        return wrap("ワークフローの取消しの確認", <p>終わっていないタスクをすべて取り消します。実行中のタスクの停止は、Codex 側で確認できるまで「停止未確認」として扱います（取り消しただけで停止したとは表示しません）。取り消したものを元に戻すことはできません。</p>,
+          <button className="btn danger" disabled={busy} onClick={() => void go("取り消し", async () => { const r = await host.orgCancel({ workflowId: wf.workflowId, scope: { kind: "workflow" } }); return `${r.length} 件のタスクを取り消しました。`; })}>{busy ? "取り消しています…" : "すべて取り消す"}</button>);
+      case "cancelTask":
+        return wrap(`タスク ${confirm.task} の取消しの確認`, <p>タスク {confirm.task} を取り消します。実行中なら、停止は Codex 側で確認できるまで「停止未確認」として扱います。依存するタスクは進めなくなります。</p>,
+          <button className="btn danger" disabled={busy} onClick={() => void go("取り消し", async () => { await host.orgCancel({ workflowId: wf.workflowId, scope: { kind: "task", task: confirm.task } }); return `タスク ${confirm.task} を取り消しました。`; })}>{busy ? "取り消しています…" : "このタスクを取り消す"}</button>);
+      case "replan":
+        return wrap("再計画の確認", <p>今の計画を差し戻し、Planner に再計画させます。まだ実行していないタスクは作り直されます。再計画の結果は、確認が必要なら改めて承認カードに出ます。</p>,
+          <button className="btn primary" disabled={busy} onClick={() => void go("再計画の要求", async () => { await host.orgReplan(wf.workflowId); return "再計画を要求しました。"; })}>{busy ? "要求しています…" : "差し戻して再計画する"}</button>);
+      case "acceptManual":
+        return wrap(`タスク ${confirm.task} を手動で完了にする確認`, <p>タスク {confirm.task} を、あなたの判断で完了として扱います。Codex の結果を確認できたという意味ではありません。依存するタスクが進み始めます。</p>,
+          <button className="btn primary" disabled={busy} onClick={() => void go("手動完了", async () => { await host.orgAcceptManual(wf.workflowId, confirm.task); return `タスク ${confirm.task} を完了にしました。`; })}>{busy ? "処理しています…" : "完了にする"}</button>);
+      case "release":
+        return wrap(`タスク ${confirm.task} を手動に切り替える確認`, <p>このタスクのチャット「{chatName(snap.chats, confirm.chat)}」を組織実行から切り離し、通常のチャットとして手入力で送れるようにします。以後、組織実行はこのチャットへ送りません。元に戻す操作はありません。</p>,
+          <button className="btn danger" disabled={busy} onClick={() => void go("手動への切替", async () => { await host.orgReleaseChat(confirm.chat); return "手動に切り替えました。"; })}>{busy ? "切り替えています…" : "手動に切り替える"}</button>);
+      case "raise": {
+        const to = Number(confirm.to);
+        const valid = Number.isInteger(to) && to > lim.maxTurns;
+        return wrap("turn上限の引き上げの確認",
+          <>
+            <p>このワークフロー全体の turn 数の上限を上げます。現在の上限は {lim.maxTurns}、使用済みは {use.turnsUsed}（残り {use.turnsRemaining}）です。turn が増えるほど、使用量（トークン）も増えます。</p>
+            <label>新しい上限　<input type="number" min={lim.maxTurns + 1} step={1} value={confirm.to} aria-label="新しいturn上限" onChange={(e) => setConfirm({ kind: "raise", to: e.target.value })} style={{ width: 90 }} /></label>
+            {!valid ? <p className="small muted">現在の上限（{lim.maxTurns}）より大きい整数を入れてください。</p> : null}
+          </>,
+          <button className="btn primary" disabled={busy || !valid} onClick={() => void go("上限の変更", async () => { await host.orgRaiseTurnLimit(wf.workflowId, to); return `turn上限を ${to} にしました。`; })}>{busy ? "変更しています…" : "上限を上げる"}</button>);
+      }
+      case "choose": {
+        const c = confirm;
+        return wrap(`タスク ${c.task} のチャットを選ぶ`,
+          <>
+            <p>このタスクのチャットを作成した結果を確認できていません。AgentDock が自動で結び付けることはしません。結び付けるチャットを、あなたが選んでください。</p>
+            {c.error ? <p className="why err" role="alert">{c.error}</p> : null}
+            {c.cands === null ? <p className="small muted">候補を読み込んでいます…</p> : c.cands.length === 0 ? <p className="small muted">結び付けられる候補はありません。</p> : (
+              <ul className="org-cands">
+                {c.cands.map((k) => (
+                  <li key={k.chat.id}>
+                    <span>{k.name ?? "（名前未確認）"}</span>
+                    {k.selectable
+                      ? <button className="btn sm" disabled={busy} onClick={() => void go("チャットの結び付け", async () => { await host.orgChooseChat(wf.workflowId, c.task, k.chat); return "チャットを結び付けました。"; })}>このチャットを結び付ける</button>
+                      : <span className="small muted">選べません（{k.whyNot ?? "理由を取得できません"}）</span>}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>, null);
+      }
+    }
+  };
+
+  const openChoose = async (task: string) => {
+    setConfirm({ kind: "choose", task, cands: null, error: null });
+    if (!p.live) { setConfirm({ kind: "choose", task, cands: [], error: "モックでは動きません。" }); return; }
+    try { setConfirm({ kind: "choose", task, cands: await host.orgRecoverCandidates(wf.workflowId, task), error: null }); }
+    catch (e) { setConfirm({ kind: "choose", task, cands: [], error: `候補を取得できませんでした（${host.asIpcError(e).message}）` }); }
+  };
+
+  const taskActions = (t: OrgTaskView) => (
+    <div className="org-acts">
+      {t.chat ? <button className="btn sm" disabled={!chatExists(t.chat)} title={chatExists(t.chat) ? "このタスクのチャットを開きます（見るだけ。何も送りません）" : "チャットがまだ一覧にありません"} onClick={() => p.onOpenChat(t.chat!)}>チャットを見る</button> : null}
+      {t.needsChatChoice ? <button className="btn sm" onClick={() => void openChoose(t.id)}>チャットを選ぶ…</button> : null}
+      {t.chat ? <button className="btn sm" onClick={() => setConfirm({ kind: "release", task: t.id, chat: t.chat! })} title="組織実行から切り離し、手入力できる通常のチャットにします">手動に切り替え…</button> : null}
+      {t.canAcceptManual ? <button className="btn sm" onClick={() => setConfirm({ kind: "acceptManual", task: t.id })}>手動で完了にする…</button> : null}
+      {t.canCancel ? <button className="btn sm danger-line" onClick={() => setConfirm({ kind: "cancelTask", task: t.id })}>取り消す…</button> : null}
+    </div>
+  );
+
+  const groups = groupTasks(wf.tasks);
+  const shownNotices = wf.notices.slice(-8).reverse();
+
+  return (
+    <>
+      {head(wf.title ?? "組織実行",
+        <Chip tone={sum.tone} icon={sum.icon} label={sum.label} />)}
+      <div className="org-body">
+        <div className="org-bar">
+          {canResume ? <button className="btn primary" disabled={busy} title="必要なチャットを再開し、止めていたタスクの送信を始めます（確認があります）" onClick={() => setConfirm({ kind: "resume" })}>再開…</button> : null}
+          {wf.dispatching ? <button className="btn" disabled={busy} title="新しいタスクの送信を止めます。実行中のタスクは止めません" onClick={() => void go("一時停止", async () => { await host.orgPause(wf.workflowId); return "新しい送信を止めました。実行中のタスクは止めていません。"; })}>一時停止</button> : null}
+          <span className="grow" />
+          <Popover role="menu" align="right" triggerClassName="btn subtle icon" label="ワークフローの操作" title="ワークフローの操作" trigger={<Icon name="more" />}>
+            {(close) => (
+              <>
+                <button type="button" role="menuitem" disabled={wf.finished} title={wf.finished ? "すべて終わっています" : undefined} onClick={() => { close(); setConfirm({ kind: "raise", to: String(lim.maxTurns + 10) }); }}>turn上限を上げる…</button>
+                <button type="button" role="menuitem" onClick={() => { close(); p.onReload(); }}>状態を取り直す</button>
+                <button type="button" role="menuitem" disabled={!wf.finished} title={wf.finished ? undefined : "実行中のワークフローがあります"} onClick={() => { close(); p.onAct("orgStart"); }}>新しいワークフローを開始…</button>
+                <hr />
+                <button type="button" role="menuitem" className="danger" disabled={wf.finished} onClick={() => { close(); setConfirm({ kind: "cancelWorkflow" }); }}>ワークフローを取り消す…</button>
+              </>
+            )}
+          </Popover>
+        </div>
+
+        {confirmBlock()}
+
+        {wf.halt && wf.halt.kind !== "awaitingPlanApproval" ? (
+          <div className={`banner ${wf.halt.kind === "sandboxUnhealthy" ? "err" : "warn"}`} role="status">
+            <Icon name={orgIcon(wf.halt.icon)} />
+            <div>
+              <b>{wf.halt.label}</b>
+              {wf.halt.kind === "restart" || wf.halt.kind === "needsResume"
+                ? <div>再起動前に実行中だったワークフローを照合しました。再開するには「再開」を押してください。再開するまで、新しい送信はしません。</div>
+                : wf.halt.kind === "shutdown" ? <div>終了の手順中のため、新しい送信を止めています。</div>
+                : wf.halt.kind === "user" ? <div>一時停止中です。「再開」を押すまで、新しい送信はしません。</div> : null}
+              {wf.halt.resumable ? null : <div className="small muted">この停止は「再開」では解除できません。</div>}
+            </div>
+          </div>
+        ) : null}
+        {wf.sandboxNotice ? <div className="banner err" role="alert"><Icon name="alert" /><div>{wf.sandboxNotice}</div></div> : null}
+        {wf.trust ? (
+          <div className={`banner ${wf.trust.severity === "attention" ? "warn" : "info"}`} role="status">
+            <Icon name={wf.trust.severity === "attention" ? "alert" : "help"} />
+            <div>
+              <b>{wf.trust.severity === "attention" ? "注意: " : "お知らせ: "}</b>{wf.trust.text}
+              {wf.trust.projects.length > 0 ? <ul className="check-list">{wf.trust.projects.map((x) => <li key={x} className="mono">{x}</li>)}</ul> : null}
+              <div className="small muted">AgentDock は ~/.codex/config.toml を書き換えていません。自動で戻すことも、送信を止めることもしません。</div>
+            </div>
+          </div>
+        ) : null}
+        {wf.finished ? (
+          <div className="banner info" role="status"><Icon name="branch" /><div>ブランチ・差分を確認して取り込んでください。AgentDock は自動でマージしません。</div></div>
+        ) : null}
+        {approvals.count > 0 && approvals.first ? (
+          <div className="banner warn" role="status"><Icon name="alert" /><div>Codex の承認・質問の待ちが {approvals.count} 件あります。
+            <button className="btn sm" style={{ marginLeft: 8 }} onClick={() => p.onOpenChat(approvals.first!.key)}>要求へ</button>
+            <span className="small muted"> 回答はそのチャットで、あなたが行います。</span></div></div>
+        ) : null}
+
+        {wf.planApproval ? (
+          <section className="org-card" aria-label="計画承認">
+            <h4><Icon name="eye" />計画の承認待ち</h4>
+            <p>タスク {wf.tasks.length} 件（{roleCounts(wf.tasks).map((r) => `${r.role} ${r.n}件`).join("、") || "—"}）。承認するまで、タスクは送られません。</p>
+            <p className="small">作業場所: 対象リポジトリ <span className="mono">{wf.repo}</span>。Worker はタスクごとの専用 worktree で作業し、あなたのブランチ・作業ツリーには書き込みません（自動マージもしません）。</p>
+            <div>
+              <b className="small">自動承認できなかった理由</b>
+              {!wf.planApproval.reasonsKnown
+                ? <p className="small muted">理由は、再起動で失われたため表示できません（計画が承認待ちである事実だけが分かります）。内容を確認してから承認してください。</p>
+                : wf.planApproval.reasons.length === 0
+                  ? <p className="small muted">理由は記録されていません。</p>
+                  : <ul className="check-list">{wf.planApproval.reasons.map((r, i) => <li key={i}>{r.task ? <b>{r.task}: </b> : null}{r.text}</li>)}</ul>}
+            </div>
+            <details className="about" open>
+              <summary>計画の内容（{wf.tasks.length}件）</summary>
+              <ul className="org-plan">
+                {wf.tasks.map((t) => (
+                  <li key={t.id}><b className="mono">{t.id}</b> <span className="muted">[{t.role}]</span> {t.title}
+                    {t.deps.length ? <span className="small muted">　依存: {t.deps.join(",")}</span> : null}
+                    {t.effects.length ? <div className="small">効果の申告（AIの自己申告）: {t.effects.map((e) => EFFECT_TEXT[e]).join("、")}</div> : null}</li>
+                ))}
+              </ul>
+            </details>
+            <div className="acts end org-card-acts">
+              <button className="btn danger-line" disabled={busy} onClick={() => setConfirm({ kind: "cancelWorkflow" })}>取り消す…</button>
+              <button className="btn" disabled={busy} onClick={() => setConfirm({ kind: "replan" })}>差し戻して再計画…</button>
+              <button className="btn primary" disabled={busy} title="承認すると、この計画のタスクが送られ始めます" onClick={() => void go("承認", async () => { await host.orgApprovePlan(wf.workflowId); return "計画を承認しました。"; })}>{busy ? "承認しています…" : "承認"}</button>
+            </div>
+          </section>
+        ) : null}
+
+        <section className="org-sum" aria-label="概要">
+          <p className="org-req" title={wf.request}>{wf.request}</p>
+          <dl className="org-dl">
+            <dt>リポジトリ</dt><dd className="mono">{wf.repo}</dd>
+            <dt>タスク</dt><dd>完了 {doneN} / {wf.tasks.length}{sum.attention > 0 ? `　要対応 ${sum.attention}件` : ""}</dd>
+            <dt>並列数</dt><dd>Worker 同時 {lim.maxWriters}・全体 {lim.maxTotal}</dd>
+            <dt>turn</dt><dd>使用 {use.turnsUsed} / 上限 {lim.maxTurns}（残り {use.turnsRemaining}）</dd>
+            <dt>再計画</dt><dd>自動 {use.autoReplansUsed} / {lim.maxAutoReplans} 回、差し戻しはタスクごとに最大 {lim.maxRework} 回</dd>
+            <dt>トークン</dt>
+            <dd>{use.knownTokens === null ? "未取得" : `${use.knownTokens.toLocaleString()}（取得できた分の合計）`}{use.rowsWithoutTokens > 0 ? `　取得できなかった行 ${use.rowsWithoutTokens}/${use.rows}` : ""}</dd>
+          </dl>
+        </section>
+
+        <section aria-label="タスク">
+          <h4 className="org-h">タスク</h4>
+          {groups.length === 0 ? <div className="empty-note">タスクはまだありません</div> : groups.map((g) => (
+            <div key={g.key} className="org-group">
+              <div className="org-gh">{g.title}（{g.tasks.length}）</div>
+              <div className="org-scroll">
+                <table className="org-tbl">
+                  <thead><tr><th scope="col">ID</th><th scope="col">役割</th><th scope="col">タスク</th><th scope="col">業務状態</th><th scope="col">確認状態</th><th scope="col">待ち先</th><th scope="col">試行</th><th scope="col">成果物</th><th scope="col">操作</th></tr></thead>
+                  <tbody>
+                    {g.tasks.map((t) => (
+                      <Fragment key={t.id}>
+                        <tr>
+                          <th scope="row" className="mono">{t.id}</th>
+                          <td>{t.role}</td>
+                          <td className="org-title">{t.title}</td>
+                          <td><StatusChip s={t.status} /></td>
+                          <td><ConfirmChip c={t.confirm} /></td>
+                          <td>{waitText(t)}</td>
+                          <td>{attemptText(t)}</td>
+                          <td>{artifactText(t)}</td>
+                          <td>{taskActions(t)}</td>
+                        </tr>
+                        {t.reconcile || t.stallNotified || t.needsChatChoice ? (
+                          <tr key={`${t.id}:n`} className="org-note-row"><td /><td colSpan={8} className="small">
+                            {t.stallNotified ? <div>実行中のまま新しい出力がないと通知済みです（自動では止めません）。</div> : null}
+                            {t.needsChatChoice ? <div>チャットの作成結果を確認できていません。「チャットを選ぶ」で結び付けるまで進めません。</div> : null}
+                            {t.reconcile ? <div>照合（読取りのみ）: {t.reconcile.text}{t.reconcile.worktree.label ? `　作業場所: ${t.reconcile.worktree.label}` : ""}</div> : null}
+                          </td></tr>
+                        ) : null}
+                      </Fragment>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ))}
+        </section>
+
+        {shownNotices.length > 0 ? (
+          <details className="about">
+            <summary>経過（直近 {shownNotices.length} 件）</summary>
+            <ul className="org-notices">
+              {shownNotices.map((n) => (
+                <li key={n.serial}><span className={`mark ${n.severity === "attention" ? "wait" : "pend"}`}>{n.severity === "attention" ? "要確認" : "情報"}</span> {n.task ? <b>{n.task}: </b> : null}{n.text}</li>
+              ))}
+            </ul>
+          </details>
+        ) : null}
+      </div>
+    </>
+  );
+}

@@ -1,4 +1,5 @@
 import { multiFolderMark } from "./workFolders";
+import { ORG_SEND_LOCK } from "./OrgPane";
 import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import type {
   AgentKey, AgentView, ArtifactEntry, AttachmentEntry, EntryAttachment, Chat, ChatKey, ChatLocalView, ChatModelSettings, ChatQueue, DecisionOption, FileRef, Goal, HostSnapshot, Known, ModelInfo, PendingRequest, PathInfo, SkillInfo,
@@ -1050,7 +1051,8 @@ function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock
 /** 送信を止める理由（無ければ null）。中央の入力欄とドックの指示欄で同じ判定を使う。 */
 export function sendLockReason(snap: HostSnapshot, chat: Chat, local: CenterProps["local"]): string | null {
   const delPending = local?.deletePending ?? null;
-  return delPending ? `削除を保留中のため、送信できません。${PENDING_TEXT(delPending.reason)}`
+  return local?.org && !local.org.released ? ORG_SEND_LOCK // 組織実行のチャットは閲覧のみ（ホストも同じ判定で拒否する）
+    : delPending ? `削除を保留中のため、送信できません。${PENDING_TEXT(delPending.reason)}`
     : chatStops(snap, chat).some(stopOpen) ? "停止を確認できるまで、このチャットへの新しい送信は止めています。"
     : chat.origin === "external" && rootView(snap, chat)?.freshness !== "live" ? "再開するまで送信できません（上の案内から再開）" : null;
 }

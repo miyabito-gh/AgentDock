@@ -1,5 +1,6 @@
 import { isNewChatSubmitKey } from "./quickNew";
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import type { OrgRunningNote, StartOrgArgs } from "../ipc/types";
 import type { Chat, ChatKey, ChatLocalView, ChatPendingOp, ChatQueue, ChatModelSettings, ForceKillPreview, Goal, GoalUpdate, Known, ModelInfo, NotificationSettings, OpCapability, QuitDecision, QuitPhase, RevertResult, SaveStatus, SideSessionMeta, SourceInfo, StopRecord, StopSummary, TurnRecord, WorktreeRecord, CloudTaskRecord } from "../ipc/types";
 import type { AppearanceSettings, BodyTextSize, ChatListView, StrongReason, ThemePref, UiTextSize, Support } from "../ipc/types";
 import { chatName } from "./derive";
@@ -21,6 +22,7 @@ import { ExtensionsBody } from "./ExtensionsDialogs";
 import { InstructionBody, ReferenceBody, SkillsBody, type ComposeProps } from "./ComposeDialogs";
 import { WorkspaceChoice, WorktreesBody } from "./WorktreeDialogs";
 import { CloudBody } from "./CloudDialogs";
+import { OrgSettingsBody, OrgStartBody, type OrgSettingsProps } from "./OrgDialogs";
 import { FolderListEditor } from "./WorkFoldersUi";
 import { FolderSetBar, type FolderTools } from "./WorkFolderSetsUi";
 import { inspectFolders, splitForNewChat } from "./workFolderSets";
@@ -31,6 +33,7 @@ export type DialogState =
   | { type: "newChat"; dev?: boolean; cwd?: string; cwdChoices?: string[]; /** 「同じ作業フォルダで新規」: 先頭＝プライマリ。開いたとき検査して並べる。 */ initialFolders?: string[]; folderNote?: string; /** 作成に失敗したときの「入力し直す」: 同じ値を入れて開くだけ（送らない）。 */ prefill?: { model: string; first: string; isolate: boolean; worktree: string | null } }
   | { type: "worktrees" }
   | { type: "cloud"; chatId: string | null }
+  | { type: "orgStart" }
   | { type: "quit" }
   | { type: "force" }
   | { type: "delete"; chatId: string }
@@ -91,7 +94,7 @@ function Shell({ title, children, foot, footLeft, close, wide, full, onClose, lo
   );
 }
 
-const TABS: Array<[string, string]> = [["general", "全般"], ["display", "表示"], ["notify", "通知"], ["input", "入力"], ["model", "モデル"], ["codex", "Codex"], ["mcp", "MCP・Plugins"], ["skills", "Skills"], ["storage", "保存と容量"]];
+const TABS: Array<[string, string]> = [["general", "全般"], ["display", "表示"], ["notify", "通知"], ["input", "入力"], ["model", "モデル"], ["codex", "Codex"], ["mcp", "MCP・Plugins"], ["skills", "Skills"], ["org", "組織実行"], ["storage", "保存と容量"]];
 
 export interface CodexExe { path: string; setPath: (p: string) => void; placeholder: string; connect: (p: string) => void; openDiag: () => void; browse: () => void; live: boolean; sandboxWorkaround: { value: boolean; set: (on: boolean) => void } }
 
@@ -119,6 +122,9 @@ export interface ComposeDialogProps extends ComposeProps {
 
 export interface NotifyProps { value: NotificationSettings; set: (n: NotificationSettings) => void }
 
+/** 組織実行（P-ORG-7b）。設定タブ（停滞時間・役割定義）と、開始ダイアログの操作。 */
+export interface OrgDialogProps { settings: OrgSettingsProps; start: (a: StartOrgArgs) => Promise<string | null>; browse: () => Promise<string | null> }
+
 export interface AutostartProps { value: boolean; set: (on: boolean) => void }
 export interface AppearanceProps { value: AppearanceSettings; view: ChatListView; set: (a: AppearanceSettings) => void; setView: (v: ChatListView) => void }
 
@@ -136,7 +142,8 @@ const UI_SIZE_CHOICES: Array<[UiTextSize, string]> = [["Small", "小"], ["Normal
 const BODY_SIZE_CHOICES: Array<[BodyTextSize, string]> = [["Small", "小"], ["Normal", "標準"], ["Large", "大"], ["XLarge", "特大"]];
 const LIST_VIEW_CHOICES: Array<[ChatListView, string]> = [["Recent", "最近使った順"], ["ByFolder", "作業フォルダごと"]];
 
-function SettingsBody({ tab, enterMode, setEnterMode, top, source, models, exe, notify, autostart, appearance, manage, chats, compose, opCaps }: {
+function SettingsBody({ tab, enterMode, setEnterMode, top, source, models, exe, notify, autostart, appearance, manage, chats, compose, opCaps, org }: {
+  org: OrgSettingsProps;
   manage: ManageProps; chats: Chat[]; compose: ComposeDialogProps; opCaps: OpCapability[];
   autostart: AutostartProps;
   appearance: AppearanceProps;
@@ -170,12 +177,15 @@ function SettingsBody({ tab, enterMode, setEnterMode, top, source, models, exe, 
         <div className="field"><span>種類</span><div>
           <label><input type="checkbox" checked={notify.value.approvalAndQuestion} onChange={(e) => notify.set({ ...notify.value, approvalAndQuestion: e.target.checked })} />承認・質問待ち</label>
           <label><input type="checkbox" checked={notify.value.completed} onChange={(e) => notify.set({ ...notify.value, completed: e.target.checked })} />完了</label>
-          <label><input type="checkbox" checked={notify.value.failed} onChange={(e) => notify.set({ ...notify.value, failed: e.target.checked })} />失敗</label></div>
-          <span className="note">子・孫の完了と失敗は、チャットごとに2秒間まとめて通知します。承認と質問は待たずに通知します。中断は「失敗」の設定に従います。</span></div>
+          <label><input type="checkbox" checked={notify.value.failed} onChange={(e) => notify.set({ ...notify.value, failed: e.target.checked })} />失敗</label>
+          <label><input type="checkbox" checked={notify.value.orgAttention} onChange={(e) => notify.set({ ...notify.value, orgAttention: e.target.checked })} />組織実行: 計画の承認待ち・止まったタスク</label>
+          <label><input type="checkbox" checked={notify.value.orgFinished} onChange={(e) => notify.set({ ...notify.value, orgFinished: e.target.checked })} />組織実行: 完了・失敗</label></div>
+          <span className="note">子・孫の完了と失敗は、チャットごとに2秒間まとめて通知します。承認と質問は待たずに通知します。中断は「失敗」の設定に従います。組織実行の「計画の承認待ち・止まったタスク」は即時、「完了・失敗」はワークフロー単位で2秒間まとめて通知します。</span></div>
         <div className="field"><span>音</span><label><input type="checkbox" checked={notify.value.sound} onChange={(e) => notify.set({ ...notify.value, sound: e.target.checked })} />Windows の標準の音を鳴らす</label></div>
         <div className="field"><span>チャット名</span><label><input type="checkbox" checked={!notify.value.showChatName} onChange={(e) => notify.set({ ...notify.value, showChatName: !e.target.checked })} />通知にチャット名を出さず、状態だけ表示する</label></div>
         <div className="field"><span>抑制</span><span className="small">通常画面を操作している間だけ、選択中のチャットの通知を止めます。別のチャット、画面が背後にあるとき、監視窓だけのときは通知します。通知を開くと該当のチャットを表示するだけで、回答や再実行はしません。</span></div>
       </>);
+    case "org": return <OrgSettingsBody {...org} />;
     case "input": return (
       <>
         <div className="field"><span>送信キー</span><div>
@@ -260,6 +270,20 @@ function OpenLinkBody({ url, text, onClose }: { url: string; text: string; onClo
   );
 }
 
+/** 完全終了・強制終了の確認に併記する、組織実行中のワークフロー（併記だけ。終了の手順や対象は変えない）。 */
+function OrgRunningSection({ notes }: { notes: OrgRunningNote[] }) {
+  if (notes.length === 0) return null;
+  return (
+    <div className="org-running" role="group" aria-label="組織実行中">
+      <p><b>組織実行中</b></p>
+      <ul className="quit-list">
+        {notes.map((n) => <li key={n.workflowId}>{n.title ?? "（依頼の名前なし）"}<span className="sub">終わっていないタスク {n.activeTasks} 件（全 {n.totalTasks} 件）</span></li>)}
+      </ul>
+      <p className="small muted">終了しても、再起動後に自動では再開しません。状態を照合したあと、「再開」を押したときだけ再開します。</p>
+    </div>
+  );
+}
+
 function QuitDialog({ q, chats, onClose, onAct }: { q: QuitProps; chats: Chat[]; onClose: () => void; onAct: (a: string) => void }) {
   const p = q.phase;
   const cancel = <button className="btn" onClick={() => q.decide("cancel")}>終了を取り消す</button>;
@@ -275,6 +299,7 @@ function QuitDialog({ q, chats, onClose, onAct }: { q: QuitProps; chats: Chat[];
         <div className="content">
           <p>作業中のチャットがあります。</p>
           <ul className="quit-list">{p.busy.map((k) => <li key={k.id}>{nameOf(chats, k)}</li>)}</ul>
+          <OrgRunningSection notes={p.orgRunning} />
           <p className="small">停止を確認できない対象があれば、その内容を表示して終了を止めます。</p>
           <About><p>「作業を中断して終了」では、各チャットへ中断要求を送り、停止と保存を確認してから終了します。</p></About>
         </div>
@@ -336,6 +361,7 @@ function ForceDialog({ f, chats, onClose }: { f: ForceProps; chats: Chat[]; onCl
               ? <ul className="check-list">{pv.affected.map((k) => <li key={k.id}>{nameOf(chats, k)}</li>)}</ul>
               : <p className="small muted">作業中・停止未確認のチャットは確認できません（Codex 自体は終了します）。</p>}
             <p className="small muted">稼働中のプロセス数: {pv.activeProcesses.kind === "value" ? pv.activeProcesses.value : "未取得"}</p>
+            <OrgRunningSection notes={pv.orgRunning} />
           </>
         )}
         <ConfirmBlock label="強制終了の確認" actions={<>
@@ -372,7 +398,8 @@ function RenameDialog({ chat, onClose, run }: { chat: Chat | undefined; onClose:
 /** isolate は「分離」（worktreeを作成してから開始）。worktree は既存のAgentDock作成worktreeの記録ID（チャットに結び付ける）。 */
 export interface NewChatInput { cwd: string | null; model: string; firstMessage: string | null; isolate: boolean; worktree: string | null; /** 追加の作業フォルダ（プライマリ以外）。 */ extraFolders: string[]; /** 強い確認を済ませたパス（ホストが再検査する）。 */ confirmedStrong: string[] }
 
-export function Dialogs({ folderTools, workspaceRoots, d, onClose, chats, source, models, enterMode, setEnterMode, top, setTab, onAct, exe, onCreateChat, notify, autostart, appearance, quit, force, manage, onRename, opCaps, live, changesTick, turnRecords, onRevertDone, prefs, threadOps, worktree, cloudTasks, compose, resend }: {
+export function Dialogs({ org, folderTools, workspaceRoots, d, onClose, chats, source, models, enterMode, setEnterMode, top, setTab, onAct, exe, onCreateChat, notify, autostart, appearance, quit, force, manage, onRename, opCaps, live, changesTick, turnRecords, onRevertDone, prefs, threadOps, worktree, cloudTasks, compose, resend }: {
+  org: OrgDialogProps;
   compose: ComposeDialogProps;
   /** 作業フォルダのセットの保存・「参照…」。 */
   folderTools: FolderTools;
@@ -508,7 +535,11 @@ export function Dialogs({ folderTools, workspaceRoots, d, onClose, chats, source
     case "settings": return (
       <Shell title="設定" wide onClose={onClose} close="閉じる">
         <div className="tabs vt" role="tablist" aria-orientation="vertical">{TABS.map(([k, t]) => <button key={k} role="tab" aria-selected={d.tab === k} onClick={() => setTab(k)}>{t}</button>)}</div>
-        <div className="content"><SettingsBody tab={d.tab} enterMode={enterMode} setEnterMode={setEnterMode} top={top} source={source} models={models} exe={exe} notify={notify} autostart={autostart} appearance={appearance} manage={manage} chats={chats} compose={compose} opCaps={opCaps} /></div>
+        <div className="content"><SettingsBody tab={d.tab} enterMode={enterMode} setEnterMode={setEnterMode} top={top} source={source} models={models} exe={exe} notify={notify} autostart={autostart} appearance={appearance} manage={manage} chats={chats} compose={compose} opCaps={opCaps} org={org.settings} /></div>
+      </Shell>);
+    case "orgStart": return (
+      <Shell title="組織実行を開始" onClose={onClose} close="キャンセル">
+        <OrgStartBody start={org.start} browse={org.browse} />
       </Shell>);
     case "newChat": return (
       <Shell title="新しいチャット" onClose={onClose} foot={<><button className="btn" onClick={onClose}>キャンセル</button><button className="btn primary" disabled={(kind === "dev" && !cwd.trim()) || creating} onClick={() => void createNewChat()}>{creating ? <><span className="spinner" aria-hidden="true" /> 作成中…</> : kind === "dev" && isolate ? "worktreeを作って開始" : "作成"}</button></>}>

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { readText } from "@tauri-apps/plugin-clipboard-manager";
-import type { RepoRecordChoice, AgentKey, AppSettings, AttachmentEntry, Chat, ChatKey, Goal, GoalUpdate, Known, WorkMode, WorkModeInfo, WorkFoldersView, DeleteOutcome, DeletePreview, UsageReport, ForceKillPreview, HostEvent, HostEventEnvelope, HostSnapshot, ModelInfo, PathInfo, ProjectsOutcome, MonitorScope, PendingRequest, PermissionPreset, QuitDecision, QuitPhase, RequestAnswer, SendAttempt, SettingsImpact, SkillInfo, SourceInfo } from "./ipc/types";
+import type { RepoRecordChoice, AgentKey, AppSettings, AttachmentEntry, Chat, ChatKey, Goal, GoalUpdate, Known, WorkMode, WorkModeInfo, WorkFoldersView, DeleteOutcome, DeletePreview, UsageReport, ForceKillPreview, HostEvent, HostEventEnvelope, HostSnapshot, ModelInfo, PathInfo, ProjectsOutcome, MonitorScope, PendingRequest, PermissionPreset, QuitDecision, QuitPhase, RequestAnswer, SendAttempt, SettingsImpact, SkillInfo, SourceInfo, OrgSnapshotView, StartOrgArgs } from "./ipc/types";
 import * as host from "./ipc/client";
 import { LinkContext, RefContext, type PathAction, type RefActions } from "./ui/Markdown";
 import { copyText } from "./ui/markdown/parts";
@@ -34,6 +34,7 @@ import { recheckSummary } from "./ui/chatState";
 import { gitKindOf, ownerMarkVisible, type GitKind } from "./ui/revertView";
 import { CommandPalette } from "./ui/CommandPalette";
 import { Dialogs, type DialogState, type NewChatInput } from "./ui/Dialogs";
+import { OrgPane } from "./ui/OrgPane";
 import { QuickNewPane } from "./ui/QuickNewPane";
 import { pickQuickModel } from "./ui/quickNew";
 import { addCreating, creatingLabel, foundSince, removeCreating, resolveCreating, resultOfError, setCheckedNote, setCreatingPhase, type CreatingChat } from "./ui/creating";
@@ -159,6 +160,13 @@ export default function App() {
   const quickRef = useRef<HTMLTextAreaElement>(null);
   const [steerUnknown, setSteerUnknown] = useState<Record<string, string>>({});
   const [warnHidden, setWarnHidden] = useState(false);
+  // 組織実行（P-ORG-7b）。状態はホストの org_view（読取りのみ）。orgUpdated の合図と開いたときに取り直す。null＝未取得（ワークフローなしとは別）。
+  const [org, setOrg] = useState<OrgSnapshotView | null>(null);
+  const [orgErr, setOrgErr] = useState<string | null>(null);
+  const [orgTick, setOrgTick] = useState(0);
+  /** 中央にワークフロー画面を出しているか（役割チャットを選ぶと閉じる）。 */
+  const [orgScreen, setOrgScreen] = useState(false);
+  const orgSeq = useRef(0);
   const [listStatus, setListStatus] = useState<{ ok: boolean; text: string } | null>(null);
   /** 通常の一覧の続き（nextCursor）。null＝続きなし（または未取得）。「続きを読み込む」だけが使う。 */
   const [listCursor, setListCursor] = useState<string | null>(null);
@@ -281,16 +289,18 @@ export default function App() {
         pipe.flushAll();
         setBundle((b) => replaceSnapshot(b, snap));
         restoreQuit(snap, false);
+        setOrgTick((n) => n + 1);
       } catch (e) { sayErr("状態を取り直せませんでした", e); } finally { resyncing = false; }
     };
     const effects = (e: HostEvent) => {
       if (e.kind === "turnUpdated" && e.end !== null && e.turn.agent.id === selRef.current) void loadChat(e.turn.agent.id);
+      else if (e.kind === "orgUpdated") setOrgTick((n) => n + 1); // 組織実行の状態の合図。画面側が org_view を取り直す（読取りのみ）
       else if (e.kind === "sendUpdated") noteAttempt(e.chat.id, e.attempt);
       else if (e.kind === "sendPhaseUpdated") setPendingSends((m) => { const cur = m[e.chat.id]; if (!cur) return m; const next = setPhase(cur, e.phase); return next === cur ? m : { ...m, [e.chat.id]: next }; }); // 送信中の段階（表示だけ）
       else if (e.kind === "changesUpdated") setChangesTick((n) => n + 1); // 開いている差分表示が取り直す（読取りのみ）
       else if (e.kind === "decisionRecorded") setDecisions((m) => ({ ...m, [e.record.chat.id]: addDecision(m[e.record.chat.id] ?? [], { record: e.record, save: e.save }) })); // 応答の記録（表示だけ。応答の代行・再送はしない）
       else if (e.kind === "goalUpdated") setGoals((m) => ({ ...m, [e.chat.id]: e.goal ? { kind: "value", value: e.goal, basis: "direct" } : { kind: "missing" } })); // 目標の表示を置き換える（エージェント状態には使わない）
-      else if (e.kind === "navigateToChat") { setSelId(e.chat.id); setQuick((q) => (q.open ? { ...q, open: false } : q)); void loadChat(e.chat.id); setDockFocus((f) => ({ id: e.chat.id, tick: (f?.tick ?? 0) + 1 })); } // 通知を開いた操作。表示だけで、回答・再実行はしない
+      else if (e.kind === "navigateToChat") { setOrgScreen(false); setSelId(e.chat.id); setQuick((q) => (q.open ? { ...q, open: false } : q)); void loadChat(e.chat.id); setDockFocus((f) => ({ id: e.chat.id, tick: (f?.tick ?? 0) + 1 })); } // 通知を開いた操作。表示だけで、回答・再実行はしない
       else if (e.kind === "quitPrompt") { quitKindRef.current = e.phase.kind; setQuit(e.phase); setDialog((d) => (d?.type === "force" ? d : { type: "quit" })); } // もう一度「終了」が要求された。確認画面を開き直す
       else if (e.kind === "quitUpdated") {
         // 終了手順の進行（確認・停止照合・保存）。段階が変わったときだけ確認画面を開く（「待つ」で閉じた後に開き直さない）。
@@ -353,6 +363,36 @@ export default function App() {
   }, [live, boot, loadChat, noteAttempt, say, sayErr, refreshProjects]);
 
   const snap: HostSnapshot = bundle.snapshot;
+
+  // 組織実行の状態を取り直す（読取りのみ。何も送らない）。古い応答は捨てる。
+  useEffect(() => {
+    const seq = ++orgSeq.current;
+    void (async () => {
+      try {
+        const v = live ? await host.orgView() : await (await loadMock()).client.orgView(scenario);
+        if (seq === orgSeq.current) { setOrg(v); setOrgErr(null); }
+      } catch (e) { if (seq === orgSeq.current) setOrgErr(host.asIpcError(e).message); }
+    })();
+  }, [live, scenario, orgTick]);
+  /** 組織実行の命令の実行。実接続でなければ動かさない。成功したら状態を取り直し、失敗は理由を通知する（成功を断定する文は f が返す）。 */
+  const orgRun = useCallback(async (label: string, f: () => Promise<string | void>): Promise<boolean> => {
+    if (!live) { say("この操作はモックでは動きません。"); return false; }
+    try {
+      const m = await f();
+      setOrgTick((n) => n + 1);
+      if (typeof m === "string" && m) say(m, 6000);
+      return true;
+    } catch (e) { sayErr(`${label}に失敗しました`, e); return false; }
+  }, [live, say, sayErr]);
+  const orgStart = async (a: StartOrgArgs): Promise<string | null> => {
+    if (!live) return "モックでは動きません。";
+    try {
+      await host.orgStart(a);
+      setDialog(null); setOrgScreen(true); setOrgTick((n) => n + 1);
+      say("組織実行を開始しました。Planner が計画を作ります。計画に確認が必要な内容があれば、承認するまでタスクは送られません。", 8000);
+      return null;
+    } catch (e) { return host.asIpcError(e).message; }
+  };
   // このアプリの起動中に一度でも live 監視になったエージェント（再起動後の保存履歴表示と、接続断からの回復を区別する）。
   const liveSeen = useRef<Set<string>>(new Set());
   // 設定の直列更新（updateSettings）用。ref は最後に保存できた設定。保存中でなければホストの最新に追従する。
@@ -479,6 +519,7 @@ export default function App() {
     : "Codex 版を確認できません";
 
   const selectChat = (id: string | null) => {
+    setOrgScreen(false);
     setSelId(id);
     setQuick((q) => (q.open ? { ...q, open: false } : q)); // 下書きは隠すだけ（文は残る）
     // 履歴のないチャット（記録だけの表示）は、読み込みを試みない。
@@ -1451,8 +1492,10 @@ ${cur}` : p.text);
         // 通常画面の閉じる＝トレイへ格納（確認なし。作業・収集・保存は続く）。終了は「AgentDock を終了」。
         if (live) host.closeThisWindow().catch((e) => sayErr("窓を閉じられませんでした", e)); else say("モックではトレイへ格納しません。");
         break;
+      case "orgStart": setLNarrow(false); setDialog({ type: "orgStart" }); break;
       case "newChatQuick":
         if (!live) { say("この操作はモックでは動きません。"); break; }
+        setOrgScreen(false);
         setLNarrow(false); // 狭い画面の一時パネルから開いたとき、左を閉じて下書きを見せる
         setQuick((q) => ({ ...q, open: true }));
         window.requestAnimationFrame(() => quickRef.current?.focus());
@@ -1630,13 +1673,16 @@ ${cur}` : p.text);
           style={{ ...(!leftTemp && leftOpen ? { "--lw": `${paneW.left}px` } : {}), ...(!rightTemp && rightOpen ? { "--rw": `${paneW.dock}px` } : {}) } as CSSProperties}
         >
           <aside className="left" id="pane-left" aria-label="チャット一覧">
-            <LeftPane creating={creating} onCreatingAct={creatingAct} snap={snap} sel={chat ? keyStr(chat.key) : null} onSelect={(id) => { selectChat(id); setLNarrow(false); }} onAct={act} onAcknowledge={(c) => onAcknowledge(c.key, null)}
+            <LeftPane org={{ wf: org?.workflow ?? null, selected: orgScreen, onOpen: () => { setOrgScreen(true); setLNarrow(false); setQuick((q) => (q.open ? { ...q, open: false } : q)); }, onStart: () => act("orgStart") }} creating={creating} onCreatingAct={creatingAct} snap={snap} sel={chat ? keyStr(chat.key) : null} onSelect={(id) => { selectChat(id); setLNarrow(false); }} onAct={act} onAcknowledge={(c) => onAcknowledge(c.key, null)}
               onChatAct={chatAct} chatList={snap.settings.chatList} projects={projects} onNotice={say} onReclassify={reclassify} onFetchProjectChats={fetchProjectChats} onLoadMore={listCursor ? loadMoreChats : undefined}
               onNewChatIn={(cwd, choices) => { setDialog({ type: "newChat", dev: true, cwd, cwdChoices: choices.length > 1 ? choices : undefined }); setLNarrow(false); }}
               onChatList={(f) => updateSettings((s) => ({ ...s, chatList: f(s.chatList) }), "一覧の表示設定を保存できませんでした。次回の起動では保存されている値に戻ります")} listStatus={listStatus} uiSize={snap.settings.appearance.uiText} />
           </aside>
           <main className="center">
-            {quick.open || (!chat && live) ? (
+            {orgScreen ? (
+              <OrgPane snap={snap} org={org} error={orgErr} live={live} leftShown={leftTemp ? lNarrow : leftOpen} rightShown={rightTemp ? rNarrow : rightOpen}
+                onAct={act} onOpenChat={(k) => selectChat(k.id)} onReload={() => setOrgTick((n) => n + 1)} run={orgRun} />
+            ) : quick.open || (!chat && live) ? (
               <QuickNewPane models={models} model={quick.model ?? pickQuickModel(models, snap.settings.lastNewChat)} setModel={(id) => setQuick((q) => ({ ...q, model: id }))}
                 text={quick.text} setText={(v) => setQuick((q) => ({ ...q, text: v }))} enterMode={enterMode} busy={!!quick.busy} inputRef={quickRef}
                 onSend={quickSend} onDetail={() => { setDialog({ type: "newChat", prefill: { model: quick.model ?? pickQuickModel(models, snap.settings.lastNewChat), first: quick.text, isolate: false, worktree: null } }); setQuick({ open: false, text: "", model: null }); }} />
@@ -1672,7 +1718,10 @@ ${cur}` : p.text);
       {mini && !live ? <MiniWindow {...dockProps} top={miniTop} /> : null}
       {palette && !dialog ? <CommandPalette views={cmdViews} onRun={act} onClose={() => setPalette(false)} /> : null}
       {dialog ? (
-        <Dialogs d={dialog} folderTools={folderTools} workspaceRoots={snap.workspaceRoots} onClose={closeDialog} opCaps={snap.opCapabilities} resend={{ state: resendState, handlers: resendHandlers }} chats={snap.chats} source={src} models={models}
+        <Dialogs d={dialog} org={{
+          settings: { live, stallMinutes: snap.settings.orgStallMinutes, setStall: async (m) => { if (!live) return "モックでは動きません。"; try { await host.orgSetStallMinutes(m); return null; } catch (e) { return host.asIpcError(e).message; } } },
+          start: orgStart, browse: folderTools.browse,
+        }} folderTools={folderTools} workspaceRoots={snap.workspaceRoots} onClose={closeDialog} opCaps={snap.opCapabilities} resend={{ state: resendState, handlers: resendHandlers }} chats={snap.chats} source={src} models={models}
           prefs={{ goal: dialog.type === "goal" ? goals[dialog.chatId] : undefined, saveGoal,
             settings: dialog.type === "status" && dialog.chatId ? bundle.modelSettings[dialog.chatId] : undefined,
             local: dialog.type === "status" && dialog.chatId ? snap.chatLocals.find((l) => l.chat.id === dialog.chatId) : undefined }}

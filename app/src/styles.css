@@ -959,3 +959,58 @@ button.uchip:hover{background:var(--accent-weak)}
 .quick-new-in p{margin:0}
 .quick-new-in textarea{min-height:140px;resize:vertical}
 .quick-new-ctl{display:flex;gap:8px;align-items:center;justify-content:flex-end;flex-wrap:wrap}
+
+/* ==== org ==== */
+/* 組織実行（P-ORG-7b）: ワークフロー画面・計画承認カード・左一覧の行。色はトークンのみ。状態は文字＋アイコンで示す。 */
+.left-org{padding:4px 6px 0;border-bottom:1px solid var(--line)}
+.left-org .org-row .row-main{gap:6px}
+.left-org .org-row .pop-wrap{align-self:center}
+.org-row-st{padding:0 8px 6px 8px;display:flex}
+.org-row-st .st{margin-left:0}
+.org-badge{flex:none;font-size:var(--fs-xs);max-width:11em;overflow:hidden;text-overflow:ellipsis}
+.org-body{flex:1;min-height:0;overflow:auto;padding:12px 16px 20px}
+.org-body .banner{margin-bottom:8px}
+.org-bar{display:flex;align-items:center;gap:8px;margin:0 0 8px}
+.org-bar .grow{flex:1}
+.org-body .confirm{margin:0 0 10px}
+.org-card{border:1px solid var(--wait-line);border-left:3px solid var(--wait-solid);background:var(--wait-bg);border-radius:var(--r2);padding:10px 14px;margin:0 0 12px}
+.org-card h4{margin:0 0 6px;display:flex;align-items:center;gap:6px;color:var(--wait-ink)}
+.org-card p{margin:0 0 6px}
+.org-card .about{background:var(--surface);margin-top:6px}
+.org-card-acts{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin-top:10px}
+.org-plan{margin:4px 0;padding-left:18px}
+.org-plan li{margin:3px 0;overflow-wrap:anywhere}
+.org-sum{margin:0 0 14px}
+.org-req{margin:0 0 8px;white-space:pre-wrap;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.org-dl{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:3px 14px;margin:0;font-size:var(--fs-s)}
+.org-dl dt{color:var(--ink3)}
+.org-dl dd{margin:0;overflow-wrap:anywhere}
+.org-h{margin:0 0 6px;font-size:var(--fs)}
+.org-group{margin:0 0 12px}
+.org-gh{font-size:var(--fs-s);color:var(--ink3);margin:0 0 4px}
+.org-scroll{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r2)}
+.org-tbl{width:100%;border-collapse:collapse;font-size:var(--fs-s)}
+.org-tbl th,.org-tbl td{padding:5px 8px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line2);white-space:nowrap}
+.org-tbl thead th{color:var(--ink3);font-weight:600;background:var(--surface2)}
+.org-tbl tbody th{font-weight:700}
+.org-tbl tr:last-child>td,.org-tbl tr:last-child>th{border-bottom:0}
+.org-tbl td.org-title{white-space:normal;min-width:14em;max-width:26em;overflow-wrap:anywhere}
+.org-tbl .st{margin-left:0}
+.org-tbl .st svg.i{width:12px;height:12px}
+.org-note-row td{white-space:normal;color:var(--ink2);padding-top:0}
+.org-acts{display:flex;gap:4px;flex-wrap:wrap}
+.org-notices{margin:4px 0;padding-left:0;list-style:none}
+.org-notices li{margin:3px 0}
+.org-cands{margin:6px 0;padding:0;list-style:none}
+.org-cands li{display:flex;gap:10px;align-items:center;margin:4px 0}
+.org-roles{list-style:none;margin:8px 0;padding:0;display:flex;flex-direction:column;gap:10px}
+.org-roles>li{border:1px solid var(--line);border-radius:var(--r2);padding:8px 10px}
+.org-role-h{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.org-role-h .grow{flex:1}
+.org-running{margin:8px 0;padding:6px 10px;border:1px solid var(--wait-line);background:var(--wait-bg);border-radius:var(--r2)}
+.org-running p{margin:0 0 4px}
+@media (max-width:959px){
+  .org-body{padding:10px 10px 16px}
+  .org-dl{grid-template-columns:minmax(0,1fr)}
+  .org-dl dt{margin-top:4px}
+}

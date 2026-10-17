@@ -194,6 +194,9 @@ export const SCENARIOS: Array<[string, string]> = [
   ["launch", "起動失敗・版の警告"],
   ["storage", "保存失敗"],
   ["empty", "初回起動（チャットなし）"],
+  ["orgRun", "組織実行（再起動後・要対応あり）"],
+  ["orgPlan", "組織実行（計画の承認待ち）"],
+  ["orgDone", "組織実行（完了）"],
 ];
 
 const T = (id: string) => ({ backend: "codex" as const, source: SOURCE, requestId: id });

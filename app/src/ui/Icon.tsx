@@ -16,7 +16,26 @@ const ICON: Record<string, string> = {
   more: '<circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/>',
   help: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.6 2.2c-.7.4-1.1.9-1.1 1.8M12 17v.5"/>',
   refresh: '<path d="M20 11a8 8 0 0 0-14-4.5L4 9M4 4v5h5M4 13a8 8 0 0 0 14 4.5L20 15M20 20v-5h-5"/>',
+  // 組織実行の状態語彙（ホストの icon 名から orgIcon で引く。文字の表示と併用し、色だけに頼らない）
+  hourglass: '<path d="M7 4h10M7 20h10M8 4v3a4 4 0 0 0 4 5 4 4 0 0 0 4-5V4M8 20v-3a4 4 0 0 1 4-5 4 4 0 0 1 4 5v3"/>',
+  circle: '<circle cx="12" cy="12" r="8"/>', play: '<path d="M8 5v14l11-7z"/>', pause: '<path d="M9 5v14M15 5v14"/>',
+  eye: '<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+  ban: '<circle cx="12" cy="12" r="9"/><path d="m6 6 12 12"/>',
+  shield: '<path d="M12 3l8 3v6c0 5-4 8-8 9-4-1-8-4-8-9V6z"/><path d="m9 12 2 2 4-4"/>',
+  stopCircle: '<circle cx="12" cy="12" r="9"/><rect x="9" y="9" width="6" height="6" rx="1"/>',
 };
+
+/** ホストが返す組織実行のアイコン名（hourglass／circle／play／pause／eye／rotate／check／x／ban／shield-check／help-circle／refresh／stop-circle／alert-triangle）を、この画面のアイコン名へ。未知の名前は空（文字の表示は別にある）。 */
+export function orgIcon(name: string): string {
+  switch (name) {
+    case "rotate": case "refresh": return "refresh";
+    case "shield-check": return "shield";
+    case "help-circle": return "help";
+    case "stop-circle": return "stopCircle";
+    case "alert-triangle": return "alert";
+    default: return name;
+  }
+}
 
 export function Icon({ name }: { name: string }) {
   return <svg className="i" viewBox="0 0 24 24" aria-hidden="true" dangerouslySetInnerHTML={{ __html: ICON[name] ?? "" }} />;

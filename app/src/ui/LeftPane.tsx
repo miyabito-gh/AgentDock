@@ -13,6 +13,9 @@ import { GROUP_HEADER_HEIGHT, WINDOW_THRESHOLD, cumulativeTops, rowHeight, scrol
 import { BASIS_TEXT, groupByProject, type MatchBasis } from "./projectGroups";
 import { projectUpdateMessage } from "./listFetch";
 import { PROJECTS_ENABLED } from "./features";
+import { OrgListRow } from "./OrgPane";
+import { isOrgOwned } from "./org";
+import type { OrgWorkflowView } from "../ipc/types";
 import { UNKNOWN_KEY, collapseAll, flattenGroups, groupChats, shortNames, worktreeOf, type FlatItem, type FolderGroup } from "./folderGroups";
 
 /** 行の「…」メニューで選べる操作（App.tsx の onChatAct が対象チャットIDつきで受ける）。 */
@@ -33,7 +36,9 @@ interface MenuItem { act: string; label: string; danger?: boolean; sep?: boolean
 /** 開いているメニュー（行の「…」・見出しの「…」で共通）。位置は「…」ボタンに寄せる。 */
 type OpenMenu = { kind: "chat"; id: string } | { kind: "group"; key: string };
 
-export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct, chatList, onChatList, projects = null, onNotice, listStatus, uiSize = "Normal", onNewChatIn, onReclassify, onFetchProjectChats, onLoadMore, creating = [], onCreatingAct }: {
+export function LeftPane({ org, snap, sel, onSelect, onAct, onAcknowledge, onChatAct, chatList, onChatList, projects = null, onNotice, listStatus, uiSize = "Normal", onNewChatIn, onReclassify, onFetchProjectChats, onLoadMore, creating = [], onCreatingAct }: {
+  /** 組織実行（P-ORG-7b）。ワークフロー1件＝1行。役割チャットは通常の一覧から隠し、ワークフロー画面から辿る。wf が null なら開始の入口だけ（足元）。 */
+  org?: { wf: OrgWorkflowView | null; selected: boolean; onOpen: () => void; onStart: () => void };
   /** 作成中の仮行（先頭。ピンより上）と、その操作。 */
   creating?: CreatingChat[]; onCreatingAct?: (id: string, op: "retry" | "dismiss" | "refresh") => void;
   /** プロジェクト見出しの「このプロジェクトのチャットを取得」。roots を cwd 条件に読む（読み取りのみ）。結果の通知は呼び出し側が出す。 */
@@ -69,9 +74,9 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct,
   const archived = (c: Chat) => localOf(c)?.visibility.kind === "archived" || knownValue(c.archived) === true;
   // 外部作成の会話を「一覧から外した」ものは、元の履歴を消さずにアプリの一覧からだけ隠す。
   const removed = (c: Chat) => localOf(c)?.visibility.kind === "removedFromList";
-  const visible = sortChats(snap.chats).filter((c) => !removed(c)).filter((c) =>
+  const visible = sortChats(snap.chats).filter((c) => !removed(c) && !isOrgOwned(localOf(c))).filter((c) =>
     (showArch ? archived(c) : !archived(c) || (q !== "" && inclArch)) && (!q || chatName(c).includes(q)));
-  const loadedCount = snap.chats.filter((c) => !removed(c) && !archived(c)).length;
+  const loadedCount = snap.chats.filter((c) => !removed(c) && !isOrgOwned(localOf(c)) && !archived(c)).length;
   const pinned = visible.filter((c) => c.pinned && !showArch);
   const rest = visible.filter((c) => !c.pinned || showArch);
 
@@ -466,6 +471,7 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct,
         {projectsNote ? <div className={`small${projectsNote.bad ? " lt-fail" : ""}`} role="status">{projectsNote.text}</div> : null}
         {listStatus && !listStatus.ok ? <div className="small lt-fail" role="status">{listStatus.text}</div> : null}
       </div>
+      {org?.wf ? <OrgListRow wf={org.wf} selected={org.selected} onOpen={org.onOpen} onStart={org.onStart} /> : null}
       <div className="left-scroll" ref={scrollerRef} onScroll={() => { if (menu) closeMenu(false); if (windowed) measure(); }}>
         {showArch ? (
           <>
@@ -496,7 +502,8 @@ export function LeftPane({ snap, sel, onSelect, onAct, onAcknowledge, onChatAct,
         </div>
       ) : null}
       <div className="left-foot">
-        <button className="small" style={{ height: 22 }} onClick={() => setShowArch(true)}><Icon name="archive" />アーカイブ（{snap.chats.filter((c) => !removed(c) && archived(c)).length}）</button>
+        <button className="small" style={{ height: 22 }} onClick={() => setShowArch(true)}><Icon name="archive" />アーカイブ（{snap.chats.filter((c) => !removed(c) && !isOrgOwned(localOf(c)) && archived(c)).length}）</button>
+        {org && !org.wf ? <button className="small" style={{ height: 22 }} onClick={org.onStart} title="複数の役割のチャットで進める組織実行を開始します（開始のダイアログが開くだけです）">組織実行を開始…</button> : null}
         <span className="only-narrow-l"><button className="small" style={{ height: 22 }} onClick={() => onAct("toggleLeft")}>閉じる</button></span>
       </div>
     </>

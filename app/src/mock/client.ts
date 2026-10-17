@@ -1,8 +1,9 @@
 // モック切替用の仮実装（実IPCの代わりに仮データを返す）。製品の挙動ではない。
 import { makeBundle, MODELS, type Bundle } from "./data";
+import { mockOrgRoles, mockOrgView } from "./org";
 import type {
   AgentKey, ChatKey, ChatModelSettings, ExternalId, ForkPurpose, InterruptChatResult, LocalId, ModelChoice, ModelInfo, MonitorScope, RecheckAgentsResult,
-  RequestAnswer, RequestKey, RespondOutcome, ResendAsForkResult, SendAttempt, SendIntent,
+  OrgRolesView, OrgSnapshotView, RequestAnswer, RequestKey, RespondOutcome, ResendAsForkResult, SendAttempt, SendIntent,
 } from "../ipc/types";
 
 export async function getBundle(scenario: string): Promise<Bundle> {
@@ -35,4 +36,12 @@ export async function recheckUnknownAgents(_chat: ChatKey, agents: AgentKey[]): 
 }
 export async function setChatModel(_chat: ChatKey, choice: ModelChoice): Promise<ChatModelSettings> {
   return { selected: choice, accepted: { kind: "notFetched" }, effective: { kind: "notFetched" }, applies: "nextTurn", acceptedWorkMode: { kind: "notFetched" } };
+}
+
+// 組織実行の仮データ（シナリオ別）。
+export async function orgView(scenario: string): Promise<OrgSnapshotView> {
+  return mockOrgView(scenario);
+}
+export async function orgRolesView(): Promise<OrgRolesView> {
+  return mockOrgRoles();
 }
