@@ -30,7 +30,7 @@ if (noPlugins) {
   }
   launchOverrides.push('mcp_servers.node_repl.enabled=false');
 }
-for (const kv of (process.env.ORGPROBE_CODEX_ARGS ?? '').split(/s+/)) if (kv) launchOverrides.push(kv);
+for (const kv of (process.env.ORGPROBE_CODEX_ARGS ?? '').split(/\s+/)) if (kv) launchOverrides.push(kv);
 const which = positional[0] ?? 'all';
 const exe = positional[1] || process.env.CODEX_EXE ||
   'C:\\Users\\wmasa\\AppData\\Local\\Programs\\OpenAI\\Codex\\bin\\codex.exe';
