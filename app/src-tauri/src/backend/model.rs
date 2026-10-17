@@ -731,6 +731,29 @@ pub enum WorktreeState {
     Failed { message: String },
 }
 
+/// 組織実行のworktreeの使い方。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub enum OrgWorktreeAccess {
+    /// Workerの専用worktree（`agentdock/org/...` ブランチ。ここへだけコミットできる）。
+    Writable,
+    /// Reviewer等の読取り用（対象コミット固定のdetached。コミットしない）。
+    DetachedReadOnly,
+}
+
+/// 組織実行が所有するworktreeの記録（`WorktreeRecord.org`）。これのないパスには組織実行は書かない・消さない。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgWorktreeOwner {
+    pub workflow_id: String,
+    pub task_id: String,
+    pub access: OrgWorktreeAccess,
+}
+
 /// worktree台帳の1件（ルートの `worktrees.json`。P3-7）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
@@ -745,6 +768,9 @@ pub struct WorktreeRecord {
     pub created_at: UnixMillis,
     pub created_for_chat: Option<ChatKey>,
     pub state: WorktreeState,
+    /// 組織実行が作ったものの所有記録（利用者が作ったものは None。古い台帳にはない）。
+    #[serde(default)]
+    pub org: Option<OrgWorktreeOwner>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

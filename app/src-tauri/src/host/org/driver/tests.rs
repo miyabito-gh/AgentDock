@@ -90,6 +90,13 @@ impl RuntimeRead for Fake {
     }
 }
 
+#[async_trait]
+impl Workspace for Fake {
+    async fn run(&self, _workflow: &WorkflowId, _action: WorkspaceAction) -> WorkspaceOutcome {
+        WorkspaceOutcome::Unsupported
+    }
+}
+
 #[derive(Default)]
 struct Sink {
     notices: Mutex<Vec<OrgHostNotice>>,

@@ -9,6 +9,7 @@
 //! 控え用の操作はAgentDock領域（チャット領域内の専用objects置き場と一時インデックス）にだけ書き、
 //! ユーザーの作業ツリー・インデックス・stash・ブランチ・refs・リポジトリの `objects` には書かない（DESIGN_P3B §1.1）。
 
+pub mod org;
 pub mod snapshot;
 pub mod worktree;
 
@@ -87,6 +88,16 @@ pub enum GitOp {
     WorktreeRemove { path: String, force: bool },
     /// マージ済みのブランチだけ削除（`-d`。`-D` は使わない）。
     BranchDeleteMerged { branch: String },
+    /// 作業ツリーの変更をすべてステージする（`add -A`）。組織実行の所有worktree内だけで使う（[`org`]）。
+    StageAll,
+    /// ステージ済みの変更をコミットする。作者はAgentDock、署名なし、フックは走らせない。組織実行の所有worktree内だけで使う。
+    CommitStaged { message: String },
+    /// コミットを固定したdetached HEADのworktreeを追加する（ブランチを作らない・チェックアウトしない。読取り用）。
+    WorktreeAddDetached { path: String, commit: String },
+    /// 2つのコミットの差分の統計（読取りのみ）。
+    DiffCommitsStat { from: String, to: String },
+    /// 2つのコミットの差分の変更ファイル一覧（`--name-status`。読取りのみ）。
+    DiffCommitsNames { from: String, to: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -156,6 +167,15 @@ fn strings(xs: &[&str]) -> Vec<String> {
     xs.iter().map(|s| s.to_string()).collect()
 }
 
+fn commits_diff(mode: &[&str], from: &str, to: &str) -> Result<Vec<String>, GitError> {
+    check(valid_ref(from), "from")?;
+    check(valid_ref(to), "to")?;
+    let mut a = strings(&["--no-optional-locks", "-c", "core.quotepath=false", "diff", "--no-ext-diff", "--no-textconv", "--no-color"]);
+    a.extend(mode.iter().map(|s| s.to_string()));
+    a.extend([from.to_string(), to.to_string(), "--".to_string()]);
+    Ok(a)
+}
+
 impl GitOp {
     /// 引数の配列（`git` の後ろ）。値は検証し、パスは `--` の後ろに置く。
     pub fn args(&self) -> Result<Vec<String>, GitError> {
@@ -214,12 +234,33 @@ impl GitOp {
                 a.push(branch.clone());
                 a
             }
+            GitOp::StageAll => strings(&["add", "-A"]),
+            GitOp::CommitStaged { message } => {
+                check(!message.trim().is_empty() && !message.contains('\0'), "message")?;
+                let mut a = strings(&["-c", "user.name=AgentDock", "-c", "user.email=agentdock@localhost", "-c", "commit.gpgsign=false", "commit", "--no-verify", "-q", "-m"]);
+                a.push(message.clone());
+                a
+            }
+            GitOp::WorktreeAddDetached { path, commit } => {
+                check(valid_path(path), "path")?;
+                check(valid_ref(commit), "commit")?;
+                let mut a = strings(&["worktree", "add", "--detach", "--"]);
+                a.extend([path.clone(), commit.clone()]);
+                a
+            }
+            GitOp::DiffCommitsStat { from, to } => commits_diff(&["--stat"], from, to)?,
+            GitOp::DiffCommitsNames { from, to } => commits_diff(&["--name-status"], from, to)?,
         })
     }
 
     fn timeout(&self) -> Duration {
         match self {
-            GitOp::WorktreeAdd { .. } | GitOp::WorktreeRemove { .. } | GitOp::BranchDeleteMerged { .. } => WRITE_TIMEOUT,
+            GitOp::WorktreeAdd { .. }
+            | GitOp::WorktreeRemove { .. }
+            | GitOp::BranchDeleteMerged { .. }
+            | GitOp::StageAll
+            | GitOp::CommitStaged { .. }
+            | GitOp::WorktreeAddDetached { .. } => WRITE_TIMEOUT,
             _ => READ_TIMEOUT,
         }
     }

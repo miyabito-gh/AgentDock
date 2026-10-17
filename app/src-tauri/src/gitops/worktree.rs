@@ -47,7 +47,7 @@ fn first_line(bytes: &[u8]) -> String {
     line.chars().take(MESSAGE_MAX_CHARS).collect()
 }
 
-fn ok(out: GitOutput) -> Result<GitOutput, WtError> {
+pub(super) fn ok(out: GitOutput) -> Result<GitOutput, WtError> {
     if out.success() {
         return Ok(out);
     }

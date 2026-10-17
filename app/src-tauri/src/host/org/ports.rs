@@ -9,7 +9,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use org_engine::{CreateResult, OrgNotice, RoleChatSpec, SandboxKind, TaskId};
+use org_engine::{CreateResult, OrgNotice, RoleChatSpec, SandboxKind, TaskId, WorkflowId, WorkspaceAction, WorkspaceOutcome};
 
 use super::driver::OrgSink;
 use super::grant::{CreatePermit, DispatchPermit, GrantRegistry};
@@ -67,6 +67,20 @@ pub trait RuntimeRead: Send + Sync {
     async fn sandbox_check(&self, cwd: &str) -> Result<SandboxCheck, BackendError>;
     /// 子孫の様子（キューの判断の読取り。送信しない）。
     async fn descendants(&self, chat: &ChatKey) -> DescendantReport;
+}
+
+/// 作業場所のポート（P-ORG-5）。組織実行のタスク用のworktree作成と、所有worktree内のコミットだけ。
+/// 失敗・拒否・非対応を成功にしない（`WorkspaceOutcome` で返す）。マージ・push・利用者のブランチへの操作は持たない。
+#[async_trait]
+pub trait Workspace: Send + Sync {
+    async fn run(&self, workflow: &WorkflowId, action: WorkspaceAction) -> WorkspaceOutcome;
+}
+
+#[async_trait]
+impl Workspace for Arc<Host> {
+    async fn run(&self, workflow: &WorkflowId, action: WorkspaceAction) -> WorkspaceOutcome {
+        self.org_workspace(workflow, action).await
+    }
 }
 
 /// 画面へ出す通知の材料（エンジンの通知と、ホストが観測したもの）。

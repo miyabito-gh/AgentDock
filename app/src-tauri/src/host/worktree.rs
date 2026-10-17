@@ -9,6 +9,8 @@
 //! - 外部のworktreeは一覧に出すだけ（作業フォルダとして選べるが削除しない）。チャットの削除ではworktreeを消さない。
 //! - 置き場所は専用領域の `worktrees\`。パスは字句と解決後の両方で配下であることを確認する（`..`・リンク越えは不可）。
 
+mod org;
+
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -263,7 +265,7 @@ impl Host {
         std::fs::create_dir_all(&root).map_err(|e| err(IpcErrorCode::Io, format!("worktreeの置き場所を作成できません: {e}")))?;
 
         // 作る前に記録を保存する（保存できなければ実行しない。異常終了後は `Creating` のまま残り、一覧と実在を照合して扱う）。
-        let mut rec = WorktreeRecord { id: id.clone(), repo_root: main_path, path: path.clone(), branch: branch.clone(), base_commit: base_commit.clone(), created_at: now_ms(), created_for_chat: None, state: WorktreeState::Creating };
+        let mut rec = WorktreeRecord { id: id.clone(), repo_root: main_path, path: path.clone(), branch: branch.clone(), base_commit: base_commit.clone(), created_at: now_ms(), created_for_chat: None, state: WorktreeState::Creating, org: None };
         self.put_worktree(rec.clone());
         if let Err(message) = self.save_worktrees().await {
             self.drop_worktree(&id);

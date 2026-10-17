@@ -20,7 +20,7 @@ use org_engine::{
 use tokio::sync::mpsc::UnboundedReceiver;
 
 use super::grant::OrgGrant;
-use super::ports::{AgentRuntime, OrgHostNotice, OrgSendResult, OrgSendSpec, RuntimeRead};
+use super::ports::{AgentRuntime, OrgHostNotice, OrgSendResult, OrgSendSpec, RuntimeRead, Workspace};
 use crate::rules::org::{chat_key_of_ref, judge_sandbox, turn_key_of_ref, SandboxVerdict, SANDBOX_UNHEALTHY_NOTICE};
 
 /// 使用量の標本（`thread/tokenUsage/updated`）。turn の終端で1行にまとめて記録する。取れない値は None。
@@ -82,7 +82,7 @@ pub trait OrgSink: Send + Sync {
 
 type DynStore = Arc<dyn OrgStore + Send + Sync>;
 
-pub struct OrgDriver<P: AgentRuntime + RuntimeRead> {
+pub struct OrgDriver<P: AgentRuntime + RuntimeRead + Workspace> {
     core: OrgCore,
     store: DynStore,
     ports: Arc<P>,
@@ -95,7 +95,7 @@ pub struct OrgDriver<P: AgentRuntime + RuntimeRead> {
     now: Box<dyn Fn() -> i64 + Send>,
 }
 
-impl<P: AgentRuntime + RuntimeRead + 'static> OrgDriver<P> {
+impl<P: AgentRuntime + RuntimeRead + Workspace + 'static> OrgDriver<P> {
     pub fn new(core: OrgCore, store: DynStore, ports: Arc<P>, sink: Arc<dyn OrgSink>, now: Box<dyn Fn() -> i64 + Send>) -> Self {
         Self { core, store, ports, sink, grant: None, persist_failed: false, latest_usage: HashMap::new(), last_desc: HashMap::new(), now }
     }
@@ -272,12 +272,16 @@ impl<P: AgentRuntime + RuntimeRead + 'static> OrgDriver<P> {
                 };
                 Some(vec![OrgInput::FinalMessage { task, turn, text }])
             }
-            // 作業場所（worktree・コミット）のホスト実装は P-ORG-5。それまでは未対応として返す（成功にも失敗にもしない）。
+            // 作業場所（worktree作成・所有worktree内のコミット）。結果は成功・失敗・変更なし・未対応のまま返す（推定しない）。
             OrgAction::Workspace(w) => {
-                let task = match w {
-                    WorkspaceAction::CreateWorktree { task, .. } | WorkspaceAction::Commit { task, .. } => task,
+                let task = match &w {
+                    WorkspaceAction::CreateWorktree { task, .. } | WorkspaceAction::Commit { task, .. } => task.clone(),
                 };
-                Some(vec![OrgInput::WorkspaceResult { task, result: WorkspaceOutcome::Unsupported }])
+                let result = match self.core.state().map(|s| s.workflow_id().clone()) {
+                    Some(workflow) => self.ports.run(&workflow, w).await,
+                    None => WorkspaceOutcome::Failed { detail: "ワークフローの状態がありません".to_string() },
+                };
+                Some(vec![OrgInput::WorkspaceResult { task, result }])
             }
         }
     }
