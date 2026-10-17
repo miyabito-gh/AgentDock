@@ -81,4 +81,9 @@ lastNewChat: NewChatDefaults | null,
  * sandbox の競合回避（既定オフ）。組織実行の開始前チェックが失敗したときだけ使う。有効になるのは次の App Server 起動から。
  * 真偽値だけを持つ（意味はバックエンドが解釈する）。古い `settings.json` はオフで読む。
  */
-sandboxWorkaround: boolean, };
+sandboxWorkaround: boolean, 
+/**
+ * 組織実行で、実行中のタスクに新しい出力がないときに「止まっているかもしれない」と知らせるまでの時間（分。1〜1440）。
+ * 通知だけで、自動では中断しない。古い `settings.json` は30で読む。
+ */
+orgStallMinutes: number, };

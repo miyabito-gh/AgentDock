@@ -447,7 +447,7 @@ mod tests {
 
     #[test]
     fn idle_and_confirming_only_move_by_user_decision() {
-        let c = QuitPhase::Confirming { busy: vec![ck("a")] };
+        let c = QuitPhase::Confirming { busy: vec![ck("a")], org_running: Vec::new() };
         assert_eq!(next_quit_phase(&c, &[], &[SaveScope::AppSettings], UnixMillis(T0)), c);
         assert_eq!(next_quit_phase(&QuitPhase::Idle, &[], &[], UnixMillis(T0)), QuitPhase::Idle);
     }

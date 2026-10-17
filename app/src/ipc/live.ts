@@ -9,11 +9,11 @@ import type {
 /** ホスト（`AppSettings::default`）と同じ初期値。接続前の表示用で、保存済みの値ではない。 */
 export const DEFAULT_SETTINGS: AppSettings = {
   executables: {}, autostart: false,
-  notifications: { enabled: true, approvalAndQuestion: true, completed: true, failed: true, sound: true, showChatName: true },
+  notifications: { enabled: true, approvalAndQuestion: true, completed: true, failed: true, sound: true, showChatName: true, orgAttention: true, orgFinished: true },
   mainWindow: { alwaysOnTop: false, bounds: null }, monitorWindow: { alwaysOnTop: false, bounds: null },
   monitorScope: "selectedChat", defaultModel: null, sendKey: "ctrlEnter", acknowledgedWarnings: [], tools: { git: null }, cloudEnvByRepo: {}, baselines: { enabled: true, repos: [] }, layout: { leftWidth: null, dockWidth: null },
   chatList: { view: "Recent", pinnedFolders: [], collapsedFolders: [] }, appearance: { theme: "System", uiText: "Normal", bodyText: "Normal" },
-  dismissedVersionNotice: null, recentSkills: [], workFolderSets: [], lastNewChat: null, sandboxWorkaround: false,
+  dismissedVersionNotice: null, recentSkills: [], workFolderSets: [], lastNewChat: null, sandboxWorkaround: false, orgStallMinutes: 30,
 };
 
 const emptySnapshot = (): HostSnapshot => ({

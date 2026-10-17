@@ -437,11 +437,26 @@ pub struct NotificationSettings {
     pub failed: bool,
     pub sound: bool,
     pub show_chat_name: bool,
+    /// 組織実行の「計画承認待ち」「タスクが止まった」（即時）。古い `settings.json`（この項目なし）はオンで読む。
+    #[serde(default = "default_true")]
+    pub org_attention: bool,
+    /// 組織実行の「完了・失敗」（ワークフロー単位で2秒集約）。古い `settings.json` はオンで読む。
+    #[serde(default = "default_true")]
+    pub org_finished: bool,
 }
 
 impl Default for NotificationSettings {
     fn default() -> Self {
-        NotificationSettings { enabled: true, approval_and_question: true, completed: true, failed: true, sound: true, show_chat_name: true }
+        NotificationSettings {
+            enabled: true,
+            approval_and_question: true,
+            completed: true,
+            failed: true,
+            sound: true,
+            show_chat_name: true,
+            org_attention: true,
+            org_finished: true,
+        }
     }
 }
 
@@ -561,6 +576,14 @@ pub struct AppSettings {
     /// 真偽値だけを持つ（意味はバックエンドが解釈する）。古い `settings.json` はオフで読む。
     #[serde(default)]
     pub sandbox_workaround: bool,
+    /// 組織実行で、実行中のタスクに新しい出力がないときに「止まっているかもしれない」と知らせるまでの時間（分。1〜1440）。
+    /// 通知だけで、自動では中断しない。古い `settings.json` は30で読む。
+    #[serde(default = "default_org_stall_minutes")]
+    pub org_stall_minutes: u32,
+}
+
+fn default_org_stall_minutes() -> u32 {
+    30
 }
 
 /// クイック新規の既定値。
@@ -791,6 +814,7 @@ impl Default for AppSettings {
             work_folder_sets: Vec::new(),
             last_new_chat: None,
             sandbox_workaround: false,
+            org_stall_minutes: default_org_stall_minutes(),
         }
     }
 }
@@ -805,7 +829,12 @@ impl Default for AppSettings {
 pub enum QuitPhase {
     Idle,
     /// 作業中のチャットを示して「終了を取り消す／作業を中断して終了」を選ばせる。
-    Confirming { busy: Vec<ChatKey> },
+    Confirming {
+        busy: Vec<ChatKey>,
+        /// 組織実行中のワークフロー（併記するだけ。終了の手順や対象は変えない）。古い保存・画面の写しでは空。
+        #[serde(default)]
+        org_running: Vec<OrgRunningNote>,
+    },
     /// 中断要求を出し、停止と保存を照合している。
     Stopping { records: Vec<LocalId>, started_at: UnixMillis },
     /// 10秒で停止を確認できない対象がある。「待つ／中断を再試行／終了を取り消す」と強制終了を出す（D04）。

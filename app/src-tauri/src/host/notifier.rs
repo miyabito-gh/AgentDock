@@ -140,10 +140,12 @@ impl Host {
     fn deliver(&self, p: &Pending) {
         let Some(sink) = self.notifier.sink.get() else { return };
         let (settings, name) = self.read(|d| {
+            // 組織実行の通知はワークフロー名を `Pending` が持つ（チャット名は使わない）。
             let chat = match p {
-                Pending::AwaitingAnswer { chat, .. } | Pending::Ended { chat, .. } => chat,
+                Pending::AwaitingAnswer { chat, .. } | Pending::Ended { chat, .. } => Some(chat),
+                Pending::OrgAttention { .. } | Pending::OrgEnded { .. } => None,
             };
-            (d.settings.notifications.clone(), d.chat(chat).and_then(|c| c.name.value().cloned()))
+            (d.settings.notifications.clone(), chat.and_then(|chat| d.chat(chat)).and_then(|c| c.name.value().cloned()))
         });
         let focus = {
             let inner = self.notifier.inner.lock().unwrap();

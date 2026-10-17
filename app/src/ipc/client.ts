@@ -309,3 +309,25 @@ export const cloudTaskStatus = (taskId: string): Promise<CloudCommandOutput> => 
 export const cloudTaskDiff = (taskId: string): Promise<CloudCommandOutput> => invokeCmd("cloud_task_diff", { taskId });
 /** 差分の取込み（作業フォルダを変える。確認画面の後だけ）。 */
 export const applyCloudTask = (taskId: string, folder: string): Promise<CloudApplyResult> => invokeCmd("apply_cloud_task", { taskId, folder });
+
+// ── 組織実行（P-ORG-7a。薄い呼び出し口。画面は P-ORG-7b）。org_view 等の閲覧は何も送らない ──
+import type {
+  OrgSnapshotView, OrgRolesView, StartOrgArgs, StartOrgResult, OrgResumeResult, OrgCancelArgs, OrgChatCandidate, ChatKey as OrgChatKey,
+} from "./types";
+export const orgView = (): Promise<OrgSnapshotView> => invokeCmd("org_view", {});
+export const orgRolesView = (): Promise<OrgRolesView> => invokeCmd("org_roles_view", {});
+export const orgStart = (args: StartOrgArgs): Promise<StartOrgResult> => invokeCmd("org_start", args);
+export const orgResume = (workflowId: string): Promise<OrgResumeResult> => invokeCmd("org_resume", { workflowId });
+export const orgPause = (workflowId: string): Promise<null> => invokeCmd("org_pause", { workflowId });
+export const orgApprovePlan = (workflowId: string): Promise<null> => invokeCmd("org_approve_plan", { workflowId });
+export const orgReplan = (workflowId: string): Promise<null> => invokeCmd("org_replan", { workflowId });
+export const orgCancel = (args: OrgCancelArgs): Promise<string[]> => invokeCmd("org_cancel", args);
+export const orgAcceptManual = (workflowId: string, task: string): Promise<null> => invokeCmd("org_accept_manual", { workflowId, task });
+export const orgRaiseTurnLimit = (workflowId: string, to: number): Promise<null> => invokeCmd("org_raise_turn_limit", { workflowId, to });
+export const orgReleaseChat = (chat: OrgChatKey): Promise<null> => invokeCmd("org_release_chat", { chat });
+export const orgRecoverCandidates = (workflowId: string, task: string): Promise<OrgChatCandidate[]> => invokeCmd("org_recover_candidates", { workflowId, task });
+export const orgChooseChat = (workflowId: string, task: string, chat: OrgChatKey): Promise<null> => invokeCmd("org_choose_chat", { workflowId, task, chat });
+export const orgSetStallMinutes = (minutes: number): Promise<number> => invokeCmd("org_set_stall_minutes", { minutes });
+export const orgReloadRoles = (): Promise<OrgRolesView> => invokeCmd("org_reload_roles", {});
+export const orgEnableRole = (roleId: string, fingerprint: string): Promise<OrgRolesView> => invokeCmd("org_enable_role", { roleId, fingerprint });
+export const orgOpenRoleFile = (file: string): Promise<null> => invokeCmd("org_open_role_file", { file });

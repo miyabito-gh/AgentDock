@@ -127,7 +127,7 @@ pub fn run() {
                     tauri::async_runtime::spawn_blocking(move || {
                         win::toast::show(&n, move |chat| {
                             win::window::show_main(&handle);
-                            if let Some(host) = weak.upgrade() {
+                            if let (Some(chat), Some(host)) = (chat, weak.upgrade()) {
                                 host.navigate_to_chat(chat);
                             }
                         });
@@ -270,6 +270,23 @@ pub fn run() {
             commands::cloud_task_status,
             commands::cloud_task_diff,
             commands::apply_cloud_task,
+            commands::org_view,
+            commands::org_roles_view,
+            commands::org_start,
+            commands::org_resume,
+            commands::org_pause,
+            commands::org_approve_plan,
+            commands::org_replan,
+            commands::org_cancel,
+            commands::org_accept_manual,
+            commands::org_raise_turn_limit,
+            commands::org_release_chat,
+            commands::org_recover_candidates,
+            commands::org_choose_chat,
+            commands::org_set_stall_minutes,
+            commands::org_reload_roles,
+            commands::org_enable_role,
+            commands::org_open_role_file,
             commands::open_side,
             commands::send_side,
             commands::close_side,

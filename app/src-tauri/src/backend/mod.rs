@@ -14,6 +14,8 @@ pub mod changes;
 /// 項目51: 応答した承認・質問・MCP許可のローカル記録の型。
 pub mod decision;
 pub mod ipc;
+/// 組織実行（DESIGN_ORG・P-ORG-7a）のIPC型。
+pub mod org;
 /// 段階②のアプリ側データとIPC追加分（`app/DESIGN_P2.md`）。
 pub mod local;
 pub mod model;

@@ -13,10 +13,13 @@
 
 pub mod driver;
 pub mod grant;
+pub mod ipc;
+pub mod notify;
 pub mod observe;
 pub mod ports;
 pub mod roles;
 pub mod stall;
+pub mod view;
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
@@ -52,18 +55,33 @@ pub struct OrgRuntime {
     pub(in crate::host) driver: Mutex<Option<DriverHandle>>,
     /// 直近の状態の写し（司令taskが公開する）。
     pub(in crate::host) view: Mutex<Option<OrgSnapshot>>,
-    notices: Mutex<VecDeque<OrgHostNotice>>,
+    notices: Mutex<VecDeque<NoticeEntry>>,
+    notice_serial: std::sync::atomic::AtomicU64,
     /// 直近に読んだ役割定義（P-ORG-8）。UI（P-ORG-7）が理由を表示する元。
     roles: Mutex<Option<roles::RoleReport>>,
 }
 
+/// 溜めた通知の1件（通知の重複排除と画面の並びに使う通し番号つき）。
+#[derive(Debug, Clone)]
+pub struct NoticeEntry {
+    pub serial: u64,
+    pub notice: OrgHostNotice,
+}
+
 impl OrgRuntime {
-    pub(in crate::host) fn push_notice(&self, n: OrgHostNotice) {
+    /// 通知を溜めて、その通し番号を返す。
+    pub(in crate::host) fn push_notice(&self, n: OrgHostNotice) -> u64 {
+        let serial = self.notice_serial.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
         let mut q = self.notices.lock().unwrap();
-        q.push_back(n);
+        q.push_back(NoticeEntry { serial, notice: n });
         while q.len() > NOTICE_KEEP {
             q.pop_front();
         }
+        serial
+    }
+
+    pub(in crate::host) fn notice_entries(&self) -> Vec<NoticeEntry> {
+        self.notices.lock().unwrap().iter().cloned().collect()
     }
 
     fn sender(&self) -> Option<UnboundedSender<DriverMsg>> {
@@ -88,6 +106,8 @@ pub struct OrgStartArgs {
     pub request: String,
     /// 作業するリポジトリ（Planner の作業フォルダ）。
     pub repo: String,
+    /// 同時に動かす数（書込み役・全体。1〜4）。None は既定。
+    pub parallelism: Option<(u32, u32)>,
 }
 
 /// 再開の結果。再開できなかったチャットは live に戻していない（エンジンは送らずに止まる）。
@@ -183,6 +203,11 @@ impl Host {
         if !std::path::Path::new(args.repo.trim()).is_dir() {
             return Err(err(IpcErrorCode::InvalidArgs, format!("作業フォルダが見つかりません: {}", args.repo)));
         }
+        let mut limits = Limits::default();
+        if let Some((writers, total)) = args.parallelism {
+            limits = limits.with_parallelism(writers, total).map_err(|_| err(IpcErrorCode::InvalidArgs, "並列数は 1〜4 で指定してください"))?;
+        }
+        limits.stagnation_minutes = self.read(|d| d.settings.org_stall_minutes);
         if !self.is_connected() {
             return Err(err(IpcErrorCode::NotConnected, "Codex に接続していません"));
         }
@@ -210,7 +235,7 @@ impl Host {
         // 送信権 → 開始。順序をチャネルで保つ。
         let grant = OrgGrant::issue(confirmed, workflow.clone(), &self.org_rt.grants);
         let _ = tx.send(DriverMsg::Install(grant));
-        let _ = tx.send(DriverMsg::Input(OrgInput::Start { workflow: workflow.clone(), request: args.request, repo: args.repo.trim().to_string(), limits: Limits::default() }));
+        let _ = tx.send(DriverMsg::Input(OrgInput::Start { workflow: workflow.clone(), request: args.request, repo: args.repo.trim().to_string(), limits }));
         Ok(workflow)
     }
 
@@ -329,7 +354,7 @@ impl Host {
 
     /// 溜めた通知（新しい順に古いものから消える）。
     pub fn org_notices(&self) -> Vec<OrgHostNotice> {
-        self.org_rt.notices.lock().unwrap().iter().cloned().collect()
+        self.org_rt.notices.lock().unwrap().iter().map(|e| e.notice.clone()).collect()
     }
 
     // ───────────── 起動時の復元（送信権なし） ─────────────
@@ -414,6 +439,7 @@ impl Host {
         let (tx, rx) = unbounded_channel();
         *self.org_rt.driver.lock().unwrap() = Some(DriverHandle { workflow, tx: tx.clone() });
         tokio::spawn(driver.run(rx));
+        self.org_apply_stall_setting();
         tx
     }
 }
@@ -448,11 +474,33 @@ mod tests {
     use org_engine::{ConfirmState, TaskId};
 
     fn task(id: &str, status: TaskStatus, confirm: ConfirmState) -> driver::TaskSnapshot {
-        driver::TaskSnapshot { id: TaskId::new(id), role: "worker".into(), status, confirm, chat: None }
+        driver::TaskSnapshot {
+            id: TaskId::new(id),
+            role: "worker".into(),
+            status,
+            confirm,
+            chat: None,
+            title: String::new(),
+            deps: Vec::new(),
+            effects: Vec::new(),
+            attempts: 1,
+            commit: None,
+            chat_cwd: None,
+        }
     }
 
     fn view(tasks: Vec<driver::TaskSnapshot>) -> OrgSnapshot {
-        OrgSnapshot { workflow: WorkflowId::new("wf-1"), title: Some("make it".into()), halt: None, tasks }
+        OrgSnapshot {
+            workflow: WorkflowId::new("wf-1"),
+            title: Some("make it".into()),
+            halt: None,
+            tasks,
+            request: "make it".into(),
+            repo: String::new(),
+            limits: Limits::default(),
+            turns_used: 0,
+            auto_replans_used: 0,
+        }
     }
 
     #[test]

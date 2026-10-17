@@ -11,7 +11,7 @@ use crate::rules::notify::OsNotification;
 
 pub const APP_ID: &str = "com.agentdock.app";
 
-pub fn show(n: &OsNotification, on_open: impl Fn(ChatKey) + Send + 'static) {
+pub fn show(n: &OsNotification, on_open: impl Fn(Option<ChatKey>) + Send + 'static) {
     let chat = n.chat.clone();
     let toast = Toast::new(APP_ID)
         .title(&n.title)

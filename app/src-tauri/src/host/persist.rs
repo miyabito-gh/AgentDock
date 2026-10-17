@@ -674,6 +674,8 @@ impl Host {
             *self.executable.lock().unwrap() = p.to_string();
         }
         self.schedule_save(SaveScope::AppSettings, Duration::ZERO);
+        // 組織実行の停滞時間は動いている司令taskへも渡す（通知の条件だけ。範囲外の値は丸める）。
+        self.org_apply_stall_setting();
         Ok(settings)
     }
 

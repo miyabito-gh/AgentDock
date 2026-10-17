@@ -8,6 +8,8 @@
 //! - 同じ (agent, turn, 終端) と同じ要求キーは一度だけ（重複通知を防ぐ）。
 //! - 抑制: 通常画面がフォーカスを持ち、かつ選択中のチャットのときだけOS通知を出さない。監視窓だけ・背後なら出す。
 //! - 本文はチャット名と状態だけ。会話本文・コード・ファイル内容・ツール引数・エラー詳細を入れない。
+//! - 組織実行（P-ORG-7）: 計画承認待ち・タスクの停止・停滞は即時。ワークフローの完了とタスクの失敗は、ワークフロー単位で
+//!   同じ2秒の固定窓に集約する（窓は延長しない）。本文はワークフロー名と件数だけ。
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -26,6 +28,27 @@ pub enum NotifyInput {
     AwaitingAnswer { chat: ChatKey, request: RequestKey, kind: RequestKind },
     /// 終端の観測。`was_nonterminal` は直前にこのセッションで非終端（running/waiting/initializing）を観測していたか。
     Ended { chat: ChatKey, agent: AgentKey, is_root: bool, turn: ExternalId, end: TurnEnd, was_nonterminal: bool },
+    /// 組織実行: 利用者の対応が要る（即時）。`key` はホストが付ける通し番号つきの重複排除キー。
+    OrgAttention { key: String, title: Option<String>, chat: Option<ChatKey>, what: OrgAttention },
+    /// 組織実行: ワークフローの完了／タスクの失敗（ワークフロー単位で2秒集約）。
+    OrgEnded { key: String, workflow: String, title: Option<String>, outcome: OrgOutcome },
+}
+
+/// 組織実行の通知のうち、すぐに知らせるもの。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OrgAttention {
+    /// 計画の承認待ち。
+    PlanNeedsApproval,
+    /// タスクが止まった（差し戻し上限・受理不明・turn上限・利用上限・sandbox・送信の見送り・保存失敗など）。
+    TaskStopped,
+    /// 実行中のまま新しい出力がない。
+    Stalled,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OrgOutcome {
+    WorkflowCompleted,
+    TaskFailed,
 }
 
 /// 集約後の出力（まだ設定・抑制を当てていない）。
@@ -33,6 +56,8 @@ pub enum NotifyInput {
 pub enum Pending {
     AwaitingAnswer { chat: ChatKey, kind: RequestKind },
     Ended { chat: ChatKey, completed: u32, failed: u32, interrupted: u32, root_included: bool },
+    OrgAttention { title: Option<String>, chat: Option<ChatKey>, what: OrgAttention },
+    OrgEnded { workflow: String, title: Option<String>, completed: bool, failed_tasks: u32 },
 }
 
 #[derive(Debug, Default)]
@@ -45,8 +70,17 @@ struct Window {
 }
 
 #[derive(Debug, Default)]
+struct OrgWindow {
+    opened_at: i64,
+    title: Option<String>,
+    completed: bool,
+    failed_tasks: u32,
+}
+
+#[derive(Debug, Default)]
 pub struct Aggregator {
     windows: HashMap<ChatKey, Window>,
+    org_windows: HashMap<String, OrgWindow>,
     seen_keys: HashSet<String>,
     seen_order: VecDeque<String>,
 }
@@ -98,6 +132,28 @@ impl Aggregator {
                 w.root_included |= is_root;
                 Vec::new()
             }
+            NotifyInput::OrgAttention { key, title, chat, what } => {
+                if self.first_time(key) {
+                    vec![Pending::OrgAttention { title, chat, what }]
+                } else {
+                    Vec::new()
+                }
+            }
+            NotifyInput::OrgEnded { key, workflow, title, outcome } => {
+                if !self.first_time(key) {
+                    return Vec::new();
+                }
+                // 窓はワークフロー単位。最初のイベントで開き、延長しない。
+                let w = self.org_windows.entry(workflow).or_insert_with(|| OrgWindow { opened_at: now.0, ..OrgWindow::default() });
+                if w.title.is_none() {
+                    w.title = title;
+                }
+                match outcome {
+                    OrgOutcome::WorkflowCompleted => w.completed = true,
+                    OrgOutcome::TaskFailed => w.failed_tasks += 1,
+                }
+                Vec::new()
+            }
         }
     }
 
@@ -105,18 +161,27 @@ impl Aggregator {
     pub fn due(&mut self, now: UnixMillis) -> Vec<Pending> {
         let mut ready: Vec<ChatKey> = self.windows.iter().filter(|(_, w)| w.opened_at + AGGREGATE_WINDOW_MS <= now.0).map(|(c, _)| c.clone()).collect();
         ready.sort_by(|a, b| a.id.0.cmp(&b.id.0));
-        ready
+        let mut out: Vec<Pending> = ready
             .into_iter()
             .filter_map(|chat| {
                 let w = self.windows.remove(&chat)?;
                 Some(Pending::Ended { chat, completed: w.completed, failed: w.failed, interrupted: w.interrupted, root_included: w.root_included })
             })
-            .collect()
+            .collect();
+        let mut org_ready: Vec<String> = self.org_windows.iter().filter(|(_, w)| w.opened_at + AGGREGATE_WINDOW_MS <= now.0).map(|(k, _)| k.clone()).collect();
+        org_ready.sort();
+        out.extend(org_ready.into_iter().filter_map(|workflow| {
+            let w = self.org_windows.remove(&workflow)?;
+            Some(Pending::OrgEnded { workflow, title: w.title, completed: w.completed, failed_tasks: w.failed_tasks })
+        }));
+        out
     }
 
     /// 次に `due` を呼ぶべき時刻（タイマーの設定用）。
     pub fn next_deadline(&self) -> Option<UnixMillis> {
-        self.windows.values().map(|w| w.opened_at + AGGREGATE_WINDOW_MS).min().map(UnixMillis)
+        let chats = self.windows.values().map(|w| w.opened_at + AGGREGATE_WINDOW_MS);
+        let orgs = self.org_windows.values().map(|w| w.opened_at + AGGREGATE_WINDOW_MS);
+        chats.chain(orgs).min().map(UnixMillis)
     }
 }
 
@@ -132,12 +197,19 @@ pub enum NotificationKind {
     AwaitingAnswer,
     Completed,
     Failed,
+    /// 組織実行: 計画承認待ち・タスクの停止・停滞（即時）。
+    OrgAttention,
+    /// 組織実行: ワークフローの完了。
+    OrgCompleted,
+    /// 組織実行: タスクの失敗。
+    OrgFailed,
 }
 
 /// OSへ渡す内容。
 #[derive(Debug, Clone, PartialEq)]
 pub struct OsNotification {
-    pub chat: ChatKey,
+    /// 通知を開いたとき表示するチャット（組織実行のワークフロー全体の通知は None）。
+    pub chat: Option<ChatKey>,
     pub kind: NotificationKind,
     pub title: String,
     pub body: String,
@@ -162,14 +234,14 @@ fn chat_prefix(show: bool, chat_name: Option<&str>) -> String {
 /// - 中断は失敗とは別に件数を出し、種類の判定では Failed 側の設定に従う（正常完了ではないため）。
 /// - `show_chat_name=false` ならチャット名を出さない。
 pub fn render(p: &Pending, settings: &NotificationSettings, focus: &FocusContext, chat_name: Option<&str>) -> Option<OsNotification> {
-    let (chat, kind, title, detail) = match p {
+    let (chat, kind, title, detail, name) = match p {
         Pending::AwaitingAnswer { chat, kind } => {
             let (title, detail) = match kind {
                 RequestKind::UserInput | RequestKind::ToolElicitation => ("質問待ち", "回答を待っています"),
                 RequestKind::Other { .. } => ("操作待ち", "対応を待っています"),
                 _ => ("承認待ち", "承認を待っています"),
             };
-            (chat, NotificationKind::AwaitingAnswer, title, detail.to_string())
+            (Some(chat), NotificationKind::AwaitingAnswer, title, detail.to_string(), chat_name)
         }
         Pending::Ended { chat, completed, failed, interrupted, .. } => {
             if completed + failed + interrupted == 0 {
@@ -187,9 +259,35 @@ pub fn render(p: &Pending, settings: &NotificationSettings, focus: &FocusContext
             }
             let detail = parts.join("・");
             if *failed > 0 || *interrupted > 0 {
-                (chat, NotificationKind::Failed, if *failed > 0 { "失敗あり" } else { "中断あり" }, detail)
+                (Some(chat), NotificationKind::Failed, if *failed > 0 { "失敗あり" } else { "中断あり" }, detail, chat_name)
             } else {
-                (chat, NotificationKind::Completed, "完了", detail)
+                (Some(chat), NotificationKind::Completed, "完了", detail, chat_name)
+            }
+        }
+        Pending::OrgAttention { title, chat, what } => {
+            let (t, d) = match what {
+                OrgAttention::PlanNeedsApproval => ("組織実行: 計画承認待ち", "計画の承認を待っています"),
+                OrgAttention::TaskStopped => ("組織実行: タスクが止まりました", "対応が必要です"),
+                OrgAttention::Stalled => ("組織実行: 動きがありません", "新しい出力がありません"),
+            };
+            (chat.as_ref(), NotificationKind::OrgAttention, t, d.to_string(), title.as_deref())
+        }
+        Pending::OrgEnded { title, completed, failed_tasks, .. } => {
+            if !*completed && *failed_tasks == 0 {
+                return None;
+            }
+            let mut parts = Vec::new();
+            if *failed_tasks > 0 {
+                parts.push(format!("タスク失敗 {failed_tasks}件"));
+            }
+            if *completed {
+                parts.push("ワークフロー完了".to_string());
+            }
+            let detail = parts.join("・");
+            if *failed_tasks > 0 {
+                (None, NotificationKind::OrgFailed, "組織実行: 失敗あり", detail, title.as_deref())
+            } else {
+                (None, NotificationKind::OrgCompleted, "組織実行: 完了", detail, title.as_deref())
             }
         }
     };
@@ -200,19 +298,22 @@ pub fn render(p: &Pending, settings: &NotificationSettings, focus: &FocusContext
         NotificationKind::AwaitingAnswer => settings.approval_and_question,
         NotificationKind::Completed => settings.completed,
         NotificationKind::Failed => settings.failed,
+        NotificationKind::OrgAttention => settings.org_attention,
+        NotificationKind::OrgCompleted | NotificationKind::OrgFailed => settings.org_finished,
     };
     if !allowed {
         return None;
     }
     // 通常画面が前面で、そのチャットを見ている間だけ抑える。別チャット・監視窓だけ・背後なら出す。
-    if focus.main_window_focused && focus.selected_chat.as_ref() == Some(chat) {
+    // 宛先のチャットがない組織実行の通知（ワークフロー全体）は抑えない。
+    if focus.main_window_focused && chat.is_some() && focus.selected_chat.as_ref() == chat {
         return None;
     }
     Some(OsNotification {
-        chat: chat.clone(),
+        chat: chat.cloned(),
         kind,
         title: format!("AgentDock: {title}"),
-        body: format!("{}{}", chat_prefix(settings.show_chat_name, chat_name), detail),
+        body: format!("{}{}", chat_prefix(settings.show_chat_name, name), detail),
         sound: settings.sound,
     })
 }
@@ -384,5 +485,69 @@ mod tests {
         let ap = Pending::AwaitingAnswer { chat: chat("c1"), kind: RequestKind::Other { raw: "rm -rf / secret".into() } };
         let n = render(&ap, &settings(), &unfocused(), Some("A")).unwrap();
         assert!(!n.body.contains("secret") && !n.title.contains("secret"));
+    }
+
+    fn org_attn(key: &str, what: OrgAttention) -> NotifyInput {
+        NotifyInput::OrgAttention { key: key.into(), title: Some("依頼".into()), chat: None, what }
+    }
+    fn org_end(key: &str, wf: &str, outcome: OrgOutcome) -> NotifyInput {
+        NotifyInput::OrgEnded { key: key.into(), workflow: wf.into(), title: Some("依頼".into()), outcome }
+    }
+
+    #[test]
+    fn org_plan_approval_is_immediate_and_not_duplicated() {
+        let mut a = Aggregator::new();
+        let out = a.push(org_attn("o1", OrgAttention::PlanNeedsApproval), at(0));
+        assert_eq!(out.len(), 1, "no window: delivered at once");
+        assert_eq!(a.next_deadline(), None);
+        assert!(a.push(org_attn("o1", OrgAttention::PlanNeedsApproval), at(5)).is_empty());
+        assert_eq!(a.push(org_attn("o2", OrgAttention::TaskStopped), at(6)).len(), 1);
+    }
+
+    #[test]
+    fn org_completion_and_failures_share_one_fixed_two_second_window_per_workflow() {
+        let mut a = Aggregator::new();
+        assert!(a.push(org_end("o1", "wf1", OrgOutcome::TaskFailed), at(1_000)).is_empty());
+        a.push(org_end("o2", "wf1", OrgOutcome::TaskFailed), at(2_900));
+        a.push(org_end("o3", "wf1", OrgOutcome::WorkflowCompleted), at(2_950));
+        a.push(org_end("o4", "wf2", OrgOutcome::WorkflowCompleted), at(1_500));
+        assert_eq!(a.next_deadline(), Some(at(3_000)));
+        assert!(a.due(at(2_999)).is_empty(), "the window is not extended by later events");
+        let out = a.due(at(3_500));
+        assert_eq!(
+            out,
+            vec![
+                Pending::OrgEnded { workflow: "wf1".into(), title: Some("依頼".into()), completed: true, failed_tasks: 2 },
+                Pending::OrgEnded { workflow: "wf2".into(), title: Some("依頼".into()), completed: true, failed_tasks: 0 },
+            ]
+        );
+        assert_eq!(a.next_deadline(), None);
+    }
+
+    #[test]
+    fn org_render_follows_kind_settings_name_and_focus_rules() {
+        // 名前はホストが依頼文由来でないものを渡す。オフなら名前なしの定型文だけ。
+        let end = Pending::OrgEnded { workflow: "wf1".into(), title: Some("ワークフロー #1234".into()), completed: true, failed_tasks: 1 };
+        let n = render(&end, &settings(), &unfocused(), Some("秘密のチャット名")).unwrap();
+        assert_eq!(n.kind, NotificationKind::OrgFailed);
+        assert_eq!(n.body, "ワークフロー #1234: タスク失敗 1件・ワークフロー完了");
+        assert!(!n.body.contains("秘密"), "the chat-name argument is not used for organization notices");
+        assert!(n.chat.is_none());
+        let mut s = settings();
+        s.show_chat_name = false;
+        assert_eq!(render(&end, &s, &unfocused(), None).unwrap().body, "タスク失敗 1件・ワークフロー完了");
+        s.show_chat_name = true;
+        s.org_finished = false;
+        assert!(render(&end, &s, &unfocused(), None).is_none());
+        let attn = Pending::OrgAttention { title: None, chat: Some(chat("c1")), what: OrgAttention::PlanNeedsApproval };
+        let mut s = settings();
+        s.org_attention = false;
+        assert!(render(&attn, &s, &unfocused(), None).is_none());
+        // 宛先のチャットを見ている間は抑える。ワークフロー全体の通知は抑えない。
+        let focus = FocusContext { main_window_focused: true, selected_chat: Some(chat("c1")) };
+        assert!(render(&attn, &settings(), &focus, None).is_none());
+        assert!(render(&end, &settings(), &focus, None).is_some());
+        let none = Pending::OrgEnded { workflow: "w".into(), title: None, completed: false, failed_tasks: 0 };
+        assert!(render(&none, &settings(), &unfocused(), None).is_none());
     }
 }

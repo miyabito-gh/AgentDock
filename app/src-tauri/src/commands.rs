@@ -879,3 +879,119 @@ pub async fn apply_cloud_task(host: Hs<'_>, args: crate::backend::cloud::CloudAp
     let confirmed = UserConfirmed::from_user_command();
     host.inner().clone().apply_cloud_task(args, &confirmed).await
 }
+
+// ───────────────────────────── 組織実行（P-ORG-7a） ─────────────────────────────
+// 閲覧（org_view・org_roles_view・org_recover_candidates）は読取りだけで、何も送らない。
+// `UserConfirmed` を作るのはこの層だけ。承認要求への応答・resume・中断はここにない。
+
+/// 現在の組織実行の写し（読取りのみ）。
+#[tauri::command]
+pub async fn org_view(host: Hs<'_>) -> R<crate::backend::org::OrgSnapshotView> {
+    Ok(host.org_view())
+}
+
+/// 役割定義の読込み結果（読取りのみ）。
+#[tauri::command]
+pub async fn org_roles_view(host: Hs<'_>) -> R<crate::backend::org::OrgRolesView> {
+    Ok(host.org_roles_view())
+}
+
+/// 開始（利用者の「開始」の操作だけ。送信権を作る）。
+#[tauri::command]
+pub async fn org_start(host: Hs<'_>, args: crate::backend::org::StartOrgArgs) -> R<crate::backend::org::StartOrgResult> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().org_start_checked(args, confirmed).await
+}
+
+/// 再開（必要なチャットだけ resume し、新しい送信権を作る）。利用者の「再開」の操作だけ。
+#[tauri::command]
+pub async fn org_resume(host: Hs<'_>, args: crate::backend::org::OrgWorkflowArgs) -> R<crate::backend::org::OrgResumeResult> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().org_resume_checked(args, confirmed).await
+}
+
+/// 一時停止（送信権の失効だけ）。
+#[tauri::command]
+pub async fn org_pause(host: Hs<'_>, args: crate::backend::org::OrgWorkflowArgs) -> R<()> {
+    host.org_pause_checked(args)
+}
+
+#[tauri::command]
+pub async fn org_approve_plan(host: Hs<'_>, args: crate::backend::org::OrgWorkflowArgs) -> R<()> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.org_approve_plan(args, &confirmed)
+}
+
+#[tauri::command]
+pub async fn org_replan(host: Hs<'_>, args: crate::backend::org::OrgWorkflowArgs) -> R<()> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.org_replan(args, &confirmed)
+}
+
+/// 取消し（利用者の操作だけが cancelled にする）。取り消したタスクのIDを返す。
+#[tauri::command]
+pub async fn org_cancel(host: Hs<'_>, args: crate::backend::org::OrgCancelArgs) -> R<Vec<String>> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.org_cancel(args, &confirmed)
+}
+
+#[tauri::command]
+pub async fn org_accept_manual(host: Hs<'_>, args: crate::backend::org::OrgTaskArgs) -> R<()> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.org_accept_manual(args, &confirmed)
+}
+
+#[tauri::command]
+pub async fn org_raise_turn_limit(host: Hs<'_>, args: crate::backend::org::OrgRaiseTurnLimitArgs) -> R<()> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.org_raise_turn_limit(args, &confirmed)
+}
+
+/// 組織チャットを手動に切り替える（保存できたときだけ）。
+#[tauri::command]
+pub async fn org_release_chat(host: Hs<'_>, args: ChatArgs) -> R<()> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().org_release_chat_checked(&args.chat, &confirmed).await
+}
+
+/// 作成結果が不明なタスクの結び付け先の候補（読取りのみ。自動では結び付けない）。
+#[tauri::command]
+pub async fn org_recover_candidates(host: Hs<'_>, args: crate::backend::org::OrgTaskArgs) -> R<Vec<crate::backend::org::OrgChatCandidate>> {
+    host.inner().clone().org_recover_candidates(args).await
+}
+
+/// 利用者が選んだチャットをタスクに結び付ける（送信・resume はしない）。
+#[tauri::command]
+pub async fn org_choose_chat(host: Hs<'_>, args: crate::backend::org::OrgChooseChatArgs) -> R<()> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().org_choose_chat(args, &confirmed).await
+}
+
+/// 停滞とみなす時間（分）の設定。
+#[tauri::command]
+pub async fn org_set_stall_minutes(host: Hs<'_>, args: crate::backend::org::OrgSetStallArgs) -> R<u32> {
+    host.inner().clone().org_set_stall_minutes(args)
+}
+
+/// 役割定義を読み直す（動いているワークフローがあれば拒否）。
+#[tauri::command]
+pub async fn org_reload_roles(host: Hs<'_>) -> R<crate::backend::org::OrgRolesView> {
+    host.org_reload_roles_view()
+}
+
+/// 権限を広げる役割を有効にする（確認画面の指紋が今の権限と一致するときだけ）。
+#[tauri::command]
+pub async fn org_enable_role(host: Hs<'_>, args: crate::backend::org::OrgEnableRoleArgs) -> R<crate::backend::org::OrgRolesView> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.org_enable_role_checked(args, confirmed)
+}
+
+/// 役割定義ファイルを関連アプリで開く（利用者の操作のときだけ。役割フォルダ内のファイル名だけを受ける）。
+#[tauri::command]
+pub async fn org_open_role_file(app: tauri::AppHandle, host: Hs<'_>, args: crate::backend::org::OrgOpenRoleFileArgs) -> R<()> {
+    use tauri_plugin_opener::OpenerExt;
+    let path = host.org_role_file_path(&args)?;
+    app.opener()
+        .open_path(path.to_string_lossy(), None::<&str>)
+        .map_err(|e| IpcError { code: IpcErrorCode::Io, message: format!("開けませんでした: {e}"), blocked: None })
+}

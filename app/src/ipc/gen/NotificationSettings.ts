@@ -3,4 +3,12 @@
 /**
  * 通知設定（M38）。初期値はすべてオン、チャット名を表示。
  */
-export type NotificationSettings = { enabled: boolean, approvalAndQuestion: boolean, completed: boolean, failed: boolean, sound: boolean, showChatName: boolean, };
+export type NotificationSettings = { enabled: boolean, approvalAndQuestion: boolean, completed: boolean, failed: boolean, sound: boolean, showChatName: boolean, 
+/**
+ * 組織実行の「計画承認待ち」「タスクが止まった」（即時）。古い `settings.json`（この項目なし）はオンで読む。
+ */
+orgAttention: boolean, 
+/**
+ * 組織実行の「完了・失敗」（ワークフロー単位で2秒集約）。古い `settings.json` はオンで読む。
+ */
+orgFinished: boolean, };

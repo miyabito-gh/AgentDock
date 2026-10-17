@@ -48,6 +48,8 @@ pub enum DriverMsg {
     Reconcile,
     /// ここまでのメッセージを処理し終えたら知らせる（完全終了の前に状態の保存を待つため）。
     Sync(tokio::sync::oneshot::Sender<()>),
+    /// 停滞とみなす時間（ミリ秒）を変える（設定の反映。通知の条件だけで、送信・状態は変えない）。
+    SetStallThreshold(i64),
     Shutdown,
 }
 
@@ -59,6 +61,12 @@ pub struct OrgSnapshot {
     pub title: Option<String>,
     pub halt: Option<org_engine::HaltReason>,
     pub tasks: Vec<TaskSnapshot>,
+    /// 依頼の全文と作業するリポジトリ（画面の見出し用）。
+    pub request: String,
+    pub repo: String,
+    pub limits: org_engine::Limits,
+    pub turns_used: u32,
+    pub auto_replans_used: u32,
 }
 
 /// 依頼文の先頭1行を名前にする（長いものは切る）。
@@ -74,6 +82,13 @@ pub struct TaskSnapshot {
     pub status: TaskStatus,
     pub confirm: ConfirmState,
     pub chat: Option<ChatRef>,
+    pub title: String,
+    pub deps: Vec<TaskId>,
+    pub effects: Vec<org_engine::Effect>,
+    pub attempts: u32,
+    pub commit: Option<String>,
+    /// 役割チャットの作成を始めたときの作業フォルダ（作成結果が不明なタスクの候補探しに使う）。
+    pub chat_cwd: Option<String>,
 }
 
 /// エンジンの状態から画面向けの写しを作る。
@@ -85,8 +100,25 @@ pub fn snapshot_of(state: &org_engine::WorkflowState) -> OrgSnapshot {
         tasks: state
             .tasks()
             .iter()
-            .map(|t| TaskSnapshot { id: t.id.clone(), role: t.role.0.clone(), status: t.status(), confirm: t.confirm(), chat: t.chat().cloned() })
+            .map(|t| TaskSnapshot {
+                id: t.id.clone(),
+                role: t.role.0.clone(),
+                status: t.status(),
+                confirm: t.confirm(),
+                chat: t.chat().cloned(),
+                title: t.title.clone(),
+                deps: t.deps.clone(),
+                effects: t.effects.clone(),
+                attempts: t.attempts(),
+                commit: t.commit().map(str::to_string),
+                chat_cwd: t.chat_cwd().map(str::to_string),
+            })
             .collect(),
+        request: state.request().to_string(),
+        repo: state.repo().to_string(),
+        limits: state.limits().clone(),
+        turns_used: state.counters().turns_used,
+        auto_replans_used: state.counters().auto_replans_used,
     }
 }
 
@@ -161,6 +193,7 @@ impl<P: AgentRuntime + RuntimeRead + Workspace + 'static> OrgDriver<P> {
             DriverMsg::Sync(done) => {
                 let _ = done.send(());
             }
+            DriverMsg::SetStallThreshold(ms) => self.stall.set_threshold_ms(ms),
             DriverMsg::Shutdown => {}
         }
     }

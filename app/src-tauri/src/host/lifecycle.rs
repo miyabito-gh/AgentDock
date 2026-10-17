@@ -221,7 +221,7 @@ impl Host {
         WindowsFile { schema_version: SCHEMA_VERSION, main: w.0, monitor: w.1 }
     }
 
-    fn update_settings(self: &Arc<Self>, f: impl FnOnce(&mut AppSettings)) -> Result<(), IpcError> {
+    pub(in crate::host) fn update_settings(self: &Arc<Self>, f: impl FnOnce(&mut AppSettings)) -> Result<(), IpcError> {
         self.precheck_space()?;
         self.mutate(|d| {
             f(&mut d.settings);
@@ -310,7 +310,7 @@ impl Host {
             self.spawn_quit_driver(gen, Vec::new());
             return QuitPhase::Flushing;
         }
-        let phase = QuitPhase::Confirming { busy };
+        let phase = QuitPhase::Confirming { busy, org_running: self.org_running_notes() };
         self.start_quit_phase(phase.clone());
         phase
     }
@@ -429,7 +429,7 @@ impl Host {
                 if next == QuitPhase::Flushing {
                     let fresh = new_work_for_quit(&host.chat_works(), &handled);
                     if !fresh.is_empty() {
-                        next = QuitPhase::Confirming { busy: fresh };
+                        next = QuitPhase::Confirming { busy: fresh, org_running: host.org_running_notes() };
                     }
                 }
                 if !host.advance_quit_phase(gen, next.clone()) {
@@ -448,7 +448,7 @@ impl Host {
                             // 保存に失敗がないことを確認できた。書き込み中に新しい作業が現れていれば確認へ戻し、取消しが入っていなければ終了する。
                             let fresh = new_work_for_quit(&host.chat_works(), &handled);
                             if !fresh.is_empty() {
-                                host.advance_quit_phase(gen, QuitPhase::Confirming { busy: fresh });
+                                host.advance_quit_phase(gen, QuitPhase::Confirming { busy: fresh, org_running: host.org_running_notes() });
                                 return;
                             }
                             if host.advance_quit_phase(gen, QuitPhase::Flushing) {

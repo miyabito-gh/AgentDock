@@ -197,7 +197,19 @@ impl OrgSink for Host {
 
     fn notice(&self, workflow: &org_engine::WorkflowId, notice: OrgHostNotice) {
         crate::diag::log("org", &format!("notice workflow={} {}", workflow.0, notice_label(&notice)));
-        self.org_rt.push_notice(notice);
+        let serial = self.org_rt.push_notice(notice.clone());
+        // OS通知（計画承認待ち・停止系は即時、完了・失敗は2秒集約）。画面の通知欄とは別に、既存の集約器へ渡す。
+        // 名前は依頼文由来にしない（OS通知に依頼文の抜粋を載せない）。
+        let title = Some(super::notify::notice_name(workflow));
+        let chats = {
+            let view = self.org_rt.view.lock().unwrap();
+            let v: Vec<(org_engine::TaskId, Option<org_engine::ChatRef>)> = view.as_ref().map(|v| v.tasks.iter().map(|t| (t.id.clone(), t.chat.clone())).collect()).unwrap_or_default();
+            v
+        };
+        let task_chat = |t: &org_engine::TaskId| chats.iter().find(|(id, _)| id == t).and_then(|(_, c)| c.as_ref()).and_then(crate::rules::org::chat_key_of_ref);
+        if let Some(input) = super::notify::notify_input_of(workflow, title.as_deref(), serial, &task_chat, &notice) {
+            self.notify_submit(vec![input]);
+        }
     }
 }
 

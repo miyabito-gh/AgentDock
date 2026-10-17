@@ -61,6 +61,11 @@ impl GrantRegistry {
         self.released.lock().unwrap().extend(chats);
     }
 
+    /// そのワークフローの送信権が今あるか（画面の「再開が要るか」の表示用。読むだけ）。
+    pub fn is_active(&self, workflow: &WorkflowId) -> bool {
+        self.current.lock().unwrap().as_ref().is_some_and(|(w, _)| w == workflow)
+    }
+
     fn is_current(&self, workflow: &WorkflowId, epoch: u64) -> bool {
         self.current.lock().unwrap().as_ref().is_some_and(|(w, e)| w == workflow && *e == epoch)
     }
