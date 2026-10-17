@@ -1,0 +1,11 @@
+[package]
+name = "org-engine"
+version = "0.1.0"
+edition = "2021"
+description = "AgentDock organization-run engine: pure logic (no Tauri, no Codex types, no I/O)"
+
+# Standalone workspace root so `cargo test -p org-engine` runs here without
+# touching src-tauri's build. The host can add it later with a path dependency.
+[workspace]
+
+[dependencies]
