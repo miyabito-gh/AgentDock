@@ -90,6 +90,54 @@ impl OrgStore for FileOrgStore {
     }
 }
 
+/// `<root>\org\` のワークフローのフォルダを新しい順に並べる（IDは `wf-<ms>` なので名前順＝作成順）。読取りだけ。
+pub fn list_workflow_dirs_newest(root: &Path) -> Vec<PathBuf> {
+    let Ok(rd) = std::fs::read_dir(root.join("org")) else { return Vec::new() };
+    let mut dirs: Vec<PathBuf> = rd.filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.is_dir()).collect();
+    dirs.sort();
+    dirs.reverse();
+    dirs
+}
+
+/// 過去のワークフローを表示するための読取り専用の保存口。何も書かない・退避しない（読めない `workflow.json` はそのまま残し、
+/// イベントから再構築する）。書込み系は常に失敗する。
+pub struct ReadOnlyOrgStore {
+    inner: FileOrgStore,
+}
+
+impl ReadOnlyOrgStore {
+    pub fn new(dir: PathBuf) -> Self {
+        Self { inner: FileOrgStore::new(dir) }
+    }
+}
+
+fn read_only() -> StoreError {
+    StoreError::Io("read-only store".to_string())
+}
+
+impl OrgStore for ReadOnlyOrgStore {
+    fn save_snapshot(&self, _state: &WorkflowState) -> Result<(), StoreError> {
+        Err(read_only())
+    }
+    fn load_snapshot(&self) -> Result<SnapshotLoad, StoreError> {
+        let Some(text) = self.inner.read_text(SNAPSHOT_FILE)? else { return Ok(SnapshotLoad::Missing) };
+        // 読めなければ「ない」扱い（ファイルは動かさない）。
+        Ok(serde_json::from_str::<WorkflowState>(&text).map_or(SnapshotLoad::Missing, SnapshotLoad::Loaded))
+    }
+    fn append_event(&self, _ev: &OrgEvent) -> Result<(), StoreError> {
+        Err(read_only())
+    }
+    fn read_events(&self) -> Result<EventRead, StoreError> {
+        self.inner.read_events()
+    }
+    fn append_usage(&self, _row: &UsageRow) -> Result<(), StoreError> {
+        Err(read_only())
+    }
+    fn read_usage(&self) -> Result<Vec<UsageRow>, StoreError> {
+        self.inner.read_usage()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -51,7 +51,14 @@ impl Host {
     /// 現在の組織実行の写し。読取りだけで、司令taskへ何も渡さない。
     pub fn org_view(&self) -> OrgSnapshotView {
         let stall_minutes = self.read(|d| d.settings.org_stall_minutes);
-        let Some(snapshot) = self.org_snapshot() else { return OrgSnapshotView { workflow: None, stall_minutes } };
+        let root = self.persist.store().map(|s| s.root().to_path_buf());
+        let snapshot = self.org_snapshot();
+        // 過去のワークフロー（保存データの読取りだけ。何も書かず、司令taskへも何も渡さない）。
+        let history = root
+            .as_deref()
+            .map(|r| super::history::read_history(r, snapshot.as_ref().map(|s| &s.workflow), super::history::HISTORY_KEEP, &mut self.org_rt.history_cache.lock().unwrap()))
+            .unwrap_or_default();
+        let Some(snapshot) = snapshot else { return OrgSnapshotView { workflow: None, stall_minutes, history } };
         let notices = self.org_rt.notice_entries();
         let usage_rows = self
             .persist
@@ -61,7 +68,7 @@ impl Host {
             .unwrap_or_default();
         let dispatching = self.org_rt.grants.is_active(&snapshot.workflow);
         let workflow = view::workflow_view(&ViewInput { snapshot: &snapshot, notices: &notices, usage_rows: &usage_rows, dispatching });
-        OrgSnapshotView { workflow: Some(workflow), stall_minutes }
+        OrgSnapshotView { workflow: Some(workflow), stall_minutes, history }
     }
 
     /// 直近に読んだ役割定義（読込み前は `loaded=false`）。

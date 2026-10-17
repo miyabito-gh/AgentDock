@@ -22,4 +22,8 @@ dispatching: boolean,
 /**
  * 全タスクが終わっているか（完了帯の表示用）。
  */
-finished: boolean, };
+finished: boolean, 
+/**
+ * 保存データから読んだ過去のワークフロー（読み取り専用。操作は受け付けない）。
+ */
+readonly: boolean, };

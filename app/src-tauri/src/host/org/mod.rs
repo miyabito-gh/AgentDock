@@ -13,6 +13,7 @@
 
 pub mod driver;
 pub mod grant;
+pub mod history;
 pub mod ipc;
 pub mod notify;
 pub mod observe;
@@ -24,7 +25,7 @@ pub mod view;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
-use org_engine::{recover_on_restart, Limits, OrgCore, OrgInput, OrgStore, TaskStatus, WorkflowId};
+use org_engine::{recover_on_restart, restore, Limits, OrgCore, OrgInput, OrgStore, TaskStatus, WorkflowId};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 
 use self::driver::{DriverMsg, OrgDriver, OrgSink, OrgSnapshot};
@@ -37,7 +38,7 @@ use crate::backend::ipc::{BlockedReason, IpcError, IpcErrorCode};
 use crate::backend::local::OrgRunningNote;
 use crate::backend::model::{ChatKey, ConnectionState, SendAttempt};
 use crate::rules::org::{chat_key_of_ref, chat_ref_of};
-use crate::store::org::{workflow_dir, FileOrgStore};
+use crate::store::org::{list_workflow_dirs_newest, workflow_dir, FileOrgStore, ReadOnlyOrgStore};
 
 const NOTICE_KEEP: usize = 100;
 
@@ -59,6 +60,8 @@ pub struct OrgRuntime {
     notice_serial: std::sync::atomic::AtomicU64,
     /// 直近に読んだ役割定義（P-ORG-8）。UI（P-ORG-7）が理由を表示する元。
     roles: Mutex<Option<roles::RoleReport>>,
+    /// 過去のワークフローの読込み結果の控え（読取り専用。保存ファイルが変わったときだけ読み直す）。
+    pub(in crate::host) history_cache: Mutex<history::HistoryCache>,
 }
 
 /// 溜めた通知の1件（通知の重複排除と画面の並びに使う通し番号つき）。
@@ -449,7 +452,17 @@ impl Host {
             (released, owned)
         });
         self.org_rt.grants.restore_released(released);
-        let Some(dir) = newest_workflow_dir(&root) else { return };
+        let Some(dir) = list_workflow_dirs_newest(&root).into_iter().next() else { return };
+        // まず読取りだけで調べる。全タスクが終わっているものは、状態の分類（`halted Restart` の追記）も司令taskも作らない
+        // （過去のワークフローとして `org_view` が読取り専用で出す）。
+        match restore(&ReadOnlyOrgStore::new(dir.clone())) {
+            Ok((state, _)) if state.tasks().iter().all(|t| matches!(t.status(), TaskStatus::Completed | TaskStatus::Failed(_) | TaskStatus::Cancelled)) => return,
+            Ok(_) => {}
+            Err(e) => {
+                crate::diag::log("org", &format!("restore failed: {e:?}"));
+                return;
+            }
+        }
         let store = FileOrgStore::new(dir.clone());
         let recovered = match recover_on_restart(&store, now_ms().0) {
             Ok(r) => r,
@@ -459,10 +472,6 @@ impl Host {
             }
         };
         let state = recovered.state;
-        let finished = state.tasks().iter().all(|t| matches!(t.status(), TaskStatus::Completed | TaskStatus::Failed(_) | TaskStatus::Cancelled));
-        if finished {
-            return;
-        }
         let workflow = state.workflow_id().clone();
         let mut recoveries = Vec::new();
         {
@@ -517,13 +526,6 @@ impl Host {
         self.org_apply_stall_setting();
         Some(tx)
     }
-}
-
-/// `<root>\org\` の中で最も新しいワークフローのフォルダ（IDは `wf-<ms>` なので名前順＝作成順）。
-fn newest_workflow_dir(root: &std::path::Path) -> Option<std::path::PathBuf> {
-    let mut dirs: Vec<std::path::PathBuf> = std::fs::read_dir(root.join("org")).ok()?.filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.is_dir()).collect();
-    dirs.sort();
-    dirs.pop()
 }
 
 /// 開始前の検査（読取りのgitだけ）。Gitリポジトリで、HEADが解決できる（コミットが1つ以上ある）こと。満たさなければ利用者向けの案内文を返す。

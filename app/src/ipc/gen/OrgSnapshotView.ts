@@ -8,4 +8,8 @@ export type OrgSnapshotView = { workflow: OrgWorkflowView | null,
 /**
  * 停滞とみなす時間（分）。
  */
-stallMinutes: number, };
+stallMinutes: number, 
+/**
+ * 保存済みの過去のワークフロー（新しい順。最近の一部だけ。`workflow` と同じものは含めない。読み取り専用）。
+ */
+history: Array<OrgWorkflowView>, };

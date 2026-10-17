@@ -352,6 +352,9 @@ pub struct OrgWorkflowView {
     pub dispatching: bool,
     /// 全タスクが終わっているか（完了帯の表示用）。
     pub finished: bool,
+    /// 保存データから読んだ過去のワークフロー（読み取り専用。操作は受け付けない）。
+    #[serde(default)]
+    pub readonly: bool,
 }
 
 /// 現在の組織実行（なければ `workflow=None`）。
@@ -363,6 +366,9 @@ pub struct OrgSnapshotView {
     pub workflow: Option<OrgWorkflowView>,
     /// 停滞とみなす時間（分）。
     pub stall_minutes: u32,
+    /// 保存済みの過去のワークフロー（新しい順。最近の一部だけ。`workflow` と同じものは含めない。読み取り専用）。
+    #[serde(default)]
+    pub history: Vec<OrgWorkflowView>,
 }
 
 // ───────────────────────────── 役割定義 ─────────────────────────────

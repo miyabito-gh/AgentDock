@@ -391,6 +391,7 @@ pub fn workflow_view(input: &ViewInput<'_>) -> OrgWorkflowView {
         trust: trust.flatten(),
         notices: shown.into_iter().skip(skip).collect(),
         dispatching: input.dispatching,
+        readonly: false,
     }
 }
 

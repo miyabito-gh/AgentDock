@@ -47,6 +47,33 @@ export function OrgListRow({ wf, selected, onOpen, onStart }: { wf: OrgWorkflowV
   );
 }
 
+/** 左一覧の過去のワークフロー（保存済み。読み取り専用）。完了／失敗／取消しの印つき。多いときは折りたたむ。選ぶと中央に開くだけ。 */
+const HISTORY_FOLDED = 3;
+export function OrgHistoryRows({ history, selectedId, onOpen }: { history: OrgWorkflowView[]; selectedId: string | null; onOpen: (id: string) => void }) {
+  const [all, setAll] = useState(false);
+  const shown = all || history.length <= HISTORY_FOLDED + 1 ? history : history.slice(0, HISTORY_FOLDED);
+  return (
+    <div className="left-org" aria-label="過去のワークフロー">
+      {shown.map((wf) => {
+        const sum = workflowSummary(wf);
+        const name = wf.title ?? wf.request.slice(0, 30);
+        const sel = selectedId === wf.workflowId;
+        return (
+          <div key={wf.workflowId} className={`row-chat org-row${sel ? " sel" : ""}`}>
+            <button type="button" className="row-main" aria-current={sel} onClick={() => onOpen(wf.workflowId)} title={`過去の組織実行「${name}」（読み取り専用）
+状態: ${sum.label}`}>
+              <span className="tag ai" title="過去の組織実行（保存済み。読み取り専用）">組織</span>
+              <span className="nm">{name}</span>
+              <span className="marks"><Chip tone={sum.tone} icon={sum.icon} label={sum.label} /></span>
+            </button>
+          </div>
+        );
+      })}
+      {shown.length < history.length ? <button type="button" className="small" onClick={() => setAll(true)}>過去のワークフローをすべて表示（あと {history.length - shown.length} 件）</button> : null}
+    </div>
+  );
+}
+
 /** ドックのカード用の役割バッジとタスクID（組織実行のチャットだけ）。 */
 export function OrgBadge({ local }: { local: ChatLocalView | undefined }) {
   const o = local?.org;
@@ -151,6 +178,8 @@ export function OrgPane(p: OrgPaneProps) {
   }
 
   const sum = workflowSummary(wf);
+  // 過去のワークフロー（保存データの読取り）。操作ボタンは出さず、タスク表と「チャットを見る」だけ。
+  const ro = wf.readonly;
   const doneN = wf.tasks.filter((t) => t.status.phase === "completed").length;
   const approvals = orgPendingRequests(snap, wf.workflowId);
   const canResume = !!wf.halt?.resumable;
@@ -235,11 +264,13 @@ export function OrgPane(p: OrgPaneProps) {
   const taskActions = (t: OrgTaskView) => (
     <div className="org-acts">
       {t.chat ? <button className="btn sm" disabled={!chatExists(t.chat)} title={chatExists(t.chat) ? "このタスクのチャットを開きます（見るだけ。何も送りません）" : "チャットがまだ一覧にありません"} onClick={() => p.onOpenChat(t.chat!)}>チャットを見る</button> : null}
+      {ro ? null : <>
       {t.needsChatChoice ? <button className="btn sm" onClick={() => void openChoose(t.id)}>チャットを選ぶ…</button> : null}
       {t.chat ? <button className="btn sm" onClick={() => setConfirm({ kind: "release", task: t.id, chat: t.chat! })} title="組織実行から切り離し、手入力できる通常のチャットにします">手動に切り替え…</button> : null}
       {t.canRetry ? <button className="btn sm" onClick={() => setConfirm({ kind: "retry", task: t.id })} title="まだ送られていないことを確認できているタスクを、もう一度送る状態に戻します">やり直す…</button> : null}
       {t.canAcceptManual ? <button className="btn sm" onClick={() => setConfirm({ kind: "acceptManual", task: t.id })}>手動で完了にする…</button> : null}
       {t.canCancel ? <button className="btn sm danger-line" onClick={() => setConfirm({ kind: "cancelTask", task: t.id })}>取り消す…</button> : null}
+      </>}
     </div>
   );
 
@@ -252,10 +283,11 @@ export function OrgPane(p: OrgPaneProps) {
         <Chip tone={sum.tone} icon={sum.icon} label={sum.label} />)}
       <div className="org-body">
         <div className="org-bar">
-          {canResume ? <button className="btn primary" disabled={busy} title="必要なチャットを再開し、止めていたタスクの送信を始めます（確認があります）" onClick={() => setConfirm({ kind: "resume" })}>再開…</button> : null}
-          {wf.dispatching ? <button className="btn" disabled={busy} title="新しいタスクの送信を止めます。実行中のタスクは止めません" onClick={() => void go("一時停止", async () => { await host.orgPause(wf.workflowId); return "新しい送信を止めました。実行中のタスクは止めていません。"; })}>一時停止</button> : null}
+          {ro ? <span className="small muted">過去のワークフロー（読み取り専用）</span> : null}
+          {canResume && !ro ? <button className="btn primary" disabled={busy} title="必要なチャットを再開し、止めていたタスクの送信を始めます（確認があります）" onClick={() => setConfirm({ kind: "resume" })}>再開…</button> : null}
+          {wf.dispatching && !ro ? <button className="btn" disabled={busy} title="新しいタスクの送信を止めます。実行中のタスクは止めません" onClick={() => void go("一時停止", async () => { await host.orgPause(wf.workflowId); return "新しい送信を止めました。実行中のタスクは止めていません。"; })}>一時停止</button> : null}
           <span className="grow" />
-          <Popover role="menu" align="right" triggerClassName="btn subtle icon" label="ワークフローの操作" title="ワークフローの操作" trigger={<Icon name="more" />}>
+          {ro ? null : <Popover role="menu" align="right" triggerClassName="btn subtle icon" label="ワークフローの操作" title="ワークフローの操作" trigger={<Icon name="more" />}>
             {(close) => (
               <>
                 <button type="button" role="menuitem" disabled={wf.finished} title={wf.finished ? "すべて終わっています" : undefined} onClick={() => { close(); setConfirm({ kind: "raise", to: String(lim.maxTurns + 10) }); }}>turn上限を上げる…</button>
@@ -265,12 +297,15 @@ export function OrgPane(p: OrgPaneProps) {
                 <button type="button" role="menuitem" className="danger" disabled={wf.finished} onClick={() => { close(); setConfirm({ kind: "cancelWorkflow" }); }}>ワークフローを取り消す…</button>
               </>
             )}
-          </Popover>
+          </Popover>}
         </div>
 
         {confirmBlock()}
 
-        {wf.halt && wf.halt.kind !== "awaitingPlanApproval" ? (
+        {ro ? (
+          <div className="banner info" role="status"><Icon name="help" /><div>保存されている記録を読み取り専用で表示しています。再開・承認・取消しなどの操作はできません（実行中のワークフローがあれば、左の一覧の上の行から開けます）。</div></div>
+        ) : null}
+        {wf.halt && wf.halt.kind !== "awaitingPlanApproval" && !ro ? (
           <div className={`banner ${wf.halt.kind === "sandboxUnhealthy" ? "err" : "warn"}`} role="status">
             <Icon name={orgIcon(wf.halt.icon)} />
             <div>
@@ -297,13 +332,13 @@ export function OrgPane(p: OrgPaneProps) {
         {wf.finished ? (
           <div className="banner info" role="status"><Icon name="branch" /><div>ブランチ・差分を確認して取り込んでください。AgentDock は自動でマージしません。</div></div>
         ) : null}
-        {approvals.count > 0 && approvals.first ? (
+        {approvals.count > 0 && approvals.first && !ro ? (
           <div className="banner warn" role="status"><Icon name="alert" /><div>Codex の承認・質問の待ちが {approvals.count} 件あります。
             <button className="btn sm" style={{ marginLeft: 8 }} onClick={() => p.onOpenChat(approvals.first!.key)}>要求へ</button>
             <span className="small muted"> 回答はそのチャットで、あなたが行います。</span></div></div>
         ) : null}
 
-        {wf.planApproval ? (
+        {wf.planApproval && !ro ? (
           <section className="org-card" aria-label="計画承認">
             <h4><Icon name="eye" />計画の承認待ち</h4>
             <p>タスク {wf.tasks.length} 件（{roleCounts(wf.tasks).map((r) => `${r.role} ${r.n}件`).join("、") || "—"}）。承認するまで、タスクは送られません。</p>

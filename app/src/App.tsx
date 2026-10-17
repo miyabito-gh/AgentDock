@@ -12,6 +12,7 @@ import { MAX_FETCH_PAGES, countFetched, fetchAllPages, loadMoreMessage, projectF
 import { addDecision, mergeDecisions, type DecisionItem } from "./ui/decisions";
 import { ACCEPTED_HOLD_MS, hasInFlight, mergeAttempt, outcomeOfAttempt, rebindPending, reconcilePending, setPhase, type PendingOutcome, type PendingSend } from "./ui/pendingSend";
 import { withOrgTitles } from "./ui/orgChat";
+import { shownOrgIds } from "./ui/org";
 import { applyHostEvent, createEventPipeline, emptyBundle, replaceSnapshot, seqAction, UNKNOWN_CAPS } from "./ipc/live";
 import type { Bundle } from "./mock/data";
 
@@ -167,6 +168,8 @@ export default function App() {
   const [orgTick, setOrgTick] = useState(0);
   /** 中央にワークフロー画面を出しているか（役割チャットを選ぶと閉じる）。 */
   const [orgScreen, setOrgScreen] = useState(false);
+  /** ワークフロー画面に出す過去のワークフローのID（null＝実行中の1件）。保存済みの記録を読み取り専用で開くだけ。 */
+  const [orgSel, setOrgSel] = useState<string | null>(null);
   const orgSeq = useRef(0);
   const [listStatus, setListStatus] = useState<{ ok: boolean; text: string } | null>(null);
   /** 通常の一覧の続き（nextCursor）。null＝続きなし（または未取得）。「続きを読み込む」だけが使う。 */
@@ -364,7 +367,11 @@ export default function App() {
   }, [live, boot, loadChat, noteAttempt, say, sayErr, refreshProjects]);
 
   // 組織の役割チャットの表示名だけ上書きする（表示用。保存済みの名前は変えない）
-  const snap: HostSnapshot = useMemo(() => withOrgTitles(bundle.snapshot, org?.workflow), [bundle.snapshot, org]);
+  const snap: HostSnapshot = useMemo(() => [org?.workflow, ...(org?.history ?? [])].reduce((s, w) => withOrgTitles(s, w), bundle.snapshot), [bundle.snapshot, org]);
+  // 過去のワークフローを開いているときは、その1件を画面に出す（なければ実行中の1件）。役割チャットを通常の一覧から隠すかは、出せるワークフローかで決める。
+  const orgHist = orgSel ? org?.history.find((w) => w.workflowId === orgSel) ?? null : null;
+  const orgShown: OrgSnapshotView | null = org && orgHist ? { ...org, workflow: orgHist } : org;
+  const orgShownIds = useMemo(() => shownOrgIds(org, !!orgErr), [org, orgErr]);
 
   // 組織実行の状態を取り直す（読取りのみ。何も送らない）。古い応答は捨てる。
   useEffect(() => {
@@ -1675,14 +1682,14 @@ ${cur}` : p.text);
           style={{ ...(!leftTemp && leftOpen ? { "--lw": `${paneW.left}px` } : {}), ...(!rightTemp && rightOpen ? { "--rw": `${paneW.dock}px` } : {}) } as CSSProperties}
         >
           <aside className="left" id="pane-left" aria-label="チャット一覧">
-            <LeftPane org={{ wf: org?.workflow ?? null, selected: orgScreen, onOpen: () => { setOrgScreen(true); setLNarrow(false); setQuick((q) => (q.open ? { ...q, open: false } : q)); }, onStart: () => act("orgStart") }} creating={creating} onCreatingAct={creatingAct} snap={snap} sel={chat ? keyStr(chat.key) : null} onSelect={(id) => { selectChat(id); setLNarrow(false); }} onAct={act} onAcknowledge={(c) => onAcknowledge(c.key, null)}
+            <LeftPane org={{ wf: org?.workflow ?? null, selected: orgScreen && !orgHist, onOpen: () => { setOrgSel(null); setOrgScreen(true); setLNarrow(false); setQuick((q) => (q.open ? { ...q, open: false } : q)); }, onStart: () => act("orgStart"), history: org?.history ?? [], selectedHistory: orgHist?.workflowId ?? null, onOpenHistory: (id) => { setOrgSel(id); setOrgScreen(true); setLNarrow(false); setQuick((q) => (q.open ? { ...q, open: false } : q)); }, shown: orgShownIds }} creating={creating} onCreatingAct={creatingAct} snap={snap} sel={chat ? keyStr(chat.key) : null} onSelect={(id) => { selectChat(id); setLNarrow(false); }} onAct={act} onAcknowledge={(c) => onAcknowledge(c.key, null)}
               onChatAct={chatAct} chatList={snap.settings.chatList} projects={projects} onNotice={say} onReclassify={reclassify} onFetchProjectChats={fetchProjectChats} onLoadMore={listCursor ? loadMoreChats : undefined}
               onNewChatIn={(cwd, choices) => { setDialog({ type: "newChat", dev: true, cwd, cwdChoices: choices.length > 1 ? choices : undefined }); setLNarrow(false); }}
               onChatList={(f) => updateSettings((s) => ({ ...s, chatList: f(s.chatList) }), "一覧の表示設定を保存できませんでした。次回の起動では保存されている値に戻ります")} listStatus={listStatus} uiSize={snap.settings.appearance.uiText} />
           </aside>
           <main className="center">
             {orgScreen ? (
-              <OrgPane snap={snap} org={org} error={orgErr} live={live} leftShown={leftTemp ? lNarrow : leftOpen} rightShown={rightTemp ? rNarrow : rightOpen}
+              <OrgPane snap={snap} org={orgShown} error={orgErr} live={live} leftShown={leftTemp ? lNarrow : leftOpen} rightShown={rightTemp ? rNarrow : rightOpen}
                 onAct={act} onOpenChat={(k) => selectChat(k.id)} onReload={() => setOrgTick((n) => n + 1)} run={orgRun} />
             ) : quick.open || (!chat && live) ? (
               <QuickNewPane models={models} model={quick.model ?? pickQuickModel(models, snap.settings.lastNewChat)} setModel={(id) => setQuick((q) => ({ ...q, model: id }))}

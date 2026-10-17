@@ -1,10 +1,8 @@
 // 組織実行の表示用導出（P-ORG-7b）。状態の判定はホスト。ここは並べ替え・文言・色クラスの対応だけ。
 // 状態は文字とアイコン名（ホストの label／icon）で必ず示し、色だけで区別させない。
-import type { Chat, ChatLocalView, HostSnapshot, OrgConfirmCode, OrgEffect, OrgTaskPhase, OrgTaskView, OrgWorkflowView, PendingRequest } from "../ipc/types";
+import type { Chat, HostSnapshot, OrgConfirmCode, OrgEffect, OrgTaskPhase, OrgTaskView, OrgWorkflowView, PendingRequest } from "../ipc/types";
 import { chatRequests } from "./derive";
-
-/** 組織実行が作って、まだ手動に切り替えていないチャット（通常の一覧から隠し、ワークフローから辿る）。 */
-export const isOrgOwned = (l: ChatLocalView | undefined): boolean => !!l?.org && !l.org.released;
+export { isOrgOwned, shownOrgIds } from "./orgHidden";
 
 export type OrgTone = "run" | "wait" | "fail" | "int" | "done" | "idle" | "unk";
 
