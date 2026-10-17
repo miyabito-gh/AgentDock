@@ -29,6 +29,7 @@ if (noPlugins) {
     }
   }
   launchOverrides.push('mcp_servers.node_repl.enabled=false');
+  launchOverrides.push('mcp_servers.cua_repl.enabled=false');
 }
 for (const kv of (process.env.ORGPROBE_CODEX_ARGS ?? '').split(/\s+/)) if (kv) launchOverrides.push(kv);
 const which = positional[0] ?? 'all';

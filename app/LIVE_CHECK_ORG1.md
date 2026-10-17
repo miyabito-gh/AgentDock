@@ -110,3 +110,11 @@ node probes/app-server/org-probe.mjs 2b --c mcp_servers.node_repl.enabled=false
 ```powershell
 node probes/app-server/org-probe.mjs 2b --no-plugins
 ```
+
+## 診断結果（2026-10-17）と再実行
+
+`thread/start` で `node_repl` と `cua_repl` の2つのMCPが起動し、`node_repl.exe` を握ったままsandboxのセットアップ更新が失敗する。両方を `-c mcp_servers.<名前>.enabled=false` で無効にして App Server を起動すると、`codex sandbox` が成功した（モデル呼び出しなしの確認）。`node_repl` だけを無効にしても直らない。`--no-plugins` は `cua_repl` も無効にする。再実行：
+
+```powershell
+node probes/app-server/org-probe.mjs 2b --no-plugins
+```
