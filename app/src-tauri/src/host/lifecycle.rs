@@ -301,6 +301,9 @@ impl Host {
             self.mutate(|_| ((), vec![HostEvent::QuitPrompt { phase: current.clone() }]));
             return current;
         }
+        // 前置: 組織実行の新規ディスパッチを止める（送信権の失効＋停止）。確認を取り消しても自動では再開しない（再開は利用者の操作）。
+        // 実行中のタスクの中断は、この後の既存の停止手順（`interrupt_chat`）が行う。タスクを取消・失敗にはしない。
+        self.org_begin_shutdown();
         let busy = busy_for_quit(&self.chat_works());
         if busy.is_empty() {
             let gen = self.start_quit_phase(QuitPhase::Flushing);
@@ -328,6 +331,9 @@ impl Host {
                 let QuitPhase::Confirming { .. } = current else {
                     return Err(err(IpcErrorCode::InvalidArgs, "終了の確認中ではありません"));
                 };
+                // 組織の状態を保存し終えてから停止手順へ進む（送信権はすでに失効している）。
+                self.org_begin_shutdown();
+                self.org_flush().await;
                 // 確認を出してから状況が変わっていることがあるので、対象を取り直す。
                 let busy = busy_for_quit(&self.chat_works());
                 let ids = self.interrupt_for_quit(&busy, Vec::new(), confirmed).await;
@@ -433,6 +439,8 @@ impl Host {
                     return;
                 }
                 if next == QuitPhase::Flushing {
+                    // 停止を確認できた状態（または停止未確認のまま）を組織の保存へ反映してから書き出す。
+                    host.org_flush().await;
                     host.flush_pending().await;
                     let failed = host.failed_saves();
                     match next_quit_phase(&QuitPhase::Flushing, &[], &failed, now_ms()) {
@@ -483,7 +491,7 @@ impl Host {
             Ok(n) => Known::direct(n),
             Err(_) => Known::NotFetched,
         };
-        Ok(ForceKillPreview { source: args.source, affected, active_processes })
+        Ok(ForceKillPreview { source: args.source, affected, active_processes, org_running: self.org_running_notes() })
     }
 
     /// 強制終了（ユーザーの確認後）。Job内のプロセスが0になったことを確認できたときだけ「OS実体確認」の証拠を付ける。
@@ -588,6 +596,8 @@ impl Host {
             }
             *last = Some(at.0);
         }
+        // 組織実行: 送信権を失効させ、鮮度を不明にして保留する（再び送るのは利用者の「再開」だけ）。
+        self.org_note_stale(org_engine::ReconcileCause::Wake);
         let marked: Vec<AgentKey> = self.mutate(|d| {
             let keys = agents_to_mark_on_resume(&d.agents);
             let mut events = Vec::new();
@@ -624,6 +634,8 @@ impl Host {
         for r in seen {
             self.start_scan(r);
         }
+        // 組織実行: 要照合のタスクを読取りだけで照合する（resume・送信はしない）。
+        self.org_request_reconcile();
     }
 }
 

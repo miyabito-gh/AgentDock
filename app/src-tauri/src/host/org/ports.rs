@@ -20,7 +20,9 @@ use crate::backend::model::*;
 use crate::backend::parity::{ParityOps, SandboxCheck};
 use crate::host::state::agent_key_of;
 use crate::host::{now_ms, Host, SendAuth};
-use crate::rules::org::{classify_trust_append, final_message_of, DescendantReport, TrustCompare};
+use crate::gitops::GitOp;
+use crate::rules::diff::parse_status_v2;
+use crate::rules::org::{classify_trust_append, final_message_of, turn_end_of, DescendantReport, TrustCompare};
 use crate::store::records::OrgBinding;
 
 /// 送信1件の指示（エンジンが決めた試行IDと照合用IDをそのまま使う）。
@@ -67,6 +69,33 @@ pub trait RuntimeRead: Send + Sync {
     async fn sandbox_check(&self, cwd: &str) -> Result<SandboxCheck, BackendError>;
     /// 子孫の様子（キューの判断の読取り。送信しない）。
     async fn descendants(&self, chat: &ChatKey) -> DescendantReport;
+    /// 再起動・wake後の照合の読取り（turnの終端・作業場所の実在と未コミット変更）。履歴の読取りと `git status` だけで、
+    /// resume・送信・中断・書込みをしない。読めなかったものは「確認できていない」として返す（終端なし・不明で代用しない）。
+    async fn read_reconcile(&self, chat: &ChatKey, turn: &TurnKey, cwd: Option<&str>) -> ReconcileRead;
+}
+
+/// 作業場所（組織が作ったworktree）の照合結果。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorktreeFinding {
+    /// 組織の所有記録にある作業場所ではない（利用者のリポジトリ等。状態を調べない）。
+    NotOwned,
+    /// 所有記録はあるがフォルダがない。
+    Missing,
+    Clean,
+    /// 未コミットの変更がある（中断時点の変更は破棄しない。次のタスク表に出す）。
+    Uncommitted { entries: u32 },
+    /// 状態を読めなかった。
+    Unreadable,
+}
+
+/// 照合の読取り結果。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReconcileRead {
+    /// 履歴を読めたか。
+    pub turn_read: bool,
+    /// 履歴で終端を確認できたときだけ Some。None は「確認できていない」。
+    pub turn_end: Option<TurnEnd>,
+    pub worktree: WorktreeFinding,
 }
 
 /// 作業場所のポート（P-ORG-5）。組織実行のタスク用のworktree作成と、所有worktree内のコミットだけ。
@@ -93,6 +122,22 @@ pub enum OrgHostNotice {
     SendRefused { task: TaskId, why: String },
     /// events.jsonl に追記できなかったため、以後は何も送らない。
     PersistFailed,
+    /// 再起動・wake後の照合（読取りだけ）の結果。表示のための材料で、状態の変更はエンジンへの入力（`TurnEnded` 等）が行う。
+    Reconciled { task: TaskId, turn_read: bool, turn_end: Option<TurnEnd>, worktree: WorktreeFinding },
+    /// 実行中のまま新しい出力がない（通知だけ。自動で中断・再送・resume しない）。組織の通知種別（P-ORG-7 が画面・OS通知にする）。
+    Stalled { task: TaskId, quiet_minutes: u32 },
+}
+
+/// 組織の通知の急ぎ度（通知集約の窓に載せる区分。承認待ち・停止系は即時、完了・失敗はワークフロー単位で2秒集約）。
+impl OrgHostNotice {
+    pub fn urgency(&self) -> org_engine::NoticeUrgency {
+        match self {
+            OrgHostNotice::Engine(n) => n.urgency(),
+            // 照合結果・設定の照合は知らせるだけ（集約）。停滞・保存失敗・送らなかった理由は利用者の対処が要るので即時。
+            OrgHostNotice::Reconciled { .. } | OrgHostNotice::Config(_) => org_engine::NoticeUrgency::Aggregated,
+            OrgHostNotice::SendRefused { .. } | OrgHostNotice::PersistFailed | OrgHostNotice::Stalled { .. } => org_engine::NoticeUrgency::Immediate,
+        }
+    }
 }
 
 #[async_trait]
@@ -132,6 +177,14 @@ impl RuntimeRead for Arc<Host> {
     async fn descendants(&self, chat: &ChatKey) -> DescendantReport {
         self.org_descendants(chat).await
     }
+
+    async fn read_reconcile(&self, chat: &ChatKey, turn: &TurnKey, cwd: Option<&str>) -> ReconcileRead {
+        let (turn_read, turn_end) = match self.read_history(agent_key_of(chat), ReadOptions { include_turns: true }).await {
+            Ok(h) => (true, turn_end_of(&h.turns, turn)),
+            Err(_) => (false, None),
+        };
+        ReconcileRead { turn_read, turn_end, worktree: self.org_worktree_finding(cwd).await }
+    }
 }
 
 /// 画面への公開先（状態の写しを保持し、更新の合図を出す。通知は控える）。
@@ -158,7 +211,14 @@ fn notice_label(n: &OrgHostNotice) -> &'static str {
         OrgHostNotice::Config(TrustCompare::Unverified { .. }) => "config-unverified",
         OrgHostNotice::SendRefused { .. } => "send-refused",
         OrgHostNotice::PersistFailed => "persist-failed",
+        OrgHostNotice::Reconciled { .. } => "reconciled",
+        OrgHostNotice::Stalled { .. } => "stalled",
     }
+}
+
+fn same_path(a: &str, b: &str) -> bool {
+    let norm = |s: &str| s.trim().replace('\\', "/").trim_end_matches('/').to_lowercase();
+    norm(a) == norm(b)
 }
 
 impl Host {
@@ -270,6 +330,26 @@ impl Host {
         };
         let attempt = SendAttempt { attempt_id: req.attempt, client_message_id: request.client_message_id.clone(), at: now_ms(), state: SendState::Sending };
         OrgSendResult::Dispatched(self.dispatch_send_as(request, attempt, SendAuth::Org(permit)).await)
+    }
+
+    /// 組織の所有記録にある作業場所の実在と未コミット変更を読む（`git status` だけ。書込みなし）。所有記録にない場所は調べない。
+    pub(in crate::host) async fn org_worktree_finding(self: &Arc<Self>, cwd: Option<&str>) -> WorktreeFinding {
+        let Some(cwd) = cwd else { return WorktreeFinding::NotOwned };
+        let owned = self.read(|d| d.worktrees.iter().any(|r| r.org.is_some() && same_path(&r.path, cwd)));
+        if !owned {
+            return WorktreeFinding::NotOwned;
+        }
+        let path = std::path::Path::new(cwd);
+        if !path.is_dir() {
+            return WorktreeFinding::Missing;
+        }
+        match self.git_for_worktree().run(path, &GitOp::Status).await {
+            Ok(o) if o.success() => match parse_status_v2(&o.stdout_text()).len() {
+                0 => WorktreeFinding::Clean,
+                n => WorktreeFinding::Uncommitted { entries: n as u32 },
+            },
+            _ => WorktreeFinding::Unreadable,
+        }
     }
 
     /// 子孫の様子（キューの判断の読取り）。履歴の確認は読取りだけで、resume・送信・承認をしない。

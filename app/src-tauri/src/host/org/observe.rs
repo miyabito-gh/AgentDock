@@ -20,7 +20,12 @@ pub struct OrgObserver {
     unknown_attempts: HashSet<LocalId>,
     /// 利用上限で失敗したturn（`TurnEnded` より前に届く分類を覚えておく）。
     usage_limited: HashSet<TurnKey>,
+    /// 活動を最後に知らせた時刻（間引き用）。
+    last_activity_sent: HashMap<ChatKey, i64>,
 }
+
+/// 活動の通知の最小間隔（停滞は分単位なので十分）。
+const ACTIVITY_MIN_GAP_MS: i64 = 5_000;
 
 impl OrgObserver {
     pub fn bind(&mut self, chat: ChatKey, workflow: WorkflowId, task: TaskId) {
@@ -35,6 +40,7 @@ impl OrgObserver {
         self.bound.clear();
         self.unknown_attempts.clear();
         self.usage_limited.clear();
+        self.last_activity_sent.clear();
     }
 
     pub fn is_empty(&self) -> bool {
@@ -80,6 +86,23 @@ impl OrgObserver {
             }
         };
         vec![DriverMsg::Input(OrgInput::SendSettled { task, attempt: aref, outcome })]
+    }
+
+    /// 出力（活動）を停滞の判断のために知らせる。同じチャットには `ACTIVITY_MIN_GAP_MS` に1回まで（逐次本文で溢れさせない）。
+    /// 子孫の出力は、そのエージェントが属するチャットが組織のものであるときだけ数える。送信・状態の変更はしない。
+    pub fn on_activity(&mut self, event: &BackendEvent, now_ms: i64, chat_of_agent: &dyn Fn(&AgentKey) -> Option<ChatKey>) -> Vec<DriverMsg> {
+        let agent = match event {
+            BackendEvent::Activity { activity } => &activity.key.agent,
+            BackendEvent::ActivityDelta { item, .. } => &item.agent,
+            BackendEvent::TurnStarted { turn, .. } => &turn.agent,
+            _ => return Vec::new(),
+        };
+        let Some(chat) = self.root_chat(agent).or_else(|| chat_of_agent(agent).filter(|c| self.contains(c))) else { return Vec::new() };
+        if self.last_activity_sent.get(&chat).is_some_and(|t| now_ms - t < ACTIVITY_MIN_GAP_MS) {
+            return Vec::new();
+        }
+        self.last_activity_sent.insert(chat.clone(), now_ms);
+        vec![DriverMsg::Activity { chat: chat_ref_of(&chat), at_ms: now_ms }]
     }
 
     /// 利用者の中断の操作を知らせる（中断そのものはホストの既存の経路が行う）。
@@ -256,6 +279,22 @@ mod tests {
         assert!(!events(&mut o, BackendEvent::Gap { scope: GapScope::Agent { agent: agent("c1") }, reason: "x".into() }).is_empty());
         assert!(events(&mut o, BackendEvent::Gap { scope: GapScope::Agent { agent: agent("child") }, reason: "x".into() }).is_empty());
         assert!(events(&mut o, BackendEvent::Connection { state: ConnectionState::Connected }).is_empty());
+    }
+
+    #[test]
+    fn activity_is_throttled_per_chat_and_ignores_unrelated_chats() {
+        let mut o = observer();
+        let started = |a: &str| BackendEvent::TurnStarted { turn: turn(a, "t1"), evidence: ev() };
+        let none = |_: &AgentKey| None;
+        assert!(matches!(o.on_activity(&started("c1"), 1_000, &none)[0], DriverMsg::Activity { at_ms: 1_000, .. }));
+        assert!(o.on_activity(&started("c1"), 3_000, &none).is_empty(), "throttled");
+        assert_eq!(o.on_activity(&started("c1"), 6_000, &none).len(), 1);
+        assert!(o.on_activity(&started("zzz"), 9_000, &none).is_empty());
+        // a descendant whose chat is the organisation's counts as output of that chat
+        let chat_of = |a: &AgentKey| (a.id.0 == "child").then(|| chat("c1"));
+        assert_eq!(o.on_activity(&started("child"), 20_000, &chat_of).len(), 1);
+        // activity never produces anything but the clock message
+        assert!(o.on_activity(&BackendEvent::Connection { state: ConnectionState::Connected }, 99_000, &none).is_empty());
     }
 
     #[test]

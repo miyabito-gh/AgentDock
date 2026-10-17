@@ -827,6 +827,23 @@ pub struct ForceKillPreview {
     pub affected: Vec<ChatKey>,
     /// Job内で稼働中のプロセス数（取得できなければ NotFetched）。
     pub active_processes: Known<u32>,
+    /// 組織実行中のワークフロー（併記するだけ。強制終了の対象や手順は変えない）。
+    #[serde(default)]
+    pub org_running: Vec<OrgRunningNote>,
+}
+
+/// 強制終了の確認に併記する、組織実行中のワークフロー。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgRunningNote {
+    pub workflow_id: String,
+    /// 依頼の先頭（なければ None）。
+    pub title: Option<String>,
+    /// 終わっていないタスクの数（実行中・レビュー中・確認状態が確定でないもの）。
+    pub active_tasks: u32,
+    pub total_tasks: u32,
 }
 
 // ───────────────────────────── 使用量（§3.12、D02） ─────────────────────────────

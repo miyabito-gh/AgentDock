@@ -709,3 +709,35 @@ fn engine_has_no_input_for_resend_and_no_codex_request_action() {
     }
     assert_eq!(label(&OrgAction::Publish), "publish");
 }
+
+#[test]
+fn shutdown_stops_new_dispatch_and_converts_nothing_to_cancelled_or_failed() {
+    let mut sim = Sim::new();
+    sim.with_plan(&plan_json(&[("a", "worker", &[], &[]), ("b", "worker", &["a"], &[])]));
+    assert_eq!(sim.t("a").status(), TaskStatus::Running);
+    sim.feed(OrgInput::Shutdown);
+    assert_eq!(sim.st().halt(), Some(HaltReason::Shutdown));
+    // the interrupt that follows ends the running turn: blocked for the user, never cancelled / failed
+    let ca = sim.t("a").chat().unwrap().clone();
+    let ta = sim.t("a").accepted_turn().unwrap().clone();
+    sim.feed(OrgInput::InterruptRequested { chat: ca.clone() });
+    let acts = sim.feed(OrgInput::TurnEnded { chat: ca, turn: ta, end: TurnEndKind::Interrupted });
+    assert!(!has_send(&acts));
+    assert!(!has_send(&sim.feed(OrgInput::Tick { now_ms: 9000 })));
+    for id in ["a", "b"] {
+        assert!(!matches!(sim.t(id).status(), TaskStatus::Cancelled | TaskStatus::Failed(_)), "{id}");
+    }
+    assert_eq!(sim.t("a").status(), TaskStatus::Blocked(BlockedReason::ManualStop));
+    assert_eq!(sim.sends("b"), 0);
+}
+
+#[test]
+fn shutdown_of_a_finished_workflow_records_nothing() {
+    let mut sim = Sim::new();
+    sim.with_plan(&plan_json(&[("a", "worker", &[], &[])]));
+    let ca = sim.t("a").chat().unwrap().clone();
+    let ta = sim.t("a").accepted_turn().unwrap().clone();
+    sim.feed(OrgInput::TurnEnded { chat: ca, turn: ta, end: TurnEndKind::Failed { usage_limit: false } });
+    sim.feed(OrgInput::Shutdown);
+    assert_ne!(sim.st().halt(), Some(HaltReason::Shutdown));
+}

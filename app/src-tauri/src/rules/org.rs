@@ -93,6 +93,21 @@ pub fn final_message_of(turns: &[TurnRecord], turn: &TurnKey) -> Option<String> 
     pick.text.value().cloned().filter(|t| !t.trim().is_empty())
 }
 
+/// 履歴からそのturnの終端を読む（再起動・wake後の照合。読取りだけ）。turn が見つからない・終端が確認できない（進行中・不明）は None
+/// （推定しない。None は「終わっていない」ではなく「確認できていない」）。
+pub fn turn_end_of(turns: &[TurnRecord], turn: &TurnKey) -> Option<TurnEnd> {
+    turns.iter().find(|t| &t.key == turn)?.end
+}
+
+/// 履歴で確認した終端をエンジンの入力にする。履歴には利用上限の分類がないので `usage_limit` は false（実行失敗として扱う）。
+pub fn turn_end_kind_of(end: TurnEnd) -> org_engine::TurnEndKind {
+    match end {
+        TurnEnd::Completed => org_engine::TurnEndKind::Completed,
+        TurnEnd::Failed => org_engine::TurnEndKind::Failed { usage_limit: false },
+        TurnEnd::Interrupted => org_engine::TurnEndKind::Interrupted,
+    }
+}
+
 // ───────────────────────────── 子孫の作業中判定（キューの判断の読取り） ─────────────────────────────
 
 /// 組織の完了判定に渡す子孫の様子。
@@ -415,6 +430,18 @@ mod tests {
         assert_eq!(final_message_of(&[record(Some(TurnEnd::Completed), true, unmarked)], &want).as_deref(), Some("A"));
         let only_commentary = vec![entry(Known::direct("c".to_string()), MessagePhase::Commentary)];
         assert_eq!(final_message_of(&[record(Some(TurnEnd::Completed), true, only_commentary)], &want), None);
+    }
+
+    #[test]
+    fn turn_end_is_read_only_when_the_history_confirms_it() {
+        let want = TurnKey { agent: root(), turn_id: ExternalId("t1".into()) };
+        let other = TurnKey { agent: root(), turn_id: ExternalId("t2".into()) };
+        assert_eq!(turn_end_of(&[record(Some(TurnEnd::Interrupted), true, Vec::new())], &want), Some(TurnEnd::Interrupted));
+        // still running / unknown / another turn / no turns: not confirmed (None is never read as "not ended")
+        assert_eq!(turn_end_of(&[record(None, true, Vec::new())], &want), None);
+        assert_eq!(turn_end_of(&[record(Some(TurnEnd::Completed), true, Vec::new())], &other), None);
+        assert_eq!(turn_end_of(&[], &want), None);
+        assert_eq!(turn_end_kind_of(TurnEnd::Failed), org_engine::TurnEndKind::Failed { usage_limit: false });
     }
 
     fn root() -> AgentKey {

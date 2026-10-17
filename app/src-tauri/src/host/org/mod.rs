@@ -15,6 +15,7 @@ pub mod driver;
 pub mod grant;
 pub mod observe;
 pub mod ports;
+pub mod stall;
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
@@ -29,7 +30,8 @@ use self::ports::OrgHostNotice;
 use super::{blocked, err, now_ms, Host};
 use crate::backend::backend::{BackendEvent, UserConfirmed};
 use crate::backend::ipc::{BlockedReason, IpcError, IpcErrorCode};
-use crate::backend::model::{ChatKey, SendAttempt};
+use crate::backend::local::OrgRunningNote;
+use crate::backend::model::{ChatKey, ConnectionState, SendAttempt};
 use crate::rules::org::{chat_key_of_ref, chat_ref_of};
 use crate::store::org::{workflow_dir, FileOrgStore};
 
@@ -97,7 +99,7 @@ impl Host {
 
     /// ホストのイベント処理から呼ぶ。ロックの外で、変換した入力をチャネルへ流すだけ。
     pub(in crate::host) fn org_observe_event(&self, event: &BackendEvent) {
-        let msgs = {
+        let mut msgs = {
             let mut obs = self.org_rt.observer.lock().unwrap();
             if obs.is_empty() && !matches!(event, BackendEvent::Connection { .. } | BackendEvent::Gap { .. }) {
                 return;
@@ -106,9 +108,48 @@ impl Host {
                 self.read(|d| d.requests.iter().filter(|r| &r.chat == chat && r.state == crate::backend::model::RequestState::Pending).count() as u32)
             };
             let chat_of = |a: &crate::backend::model::AgentKey| self.read(|d| d.view(a).map(|v| v.agent.chat.clone()));
-            obs.on_event(event, &open, &chat_of)
+            let mut msgs = obs.on_event(event, &open, &chat_of);
+            msgs.extend(obs.on_activity(event, now_ms().0, &chat_of));
+            msgs
         };
+        // 接続できたら（起動直後・再接続）、要照合のタスクを読取りだけで照合する。resume・送信はしない。
+        if matches!(event, BackendEvent::Connection { state: ConnectionState::Connected }) {
+            msgs.push(DriverMsg::Reconcile);
+        }
         self.org_rt.send_all(msgs);
+    }
+
+    /// 要照合のタスクの照合（読取りだけ）を司令taskに頼む。結果は `TurnEnded` と通知（`Reconciled`）で届く。
+    pub(in crate::host) fn org_request_reconcile(&self) {
+        self.org_rt.send_all(vec![DriverMsg::Reconcile]);
+    }
+
+    /// 完全終了の前置。新規ディスパッチを止める（送信権の失効＋エンジンの停止）。タスクは取消・失敗にしない。
+    /// 実行中の turn の中断はここではしない（既存の停止手順の `interrupt_chat` が行う）。ワークフローがなければ何もしない。
+    pub(in crate::host) fn org_begin_shutdown(&self) {
+        if self.org_rt.sender().is_none() {
+            return;
+        }
+        self.org_rt.grants.revoke_all();
+        self.org_rt.send_all(vec![DriverMsg::Revoke, DriverMsg::Input(OrgInput::Shutdown)]);
+    }
+
+    /// ここまでに渡した入力を司令taskが処理し終える（状態の保存を含む）のを待つ。待つのは数秒まで。保存できなかった分は
+    /// 追記済みのイベントから再起動時に復元される。
+    pub(in crate::host) async fn org_flush(&self) {
+        let Some(tx) = self.org_rt.sender() else { return };
+        let (done, wait) = tokio::sync::oneshot::channel();
+        if tx.send(DriverMsg::Sync(done)).is_err() {
+            return;
+        }
+        if tokio::time::timeout(std::time::Duration::from_secs(3), wait).await.is_err() {
+            crate::diag::log("org", "flush timed out");
+        }
+    }
+
+    /// 強制終了の確認に併記する、組織実行中のワークフロー（併記するだけ）。
+    pub(in crate::host) fn org_running_notes(&self) -> Vec<OrgRunningNote> {
+        running_notes_of(self.org_rt.view.lock().unwrap().as_ref())
     }
 
     /// 送信状態の更新（照合の結果を含む）をエンジンへ知らせる。送信はしない。
@@ -249,6 +290,8 @@ impl Host {
     /// 前回のワークフローを復元する。送信権は付けない（照合は読取りだけ。再び送るには利用者の再開が要る）。
     /// 結果が失われた役割チャットの作成は、`chat.json.org` の記録どうしの突合で結び付け直す（候補の推定はしない）。
     pub(in crate::host) fn org_restore(self: &Arc<Self>) {
+        // 起動しただけでは送信権は存在しない（前の実行の許可は引き継がない）。
+        self.org_rt.grants.revoke_all();
         let Some(root) = self.persist.store().map(|s| s.root().to_path_buf()) else { return };
         // 解放済みのチャットの印を先に反映し、未解放の組織チャットを監視の対応表へ入れる。
         let (released, owned): (Vec<ChatKey>, Vec<(ChatKey, String, String)>) = self.read(|d| {
@@ -307,6 +350,10 @@ impl Host {
         }
         // 公開（状態の写し）だけ行う。送信権は付けない。
         let _ = tx.send(DriverMsg::Input(OrgInput::Tick { now_ms: now_ms().0 }));
+        // すでに接続していれば照合（読取りだけ）。未接続なら、接続したときに `org_observe_event` が頼む。
+        if self.is_connected() {
+            let _ = tx.send(DriverMsg::Reconcile);
+        }
     }
 
     fn spawn_org_driver(self: &Arc<Self>, workflow: WorkflowId, driver: OrgDriver<Arc<Host>>) -> UnboundedSender<DriverMsg> {
@@ -322,4 +369,52 @@ fn newest_workflow_dir(root: &std::path::Path) -> Option<std::path::PathBuf> {
     let mut dirs: Vec<std::path::PathBuf> = std::fs::read_dir(root.join("org")).ok()?.filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.is_dir()).collect();
     dirs.sort();
     dirs.pop()
+}
+
+/// 組織実行中のワークフローの併記用の写し。終わっていないタスクが残るものだけ（完了・失敗・取消だけなら出さない）。
+pub fn running_notes_of(view: Option<&OrgSnapshot>) -> Vec<OrgRunningNote> {
+    let Some(v) = view else { return Vec::new() };
+    let finished = |s: &TaskStatus| matches!(s, TaskStatus::Completed | TaskStatus::Failed(_) | TaskStatus::Cancelled);
+    let live = |t: &&driver::TaskSnapshot| !finished(&t.status);
+    let active = v
+        .tasks
+        .iter()
+        .filter(live)
+        .filter(|t| matches!(t.status, TaskStatus::Running | TaskStatus::Reviewing) || t.confirm != org_engine::ConfirmState::Confirmed)
+        .count() as u32;
+    if v.tasks.iter().filter(live).count() == 0 {
+        return Vec::new();
+    }
+    vec![OrgRunningNote { workflow_id: v.workflow.0.clone(), title: v.title.clone(), active_tasks: active, total_tasks: v.tasks.len() as u32 }]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use org_engine::{ConfirmState, TaskId};
+
+    fn task(id: &str, status: TaskStatus, confirm: ConfirmState) -> driver::TaskSnapshot {
+        driver::TaskSnapshot { id: TaskId::new(id), role: "worker".into(), status, confirm, chat: None }
+    }
+
+    fn view(tasks: Vec<driver::TaskSnapshot>) -> OrgSnapshot {
+        OrgSnapshot { workflow: WorkflowId::new("wf-1"), title: Some("make it".into()), halt: None, tasks }
+    }
+
+    #[test]
+    fn the_force_kill_note_counts_unfinished_tasks_and_hides_finished_workflows() {
+        assert!(running_notes_of(None).is_empty());
+        let v = view(vec![
+            task("a", TaskStatus::Running, ConfirmState::Confirmed),
+            task("b", TaskStatus::Running, ConfirmState::NeedsReconcile(org_engine::ReconcileCause::Restart)),
+            task("c", TaskStatus::Ready, ConfirmState::Confirmed),
+            task("d", TaskStatus::Completed, ConfirmState::Confirmed),
+        ]);
+        let n = running_notes_of(Some(&v));
+        assert_eq!(n.len(), 1);
+        assert_eq!((n[0].active_tasks, n[0].total_tasks), (2, 4));
+        assert_eq!(n[0].title.as_deref(), Some("make it"));
+        let done = view(vec![task("a", TaskStatus::Completed, ConfirmState::Confirmed), task("b", TaskStatus::Cancelled, ConfirmState::Confirmed)]);
+        assert!(running_notes_of(Some(&done)).is_empty());
+    }
 }

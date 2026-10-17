@@ -1,9 +1,9 @@
 use super::*;
 use crate::backend::backend::BackendError;
-use crate::backend::model::{ChatKey, Known, SendAttempt, SendState, TurnKey, UnixMillis};
+use crate::backend::model::{ChatKey, Known, SendAttempt, SendState, TurnEnd, TurnKey, UnixMillis};
 use crate::backend::parity::SandboxCheck;
 use crate::host::org::grant::{CreatePermit, DispatchPermit, GrantRegistry};
-use crate::host::org::ports::CreateOutcome;
+use crate::host::org::ports::{CreateOutcome, ReconcileRead, WorktreeFinding};
 use crate::rules::org::DescendantReport;
 use async_trait::async_trait;
 use org_engine::{EventRead, Limits, OrgEvent, RoleChatSpec, SettleOutcome, SnapshotLoad, StoreError, UsageRow as Row, WorkflowState};
@@ -51,6 +51,9 @@ struct Fake {
     sandbox_exit: Mutex<i32>,
     sends: Mutex<usize>,
     creates: Mutex<usize>,
+    clock: Arc<std::sync::atomic::AtomicI64>,
+    reconcile: Mutex<Option<TurnEnd>>,
+    reconcile_reads: Mutex<usize>,
 }
 
 #[async_trait]
@@ -85,6 +88,10 @@ impl RuntimeRead for Fake {
     async fn sandbox_check(&self, _cwd: &str) -> Result<SandboxCheck, BackendError> {
         Ok(SandboxCheck { readiness: Known::direct("ready".to_string()), exit_code: Known::direct(*self.sandbox_exit.lock().unwrap()), stderr_head: Known::NotFetched })
     }
+    async fn read_reconcile(&self, _chat: &ChatKey, _turn: &TurnKey, _cwd: Option<&str>) -> ReconcileRead {
+        *self.reconcile_reads.lock().unwrap() += 1;
+        ReconcileRead { turn_read: true, turn_end: *self.reconcile.lock().unwrap(), worktree: WorktreeFinding::NotOwned }
+    }
     async fn descendants(&self, _chat: &ChatKey) -> DescendantReport {
         DescendantReport { working: 0, unknown: 0, scan_complete: true }
     }
@@ -117,10 +124,11 @@ struct Rig {
 
 fn rig(fail_after: Option<usize>) -> Rig {
     let log: Log = Arc::default();
-    let fake = Arc::new(Fake { reg: GrantRegistry::default(), log: log.clone(), live: Mutex::new(true), sandbox_exit: Mutex::new(0), sends: Mutex::new(0), creates: Mutex::new(0) });
+    let fake = Arc::new(Fake { reg: GrantRegistry::default(), log: log.clone(), live: Mutex::new(true), sandbox_exit: Mutex::new(0), sends: Mutex::new(0), creates: Mutex::new(0), clock: Arc::new(std::sync::atomic::AtomicI64::new(1000)), reconcile: Mutex::new(None), reconcile_reads: Mutex::new(0) });
     let sink = Arc::new(Sink::default());
     let store: DynStore = Arc::new(MemStore { log: log.clone(), events: Mutex::new(Vec::new()), fail_after });
-    let driver = OrgDriver::new(OrgCore::new(0), store, fake.clone(), sink.clone(), Box::new(|| 1000));
+    let clock = fake.clock.clone();
+    let driver = OrgDriver::new(OrgCore::new(0), store, fake.clone(), sink.clone(), Box::new(move || clock.load(std::sync::atomic::Ordering::SeqCst)));
     Rig { driver, fake, sink, log }
 }
 
@@ -219,4 +227,123 @@ async fn workspace_actions_are_reported_unsupported_not_success() {
     let action = OrgAction::Workspace(WorkspaceAction::Commit { task: TaskId::new("t"), cwd: "c".into(), message: "m".into() });
     let result = r.driver.exec(action, &mut false).await.unwrap();
     assert!(matches!(&result[0], OrgInput::WorkspaceResult { result: WorkspaceOutcome::Unsupported, .. }));
+}
+
+use std::sync::atomic::Ordering;
+
+/// 計画役のタスクが送信を受理され、実行中（確認状態は確定）になるまで進める。
+async fn running_planner(r: &mut Rig) -> (ChatRef, org_engine::TurnRef) {
+    start(r).await;
+    let task = TaskId::new("planner-1");
+    let attempt = r.driver.core().state().unwrap().task(&task).unwrap().last_attempt().unwrap().clone();
+    let turn = org_engine::TurnRef::new("turn-1");
+    r.driver.on_msg(DriverMsg::Input(OrgInput::SendSettled { task: task.clone(), attempt, outcome: SettleOutcome::Accepted { turn: turn.clone() } })).await;
+    let chat = r.driver.core().state().unwrap().task(&task).unwrap().chat().unwrap().clone();
+    (chat, turn)
+}
+
+fn planner_confirm(r: &Rig) -> org_engine::ConfirmState {
+    r.driver.core().state().unwrap().task(&TaskId::new("planner-1")).unwrap().confirm()
+}
+
+fn reconciled(r: &Rig) -> Vec<Option<TurnEnd>> {
+    r.sink.notices.lock().unwrap().iter().filter_map(|n| if let OrgHostNotice::Reconciled { turn_end, .. } = n { Some(*turn_end) } else { None }).collect()
+}
+
+#[tokio::test]
+async fn reconciliation_only_reads_and_brings_back_a_confirmed_end() {
+    let mut r = rig(None);
+    running_planner(&mut r).await;
+    assert_eq!(planner_confirm(&r), org_engine::ConfirmState::Confirmed);
+    r.driver.on_msg(DriverMsg::Input(OrgInput::Freshness { cause: org_engine::ReconcileCause::Restart })).await;
+    assert_eq!(planner_confirm(&r), org_engine::ConfirmState::NeedsReconcile(org_engine::ReconcileCause::Restart));
+
+    // the history does not show an end: it stays "needs reconcile" (not completed, not failed)
+    r.driver.on_msg(DriverMsg::Reconcile).await;
+    assert_eq!(planner_confirm(&r), org_engine::ConfirmState::NeedsReconcile(org_engine::ReconcileCause::Restart));
+    assert_eq!(reconciled(&r), vec![None]);
+
+    // an end confirmed by the history comes back; nothing is sent, created or resumed, and no grant is taken
+    *r.fake.reconcile.lock().unwrap() = Some(TurnEnd::Interrupted);
+    r.driver.on_msg(DriverMsg::Reconcile).await;
+    assert_eq!(reconciled(&r), vec![None, Some(TurnEnd::Interrupted)]);
+    let t = r.driver.core().state().unwrap().task(&TaskId::new("planner-1")).unwrap().clone();
+    assert_eq!(t.confirm(), org_engine::ConfirmState::Confirmed);
+    assert_eq!(t.status(), TaskStatus::Blocked(org_engine::BlockedReason::ManualStop));
+    assert_eq!((sends(&r), *r.fake.creates.lock().unwrap()), (1, 1));
+    assert!(r.driver.grant.is_none());
+    assert_eq!(*r.fake.reconcile_reads.lock().unwrap(), 2);
+}
+
+#[tokio::test]
+async fn a_restored_workflow_does_not_dispatch_by_itself() {
+    let mut r1 = rig(None);
+    running_planner(&mut r1).await;
+    let state = r1.driver.core().state().unwrap().clone();
+    let mut r = rig(None);
+    r.driver.core = OrgCore::restored(state, 0);
+    assert!(r.driver.grant.is_none());
+    for n in 1..=6 {
+        r.driver.on_tick(n).await;
+    }
+    r.driver.on_msg(DriverMsg::Reconcile).await;
+    r.driver.on_msg(DriverMsg::Input(OrgInput::Freshness { cause: org_engine::ReconcileCause::Restart })).await;
+    for n in 7..=10 {
+        r.driver.on_tick(n).await;
+    }
+    assert_eq!((sends(&r), *r.fake.creates.lock().unwrap()), (0, 0), "start-up and reconciliation never send or create");
+    assert!(r.driver.grant.is_none());
+}
+
+#[tokio::test]
+async fn shutdown_stops_dispatch_and_never_turns_a_task_into_cancelled_or_failed() {
+    let mut r = rig(None);
+    running_planner(&mut r).await;
+    r.driver.on_msg(DriverMsg::Revoke).await;
+    r.driver.on_msg(DriverMsg::Input(OrgInput::Shutdown)).await;
+    assert_eq!(r.driver.core().state().unwrap().halt(), Some(org_engine::HaltReason::Shutdown));
+    for n in 1..=6 {
+        r.driver.on_tick(n).await;
+    }
+    // without a new grant even the user's resume sends nothing
+    r.driver.on_msg(DriverMsg::Input(OrgInput::UserResume)).await;
+    assert_eq!(sends(&r), 1);
+    let t = r.driver.core().state().unwrap().task(&TaskId::new("planner-1")).unwrap().clone();
+    assert!(!matches!(t.status(), TaskStatus::Cancelled | TaskStatus::Failed(_)));
+    assert!(r.driver.grant.is_none());
+}
+
+#[tokio::test]
+async fn a_quiet_running_task_gets_a_stall_notice_only() {
+    let mut r = rig(None);
+    running_planner(&mut r).await;
+    r.driver.set_stall_threshold_ms(10 * 60_000);
+    let (chat, _) = running_planner_chat(&r);
+    let mut n = 0;
+    let mut t = 1000;
+    while t <= 1000 + 12 * 60_000 {
+        r.fake.clock.store(t, Ordering::SeqCst);
+        n += 1;
+        r.driver.on_tick(n).await;
+        t += 60_000;
+    }
+    let stalls = |r: &Rig| r.sink.notices.lock().unwrap().iter().filter(|x| matches!(x, OrgHostNotice::Stalled { .. })).count();
+    assert_eq!(stalls(&r), 1);
+    // notification only: not interrupted, nothing resent, the task is still running and confirmed
+    assert_eq!(sends(&r), 1);
+    assert_eq!(planner_confirm(&r), org_engine::ConfirmState::Confirmed);
+    assert_eq!(r.driver.core().state().unwrap().task(&TaskId::new("planner-1")).unwrap().status(), TaskStatus::Running);
+    // output restarts the count
+    r.driver.on_msg(DriverMsg::Activity { chat, at_ms: t }).await;
+    for _ in 0..5 {
+        r.fake.clock.store(t, Ordering::SeqCst);
+        n += 1;
+        r.driver.on_tick(n).await;
+        t += 60_000;
+    }
+    assert_eq!(stalls(&r), 1);
+}
+
+fn running_planner_chat(r: &Rig) -> (ChatRef, ()) {
+    (r.driver.core().state().unwrap().task(&TaskId::new("planner-1")).unwrap().chat().unwrap().clone(), ())
 }

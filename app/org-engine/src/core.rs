@@ -135,6 +135,8 @@ pub enum OrgInput {
     Live { chat: ChatRef, live: bool },
     UserResume,
     UserPause,
+    /// The app is quitting: stop dispatching (a halt; nothing is cancelled or failed). Cleared only by the user's resume.
+    Shutdown,
     UserCancelTask { task: TaskId },
     UserManual { task: TaskId },
     UserAcceptManual { task: TaskId },
@@ -442,6 +444,13 @@ impl OrgCore {
             }
             OrgInput::Start { workflow, request, repo, limits } => self.start(workflow, request, repo, limits),
             OrgInput::UserPause => self.halt_if_none(HaltReason::User),
+            OrgInput::Shutdown => {
+                // Nothing to stop once every task is finished.
+                let finished = self.s().tasks().iter().all(|t| matches!(t.status(), TaskStatus::Completed | TaskStatus::Failed(_) | TaskStatus::Cancelled));
+                if !finished {
+                    self.halt_if_none(HaltReason::Shutdown);
+                }
+            }
             OrgInput::UserResume => self.user_resume(),
             OrgInput::UserApprovePlan => {
                 if self.s().halt() == Some(HaltReason::AwaitingPlanApproval) {

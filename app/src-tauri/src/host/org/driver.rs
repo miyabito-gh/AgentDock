@@ -21,6 +21,7 @@ use tokio::sync::mpsc::UnboundedReceiver;
 
 use super::grant::OrgGrant;
 use super::ports::{AgentRuntime, OrgHostNotice, OrgSendResult, OrgSendSpec, RuntimeRead, Workspace};
+use super::stall::{StallWatch, DEFAULT_STALL_MS};
 use crate::rules::org::{chat_key_of_ref, judge_sandbox, turn_key_of_ref, SandboxVerdict, SANDBOX_UNHEALTHY_NOTICE};
 
 /// 使用量の標本（`thread/tokenUsage/updated`）。turn の終端で1行にまとめて記録する。取れない値は None。
@@ -41,6 +42,12 @@ pub enum DriverMsg {
     Install(OrgGrant),
     /// 送信権を手放す（一時停止・取消・完全終了の開始・wake・再起動）。
     Revoke,
+    /// そのチャットに新しい出力（活動）があった（停滞の判断だけに使う。送信・状態の変更はしない）。
+    Activity { chat: ChatRef, at_ms: i64 },
+    /// 再起動・wake・再接続後の照合（読取りだけ）。終端を履歴で確認できた `running` のタスクの終端をエンジンへ知らせる。
+    Reconcile,
+    /// ここまでのメッセージを処理し終えたら知らせる（完全終了の前に状態の保存を待つため）。
+    Sync(tokio::sync::oneshot::Sender<()>),
     Shutdown,
 }
 
@@ -48,8 +55,16 @@ pub enum DriverMsg {
 #[derive(Debug, Clone, PartialEq)]
 pub struct OrgSnapshot {
     pub workflow: WorkflowId,
+    /// 依頼の先頭（一覧・確認画面の名前。依頼が空なら空文字ではなく None）。
+    pub title: Option<String>,
     pub halt: Option<org_engine::HaltReason>,
     pub tasks: Vec<TaskSnapshot>,
+}
+
+/// 依頼文の先頭1行を名前にする（長いものは切る）。
+fn title_of(request: &str) -> Option<String> {
+    let line = request.lines().map(str::trim).find(|l| !l.is_empty())?;
+    Some(line.chars().take(60).collect())
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -65,6 +80,7 @@ pub struct TaskSnapshot {
 pub fn snapshot_of(state: &org_engine::WorkflowState) -> OrgSnapshot {
     OrgSnapshot {
         workflow: state.workflow_id().clone(),
+        title: title_of(state.request()),
         halt: state.halt(),
         tasks: state
             .tasks()
@@ -92,12 +108,19 @@ pub struct OrgDriver<P: AgentRuntime + RuntimeRead + Workspace> {
     persist_failed: bool,
     latest_usage: HashMap<ChatRef, UsageSample>,
     last_desc: HashMap<ChatRef, (u32, u32, bool)>,
+    /// 停滞の検出（通知だけ。自動で中断しない）。
+    stall: StallWatch,
     now: Box<dyn Fn() -> i64 + Send>,
 }
 
 impl<P: AgentRuntime + RuntimeRead + Workspace + 'static> OrgDriver<P> {
     pub fn new(core: OrgCore, store: DynStore, ports: Arc<P>, sink: Arc<dyn OrgSink>, now: Box<dyn Fn() -> i64 + Send>) -> Self {
-        Self { core, store, ports, sink, grant: None, persist_failed: false, latest_usage: HashMap::new(), last_desc: HashMap::new(), now }
+        Self { core, store, ports, sink, grant: None, persist_failed: false, latest_usage: HashMap::new(), last_desc: HashMap::new(), stall: StallWatch::new(DEFAULT_STALL_MS), now }
+    }
+
+    /// 停滞とみなす時間（既定30分）。設定の画面は P-ORG-7。
+    pub fn set_stall_threshold_ms(&mut self, ms: i64) {
+        self.stall.set_threshold_ms(ms);
     }
 
     pub fn core(&self) -> &OrgCore {
@@ -133,16 +156,57 @@ impl<P: AgentRuntime + RuntimeRead + Workspace + 'static> OrgDriver<P> {
                 self.step(OrgInput::Grant { granted: true }).await;
             }
             DriverMsg::Revoke => self.drop_grant_then(None).await,
+            DriverMsg::Activity { chat, at_ms } => self.stall.note_activity(&chat, at_ms),
+            DriverMsg::Reconcile => self.reconcile_read_only().await,
+            DriverMsg::Sync(done) => {
+                let _ = done.send(());
+            }
             DriverMsg::Shutdown => {}
         }
     }
 
-    /// 1秒ごと: 時刻を進め、完了判定の待ちにある task の子孫の様子を読み直して知らせる（読取りのみ）。
+    /// 1秒ごと: 時刻を進め、完了判定の待ちにある task の子孫の様子を読み直して知らせる（読取りのみ）。停滞も見る（通知だけ）。
     pub async fn on_tick(&mut self, n: u64) {
         let now = (self.now)();
         self.step(OrgInput::Tick { now_ms: now }).await;
         if n % 2 == 0 {
             self.refresh_descendants().await;
+        }
+        self.check_stalls(now);
+    }
+
+    /// 確定していて `running` のままのタスクに、設定時間の間、新しい出力がなければ通知する。中断・再送・resume はしない。
+    fn check_stalls(&mut self, now: i64) {
+        let Some(state) = self.core.state() else { return };
+        let running: Vec<(TaskId, Option<ChatRef>)> = state
+            .tasks()
+            .iter()
+            .filter(|t| t.status() == TaskStatus::Running && t.confirm() == ConfirmState::Confirmed)
+            .map(|t| (t.id.clone(), t.chat().cloned()))
+            .collect();
+        for s in self.stall.check(now, &running) {
+            self.notice(OrgHostNotice::Stalled { task: s.task, quiet_minutes: (s.quiet_ms / 60_000) as u32 });
+        }
+    }
+
+    /// 再起動・wake・再接続後の照合。読取りだけ（履歴の読込みと `git status`）で、resume・送信・中断をしない。
+    /// 終端を履歴で確認できたタスクだけ `TurnEnded` を知らせる（その後の完了判定は通常どおり：成果物の検証・子孫の確認・書込みは再開後）。
+    /// 確認できない（進行中・不明・読取り失敗）ものは要照合のまま残し、結果を通知に控える。
+    async fn reconcile_read_only(&mut self) {
+        let Some(state) = self.core.state() else { return };
+        let targets: Vec<(TaskId, ChatRef, org_engine::TurnRef, Option<String>)> = state
+            .tasks()
+            .iter()
+            .filter(|t| t.status() == TaskStatus::Running && matches!(t.confirm(), ConfirmState::NeedsReconcile(_)))
+            .filter_map(|t| Some((t.id.clone(), t.chat()?.clone(), t.accepted_turn()?.clone(), t.chat_cwd().map(str::to_string))))
+            .collect();
+        for (task, chat, turn, cwd) in targets {
+            let Some(key) = chat_key_of_ref(&chat) else { continue };
+            let read = self.ports.read_reconcile(&key, &turn_key_of_ref(&key, &turn), cwd.as_deref()).await;
+            self.notice(OrgHostNotice::Reconciled { task, turn_read: read.turn_read, turn_end: read.turn_end, worktree: read.worktree });
+            if let Some(end) = read.turn_end {
+                self.step(OrgInput::TurnEnded { chat, turn, end: crate::rules::org::turn_end_kind_of(end) }).await;
+            }
         }
     }
 
@@ -185,6 +249,9 @@ impl<P: AgentRuntime + RuntimeRead + Workspace + 'static> OrgDriver<P> {
             self.last_desc.clear();
             self.drop_grant_then(Some(input)).await;
             return;
+        }
+        if let OrgInput::RequestPending { chat, open } = &input {
+            self.stall.note_requests(chat, *open);
         }
         self.run_queue(VecDeque::from([input])).await;
     }
