@@ -94,3 +94,13 @@ Get-ChildItem probes/app-server/runs/org-probe-*.json | Sort-Object LastWriteTim
 ```
 
 そのファイルの中身（またはパス）を司令塔へ渡す。
+
+## 診断: node_repl MCPを起動しない場合
+
+node_repl MCPを起動しないとsandboxが動くか（`node_repl.exe` のACL更新で os error 32 になる疑いの切り分け）を見る。`~/.codex/config.toml` は変更せず、起動引数 `-c` だけで上書きする。結果JSONの `launchOverrides` に記録される。
+
+```powershell
+node probes/app-server/org-probe.mjs 2b --c mcp_servers.node_repl.enabled=false
+```
+
+効かない場合の代替: 環境変数で渡す（`$env:ORGPROBE_CODEX_ARGS='mcp_servers.node_repl.enabled=false'`）。それでもMCPが起動する場合は `mcpServer/startupStatus/updated` の通知を確認し、`--c features.<name>=false` 等を別途検討する。

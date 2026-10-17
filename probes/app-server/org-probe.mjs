@@ -11,8 +11,16 @@ import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 
 const root = dirname(fileURLToPath(import.meta.url));
-const which = process.argv[2] ?? 'all';
-const exe = process.argv[3] || process.env.CODEX_EXE ||
+// Launch overrides: --c key=value (repeatable) and/or env ORGPROBE_CODEX_ARGS (space-separated key=value). Startup args only; config.toml is never written.
+const rawArgs = process.argv.slice(2); const positional = []; const launchOverrides = [];
+for (let i = 0; i < rawArgs.length; i++) {
+  if (rawArgs[i] === '--c' && i + 1 < rawArgs.length) launchOverrides.push(rawArgs[++i]);
+  else if (rawArgs[i].startsWith('--c=')) launchOverrides.push(rawArgs[i].slice(4));
+  else positional.push(rawArgs[i]);
+}
+for (const kv of (process.env.ORGPROBE_CODEX_ARGS ?? '').split(/s+/)) if (kv) launchOverrides.push(kv);
+const which = positional[0] ?? 'all';
+const exe = positional[1] || process.env.CODEX_EXE ||
   'C:\\Users\\wmasa\\AppData\\Local\\Programs\\OpenAI\\Codex\\bin\\codex.exe';
 if (!['1', '2', '2b', '3', '4', 'all'].includes(which)) throw new Error('Usage: node org-probe.mjs 1|2|2b|3|4|all [codex.exe] (2b is individual-only)');
 const version = execFileSync(exe, ['--version'], { encoding: 'utf8' }).trim();
@@ -31,7 +39,7 @@ const env = { ...process.env };
 for (const key of Object.keys(env)) if (/^(OPENAI_API_KEY|CODEX_API_KEY|CODEX_ACCESS_TOKEN)$/i.test(key)) delete env[key];
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-const proc = spawn(exe, ['app-server', '--stdio'], { env, cwd: work, windowsHide: true });
+const proc = spawn(exe, ['app-server', ...launchOverrides.flatMap(kv => ['-c', kv]), '--stdio'], { env, cwd: work, windowsHide: true });
 let stderr = ''; let next = 1; let aborted = null;
 const pending = new Map(); const events = []; const serverRequests = [];
 proc.stderr.on('data', b => { stderr = (stderr + b.toString()).slice(-4000); });
@@ -244,7 +252,7 @@ try {
   const killer = setTimeout(() => proc.kill(), 3000);
   await new Promise(r => proc.on('exit', r)); clearTimeout(killer);
   const after = fingerprint();
-  const out = { version, selected: which, startedAt: new Date(t0).toISOString(), durationMs: Date.now() - t0,
+  const out = { launchOverrides, version, selected: which, startedAt: new Date(t0).toISOString(), durationMs: Date.now() - t0,
     aborted, results, serverRequests,
     configUnchanged: before['config.toml']?.sha256 === after['config.toml']?.sha256,
     authUnchanged: before['auth.json']?.sha256 === after['auth.json']?.sha256,
