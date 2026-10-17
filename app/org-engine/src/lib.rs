@@ -1,14 +1,21 @@
 //! Pure organization-run logic. No I/O, no async, no Tauri/Codex types.
-//! Design: app/DESIGN_ORG.md (sections 4.1 to 4.9).
+//! Design: app/DESIGN_ORG.md (sections 4.1 to 4.9), app/DESIGN_ORG_P4.md (section 2).
 
+pub mod core;
 pub mod dag;
 pub mod limits;
 pub mod persist;
 pub mod policy;
+pub mod prompt;
 pub mod scheduler;
+pub mod schemas;
 pub mod state;
 pub mod types;
 
+pub use core::{
+    standard_roles, CreateResult, NoticeUrgency, OrgAction, OrgCore, OrgInput, OrgNotice, RoleChatSpec, SandboxKind, WorkspaceAction,
+    WorkspaceOutcome, WorktreeBase,
+};
 pub use dag::{isolated_tasks, validate_plan, PlanError};
 pub use limits::{Counters, LimitError, TurnKind};
 pub use policy::{evaluate_plan, ConfirmReason, Decision, PlanKind, PolicyInput};

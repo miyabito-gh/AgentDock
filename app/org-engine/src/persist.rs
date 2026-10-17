@@ -21,20 +21,33 @@ pub enum HaltReason {
     /// Shutdown sequence started (scheduler stopped).
     Shutdown,
     User,
+    /// A chat that must be sent to is not live (disconnect, wake, App Server restart).
+    /// Nothing is resumed automatically; the user's "resume workflow" action does it.
+    NeedsResume,
+    /// The sandbox health check failed. Cleared by the user's "resume" (re-checks first).
+    SandboxUnhealthy,
+    /// A plan is waiting for the user's approval. Cleared only by approving the plan.
+    AwaitingPlanApproval,
 }
 
-/// Snapshot of one workflow (`workflow.json`).
+/// Snapshot of one workflow (`workflow.json`). Fields are read-only outside the
+/// crate; the only way to change a state is `record`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkflowState {
-    pub schema_version: u32,
-    pub workflow_id: WorkflowId,
-    pub limits: Limits,
-    pub counters: Counters,
-    pub tasks: Vec<Task>,
-    pub halt: Option<HaltReason>,
+    pub(crate) schema_version: u32,
+    pub(crate) workflow_id: WorkflowId,
+    pub(crate) limits: Limits,
+    pub(crate) counters: Counters,
+    pub(crate) tasks: Vec<Task>,
+    pub(crate) halt: Option<HaltReason>,
     /// Sequence number of the last event reflected in this state.
-    pub last_seq: u64,
+    pub(crate) last_seq: u64,
+    /// The user's request and the repository (set once by `Requested`).
+    #[serde(default)]
+    pub(crate) request: String,
+    #[serde(default)]
+    pub(crate) repo: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -55,7 +68,37 @@ impl WorkflowState {
             tasks: Vec::new(),
             halt: None,
             last_seq: 0,
+            request: String::new(),
+            repo: String::new(),
         }
+    }
+
+    pub fn schema_version(&self) -> u32 {
+        self.schema_version
+    }
+    pub fn workflow_id(&self) -> &WorkflowId {
+        &self.workflow_id
+    }
+    pub fn limits(&self) -> &Limits {
+        &self.limits
+    }
+    pub fn counters(&self) -> &Counters {
+        &self.counters
+    }
+    pub fn tasks(&self) -> &[Task] {
+        &self.tasks
+    }
+    pub fn halt(&self) -> Option<HaltReason> {
+        self.halt
+    }
+    pub fn last_seq(&self) -> u64 {
+        self.last_seq
+    }
+    pub fn request(&self) -> &str {
+        &self.request
+    }
+    pub fn repo(&self) -> &str {
+        &self.repo
     }
 
     /// Structural check for a deserialized snapshot. Always run it before use:
@@ -86,6 +129,10 @@ impl WorkflowState {
     pub fn task(&self, id: &TaskId) -> Option<&Task> {
         self.tasks.iter().find(|t| &t.id == id)
     }
+
+    fn task_mut(&mut self, id: &TaskId) -> Result<&mut Task, ApplyError> {
+        self.tasks.iter_mut().find(|t| &t.id == id).ok_or_else(|| ApplyError::UnknownTask(id.clone()))
+    }
 }
 
 /// One line of `events.jsonl`.
@@ -111,6 +158,20 @@ pub enum OrgEventKind {
     AutoReplanSpent,
     LimitsChanged { limits: Limits },
     Halted { reason: Option<HaltReason> },
+    /// The user's request and repository (once, right after `Created`).
+    Requested { request: String, repo: String },
+    /// Creating the role chat starts. Recorded before the attempt so an unknown
+    /// outcome still leaves a trace.
+    ChatRequested { task: TaskId, cwd: String },
+    /// The chat was created and its ownership record saved.
+    ChatBound { task: TaskId, chat: ChatRef },
+    /// Recorded before sending (`TurnSpent` goes with it).
+    Dispatched { task: TaskId, attempt: AttemptRef, client_message_id: String, kind: TurnKind },
+    DispatchSettled { task: TaskId, attempt: AttemptRef, outcome: SettleOutcome },
+    /// A turn end observed live. State changes only when it is the accepted turn.
+    TurnObserved { task: TaskId, turn: TurnRef, end: TurnEndKind },
+    /// A worker task's commit.
+    Committed { task: TaskId, commit: String },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -122,6 +183,15 @@ pub enum ApplyError {
     Limit(LimitError),
     /// `Created` on an already created workflow.
     AlreadyCreated,
+    AlreadyRequested,
+    /// One task, one chat: a second request or a re-binding is refused.
+    ChatConflict(TaskId),
+    ChatNotRequested(TaskId),
+    ChatNotBound(TaskId),
+    /// A new dispatch while the previous attempt is unsettled or unknown.
+    AttemptOpen(TaskId),
+    UnknownAttempt(TaskId),
+    DuplicateSettle(TaskId),
 }
 
 impl fmt::Display for ApplyError {
@@ -134,7 +204,7 @@ impl WorkflowState {
     /// Apply an event through the same checked paths the live engine uses
     /// (transitions, counters), so a replay cannot create a state that the
     /// state machine forbids. On error the state is unchanged.
-    pub fn apply(&mut self, ev: &OrgEvent) -> Result<(), ApplyError> {
+    pub(crate) fn apply(&mut self, ev: &OrgEvent) -> Result<(), ApplyError> {
         match &ev.kind {
             OrgEventKind::Created { .. } => return Err(ApplyError::AlreadyCreated),
             OrgEventKind::TaskAdded { task } => {
@@ -165,6 +235,70 @@ impl WorkflowState {
             }
             OrgEventKind::LimitsChanged { limits } => self.limits = limits.clone(),
             OrgEventKind::Halted { reason } => self.halt = *reason,
+            OrgEventKind::Requested { request, repo } => {
+                if !self.request.is_empty() || !self.repo.is_empty() {
+                    return Err(ApplyError::AlreadyRequested);
+                }
+                self.request = request.clone();
+                self.repo = repo.clone();
+            }
+            OrgEventKind::ChatRequested { task, cwd } => {
+                let t = self.task_mut(task)?;
+                if t.chat.is_some() || t.chat_cwd.is_some() {
+                    return Err(ApplyError::ChatConflict(task.clone()));
+                }
+                t.chat_cwd = Some(cwd.clone());
+            }
+            OrgEventKind::ChatBound { task, chat } => {
+                let t = self.task_mut(task)?;
+                if t.chat.is_some() {
+                    return Err(ApplyError::ChatConflict(task.clone()));
+                }
+                if t.chat_cwd.is_none() {
+                    return Err(ApplyError::ChatNotRequested(task.clone()));
+                }
+                t.chat = Some(chat.clone());
+            }
+            OrgEventKind::Dispatched { task, attempt, kind, .. } => {
+                let t = self.task_mut(task)?;
+                if t.chat.is_none() {
+                    return Err(ApplyError::ChatNotBound(task.clone()));
+                }
+                if t.last_attempt.is_some() && matches!(t.last_settle, None | Some(SettleOutcome::Unknown)) {
+                    return Err(ApplyError::AttemptOpen(task.clone()));
+                }
+                t.last_attempt = Some(attempt.clone());
+                t.last_settle = None;
+                t.format_fix_used = *kind == TurnKind::FormatFix;
+            }
+            OrgEventKind::DispatchSettled { task, attempt, outcome } => {
+                let t = self.task_mut(task)?;
+                if t.last_attempt.as_ref() != Some(attempt) {
+                    return Err(ApplyError::UnknownAttempt(task.clone()));
+                }
+                match (&t.last_settle, outcome) {
+                    (None, _) => {}
+                    (Some(SettleOutcome::Unknown), SettleOutcome::Unknown) => return Err(ApplyError::DuplicateSettle(task.clone())),
+                    (Some(SettleOutcome::Unknown), _) => {}
+                    _ => return Err(ApplyError::DuplicateSettle(task.clone())),
+                }
+                if let SettleOutcome::Accepted { turn } | SettleOutcome::ReconciledAccepted { turn } = outcome {
+                    t.accepted_turn = Some(turn.clone());
+                    t.observed = None;
+                }
+                t.last_settle = Some(outcome.clone());
+            }
+            OrgEventKind::TurnObserved { task, turn, end } => {
+                let t = self.task_mut(task)?;
+                // A late turn that is not the accepted one is recorded (the event stays in the
+                // log) but changes nothing.
+                if t.accepted_turn.as_ref() == Some(turn) {
+                    t.observed = Some(TurnObservation { turn: turn.clone(), end: *end });
+                }
+            }
+            OrgEventKind::Committed { task, commit } => {
+                self.task_mut(task)?.commit = Some(commit.clone());
+            }
         }
         self.last_seq = ev.seq;
         Ok(())
@@ -460,7 +594,7 @@ mod tests {
     }
 
     fn pt(id: &str, deps: &[&str]) -> PlanTask {
-        PlanTask { id: TaskId::new(id), role: RoleId::new("worker"), deps: deps.iter().map(|d| TaskId::new(*d)).collect(), effects: vec![] }
+        PlanTask { id: TaskId::new(id), role: RoleId::new("worker"), deps: deps.iter().map(|d| TaskId::new(*d)).collect(), effects: vec![], title: String::new(), instructions: String::new() }
     }
 
     /// Writes a small history: t1 completed, t2 running, t3 pending. Returns the live state.
@@ -515,7 +649,7 @@ mod tests {
         let mut live = history(&store);
         // snapshot taken early (seq 3), later events still in the log
         let (mut early, _) = restore(&store).unwrap();
-        early.tasks.truncate(0);
+        early.tasks.clear();
         let mut snap = WorkflowState::new(WorkflowId::new("w"), Limits::default());
         for ev in store.read_events().unwrap().events.iter().take(4) {
             if snap.last_seq == 0 && matches!(ev.kind, OrgEventKind::Created { .. }) {

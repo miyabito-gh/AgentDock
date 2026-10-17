@@ -2,7 +2,7 @@
 //! Sending is never done here. Tasks whose confirmation state is not
 //! `Confirmed` are never touched, and nothing depending on them advances.
 use crate::types::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Outside conditions that hold dispatching (rate limit pause, user pause...).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -19,14 +19,16 @@ impl DispatchGate {
     }
 }
 
-fn dep_satisfied(by_id: &HashMap<&TaskId, &Task>, dep: &TaskId) -> bool {
-    by_id
-        .get(dep)
-        .is_some_and(|d| d.status == TaskStatus::Completed && d.confirm == ConfirmState::Confirmed)
+/// Decides whether `dep` satisfies the dependency of `dependent`.
+pub type DepOk<'a> = &'a dyn Fn(&Task, &Task) -> bool;
+
+/// Default rule: the dependency is completed and confirmed.
+pub fn default_dep_ok(dep: &Task, _dependent: &Task) -> bool {
+    dep.status == TaskStatus::Completed && dep.confirm == ConfirmState::Confirmed
 }
 
-fn deps_satisfied(by_id: &HashMap<&TaskId, &Task>, t: &Task) -> bool {
-    t.deps.iter().all(|d| dep_satisfied(by_id, d))
+fn deps_satisfied(by_id: &HashMap<&TaskId, &Task>, t: &Task, ok: DepOk<'_>) -> bool {
+    t.deps.iter().all(|d| by_id.get(d).is_some_and(|dep| ok(dep, t)))
 }
 
 /// A task holds a slot while it runs, or while its state is uncertain (it may
@@ -42,11 +44,16 @@ fn occupies(t: &Task) -> bool {
 /// `pending` tasks whose dependencies are all completed (and confirmed).
 /// The caller applies the pending -> ready transition.
 pub fn promote_ready(tasks: &[Task]) -> Vec<TaskId> {
+    promote_ready_with(tasks, &default_dep_ok)
+}
+
+/// Like `promote_ready` with a caller-supplied dependency rule.
+pub fn promote_ready_with(tasks: &[Task], dep_ok: DepOk<'_>) -> Vec<TaskId> {
     let by_id: HashMap<&TaskId, &Task> = tasks.iter().map(|t| (&t.id, t)).collect();
     tasks
         .iter()
         .filter(|t| t.status == TaskStatus::Pending && t.confirm == ConfirmState::Confirmed)
-        .filter(|t| deps_satisfied(&by_id, t))
+        .filter(|t| deps_satisfied(&by_id, t, dep_ok))
         .map(|t| t.id.clone())
         .collect()
 }
@@ -54,6 +61,19 @@ pub fn promote_ready(tasks: &[Task]) -> Vec<TaskId> {
 /// `ready` tasks that may be sent now, in input order, within the total,
 /// writer and per-role limits and the turn budget.
 pub fn next_dispatch(tasks: &[Task], roles: &[Role], limits: &Limits, gate: &DispatchGate) -> Vec<TaskId> {
+    next_dispatch_with(tasks, roles, limits, gate, &default_dep_ok, &HashSet::new())
+}
+
+/// Like `next_dispatch` with a dependency rule, and `held` tasks: they count toward the
+/// limits as if running (e.g. their chat is being created) and are never returned.
+pub fn next_dispatch_with(
+    tasks: &[Task],
+    roles: &[Role],
+    limits: &Limits,
+    gate: &DispatchGate,
+    dep_ok: DepOk<'_>,
+    held: &HashSet<TaskId>,
+) -> Vec<TaskId> {
     if gate.paused || gate.turns_remaining == 0 {
         return vec![];
     }
@@ -63,7 +83,7 @@ pub fn next_dispatch(tasks: &[Task], roles: &[Role], limits: &Limits, gate: &Dis
     let mut total = 0u32;
     let mut writers = 0u32;
     let mut per_role: HashMap<&RoleId, u32> = HashMap::new();
-    for t in tasks.iter().filter(|t| occupies(t)) {
+    for t in tasks.iter().filter(|t| occupies(t) || held.contains(&t.id)) {
         total += 1;
         *per_role.entry(&t.role).or_default() += 1;
         if role_of(&t.role).is_some_and(|r| r.writes) {
@@ -76,7 +96,7 @@ pub fn next_dispatch(tasks: &[Task], roles: &[Role], limits: &Limits, gate: &Dis
         if out.len() as u32 >= gate.turns_remaining || total >= limits.max_total {
             break;
         }
-        if t.status != TaskStatus::Ready || t.confirm != ConfirmState::Confirmed || !deps_satisfied(&by_id, t) {
+        if held.contains(&t.id) || t.status != TaskStatus::Ready || t.confirm != ConfirmState::Confirmed || !deps_satisfied(&by_id, t, dep_ok) {
             continue;
         }
         let Some(role) = role_of(&t.role) else { continue };
@@ -109,6 +129,8 @@ mod tests {
             role: RoleId::new(role),
             deps: deps.iter().map(|d| TaskId::new(*d)).collect(),
             effects: vec![],
+            title: String::new(),
+            instructions: String::new(),
         });
         t.status = status;
         t

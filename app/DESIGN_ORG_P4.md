@@ -25,7 +25,7 @@
 |D3|§5.2 のタスク表に**オーケストレーション本体**（Planner→計画検証→承認→Worker→コミット→Reviewer→判定、指示文の組立て、出力スキーマ、成果物検証）を担当するタスクが無い|P-ORG-4a に入れる（純ロジックなのでテストできる）|
 |D4|`Workspace` ポート（worktree作成・コミット・差分）の**ホスト実装の担当**が無い（P-ORG-4はAgentRuntime/RuntimeEventsだけ、P-ORG-5はgitops関数だけ）|P-ORG-5 に「`Workspace` ポートのホスト実装」を追加する。4b の `OrgDriver` は `OrgAction::Workspace*` を受けたら P-ORG-5 完了まで `Unsupported` を返して `blocked{要対応}` にする|
 |D5|events.jsonl にタスクとチャットの結び付き・送信の識別（`client_message_id`）が無い。再起動後に「どのチャットのどの送信を照合するか」を復元できない|`OrgEventKind` に `ChatRequested`・`ChatBound`・`Dispatched`・`DispatchSettled`・`TurnObserved` を追加（§2.2）。`SCHEMA_VERSION` は 1 のまま（未リリース・保存データなし）|
-|D6|§1.3「resumeは送信直前の `ensure_live` に限る」。しかし `ensure_live` は `&UserConfirmed` を要し、エンジンの自動送信から resume すると既存合意「wake後の自動resumeなし」「キューの自動送信は親live必須」と食い違う|**組織の自動送信は live 必須**（キューと同じ）。live でなければ送らず、ワークフローを `halt=NeedsResume` で止める。resume は利用者の「ワークフローを再開」（P-ORG-7のIPC、`UserConfirmed`あり）の中で、送信対象のチャットにだけ `ensure_live` を行う。新しい役割チャットは `thread/start` 直後なので live。→ **要判断 U1**（推奨はこの案。設計書の文言より厳しい側）|
+|D6|§1.3「resumeは送信直前の `ensure_live` に限る」。しかし `ensure_live` は `&UserConfirmed` を要し、エンジンの自動送信から resume すると既存合意「wake後の自動resumeなし」「キューの自動送信は親live必須」と食い違う|**組織の自動送信は live 必須**（キューと同じ）。live でなければ送らず、ワークフローを `halt=NeedsResume` で止める。resume は利用者の「ワークフローを再開」（P-ORG-7のIPC、`UserConfirmed`あり）の中で、送信対象のチャットにだけ `ensure_live` を行う。新しい役割チャットは `thread/start` 直後なので live。→ **U1 確定（2026-10-17、ユーザー）**。設計書 §1.3 の「送信直前に resume」より厳しい側に倒す|
 |D7|§1.2 `AgentRuntime` に「利用者操作による停止」が入っている|エンジンのポートから外す。利用者の中断は既存 `Host::interrupt_chat`（`UserConfirmed`）で行い、ホストが `OrgInput::InterruptRequested` をエンジンへ知らせるだけ|
 |D8|`UserConfirmed::from_user_command()` は `pub(crate)` で、IPC以外（`host/mod.rs:729` の名前付け、`host/changes.rs:1640`）でも作られている。型だけでは「利用者操作」を保証できていない|`OrgGrant` は `UserConfirmed` を**値で消費**して作る（参照では作れない）。加えて受入条件で `host/org/` 配下に `from_user_command` が現れないことを grep で確認する（§3.7）|
 |D9|`check_sendable`（`host/mod.rs:853`）は利用者の送信と組織の送信の両方が使う前提になる|`check_sendable_core`（現在の中身）と `check_not_org_owned` に分割。利用者経路は両方、`org_send` は core だけ（§3.4）|
@@ -420,9 +420,10 @@ pub org: Option<OrgBinding>,
 
 ## 10. 要判断（ユーザー）
 
-**U1. 組織実行中に会話の live 購読が切れたとき（切断・wake・App Server 再起動）の続け方**（D6）
+**U1（確定 2026-10-17、ユーザー）. 組織実行中に会話の live 購読が切れたとき（切断・wake・App Server 再起動）**（D6）
 
-1. **（推奨）自動では resume せず止める**。ワークフローを「再開待ち」にし、利用者が「ワークフローを再開」を押したときだけ、その操作の中で必要なチャットを resume して続ける。既存のキュー（親 live 必須）・wake の合意と同じ。
-2. 送信直前に自動で resume して続ける（DESIGN_ORG §1.3 の文言どおり）。利用者の操作は要らないが、「wake後の自動resumeなし」の合意の例外になる。
+- 自動では resume せず止める。ワークフローを「再開待ち」（`HaltReason::NeedsResume`）にし、利用者が「ワークフローを再開」を押したときだけ、その操作の中で必要なチャットを resume して続ける。既存のキュー（親 live 必須）・wake の合意と同じ。組織の自動送信は live 必須。
+- 「送信直前に自動で resume」（DESIGN_ORG §1.3 の旧文言）は採らない。
+- 4a の実装: エンジンは `OrgInput::Live { chat, live }` を覚え、live でないチャットには `Send` を出さずに `Halted{NeedsResume}` にする。`Freshness` 受信で live の記憶を全て消す。再開時は、ホストが先に必要なチャットを resume して `Live { live: true }` を渡し、そのあと `UserResume` を渡す。
 
 ほかに新しいユーザー判断はなし（D10・D18・設定名・表示文言は設計裁量で決定済み）。

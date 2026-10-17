@@ -62,7 +62,8 @@ impl Task {
 
     /// Count one automatic send-back. At the limit the caller sets
     /// `failed{LimitReached}` and hands over to the user.
-    pub fn try_rework(&mut self, limits: &Limits) -> Result<(), LimitError> {
+    #[cfg(test)]
+    pub(crate) fn try_rework(&mut self, limits: &Limits) -> Result<(), LimitError> {
         if self.rework_limit_reached(limits) {
             return Err(LimitError::ReworkLimit { used: self.rework_count, max: limits.max_rework });
         }
@@ -108,6 +109,8 @@ mod tests {
             role: RoleId::new("worker"),
             deps: vec![],
             effects: vec![],
+            title: String::new(),
+            instructions: String::new(),
         });
         assert_eq!(t.attempts(), 1);
         t.try_rework(&limits).unwrap();

@@ -15,7 +15,7 @@ pub enum PlanKind {
     },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ConfirmReason {
     /// A task declares this effect.
     DeclaredEffect { task: TaskId, effect: Effect },
@@ -98,6 +98,8 @@ mod tests {
             role: RoleId::new(role),
             deps: deps.iter().map(|d| TaskId::new(*d)).collect(),
             effects: effects.to_vec(),
+            title: String::new(),
+            instructions: String::new(),
         }
     }
     fn eval(tasks: &[PlanTask], kind: PlanKind, par: Option<u32>, turns: u32) -> Decision {

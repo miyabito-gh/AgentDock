@@ -100,7 +100,7 @@ pub enum ConfirmError {
 }
 
 impl Task {
-    pub fn transition(&mut self, to: TaskStatus, cause: Cause) -> Result<(), TransitionError> {
+    pub(crate) fn transition(&mut self, to: TaskStatus, cause: Cause) -> Result<(), TransitionError> {
         if !is_allowed(&self.status, &to) {
             return Err(TransitionError::Forbidden { from: self.status, to });
         }
@@ -117,7 +117,7 @@ impl Task {
 
     /// Change the confirmation axis. Any state may move to any different state
     /// (observations arrive in either order); the business state is untouched.
-    pub fn set_confirm(&mut self, to: ConfirmState) -> Result<(), ConfirmError> {
+    pub(crate) fn set_confirm(&mut self, to: ConfirmState) -> Result<(), ConfirmError> {
         if self.confirm == to {
             return Err(ConfirmError::Unchanged);
         }
@@ -136,6 +136,8 @@ mod tests {
             role: RoleId::new("worker"),
             deps: vec![],
             effects: vec![],
+            title: String::new(),
+            instructions: String::new(),
         });
         t.status = status;
         t

@@ -23,3 +23,14 @@ Pure Rust logic for organization runs (DESIGN_ORG 4.1 to 4.9): types, state mach
 - `recover_on_restart`: confirmed `running`/`reviewing` -> `NeedsReconcile(Restart)`; `SendUnknown`/`InterruptRequested`/`StopUnconfirmed`/`NeedsReconcile` kept; terminal and not-in-flight tasks untouched; never cancelled/failed; sets `halt = Restart` (dispatch resumes only by user action). Classification is written as events, then a fresh snapshot.
 - `Task.status` / `confirm` stay `pub`. Do not assign them outside tests; restore goes through `WorkflowState::apply` and `validate` (a dedicated constructor was judged excessive).
 - Usage rows: unknown token counts are `None`, never 0 (`summarize_usage` counts them separately).
+
+## Engine core (P-ORG-4a, `core.rs` / `schemas.rs` / `prompt.rs`)
+
+- Sans-IO: `OrgCore::handle(OrgInput) -> Vec<OrgAction>`. `Persist` actions come before `Send` / `CreateRoleChat` / `Workspace` of the same batch; the host appends them first. No input asks for a resend; there is no respond/resume/interrupt action.
+- Planner is task `planner-N` (role `planner`); plan tasks are `worker` / `reviewer`. A reviewer depends on exactly one worker; it becomes ready when that worker is `reviewing` (committed). Pass completes both; rework sends the worker back (`ReworkCounted`, then `ready`) and parks the reviewer in `rework` until the worker is under review again. A worker with no reviewer completes right after its commit.
+- Sending needs `Grant{true}` and `Live{chat,true}` for the chat; a created chat counts as live. Not live -> `Halted{NeedsResume}` (U1: never auto-resume). `Freshness` clears all live flags and halts. Restored engines start without grant or live chats.
+- Time: events use the last `Tick` / `set_now` value. Host should send `Tick` regularly.
+- Report summaries and review findings are kept in memory only; after a restart prompts say "not obtained" instead of guessing.
+- Unreadable final message -> `NeedsReconcile(Disconnect)` (no dedicated cause exists). `NotLive` after `Dispatched` settles the attempt as `Rejected` (nothing was sent) and blocks the task until the user resumes.
+- Chat creation with an unknown result (or `ChatRequested` without `ChatBound` after a restart) -> `blocked{needsAttention}` + `SendUnknown`; never re-requested (user chooses; UI in P-ORG-7).
+- `Task` status/confirm/rework and `WorkflowState` fields are `pub(crate)`; use getters. `record` is the only writer.

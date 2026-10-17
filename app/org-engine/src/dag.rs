@@ -119,6 +119,8 @@ pub(crate) mod tests {
             role: RoleId::new("worker"),
             deps: deps.iter().map(|d| TaskId::new(*d)).collect(),
             effects: vec![],
+            title: String::new(),
+            instructions: String::new(),
         }
     }
     pub fn roles() -> Vec<Role> {
