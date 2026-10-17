@@ -165,7 +165,8 @@ pub enum OrgEventKind {
     ChatRequested { task: TaskId, cwd: String },
     /// The chat was created and its ownership record saved.
     ChatBound { task: TaskId, chat: ChatRef },
-    /// The creation was certainly rejected (no chat exists): forget the request so the user can retry.
+    /// The creation was certainly rejected (no chat exists), or the bound chat can no longer be resumed and
+    /// nothing was ever dispatched to it: forget the request (and the binding) so a new chat can be made.
     ChatRequestAbandoned { task: TaskId },
     /// Recorded before sending (`TurnSpent` goes with it).
     Dispatched { task: TaskId, attempt: AttemptRef, client_message_id: String, kind: TurnKind },
@@ -263,9 +264,14 @@ impl WorkflowState {
             }
             OrgEventKind::ChatRequestAbandoned { task } => {
                 let t = self.task_mut(task)?;
-                if t.chat.is_some() || t.chat_cwd.is_none() {
+                if t.chat_cwd.is_none() {
                     return Err(ApplyError::ChatNotRequested(task.clone()));
                 }
+                // A bound chat may be dropped only while nothing was ever dispatched to it (the chat never spoke).
+                if t.chat.is_some() && (t.last_attempt.is_some() || t.accepted_turn.is_some()) {
+                    return Err(ApplyError::ChatConflict(task.clone()));
+                }
+                t.chat = None;
                 t.chat_cwd = None;
             }
             OrgEventKind::Dispatched { task, attempt, kind, .. } => {

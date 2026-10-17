@@ -91,6 +91,8 @@ pub struct TaskSnapshot {
     pub chat_cwd: Option<String>,
     /// 「やり直す」を出せる（送っていないことが確かで、初回のturnが受理されていない。R-ORG M2）。
     pub retryable: bool,
+    /// 送信の記録（Dispatched）も受理されたturnもない（チャットは一度も発話を受けていない）。
+    pub never_sent: bool,
 }
 
 /// エンジンの状態から画面向けの写しを作る。
@@ -115,6 +117,7 @@ pub fn snapshot_of(state: &org_engine::WorkflowState) -> OrgSnapshot {
                 commit: t.commit().map(str::to_string),
                 chat_cwd: t.chat_cwd().map(str::to_string),
                 retryable: org_engine::retryable(t),
+                never_sent: t.last_attempt().is_none() && t.accepted_turn().is_none(),
             })
             .collect(),
         request: state.request().to_string(),

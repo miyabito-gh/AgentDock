@@ -170,6 +170,9 @@ pub enum OrgInput {
     /// After a restart: the host matched a chat record to a task whose creation result was lost
     /// (record against record, not a guess). Only binds a task that requested a chat and has none.
     ChatRecovered { task: TaskId, chat: ChatRef },
+    /// During the user's resume: the task's chat cannot be resumed (Codex has no history for it). Only a task that
+    /// was certainly never sent to gets a new role chat; anything else stays stopped (never sent again).
+    ChatUnresumable { task: TaskId },
     Tick { now_ms: i64 },
 }
 
@@ -304,6 +307,8 @@ pub struct OrgCore {
     replan_notes: HashMap<TaskId, String>,
     last_kind: HashMap<TaskId, TurnKind>,
     retry_ready: HashSet<TaskId>,
+    /// Working folder to reuse for a task whose unused chat was dropped (this session only).
+    rechat_cwd: HashMap<TaskId, String>,
     done_notified: bool,
     limit_notified: bool,
     out: Vec<OrgAction>,
@@ -332,6 +337,7 @@ impl OrgCore {
             replan_notes: HashMap::new(),
             last_kind: HashMap::new(),
             retry_ready: HashSet::new(),
+            rechat_cwd: HashMap::new(),
             done_notified: false,
             limit_notified: false,
             out: Vec::new(),
@@ -575,6 +581,7 @@ impl OrgCore {
                     }
                 }
             }
+            OrgInput::ChatUnresumable { task } => self.chat_unresumable(&task),
             OrgInput::InterruptRequested { chat } => {
                 if let Some(id) = self.task_of_chat(&chat) {
                     if self.task(&id).is_some_and(|t| t.status() == TaskStatus::Running && t.confirm() == ConfirmState::Confirmed) {
@@ -705,6 +712,33 @@ impl OrgCore {
     }
 
     // ---- chat creation
+
+    /// The bound chat cannot be resumed. When it is certain that nothing was ever sent to it (no dispatch recorded,
+    /// no accepted turn, nothing in flight, confirmed), the binding is dropped and a new role chat is made in the same
+    /// working folder; the task then goes on the usual path. Otherwise nothing changes (it stays stopped).
+    fn chat_unresumable(&mut self, id: &TaskId) {
+        let Some(t) = self.task(id) else { return };
+        let certain = matches!(t.status(), TaskStatus::Ready | TaskStatus::Blocked(BlockedReason::NeedsAttention))
+            && t.confirm() == ConfirmState::Confirmed
+            && t.chat().is_some()
+            && t.last_attempt().is_none()
+            && t.accepted_turn().is_none()
+            && !self.launching.contains_key(id)
+            && !self.flows.contains_key(id);
+        let (Some(cwd), Some(chat)) = (t.chat_cwd().map(str::to_string), t.chat().cloned()) else { return };
+        if !certain {
+            return;
+        }
+        if !self.rec(OrgEventKind::ChatRequestAbandoned { task: id.clone() }) {
+            return;
+        }
+        self.live.remove(&chat);
+        self.forget(id);
+        self.rechat_cwd.insert(id.clone(), cwd);
+        if self.task(id).is_some_and(|t| t.status() != TaskStatus::Ready) {
+            self.set_status(id, TaskStatus::Ready, Cause::User);
+        }
+    }
 
     fn chat_created(&mut self, id: &TaskId, result: CreateResult) {
         if self.launching.get(id) != Some(&Launch::Chat) {
@@ -1209,6 +1243,11 @@ impl OrgCore {
         if has_cwd {
             // A creation was started earlier and its result was lost (e.g. restart).
             self.block_unknown_create(id);
+            return;
+        }
+        // A new chat for a task whose earlier chat was never used: its working folder (worktree) is reused.
+        if let Some(cwd) = self.rechat_cwd.remove(id) {
+            self.begin_chat(id, cwd);
             return;
         }
         let repo = self.s().repo().to_string();

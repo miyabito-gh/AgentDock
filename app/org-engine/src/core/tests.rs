@@ -943,3 +943,111 @@ fn role_instructions_go_before_the_work_prompt() {
         .unwrap();
     assert!(text.starts_with("【この役割の指示】\nMY-ROLE-TEXT"));
 }
+
+// ---------------------------------------------------------------- unused chat after a restart
+
+/// Sandbox check fails at the start: the planner chat is made and bound, but no turn is sent. Then "restart".
+fn restarted_unsent(sandbox_ok_after: bool) -> Sim {
+    let mut sim = Sim::new();
+    sim.sandbox_ok = false;
+    sim.start(Limits::default());
+    assert_eq!(sim.st().halt(), Some(HaltReason::SandboxUnhealthy));
+    assert!(sim.t("planner-1").chat().is_some());
+    assert_eq!(sim.sends("planner-1"), 0);
+    let mut state = sim.st().clone();
+    classify_after_restart(&mut state, 9).unwrap();
+    let mut r = Sim::from_core(OrgCore::restored(state, 10));
+    r.sandbox_ok = sandbox_ok_after;
+    r.feed(OrgInput::Grant { granted: true });
+    r
+}
+
+#[test]
+fn an_unused_chat_that_cannot_be_resumed_is_replaced_and_the_task_is_sent_once() {
+    let mut r = restarted_unsent(true);
+    r.feed(OrgInput::ChatUnresumable { task: tid("planner-1") });
+    assert!(r.t("planner-1").chat().is_none());
+    r.feed(OrgInput::UserResume);
+    assert_eq!(r.st().halt(), None);
+    assert_eq!(r.log.iter().filter(|a| matches!(a, OrgAction::CreateRoleChat { .. })).count(), 1);
+    assert!(r.log.iter().any(|a| matches!(a, OrgAction::Persist(ev) if matches!(ev.kind, OrgEventKind::ChatRequestAbandoned { .. }))));
+    assert_eq!(r.sends("planner-1"), 1);
+    assert_eq!(r.t("planner-1").status(), TaskStatus::Running);
+}
+
+#[test]
+fn a_chat_with_a_dispatch_or_an_unknown_send_is_never_replaced() {
+    for unknown in [true, false] {
+        let mut sim = Sim::new();
+        sim.start(Limits::default());
+        let mut state = sim.st().clone();
+        if !unknown {
+            sim.complete_turn("planner-1", &plan_json(&[("a", "worker", &[], &[])]));
+            state = sim.st().clone();
+        } else {
+            // acceptance unknown: the dispatch is on record, the outcome is not
+            let t = sim.t("planner-1");
+            assert_eq!(t.status(), TaskStatus::Running);
+        }
+        classify_after_restart(&mut state, 9).unwrap();
+        let mut r = Sim::from_core(OrgCore::restored(state, 10));
+        r.feed(OrgInput::Grant { granted: true });
+        let tasks: Vec<TaskId> = r.st().tasks().iter().map(|t| t.id.clone()).collect();
+        for task in tasks {
+            let chat_before = r.st().task(&task).unwrap().chat().cloned();
+            r.feed(OrgInput::ChatUnresumable { task: task.clone() });
+            assert_eq!(r.st().task(&task).unwrap().chat().cloned(), chat_before, "{task} keeps its chat");
+        }
+        assert!(!r.log.iter().any(|a| matches!(a, OrgAction::CreateRoleChat { .. } | OrgAction::Send { .. })));
+    }
+}
+
+#[test]
+fn a_send_with_unknown_acceptance_stays_stopped_when_the_chat_cannot_be_resumed() {
+    let mut sim = Sim::new();
+    sim.unknown_sends.insert(tid("planner-1"));
+    sim.start(Limits::default());
+    assert_eq!(sim.t("planner-1").confirm(), ConfirmState::SendUnknown);
+    let sends = sim.sends("planner-1");
+    sim.feed(OrgInput::ChatUnresumable { task: tid("planner-1") });
+    sim.feed(OrgInput::UserResume);
+    assert!(sim.t("planner-1").chat().is_some());
+    assert_eq!(sim.sends("planner-1"), sends, "no second send");
+    assert_eq!(sim.log.iter().filter(|a| matches!(a, OrgAction::CreateRoleChat { .. })).count(), 1);
+}
+
+#[test]
+fn resuming_from_sandbox_unhealthy_checks_again_first_and_stops_again_when_it_still_fails() {
+    let mut r = restarted_unsent(false);
+    let checks = |r: &Sim| r.log.iter().filter(|a| matches!(a, OrgAction::CheckSandbox { .. })).count();
+    r.feed(OrgInput::ChatUnresumable { task: tid("planner-1") });
+    r.feed(OrgInput::UserResume);
+    assert_eq!(checks(&r), 1, "re-checked on resume");
+    assert_eq!(r.st().halt(), Some(HaltReason::SandboxUnhealthy));
+    assert_eq!(r.sends("planner-1"), 0);
+    // the user fixes the cause and resumes again: checked again, then sent
+    r.sandbox_ok = true;
+    r.feed(OrgInput::UserResume);
+    assert_eq!(checks(&r), 2);
+    assert_eq!(r.st().halt(), None);
+    assert_eq!(r.sends("planner-1"), 1);
+}
+
+#[test]
+fn the_event_log_of_a_replaced_chat_replays_to_the_same_state() {
+    let mut r = restarted_unsent(true);
+    // the state as restored, then the events recorded after it
+    let mut replayed = r.st().clone();
+    r.feed(OrgInput::ChatUnresumable { task: tid("planner-1") });
+    r.feed(OrgInput::UserResume);
+    let events: Vec<OrgEvent> = r.log.iter().filter_map(|a| if let OrgAction::Persist(ev) = a { Some(ev.clone()) } else { None }).collect();
+    assert!(events.iter().any(|e| matches!(e.kind, OrgEventKind::ChatRequestAbandoned { .. })));
+    for ev in &events {
+        replayed.apply(ev).unwrap();
+    }
+    let live_state = r.st();
+    let (a, b) = (replayed.task(&tid("planner-1")).unwrap(), live_state.task(&tid("planner-1")).unwrap());
+    assert_eq!((a.chat(), a.chat_cwd(), a.status(), a.confirm()), (b.chat(), b.chat_cwd(), b.status(), b.confirm()));
+    assert_eq!(replayed.halt(), live_state.halt());
+    assert_eq!(replayed.last_seq(), live_state.last_seq());
+}

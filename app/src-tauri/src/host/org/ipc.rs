@@ -341,6 +341,7 @@ mod tests {
             commit: None,
             chat_cwd: None,
             retryable: false,
+            never_sent: false,
         }
     }
 

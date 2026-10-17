@@ -312,7 +312,21 @@ pub fn usage_view(snap: &OrgSnapshot, rows: &[UsageRow]) -> OrgUsageView {
 pub fn workflow_view(input: &ViewInput<'_>) -> OrgWorkflowView {
     let snap = input.snapshot;
     let tasks: Vec<OrgTaskView> = snap.tasks.iter().map(|t| task_view(t, snap, input.notices)).collect();
-    let halt = snap.halt.map(halt_view);
+    let mut halt = snap.halt.map(halt_view);
+    // 再開してもチャットに送れず止まったままの利用者に、取れる操作を1行で示す。
+    if let Some(h) = halt.as_mut().filter(|h| h.kind == OrgHaltKind::NeedsResume) {
+        let unfinished = snap.tasks.iter().filter(|t| !finished(t.status));
+        let hint = if snap.tasks.iter().any(|t| t.retryable) {
+            "再開しても進まないタスクは「やり直す…」で新しいチャットから送り直せます（送っていないことが確かなものだけ）"
+        } else if unfinished.count() > 0 {
+            "再開しても進まないときは、送ったか確認できないため再送できません。「取り消す…」で全体を取り消せます"
+        } else {
+            ""
+        };
+        if !hint.is_empty() {
+            h.label = format!("{}。{hint}", h.label);
+        }
+    }
 
     let plan_approval = (snap.halt == Some(HaltReason::AwaitingPlanApproval)).then(|| {
         let latest = input.notices.iter().rev().find_map(|e| match &e.notice {
@@ -457,6 +471,7 @@ mod tests {
             commit: None,
             chat_cwd: None,
             retryable: false,
+            never_sent: false,
         }
     }
 

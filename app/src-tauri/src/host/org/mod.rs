@@ -145,6 +145,8 @@ pub struct OrgStartArgs {
 pub struct OrgResumeReport {
     pub resumed: Vec<ChatKey>,
     pub failed: Vec<(ChatKey, String)>,
+    /// 発話前で再開できず、未送信が確かなので新しい役割チャットに作り直すようエンジンへ頼んだもの。
+    pub recreated: Vec<ChatKey>,
 }
 
 impl Host {
@@ -334,7 +336,20 @@ impl Host {
                     let _ = tx.send(DriverMsg::Input(OrgInput::Live { chat: chat_ref_of(&chat), live: true }));
                     report.resumed.push(chat);
                 }
-                Err(e) => report.failed.push((chat, e.message)),
+                Err(e) => {
+                    // Codex has no history and nothing was ever sent to the chat: the engine makes a new role chat
+                    // for the task (it re-checks that nothing was sent). Anything else stays stopped with the reason.
+                    if self.chat_never_persisted(&chat) && self.org_task_never_sent(&chat) {
+                        let task = self.org_rt.observer.lock().unwrap().task_of(&chat).cloned();
+                        if let Some(task) = task {
+                            let _ = tx.send(DriverMsg::Input(OrgInput::ChatUnresumable { task }));
+                            self.org_rt.observer.lock().unwrap().unbind(&chat);
+                            report.recreated.push(chat);
+                            continue;
+                        }
+                    }
+                    report.failed.push((chat, e.message));
+                }
             }
         }
         let grant = OrgGrant::issue(confirmed, workflow, &self.org_rt.grants);
@@ -343,6 +358,21 @@ impl Host {
         // 照合から再開までの間に終わった turn を拾う（読取りだけ。確定でよい。R-ORG M6）。
         let _ = tx.send(DriverMsg::Reconcile);
         Ok(report)
+    }
+
+    /// Codex に履歴がなく（一覧に出ず、保存記録だけがある）、resume できないチャットか。
+    fn chat_never_persisted(&self, chat: &ChatKey) -> bool {
+        self.read(|d| d.root_view(chat).is_none() && d.chat(chat).is_some_and(|c| c.no_history))
+    }
+
+    /// そのチャットのタスクに、送信の記録も受理済みturnもなく、状態が確認済みか（未送信が確かか）。
+    fn org_task_never_sent(&self, chat: &ChatKey) -> bool {
+        let view = self.org_rt.view.lock().unwrap();
+        view.as_ref().is_some_and(|v| {
+            v.tasks.iter().any(|t| {
+                t.chat.as_ref().and_then(chat_key_of_ref).as_ref() == Some(chat) && t.never_sent && t.confirm == org_engine::ConfirmState::Confirmed
+            })
+        })
     }
 
     /// 一時停止。送信権を失効させる（以後は再開の操作が要る）。実行中の turn は止めない。
@@ -529,6 +559,7 @@ mod tests {
             commit: None,
             chat_cwd: None,
             retryable: false,
+            never_sent: false,
         }
     }
 
