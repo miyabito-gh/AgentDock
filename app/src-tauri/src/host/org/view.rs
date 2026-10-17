@@ -291,6 +291,7 @@ fn task_view(t: &TaskSnapshot, snap: &OrgSnapshot, notices: &[NoticeEntry]) -> O
             && t.chat_cwd.is_some()
             && t.status == TaskStatus::Blocked(EBlocked::NeedsAttention)
             && t.confirm == ConfirmState::SendUnknown,
+        can_retry: t.retryable,
     }
 }
 
@@ -455,6 +456,7 @@ mod tests {
             attempts: 2,
             commit: None,
             chat_cwd: None,
+            retryable: false,
         }
     }
 

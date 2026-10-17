@@ -72,6 +72,10 @@ pub enum WorkspaceAction {
     CreateWorktree { task: TaskId, repo: String, base: WorktreeBase },
     /// Commit inside the task's own worktree (`cwd`).
     Commit { task: TaskId, cwd: String, message: String },
+    /// Move a reviewer's own detached worktree (`cwd`) to the commit under review (a re-review after a
+    /// send-back). The host checks the ownership record and that the worktree really is at `commit` afterwards;
+    /// the outcome is `WorktreeCreated` (ready at that commit) or `Failed`.
+    RefreshDetached { task: TaskId, cwd: String, commit: String },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -144,6 +148,8 @@ pub enum OrgInput {
     UserApprovePlan,
     UserReplan,
     UserRaiseTurnLimit { to: u32 },
+    /// The user asks to try a blocked task again (a new attempt; only when it is certain nothing was sent).
+    UserRetryTask { task: TaskId },
     ChatCreated { task: TaskId, result: CreateResult },
     SendSettled { task: TaskId, attempt: AttemptRef, outcome: SettleOutcome },
     TurnEnded { chat: ChatRef, turn: TurnRef, end: TurnEndKind },
@@ -202,6 +208,16 @@ fn role_kind(r: &RoleId) -> Option<RoleKind> {
     }
 }
 
+/// Certain that nothing was sent for the task, so the user may try it again (R-ORG M2).
+pub fn retryable(t: &Task) -> bool {
+    let attempt_open = t.last_attempt().is_some() && matches!(t.last_settle(), None | Some(SettleOutcome::Unknown));
+    t.status() == TaskStatus::Blocked(BlockedReason::NeedsAttention)
+        && t.confirm() == ConfirmState::Confirmed
+        && t.accepted_turn().is_none()
+        && !attempt_open
+        && (t.chat().is_some() || t.chat_cwd().is_none())
+}
+
 /// The three standard roles (definition files: P-ORG-8).
 pub fn standard_roles() -> Vec<Role> {
     vec![
@@ -218,11 +234,15 @@ struct RoleCfg {
     sandbox: SandboxKind,
     model: Option<String>,
     effort: Option<String>,
+    /// Role instructions from the definition file (put before each work prompt).
+    instructions: String,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Launch {
     Worktree,
+    /// A reviewer's worktree is being moved to the commit under review.
+    Refresh,
     Chat,
     Sandbox,
 }
@@ -338,7 +358,12 @@ impl OrgCore {
         self.roles = loaded.iter().map(LoadedRole::to_role).collect();
         self.role_cfg = loaded
             .iter()
-            .map(|l| (RoleId::new(l.def.id.clone()), RoleCfg { sandbox: l.def.sandbox, model: l.def.model.clone(), effort: l.def.effort.clone() }))
+            .map(|l| {
+                (
+                    RoleId::new(l.def.id.clone()),
+                    RoleCfg { sandbox: l.def.sandbox, model: l.def.model.clone(), effort: l.def.effort.clone(), instructions: l.def.instructions.clone() },
+                )
+            })
             .collect();
         Ok(())
     }
@@ -518,6 +543,7 @@ impl OrgCore {
                     self.set_status(&id, TaskStatus::Pending, Cause::User);
                 }
             }
+            OrgInput::UserRetryTask { task } => self.user_retry(&task),
             OrgInput::ChatCreated { task, result } => self.chat_created(&task, result),
             OrgInput::SendSettled { task, attempt, outcome } => self.send_settled(&task, attempt, outcome),
             OrgInput::TurnEnded { chat, turn, end } => self.turn_ended_input(chat, turn, end),
@@ -536,7 +562,17 @@ impl OrgCore {
             OrgInput::ChatRecovered { task, chat } => {
                 let ok = self.task(&task).is_some_and(|t| t.chat().is_none() && t.chat_cwd().is_some());
                 if ok {
-                    self.rec(OrgEventKind::ChatBound { task, chat });
+                    // The chat was chosen by the user (record against record). If the task only waited for this
+                    // (nothing was ever sent), it goes on from the start; otherwise the state is left as it is.
+                    let unsent_unknown = self.task(&task).is_some_and(|t| {
+                        t.last_attempt().is_none()
+                            && t.confirm() == ConfirmState::SendUnknown
+                            && t.status() == TaskStatus::Blocked(BlockedReason::NeedsAttention)
+                    });
+                    if self.rec(OrgEventKind::ChatBound { task: task.clone(), chat }) && unsent_unknown {
+                        self.set_confirm(&task, ConfirmState::Confirmed);
+                        self.set_status(&task, TaskStatus::Ready, Cause::User);
+                    }
                 }
             }
             OrgInput::InterruptRequested { chat } => {
@@ -650,6 +686,24 @@ impl OrgCore {
         }
     }
 
+    /// The user's retry of a blocked task. Allowed only when it is certain that nothing was sent for the task:
+    /// the first turn was never accepted and no attempt is open (rejected / not found / not live / worktree or chat
+    /// creation refused). The task goes back to `Ready` and is sent as a new attempt by the usual path; an unknown
+    /// outcome (`SendUnknown`) is never retried.
+    fn user_retry(&mut self, id: &TaskId) {
+        if !self.is_retryable(id) {
+            self.notify(OrgNotice::Refused { reason: "このタスクは、送っていないことを確認できないため、やり直せません".into() });
+            return;
+        }
+        self.forget(id);
+        self.set_status(id, TaskStatus::Ready, Cause::User);
+    }
+
+    /// Whether `UserRetryTask` is accepted for the task (also used by the screen).
+    pub fn is_retryable(&self, id: &TaskId) -> bool {
+        self.task(id).is_some_and(retryable)
+    }
+
     // ---- chat creation
 
     fn chat_created(&mut self, id: &TaskId, result: CreateResult) {
@@ -665,7 +719,11 @@ impl OrgCore {
                     self.continue_launch(id);
                 }
             }
-            CreateResult::Rejected(why) => self.block(id, BlockedReason::NeedsAttention, &format!("役割チャットを作成できませんでした: {why}")),
+            CreateResult::Rejected(why) => {
+                // Certainly not created: forget the request so that the user can try again.
+                self.rec(OrgEventKind::ChatRequestAbandoned { task: id.clone() });
+                self.block(id, BlockedReason::NeedsAttention, &format!("役割チャットを作成できませんでした: {why}"));
+            }
             CreateResult::Unknown | CreateResult::SaveFailed => self.block_unknown_create(id),
         }
     }
@@ -908,6 +966,14 @@ impl OrgCore {
     // ---- workspace results
 
     fn workspace_result(&mut self, id: &TaskId, result: WorkspaceOutcome) {
+        if self.launching.get(id) == Some(&Launch::Refresh) {
+            self.launching.remove(id);
+            match result {
+                WorkspaceOutcome::WorktreeCreated { .. } => self.continue_launch(id),
+                _ => self.block(id, BlockedReason::NeedsAttention, "再レビュー用の作業場所を対象コミットに合わせられませんでした"),
+            }
+            return;
+        }
         if self.launching.get(id) == Some(&Launch::Worktree) {
             self.launching.remove(id);
             match result {
@@ -971,6 +1037,8 @@ impl OrgCore {
     fn freshness(&mut self, cause: ReconcileCause) {
         self.live.clear();
         self.early_turns.clear();
+        // Child counts read before the interruption are stale: only a new read may complete a task (R-ORG M3).
+        self.descendants.clear();
         if matches!(cause, ReconcileCause::Disconnect | ReconcileCause::Restart) && self.sandbox == SandboxState::Ok {
             self.sandbox = SandboxState::Unknown;
         }
@@ -979,6 +1047,8 @@ impl OrgCore {
             .tasks()
             .iter()
             .filter(|t| matches!(t.status(), TaskStatus::Running | TaskStatus::Reviewing) && t.confirm() == ConfirmState::Confirmed)
+            // Its own turn already ended: no reconciliation needed (R-ORG H2).
+            .filter(|t| !t.is_idle_reviewing())
             .map(|t| t.id.clone())
             .collect();
         for id in ids {
@@ -1121,6 +1191,18 @@ impl OrgCore {
         let (has_chat, has_cwd) = (t.chat().is_some(), t.chat_cwd().is_some());
         let target_commit = t.deps.first().and_then(|d| self.task(d)).and_then(|d| d.commit().map(str::to_string));
         if has_chat {
+            let rereview = kind == RoleKind::Reviewer && self.task(id).is_some_and(|t| t.accepted_turn().is_some());
+            if rereview {
+                // The reviewer's chat is tied to its worktree: move that to the new commit first, and send nothing
+                // until it is verified to be there (R-ORG M1).
+                let (Some(commit), Some(cwd)) = (target_commit, self.task(id).and_then(|t| t.chat_cwd().map(str::to_string))) else {
+                    self.block(id, BlockedReason::NeedsAttention, "検証対象のコミットまたは作業場所がありません");
+                    return;
+                };
+                self.launching.insert(id.clone(), Launch::Refresh);
+                self.out.push(OrgAction::Workspace(WorkspaceAction::RefreshDetached { task: id.clone(), cwd, commit }));
+                return;
+            }
             self.continue_launch(id);
             return;
         }
@@ -1192,9 +1274,19 @@ impl OrgCore {
             self.block(id, BlockedReason::NeedsAttention, "送る内容を組み立てられません");
             return;
         };
+        let text = self.with_instructions(id, text);
         if let Sent::NoTurns = self.send_turn(id, kind, text) {
             self.block(id, BlockedReason::Limit, "turn上限に達しました");
             self.limit_notice();
+        }
+    }
+
+    /// The role's own instructions (definition file) go before the work prompt. Without role definitions
+    /// loaded (tests, defaults) the prompt is unchanged.
+    fn with_instructions(&self, id: &TaskId, text: String) -> String {
+        match self.task(id).and_then(|t| self.role_cfg.get(&t.role)) {
+            Some(c) if !c.instructions.trim().is_empty() => format!("【この役割の指示】\n{}\n\n{}", c.instructions.trim(), text),
+            _ => text,
         }
     }
 

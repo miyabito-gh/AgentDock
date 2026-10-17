@@ -40,6 +40,10 @@ pub enum Refusal {
     BranchMismatch,
     /// フォルダが実在しない。
     PathMissing,
+    /// worktreeの `.git` が、記録のgitdir（このworktreeの管理フォルダ）を指していない（別のgitdir・本体へ向けられている）。
+    GitDirMismatch,
+    /// 読取り用（detached）のworktreeの記録ではない。
+    NotDetachedRecord,
 }
 
 impl Refusal {
@@ -56,6 +60,8 @@ impl Refusal {
             Refusal::NotListed => "Gitのworktree一覧にないため、操作しません",
             Refusal::BranchMismatch => "Gitが示すブランチが記録と違うため、操作しません",
             Refusal::PathMissing => "worktreeのフォルダが見つからないため、操作しません",
+            Refusal::GitDirMismatch => "worktreeの.gitが、このworktreeの管理フォルダを指していないため、操作しません",
+            Refusal::NotDetachedRecord => "読取り用（detached）のworktreeの記録ではないため、操作しません",
         }
     }
 }
@@ -88,6 +94,38 @@ pub fn authorize_commit<'a>(records: &'a [WorktreeRecord], root: &str, path: &st
         return Err(Refusal::BranchNotOrg);
     }
     Ok(rec)
+}
+
+/// 読取り用（detached）のworktreeを別のコミットへ動かせるか（再レビュー）。「このワークフロー・タスクの、読取り用で、作成済みの、置き場所配下」の記録だけ。
+pub fn authorize_refresh<'a>(records: &'a [WorktreeRecord], root: &str, path: &str, workflow: &str, task: &str) -> Result<&'a WorktreeRecord, Refusal> {
+    let rec = records.iter().find(|r| same_path(&r.path, path)).ok_or(Refusal::NoRecord)?;
+    let owner = rec.org.as_ref().ok_or(Refusal::NotOrgOwned)?;
+    if owner.workflow_id != workflow || owner.task_id != task {
+        return Err(Refusal::OtherOwner);
+    }
+    if owner.access != OrgWorktreeAccess::DetachedReadOnly {
+        return Err(Refusal::NotDetachedRecord);
+    }
+    if !matches!(rec.state, WorktreeState::Ready) {
+        return Err(Refusal::NotReady);
+    }
+    if same_path(&rec.path, &rec.repo_root) {
+        return Err(Refusal::MainWorktree);
+    }
+    if !is_under(root, &rec.path) || !is_under(root, path) {
+        return Err(Refusal::OutsideRoot);
+    }
+    Ok(rec)
+}
+
+/// `git worktree` の管理フォルダ（`<共通gitdir>\worktrees\<名前>`）が、このworktreeのものか。
+/// `gitdir`＝作業フォルダで `rev-parse --absolute-git-dir` が返した場所、`common_gitdir`＝本体リポジトリのgitdir、
+/// `link`＝管理フォルダの `gitdir` ファイルの中身（このworktreeの `.git` ファイルのパス）。
+pub fn admin_dir_matches(gitdir: &str, common_gitdir: &str, link: &str, worktree_path: &str) -> bool {
+    let parent_ok = std::path::Path::new(gitdir)
+        .parent()
+        .is_some_and(|p| same_path(&p.to_string_lossy(), &format!("{}\\worktrees", common_gitdir.trim_end_matches(['/', '\\']))));
+    parent_ok && same_path(link.trim(), &format!("{}\\.git", worktree_path.trim_end_matches(['/', '\\'])))
 }
 
 /// コミット間差分の1ファイル。`status` はGitの状態字（`A`・`M`・`D`・`R100` など）。名前変更・コピーは `old_path` がある。
@@ -183,6 +221,36 @@ mod tests {
         let mut creating = mine(p);
         creating.state = WorktreeState::Creating;
         assert_eq!(refuse(vec![creating], p), Refusal::NotReady);
+    }
+
+    #[test]
+    fn refresh_is_allowed_only_for_the_owned_detached_ready_worktree() {
+        let p = "C:\\data\\worktrees\\repo-bbbbbb";
+        let det = |access, state| {
+            let mut r = rec(p, "", Some(("w1", "t1", access)));
+            r.state = state;
+            r
+        };
+        let refuse = |r: WorktreeRecord, path: &str| authorize_refresh(&[r], ROOT, path, "w1", "t1").unwrap_err();
+        assert!(authorize_refresh(&[det(OrgWorktreeAccess::DetachedReadOnly, WorktreeState::Ready)], ROOT, p, "w1", "t1").is_ok());
+        assert_eq!(refuse(det(OrgWorktreeAccess::Writable, WorktreeState::Ready), p), Refusal::NotDetachedRecord);
+        assert_eq!(refuse(det(OrgWorktreeAccess::DetachedReadOnly, WorktreeState::Creating), p), Refusal::NotReady);
+        assert_eq!(refuse(det(OrgWorktreeAccess::DetachedReadOnly, WorktreeState::Ready), "C:\\other"), Refusal::NoRecord);
+        assert_eq!(authorize_refresh(&[det(OrgWorktreeAccess::DetachedReadOnly, WorktreeState::Ready)], ROOT, p, "w1", "t2").unwrap_err(), Refusal::OtherOwner);
+        assert_eq!(refuse(rec(p, "", None), p), Refusal::NotOrgOwned);
+    }
+
+    #[test]
+    fn the_admin_dir_must_be_this_worktrees_own_entry_under_the_common_gitdir() {
+        let wt = "C:/data/worktrees/repo-aaaaaa";
+        let ok = |gitdir: &str, common: &str, link: &str| admin_dir_matches(gitdir, common, link, wt);
+        assert!(ok("C:/repo/.git/worktrees/repo-aaaaaa", "C:/repo/.git", "C:/data/worktrees/repo-aaaaaa/.git\n"));
+        assert!(ok("c:/REPO/.git/worktrees/x1", "C:\\repo\\.git", "C:\\data\\worktrees\\repo-aaaaaa\\.git"));
+        // pointed at the repository itself, at another entry, or at an unrelated repository
+        assert!(!ok("C:/repo/.git", "C:/repo/.git", "C:/data/worktrees/repo-aaaaaa/.git"));
+        assert!(!ok("C:/repo/.git/worktrees/other", "C:/repo/.git", "C:/data/worktrees/other/.git"));
+        assert!(!ok("C:/evil/.git/worktrees/x", "C:/repo/.git", "C:/data/worktrees/repo-aaaaaa/.git"));
+        assert!(!ok("C:/repo/.git/worktrees/x", "C:/repo/.git", ""));
     }
 
     #[test]

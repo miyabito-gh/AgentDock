@@ -98,6 +98,10 @@ pub enum GitOp {
     DiffCommitsStat { from: String, to: String },
     /// 2つのコミットの差分の変更ファイル一覧（`--name-status`。読取りのみ）。
     DiffCommitsNames { from: String, to: String },
+    /// 作業フォルダが実際に従うgitdir（`.git` ファイルの指す先。読取りのみ。組織実行が書く前に管理フォルダと照合する）。
+    AbsoluteGitDir,
+    /// 読取り用のdetached worktreeを、別のコミットへ動かす（`checkout --detach`。フックは走らせない）。組織実行の所有worktree内だけで使う。
+    CheckoutDetached { commit: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -183,6 +187,7 @@ impl GitOp {
             GitOp::Version => strings(&["--version"]),
             GitOp::RepoRoot => strings(&["rev-parse", "--show-toplevel"]),
             GitOp::Head => strings(&["rev-parse", "HEAD"]),
+            GitOp::AbsoluteGitDir => strings(&["rev-parse", "--absolute-git-dir"]),
             GitOp::CurrentBranch => strings(&["rev-parse", "--abbrev-ref", "HEAD"]),
             GitOp::RevParse { rev } => {
                 check(valid_ref(rev), "rev")?;
@@ -237,7 +242,8 @@ impl GitOp {
             GitOp::StageAll => strings(&["add", "-A"]),
             GitOp::CommitStaged { message } => {
                 check(!message.trim().is_empty() && !message.contains('\0'), "message")?;
-                let mut a = strings(&["-c", "user.name=AgentDock", "-c", "user.email=agentdock@localhost", "-c", "commit.gpgsign=false", "commit", "--no-verify", "-q", "-m"]);
+                // `--no-verify` は pre-commit・commit-msg だけを止めるので、post-commit などは `core.hooksPath` を空にして止める。
+                let mut a = strings(&["-c", "core.hooksPath=/dev/null", "-c", "user.name=AgentDock", "-c", "user.email=agentdock@localhost", "-c", "commit.gpgsign=false", "commit", "--no-verify", "-q", "-m"]);
                 a.push(message.clone());
                 a
             }
@@ -246,6 +252,12 @@ impl GitOp {
                 check(valid_ref(commit), "commit")?;
                 let mut a = strings(&["worktree", "add", "--detach", "--"]);
                 a.extend([path.clone(), commit.clone()]);
+                a
+            }
+            GitOp::CheckoutDetached { commit } => {
+                check(valid_ref(commit), "commit")?;
+                let mut a = strings(&["-c", "core.hooksPath=/dev/null", "checkout", "--detach", "-q"]);
+                a.extend([commit.clone(), "--".into()]);
                 a
             }
             GitOp::DiffCommitsStat { from, to } => commits_diff(&["--stat"], from, to)?,
@@ -260,6 +272,7 @@ impl GitOp {
             | GitOp::BranchDeleteMerged { .. }
             | GitOp::StageAll
             | GitOp::CommitStaged { .. }
+            | GitOp::CheckoutDetached { .. }
             | GitOp::WorktreeAddDetached { .. } => WRITE_TIMEOUT,
             _ => READ_TIMEOUT,
         }
@@ -299,7 +312,22 @@ impl Git {
     }
 
     pub async fn run(&self, cwd: &Path, op: &GitOp) -> Result<GitOutput, GitError> {
-        let args = self.full_args(op.args()?);
+        self.run_with_prefix(cwd, op, &[]).await
+    }
+
+    /// `--git-dir`・`--work-tree` を明示して実行する。作業フォルダの `.git` ファイルが後から書き換えられても、
+    /// 確認済みの管理フォルダ以外には書かない（組織実行の所有worktreeへの書込み用）。
+    pub async fn run_pinned(&self, work_tree: &Path, git_dir: &str, op: &GitOp) -> Result<GitOutput, GitError> {
+        check(valid_path(git_dir), "git-dir")?;
+        let prefix = vec![format!("--git-dir={git_dir}"), format!("--work-tree={}", work_tree.to_string_lossy())];
+        self.run_with_prefix(work_tree, op, &prefix).await
+    }
+
+    async fn run_with_prefix(&self, cwd: &Path, op: &GitOp, prefix: &[String]) -> Result<GitOutput, GitError> {
+        let mut args = self.full_args(op.args()?);
+        if !prefix.is_empty() {
+            args.splice(0..0, prefix.iter().cloned());
+        }
         let _serial = self.lock.lock().await;
         let out = run_bounded(RunSpec {
             program: &self.exe,

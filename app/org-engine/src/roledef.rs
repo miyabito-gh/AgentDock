@@ -219,6 +219,22 @@ pub fn validate(def: &RoleDefinition, file_stem: &str) -> Result<(), Vec<String>
     if def.workplace == Workplace::SharedReadOnly && def.sandbox != SandboxKind::ReadOnly {
         e.push("sharedReadOnly の作業場所には sandbox readOnly が必要です".to_string());
     }
+    // Fields the engine does not apply are refused instead of being silently ignored (R-ORG M4):
+    // what the file says must be what the role does.
+    if ![ROLE_PLANNER, ROLE_WORKER, ROLE_REVIEWER].contains(&def.id.as_str()) {
+        e.push("この版では、標準の3役（planner・worker・reviewer）以外の役割は未対応です".to_string());
+    } else if def.workplace != baseline(&def.id).workplace {
+        e.push("この版では、作業場所（workplace）を標準から変えられません（未対応）".to_string());
+    }
+    if def.approval != ApprovalPolicy::OnRequest {
+        e.push("この版では、承認方針（approval）は onRequest 以外にできません（未対応）".to_string());
+    }
+    if !def.extra_writable_dirs.is_empty() {
+        e.push("この版では、追加の作業フォルダ（extraWritableDirs）は未対応です".to_string());
+    }
+    if def.allow_network {
+        e.push("この版では、ネットワークの許可（allowNetwork）は未対応です".to_string());
+    }
     if e.is_empty() {
         Ok(())
     } else {
@@ -281,33 +297,53 @@ mod tests {
     fn read_only_role_made_writable_is_widened_and_disabled_with_reasons() {
         let mut d = def("reviewer");
         d.sandbox = SandboxKind::WorkspaceWrite;
+        let l = load_role(d.clone(), "reviewer", None).unwrap();
+        assert!(!l.enabled());
+        assert_eq!(l.widened.len(), 1);
+        assert!(!l.to_role().enabled);
+        // The breadth comparison itself still names every kind of widening.
         d.allow_network = true;
         d.extra_writable_dirs = vec!["C:\\x".into()];
         d.approval = ApprovalPolicy::Never;
-        let l = load_role(d, "reviewer", None).unwrap();
-        assert!(!l.enabled());
-        assert_eq!(l.widened.len(), 4);
-        assert!(!l.to_role().enabled);
+        let Breadth::Widened { reasons } = compare_breadth(&d) else { panic!("widened") };
+        assert_eq!(reasons.len(), 4);
+    }
+
+    #[test]
+    fn settings_the_engine_does_not_apply_are_refused_instead_of_ignored() {
+        for (name, change) in [
+            ("approval", Box::new(|d: &mut RoleDefinition| d.approval = ApprovalPolicy::Untrusted) as Box<dyn Fn(&mut RoleDefinition)>),
+            ("approval never", Box::new(|d| d.approval = ApprovalPolicy::Never)),
+            ("network", Box::new(|d| d.allow_network = true)),
+            ("dirs", Box::new(|d| d.extra_writable_dirs = vec!["C:\\x".into()])),
+            ("workplace", Box::new(|d| d.workplace = Workplace::DetachedAtCommit)),
+        ] {
+            let mut d = def("worker");
+            change(&mut d);
+            let errs = load_role(d, "worker", None).unwrap_err();
+            assert!(errs.iter().any(|e| e.contains("未対応")), "{name}: {errs:?}");
+        }
+        let mut other = def("worker");
+        other.id = "tester".into();
+        assert!(load_role(other, "tester", None).unwrap_err().iter().any(|e| e.contains("標準の3役")));
     }
 
     #[test]
     fn narrowing_stays_enabled() {
         let mut d = def("worker");
         d.sandbox = SandboxKind::ReadOnly;
-        d.approval = ApprovalPolicy::Untrusted;
-        d.workplace = Workplace::DetachedAtCommit;
         let l = load_role(d, "worker", None).unwrap();
         assert!(l.enabled() && l.widened.is_empty());
         assert!(!l.to_role().writes);
     }
 
     #[test]
-    fn custom_roles_are_held_to_the_default_ceiling() {
+    fn the_breadth_baseline_of_a_non_standard_id_is_the_default_ceiling() {
         let mut d = def("worker");
         d.id = "tester".into();
-        assert!(load_role(d.clone(), "tester", None).unwrap().enabled());
+        assert_eq!(compare_breadth(&d), Breadth::Within);
         d.approval = ApprovalPolicy::Never;
-        assert!(!load_role(d, "tester", None).unwrap().enabled());
+        assert!(matches!(compare_breadth(&d), Breadth::Widened { .. }));
     }
 
     #[test]
@@ -316,9 +352,13 @@ mod tests {
         d.sandbox = SandboxKind::WorkspaceWrite;
         let fp = permission_fingerprint(&d);
         assert!(load_role(d.clone(), "reviewer", Some(&fp)).unwrap().enabled());
+        let before = d.clone();
         d.allow_network = true;
-        let l = load_role(d, "reviewer", Some(&fp)).unwrap();
-        assert!(!l.enabled() && !l.confirmed);
+        assert_ne!(permission_fingerprint(&before), permission_fingerprint(&d), "any permission field changes the fingerprint");
+        d.allow_network = false;
+        d.sandbox = SandboxKind::ReadOnly;
+        // back within the baseline: nothing to confirm
+        assert!(load_role(d, "reviewer", Some(&fp)).unwrap().widened.is_empty());
     }
 
     #[test]

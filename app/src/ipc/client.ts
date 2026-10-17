@@ -323,6 +323,7 @@ export const orgApprovePlan = (workflowId: string): Promise<null> => invokeCmd("
 export const orgReplan = (workflowId: string): Promise<null> => invokeCmd("org_replan", { workflowId });
 export const orgCancel = (args: OrgCancelArgs): Promise<string[]> => invokeCmd("org_cancel", args);
 export const orgAcceptManual = (workflowId: string, task: string): Promise<null> => invokeCmd("org_accept_manual", { workflowId, task });
+export const orgRetryTask = (workflowId: string, task: string): Promise<null> => invokeCmd("org_retry_task", { workflowId, task });
 export const orgRaiseTurnLimit = (workflowId: string, to: number): Promise<null> => invokeCmd("org_raise_turn_limit", { workflowId, to });
 export const orgReleaseChat = (chat: OrgChatKey): Promise<null> => invokeCmd("org_release_chat", { chat });
 export const orgRecoverCandidates = (workflowId: string, task: string): Promise<OrgChatCandidate[]> => invokeCmd("org_recover_candidates", { workflowId, task });

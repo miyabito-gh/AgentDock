@@ -240,6 +240,13 @@ impl Task {
     pub fn attempts(&self) -> u32 {
         1 + self.rework_count
     }
+    /// Under review with its own accepted turn already observed to end: nothing of this task can still
+    /// be running on the Codex side, so it needs no reconciliation and holds no running slot.
+    pub fn is_idle_reviewing(&self) -> bool {
+        self.status == TaskStatus::Reviewing
+            && self.confirm == ConfirmState::Confirmed
+            && self.observed.as_ref().is_some_and(|o| Some(&o.turn) == self.accepted_turn.as_ref())
+    }
 }
 
 /// Limits. Defaults follow DESIGN_ORG section 0.2 (Q4, Q5, Q11) and 4.3/4.7.

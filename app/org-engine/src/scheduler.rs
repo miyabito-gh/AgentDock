@@ -35,6 +35,8 @@ fn deps_satisfied(by_id: &HashMap<&TaskId, &Task>, t: &Task, ok: DepOk<'_>) -> b
 /// still be running on the Codex side).
 fn occupies(t: &Task) -> bool {
     match t.status {
+        // Its own turn is over: nothing runs, so it must not starve the reviewer (R-ORG H3).
+        TaskStatus::Reviewing if t.is_idle_reviewing() => false,
         TaskStatus::Running | TaskStatus::Reviewing => true,
         TaskStatus::Completed | TaskStatus::Cancelled => false,
         _ => t.confirm != ConfirmState::Confirmed,
@@ -227,6 +229,23 @@ mod tests {
         assert!(next_dispatch(&ts2, &roles(), &Limits::default(), &DispatchGate::open(0)).is_empty());
         let paused = DispatchGate { paused: true, turns_remaining: 5 };
         assert!(next_dispatch(&ts2, &roles(), &Limits::default(), &paused).is_empty());
+    }
+
+    #[test]
+    fn a_review_waiting_worker_whose_turn_ended_holds_no_slot() {
+        let limits = Limits::default().with_parallelism(1, 1).unwrap();
+        let mut idle = task("w", "worker", &[], TaskStatus::Reviewing);
+        idle.accepted_turn = Some(TurnRef::new("t1"));
+        idle.observed = Some(TurnObservation { turn: TurnRef::new("t1"), end: TurnEndKind::Completed });
+        let r = task("r", "reviewer", &[], TaskStatus::Ready);
+        assert_eq!(ids(next_dispatch(&[idle.clone(), r.clone()], &roles(), &limits, &DispatchGate::open(5))), ["r"]);
+        // not yet observed to end, or not confirmed: it may still be running
+        let mut busy = idle.clone();
+        busy.observed = None;
+        assert!(next_dispatch(&[busy, r.clone()], &roles(), &limits, &DispatchGate::open(5)).is_empty());
+        let mut unsure = idle;
+        unsure.confirm = ConfirmState::NeedsReconcile(ReconcileCause::Wake);
+        assert!(next_dispatch(&[unsure, r], &roles(), &limits, &DispatchGate::open(5)).is_empty());
     }
 
     #[test]

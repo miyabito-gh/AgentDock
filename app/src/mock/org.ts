@@ -6,7 +6,7 @@ const ok: OrgConfirmView = { state: "confirmed", cause: null, label: "確認済�
 
 const task = (id: string, role: string, title: string, over: Partial<OrgTaskView>): OrgTaskView => ({
   id, role, title, deps: [], waitingOn: [], status: st("pending", "待機中", "circle"), confirm: ok, attempts: 1, maxAttempts: 3, chat: null, commit: null,
-  effects: [], stallNotified: false, reconcile: null, canCancel: true, canAcceptManual: false, needsChatChoice: false, ...over,
+  effects: [], stallNotified: false, reconcile: null, canCancel: true, canAcceptManual: false, needsChatChoice: false, canRetry: false, ...over,
 });
 
 const base = (over: Partial<OrgWorkflowView>): OrgWorkflowView => ({

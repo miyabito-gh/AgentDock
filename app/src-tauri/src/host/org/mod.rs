@@ -88,6 +88,36 @@ impl OrgRuntime {
         self.driver.lock().unwrap().as_ref().map(|d| d.tx.clone())
     }
 
+    /// 司令taskが動いている（登録があり、受け口が閉じていない）。終わった・止まったtaskは含めない（R-ORG H4）。
+    pub(in crate::host) fn driver_active(&self) -> bool {
+        self.driver.lock().unwrap().as_ref().is_some_and(|d| !d.tx.is_closed())
+    }
+
+    /// 司令taskを登録する。確認と登録を1回のロックで行う（二重押しで前の登録を上書きしない。R-ORG L6）。
+    pub(in crate::host) fn try_register_driver(&self, handle: DriverHandle) -> Result<(), DriverHandle> {
+        let mut guard = self.driver.lock().unwrap();
+        if guard.as_ref().is_some_and(|d| !d.tx.is_closed()) {
+            return Err(handle);
+        }
+        *guard = Some(handle);
+        Ok(())
+    }
+
+    /// 司令taskが終わった（すべて終端・panic）。受け口が閉じている同じワークフローの登録だけを外す。
+    /// 状態の写し（`view`）は残し、画面に結果を出し続ける。
+    pub(in crate::host) fn driver_ended(&self, workflow: &WorkflowId) {
+        let mut guard = self.driver.lock().unwrap();
+        let ours = guard.as_ref().is_some_and(|d| &d.workflow == workflow && d.tx.is_closed());
+        if ours {
+            *guard = None;
+        }
+        drop(guard);
+        // panic で終わった場合の送信権が残らないように。別のワークフローが動き出していれば（登録が違えば）触れない。
+        if ours {
+            self.grants.revoke_all();
+        }
+    }
+
     fn send_all(&self, msgs: Vec<DriverMsg>) {
         if msgs.is_empty() {
             return;
@@ -215,7 +245,7 @@ impl Host {
             return Err(err(IpcErrorCode::Io, "保存先が使えないため、組織実行を始められません（記録を残せません）"));
         };
         self.precheck_space()?;
-        if self.org_rt.driver.lock().unwrap().is_some() {
+        if self.org_rt.driver_active() {
             return Err(blocked(BlockedReason::ChatBusy, "組織実行はすでに動いています（同時に動かせるのは1件です）"));
         }
         // 役割定義を読む（初回は標準3役を作る）。有効な役割だけがエンジンに渡る。
@@ -231,7 +261,10 @@ impl Host {
         let workflow = WorkflowId::new(format!("wf-{}", now_ms().0));
         let store: Arc<dyn OrgStore + Send + Sync> = Arc::new(FileOrgStore::new(workflow_dir(&root, &workflow.0)));
         let driver = OrgDriver::new(core, store, Arc::new(self.clone()), self.clone() as Arc<dyn OrgSink>, Box::new(|| now_ms().0));
-        let tx = self.spawn_org_driver(workflow.clone(), driver);
+        // 登録は確認と同じロックの中で行う（先に動き出したものがあれば、ここで断る）。
+        let Some(tx) = self.spawn_org_driver(workflow.clone(), driver) else {
+            return Err(blocked(BlockedReason::ChatBusy, "組織実行はすでに動いています（同時に動かせるのは1件です）"));
+        };
         // 送信権 → 開始。順序をチャネルで保つ。
         let grant = OrgGrant::issue(confirmed, workflow.clone(), &self.org_rt.grants);
         let _ = tx.send(DriverMsg::Install(grant));
@@ -246,7 +279,7 @@ impl Host {
 
     /// 役割定義を読み直す。動いているワークフローがあるときは変えない（途中で権限が変わらないように）。
     pub fn org_reload_roles(&self) -> Result<roles::RoleReport, IpcError> {
-        if self.org_rt.driver.lock().unwrap().is_some() {
+        if self.org_rt.driver_active() {
             return Err(blocked(BlockedReason::ChatBusy, "組織実行が動いている間は、役割定義を読み直せません"));
         }
         let Some(root) = self.persist.store().map(|s| s.root().to_path_buf()) else {
@@ -259,7 +292,7 @@ impl Host {
 
     /// 権限を広げる役割定義を、利用者の確認のうえで有効にする。確認は今の権限に対してだけ有効。
     pub fn org_enable_role(&self, id: &str, confirmed: UserConfirmed) -> Result<roles::RoleReport, IpcError> {
-        if self.org_rt.driver.lock().unwrap().is_some() {
+        if self.org_rt.driver_active() {
             return Err(blocked(BlockedReason::ChatBusy, "組織実行が動いている間は、役割を有効にできません"));
         }
         let Some(root) = self.persist.store().map(|s| s.root().to_path_buf()) else {
@@ -307,6 +340,8 @@ impl Host {
         let grant = OrgGrant::issue(confirmed, workflow, &self.org_rt.grants);
         let _ = tx.send(DriverMsg::Install(grant));
         let _ = tx.send(DriverMsg::Input(OrgInput::UserResume));
+        // 照合から再開までの間に終わった turn を拾う（読取りだけ。確定でよい。R-ORG M6）。
+        let _ = tx.send(DriverMsg::Reconcile);
         Ok(report)
     }
 
@@ -423,7 +458,7 @@ impl Host {
         }
         *self.org_rt.roles.lock().unwrap() = Some(report);
         let driver = OrgDriver::new(core, store, Arc::new(self.clone()), self.clone() as Arc<dyn OrgSink>, Box::new(|| now_ms().0));
-        let tx = self.spawn_org_driver(workflow, driver);
+        let Some(tx) = self.spawn_org_driver(workflow, driver) else { return };
         for r in recoveries {
             let _ = tx.send(DriverMsg::Input(r));
         }
@@ -435,12 +470,19 @@ impl Host {
         }
     }
 
-    fn spawn_org_driver(self: &Arc<Self>, workflow: WorkflowId, driver: OrgDriver<Arc<Host>>) -> UnboundedSender<DriverMsg> {
+    /// 司令taskを登録して動かす。すでに動いているものがあれば何もせず None。task が終わったら（すべて終端・panic）登録を外す。
+    fn spawn_org_driver(self: &Arc<Self>, workflow: WorkflowId, driver: OrgDriver<Arc<Host>>) -> Option<UnboundedSender<DriverMsg>> {
         let (tx, rx) = unbounded_channel();
-        *self.org_rt.driver.lock().unwrap() = Some(DriverHandle { workflow, tx: tx.clone() });
-        tokio::spawn(driver.run(rx));
+        self.org_rt.try_register_driver(DriverHandle { workflow: workflow.clone(), tx: tx.clone() }).ok()?;
+        let running = tokio::spawn(driver.run(rx));
+        let host = self.clone();
+        tokio::spawn(async move {
+            // 正常終了でも panic でも、閉じた送信口を残さない。
+            let _ = running.await;
+            host.org_rt.driver_ended(&workflow);
+        });
         self.org_apply_stall_setting();
-        tx
+        Some(tx)
     }
 }
 
@@ -486,6 +528,7 @@ mod tests {
             attempts: 1,
             commit: None,
             chat_cwd: None,
+            retryable: false,
         }
     }
 
@@ -518,5 +561,38 @@ mod tests {
         assert_eq!(n[0].title.as_deref(), Some("make it"));
         let done = view(vec![task("a", TaskStatus::Completed, ConfirmState::Confirmed), task("b", TaskStatus::Cancelled, ConfirmState::Confirmed)]);
         assert!(running_notes_of(Some(&done)).is_empty());
+    }
+
+    fn handle(wf: &str) -> (DriverHandle, tokio::sync::mpsc::UnboundedReceiver<DriverMsg>) {
+        let (tx, rx) = unbounded_channel();
+        (DriverHandle { workflow: WorkflowId::new(wf), tx }, rx)
+    }
+
+    #[test]
+    fn a_finished_driver_frees_the_slot_but_a_live_one_or_a_newer_one_is_never_replaced() {
+        let rt = OrgRuntime::default();
+        assert!(!rt.driver_active());
+        let (h1, rx1) = handle("wf-1");
+        assert!(rt.try_register_driver(h1).is_ok());
+        assert!(rt.driver_active());
+        // a double press: the second registration is refused while the first is alive (R-ORG L6)
+        let (h2, _rx2) = handle("wf-2");
+        assert!(rt.try_register_driver(h2).is_err());
+        assert_eq!(rt.driver.lock().unwrap().as_ref().map(|d| d.workflow.0.clone()), Some("wf-1".to_string()));
+        // an ended-for-another-workflow notice does not remove a live driver
+        rt.driver_ended(&WorkflowId::new("wf-1"));
+        assert!(rt.driver_active());
+        // the driver finishes (its receiver is dropped): nothing is active, a new workflow may register (H4)
+        drop(rx1);
+        assert!(!rt.driver_active());
+        let (h3, rx3) = handle("wf-3");
+        assert!(rt.try_register_driver(h3).is_ok());
+        // the old driver's late "ended" notice must not remove the newer registration
+        rt.driver_ended(&WorkflowId::new("wf-1"));
+        assert!(rt.driver_active());
+        // its own ended notice does
+        drop(rx3);
+        rt.driver_ended(&WorkflowId::new("wf-3"));
+        assert!(rt.driver.lock().unwrap().is_none());
     }
 }

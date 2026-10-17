@@ -347,3 +347,35 @@ async fn a_quiet_running_task_gets_a_stall_notice_only() {
 fn running_planner_chat(r: &Rig) -> (ChatRef, ()) {
     (r.driver.core().state().unwrap().task(&TaskId::new("planner-1")).unwrap().chat().unwrap().clone(), ())
 }
+
+#[tokio::test]
+async fn a_task_that_asked_for_interrupt_is_settled_by_a_read_only_reconciliation() {
+    let mut r = rig(None);
+    let (chat, _) = running_planner(&mut r).await;
+    r.driver.on_msg(DriverMsg::Input(OrgInput::InterruptRequested { chat })).await;
+    assert_eq!(planner_confirm(&r), org_engine::ConfirmState::InterruptRequested);
+    // nothing in the history yet: it stays as it is
+    r.driver.on_msg(DriverMsg::Reconcile).await;
+    assert_eq!(planner_confirm(&r), org_engine::ConfirmState::InterruptRequested);
+    *r.fake.reconcile.lock().unwrap() = Some(TurnEnd::Interrupted);
+    r.driver.on_msg(DriverMsg::Reconcile).await;
+    let t = r.driver.core().state().unwrap().task(&TaskId::new("planner-1")).unwrap().clone();
+    assert_eq!((t.confirm(), t.status()), (org_engine::ConfirmState::Confirmed, TaskStatus::Blocked(org_engine::BlockedReason::ManualStop)));
+    assert_eq!((sends(&r), *r.fake.creates.lock().unwrap()), (1, 1), "reading only");
+}
+
+#[tokio::test]
+async fn the_driver_task_ends_once_every_task_is_finished_so_a_new_workflow_can_start() {
+    let mut r = rig(None);
+    start(&mut r).await;
+    assert!(!r.driver.is_finished());
+    assert!(r.fake.reg.is_active(&WorkflowId::new("w1")));
+    let Rig { driver, fake, .. } = r;
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    let handle = tokio::spawn(driver.run(rx));
+    // cancelling the only task (by the user) finishes the workflow
+    tx.send(DriverMsg::Input(OrgInput::UserCancelTask { task: TaskId::new("planner-1") })).unwrap();
+    tokio::time::timeout(Duration::from_secs(5), handle).await.expect("the driver stops by itself").unwrap();
+    assert!(tx.is_closed(), "the send side is closed, which is what lets the host start another workflow");
+    assert!(!fake.reg.is_active(&WorkflowId::new("w1")), "the send grant is revoked when the driver finishes");
+}

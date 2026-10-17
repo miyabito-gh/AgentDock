@@ -293,6 +293,8 @@ pub struct OrgTaskView {
     pub can_accept_manual: bool,
     /// 作成結果が不明で、利用者のチャット選択が要るか。
     pub needs_chat_choice: bool,
+    /// 「やり直す」を出せるか（送っていないことが確かで、初回のturnが受理されていない）。受理不明のものは出さない。
+    pub can_retry: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

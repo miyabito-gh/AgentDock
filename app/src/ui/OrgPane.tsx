@@ -67,6 +67,7 @@ type Confirm =
   | { kind: "replan" }
   | { kind: "cancelTask"; task: string }
   | { kind: "acceptManual"; task: string }
+  | { kind: "retry"; task: string }
   | { kind: "release"; task: string; chat: ChatKey }
   | { kind: "raise"; to: string }
   | { kind: "choose"; task: string; cands: OrgChatCandidate[] | null; error: string | null };
@@ -170,7 +171,7 @@ export function OrgPane(p: OrgPaneProps) {
     const wrap = (label: string, body: ReactNode, main: ReactNode) => <ConfirmBlock label={label} wide actions={<>{cancelBtn}{main}</>}>{body}</ConfirmBlock>;
     switch (confirm.kind) {
       case "resume":
-        return wrap("再開の確認", <p>ワークフローを再開します。必要なチャットを Codex で再開（resume）し、止めていたタスクの送信を始めます。再起動や通信断で状態を確認できていないタスクは、確認できるまで送りません。</p>,
+        return wrap("再開の確認", <p>ワークフローを再開します。必要なチャットを Codex で再開（resume）し、止めていたタスクの送信を始めます。実行中だったタスクのチャットも再開して、その状態を受け取ります（再開した後に、履歴の読取りで終端を確認し直します）。再起動や通信断で状態を確認できていないタスクは、確認できるまで送りません。</p>,
           <button className="btn primary" disabled={busy} onClick={() => void go("再開", resumeFn)}>{busy ? "再開しています…" : "再開する"}</button>);
       case "cancelWorkflow":
         return wrap("ワークフローの取消しの確認", <p>終わっていないタスクをすべて取り消します。実行中のタスクの停止は、Codex 側で確認できるまで「停止未確認」として扱います（取り消しただけで停止したとは表示しません）。取り消したものを元に戻すことはできません。</p>,
@@ -184,6 +185,9 @@ export function OrgPane(p: OrgPaneProps) {
       case "acceptManual":
         return wrap(`タスク ${confirm.task} を手動で完了にする確認`, <p>タスク {confirm.task} を、あなたの判断で完了として扱います。Codex の結果を確認できたという意味ではありません。依存するタスクが進み始めます。</p>,
           <button className="btn primary" disabled={busy} onClick={() => void go("手動完了", async () => { await host.orgAcceptManual(wf.workflowId, confirm.task); return `タスク ${confirm.task} を完了にしました。`; })}>{busy ? "処理しています…" : "完了にする"}</button>);
+      case "retry":
+        return wrap(`タスク ${confirm.task} のやり直しの確認`, <p>タスク {confirm.task} を、もう一度送れる状態に戻します。このタスクは、まだ Codex に送られていないことを確認できています（受理されたか不明なものは、ここには出ません）。新しい試行として、通常の送信と同じ手順で送ります。送信が止まっているときは、先に「再開」が必要です。</p>,
+          <button className="btn primary" disabled={busy} onClick={() => void go("やり直し", async () => { await host.orgRetryTask(wf.workflowId, confirm.task); return `タスク ${confirm.task} をやり直す状態に戻しました。`; })}>{busy ? "処理しています…" : "やり直す"}</button>);
       case "release":
         return wrap(`タスク ${confirm.task} を手動に切り替える確認`, <p>このタスクのチャット「{chatName(snap.chats, confirm.chat)}」を組織実行から切り離し、通常のチャットとして手入力で送れるようにします。以後、組織実行はこのチャットへ送りません。元に戻す操作はありません。</p>,
           <button className="btn danger" disabled={busy} onClick={() => void go("手動への切替", async () => { await host.orgReleaseChat(confirm.chat); return "手動に切り替えました。"; })}>{busy ? "切り替えています…" : "手動に切り替える"}</button>);
@@ -233,6 +237,7 @@ export function OrgPane(p: OrgPaneProps) {
       {t.chat ? <button className="btn sm" disabled={!chatExists(t.chat)} title={chatExists(t.chat) ? "このタスクのチャットを開きます（見るだけ。何も送りません）" : "チャットがまだ一覧にありません"} onClick={() => p.onOpenChat(t.chat!)}>チャットを見る</button> : null}
       {t.needsChatChoice ? <button className="btn sm" onClick={() => void openChoose(t.id)}>チャットを選ぶ…</button> : null}
       {t.chat ? <button className="btn sm" onClick={() => setConfirm({ kind: "release", task: t.id, chat: t.chat! })} title="組織実行から切り離し、手入力できる通常のチャットにします">手動に切り替え…</button> : null}
+      {t.canRetry ? <button className="btn sm" onClick={() => setConfirm({ kind: "retry", task: t.id })} title="まだ送られていないことを確認できているタスクを、もう一度送る状態に戻します">やり直す…</button> : null}
       {t.canAcceptManual ? <button className="btn sm" onClick={() => setConfirm({ kind: "acceptManual", task: t.id })}>手動で完了にする…</button> : null}
       {t.canCancel ? <button className="btn sm danger-line" onClick={() => setConfirm({ kind: "cancelTask", task: t.id })}>取り消す…</button> : null}
     </div>

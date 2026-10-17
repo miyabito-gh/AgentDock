@@ -941,6 +941,13 @@ pub async fn org_accept_manual(host: Hs<'_>, args: crate::backend::org::OrgTaskA
     host.org_accept_manual(args, &confirmed)
 }
 
+/// 止まったタスクのやり直し（送っていないことが確かなものだけ。新しい試行で、自動の再送ではない）。
+#[tauri::command]
+pub async fn org_retry_task(host: Hs<'_>, args: crate::backend::org::OrgTaskArgs) -> R<()> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.org_retry_task(args, &confirmed)
+}
+
 #[tauri::command]
 pub async fn org_raise_turn_limit(host: Hs<'_>, args: crate::backend::org::OrgRaiseTurnLimitArgs) -> R<()> {
     let confirmed = UserConfirmed::from_user_command();

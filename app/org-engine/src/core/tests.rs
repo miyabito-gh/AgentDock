@@ -29,6 +29,7 @@ struct Sim {
     hold_settle: bool,
     sandbox_ok: bool,
     auto_commit: bool,
+    refresh_fail: bool,
 }
 
 impl Sim {
@@ -47,6 +48,7 @@ impl Sim {
             hold_settle: false,
             sandbox_ok: true,
             auto_commit: true,
+            refresh_fail: false,
         }
     }
 
@@ -81,6 +83,10 @@ impl Sim {
             OrgAction::Workspace(WorkspaceAction::Commit { task, .. }) if self.auto_commit => {
                 Some(OrgInput::WorkspaceResult { task: task.clone(), result: WorkspaceOutcome::Committed { commit: format!("c-{task}") } })
             }
+            OrgAction::Workspace(WorkspaceAction::RefreshDetached { task, cwd, .. }) => Some(OrgInput::WorkspaceResult {
+                task: task.clone(),
+                result: if self.refresh_fail { WorkspaceOutcome::Failed { detail: "x".into() } } else { WorkspaceOutcome::WorktreeCreated { path: cwd.clone() } },
+            }),
             OrgAction::CheckSandbox { .. } => Some(OrgInput::SandboxChecked { ok: self.sandbox_ok, detail: "d".into() }),
             OrgAction::Send { task, attempt, .. } => {
                 if self.notlive_sends.contains(task) {
@@ -740,4 +746,200 @@ fn shutdown_of_a_finished_workflow_records_nothing() {
     sim.feed(OrgInput::TurnEnded { chat: ca, turn: ta, end: TurnEndKind::Failed { usage_limit: false } });
     sim.feed(OrgInput::Shutdown);
     assert_ne!(sim.st().halt(), Some(HaltReason::Shutdown));
+}
+
+// ---------------------------------------------------------------- R-ORG fixes
+
+#[test]
+fn a_plan_waiting_for_approval_survives_a_restart_and_resume_does_not_start_it() {
+    let mut sim = Sim::new();
+    sim.with_plan(&plan_json(&[("a", "worker", &[], &["networkOrInstall"])]));
+    assert_eq!(sim.st().halt(), Some(HaltReason::AwaitingPlanApproval));
+    let mut state = sim.st().clone();
+    let (events, _) = classify_after_restart(&mut state, 9).unwrap();
+    assert!(!events.iter().any(|e| matches!(e.kind, OrgEventKind::Halted { .. })), "the approval wait is not overwritten");
+    assert_eq!(state.halt(), Some(HaltReason::AwaitingPlanApproval));
+    let mut r = Sim::from_core(OrgCore::restored(state, 10));
+    r.feed(OrgInput::Grant { granted: true });
+    r.feed(OrgInput::UserResume);
+    assert_eq!(r.st().halt(), Some(HaltReason::AwaitingPlanApproval), "resume does not approve");
+    assert!(!r.log.iter().any(|a| matches!(a, OrgAction::CreateRoleChat { .. } | OrgAction::Send { .. } | OrgAction::Workspace(_))));
+    r.feed(OrgInput::UserApprovePlan);
+    assert_eq!(r.st().halt(), None);
+    assert_eq!(r.sends("a"), 1);
+}
+
+#[test]
+fn a_reviewing_task_whose_turn_ended_is_not_reconciled_and_the_review_completes_after_a_wake() {
+    let mut sim = Sim::new();
+    sim.with_plan(&plan_json(&[("w", "worker", &[], &[]), ("r", "reviewer", &["w"], &[])]));
+    sim.complete_turn("w", REPORT);
+    assert_eq!(sim.t("w").status(), TaskStatus::Reviewing);
+    assert_eq!(sim.t("r").status(), TaskStatus::Running);
+    // restart classification: only the running reviewer needs reconciling
+    let mut state = sim.st().clone();
+    let (_, changed) = classify_after_restart(&mut state, 9).unwrap();
+    assert_eq!(changed.iter().map(|c| c.task.0.as_str()).collect::<Vec<_>>(), ["r"]);
+    assert_eq!(state.task(&tid("w")).unwrap().confirm(), ConfirmState::Confirmed);
+    sim.feed(OrgInput::Freshness { cause: ReconcileCause::Wake });
+    assert_eq!(sim.t("w").confirm(), ConfirmState::Confirmed);
+    assert_eq!(sim.t("r").confirm(), ConfirmState::NeedsReconcile(ReconcileCause::Wake));
+    // the read-only reconciliation finds the reviewer's end
+    sim.complete_turn("r", PASS);
+    sim.feed(OrgInput::UserResume);
+    assert_eq!(sim.t("w").status(), TaskStatus::Completed);
+    assert_eq!(sim.t("w").confirm(), ConfirmState::Confirmed);
+    assert_eq!(sim.t("r").status(), TaskStatus::Completed);
+    assert!(sim.notices().iter().any(|n| matches!(n, OrgNotice::WorkflowCompleted)));
+}
+
+#[test]
+fn an_interrupt_requested_task_is_settled_by_the_observed_end() {
+    let mut sim = Sim::new();
+    sim.with_plan(&plan_json(&[("a", "worker", &[], &[])]));
+    let chat = sim.t("a").chat().unwrap().clone();
+    sim.feed(OrgInput::InterruptRequested { chat });
+    assert_eq!(sim.t("a").confirm(), ConfirmState::InterruptRequested);
+    // a restart keeps it as is (it is not reclassified), and the read-only reconciliation brings the end back
+    let mut state = sim.st().clone();
+    let (_, changed) = classify_after_restart(&mut state, 9).unwrap();
+    assert!(changed.is_empty());
+    sim.complete_turn("a", REPORT);
+    assert_eq!(sim.t("a").confirm(), ConfirmState::Confirmed);
+    assert_eq!(sim.t("a").status(), TaskStatus::Completed);
+}
+
+#[test]
+fn a_reviewer_is_dispatched_even_when_the_reviewed_worker_would_fill_the_only_slot() {
+    let mut sim = Sim::new();
+    sim.start(Limits::default().with_parallelism(1, 1).unwrap());
+    sim.complete_turn("planner-1", &plan_json(&[("w", "worker", &[], &[]), ("r", "reviewer", &["w"], &[])]));
+    sim.complete_turn("w", REPORT);
+    assert_eq!(sim.t("w").status(), TaskStatus::Reviewing);
+    assert_eq!(sim.t("r").status(), TaskStatus::Running, "the review is not starved by the finished worker turn");
+    assert_eq!(sim.sends("r"), 1);
+}
+
+#[test]
+fn a_rereview_moves_the_reviewers_worktree_first_and_never_sends_when_that_fails() {
+    let mut sim = Sim::new();
+    sim.with_plan(&plan_json(&[("w", "worker", &[], &[]), ("r", "reviewer", &["w"], &[])]));
+    sim.complete_turn("w", REPORT);
+    sim.complete_turn("r", REWORK);
+    sim.complete_turn("w", REPORT);
+    let refresh = sim
+        .log
+        .iter()
+        .position(|a| matches!(a, OrgAction::Workspace(WorkspaceAction::RefreshDetached { task, commit, .. }) if task.0 == "r" && commit == "c-w"))
+        .expect("refresh action");
+    let second_send = sim
+        .log
+        .iter()
+        .enumerate()
+        .filter(|(_, a)| matches!(a, OrgAction::Send { task, .. } if task.0 == "r"))
+        .nth(1)
+        .map(|(i, _)| i)
+        .expect("second review sent");
+    assert!(refresh < second_send, "the worktree is moved before the re-review is sent");
+    assert_eq!(sim.t("r").status(), TaskStatus::Running);
+
+    let mut sim = Sim::new();
+    sim.with_plan(&plan_json(&[("w", "worker", &[], &[]), ("r", "reviewer", &["w"], &[])]));
+    sim.complete_turn("w", REPORT);
+    sim.complete_turn("r", REWORK);
+    sim.refresh_fail = true;
+    sim.complete_turn("w", REPORT);
+    assert_eq!(sim.sends("r"), 1, "nothing is sent to a stale worktree");
+    assert_eq!(sim.t("r").status(), TaskStatus::Blocked(BlockedReason::NeedsAttention));
+    assert!(!matches!(sim.t("r").status(), TaskStatus::Failed(_) | TaskStatus::Cancelled));
+}
+
+#[test]
+fn child_counts_read_before_an_interruption_do_not_complete_a_task() {
+    let mut sim = Sim::new();
+    sim.with_plan(&plan_json(&[("w", "worker", &[], &[])]));
+    let (chat, turn) = (sim.t("w").chat().unwrap().clone(), sim.t("w").accepted_turn().unwrap().clone());
+    sim.feed(OrgInput::Descendants { chat: chat.clone(), working: 0, unknown: 0, scan_complete: true });
+    sim.feed(OrgInput::Freshness { cause: ReconcileCause::Disconnect });
+    sim.feed(OrgInput::TurnEnded { chat, turn: turn.clone(), end: TurnEndKind::Completed });
+    sim.feed(OrgInput::FinalMessage { task: tid("w"), turn, text: Some(REPORT.into()) });
+    let acts = sim.feed(OrgInput::UserResume);
+    assert!(!acts.iter().any(|a| matches!(a, OrgAction::Workspace(_))), "the old child count is not used");
+    assert_eq!(sim.t("w").status(), TaskStatus::Running);
+    let chat = sim.t("w").chat().unwrap().clone();
+    sim.feed(OrgInput::Descendants { chat, working: 0, unknown: 0, scan_complete: true });
+    assert_eq!(sim.t("w").status(), TaskStatus::Completed, "a new read lets it go on");
+}
+
+#[test]
+fn a_task_whose_first_send_certainly_did_not_happen_can_be_retried_by_the_user() {
+    let mut sim = Sim::new();
+    sim.unknown_sends.insert(tid("a"));
+    sim.with_plan(&plan_json(&[("a", "worker", &[], &[])]));
+    // still unknown: never retried
+    let acts = sim.feed(OrgInput::UserRetryTask { task: tid("a") });
+    assert!(acts.iter().any(|a| matches!(a, OrgAction::Notify(OrgNotice::Refused { .. }))));
+    assert_eq!(sim.sends("a"), 1);
+    let attempt = sim.t("a").last_attempt().unwrap().clone();
+    sim.feed(OrgInput::SendSettled { task: tid("a"), attempt, outcome: SettleOutcome::ReconciledNotFound });
+    assert_eq!(sim.t("a").status(), TaskStatus::Blocked(BlockedReason::NeedsAttention));
+    sim.unknown_sends.clear();
+    sim.feed(OrgInput::UserRetryTask { task: tid("a") });
+    assert_eq!(sim.sends("a"), 2, "a new attempt, by the user's operation");
+    assert_eq!(sim.t("a").status(), TaskStatus::Running);
+    // a task that was accepted once is not retried this way
+    let acts = sim.feed(OrgInput::UserRetryTask { task: tid("a") });
+    assert!(acts.iter().any(|a| matches!(a, OrgAction::Notify(OrgNotice::Refused { .. }))));
+    assert_eq!(sim.sends("a"), 2);
+}
+
+#[test]
+fn a_rejected_chat_creation_can_be_retried_but_an_unknown_one_cannot() {
+    let mut core = OrgCore::new(1);
+    core.handle(OrgInput::Grant { granted: true });
+    core.handle(OrgInput::Start { workflow: WorkflowId::new("w1"), request: "r".into(), repo: "p".into(), limits: Limits::default() });
+    core.handle(OrgInput::ChatCreated { task: tid("planner-1"), result: CreateResult::Rejected("no".into()) });
+    let t = core.state().unwrap().task(&tid("planner-1")).unwrap();
+    assert_eq!((t.status(), t.confirm(), t.chat_cwd()), (TaskStatus::Blocked(BlockedReason::NeedsAttention), ConfirmState::Confirmed, None));
+    let acts = core.handle(OrgInput::UserRetryTask { task: tid("planner-1") });
+    assert!(acts.iter().any(|a| matches!(a, OrgAction::CreateRoleChat { .. })), "creation is asked again by the user's operation");
+
+    let mut core = OrgCore::new(1);
+    core.handle(OrgInput::Grant { granted: true });
+    core.handle(OrgInput::Start { workflow: WorkflowId::new("w1"), request: "r".into(), repo: "p".into(), limits: Limits::default() });
+    core.handle(OrgInput::ChatCreated { task: tid("planner-1"), result: CreateResult::Unknown });
+    let acts = core.handle(OrgInput::UserRetryTask { task: tid("planner-1") });
+    assert!(acts.iter().any(|a| matches!(a, OrgAction::Notify(OrgNotice::Refused { .. }))));
+    assert!(!acts.iter().any(|a| matches!(a, OrgAction::CreateRoleChat { .. })));
+    // the user picks the chat: the task goes on from the start (nothing was ever sent)
+    let acts = core.handle(OrgInput::ChatRecovered { task: tid("planner-1"), chat: ChatRef::new("codex:th") });
+    let t = core.state().unwrap().task(&tid("planner-1")).unwrap();
+    assert_eq!((t.confirm(), t.chat()), (ConfirmState::Confirmed, Some(&ChatRef::new("codex:th"))));
+    assert!(!acts.iter().any(|a| matches!(a, OrgAction::CreateRoleChat { .. })));
+    assert!(acts.iter().any(|a| matches!(a, OrgAction::CheckSandbox { .. })), "it goes on to the usual launch");
+}
+
+#[test]
+fn role_instructions_go_before_the_work_prompt() {
+    let loaded: Vec<LoadedRole> = crate::roledef::standard_definitions()
+        .into_iter()
+        .map(|mut d| {
+            if d.id == "planner" {
+                d.instructions = "MY-ROLE-TEXT".into();
+            }
+            let id = d.id.clone();
+            crate::roledef::load_role(d, &id, None).unwrap()
+        })
+        .collect();
+    let mut core = OrgCore::new(1000);
+    core.set_roles(&loaded).unwrap();
+    let mut sim = Sim::from_core(core);
+    sim.feed(OrgInput::Grant { granted: true });
+    sim.start(Limits::default());
+    let text = sim
+        .log
+        .iter()
+        .find_map(|a| if let OrgAction::Send { task, text, .. } = a { (task.0 == "planner-1").then(|| text.clone()) } else { None })
+        .unwrap();
+    assert!(text.starts_with("【この役割の指示】\nMY-ROLE-TEXT"));
 }

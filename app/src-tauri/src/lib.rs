@@ -279,6 +279,7 @@ pub fn run() {
             commands::org_replan,
             commands::org_cancel,
             commands::org_accept_manual,
+            commands::org_retry_task,
             commands::org_raise_turn_limit,
             commands::org_release_chat,
             commands::org_recover_candidates,

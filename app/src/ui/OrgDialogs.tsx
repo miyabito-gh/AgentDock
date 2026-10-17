@@ -87,6 +87,18 @@ export function OrgSettingsBody({ live, stallMinutes, setStall }: OrgSettingsPro
     finally { setBusy(false); }
   }, [live]);
   useEffect(() => { void load(false); }, [load]);
+  // 有効化の確認が開いているあいだ、Esc は確認だけを閉じる（設定画面ごと閉じない。IME変換中は何もしない。実行中は閉じずに受け流す）。
+  useEffect(() => {
+    if (!enabling) return;
+    const h = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.isComposing) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (!busy) setEnabling(null);
+    };
+    document.addEventListener("keydown", h, true);
+    return () => document.removeEventListener("keydown", h, true);
+  }, [enabling, busy]);
 
   const open = async (file: string) => {
     try { await host.orgOpenRoleFile(file); setMsg(`「${file}」を関連アプリで開きました。編集後は「再読込み」を押してください。`); }

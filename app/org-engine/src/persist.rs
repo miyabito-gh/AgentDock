@@ -165,6 +165,8 @@ pub enum OrgEventKind {
     ChatRequested { task: TaskId, cwd: String },
     /// The chat was created and its ownership record saved.
     ChatBound { task: TaskId, chat: ChatRef },
+    /// The creation was certainly rejected (no chat exists): forget the request so the user can retry.
+    ChatRequestAbandoned { task: TaskId },
     /// Recorded before sending (`TurnSpent` goes with it).
     Dispatched { task: TaskId, attempt: AttemptRef, client_message_id: String, kind: TurnKind },
     DispatchSettled { task: TaskId, attempt: AttemptRef, outcome: SettleOutcome },
@@ -258,6 +260,13 @@ impl WorkflowState {
                     return Err(ApplyError::ChatNotRequested(task.clone()));
                 }
                 t.chat = Some(chat.clone());
+            }
+            OrgEventKind::ChatRequestAbandoned { task } => {
+                let t = self.task_mut(task)?;
+                if t.chat.is_some() || t.chat_cwd.is_none() {
+                    return Err(ApplyError::ChatNotRequested(task.clone()));
+                }
+                t.chat_cwd = None;
             }
             OrgEventKind::Dispatched { task, attempt, kind, .. } => {
                 let t = self.task_mut(task)?;
@@ -515,6 +524,8 @@ pub fn classify_after_restart(state: &mut WorkflowState, at_ms: i64) -> Result<(
         .tasks
         .iter()
         .filter(|t| matches!(t.status, TaskStatus::Running | TaskStatus::Reviewing) && t.confirm == ConfirmState::Confirmed)
+        // Its own turn has ended (observed): nothing may still be running on the Codex side (H2).
+        .filter(|t| !t.is_idle_reviewing())
         .map(|t| t.id.clone())
         .collect();
     for id in ids {
@@ -522,7 +533,9 @@ pub fn classify_after_restart(state: &mut WorkflowState, at_ms: i64) -> Result<(
         events.push(state.record(OrgEventKind::ConfirmChanged { task: id.clone(), to }, at_ms)?);
         changed.push(Reclassified { task: id, from: ConfirmState::Confirmed, to });
     }
-    if state.halt != Some(HaltReason::Restart) {
+    // A plan waiting for the user's approval stays as it is: overwriting it would drop the approval
+    // card and let "resume" start unapproved tasks (R-ORG H1).
+    if !matches!(state.halt, Some(HaltReason::Restart | HaltReason::AwaitingPlanApproval)) {
         events.push(state.record(OrgEventKind::Halted { reason: Some(HaltReason::Restart) }, at_ms)?);
     }
     Ok((events, changed))

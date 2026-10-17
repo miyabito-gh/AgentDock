@@ -216,4 +216,50 @@ mod tests {
         let g = OrgGrant::issue_for_test(WorkflowId::new("w1"), &reg);
         assert!(g.permit(&reg, &TaskId::new("t"), &chat("a")).is_err());
     }
+
+    /// 送信権・利用者の確認の「型保証」は、呼ぶ場所を限る約束に依る。約束が崩れていないことをソースで確かめる（R-ORG L7）。
+    #[test]
+    fn user_confirmation_and_send_grants_are_made_only_where_the_user_acts() {
+        fn rs_files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+            for e in std::fs::read_dir(dir).unwrap().filter_map(|e| e.ok()) {
+                let p = e.path();
+                if p.is_dir() {
+                    rs_files(&p, out);
+                } else if p.extension().is_some_and(|x| x == "rs") {
+                    out.push(p);
+                }
+            }
+        }
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut files = Vec::new();
+        rs_files(&src, &mut files);
+        assert!(files.len() > 50, "the scan found the sources");
+        // 製品コード（`#[cfg(test)]` より前）だけを見る。
+        let product = |p: &std::path::Path| {
+            let text = std::fs::read_to_string(p).unwrap();
+            text.split("#[cfg(test)]").next().unwrap_or("").to_string()
+        };
+        let rel = |p: &std::path::Path| p.strip_prefix(&src).unwrap().to_string_lossy().replace('\\', "/");
+        // 利用者の確認を作ってよいのは、コマンド層・その定義・既存の利用者操作（名前付け・変更確認）だけ。組織実行の経路（host/org・gitops・store）からは作らない。
+        let allowed_confirm = ["commands.rs", "backend/backend.rs", "host/changes.rs", "host/mod.rs"];
+        // 組織の送信権を作ってよいのは、利用者の開始・再開の操作だけ（host/org/mod.rs）。
+        let mut confirm_users = Vec::new();
+        let mut grant_issuers = Vec::new();
+        for f in &files {
+            let name = rel(f);
+            let text = product(f);
+            if text.contains("from_user_command(") && !name.ends_with("backend/backend.rs") {
+                confirm_users.push(name.clone());
+            }
+            if text.contains("OrgGrant::issue(") || (text.contains("fn issue(") && name == "host/org/grant.rs") {
+                grant_issuers.push(name);
+            }
+        }
+        for n in &confirm_users {
+            assert!(allowed_confirm.contains(&n.as_str()), "{n} makes a UserConfirmed outside the user-action layer");
+            assert!(!n.starts_with("host/org/") && !n.starts_with("gitops/") && !n.starts_with("store/"), "{n} is on the organisation path");
+        }
+        grant_issuers.sort();
+        assert_eq!(grant_issuers, ["host/org/grant.rs", "host/org/mod.rs"], "OrgGrant is made only by the start / resume operations");
+    }
 }

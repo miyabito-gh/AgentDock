@@ -132,6 +132,12 @@ pub fn prepare_roles(root: &Path, now_ms: i64) -> RoleReport {
         Ok(created) => {
             let mut second = load_roles(root, now_ms);
             let mut problems = first.problems;
+            // 壊れた標準役割は退避した後、既定の内容で作り直している。黙って既定に戻さず、その旨を理由に足す（R-ORG L9）。
+            for p in problems.iter_mut().filter(|p| p.aside.is_some()) {
+                if created.iter().any(|id| p.file == format!("{id}.json")) {
+                    p.reasons.push("標準の内容で作り直しました（元のファイルは退避しています。直したい場合は、退避したファイルの内容を元の名前へ戻してください）".to_string());
+                }
+            }
             let more: Vec<RoleProblem> = second.problems.drain(..).filter(|p| !problems.contains(p)).collect();
             problems.extend(more);
             RoleReport { roles: second.roles, problems, created }
@@ -164,7 +170,7 @@ pub fn enable_role(root: &Path, report: &mut RoleReport, id: &str, _confirmed: U
 #[cfg(test)]
 mod tests {
     use super::*;
-    use org_engine::{ApprovalPolicy, Workplace};
+    use org_engine::ApprovalPolicy;
 
     fn temp_root(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("agentdock-roles-{name}-{}", std::process::id()));
@@ -226,9 +232,12 @@ mod tests {
         assert!(r.roles.iter().find(|x| x.def.id == "reviewer").unwrap().enabled());
         // 読み直しても印が効く。権限をさらに広げると効かなくなる。
         assert!(load_roles(&root, 3).roles.iter().find(|x| x.def.id == "reviewer").unwrap().enabled());
+        // 適用されない設定（承認方針の変更）は、無効ではなく読込みの問題として理由つきで報告する。
         d.approval = ApprovalPolicy::Never;
         write_def(&root, &d);
-        assert!(!load_roles(&root, 4).roles.iter().find(|x| x.def.id == "reviewer").unwrap().enabled());
+        let r4 = load_roles(&root, 4);
+        assert!(r4.roles.iter().all(|x| x.def.id != "reviewer"));
+        assert!(r4.problems.iter().any(|p| p.file == "reviewer.json" && p.reasons.iter().any(|m| m.contains("未対応"))));
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -241,8 +250,7 @@ mod tests {
         let root = temp_root("narrow");
         prepare_roles(&root, 1);
         let mut d = std_def("worker");
-        d.approval = ApprovalPolicy::Untrusted;
-        d.workplace = Workplace::DetachedAtCommit;
+        d.sandbox = org_engine::SandboxKind::ReadOnly;
         write_def(&root, &d);
         let r = load_roles(&root, 2);
         let w = r.roles.iter().find(|x| x.def.id == "worker").unwrap();
@@ -264,7 +272,7 @@ mod tests {
         let aside = roles_dir(&root).join("reviewer.json.corrupt-77");
         assert_eq!(std::fs::read(&aside).unwrap(), b"{ not json");
         assert_eq!(r.created, vec!["reviewer".to_string()]);
-        assert!(r.problems.iter().any(|p| p.file == "reviewer.json" && p.aside.is_some()));
+        assert!(r.problems.iter().any(|p| p.file == "reviewer.json" && p.aside.is_some() && p.reasons.iter().any(|m| m.contains("作り直しました"))));
         // 検証に通らない定義は、そのまま残して理由を返す。
         assert!(r.problems.iter().any(|p| p.file == "tester.json" && p.aside.is_none() && !p.reasons.is_empty()));
         assert!(roles_dir(&root).join("tester.json").exists());

@@ -14,7 +14,7 @@ pub mod state;
 pub mod types;
 
 pub use core::{
-    standard_roles, CreateResult, NoticeUrgency, OrgAction, OrgCore, OrgInput, OrgNotice, RoleChatSpec, SandboxKind, WorkspaceAction,
+    retryable, standard_roles, CreateResult, NoticeUrgency, OrgAction, OrgCore, OrgInput, OrgNotice, RoleChatSpec, SandboxKind, WorkspaceAction,
     WorkspaceOutcome, WorktreeBase,
 };
 pub use dag::{isolated_tasks, validate_plan, PlanError};

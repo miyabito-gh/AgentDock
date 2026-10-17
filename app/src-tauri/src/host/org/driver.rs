@@ -89,6 +89,8 @@ pub struct TaskSnapshot {
     pub commit: Option<String>,
     /// 役割チャットの作成を始めたときの作業フォルダ（作成結果が不明なタスクの候補探しに使う）。
     pub chat_cwd: Option<String>,
+    /// 「やり直す」を出せる（送っていないことが確かで、初回のturnが受理されていない。R-ORG M2）。
+    pub retryable: bool,
 }
 
 /// エンジンの状態から画面向けの写しを作る。
@@ -112,6 +114,7 @@ pub fn snapshot_of(state: &org_engine::WorkflowState) -> OrgSnapshot {
                 attempts: t.attempts(),
                 commit: t.commit().map(str::to_string),
                 chat_cwd: t.chat_cwd().map(str::to_string),
+                retryable: org_engine::retryable(t),
             })
             .collect(),
         request: state.request().to_string(),
@@ -174,7 +177,20 @@ impl<P: AgentRuntime + RuntimeRead + Workspace + 'static> OrgDriver<P> {
                     self.on_tick(n).await;
                 }
             }
+            if self.is_finished() {
+                // すべて終わった。最後の状態は公開・保存済み。送信権を手放し、この task を終える（`Host` が登録を外す）。
+                self.grant = None;
+                self.ports.grants().revoke_all();
+                break;
+            }
         }
+    }
+
+    /// ワークフローのすべてのタスクが終端（完了・失敗・取消）になった。以後この task にできることはない。
+    pub fn is_finished(&self) -> bool {
+        self.core.state().is_some_and(|s| {
+            !s.tasks().is_empty() && s.tasks().iter().all(|t| matches!(t.status(), TaskStatus::Completed | TaskStatus::Failed(_) | TaskStatus::Cancelled))
+        })
     }
 
     pub async fn on_msg(&mut self, msg: DriverMsg) {
@@ -222,7 +238,8 @@ impl<P: AgentRuntime + RuntimeRead + Workspace + 'static> OrgDriver<P> {
         }
     }
 
-    /// 再起動・wake・再接続後の照合。読取りだけ（履歴の読込みと `git status`）で、resume・送信・中断をしない。
+    /// 再起動・wake・再接続後の照合（および「再開」の後の読み直し）。読取りだけ（履歴の読込みと `git status`）で、resume・送信・中断をしない。
+    /// 対象は、確認状態が要照合・中断要求済み・停止未確認の `running` のタスク。
     /// 終端を履歴で確認できたタスクだけ `TurnEnded` を知らせる（その後の完了判定は通常どおり：成果物の検証・子孫の確認・書込みは再開後）。
     /// 確認できない（進行中・不明・読取り失敗）ものは要照合のまま残し、結果を通知に控える。
     async fn reconcile_read_only(&mut self) {
@@ -230,7 +247,10 @@ impl<P: AgentRuntime + RuntimeRead + Workspace + 'static> OrgDriver<P> {
         let targets: Vec<(TaskId, ChatRef, org_engine::TurnRef, Option<String>)> = state
             .tasks()
             .iter()
-            .filter(|t| t.status() == TaskStatus::Running && matches!(t.confirm(), ConfirmState::NeedsReconcile(_)))
+            .filter(|t| {
+                t.status() == TaskStatus::Running
+                    && matches!(t.confirm(), ConfirmState::NeedsReconcile(_) | ConfirmState::InterruptRequested | ConfirmState::StopUnconfirmed)
+            })
             .filter_map(|t| Some((t.id.clone(), t.chat()?.clone(), t.accepted_turn()?.clone(), t.chat_cwd().map(str::to_string))))
             .collect();
         for (task, chat, turn, cwd) in targets {
@@ -375,7 +395,7 @@ impl<P: AgentRuntime + RuntimeRead + Workspace + 'static> OrgDriver<P> {
             // 作業場所（worktree作成・所有worktree内のコミット）。結果は成功・失敗・変更なし・未対応のまま返す（推定しない）。
             OrgAction::Workspace(w) => {
                 let task = match &w {
-                    WorkspaceAction::CreateWorktree { task, .. } | WorkspaceAction::Commit { task, .. } => task.clone(),
+                    WorkspaceAction::CreateWorktree { task, .. } | WorkspaceAction::Commit { task, .. } | WorkspaceAction::RefreshDetached { task, .. } => task.clone(),
                 };
                 let result = match self.core.state().map(|s| s.workflow_id().clone()) {
                     Some(workflow) => self.ports.run(&workflow, w).await,

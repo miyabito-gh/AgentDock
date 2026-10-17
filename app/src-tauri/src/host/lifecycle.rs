@@ -301,15 +301,16 @@ impl Host {
             self.mutate(|_| ((), vec![HostEvent::QuitPrompt { phase: current.clone() }]));
             return current;
         }
-        // 前置: 組織実行の新規ディスパッチを止める（送信権の失効＋停止）。確認を取り消しても自動では再開しない（再開は利用者の操作）。
-        // 実行中のタスクの中断は、この後の既存の停止手順（`interrupt_chat`）が行う。タスクを取消・失敗にはしない。
-        self.org_begin_shutdown();
         let busy = busy_for_quit(&self.chat_works());
         if busy.is_empty() {
+            // 確認なしで終了する: 組織実行の新規ディスパッチを止める（送信権の失効＋停止）。タスクを取消・失敗にはしない。
+            self.org_begin_shutdown();
             let gen = self.start_quit_phase(QuitPhase::Flushing);
             self.spawn_quit_driver(gen, Vec::new());
             return QuitPhase::Flushing;
         }
+        // 確認を出す間は止めない（「やめる」を選べば何も変わらない）。止めるのは「作業を中断して終了」を選んだときだけ（`quit_decision`）。
+        // 実行中のタスクの中断は、その後の既存の停止手順（`interrupt_chat`）が行う。
         let phase = QuitPhase::Confirming { busy, org_running: self.org_running_notes() };
         self.start_quit_phase(phase.clone());
         phase

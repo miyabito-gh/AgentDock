@@ -182,6 +182,18 @@ impl Host {
         Ok(())
     }
 
+    /// 止まったタスクを、利用者の操作でやり直す（新しい試行。自動の再送ではない）。送っていないことが確かなものだけ
+    /// （エンジンも同じ条件で確かめ、受理不明のものは受けない）。送信するには、動いている送信権（なければ「再開」）が要る。
+    pub fn org_retry_task(&self, args: OrgTaskArgs, _confirmed: &UserConfirmed) -> Result<(), IpcError> {
+        let (_, tx) = self.org_check_workflow(&args.workflow_id)?;
+        let t = self.org_task_of_view(&args.task)?;
+        if !t.retryable {
+            return Err(err(IpcErrorCode::InvalidArgs, "このタスクは、送っていないことを確認できないため、やり直せません"));
+        }
+        let _ = tx.send(DriverMsg::Input(OrgInput::UserRetryTask { task: t.id }));
+        Ok(())
+    }
+
     /// turn 上限を上げる（今の値より大きいときだけ）。
     pub fn org_raise_turn_limit(&self, args: OrgRaiseTurnLimitArgs, _confirmed: &UserConfirmed) -> Result<(), IpcError> {
         let (_, tx) = self.org_check_workflow(&args.workflow_id)?;
@@ -328,6 +340,7 @@ mod tests {
             attempts: 1,
             commit: None,
             chat_cwd: None,
+            retryable: false,
         }
     }
 
@@ -429,6 +442,25 @@ mod tests {
         host.org_raise_turn_limit(OrgRaiseTurnLimitArgs { workflow_id: "wf-1".into(), to: 50 }, &c).unwrap();
         let sent = drain(&mut rx);
         assert!(sent[0].contains("UserAcceptManual") && sent[1].contains("UserRaiseTurnLimit"));
+    }
+
+    #[test]
+    fn retry_reaches_the_engine_only_for_a_task_known_not_to_have_been_sent() {
+        let c = UserConfirmed::from_user_command();
+        let mut sure = task("a", TaskStatus::Blocked(EBlocked::NeedsAttention));
+        sure.retryable = true;
+        let unsure = task("b", TaskStatus::Blocked(EBlocked::NeedsAttention));
+        let (host, mut rx) = host_with_workflow(None, vec![sure, unsure]);
+        let args = |t: &str| OrgTaskArgs { workflow_id: "wf-1".into(), task: t.into() };
+        assert_eq!(host.org_retry_task(args("b"), &c).unwrap_err().code, IpcErrorCode::InvalidArgs);
+        assert_eq!(host.org_retry_task(OrgTaskArgs { workflow_id: "other".into(), task: "a".into() }, &c).unwrap_err().code, IpcErrorCode::NotFound);
+        assert!(drain(&mut rx).is_empty());
+        host.org_retry_task(args("a"), &c).unwrap();
+        let sent = drain(&mut rx);
+        assert_eq!(sent.len(), 1);
+        assert!(sent[0].contains("UserRetryTask"));
+        // 送信権は作らない。
+        assert!(!host.org_rt.grants.is_active(&WorkflowId::new("wf-1")));
     }
 
     #[test]

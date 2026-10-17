@@ -2,6 +2,9 @@
 //!
 //! - `commit_all_in_owned_worktree`: 所有記録・ブランチ（`agentdock/org/`）・Gitの一覧・実在パスをすべて確認してからコミットする。
 //!   利用者のブランチ・作業ツリー・記録のないパスは拒否する（コミットしない）。push・merge・reset・force・チェックアウトの操作は持たない。
+//!   書込みは、作業フォルダの `.git` が記録のworktreeの管理フォルダを指していることを確かめたうえで、`--git-dir`・`--work-tree` を明示して行う
+//!   （Workerのsandboxから `.git` ファイルを書き換えられても、別のgitdir・ブランチへは書かない）。フックは走らせない。
+//! - `refresh_detached_worktree`: 再レビューのため、所有する読取り用worktreeを別のコミットへ動かす（確認は同じ。HEADを読み戻して確かめる）。
 //! - `add_detached_worktree`: 対象コミットを固定したdetached worktree（Reviewer等の読取り用）。ブランチを作らず、利用者のブランチを使わない。
 //! - `diff_commits`: コミット間差分（統計と変更ファイル一覧。読取りのみ）。
 //!
@@ -13,7 +16,7 @@ use super::worktree::{self as gw, ok, WtError};
 use super::{Git, GitOp};
 use crate::backend::model::WorktreeRecord;
 use crate::rules::baseline::norm_path;
-use crate::rules::org_worktree::{authorize_commit, parse_name_status, ChangedFile, Refusal};
+use crate::rules::org_worktree::{admin_dir_matches, authorize_commit, authorize_refresh, parse_name_status, ChangedFile, Refusal};
 use crate::rules::worktree::is_under;
 
 /// 組織実行のGit操作の失敗。拒否（操作していない）とGitの失敗を区別する。
@@ -67,12 +70,7 @@ pub async fn commit_all_in_owned_worktree(git: &Git, records: &[WorktreeRecord],
     // 1. 記録（所有・書込み用・作成済み・置き場所配下・組織のブランチ）。
     let rec = authorize_commit(records, root, path, workflow, task)?;
     // 2. 実在と、リンク越えでないこと。
-    let (Some(real), Some(real_root)) = (resolved(Path::new(&rec.path)), resolved(Path::new(root))) else {
-        return Err(Refusal::PathMissing.into());
-    };
-    if !is_under(&real_root, &real) {
-        return Err(Refusal::OutsideRoot.into());
-    }
+    check_location(rec, root)?;
     // 3. Gitの一覧: メインの作業ツリーではなく、記録のブランチを今も指している。
     let listed = gw::list(git, Path::new(&rec.repo_root)).await?;
     let idx = listed.iter().position(|w| norm_path(&w.path) == norm_path(&rec.path)).ok_or(Refusal::NotListed)?;
@@ -82,18 +80,71 @@ pub async fn commit_all_in_owned_worktree(git: &Git, records: &[WorktreeRecord],
     if listed[idx].branch.as_deref() != Some(rec.branch.as_str()) {
         return Err(Refusal::BranchMismatch.into());
     }
+    // 4. 作業フォルダの `.git` が、このworktreeの管理フォルダを指している（一覧は管理フォルダを読むので、`.git` の書換えはここで見つける）。
+    let gitdir = verify_admin_dir(git, rec).await?;
     let dir = Path::new(&rec.path);
     if gw::dirty_count(git, dir).await? == 0 {
         return Ok(CommitResult::NothingToCommit);
     }
-    ok(git.run(dir, &GitOp::StageAll).await.map_err(WtError::from)?)?;
-    ok(git.run(dir, &GitOp::CommitStaged { message: message.to_string() }).await.map_err(WtError::from)?)?;
-    let head = ok(git.run(dir, &GitOp::Head).await.map_err(WtError::from)?)?;
+    // 5. 確認した管理フォルダを明示して書く（確認の後に `.git` を書き換えられても、そこへは書かない）。
+    ok(git.run_pinned(dir, &gitdir, &GitOp::StageAll).await.map_err(WtError::from)?)?;
+    ok(git.run_pinned(dir, &gitdir, &GitOp::CommitStaged { message: message.to_string() }).await.map_err(WtError::from)?)?;
+    let head = ok(git.run_pinned(dir, &gitdir, &GitOp::Head).await.map_err(WtError::from)?)?;
     let commit = head.stdout_text().trim().to_string();
     if commit.is_empty() {
         return Err(WtError::Exit { message: "コミットのIDを読めませんでした".into() }.into());
     }
     Ok(CommitResult::Committed { commit })
+}
+
+/// 記録のパスが実在し、置き場所の配下にある（リンクを解決した後も）。
+fn check_location(rec: &WorktreeRecord, root: &str) -> Result<(), OrgGitError> {
+    let (Some(real), Some(real_root)) = (resolved(Path::new(&rec.path)), resolved(Path::new(root))) else {
+        return Err(Refusal::PathMissing.into());
+    };
+    if !is_under(&real_root, &real) {
+        return Err(Refusal::OutsideRoot.into());
+    }
+    Ok(())
+}
+
+/// 作業フォルダが実際に従うgitdirが、記録のworktreeの管理フォルダ（本体のgitdir直下の `worktrees/<名前>` で、その `gitdir` ファイルがこのworktreeを指す）か。
+/// 本体のgitdirは、利用者のリポジトリ側から読む。違えば拒否する。確認したgitdirを返す。
+async fn verify_admin_dir(git: &Git, rec: &WorktreeRecord) -> Result<String, OrgGitError> {
+    let read = |out: crate::gitops::GitOutput| -> Result<String, WtError> { Ok(ok(out)?.stdout_text().trim().to_string()) };
+    let gitdir = read(git.run(Path::new(&rec.path), &GitOp::AbsoluteGitDir).await.map_err(WtError::from)?)?;
+    let common = read(git.run(Path::new(&rec.repo_root), &GitOp::AbsoluteGitDir).await.map_err(WtError::from)?)?;
+    let link = std::fs::read_to_string(Path::new(&gitdir).join("gitdir")).unwrap_or_default();
+    if gitdir.is_empty() || common.is_empty() || !admin_dir_matches(&gitdir, &common, &link, &rec.path) {
+        return Err(Refusal::GitDirMismatch.into());
+    }
+    Ok(gitdir)
+}
+
+/// 再レビュー: 所有する読取り用（detached）worktreeを、対象コミットへ動かす。すでにそのコミットなら何もしない。
+/// 記録・実在・一覧（本体でない・detached）・管理フォルダの確認は書込みと同じ。動かした後にHEADを読み戻し、対象と違えば失敗にする。解決したコミットのIDを返す。
+pub async fn refresh_detached_worktree(git: &Git, records: &[WorktreeRecord], root: &str, path: &str, workflow: &str, task: &str, commit: &str) -> Result<String, OrgGitError> {
+    let rec = authorize_refresh(records, root, path, workflow, task)?;
+    check_location(rec, root)?;
+    let listed = gw::list(git, Path::new(&rec.repo_root)).await?;
+    let idx = listed.iter().position(|w| norm_path(&w.path) == norm_path(&rec.path)).ok_or(Refusal::NotListed)?;
+    if idx == 0 {
+        return Err(Refusal::MainWorktree.into());
+    }
+    if listed[idx].branch.is_some() {
+        return Err(Refusal::BranchMismatch.into());
+    }
+    let gitdir = verify_admin_dir(git, rec).await?;
+    let sha = gw::resolve_commit(git, Path::new(&rec.repo_root), commit).await?;
+    let dir = Path::new(&rec.path);
+    let head_of = |out: crate::gitops::GitOutput| -> Result<String, WtError> { Ok(ok(out)?.stdout_text().trim().to_string()) };
+    if head_of(git.run_pinned(dir, &gitdir, &GitOp::Head).await.map_err(WtError::from)?)? != sha {
+        ok(git.run_pinned(dir, &gitdir, &GitOp::CheckoutDetached { commit: sha.clone() }).await.map_err(WtError::from)?)?;
+        if head_of(git.run_pinned(dir, &gitdir, &GitOp::Head).await.map_err(WtError::from)?)? != sha {
+            return Err(WtError::Exit { message: "動かした後のHEADが対象コミットと違います".into() }.into());
+        }
+    }
+    Ok(sha)
 }
 
 /// 対象コミットを固定したdetached worktreeを `path`（置き場所 `root` の配下）に追加する。解決したコミットのIDを返す。
@@ -318,5 +369,139 @@ mod tests {
         std::fs::write(Path::new(&path).join("a.txt"), "edit\n").unwrap();
         assert_eq!(refused(commit_all_in_owned_worktree(&git, &[rec], &r.root, &path, "w1", "t1", "m").await), Refusal::ReadOnly);
         assert_eq!(sh(Path::new(&path), &["rev-parse", "HEAD"]), first);
+    }
+
+    /// 作業フォルダの `.git` ファイルを、別のgitdirへ向ける（Workerのsandboxから書ける想定の改ざん）。
+    fn point_dot_git_at(worktree: &str, gitdir: &Path) {
+        std::fs::write(Path::new(worktree).join(".git"), format!("gitdir: {}\n", gitdir.to_string_lossy().replace('\\', "/"))).unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_rewritten_dot_git_cannot_redirect_the_commit_to_the_users_branch_or_another_worktree() {
+        if !git_ok() {
+            return;
+        }
+        let r = rig();
+        let git = Git::new(None);
+        let rec = record(&r, "w-ok", "agentdock/org/w1/t1", Some(OrgWorktreeAccess::Writable));
+        gw::add(&git, &r.repo, &rec.path, &rec.branch, "HEAD").await.unwrap();
+        let other = record(&r, "w-other", "agentdock/org/w1/t2", Some(OrgWorktreeAccess::Writable));
+        gw::add(&git, &r.repo, &other.path, &other.branch, "HEAD").await.unwrap();
+        let records = vec![rec.clone(), other.clone()];
+        let main_head = sh(&r.repo, &["rev-parse", "main"]);
+        let other_head = sh(Path::new(&other.path), &["rev-parse", "HEAD"]);
+        let count = |dir: &Path| sh(dir, &["rev-list", "--all", "--count"]);
+        let commits_before = count(&r.repo);
+        std::fs::write(Path::new(&rec.path).join("a.txt"), "worker edit\n").unwrap();
+
+        // 1. `.git` を利用者のリポジトリ本体へ向ける。
+        point_dot_git_at(&rec.path, &r.repo.join(".git"));
+        assert_eq!(refused(commit_all_in_owned_worktree(&git, &records, &r.root, &rec.path, "w1", "t1", "m").await), Refusal::GitDirMismatch);
+        // 2. 別のworktree（所有は別タスク）の管理フォルダへ向ける。
+        let admin_of_other = r.repo.join(".git").join("worktrees").join("w-other");
+        assert!(admin_of_other.is_dir());
+        point_dot_git_at(&rec.path, &admin_of_other);
+        assert_eq!(refused(commit_all_in_owned_worktree(&git, &records, &r.root, &rec.path, "w1", "t1", "m").await), Refusal::GitDirMismatch);
+        // 3. 無関係なリポジトリへ向ける。
+        let evil = r.base.join("evil");
+        std::fs::create_dir_all(&evil).unwrap();
+        sh(&evil, &["init", "-q", "-b", "main"]);
+        point_dot_git_at(&rec.path, &evil.join(".git"));
+        assert_eq!(refused(commit_all_in_owned_worktree(&git, &records, &r.root, &rec.path, "w1", "t1", "m").await), Refusal::GitDirMismatch);
+
+        assert_eq!(sh(&r.repo, &["rev-parse", "main"]), main_head, "the users branch did not move");
+        assert_eq!(sh(Path::new(&other.path), &["rev-parse", "HEAD"]), other_head);
+        assert_eq!(count(&r.repo), commits_before, "nothing was committed anywhere");
+    }
+
+    #[tokio::test]
+    async fn commits_do_not_run_repository_hooks() {
+        if !git_ok() {
+            return;
+        }
+        let r = rig();
+        let git = Git::new(None);
+        let marker = r.base.join("hook-ran");
+        let hook = r.repo.join(".git").join("hooks").join("post-commit");
+        std::fs::write(&hook, format!("#!/bin/sh\necho ran > \"{}\"\n", marker.to_string_lossy().replace('\\', "/"))).unwrap();
+        // 前提の確認: 普通のコミットではこの環境でもフックが走る（走らない環境では、下の確認は何も保証しない）。
+        std::fs::write(r.repo.join("b.txt"), "b\n").unwrap();
+        sh(&r.repo, &["add", "."]);
+        sh(&r.repo, &["commit", "-q", "-m", "plain"]);
+        let hooks_run_here = marker.exists();
+        let _ = std::fs::remove_file(&marker);
+
+        let rec = record(&r, "w-hook", "agentdock/org/w1/t1", Some(OrgWorktreeAccess::Writable));
+        gw::add(&git, &r.repo, &rec.path, &rec.branch, "HEAD").await.unwrap();
+        std::fs::write(Path::new(&rec.path).join("a.txt"), "two\n").unwrap();
+        let path = rec.path.clone();
+        let out = commit_all_in_owned_worktree(&git, &[rec], &r.root, &path, "w1", "t1", "agentdock: t1").await.unwrap();
+        assert!(matches!(out, CommitResult::Committed { .. }));
+        assert!(!marker.exists(), "no hook ran for the organisation commit (hooks run in this environment: {hooks_run_here})");
+    }
+
+    #[tokio::test]
+    async fn a_reviewers_worktree_is_moved_to_the_new_commit_and_nothing_else_is_touched() {
+        if !git_ok() {
+            return;
+        }
+        let r = rig();
+        let git = Git::new(None);
+        let first = sh(&r.repo, &["rev-parse", "HEAD"]);
+        std::fs::write(r.repo.join("a.txt"), "two\n").unwrap();
+        sh(&r.repo, &["commit", "-q", "-am", "second"]);
+        let second = sh(&r.repo, &["rev-parse", "HEAD"]);
+        let path = Path::new(&r.root).join("w-rev").to_string_lossy().into_owned();
+        add_detached_worktree(&git, &r.repo, &r.root, &path, &first).await.unwrap();
+        let mut rec = record(&r, "w-rev", "", Some(OrgWorktreeAccess::DetachedReadOnly));
+        rec.path = path.clone();
+        let records = vec![rec.clone()];
+        assert_eq!(std::fs::read_to_string(Path::new(&path).join("a.txt")).unwrap(), "one\n");
+
+        // 古いコミットのまま: 新しいコミットへ動かす。同じコミットなら何もしない。
+        assert_eq!(refresh_detached_worktree(&git, &records, &r.root, &path, "w1", "t1", &second).await.unwrap(), second);
+        assert_eq!(sh(Path::new(&path), &["rev-parse", "HEAD"]), second);
+        assert_eq!(std::fs::read_to_string(Path::new(&path).join("a.txt")).unwrap(), "two\n");
+        assert_eq!(refresh_detached_worktree(&git, &records, &r.root, &path, "w1", "t1", &second).await.unwrap(), second);
+        assert_eq!(sh(&r.repo, &["branch", "--show-current"]), "main");
+
+        // 拒否: 別タスク・書込み用の記録・解決できない参照・`.git` の書換え。
+        let e = |r: Result<String, OrgGitError>| match r {
+            Err(OrgGitError::Refused(x)) => x,
+            other => panic!("expected a refusal, got {other:?}"),
+        };
+        assert_eq!(e(refresh_detached_worktree(&git, &records, &r.root, &path, "w1", "t2", &second).await), Refusal::OtherOwner);
+        let mut writable = rec.clone();
+        writable.org.as_mut().unwrap().access = OrgWorktreeAccess::Writable;
+        assert_eq!(e(refresh_detached_worktree(&git, &[writable], &r.root, &path, "w1", "t1", &second).await), Refusal::NotDetachedRecord);
+        assert!(refresh_detached_worktree(&git, &records, &r.root, &path, "w1", "t1", "no-such-ref").await.is_err());
+        point_dot_git_at(&path, &r.repo.join(".git"));
+        assert_eq!(e(refresh_detached_worktree(&git, &records, &r.root, &path, "w1", "t1", &first).await), Refusal::GitDirMismatch);
+        assert_eq!(sh(&r.repo, &["rev-parse", "HEAD"]), second, "the users checkout did not move");
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn a_worktree_path_that_is_a_junction_to_outside_the_root_is_refused() {
+        if !git_ok() {
+            return;
+        }
+        let r = rig();
+        let git = Git::new(None);
+        // 置き場所の外に本物のworktreeを作り、置き場所の中にはそこへのジャンクションを置く。
+        let outside = r.base.join("outside-wt");
+        let real = record(&r, "unused", "agentdock/org/w1/t1", Some(OrgWorktreeAccess::Writable));
+        gw::add(&git, &r.repo, &outside.to_string_lossy(), &real.branch, "HEAD").await.unwrap();
+        std::fs::write(outside.join("a.txt"), "edit\n").unwrap();
+        let link = Path::new(&r.root).join("w-junction");
+        let made = Command::new("cmd").args(["/C", "mklink", "/J", &link.to_string_lossy(), &outside.to_string_lossy()]).output().unwrap();
+        if !made.status.success() {
+            return;
+        }
+        let mut rec = record(&r, "w-junction", &real.branch, Some(OrgWorktreeAccess::Writable));
+        rec.path = link.to_string_lossy().into_owned();
+        let before = sh(&outside, &["rev-parse", "HEAD"]);
+        assert_eq!(refused(commit_all_in_owned_worktree(&git, &[rec], &r.root, &link.to_string_lossy(), "w1", "t1", "m").await), Refusal::OutsideRoot);
+        assert_eq!(sh(&outside, &["rev-parse", "HEAD"]), before);
     }
 }

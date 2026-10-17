@@ -20,6 +20,7 @@ impl Host {
         match action {
             WorkspaceAction::CreateWorktree { task, repo, base } => self.org_create_worktree(workflow, &task, &repo, base).await,
             WorkspaceAction::Commit { task, cwd, message } => self.org_commit(workflow, &task, &cwd, &message).await,
+            WorkspaceAction::RefreshDetached { task, cwd, commit } => self.org_refresh_detached(workflow, &task, &cwd, &commit).await,
         }
     }
 
@@ -130,6 +131,20 @@ impl Host {
             self.warn(format!("worktreeの記録を保存できませんでした（{message}）。再起動後に状態が戻る場合があります"));
         }
         outcome
+    }
+
+    /// 再レビュー: Reviewerの読取り用worktreeを、新しいコミットへ動かす（所有記録・管理フォルダを確認し、動かした後にHEADを読み戻す）。
+    /// 動かせなければ失敗（古い作業場所のままレビューさせない）。
+    async fn org_refresh_detached(self: &Arc<Self>, workflow: &WorkflowId, task: &org_engine::TaskId, cwd: &str, commit: &str) -> WorkspaceOutcome {
+        let _op = self.worktree_rt.lock.lock().await;
+        let git = self.git_for_worktree();
+        let records = self.read(|d| d.worktrees.clone());
+        let root = self.worktree_root().to_string_lossy().into_owned();
+        match go::refresh_detached_worktree(&git, &records, &root, cwd, &workflow.0, &task.0, commit).await {
+            Ok(_) => WorkspaceOutcome::WorktreeCreated { path: cwd.to_string() },
+            Err(e) if e.is_timeout() => failed("Gitが時間内に終わらず、作業場所を対象コミットへ動かせたか分かりません。worktreeの状態を確認してください"),
+            Err(e) => failed(e.message()),
+        }
     }
 
     async fn org_commit(self: &Arc<Self>, workflow: &WorkflowId, task: &org_engine::TaskId, cwd: &str, message: &str) -> WorkspaceOutcome {
