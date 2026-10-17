@@ -27,6 +27,7 @@ export const OP_LABEL: Record<ParityOp, string> = {
   speedTier: "速度（Fast）",
   personality: "personality",
   memory: "memories",
+  sandboxCheck: "sandbox の確認",
 };
 
 export const ROUTE_TEXT: Record<OpRoute, string> = {

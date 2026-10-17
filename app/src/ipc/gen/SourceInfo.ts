@@ -10,4 +10,8 @@ import type { VersionCheck } from "./VersionCheck";
 /**
  * 監視元（§5）。
  */
-export type SourceInfo = { source: SourceId, backend: BackendKind, pid: Known<number>, startedAt: UnixMillis, version: VersionCheck, capabilities: Capabilities, connection: ConnectionState, };
+export type SourceInfo = { source: SourceId, backend: BackendKind, pid: Known<number>, startedAt: UnixMillis, version: VersionCheck, capabilities: Capabilities, connection: ConnectionState, 
+/**
+ * この接続を起動したときの「sandbox の競合回避」の設定値。設定の現在値と違えば、再起動後に有効になる旨を出す。
+ */
+sandboxWorkaround: boolean, };

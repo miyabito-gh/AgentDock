@@ -47,6 +47,17 @@ fn command(path: &str, args: &[&str]) -> Command {
     cmd
 }
 
+/// 「sandbox の競合回避」がオンのときの追加の起動引数（P-ORG-4c、J1-A）。プラグイン機能と node_repl だけを、この起動に限って無効にする。
+/// `~/.codex` は変更しない。`mcp_servers.cua_repl.*` は未定義の名前で App Server が起動に失敗するため渡さない。
+pub fn sandbox_workaround_args() -> &'static [&'static str] {
+    &["-c", "features.plugins=false", "-c", "mcp_servers.node_repl.enabled=false"]
+}
+
+/// `codex app-server` の引数（先頭は常に `app-server`）。
+pub fn app_server_args(extra: &[&str]) -> Vec<String> {
+    std::iter::once("app-server").chain(extra.iter().copied()).map(str::to_string).collect()
+}
+
 /// `codex.exe --version` の出力から版文字列（x.y.z[-suffix]）を取り出す。
 pub fn parse_version(output: &str) -> Option<String> {
     output
@@ -110,8 +121,11 @@ impl CodexProcess {
         source: SourceId,
         enable_experimental: bool,
         event_capacity: usize,
+        extra_args: &[&str],
     ) -> Result<(CodexProcess, mpsc::Receiver<RpcEvent>), LaunchError> {
-        let mut cmd = command(path, &["app-server"]);
+        let args = app_server_args(extra_args);
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        let mut cmd = command(path, &args);
         cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
         let mut child = cmd.spawn().map_err(spawn_error)?;
         let pid = child.id();
@@ -187,6 +201,15 @@ impl CodexProcess {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn app_server_args_off_is_plain_and_on_adds_only_plugins_and_node_repl() {
+        assert_eq!(app_server_args(&[]), vec!["app-server"]);
+        let on = app_server_args(sandbox_workaround_args());
+        assert_eq!(on, vec!["app-server", "-c", "features.plugins=false", "-c", "mcp_servers.node_repl.enabled=false"]);
+        // 未定義名で起動失敗する cua_repl は渡さない。
+        assert!(!on.iter().any(|a| a.contains("cua_repl")));
+    }
 
     #[test]
     fn parses_version_output() {

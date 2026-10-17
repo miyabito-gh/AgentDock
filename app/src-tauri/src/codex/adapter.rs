@@ -707,6 +707,7 @@ impl AiBackend for CodexBackend {
                 version,
                 capabilities: self.capabilities(),
                 connection: ConnectionState::LaunchFailed { reason, message },
+                sandbox_workaround: config.sandbox_workaround,
             }
         };
 
@@ -717,7 +718,8 @@ impl AiBackend for CodexBackend {
         };
         *self.shared.app_data_dir.lock().unwrap() = Some(config.app_data_dir.clone());
         self.shared.emit(&source, BackendEvent::Connection { state: ConnectionState::Starting });
-        let (process, rx) = match CodexProcess::launch(&path, source.clone(), config.enable_experimental, RPC_EVENT_CAPACITY).await {
+        let extra_args: &[&str] = if config.sandbox_workaround { super::process::sandbox_workaround_args() } else { &[] };
+        let (process, rx) = match CodexProcess::launch(&path, source.clone(), config.enable_experimental, RPC_EVENT_CAPACITY, extra_args).await {
             Ok(x) => x,
             Err(e) => return Ok(failed(e.kind, e.message, version)),
         };
@@ -753,7 +755,7 @@ impl AiBackend for CodexBackend {
         });
         self.shared.emit(&source, BackendEvent::Connection { state: ConnectionState::Connected });
         tokio::spawn(pump(self.shared.clone(), source.clone(), rx));
-        Ok(SourceInfo { source, backend: BackendKind::Codex, pid, started_at, version, capabilities: caps, connection: ConnectionState::Connected })
+        Ok(SourceInfo { source, backend: BackendKind::Codex, pid, started_at, version, capabilities: caps, connection: ConnectionState::Connected, sandbox_workaround: config.sandbox_workaround })
     }
 
     async fn disconnect(&self) -> BackendResult<()> {
@@ -1299,6 +1301,7 @@ mod tests {
             expected_version: None,
             enable_experimental: false,
             app_data_dir: "C:/tmp".into(),
+            sandbox_workaround: false,
         };
         // 直列化されているので同時に呼んでも壊れない（どちらも LaunchFailed）。
         let (a, c) = tokio::join!(b.connect(cfg()), b.connect(cfg()));

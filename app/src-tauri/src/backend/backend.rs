@@ -148,6 +148,10 @@ pub struct ConnectConfig {
     pub enable_experimental: bool,
     /// アプリ専用のデータ領域（一般チャットの作業領域の親など）。
     pub app_data_dir: String,
+    /// バックエンドが定義する sandbox 競合回避。Codex では起動引数で plugins と node_repl を無効にする。
+    /// 有効になるのは次の起動から（接続中の App Server は再起動しない）。
+    #[serde(default)]
+    pub sandbox_workaround: bool,
 }
 
 // ───────────────────────────── 会話 ─────────────────────────────

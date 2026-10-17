@@ -533,10 +533,12 @@ pub enum ParityOp {
     SpeedTier,
     Personality,
     Memory,
+    /// sandbox（作業の実行環境）が起動できるかの読取り確認（組織実行の開始前チェック）。
+    SandboxCheck,
 }
 
 impl ParityOp {
-    pub const ALL: [ParityOp; 20] = [
+    pub const ALL: [ParityOp; 21] = [
         ParityOp::ChangeList,
         ParityOp::RevertChanges,
         ParityOp::CodeReview,
@@ -557,6 +559,7 @@ impl ParityOp {
         ParityOp::SpeedTier,
         ParityOp::Personality,
         ParityOp::Memory,
+        ParityOp::SandboxCheck,
     ];
 
     /// 診断・エラー文用の安定した名前（IPCの `camelCase` と同じ）。
@@ -791,6 +794,9 @@ pub struct SourceInfo {
     pub version: VersionCheck,
     pub capabilities: Capabilities,
     pub connection: ConnectionState,
+    /// この接続を起動したときの「sandbox の競合回避」の設定値。設定の現在値と違えば、再起動後に有効になる旨を出す。
+    #[serde(default)]
+    pub sandbox_workaround: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

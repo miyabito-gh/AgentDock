@@ -525,6 +525,7 @@ impl Host {
             expected_version: Some(TARGET_VERSION.to_string()),
             enable_experimental: true,
             app_data_dir: self.app_data_dir.to_string_lossy().into_owned(),
+            sandbox_workaround: self.get_app_settings().sandbox_workaround,
         };
         let info = self.backend.connect(config).await?;
         self.mutate(|d| ((), d.set_source(info.clone())));

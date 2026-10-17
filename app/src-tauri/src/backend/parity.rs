@@ -378,6 +378,19 @@ pub struct MemoryStatus {
     pub summary: Known<String>,
 }
 
+/// sandbox健全性チェックの観測結果（P-ORG-4c）。判定は `rules::org::judge_sandbox`。
+/// 実行しなかった項目は `NotFetched`（0・空文字で代用しない）。保存しない。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SandboxCheck {
+    /// 準備状態（Codexの語をそのまま。例 `ready`／`notConfigured`／`updateRequired`）。
+    pub readiness: Known<String>,
+    /// 確認コマンド（書込み・ネットワークなし）の終了コード。準備未完了で実行しなかったときは未取得。
+    pub exit_code: Known<i32>,
+    /// 標準エラーの先頭1KBだけ（診断表示用。保存しない）。
+    pub stderr_head: Known<String>,
+}
+
 // ───────────────────────────── trait ─────────────────────────────
 
 #[async_trait]
@@ -473,5 +486,12 @@ pub trait ParityOps: AiBackend {
     }
     async fn reset_memory(&self, _confirmed: &UserConfirmed) -> BackendResult<OpAck> {
         unsupported(ParityOp::Memory)
+    }
+
+    // ── sandbox健全性チェック（P-ORG-4c） ──
+    /// sandbox が起動できるかの確認。書込み・ネットワークなしの確認コマンドを1回だけ実行する。
+    /// 自動再試行しない（呼び出し側が利用者の「再開」でだけ出し直す）。`thread/shellCommand` 相当（制限なしの実行）は使わない。
+    async fn sandbox_check(&self, _cwd: String) -> BackendResult<SandboxCheck> {
+        unsupported(ParityOp::SandboxCheck)
     }
 }

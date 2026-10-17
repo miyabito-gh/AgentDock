@@ -67,7 +67,7 @@ const writeExe = (v: string) => {
 const failedSource = (message: string): SourceInfo => ({
   source: "-", backend: "codex", pid: { kind: "notFetched" }, startedAt: Date.now(),
   version: { kind: "unknown", message: "未確認" }, capabilities: UNKNOWN_CAPS,
-  connection: { kind: "launchFailed", reason: "spawnFailed", message },
+  connection: { kind: "launchFailed", reason: "spawnFailed", message }, sandboxWorkaround: false,
 });
 
 /** 送信の受理状態の案内。受理不明は失敗とも成功とも言わない。 */
@@ -1716,7 +1716,7 @@ ${cur}` : p.text);
               deleteBlocked: !live ? "モックでは動きません。" : !chat ? "チャットを選ぶと削除できます。" : isWorkingForDock(snap, chat) ? "作業中のチャットの控えは削除できません。" : null,
             },
           }}
-          exe={{ path: exePath, setPath: setExePath, placeholder: DEFAULT_EXE, connect: retryLaunch, browse: browseExe, openDiag: () => { host.openDiagDir().then((p) => say(`診断ログの場所: ${p}`)).catch((e) => sayErr("診断ログの場所を開けませんでした", e)); }, live: live && snap.sources.every((s) => s.connection.kind !== "connected") }}
+          exe={{ path: exePath, setPath: setExePath, placeholder: DEFAULT_EXE, connect: retryLaunch, browse: browseExe, openDiag: () => { host.openDiagDir().then((p) => say(`診断ログの場所: ${p}`)).catch((e) => sayErr("診断ログの場所を開けませんでした", e)); }, live: live && snap.sources.every((s) => s.connection.kind !== "connected"), sandboxWorkaround: { value: snap.settings.sandboxWorkaround, set: (on) => updateSettings((s) => ({ ...s, sandboxWorkaround: on }), "sandbox の競合回避の設定を保存できませんでした") } }}
           onCreateChat={createChat} onRename={renameChat}
           setTab={(t) => setDialog({ type: "settings", tab: t })} onAct={act} />
       ) : null}
