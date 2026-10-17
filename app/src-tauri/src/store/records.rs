@@ -99,6 +99,22 @@ pub struct ChatLocalFile {
     /// 受理不明の送信に含まれた作業フォルダ（照合で受理と確定したら `accepted_folders` へ、受理なしなら捨てる）。
     #[serde(default)]
     pub unconfirmed_folders: Option<Vec<String>>,
+    // ── 組織実行（DESIGN_ORG_P4 §3.5。既定値あり。SCHEMA_VERSION は上げない） ──
+    /// 組織実行が作ったチャットの所有記録。所有はこの記録だけで判定する（推定しない）。
+    #[serde(default)]
+    pub org: Option<OrgBinding>,
+}
+
+/// 組織実行が作ったチャットの所有記録。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgBinding {
+    pub workflow_id: String,
+    pub task_id: String,
+    pub role_id: String,
+    /// 「手動に切り替える」を押した時刻。Some なら通常チャットとして送信できる（エンジンは二度と送らない）。
+    #[serde(default)]
+    pub released_at: Option<UnixMillis>,
 }
 
 /// 文脈の圧縮前の控え（`chats\<dirId>\compactions\<ms>.json`）。AgentDock保存・表示専用で、バックエンドへは戻さない。
@@ -228,6 +244,7 @@ impl ChatLocalFile {
             next_folders: None,
             accepted_folders: None,
             unconfirmed_folders: None,
+            org: None,
         }
     }
 }

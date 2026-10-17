@@ -203,6 +203,7 @@ impl Host {
 
     /// レビュー。現在の会話か、新しい会話で実行する。受け付けた事実だけを返し、結果は会話の記録（レビュー結果）の観測で示す。
     pub async fn start_review(self: &Arc<Self>, args: StartReviewArgs, confirmed: &UserConfirmed) -> Result<ReviewOutcome, IpcError> {
+        self.check_not_org_owned(&args.chat)?;
         let cap_op = match args.delivery {
             ReviewDelivery::CurrentChat => ParityOp::CodeReview,
             ReviewDelivery::NewChat => ParityOp::ReviewToNewChat,
@@ -308,6 +309,7 @@ impl Host {
     /// 元の会話は変えず、resumeは送信の経路（分岐先への通常の送信）以外ではしない。自動再送しない:
     /// 分岐が受理不明なら送らず（照合は読取りだけ）、下書きを保存できなければ送らず、送信の受理不明・拒否は再送しない。
     pub async fn resend_as_fork(self: &Arc<Self>, args: ResendAsForkArgs, confirmed: &UserConfirmed) -> Result<ResendAsForkResult, IpcError> {
+        self.check_not_org_owned(&args.chat)?;
         if args.text.trim().is_empty() && args.attachments.is_empty() {
             return Err(err(IpcErrorCode::InvalidArgs, "依頼の文が空です"));
         }
@@ -533,6 +535,7 @@ impl Host {
 
     /// 文脈の圧縮。送る前に圧縮前の本文を控えとして保存し、保存できなければ送らない。受け付けた事実だけを返す。
     pub async fn compact_chat(self: &Arc<Self>, args: ChatArgs, confirmed: &UserConfirmed) -> Result<CompactChatResult, IpcError> {
+        self.check_not_org_owned(&args.chat)?;
         self.require_op(ParityOp::Compact)?;
         self.check_op_target(&args.chat)?;
         if let Some(e) = self.turn_op_blocker(&args.chat) {

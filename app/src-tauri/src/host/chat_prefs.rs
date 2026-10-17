@@ -64,6 +64,7 @@ impl Host {
     /// 計画／実行の選択。次のturnから適用し、送信待ちの依頼にも送信時の値が適用される（影響を返す）。受理は通知で確認する。
     /// None＝選択を外す（常に可）。選ぶときは、この接続で使えること（降格・experimental無効でないこと）が前提。
     pub fn set_work_mode(self: &Arc<Self>, args: SetWorkModeArgs) -> Result<SettingsImpact, IpcError> {
+        self.check_not_org_owned(&args.chat)?;
         if self.read(|d| d.chat(&args.chat).is_none()) {
             return Err(err(IpcErrorCode::NotFound, "チャットが見つかりません"));
         }
@@ -106,6 +107,7 @@ impl Host {
     }
 
     pub async fn set_goal(self: &Arc<Self>, args: SetGoalArgs, confirmed: &UserConfirmed) -> Result<OpAck, IpcError> {
+        self.check_not_org_owned(&args.chat)?;
         self.check_op_target(&args.chat)?;
         // ユーザー操作の中でだけ、必要ならresumeして購読を戻す。
         self.ensure_live(&args.chat, confirmed).await?;
@@ -115,6 +117,7 @@ impl Host {
     }
 
     pub async fn clear_goal(self: &Arc<Self>, args: ChatArgs, confirmed: &UserConfirmed) -> Result<OpAck, IpcError> {
+        self.check_not_org_owned(&args.chat)?;
         self.check_op_target(&args.chat)?;
         self.ensure_live(&args.chat, confirmed).await?;
         let ack = self.backend.clear_goal(args.chat.clone(), confirmed).await?;

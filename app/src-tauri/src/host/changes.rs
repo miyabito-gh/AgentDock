@@ -1110,6 +1110,7 @@ impl Host {
     /// 変更を戻す（確認画面の後だけ）。実行直前に再計画し、強制は「要確認のまま理由が増えていない」ファイルだけ受け付ける。
     /// 書換え前の内容を控えられなければ何も変えない。書込み直前に再照合し、成功したファイルだけ記録する。
     pub async fn revert_changes(self: &Arc<Self>, args: RevertChangesArgs, _confirmed: &UserConfirmed) -> Result<RevertResult, IpcError> {
+        self.check_not_org_owned(&args.chat)?;
         self.require_chat(&args.chat)?;
         let _one_at_a_time = self.changes_rt.revert_lock.lock().await;
         let stale = || blocked(BlockedReason::PlanStale, "戻す計画が古くなったか、見つかりません。計画を作り直してください");

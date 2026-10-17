@@ -8,7 +8,7 @@
 use super::convert::*;
 use super::id::RpcId;
 use super::wire::{WireThread, WireTurn, WireTurnStatus};
-use crate::backend::backend::{BackendError, BackendEvent, ChatMetaChange, GapScope};
+use crate::backend::backend::{BackendError, BackendEvent, ChatMetaChange, FailureClass, GapScope};
 use crate::backend::model::*;
 use serde_json::{json, Value};
 
@@ -34,7 +34,6 @@ pub struct RequestConversion {
 
 /// 意図的に写像しない既知の通知（schema stableに存在する）。メソッド名の前方一致。
 const KNOWN_UNMAPPED_PREFIXES: &[&str] = &[
-    "thread/tokenUsage/",
     "account/",
     "mcpServer/",
     "app/list/",
@@ -79,6 +78,12 @@ const WARNING_METHODS: &[&str] = &["warning", "guardianWarning", "deprecationNot
 
 fn unrecognized(method: &str, note: impl Into<String>) -> BackendEvent {
     BackendEvent::Unrecognized { raw_label: method.to_string(), note: Some(note.into()) }
+}
+
+/// 完了したコマンド実行の出力が sandbox の更新失敗（`setup refresh had errors`）を示しているか。本文は保持しない。
+fn is_sandbox_setup_failure(item: &Value) -> bool {
+    s(item, "type") == Some("commandExecution")
+        && s(item, "aggregatedOutput").is_some_and(|o| o.contains("setup refresh had errors"))
 }
 
 fn s<'a>(v: &'a Value, k: &str) -> Option<&'a str> {
@@ -160,12 +165,20 @@ fn convert_known(method: &str, p: &Value, ctx: &EventCtx, live: &dyn Fn(Option<U
                 out.push(BackendEvent::TurnStarted { turn: tk, evidence: live(turn.raw.started_at.map(ms_from_secs)) });
             } else {
                 match turn_end(&turn.status) {
-                    Some(end) => out.push(BackendEvent::TurnEnded {
-                        turn: tk,
-                        end,
-                        error: turn.raw.error.as_ref().and_then(|e| e.message.clone()),
-                        evidence: live(turn.raw.completed_at.map(ms_from_secs)),
-                    }),
+                    Some(end) => {
+                        let usage_limit = end == TurnEnd::Failed
+                            && turn.raw.error.as_ref().and_then(|e| e.codex_error_info.as_ref()).and_then(Value::as_str) == Some("usageLimitExceeded");
+                        // 分類は終端より前に併送する（終端を受けた側が、分類を知ったうえで扱えるように）。
+                        if usage_limit {
+                            out.push(BackendEvent::TurnFailureClass { turn: tk.clone(), class: FailureClass::UsageLimit });
+                        }
+                        out.push(BackendEvent::TurnEnded {
+                            turn: tk,
+                            end,
+                            error: turn.raw.error.as_ref().and_then(|e| e.message.clone()),
+                            evidence: live(turn.raw.completed_at.map(ms_from_secs)),
+                        });
+                    }
                     // completed通知なのに終端statusでない: 終端を作らず警告に回す。
                     None => out.push(unrecognized(method, format!("turn/completed with non-terminal status {:?}", turn.status))),
                 }
@@ -189,6 +202,9 @@ fn convert_known(method: &str, p: &Value, ctx: &EventCtx, live: &dyn Fn(Option<U
             match item_to_activity(item, &agent_key(tid), Some(turn), phase, live(time)) {
                 Some(activity) => {
                     let mut out = vec![BackendEvent::Activity { activity: activity.clone() }];
+                    if method == "item/completed" && is_sandbox_setup_failure(item) {
+                        out.push(BackendEvent::SandboxFailureObserved { agent: activity.key.agent.clone() });
+                    }
                     if method == "item/completed" {
                         for path in file_change_paths(item) {
                             out.push(BackendEvent::ArtifactObserved { agent: activity.key.agent.clone(), item: activity.key.clone(), path });
@@ -207,6 +223,17 @@ fn convert_known(method: &str, p: &Value, ctx: &EventCtx, live: &dyn Fn(Option<U
                 }
                 None => vec![unrecognized(method, "item without id")],
             }
+        }
+        "thread/tokenUsage/updated" => {
+            let (Some(tid), Some(usage)) = (s(p, "threadId"), p.get("tokenUsage")) else { return missing("threadId/tokenUsage") };
+            let total = |k: &str| usage.get(k).and_then(|b| b.get("totalTokens")).and_then(Value::as_u64);
+            vec![BackendEvent::TokenUsage {
+                agent: agent_key(tid),
+                turn: s(p, "turnId").map(ext),
+                last_total: total("last"),
+                thread_total: total("total"),
+                context_window: usage.get("modelContextWindow").and_then(Value::as_u64),
+            }]
         }
         "item/agentMessage/delta" => {
             let (Some(tid), Some(turn), Some(item), Some(delta)) = (s(p, "threadId"), s(p, "turnId"), s(p, "itemId"), s(p, "delta")) else {
@@ -695,10 +722,42 @@ mod tests {
 
     #[test]
     fn known_noise_is_not_surfaced_but_warnings_are() {
-        assert!(run("thread/tokenUsage/updated", json!({})).is_empty());
+        assert!(matches!(run("thread/tokenUsage/updated", json!({})).as_slice(), [BackendEvent::Unrecognized { .. }]), "required fields missing is a warning, not zero usage");
         assert!(matches!(run("account/rateLimits/updated", json!({})).as_slice(), [BackendEvent::RateLimitsUpdated]));
         let ev = run("configWarning", json!({"message": "bad config"}));
         assert!(matches!(&ev[0], BackendEvent::Unrecognized { note: Some(n), .. } if n == "bad config"));
+    }
+
+    #[test]
+    fn token_usage_maps_known_numbers_only() {
+        let ev = run(
+            "thread/tokenUsage/updated",
+            json!({"threadId": "a", "turnId": "t1", "tokenUsage": {"total": {"totalTokens": 900}, "last": {"totalTokens": 120}, "modelContextWindow": null}}),
+        );
+        match ev.as_slice() {
+            [BackendEvent::TokenUsage { turn, last_total, thread_total, context_window, .. }] => {
+                assert_eq!(turn.as_ref().map(|t| t.0.as_str()), Some("t1"));
+                assert_eq!((*last_total, *thread_total, *context_window), (Some(120), Some(900), None));
+            }
+            x => panic!("{x:?}"),
+        }
+    }
+
+    #[test]
+    fn usage_limit_failure_and_sandbox_setup_failure_are_classified() {
+        let ev = run(
+            "turn/completed",
+            json!({"threadId": "a", "turn": {"id": "t1", "status": "failed", "items": [], "error": {"message": "x", "codexErrorInfo": "usageLimitExceeded"}}}),
+        );
+        assert!(ev.iter().any(|e| matches!(e, BackendEvent::TurnFailureClass { class: FailureClass::UsageLimit, .. })));
+        let ev = run(
+            "turn/completed",
+            json!({"threadId": "a", "turn": {"id": "t1", "status": "failed", "items": [], "error": {"message": "x", "codexErrorInfo": "other"}}}),
+        );
+        assert!(!ev.iter().any(|e| matches!(e, BackendEvent::TurnFailureClass { .. })));
+        let item = json!({"type": "commandExecution", "id": "i", "command": "ls", "status": "failed", "aggregatedOutput": "setup refresh had errors: os error 32"});
+        let ev = run("item/completed", json!({"threadId": "a", "turnId": "t", "completedAtMs": 1, "item": item}));
+        assert!(ev.iter().any(|e| matches!(e, BackendEvent::SandboxFailureObserved { .. })));
     }
 
     #[test]

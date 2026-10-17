@@ -175,6 +175,7 @@ impl Host {
 
     /// アプリの一覧から即座に隠す。作業・通知・キューは継続し、Codex の `archive` は作業終了・停止確認の後に送る。
     pub async fn archive_chat(self: &Arc<Self>, args: ChatArgs, confirmed: UserConfirmed) -> Result<ChatLocalView, IpcError> {
+        self.check_not_org_owned(&args.chat)?;
         let chat = args.chat;
         self.check_not_delete_pending(&chat)?;
         self.precheck_space()?;
@@ -253,6 +254,7 @@ impl Host {
 
     /// アーカイブを解除する。Codex へ未送信なら取り消すだけ、送信済み（または結果不明）なら `unarchive` を送る。
     pub async fn unarchive_chat(self: &Arc<Self>, args: ChatArgs, confirmed: &UserConfirmed) -> Result<ChatLocalView, IpcError> {
+        self.check_not_org_owned(&args.chat)?;
         let chat = args.chat;
         self.precheck_space()?;
         let (visibility, codex_archived) = self.read(|d| (d.locals.get(&chat).map(|l| l.visibility.clone()), d.chat(&chat).is_some_and(|c| c.archived.value() == Some(&true))));
@@ -324,6 +326,7 @@ impl Host {
 
     /// 削除を実行する（ユーザーが確認画面で選んだ後だけ）。結果は `DeleteOutcome`。停止を確認できなければ `Pending`。
     pub async fn delete_chat(self: &Arc<Self>, args: ChatArgs, confirmed: &UserConfirmed) -> Result<DeleteOutcome, IpcError> {
+        self.check_not_org_owned(&args.chat)?;
         let chat = args.chat;
         if !self.manage_rt.deleting.lock().unwrap().insert(chat.clone()) {
             return Err(err(IpcErrorCode::Rejected, "このチャットの削除を実行中です"));

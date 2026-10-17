@@ -66,6 +66,8 @@ impl WireTurnStatus {
 #[serde(rename_all = "camelCase", default)]
 pub struct WireTurnError {
     pub message: Option<String>,
+    /// `CodexErrorInfo`（文字列またはオブジェクト）。分類にだけ使う。
+    pub codex_error_info: Option<Value>,
 }
 
 /// `Turn`。`items` は個々のitem（種類が多いのでJSONのまま保持）。

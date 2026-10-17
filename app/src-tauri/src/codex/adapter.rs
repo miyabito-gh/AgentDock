@@ -173,6 +173,10 @@ pub fn build_send_call(req: &SendRequest) -> BackendResult<(&'static str, Value)
             if let Some(mode) = req.work_mode {
                 p["collaborationMode"] = super::parity::collaboration_mode_json(mode, req.model.as_ref())?;
             }
+            // 出力スキーマ（組織実行の役割の成果物）。追加指示（turn/steer）には付けない。
+            if let Some(schema) = &req.output_schema {
+                p["outputSchema"] = schema.clone();
+            }
             Ok(("turn/start", p))
         }
         SendMode::Steer { turn } => {
@@ -1102,7 +1106,23 @@ mod tests {
             work_mode: None,
             speed_tier: None,
             client_message_id: "cm1".into(),
+            output_schema: None,
         }
+    }
+
+    #[test]
+    fn output_schema_is_sent_on_new_turn_only() {
+        let mut r = req(SendMode::NewTurn);
+        r.output_schema = Some(json!({"type": "object"}));
+        let (_, p) = build_send_call(&r).unwrap();
+        assert_eq!(p["outputSchema"], json!({"type": "object"}));
+        let (_, p) = build_send_call(&req(SendMode::NewTurn)).unwrap();
+        assert!(p.get("outputSchema").is_none());
+        let mut r = req(SendMode::Steer { turn: TurnKey { agent: agent_key("th"), turn_id: ExternalId("t1".into()) } });
+        r.output_schema = Some(json!({"type": "object"}));
+        let (m, p) = build_send_call(&r).unwrap();
+        assert_eq!(m, "turn/steer");
+        assert!(p.get("outputSchema").is_none());
     }
 
     fn att(kind: AttachmentKind) -> Attachment {

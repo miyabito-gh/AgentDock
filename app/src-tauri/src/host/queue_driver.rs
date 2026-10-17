@@ -291,6 +291,25 @@ impl Host {
         !active.is_empty() && folder_op_overlaps(&active, self.read(|d| d.chat(chat).and_then(|c| c.cwd.value().cloned())).as_deref())
     }
 
+    /// 子孫の様子を調べるための判断の入力（読取りのみ）。履歴で終端を確認し、走査が止まっていれば読取りだけの走査を始める。
+    /// キューの送信判断と同じ材料を使うが、送信はしない（組織実行の完了判定が読む）。
+    pub(in crate::host) async fn queue_gate_input(self: &Arc<Self>, chat: &ChatKey) -> q::GateInput {
+        let root = agent_key_of(chat);
+        let scan_running = self.scanning.lock().unwrap().contains(&root);
+        let flag = self.queue_rt.scans.lock().unwrap().get(&root).copied();
+        let last_start = self.queue_rt.scan_started.lock().unwrap().get(&root).copied();
+        if should_start_scan(scan_ready(flag, scan_running), scan_running, self.is_connected(), last_start, now_ms()) {
+            self.start_scan(root.clone());
+        }
+        self.refresh_terminal_facts(chat).await;
+        let terminals = self.queue_rt.terminals.lock().unwrap().clone();
+        let scan_running = self.scanning.lock().unwrap().contains(&root);
+        let scan_complete = scan_ready(self.queue_rt.scans.lock().unwrap().get(&root).copied(), scan_running);
+        let unresolved = self.unknown_attempt(chat);
+        let ctx = GateContext { quitting: self.quit_phase() != QuitPhase::Idle, deleting: self.manage_rt.is_deleting(chat), manual: None, op_accept: None, folder_busy: false };
+        self.read(|d| gate_input(d, chat, &terminals, scan_complete, unresolved, ctx, false))
+    }
+
     /// 状態が変わったかもしれないので、次の評価を早める。
     pub(super) fn kick_queue(&self) {
         self.queue_rt.notify.notify_one();
@@ -561,6 +580,7 @@ impl Host {
     /// 状態不明・ライブ未復旧の子孫と走査未完了を承知のうえで送る。作業中の子孫・失敗・中断・親の条件・停止未確認・受理不明は緩めない。
     /// 送信は通常の経路（Sending保存→送信、受理不明の扱い）を通る。指定は1回の評価だけで、次の項目は通常の判定に戻る。
     pub async fn send_queue_entry_now(self: &Arc<Self>, args: QueueEntryArgs, _confirmed: &UserConfirmed) -> Result<ChatQueue, IpcError> {
+        self.check_not_org_owned(&args.chat)?;
         let chat = args.chat.clone();
         // 手動送信・自動送信と同時に `turn/start` を送らない。
         let send_lock = self.queue_rt.send_lock(&chat);
@@ -694,6 +714,7 @@ impl Host {
             work_folders: plan.work_folders,
             work_mode: plan.work_mode,
             client_message_id: attempt.client_message_id.clone(),
+            output_schema: None,
         };
         self.run_entry_send(chat, entry, attempt, request, None).await;
     }
@@ -744,9 +765,11 @@ impl Host {
         let sent_cwd = request.cwd.clone();
         let sent_folders = if matches!(request.mode, SendMode::NewTurn) { request.work_folders.clone() } else { None };
         // 作業フォルダの並びは送信の直前にも存在を確かめる。消えていたら外さず、送らずに明示拒否として扱う（キューは止まり、再開・再送はユーザー操作）。
-        let folders_problem = match &sent_folders {
-            Some(f) => self.recheck_send_folders(f).await.err(),
-            None => None,
+        // 組織実行中のチャットへは、キューの経路からも送らない（明示拒否として扱う）。
+        let folders_problem = match (self.check_not_org_owned(chat).err(), &sent_folders) {
+            (Some(e), _) => Some(e.message),
+            (None, Some(f)) => self.recheck_send_folders(f).await.err(),
+            (None, None) => None,
         };
         // 変更の控え（基準B）は送信の直前に取る。失敗しても送信は止めない。
         if matches!(request.mode, SendMode::NewTurn) && folders_problem.is_none() {
@@ -1079,6 +1102,7 @@ impl Host {
 
     /// 完了後に送る依頼を登録する。設定（モデル・権限・作業フォルダ）は登録時に固定せず、送信時点のものを使う。
     pub fn enqueue(self: &Arc<Self>, args: EnqueueArgs) -> Result<QueueEntry, IpcError> {
+        self.check_not_org_owned(&args.chat)?;
         if args.text.trim().is_empty() && args.attachments.is_empty() {
             return Err(err(IpcErrorCode::InvalidArgs, "依頼が空です"));
         }
@@ -1104,6 +1128,7 @@ impl Host {
     }
 
     pub fn edit_queue_entry(self: &Arc<Self>, args: EditQueueEntryArgs) -> Result<QueueEntry, IpcError> {
+        self.check_not_org_owned(&args.chat)?;
         if args.text.trim().is_empty() && args.attachments.is_empty() {
             return Err(err(IpcErrorCode::InvalidArgs, "依頼が空です"));
         }
@@ -1150,6 +1175,7 @@ impl Host {
 
     /// 「キューを再開」（ユーザー操作）。親がliveでなければ、ここで再開（resume）する。「確認済み」とは別の操作。
     pub async fn resume_queue(self: &Arc<Self>, args: ChatArgs, confirmed: &UserConfirmed) -> Result<ChatQueue, IpcError> {
+        self.check_not_org_owned(&args.chat)?;
         let send_lock = self.queue_rt.send_lock(&args.chat);
         let _send_guard = send_lock.lock().await;
         // 停止を確認できないチャットを、再開（resume）で触らない。
@@ -1207,6 +1233,7 @@ impl Host {
 
     /// 権限の変更。次の送信から適用し、送信待ちの依頼にも及ぶ件数を返す（追加指示・実行中のturnには使わない）。
     pub fn set_chat_permission(self: &Arc<Self>, args: SetChatPermissionArgs) -> Result<SettingsImpact, IpcError> {
+        self.check_not_org_owned(&args.chat)?;
         if self.read(|d| d.chat(&args.chat).is_none()) {
             return Err(err(IpcErrorCode::NotFound, "チャットが見つかりません"));
         }

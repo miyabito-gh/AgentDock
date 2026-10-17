@@ -207,6 +207,7 @@ impl Host {
             work_mode: None,
             speed_tier: None,
             client_message_id: self.local_id("cm").0,
+            output_schema: None,
         };
         match self.backend.send(request).await {
             SendOutcome::Accepted { .. } => {

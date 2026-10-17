@@ -7,6 +7,7 @@ import type { Draft } from "./Draft";
 import type { ForkOrigin } from "./ForkOrigin";
 import type { ListVisibility } from "./ListVisibility";
 import type { ModelChoice } from "./ModelChoice";
+import type { OrgBindingView } from "./OrgBindingView";
 import type { PermissionPreset } from "./PermissionPreset";
 import type { SaveState } from "./SaveState";
 import type { TurnKey } from "./TurnKey";
@@ -60,4 +61,8 @@ forkOf: ForkOrigin | null, draft: Draft, visibility: ListVisibility, deletePendi
 /**
  * 「確認済み」にした失敗（agent＋turn）。UIが現在の失敗との一致で確認済みを判定する（M42）。
  */
-acknowledgedFailures: Array<TurnKey>, save: SaveState, };
+acknowledgedFailures: Array<TurnKey>, 
+/**
+ * 組織実行が作ったチャットの所有記録（左一覧で隠す・ドックのバッジ用。P-ORG-7）。None＝通常のチャット。
+ */
+org: OrgBindingView | null, save: SaveState, };

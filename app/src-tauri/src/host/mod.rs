@@ -20,6 +20,7 @@ pub mod lifecycle;
 mod load_test;
 pub mod manage;
 pub mod notifier;
+pub mod org;
 pub mod pending_ops;
 pub mod persist;
 pub mod queue_driver;
@@ -147,6 +148,12 @@ impl UnresolvedSends {
     }
 }
 
+/// 送信の根拠。利用者の操作か、組織実行の許可（`DispatchPermit` を値で持つ。`org/grant.rs` の外では作れない）。
+pub(super) enum SendAuth<'a> {
+    User,
+    Org(org::grant::DispatchPermit<'a>),
+}
+
 // ───────────────────────────── Host ─────────────────────────────
 
 pub struct Host {
@@ -194,6 +201,8 @@ pub struct Host {
     resend_inflight: thread_ops::ResendInflight,
     /// 作成直後の最初の依頼の送信が確定していないチャット（同じチャットへの別の送信を止める）。
     first_sends: Mutex<HashSet<ChatKey>>,
+    /// 組織実行（`org/`）の作業状態。送信権の失効管理・監視の受け口・稼働中の司令task。
+    org_rt: org::OrgRuntime,
 }
 
 /// 最初の依頼の送信が確定（または後続タスクが終了）したら、同じチャットの送信停止を解く。
@@ -236,6 +245,7 @@ impl Host {
             read_limit: read_limit::ReadLimiter::default(),
             resend_inflight: thread_ops::ResendInflight::default(),
             first_sends: Mutex::new(HashSet::new()),
+            org_rt: org::OrgRuntime::default(),
         }
     }
 
@@ -314,6 +324,8 @@ impl Host {
         self.start_queue_driver();
         self.start_manage_watch();
         self.spawn_recheck_files(None);
+        // 前回の組織実行を復元する（送信権なし。再び送るには利用者の再開が要る）。
+        self.org_restore();
         let Some(mut rx) = self.backend.take_events() else { return };
         let host = self.clone();
         tokio::spawn(async move {
@@ -339,6 +351,8 @@ impl Host {
         }
         // 変更の控え: ルートのturn終端の記録・切断での終了未確認（待たない）。
         self.baseline_observe(&env.event);
+        // 組織実行: 観測をエンジンへ知らせるだけ（ロックの外・待たない・送信しない）。
+        self.org_observe_event(&env.event);
         self.refresh_unnamed_chat(&env.event);
         if !matches!(env.event, BackendEvent::Activity { .. } | BackendEvent::ActivityDelta { .. } | BackendEvent::ArtifactObserved { .. }) {
             self.kick_queue();
@@ -672,30 +686,12 @@ impl Host {
         if let Some(w) = &args.worktree {
             self.bind_worktree_chat(w, &key).await;
         }
-        let now = now_ms();
-        let settings = ChatModelSettings { selected: args.model.clone(), accepted: started.accepted_model.clone(), ..ChatModelSettings::blank(ApplyTiming::NextTurn) };
-        // 作成直後でturnがないので待機中（Idle）。応答由来であることをevidenceに残す。
-        let status = AgentStatus {
-            state: AgentState::Idle,
-            raw: RawState { label: "thread/start".into() },
-            scope: StateScope::Agent,
-            turn: None,
-            wait: None,
-            evidence: Evidence { source: EvidenceSource::Response, raw_label: Some("thread/start".into()), source_time: None, observed_at: now },
-        };
         // 最初の依頼があるときは、実チャットを一覧へ出す前に「送信が未確定」を登録する（削除・別の送信・turn操作の窓を作らない）。
         let first_message = args.first_message.clone().filter(|t| !t.trim().is_empty());
         if first_message.is_some() {
             self.first_sends.lock().unwrap().insert(key.clone());
         }
-        let chat = self.mutate(|d| {
-            d.hosted.insert(key.clone());
-            let mut ev = d.upsert_chat(started.chat.clone());
-            ev.extend(d.set_live(started.root.clone(), status));
-            d.model_settings.insert(key.clone(), settings.clone());
-            ev.push(HostEvent::ModelSettingsUpdated { chat: key.clone(), settings });
-            (d.chat(&key).cloned().unwrap_or(started.chat.clone()), ev)
-        });
+        let chat = self.register_started_chat(&started, args.model.clone());
         // 作成も利用として扱う（発話の有無にかかわらず、作成時刻を最近利用時刻とする）。
         self.touch_chat_used(&key);
         let mut first_send = None;
@@ -715,6 +711,7 @@ impl Host {
                 work_folders: self.work_folders_for_send(&key, true),
                 work_mode: None,
                 client_message_id: self.local_id("cm").0,
+                output_schema: None,
             };
             // 名前付けと最初の送信は後続タスクで行う（thread/start の応答で戻る）。確定は `SendUpdated` で届く。
             // 確定までは同じチャットへの別の送信を止める（`FirstSendInFlight`）。
@@ -747,10 +744,39 @@ impl Host {
                     host.emit_send(&task_key, &attempt);
                     return;
                 }
-                host.dispatch_send_as(request, sending).await;
+                host.dispatch_send_as(request, sending, SendAuth::User).await;
             });
         }
         Ok(StartChatResult { chat: self.read(|d| d.chat(&key).cloned()).unwrap_or(chat), first_send })
+    }
+
+    /// 開始したチャットを一覧・状態・モデル設定へ反映する（`start_chat` と組織実行の役割チャットの作成で共用）。
+    pub(super) fn register_started_chat(self: &Arc<Self>, started: &ChatStarted, selected: Option<ModelChoice>) -> Chat {
+        let key = started.chat.key.clone();
+        let now = now_ms();
+        let settings = ChatModelSettings { selected, accepted: started.accepted_model.clone(), ..ChatModelSettings::blank(ApplyTiming::NextTurn) };
+        // 作成直後でturnがないので待機中（Idle）。応答由来であることをevidenceに残す。
+        let status = AgentStatus {
+            state: AgentState::Idle,
+            raw: RawState { label: "thread/start".into() },
+            scope: StateScope::Agent,
+            turn: None,
+            wait: None,
+            evidence: Evidence { source: EvidenceSource::Response, raw_label: Some("thread/start".into()), source_time: None, observed_at: now },
+        };
+        self.mutate(|d| {
+            d.hosted.insert(key.clone());
+            let mut ev = d.upsert_chat(started.chat.clone());
+            ev.extend(d.set_live(started.root.clone(), status));
+            d.model_settings.insert(key.clone(), settings.clone());
+            ev.push(HostEvent::ModelSettingsUpdated { chat: key.clone(), settings });
+            (d.chat(&key).cloned().unwrap_or(started.chat.clone()), ev)
+        })
+    }
+
+    /// 組織実行の「ワークフローを再開」の操作の中で、必要なチャットの live を戻す（利用者の操作の中だけ。自動では呼ばない）。
+    pub(super) async fn resume_chat_live(self: &Arc<Self>, chat: &ChatKey, confirmed: &UserConfirmed) -> Result<(), IpcError> {
+        self.ensure_live(chat, confirmed).await
     }
 
     /// 送信・再送の前提（live購読）を整える。保存履歴だけの会話は、ユーザー操作の中でだけresumeする。
@@ -850,8 +876,20 @@ impl Host {
 
     // ── 送信 ──
 
-    /// 送信を止める条件（停止未確認・受理不明・外部実行の可能性）。
+    /// 組織実行が所有し、まだ手動に切り替えていないチャットへの利用者の操作を止める（所有は chat.json の org 記録だけで判定）。
+    pub(super) fn check_not_org_owned(&self, chat: &ChatKey) -> Result<(), IpcError> {
+        let binding = self.read(|d| d.locals.get(chat).and_then(|l| l.org.clone()));
+        crate::rules::org::org_guard(binding.as_ref(), crate::rules::org::OrgOp::Change).map_err(|m| blocked(BlockedReason::OrgOwned, m))
+    }
+
+    /// 利用者の送信を止める条件。組織が所有するチャットへの送信と、`check_sendable_core` の条件。
     fn check_sendable(&self, chat: &ChatKey) -> Result<(), IpcError> {
+        self.check_not_org_owned(chat)?;
+        self.check_sendable_core(chat)
+    }
+
+    /// 送信を止める条件（停止未確認・受理不明・外部実行の可能性）。組織の送信も同じ条件を通る。
+    pub(super) fn check_sendable_core(&self, chat: &ChatKey) -> Result<(), IpcError> {
         self.check_first_send_settled(chat)?;
         self.check_not_delete_pending(chat)?;
         if let Some(rec) = self.read(|d| d.open_stop(chat).map(|r| r.id.clone())) {
@@ -896,6 +934,7 @@ impl Host {
             return Err(err(IpcErrorCode::InvalidArgs, "メッセージが空です"));
         }
         // このチャットの手動送信とキューの自動送信を同時に走らせない（再開から受理まで）。
+        self.check_not_org_owned(&args.chat)?;
         let lock = self.queue_rt.send_lock(&args.chat);
         let _send_guard = lock.lock().await;
         self.check_sendable(&args.chat)?;
@@ -955,6 +994,7 @@ impl Host {
             work_folders,
             work_mode,
             client_message_id: self.local_id("cm").0,
+            output_schema: None,
         };
         let attempt = self.dispatch_send(request).await;
         // 送信に使った添付は下書きから外し、試行を記録する（拒否されても、再送（retry_send）は同じ添付で行う）。
@@ -966,6 +1006,7 @@ impl Host {
     }
 
     pub async fn retry_send(self: &Arc<Self>, args: RetrySendArgs, confirmed: UserConfirmed) -> Result<SendAttempt, IpcError> {
+        self.check_not_org_owned(&args.chat)?;
         let lock = self.queue_rt.send_lock(&args.chat);
         let _send_guard = lock.lock().await;
         if self.unresolved.lock().unwrap().contains(&args.attempt) {
@@ -991,13 +1032,27 @@ impl Host {
     /// 送信を1回だけ行い、結果を `SendUpdated` で通知する。Errを返さず3値に分類する。
     async fn dispatch_send(self: &Arc<Self>, request: SendRequest) -> SendAttempt {
         let attempt = SendAttempt { attempt_id: self.local_id("att"), client_message_id: request.client_message_id.clone(), at: now_ms(), state: SendState::Sending };
-        self.dispatch_send_as(request, attempt).await
+        self.dispatch_send_as(request, attempt, SendAuth::User).await
     }
 
     /// `dispatch_send` の本体。試行IDと開始時刻を呼び出し側が先に決めたもの（`Sending`）で送る（最初の依頼を後続タスクで送るため）。
-    async fn dispatch_send_as(self: &Arc<Self>, request: SendRequest, mut attempt: SendAttempt) -> SendAttempt {
+    /// `auth` は送信の根拠。利用者の送信は組織が所有するチャットへ送らない（二重の保護）。組織の送信は許可の宛先と一致するものだけ。
+    pub(super) async fn dispatch_send_as(self: &Arc<Self>, request: SendRequest, mut attempt: SendAttempt, auth: SendAuth<'_>) -> SendAttempt {
         let attempt_id = attempt.attempt_id.clone();
         let chat = request.chat.clone();
+        let refusal = match &auth {
+            SendAuth::User => self.check_not_org_owned(&chat).err().map(|e| e.message),
+            SendAuth::Org(permit) => permit
+                .still_valid(&self.org_rt.grants)
+                .err()
+                .map(|e| e.message().to_string())
+                .or_else(|| (permit.chat() != &chat).then(|| "許可の宛先と違うチャットです".to_string())),
+        };
+        if let Some(message) = refusal {
+            attempt.state = SendState::Rejected { message };
+            self.emit_send(&chat, &attempt);
+            return attempt;
+        }
         self.emit_send(&chat, &attempt);
         self.emit_send_phase(&chat, SendPhase::Preparing);
         let sent_cwd = if matches!(request.mode, SendMode::NewTurn) { request.cwd.clone() } else { None };
@@ -1063,8 +1118,10 @@ impl Host {
             } else if let Some(cwd) = sent_cwd {
                 self.apply_cwd_after_accept(&chat, cwd);
             }
-            // ユーザーの利用として最近利用時刻を更新する（背景活動では更新しない、§3.6）。
-            self.touch_chat_used(&chat);
+            // ユーザーの利用として最近利用時刻を更新する（背景活動では更新しない、§3.6）。組織実行の送信は利用者の利用ではない。
+            if matches!(auth, SendAuth::User) {
+                self.touch_chat_used(&chat);
+            }
         }
         attempt
     }
@@ -1083,8 +1140,9 @@ impl Host {
     }
 
     fn emit_send(&self, chat: &ChatKey, attempt: &SendAttempt) {
-        let (chat, attempt) = (chat.clone(), attempt.clone());
-        self.mutate(|_| ((), vec![HostEvent::SendUpdated { chat, attempt }]));
+        self.mutate(|_| ((), vec![HostEvent::SendUpdated { chat: chat.clone(), attempt: attempt.clone() }]));
+        // 組織実行: 送信の結果（照合の結果も同じ口で届く）をエンジンへ知らせるだけ。送信はしない。
+        self.org_observe_send(chat, attempt);
     }
 
     // ── 承認・質問 ──
@@ -1179,6 +1237,8 @@ impl Host {
             let ev = d.add_stop_record(record.clone(), now_ms());
             (d.stops.iter().find(|r| r.id == record.id).cloned().unwrap_or(record), ev)
         });
+        // 組織実行: 利用者が中断したことをエンジンへ知らせるだけ。
+        self.org_observe_interrupt(&record.chat);
         if requested_any {
             let host = self.clone();
             tokio::spawn(async move {
@@ -1273,6 +1333,7 @@ impl Host {
 
     /// チャット単位の選択を保持する。送信時に適用し、受理応答までは `accepted` を更新しない（適用済みと表示しない）。
     pub fn set_chat_model(self: &Arc<Self>, args: SetChatModelArgs) -> Result<ChatModelSettings, IpcError> {
+        self.check_not_org_owned(&args.chat)?;
         if self.read(|d| d.chat(&args.chat).is_none()) {
             return Err(err(IpcErrorCode::NotFound, "チャットが見つかりません"));
         }

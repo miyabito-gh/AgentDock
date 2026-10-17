@@ -3,9 +3,137 @@
 //! どちらも読むだけ。config.toml は本文を受け取って比べるだけで、書かない・保存しない・ログに出さない。
 //! 既存の `judge_config`／`ConfigCompare`（CLI管理操作用）には触れない。
 
+use org_engine::{ChatRef, TurnRef};
+
 use crate::backend::backend::BackendError;
-use crate::backend::model::Known;
+use crate::backend::local::QueueHold;
+use crate::backend::model::{ActivityKind, AgentKey, AgentState, BackendKind, ChatKey, ExternalId, Known, MessagePhase, TurnEnd, TurnKey, TurnRecord};
 use crate::backend::parity::SandboxCheck;
+use crate::rules::queue::{GateDecision, GateInput};
+use crate::store::records::OrgBinding;
+
+// ───────────────────────────── 参照の符号化（エンジンへ渡す不透明な値） ─────────────────────────────
+
+/// ホストの `ChatKey` を、エンジンが比べて保存するだけの文字列にする（`codex:<id>`）。`chat_key_of_ref` で戻せる。
+pub fn chat_ref_of(chat: &ChatKey) -> ChatRef {
+    match chat.backend {
+        BackendKind::Codex => ChatRef::new(format!("codex:{}", chat.id.0)),
+    }
+}
+
+/// `chat_ref_of` の逆。知らない形式なら None（推定しない）。
+pub fn chat_key_of_ref(r: &ChatRef) -> Option<ChatKey> {
+    let id = r.0.strip_prefix("codex:").filter(|id| !id.is_empty())?;
+    Some(ChatKey { backend: BackendKind::Codex, id: ExternalId(id.to_string()) })
+}
+
+/// turn の中立ID。チャットは別に渡すので、turn ID そのものにする。
+pub fn turn_ref_of(turn: &ExternalId) -> TurnRef {
+    TurnRef::new(turn.0.clone())
+}
+
+/// ルートの `TurnKey` に戻す（チャットのルートのturnだけを扱う）。
+pub fn turn_key_of_ref(chat: &ChatKey, turn: &TurnRef) -> TurnKey {
+    TurnKey { agent: AgentKey { backend: chat.backend, id: chat.id.clone() }, turn_id: ExternalId(turn.0.clone()) }
+}
+
+// ───────────────────────────── 組織チャットの保護 ─────────────────────────────
+
+/// 利用者の操作の種類（保護の判定用）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OrgOp {
+    /// 利用者の手動送信・再送。
+    UserSend,
+    /// キューへの積み込み・編集・再開・今すぐ送る。
+    Queue,
+    /// モデル・権限・作業フォルダ・計画／実行・目標などの設定変更、レビュー・圧縮・再送の分岐。
+    Change,
+    /// アーカイブ・解除・削除。ワークフロー単位でだけ行う。
+    Manage,
+    /// 開く・読む。
+    Open,
+    /// 中断（停止は利用者がいつでもできる）。
+    Stop,
+    /// 承認・質問への回答（利用者が既存の承認カードで答える）。
+    Answer,
+    /// 元を変えない分岐・別threadの相談。
+    Branch,
+    /// ピン・名前変更。
+    Label,
+}
+
+impl OrgOp {
+    fn allowed_on_owned_chat(self) -> bool {
+        matches!(self, OrgOp::Open | OrgOp::Stop | OrgOp::Answer | OrgOp::Branch | OrgOp::Label)
+    }
+}
+
+pub const ORG_OWNED_MESSAGE: &str = "組織実行中のチャットです。介入はワークフロー画面の「手動に切り替える」から行ってください";
+
+/// 組織が所有し、まだ手動に切り替えていないチャットに対する利用者の操作を判定する。
+/// 所有は `chat.json.org` の記録だけで決める（推定しない）。解放済みなら通常のチャットとして扱う。
+pub fn org_guard(binding: Option<&OrgBinding>, op: OrgOp) -> Result<(), &'static str> {
+    match binding {
+        Some(b) if b.released_at.is_none() && !op.allowed_on_owned_chat() => Err(ORG_OWNED_MESSAGE),
+        _ => Ok(()),
+    }
+}
+
+// ───────────────────────────── 最終回答の取り出し ─────────────────────────────
+
+/// 履歴からそのturnの最終回答を取り出す。turn が見つからない・終端が完了と確認できない・履歴が部分取得・本文が読めないときは None
+/// （推定しない）。最終回答の位置づけ（Final）があればその最後の発言、なければ途中経過（Commentary）でない最後の発言。
+pub fn final_message_of(turns: &[TurnRecord], turn: &TurnKey) -> Option<String> {
+    let rec = turns.iter().find(|t| &t.key == turn)?;
+    if !rec.complete || rec.end != Some(TurnEnd::Completed) {
+        return None;
+    }
+    let messages = || rec.entries.iter().filter(|e| e.kind == ActivityKind::AgentMessage);
+    let pick = messages().filter(|e| e.message_phase == MessagePhase::Final).last().or_else(|| messages().filter(|e| e.message_phase != MessagePhase::Commentary).last())?;
+    pick.text.value().cloned().filter(|t| !t.trim().is_empty())
+}
+
+// ───────────────────────────── 子孫の作業中判定（キューの判断の読取り） ─────────────────────────────
+
+/// 組織の完了判定に渡す子孫の様子。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DescendantReport {
+    pub working: u32,
+    /// 状態を確認できていない子孫（不明のまま数える。完了・失敗にしない）。
+    pub unknown: u32,
+    /// 結論を出してよいか。false のときは完了と判断しない。
+    pub scan_complete: bool,
+}
+
+/// 失敗・中断が確定している子孫は、作業中でも不明でもないので判定から外す（親の完了を止めない）。
+pub fn drop_terminal_failures(input: &mut GateInput) {
+    input.descendants.retain(|f| {
+        let failed_end = matches!(f.latest_end, Some((TurnEnd::Failed | TurnEnd::Interrupted, _)));
+        let failed_state = matches!(f.state, AgentState::Failed | AgentState::Interrupted);
+        !(failed_end || failed_state)
+    });
+}
+
+/// キューの判断（`evaluate_gate`）の結果を、子孫の様子に読み替える。送信の可否ではなく読取りだけに使う。
+pub fn descendants_from_gate(decision: &GateDecision, root: &AgentKey) -> DescendantReport {
+    let open = |working: u32, unknown: u32| DescendantReport { working, unknown, scan_complete: true };
+    let undecided = |unknown: u32| DescendantReport { working: 0, unknown, scan_complete: false };
+    match decision {
+        GateDecision::Send { unconfirmed_descendants, .. } => open(0, *unconfirmed_descendants),
+        GateDecision::Hold(QueueHold::DescendantsActive { targets }) => open(targets.len() as u32, 0),
+        GateDecision::Hold(QueueHold::ParentWorking) => open(1, 0),
+        GateDecision::Hold(QueueHold::NotLive { targets }) => {
+            if targets.iter().any(|t| &t.agent == root) {
+                undecided(0)
+            } else {
+                open(0, targets.len() as u32)
+            }
+        }
+        GateDecision::Hold(QueueHold::StateUnknown { targets, .. }) => undecided(targets.len() as u32),
+        // 接続・停止未確認・受理不明などは、子孫について結論を出さない。
+        GateDecision::Hold(_) | GateDecision::Stop(_) | GateDecision::Nothing | GateDecision::Paused => undecided(0),
+    }
+}
 
 // ───────────────────────────── sandbox健全性チェックの判定 ─────────────────────────────
 
@@ -206,5 +334,115 @@ mod tests {
         ] {
             assert!(matches!(judge_sandbox(&Err(e)), SandboxVerdict::Unhealthy { .. }));
         }
+    }
+
+    fn binding(released: bool) -> OrgBinding {
+        OrgBinding {
+            workflow_id: "w1".into(),
+            task_id: "t1".into(),
+            role_id: "worker".into(),
+            released_at: released.then_some(crate::backend::model::UnixMillis(5)),
+        }
+    }
+
+    #[test]
+    fn owned_chat_refuses_user_sends_and_changes_but_not_stop_answer_or_open() {
+        let b = binding(false);
+        for op in [OrgOp::UserSend, OrgOp::Queue, OrgOp::Change, OrgOp::Manage] {
+            assert!(org_guard(Some(&b), op).is_err(), "{op:?}");
+        }
+        for op in [OrgOp::Open, OrgOp::Stop, OrgOp::Answer, OrgOp::Branch, OrgOp::Label] {
+            assert!(org_guard(Some(&b), op).is_ok(), "{op:?}");
+        }
+    }
+
+    #[test]
+    fn released_or_unowned_chat_is_an_ordinary_chat() {
+        for op in [OrgOp::UserSend, OrgOp::Queue, OrgOp::Change, OrgOp::Manage] {
+            assert!(org_guard(Some(&binding(true)), op).is_ok());
+            assert!(org_guard(None, op).is_ok());
+        }
+    }
+
+    #[test]
+    fn chat_ref_round_trips_and_unknown_forms_are_refused() {
+        let k = ChatKey { backend: BackendKind::Codex, id: ExternalId("th-1".into()) };
+        let r = chat_ref_of(&k);
+        assert_eq!(r.0, "codex:th-1");
+        assert_eq!(chat_key_of_ref(&r), Some(k.clone()));
+        assert_eq!(chat_key_of_ref(&ChatRef::new("other:x")), None);
+        assert_eq!(chat_key_of_ref(&ChatRef::new("codex:")), None);
+        let t = turn_key_of_ref(&k, &turn_ref_of(&ExternalId("t9".into())));
+        assert_eq!((t.agent.id.0.as_str(), t.turn_id.0.as_str()), ("th-1", "t9"));
+    }
+
+    fn entry(text: Known<String>, phase: MessagePhase) -> crate::backend::model::TranscriptEntry {
+        crate::backend::model::TranscriptEntry {
+            key: crate::backend::model::ItemKey { agent: root(), turn_id: Some(ExternalId("t1".into())), item_id: ExternalId("i".into()) },
+            kind: ActivityKind::AgentMessage,
+            text,
+            phase: crate::backend::model::ActivityPhase::Completed,
+            message_phase: phase,
+            attachments: Vec::new(),
+        }
+    }
+
+    fn record(end: Option<TurnEnd>, complete: bool, entries: Vec<crate::backend::model::TranscriptEntry>) -> TurnRecord {
+        TurnRecord {
+            key: TurnKey { agent: root(), turn_id: ExternalId("t1".into()) },
+            end,
+            started_at: Known::NotFetched,
+            completed_at: Known::NotFetched,
+            entries,
+            complete,
+        }
+    }
+
+    #[test]
+    fn final_message_is_taken_only_from_a_confirmed_complete_turn() {
+        let want = TurnKey { agent: root(), turn_id: ExternalId("t1".into()) };
+        let msgs = vec![entry(Known::direct("progress".to_string()), MessagePhase::Commentary), entry(Known::direct("RESULT".to_string()), MessagePhase::Final)];
+        assert_eq!(final_message_of(&[record(Some(TurnEnd::Completed), true, msgs.clone())], &want).as_deref(), Some("RESULT"));
+        // Not confirmed complete, partial history, another turn, or an unreadable body are all "not obtained".
+        assert_eq!(final_message_of(&[record(None, true, msgs.clone())], &want), None);
+        assert_eq!(final_message_of(&[record(Some(TurnEnd::Failed), true, msgs.clone())], &want), None);
+        assert_eq!(final_message_of(&[record(Some(TurnEnd::Completed), false, msgs)], &want), None);
+        assert_eq!(final_message_of(&[], &want), None);
+        let unreadable = vec![entry(Known::NotFetched, MessagePhase::Final)];
+        assert_eq!(final_message_of(&[record(Some(TurnEnd::Completed), true, unreadable)], &want), None);
+        // Without a Final marker, the last non-commentary message is used; commentary alone is never taken.
+        let unmarked = vec![entry(Known::direct("A".to_string()), MessagePhase::Unknown)];
+        assert_eq!(final_message_of(&[record(Some(TurnEnd::Completed), true, unmarked)], &want).as_deref(), Some("A"));
+        let only_commentary = vec![entry(Known::direct("c".to_string()), MessagePhase::Commentary)];
+        assert_eq!(final_message_of(&[record(Some(TurnEnd::Completed), true, only_commentary)], &want), None);
+    }
+
+    fn root() -> AgentKey {
+        AgentKey { backend: BackendKind::Codex, id: ExternalId("r".into()) }
+    }
+
+    fn target(id: &str, state: AgentState) -> crate::backend::local::HoldTarget {
+        crate::backend::local::HoldTarget {
+            agent: AgentKey { backend: BackendKind::Codex, id: ExternalId(id.into()) },
+            state,
+            freshness: crate::backend::model::Freshness::Live,
+        }
+    }
+
+    #[test]
+    fn descendant_report_never_concludes_from_an_undecided_gate() {
+        let r = root();
+        let send = GateDecision::Send { entry: crate::backend::model::LocalId("e".into()), unconfirmed_descendants: 2 };
+        assert_eq!(descendants_from_gate(&send, &r), DescendantReport { working: 0, unknown: 2, scan_complete: true });
+        let active = GateDecision::Hold(QueueHold::DescendantsActive { targets: vec![target("c", AgentState::Running)] });
+        assert_eq!(descendants_from_gate(&active, &r), DescendantReport { working: 1, unknown: 0, scan_complete: true });
+        let unknown = GateDecision::Hold(QueueHold::StateUnknown { targets: vec![target("c", AgentState::Unknown)], descendant_scan_incomplete: true });
+        assert!(!descendants_from_gate(&unknown, &r).scan_complete);
+        let parent_not_live = GateDecision::Hold(QueueHold::NotLive { targets: vec![target("r", AgentState::Idle)] });
+        assert!(!descendants_from_gate(&parent_not_live, &r).scan_complete);
+        let child_not_live = GateDecision::Hold(QueueHold::NotLive { targets: vec![target("c", AgentState::Idle)] });
+        assert_eq!(descendants_from_gate(&child_not_live, &r), DescendantReport { working: 0, unknown: 1, scan_complete: true });
+        assert!(!descendants_from_gate(&GateDecision::Hold(QueueHold::Disconnected), &r).scan_complete);
+        assert!(!descendants_from_gate(&GateDecision::Nothing, &r).scan_complete);
     }
 }

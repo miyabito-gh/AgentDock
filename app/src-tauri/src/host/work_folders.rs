@@ -210,6 +210,7 @@ impl Host {
     /// 次のturnから使う作業フォルダの並びの変更（M44の拡張）。作業中・停止未確認なら止め、送信待ちがあれば確認を求める。
     /// UIの確認結果は信用せず、ここで同じ検査を再実行する。
     pub async fn set_next_work_folders(self: &Arc<Self>, args: SetNextWorkFoldersArgs) -> Result<SettingsImpact, IpcError> {
+        self.check_not_org_owned(&args.chat)?;
         let info = self.read(|d| {
             d.chat(&args.chat).map(|c| {
                 let busy = d.agents.iter().any(|v| v.agent.chat == args.chat && d.running_turn.contains_key(&v.agent.key)) || d.open_stop(&args.chat).is_some();
@@ -257,6 +258,7 @@ impl Host {
 
     /// `set_chat_cwd`（プライマリだけの変更）。追加フォルダは引き継ぐ（接続が追加フォルダを使えないときは外す）。
     pub async fn set_chat_cwd(self: &Arc<Self>, args: SetChatCwdArgs) -> Result<SettingsImpact, IpcError> {
+        self.check_not_org_owned(&args.chat)?;
         let usable = self.backend.capabilities().workspace_roots == Support::Supported;
         let extras = if usable { self.read(|d| carried_extras(d.locals.get(&args.chat))) } else { Vec::new() };
         let folders = compose_with_primary(&args.cwd, &extras);

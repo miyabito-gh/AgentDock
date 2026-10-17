@@ -1,0 +1,268 @@
+//! 組織実行のポート（DESIGN_ORG_P4 §3.3）と、`Host` による実装。
+//!
+//! - `AgentRuntime`（書く側）は、役割チャットの作成と送信だけ。許可（`CreatePermit`／`DispatchPermit`）を値で受け取る。
+//!   中断・承認の回答・resume は持たない（利用者の既存の操作だけが行う）。
+//! - `RuntimeRead`（読む側）は許可が要らない読取りだけ。送信・resume・承認をしない。
+//! - 送信は `Host::org_send` だけ。`SendAuth::Org` で既存の送信経路（`dispatch_send_as`）を通り、受理不明の記録・保存・照合を共用する。
+//!   再送の分岐は持たない。受理不明は照合（読取り）の結果を待つ。
+
+use std::sync::Arc;
+
+use async_trait::async_trait;
+use org_engine::{CreateResult, OrgNotice, RoleChatSpec, SandboxKind, TaskId};
+
+use super::driver::OrgSink;
+use super::grant::{CreatePermit, DispatchPermit, GrantRegistry};
+use crate::backend::backend::*;
+use crate::backend::ipc::HostEvent;
+use crate::backend::local::SaveScope;
+use crate::backend::model::*;
+use crate::backend::parity::{ParityOps, SandboxCheck};
+use crate::host::state::agent_key_of;
+use crate::host::{now_ms, Host, SendAuth};
+use crate::rules::org::{classify_trust_append, final_message_of, DescendantReport, TrustCompare};
+use crate::store::records::OrgBinding;
+
+/// 送信1件の指示（エンジンが決めた試行IDと照合用IDをそのまま使う）。
+#[derive(Debug, Clone)]
+pub struct OrgSendSpec {
+    pub chat: ChatKey,
+    pub attempt: LocalId,
+    pub client_message_id: String,
+    pub text: String,
+    pub output_schema: serde_json::Value,
+}
+
+/// 送信の結果。`Dispatched` の送信状態（受理・拒否・受理不明）は、監視の受け口が別にエンジンへ知らせる。
+#[derive(Debug)]
+pub enum OrgSendResult {
+    Dispatched(SendAttempt),
+    /// live でないので送っていない（resume しない）。
+    NotLive,
+    /// 送信を止める条件（停止未確認・受理不明・削除保留・外部実行・実行中）に当たり、送っていない。
+    Held(String),
+}
+
+/// 役割チャットの作成結果と、そのときの config.toml の前後照合。
+#[derive(Debug)]
+pub struct CreateOutcome {
+    pub result: CreateResult,
+    pub trust: Option<TrustCompare>,
+}
+
+#[async_trait]
+pub trait AgentRuntime: Send + Sync {
+    /// 許可の失効を確認するための管理表（許可を作るときに使う）。
+    fn grants(&self) -> &GrantRegistry;
+    async fn create_role_chat(&self, permit: CreatePermit<'_>, spec: RoleChatSpec) -> CreateOutcome;
+    async fn send(&self, permit: DispatchPermit<'_>, req: OrgSendSpec) -> OrgSendResult;
+}
+
+#[async_trait]
+pub trait RuntimeRead: Send + Sync {
+    /// そのturnの最終回答。読めない・まだ確定していないときは `Ok(None)`（推定しない）。
+    async fn read_final_message(&self, chat: &ChatKey, turn: &TurnKey) -> Result<Option<String>, BackendError>;
+    /// 作業フォルダが一致するチャット（作成結果が不明なときの候補表示用。自動では結び付けない）。
+    async fn list_by_cwd(&self, cwd: &str) -> Result<Vec<ChatKey>, BackendError>;
+    async fn sandbox_check(&self, cwd: &str) -> Result<SandboxCheck, BackendError>;
+    /// 子孫の様子（キューの判断の読取り。送信しない）。
+    async fn descendants(&self, chat: &ChatKey) -> DescendantReport;
+}
+
+/// 画面へ出す通知の材料（エンジンの通知と、ホストが観測したもの）。
+#[derive(Debug, Clone, PartialEq)]
+pub enum OrgHostNotice {
+    Engine(OrgNotice),
+    /// config.toml の前後照合（AgentDock は書いていない）。
+    Config(TrustCompare),
+    /// 送らなかった（理由つき）。
+    SendRefused { task: TaskId, why: String },
+    /// events.jsonl に追記できなかったため、以後は何も送らない。
+    PersistFailed,
+}
+
+#[async_trait]
+impl AgentRuntime for Arc<Host> {
+    fn grants(&self) -> &GrantRegistry {
+        &self.org_rt.grants
+    }
+
+    async fn create_role_chat(&self, permit: CreatePermit<'_>, spec: RoleChatSpec) -> CreateOutcome {
+        self.org_create_role_chat(permit, spec).await
+    }
+
+    async fn send(&self, permit: DispatchPermit<'_>, req: OrgSendSpec) -> OrgSendResult {
+        self.org_send(permit, req).await
+    }
+}
+
+#[async_trait]
+impl RuntimeRead for Arc<Host> {
+    async fn read_final_message(&self, chat: &ChatKey, turn: &TurnKey) -> Result<Option<String>, BackendError> {
+        let history = self.read_history(agent_key_of(chat), ReadOptions { include_turns: true }).await?;
+        Ok(final_message_of(&history.turns, turn))
+    }
+
+    async fn list_by_cwd(&self, cwd: &str) -> Result<Vec<ChatKey>, BackendError> {
+        let page = self
+            .backend
+            .list_chats(ListChatsQuery { limit: Some(50), include_external: true, cwd: Some(vec![cwd.to_string()]), ..Default::default() })
+            .await?;
+        Ok(page.items.into_iter().map(|s| s.chat.key).collect())
+    }
+
+    async fn sandbox_check(&self, cwd: &str) -> Result<SandboxCheck, BackendError> {
+        ParityOps::sandbox_check(self.backend.as_ref(), cwd.to_string()).await
+    }
+
+    async fn descendants(&self, chat: &ChatKey) -> DescendantReport {
+        self.org_descendants(chat).await
+    }
+}
+
+/// 画面への公開先（状態の写しを保持し、更新の合図を出す。通知は控える）。
+impl OrgSink for Host {
+    fn publish(&self, snapshot: super::driver::OrgSnapshot) {
+        let workflow_id = snapshot.workflow.0.clone();
+        *self.org_rt.view.lock().unwrap() = Some(snapshot);
+        self.mutate(|_| ((), vec![HostEvent::OrgUpdated { workflow_id }]));
+    }
+
+    fn notice(&self, workflow: &org_engine::WorkflowId, notice: OrgHostNotice) {
+        crate::diag::log("org", &format!("notice workflow={} {}", workflow.0, notice_label(&notice)));
+        self.org_rt.push_notice(notice);
+    }
+}
+
+/// 診断ログ用の種別名（本文・パス・設定の内容は出さない）。
+fn notice_label(n: &OrgHostNotice) -> &'static str {
+    match n {
+        OrgHostNotice::Engine(_) => "engine",
+        OrgHostNotice::Config(TrustCompare::Unchanged) => "config-unchanged",
+        OrgHostNotice::Config(TrustCompare::CodexTrustAppended { .. }) => "config-trust-appended",
+        OrgHostNotice::Config(TrustCompare::Other { .. }) => "config-other-change",
+        OrgHostNotice::Config(TrustCompare::Unverified { .. }) => "config-unverified",
+        OrgHostNotice::SendRefused { .. } => "send-refused",
+        OrgHostNotice::PersistFailed => "persist-failed",
+    }
+}
+
+impl Host {
+    /// config.toml の本文を読む（読むだけ。保存しない・ログに出さない）。読めなければ None。
+    fn read_config_text() -> Option<String> {
+        let path = crate::codex::cli::config_toml_path()?;
+        std::fs::read_to_string(path).ok()
+    }
+
+    /// 組織の役割チャットを作る。一般の `start_chat`（一般領域・最初の依頼・名前付け）は使わない。
+    /// 作成の前後で config.toml を読み比べる（`ext_lock` の中。書かない）。
+    pub(in crate::host) async fn org_create_role_chat(self: &Arc<Self>, permit: CreatePermit<'_>, spec: RoleChatSpec) -> CreateOutcome {
+        let none = |result: CreateResult| CreateOutcome { result, trust: None };
+        if let Err(e) = permit.still_valid(&self.org_rt.grants) {
+            return none(CreateResult::Rejected(e.message().to_string()));
+        }
+        if !std::path::Path::new(&spec.cwd).is_dir() {
+            return none(CreateResult::Rejected(format!("作業フォルダが見つかりません: {}", spec.cwd)));
+        }
+        let permission = match spec.sandbox {
+            SandboxKind::ReadOnly => PermissionPreset::ReadOnly,
+            SandboxKind::WorkspaceWrite => PermissionPreset::WorkspaceWriteOnRequest,
+        };
+        let model = spec.model.clone().map(|m| ModelChoice { model: m, effort: spec.effort.clone(), speed_tier: None });
+        let params = StartChatParams { kind: ChatKind::Development, cwd: spec.cwd.clone(), model: model.clone(), permission, extra_folders: Vec::new() };
+
+        let (started, before, after) = {
+            let _serial = self.ext_lock().await;
+            let before = Self::read_config_text();
+            let started = self.backend.start_chat(params).await;
+            let after = Self::read_config_text();
+            (started, before, after)
+        };
+        let trust = Some(classify_trust_append(before.as_deref(), after.as_deref()));
+        let started = match started {
+            Ok(s) => s,
+            // 作られたかもしれない。照合用のIDが無いので、推定して結び付けない（利用者が選ぶ）。
+            Err(BackendError::OutcomeUnknown { .. }) => return CreateOutcome { result: CreateResult::Unknown, trust },
+            Err(e) => return CreateOutcome { result: CreateResult::Rejected(e.to_string()), trust },
+        };
+        let key = started.chat.key.clone();
+        let binding = OrgBinding {
+            workflow_id: permit.workflow().0.clone(),
+            task_id: permit.task().0.clone(),
+            role_id: spec.role.0.clone(),
+            released_at: None,
+        };
+        let meta = crate::host::persist::cached_meta_of(&started.chat, now_ms());
+        self.update_local(&key, false, std::time::Duration::ZERO, |f| {
+            f.hosted = true;
+            f.org = Some(binding.clone());
+            f.permission = Some(permission);
+            f.model = model.clone();
+            f.cached_meta = Some(meta);
+        });
+        // 所有の記録を保存できなければ、このチャットへは送らない（再起動後に所有が分からなくなるため）。
+        let saved = self.save_now(SaveScope::ChatLocal { chat: key.clone() }).await;
+        if !saved.is_some_and(|s| matches!(s.state, SaveState::Saved { .. })) {
+            return CreateOutcome { result: CreateResult::SaveFailed, trust };
+        }
+        self.register_started_chat(&started, model);
+        self.org_rt.observer.lock().unwrap().bind(key.clone(), permit.workflow().clone(), permit.task().clone());
+        CreateOutcome { result: CreateResult::Created(crate::rules::org::chat_ref_of(&key)), trust }
+    }
+
+    /// 組織の送信（`DispatchPermit` を消費する唯一の経路）。再送の分岐は持たない。
+    /// live でなければ送らない（resume しない）。停止未確認・受理不明などの条件は利用者の送信と同じものを通る。
+    pub(in crate::host) async fn org_send(self: &Arc<Self>, permit: DispatchPermit<'_>, req: OrgSendSpec) -> OrgSendResult {
+        let chat = req.chat.clone();
+        if permit.chat() != &chat {
+            return OrgSendResult::Held("許可の宛先と違うチャットです".to_string());
+        }
+        if let Err(e) = permit.still_valid(&self.org_rt.grants) {
+            return OrgSendResult::Held(e.message().to_string());
+        }
+        // 手動送信・キューと同時に turn/start を送らない。
+        let lock = self.queue_rt.send_lock(&chat);
+        let _send_guard = lock.lock().await;
+        if let Err(e) = self.check_sendable_core(&chat) {
+            return OrgSendResult::Held(e.message);
+        }
+        let root = agent_key_of(&chat);
+        let (live, running, selected) = self.read(|d| {
+            (
+                d.root_view(&chat).map(|v| v.freshness) == Some(Freshness::Live),
+                d.running_turn.contains_key(&root),
+                d.model_settings.get(&chat).and_then(|s| s.selected.clone()),
+            )
+        });
+        if !live {
+            return OrgSendResult::NotLive;
+        }
+        if running {
+            return OrgSendResult::Held("このチャットは実行中です".to_string());
+        }
+        let request = SendRequest {
+            chat: chat.clone(),
+            mode: SendMode::NewTurn,
+            text: req.text,
+            attachments: Vec::new(),
+            speed_tier: selected.as_ref().and_then(|m| m.speed_tier.clone()),
+            model: selected,
+            permission: None,
+            cwd: None,
+            work_folders: None,
+            work_mode: None,
+            client_message_id: req.client_message_id,
+            output_schema: Some(req.output_schema),
+        };
+        let attempt = SendAttempt { attempt_id: req.attempt, client_message_id: request.client_message_id.clone(), at: now_ms(), state: SendState::Sending };
+        OrgSendResult::Dispatched(self.dispatch_send_as(request, attempt, SendAuth::Org(permit)).await)
+    }
+
+    /// 子孫の様子（キューの判断の読取り）。履歴の確認は読取りだけで、resume・送信・承認をしない。
+    pub(in crate::host) async fn org_descendants(self: &Arc<Self>, chat: &ChatKey) -> DescendantReport {
+        let mut input = self.queue_gate_input(chat).await;
+        crate::rules::org::drop_terminal_failures(&mut input);
+        let decision = crate::rules::queue::evaluate_gate(&input, None, false, &LocalId(String::new()));
+        crate::rules::org::descendants_from_gate(&decision, &agent_key_of(chat))
+    }
+}

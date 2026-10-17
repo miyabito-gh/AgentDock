@@ -1103,6 +1103,8 @@ impl HostData {
             BackendEvent::WorkspaceRootsSupportChanged { support } => out.push(HostEvent::WorkspaceRootsSupportUpdated { support: *support }),
             // ツールサーバーの通知は、ホストの拡張管理（`extensions.rs`）が見る。エージェントの状態には使わない。
             BackendEvent::ToolServerStatusChanged { .. } | BackendEvent::ToolServerLoginCompleted { .. } | BackendEvent::RateLimitsUpdated => {}
+            // 組織実行（host/org）だけが使う。エージェント状態には流用しない。
+            BackendEvent::TokenUsage { .. } | BackendEvent::TurnFailureClass { .. } | BackendEvent::SandboxFailureObserved { .. } => {}
             BackendEvent::ModelRerouted { agent, effective, .. } => {
                 if let Some(chat) = self.view(agent).filter(|_| self.is_root(agent)).map(|v| v.agent.chat.clone()) {
                     let s = self.model_settings.entry(chat.clone()).or_insert_with(|| ChatModelSettings::blank(ApplyTiming::Unknown));

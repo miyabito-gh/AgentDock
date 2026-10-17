@@ -103,7 +103,7 @@ mod tests {
         d
     }
     fn pt(id: &str) -> PlanTask {
-        PlanTask { id: TaskId::new(id), role: RoleId::new("worker"), deps: vec![], effects: vec![] }
+        PlanTask { id: TaskId::new(id), role: RoleId::new("worker"), deps: vec![], effects: vec![], title: String::new(), instructions: String::new() }
     }
 
     fn seed(store: &FileOrgStore) -> WorkflowState {
@@ -112,7 +112,7 @@ mod tests {
             schema_version: 1,
             seq: 0,
             at_ms: 0,
-            kind: OrgEventKind::Created { workflow_id: s.workflow_id.clone(), limits: s.limits.clone() },
+            kind: OrgEventKind::Created { workflow_id: s.workflow_id().clone(), limits: s.limits().clone() },
         };
         store.append_event(&created).unwrap();
         for k in [
@@ -139,8 +139,8 @@ mod tests {
         let r = recover_on_restart(&store, 10).unwrap();
         assert!(r.report.dropped_tail.is_some());
         let t = r.state.task(&TaskId::new("t1")).unwrap();
-        assert_eq!(t.status, TaskStatus::Running);
-        assert_eq!(t.confirm, ConfirmState::NeedsReconcile(ReconcileCause::Restart));
+        assert_eq!(t.status(), TaskStatus::Running);
+        assert_eq!(t.confirm(), ConfirmState::NeedsReconcile(ReconcileCause::Restart));
         // 分類結果と新しい snapshot が保存され、次回の復元でも同じ状態（壊れた行は途中行として報告される）
         let again = recover_on_restart(&store, 11).unwrap();
         assert_eq!(again.state, r.state);
@@ -155,7 +155,7 @@ mod tests {
         let live = seed(&store);
         std::fs::write(dir.join(SNAPSHOT_FILE), b"{ broken").unwrap();
         let (s, rep) = restore(&store).unwrap();
-        assert_eq!(s.tasks, live.tasks);
+        assert_eq!(s.tasks(), live.tasks());
         let aside = rep.snapshot_corrupt_aside.expect("moved aside");
         assert!(Path::new(&aside).exists());
         assert!(!dir.join(SNAPSHOT_FILE).exists());

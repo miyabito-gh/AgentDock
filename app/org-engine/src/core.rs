@@ -156,6 +156,11 @@ pub enum OrgInput {
     SandboxChecked { ok: bool, detail: String },
     /// The user pressed interrupt on this chat.
     InterruptRequested { chat: ChatRef },
+    /// A command in this chat failed because the sandbox could not start (observed while running).
+    SandboxFailure { chat: ChatRef },
+    /// After a restart: the host matched a chat record to a task whose creation result was lost
+    /// (record against record, not a guess). Only binds a task that requested a chat and has none.
+    ChatRecovered { task: TaskId, chat: ChatRef },
     Tick { now_ms: i64 },
 }
 
@@ -310,6 +315,11 @@ impl OrgCore {
 
     pub fn state(&self) -> Option<&WorkflowState> {
         self.state.as_ref()
+    }
+
+    /// Kind of the latest turn sent for the task in this session (None after a restart).
+    pub fn last_turn_kind(&self, id: &TaskId) -> Option<TurnKind> {
+        self.last_kind.get(id).copied()
     }
 
     /// Wall clock for event timestamps; also updated by `Tick`.
@@ -485,6 +495,13 @@ impl OrgCore {
             OrgInput::NotLive { task } => self.not_live(&task),
             OrgInput::WorkspaceResult { task, result } => self.workspace_result(&task, result),
             OrgInput::SandboxChecked { ok, detail } => self.sandbox_checked(ok, detail),
+            OrgInput::SandboxFailure { chat } => self.sandbox_failure(chat),
+            OrgInput::ChatRecovered { task, chat } => {
+                let ok = self.task(&task).is_some_and(|t| t.chat().is_none() && t.chat_cwd().is_some());
+                if ok {
+                    self.rec(OrgEventKind::ChatBound { task, chat });
+                }
+            }
             OrgInput::InterruptRequested { chat } => {
                 if let Some(id) = self.task_of_chat(&chat) {
                     if self.task(&id).is_some_and(|t| t.status() == TaskStatus::Running && t.confirm() == ConfirmState::Confirmed) {
@@ -898,6 +915,20 @@ impl OrgCore {
             self.halt_if_none(HaltReason::SandboxUnhealthy);
             self.notify(OrgNotice::SandboxUnhealthy { detail });
         }
+    }
+
+    /// The sandbox failed to start while a task was running: the task needs the user, not a reconciliation,
+    /// and nothing new is launched until the user resumes (which re-checks the sandbox).
+    fn sandbox_failure(&mut self, chat: ChatRef) {
+        let Some(id) = self.task_of_chat(&chat) else { return };
+        let running = self.task(&id).is_some_and(|t| matches!(t.status(), TaskStatus::Running | TaskStatus::Reviewing));
+        if running {
+            self.forget(&id);
+            self.block(&id, BlockedReason::NeedsAttention, "sandbox を起動できませんでした");
+        }
+        self.sandbox = SandboxState::Unknown;
+        self.halt_if_none(HaltReason::SandboxUnhealthy);
+        self.notify(OrgNotice::SandboxUnhealthy { detail: "実行中のコマンドが sandbox の更新失敗（setup refresh had errors）を示しました".into() });
     }
 
     fn freshness(&mut self, cause: ReconcileCause) {

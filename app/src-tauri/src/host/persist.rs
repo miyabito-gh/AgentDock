@@ -257,6 +257,12 @@ impl HostData {
             delete_pending: f.delete_pending.clone(),
             marks: self.marks_of(chat),
             acknowledged_failures: f.acknowledged_failures.clone(),
+            org: f.org.as_ref().map(|o| OrgBindingView {
+                workflow_id: o.workflow_id.clone(),
+                task_id: o.task_id.clone(),
+                role_id: o.role_id.clone(),
+                released: o.released_at.is_some(),
+            }),
             save,
         })
     }

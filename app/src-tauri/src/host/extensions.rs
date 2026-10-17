@@ -185,6 +185,11 @@ impl Host {
         Ok(fold_ops(lines, OPS_LIST_LIMIT))
     }
 
+    /// 管理操作と同じ直列化の錠（組織の役割チャット作成の前後の config.toml 照合を、管理操作と混ぜないために取る）。
+    pub(in crate::host) async fn ext_lock(&self) -> tokio::sync::MutexGuard<'_, ()> {
+        self.ext_rt.lock.lock().await
+    }
+
     /// 管理操作を実行する（確認画面を経たユーザー操作だけ）。同時に実行できるのは1件。
     pub async fn manage_extension(self: &Arc<Self>, args: ManageExtensionArgs, confirmed: &UserConfirmed) -> Result<ExtensionOpRecord, IpcError> {
         self.require_op(ParityOp::Extensions)?;

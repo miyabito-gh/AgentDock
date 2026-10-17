@@ -164,7 +164,22 @@ pub struct ChatLocalView {
     pub marks: ChatMarks,
     /// 「確認済み」にした失敗（agent＋turn）。UIが現在の失敗との一致で確認済みを判定する（M42）。
     pub acknowledged_failures: Vec<TurnKey>,
+    /// 組織実行が作ったチャットの所有記録（左一覧で隠す・ドックのバッジ用。P-ORG-7）。None＝通常のチャット。
+    #[serde(default)]
+    pub org: Option<OrgBindingView>,
     pub save: SaveState,
+}
+
+/// 組織実行が作ったチャットの所有（UIへ出す形）。`released` が真なら「手動に切り替え」済みで、通常チャットとして送信できる。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgBindingView {
+    pub workflow_id: String,
+    pub task_id: String,
+    pub role_id: String,
+    pub released: bool,
 }
 
 // ───────────────────────────── 添付・成果物（§3.8） ─────────────────────────────

@@ -179,6 +179,8 @@ pub enum BlockedReason {
     QueueEntryNotEditable,
     /// 削除保留中のため、このチャットへの新しい送信は止めている（M46）。
     DeletePending,
+    /// 組織実行中のチャットのため、利用者の操作では送信・変更しない（「手動に切り替える」から介入する）。
+    OrgOwned,
     /// フォルダは作業フォルダの指定であり、添付としてコピーしない。
     FolderIsWorkspace { path: String },
     /// 保存先に同名のファイルがある。UIで上書きを確認したら `overwriteConfirmed` で再実行する。
@@ -1252,6 +1254,8 @@ pub enum HostEvent {
     ArtifactUpdated { entry: ArtifactEntry },
     /// side相談の記録の更新（開いた・閉じた・終了。1件分で置き換える）。
     SideUpdated { side: SideSessionMeta },
+    /// 組織実行の状態が変わった合図（UIは状態を取り直す。型の詳細は P-ORG-7）。
+    OrgUpdated { workflow_id: String },
     /// 通知を開いた操作（トレイ・通知クリック）。該当チャットを表示するだけで、回答・再実行はしない。
     NavigateToChat { chat: ChatKey },
     /// 完全終了の進行（確認・停止照合・保存・保存失敗）。閉じる操作（トレイ格納）では出ない。

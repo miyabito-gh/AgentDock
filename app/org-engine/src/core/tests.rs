@@ -401,6 +401,41 @@ fn restored_engine_does_not_recreate_a_chat_whose_creation_was_lost() {
 }
 
 #[test]
+fn recovered_chat_binding_lets_a_lost_creation_continue_without_creating_again() {
+    let mut s = WorkflowState::new(WorkflowId::new("w1"), Limits::default());
+    s.record(OrgEventKind::TaskAdded { task: PlanTask { id: tid("planner-1"), role: RoleId::new("planner"), deps: vec![], effects: vec![], title: String::new(), instructions: String::new() } }, 0).unwrap();
+    s.record(OrgEventKind::Requested { request: "r".into(), repo: "p".into() }, 0).unwrap();
+    s.record(OrgEventKind::StatusChanged { task: tid("planner-1"), to: TaskStatus::Ready, cause: Cause::Engine }, 0).unwrap();
+    s.record(OrgEventKind::ChatRequested { task: tid("planner-1"), cwd: "p".into() }, 0).unwrap();
+    let mut sim = Sim::from_core(OrgCore::restored(s, 5));
+    // A task that never requested a chat cannot be bound.
+    sim.feed(OrgInput::ChatRecovered { task: tid("nope"), chat: ChatRef::new("c") });
+    sim.feed(OrgInput::ChatRecovered { task: tid("planner-1"), chat: ChatRef::new("codex:th") });
+    assert_eq!(sim.t("planner-1").chat(), Some(&ChatRef::new("codex:th")));
+    // A second record for the same task does not move it.
+    sim.feed(OrgInput::ChatRecovered { task: tid("planner-1"), chat: ChatRef::new("codex:other") });
+    assert_eq!(sim.t("planner-1").chat(), Some(&ChatRef::new("codex:th")));
+    sim.feed(OrgInput::Grant { granted: true });
+    sim.feed(OrgInput::Live { chat: ChatRef::new("codex:th"), live: true });
+    sim.feed(OrgInput::UserResume);
+    assert!(!sim.log.iter().any(|a| matches!(a, OrgAction::CreateRoleChat { .. })));
+    assert_eq!(sim.sends("planner-1"), 1);
+}
+
+#[test]
+fn sandbox_failure_while_running_needs_the_user_and_halts_new_launches() {
+    let mut sim = Sim::new();
+    sim.start(Limits::default());
+    let chat = sim.t("planner-1").chat().unwrap().clone();
+    assert_eq!(sim.t("planner-1").status(), TaskStatus::Running);
+    sim.feed(OrgInput::SandboxFailure { chat });
+    assert_eq!(sim.t("planner-1").status(), TaskStatus::Blocked(BlockedReason::NeedsAttention));
+    assert_eq!(sim.st().halt(), Some(HaltReason::SandboxUnhealthy));
+    assert!(sim.notices().iter().any(|n| matches!(n, OrgNotice::SandboxUnhealthy { .. })));
+    assert!(!matches!(sim.t("planner-1").status(), TaskStatus::Failed(_) | TaskStatus::Cancelled));
+}
+
+#[test]
 fn plan_with_declared_effect_waits_for_approval() {
     let mut sim = Sim::new();
     sim.with_plan(&plan_json(&[("a", "worker", &[], &["networkOrInstall"])]));

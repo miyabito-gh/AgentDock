@@ -99,10 +99,24 @@ pub enum BackendEvent {
     OpCapabilitiesChanged { ops: Vec<OpCapability> },
     /// 複数の作業フォルダの指定（experimental）が実行時に使えなくなった（拒否による降格）。
     WorkspaceRootsSupportChanged { support: Support },
+    /// トークン使用量の更新（組織実行の使用量記録の材料。取れない値は None、0で代用しない。画面には出さない）。
+    TokenUsage { agent: AgentKey, turn: Option<ExternalId>, last_total: Option<u64>, thread_total: Option<u64>, context_window: Option<u64> },
+    /// turn失敗の分類（`TurnEnded` と併送。エラー文字列では判断しない）。届かなければ通常の失敗として扱う。
+    TurnFailureClass { turn: TurnKey, class: FailureClass },
+    /// 実行中のコマンドが sandbox の起動失敗を示した（本文は運ばない）。組織実行が要対応にする根拠。
+    SandboxFailureObserved { agent: AgentKey },
     /// 未知のイベント・正規化できない内容。破棄せず警告として表示（M12）。
     Unrecognized { raw_label: String, note: Option<String> },
     /// イベント欠落の可能性（キュー溢れ・lag・パース失敗）。対象の鮮度を要照合にする。
     Gap { scope: GapScope, reason: String },
+}
+
+/// turn失敗の分類（中立）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum FailureClass {
+    /// 利用上限に達した。
+    UsageLimit,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -355,6 +369,8 @@ pub struct SendRequest {
     pub speed_tier: Option<String>,
     /// 照合用ID。ホストが試行ごとに新規発行する。
     pub client_message_id: String,
+    /// 最終応答の出力スキーマ（組織実行だけが指定する。None＝指定しない）。新しいturnにだけ付け、追加指示（Steer）では使わない。
+    pub output_schema: Option<serde_json::Value>,
 }
 
 impl SendRequest {
@@ -404,6 +420,7 @@ impl UnconfirmedSend {
                 work_mode: None,
                 speed_tier: None,
                 client_message_id,
+                output_schema: None,
             },
             since,
         }

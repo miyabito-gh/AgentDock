@@ -159,6 +159,12 @@ pub fn evaluate(queue: &ChatQueue, input: &GateInput) -> GateDecision {
         QueueEntryState::AcceptanceUnknown { attempt } => return GateDecision::Hold(QueueHold::AcceptanceUnknown { attempt: attempt.clone() }),
         _ => return GateDecision::Nothing,
     }
+    evaluate_gate(input, queue.baseline_at, queue.awaiting.is_some(), &first.id)
+}
+
+/// `evaluate` の後半（キューの項目に依らない、親・子孫・接続の条件）。組織実行も、子孫に作業中がないかの判断にこれを使う
+/// （送信はしない。判断の読取りだけ）。`awaiting` は自動送信したturnの終端待ちか。`entry` は `Send` に載せる項目ID。
+pub fn evaluate_gate(input: &GateInput, baseline_at: Option<UnixMillis>, awaiting: bool, entry: &LocalId) -> GateDecision {
     if input.quitting {
         return GateDecision::Hold(QueueHold::Quitting);
     }
@@ -181,7 +187,7 @@ pub fn evaluate(queue: &ChatQueue, input: &GateInput) -> GateDecision {
         // 親の状態を取得できていない。
         return GateDecision::Hold(QueueHold::StateUnknown { targets: Vec::new(), descendant_scan_incomplete: !input.descendant_scan_complete });
     };
-    let baseline = queue.baseline_at;
+    let baseline = baseline_at;
     if let Some(cause) = failure_of(root, true, baseline) {
         return GateDecision::Stop(cause);
     }
@@ -194,7 +200,7 @@ pub fn evaluate(queue: &ChatQueue, input: &GateInput) -> GateDecision {
     if let Some(bad) = std::iter::once(root).chain(input.descendants.iter()).find(|f| f.latest_end.is_some() && f.latest_turn.is_none()) {
         return GateDecision::Hold(QueueHold::StateUnknown { targets: vec![target(bad)], descendant_scan_incomplete: false });
     }
-    if is_working(root.state) || queue.awaiting.is_some() || input.manual_turn_pending {
+    if is_working(root.state) || awaiting || input.manual_turn_pending {
         return GateDecision::Hold(QueueHold::ParentWorking);
     }
     if matches!(root.state, AgentState::Unknown | AgentState::Closed) {
@@ -226,7 +232,7 @@ pub fn evaluate(queue: &ChatQueue, input: &GateInput) -> GateDecision {
     if !not_live.is_empty() {
         return GateDecision::Hold(QueueHold::NotLive { targets: not_live });
     }
-    GateDecision::Send { entry: first.id.clone(), unconfirmed_descendants }
+    GateDecision::Send { entry: entry.clone(), unconfirmed_descendants }
 }
 
 /// 空のキュー。
