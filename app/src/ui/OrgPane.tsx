@@ -369,8 +369,9 @@ export function OrgPane(p: OrgPaneProps) {
                           <td>{artifactText(t)}</td>
                           <td>{taskActions(t)}</td>
                         </tr>
-                        {t.reconcile || t.stallNotified || t.needsChatChoice ? (
+                        {t.reconcile || t.stallNotified || t.needsChatChoice || t.attentionNote ? (
                           <tr key={`${t.id}:n`} className="org-note-row"><td /><td colSpan={8} className="small">
+                            {t.attentionNote ? <div>止まった理由: {t.attentionNote}</div> : null}
                             {t.stallNotified ? <div>実行中のまま新しい出力がないと通知済みです（自動では止めません）。</div> : null}
                             {t.needsChatChoice ? <div>チャットの作成結果を確認できていません。「チャットを選ぶ」で結び付けるまで進めません。</div> : null}
                             {t.reconcile ? <div>照合（読取りのみ）: {t.reconcile.text}{t.reconcile.worktree.label ? `　作業場所: ${t.reconcile.worktree.label}` : ""}</div> : null}

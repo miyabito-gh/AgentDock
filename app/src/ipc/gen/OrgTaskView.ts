@@ -37,4 +37,8 @@ needsChatChoice: boolean,
 /**
  * 「やり直す」を出せるか（送っていないことが確かで、初回のturnが受理されていない）。受理不明のものは出さない。
  */
-canRetry: boolean, };
+canRetry: boolean, 
+/**
+ * 「止まっています（要対応）」の理由の1行（メモリ上の通知から。再起動で失われたときは、その旨）。要対応でなければ None。
+ */
+attentionNote: string | null, };

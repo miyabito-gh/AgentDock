@@ -295,6 +295,8 @@ pub struct OrgTaskView {
     pub needs_chat_choice: bool,
     /// 「やり直す」を出せるか（送っていないことが確かで、初回のturnが受理されていない）。受理不明のものは出さない。
     pub can_retry: bool,
+    /// 「止まっています（要対応）」の理由の1行（メモリ上の通知から。再起動で失われたときは、その旨）。要対応でなければ None。
+    pub attention_note: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -30,6 +30,7 @@ struct Sim {
     sandbox_ok: bool,
     auto_commit: bool,
     refresh_fail: bool,
+    worktree_fail: Option<String>,
 }
 
 impl Sim {
@@ -49,6 +50,7 @@ impl Sim {
             sandbox_ok: true,
             auto_commit: true,
             refresh_fail: false,
+            worktree_fail: None,
         }
     }
 
@@ -77,6 +79,10 @@ impl Sim {
     fn reply(&self, a: &OrgAction) -> Option<OrgInput> {
         match a {
             OrgAction::CreateRoleChat { task, .. } => Some(OrgInput::ChatCreated { task: task.clone(), result: CreateResult::Created(ChatRef::new(format!("chat-{task}"))) }),
+            OrgAction::Workspace(WorkspaceAction::CreateWorktree { task, .. }) if self.worktree_fail.is_some() => Some(OrgInput::WorkspaceResult {
+                task: task.clone(),
+                result: WorkspaceOutcome::Failed { detail: self.worktree_fail.clone().unwrap() },
+            }),
             OrgAction::Workspace(WorkspaceAction::CreateWorktree { task, .. }) => {
                 Some(OrgInput::WorkspaceResult { task: task.clone(), result: WorkspaceOutcome::WorktreeCreated { path: format!("wt/{task}") } })
             }
@@ -1050,4 +1056,19 @@ fn the_event_log_of_a_replaced_chat_replays_to_the_same_state() {
     assert_eq!((a.chat(), a.chat_cwd(), a.status(), a.confirm()), (b.chat(), b.chat_cwd(), b.status(), b.confirm()));
     assert_eq!(replayed.halt(), live_state.halt());
     assert_eq!(replayed.last_seq(), live_state.last_seq());
+}
+
+#[test]
+fn a_failed_worktree_blocks_the_task_with_the_first_line_of_the_failure_as_the_reason() {
+    let mut sim = Sim::new();
+    sim.worktree_fail = Some("fatal: not a valid object name: 'HEAD'
+second line".into());
+    sim.with_plan(&plan_json(&[("w", "worker", &[], &[])]));
+    assert_eq!(sim.t("w").status(), TaskStatus::Blocked(BlockedReason::NeedsAttention));
+    let why = sim.notices().into_iter().find_map(|n| match n {
+        OrgNotice::TaskBlocked { task, why } if task.0 == "w" => Some(why.clone()),
+        _ => None,
+    });
+    let why = why.expect("a blocked notice with a reason");
+    assert!(why.contains("not a valid object name") && !why.contains("second line"), "{why}");
 }

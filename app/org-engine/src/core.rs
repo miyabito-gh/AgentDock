@@ -211,6 +211,11 @@ fn role_kind(r: &RoleId) -> Option<RoleKind> {
     }
 }
 
+/// First non-empty line of a failure detail, capped (a short reason for the user; never a long text).
+fn one_line(s: &str) -> String {
+    s.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("").chars().take(200).collect()
+}
+
 /// Certain that nothing was sent for the task, so the user may try it again (R-ORG M2).
 pub fn retryable(t: &Task) -> bool {
     let attempt_open = t.last_attempt().is_some() && matches!(t.last_settle(), None | Some(SettleOutcome::Unknown));
@@ -1004,6 +1009,11 @@ impl OrgCore {
             self.launching.remove(id);
             match result {
                 WorkspaceOutcome::WorktreeCreated { .. } => self.continue_launch(id),
+                WorkspaceOutcome::Failed { detail } => self.block(
+                    id,
+                    BlockedReason::NeedsAttention,
+                    &format!("再レビュー用の作業場所を対象コミットに合わせられませんでした: {}", one_line(&detail)),
+                ),
                 _ => self.block(id, BlockedReason::NeedsAttention, "再レビュー用の作業場所を対象コミットに合わせられませんでした"),
             }
             return;
@@ -1012,6 +1022,9 @@ impl OrgCore {
             self.launching.remove(id);
             match result {
                 WorkspaceOutcome::WorktreeCreated { path } => self.begin_chat(id, path),
+                WorkspaceOutcome::Failed { detail } => {
+                    self.block(id, BlockedReason::NeedsAttention, &format!("作業用worktreeを作成できませんでした: {}", one_line(&detail)))
+                }
                 _ => self.block(id, BlockedReason::NeedsAttention, "作業用worktreeを作成できませんでした"),
             }
             return;
@@ -1030,6 +1043,7 @@ impl OrgCore {
                 }
             }
             WorkspaceOutcome::NothingToCommit => self.block(id, BlockedReason::NeedsAttention, "コミットする変更がありません"),
+            WorkspaceOutcome::Failed { detail } => self.block(id, BlockedReason::NeedsAttention, &format!("コミットできませんでした: {}", one_line(&detail))),
             _ => self.block(id, BlockedReason::NeedsAttention, "コミットできませんでした"),
         }
     }

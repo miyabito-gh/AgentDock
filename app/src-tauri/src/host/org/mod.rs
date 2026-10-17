@@ -235,6 +235,9 @@ impl Host {
         if !std::path::Path::new(args.repo.trim()).is_dir() {
             return Err(err(IpcErrorCode::InvalidArgs, format!("作業フォルダが見つかりません: {}", args.repo)));
         }
+        // Workerは専用worktreeで作業するため、Gitリポジトリでコミットが1つ以上あることを、始める前に読取りだけで確かめる。
+        let git = self.git_for_worktree();
+        precheck_repo_has_commit(&git, args.repo.trim()).await.map_err(|m| err(IpcErrorCode::InvalidArgs, m))?;
         let mut limits = Limits::default();
         if let Some((writers, total)) = args.parallelism {
             limits = limits.with_parallelism(writers, total).map_err(|_| err(IpcErrorCode::InvalidArgs, "並列数は 1〜4 で指定してください"))?;
@@ -523,6 +526,27 @@ fn newest_workflow_dir(root: &std::path::Path) -> Option<std::path::PathBuf> {
     dirs.pop()
 }
 
+/// 開始前の検査（読取りのgitだけ）。Gitリポジトリで、HEADが解決できる（コミットが1つ以上ある）こと。満たさなければ利用者向けの案内文を返す。
+async fn precheck_repo_has_commit(git: &crate::gitops::Git, folder: &str) -> Result<(), String> {
+    use crate::gitops::worktree as gw;
+    let dir = std::path::Path::new(folder);
+    let top = match gw::repo_root_kind(git, dir).await {
+        Ok(gw::RepoRootKind::Root(r)) => r,
+        Ok(gw::RepoRootKind::NotRepo) => {
+            return Err("このフォルダはGitのリポジトリではありません。Workerが専用worktreeで作業するには、先に `git init` と最初のコミットが必要です".to_string())
+        }
+        Ok(gw::RepoRootKind::OwnerMismatch { .. }) => {
+            return Err("Gitがこのフォルダの所有者の違いを理由に拒否したため、リポジトリを確認できません。Gitの safe.directory を確認してください".to_string())
+        }
+        Err(e) => return Err(format!("Gitでリポジトリを確認できません: {e}")),
+    };
+    match gw::resolve_commit(git, std::path::Path::new(&top), "HEAD").await {
+        Ok(_) => Ok(()),
+        Err(e) if e.is_timeout() || e.is_unavailable() => Err(format!("Gitでコミットの有無を確認できません: {}", e.message())),
+        Err(_) => Err("このフォルダにはまだコミットがありません。Workerが専用worktreeで作業するには、先に1回コミットしてください（例: `git add -A` と `git commit`）".to_string()),
+    }
+}
+
 /// 組織実行中のワークフローの併記用の写し。終わっていないタスクが残るものだけ（完了・失敗・取消だけなら出さない）。
 pub fn running_notes_of(view: Option<&OrgSnapshot>) -> Vec<OrgRunningNote> {
     let Some(v) = view else { return Vec::new() };
@@ -592,6 +616,31 @@ mod tests {
         assert_eq!(n[0].title.as_deref(), Some("make it"));
         let done = view(vec![task("a", TaskStatus::Completed, ConfirmState::Confirmed), task("b", TaskStatus::Cancelled, ConfirmState::Confirmed)]);
         assert!(running_notes_of(Some(&done)).is_empty());
+    }
+
+    fn git_cmd(dir: &std::path::Path, args: &[&str]) {
+        let out = std::process::Command::new("git").current_dir(dir).args(["-c", "user.name=t", "-c", "user.email=t@example.com"]).args(args).output().unwrap();
+        assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+    }
+
+    #[tokio::test]
+    async fn start_is_refused_for_a_repo_without_commits_and_allowed_with_one() {
+        let dir = std::env::temp_dir().join(format!("agentdock-precheck-{}", now_ms().0));
+        std::fs::create_dir_all(&dir).unwrap();
+        let git = crate::gitops::Git::new(None);
+        let folder = dir.to_string_lossy().into_owned();
+        // not a repository
+        assert!(precheck_repo_has_commit(&git, &folder).await.unwrap_err().contains("リポジトリではありません"));
+        // a repository with no commit
+        git_cmd(&dir, &["init"]);
+        let m = precheck_repo_has_commit(&git, &folder).await.unwrap_err();
+        assert!(m.contains("まだコミットがありません") && m.contains("git commit"), "{m}");
+        // one commit: the regular case still starts
+        std::fs::write(dir.join("a.txt"), "x").unwrap();
+        git_cmd(&dir, &["add", "-A"]);
+        git_cmd(&dir, &["commit", "-m", "first"]);
+        assert!(precheck_repo_has_commit(&git, &folder).await.is_ok());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     fn handle(wf: &str) -> (DriverHandle, tokio::sync::mpsc::UnboundedReceiver<DriverMsg>) {

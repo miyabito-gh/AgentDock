@@ -292,7 +292,20 @@ fn task_view(t: &TaskSnapshot, snap: &OrgSnapshot, notices: &[NoticeEntry]) -> O
             && t.status == TaskStatus::Blocked(EBlocked::NeedsAttention)
             && t.confirm == ConfirmState::SendUnknown,
         can_retry: t.retryable,
+        attention_note: attention_note(t, notices),
     }
+}
+
+/// 「要対応」で止まったタスクの理由の1行。通知（メモリ上）に残っていなければ、失われたことを明示する（空にしない）。
+fn attention_note(t: &TaskSnapshot, notices: &[NoticeEntry]) -> Option<String> {
+    if t.status != TaskStatus::Blocked(EBlocked::NeedsAttention) {
+        return None;
+    }
+    let why = notices.iter().rev().find_map(|e| match &e.notice {
+        OrgHostNotice::Engine(OrgNotice::TaskBlocked { task, why }) if task == &t.id => Some(why.clone()),
+        _ => None,
+    });
+    Some(why.unwrap_or_else(|| "理由は再起動で失われました".to_string()))
 }
 
 pub fn usage_view(snap: &OrgSnapshot, rows: &[UsageRow]) -> OrgUsageView {
@@ -559,6 +572,18 @@ mod tests {
         assert!(v.tasks[0].needs_chat_choice);
         t.chat_cwd = None;
         assert!(!view_of(&snap(vec![t], None), &[], &[]).tasks[0].needs_chat_choice);
+    }
+
+    #[test]
+    fn a_needs_attention_task_shows_its_reason_or_says_it_was_lost() {
+        let blocked = task("w", &[], TaskStatus::Blocked(EBlocked::NeedsAttention), ConfirmState::Confirmed);
+        let s = snap(vec![blocked, task("b", &[], TaskStatus::Running, ConfirmState::Confirmed)], None);
+        let n = [entry(1, OrgHostNotice::Engine(OrgNotice::TaskBlocked { task: TaskId::new("w"), why: "作業用worktreeを作成できませんでした: fatal".into() }))];
+        let v = view_of(&s, &n, &[]);
+        assert_eq!(v.tasks[0].attention_note.as_deref(), Some("作業用worktreeを作成できませんでした: fatal"));
+        assert_eq!(v.tasks[1].attention_note, None, "only needs-attention tasks carry a reason");
+        let lost = view_of(&s, &[], &[]);
+        assert_eq!(lost.tasks[0].attention_note.as_deref(), Some("理由は再起動で失われました"));
     }
 
     #[test]
