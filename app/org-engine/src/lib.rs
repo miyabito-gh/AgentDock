@@ -3,7 +3,9 @@
 
 pub mod core;
 pub mod dag;
+pub mod graph;
 pub mod limits;
+pub mod outschema;
 pub mod persist;
 mod planned;
 pub mod policy;
