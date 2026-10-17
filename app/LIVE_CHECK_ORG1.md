@@ -113,7 +113,7 @@ node probes/app-server/org-probe.mjs 2b --no-plugins
 
 ## 診断結果（2026-10-17）と再実行
 
-`thread/start` で `node_repl` と `cua_repl` の2つのMCPが起動し、`node_repl.exe` を握ったままsandboxのセットアップ更新が失敗する。両方を `-c mcp_servers.<名前>.enabled=false` で無効にして App Server を起動すると、`codex sandbox` が成功した（モデル呼び出しなしの確認）。`node_repl` だけを無効にしても直らない。`--no-plugins` は `cua_repl` も無効にする。再実行：
+`thread/start` で `node_repl`（config.toml の `[mcp_servers]`）と `cua_repl`（プラグイン `unified-computer-use` の `.mcp.json`）が起動し、`node_repl.exe` を握ったままsandboxのセットアップ更新が失敗する。モデル呼び出しなしの確認（App Server起動中に `codex sandbox` を実行）で、`features.plugins=false` と `mcp_servers.node_repl.enabled=false` の両方を渡したときだけ成功した（`node_repl` だけ、プラグイン個別の無効化、`features.computer_use` 等の無効化では直らない）。`--no-plugins` はこの2つを渡す。注意: `mcp_servers.cua_repl.*` は未定義名で App Server が起動時に落ちるので渡さない。再実行：
 
 ```powershell
 node probes/app-server/org-probe.mjs 2b --no-plugins

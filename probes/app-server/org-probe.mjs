@@ -19,17 +19,11 @@ for (let i = 0; i < rawArgs.length; i++) {
   else if (rawArgs[i] === '--no-plugins') noPlugins = true;
   else positional.push(rawArgs[i]);
 }
-// --no-plugins: read ~/.codex/config.toml (read-only) and disable every [plugins."<id>"] plus node_repl via startup args.
+// --no-plugins: startup args only (config.toml is never written). features.plugins=false stops the plugin MCPs (cua_repl etc.);
+// node_repl is a plain [mcp_servers] entry so it is disabled separately. Do NOT pass mcp_servers.cua_repl.* (undefined name -> "invalid transport", app-server exits).
 if (noPlugins) {
-  const cfg = join(process.env.CODEX_HOME || join(homedir(), '.codex'), 'config.toml');
-  if (existsSync(cfg)) {
-    for (const line of readFileSync(cfg, 'utf8').split(/\r?\n/)) {
-      const m = line.match(/^\s*\[\s*plugins\.(?:"([^"]+)"|'([^']+)')\s*\]/);
-      if (m) launchOverrides.push(`plugins."${m[1] ?? m[2]}".enabled=false`);
-    }
-  }
+  launchOverrides.push('features.plugins=false');
   launchOverrides.push('mcp_servers.node_repl.enabled=false');
-  launchOverrides.push('mcp_servers.cua_repl.enabled=false');
 }
 for (const kv of (process.env.ORGPROBE_CODEX_ARGS ?? '').split(/\s+/)) if (kv) launchOverrides.push(kv);
 const which = positional[0] ?? 'all';
