@@ -1,0 +1,276 @@
+{
+  "version": "codex-cli 0.162.1",
+  "selected": "all",
+  "startedAt": "2026-10-17T01:54:27.478Z",
+  "durationMs": 28477,
+  "aborted": null,
+  "results": [
+    {
+      "name": "initialize",
+      "status": "done",
+      "evidence": {
+        "keys": [
+          "userAgent",
+          "codexHome",
+          "platformFamily",
+          "platformOs"
+        ]
+      }
+    },
+    {
+      "name": "1 outputSchema final message",
+      "status": "done",
+      "evidence": {
+        "thread": {
+          "id": "01a14791-503f-7240-b246-038adf0bd5af",
+          "sandbox": "readOnly",
+          "approvalPolicy": "never",
+          "model": "gpt-6.1-sol"
+        },
+        "cases": [
+          {
+            "name": "conforming prompt",
+            "status": "completed",
+            "error": null,
+            "note": null,
+            "ms": 3988,
+            "agentMessageItems": 1,
+            "finalTextClip": "{\"answer\":2,\"unit\":\"none\"}",
+            "jsonParse": true,
+            "keys": [
+              "answer",
+              "unit"
+            ],
+            "answerIsInteger": true,
+            "unitIsString": true,
+            "methods": {
+              "item/agentMessage/delta": 9,
+              "item/completed": 2,
+              "item/started": 2,
+              "mcpServer/startupStatus/updated": 6,
+              "thread/status/changed": 2,
+              "thread/tokenUsage/updated": 1,
+              "turn/completed": 1,
+              "turn/started": 1
+            }
+          },
+          {
+            "name": "prompt conflicts with schema",
+            "status": "completed",
+            "error": null,
+            "note": null,
+            "ms": 1431,
+            "agentMessageItems": 1,
+            "finalTextClip": "{\"answer\":2,\"unit\":\"none\"}",
+            "jsonParse": true,
+            "keys": [
+              "answer",
+              "unit"
+            ],
+            "answerIsInteger": true,
+            "unitIsString": true,
+            "methods": {
+              "item/agentMessage/delta": 9,
+              "item/completed": 2,
+              "item/started": 2,
+              "thread/status/changed": 2,
+              "thread/tokenUsage/updated": 1,
+              "turn/completed": 1,
+              "turn/started": 1
+            }
+          },
+          {
+            "name": "next turn without outputSchema",
+            "status": "completed",
+            "note": null,
+            "ms": 1386,
+            "finalTextClip": "ok",
+            "jsonParse": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "2 read-only sandbox + worktree cwd",
+      "status": "done",
+      "evidence": {
+        "worktreeCreated": true,
+        "thread": {
+          "id": "01a14791-724a-76f3-8bf4-91535d75fedd",
+          "sandbox": "readOnly",
+          "approvalPolicy": "never",
+          "model": "gpt-6.1-sol"
+        },
+        "turn": {
+          "status": "completed",
+          "error": null,
+          "note": null,
+          "ms": 10310,
+          "items": [
+            {
+              "type": "commandExecution",
+              "status": "failed",
+              "exitCode": -1,
+              "commandClip": "\"C:\\\\WINDOWS\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command 'Get-Content -LiteralPath hello.txt'"
+            },
+            {
+              "type": "commandExecution",
+              "status": "failed",
+              "exitCode": -1,
+              "commandClip": "\"C:\\\\WINDOWS\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command 'Get-Content -LiteralPath hello.txt'"
+            },
+            {
+              "type": "commandExecution",
+              "status": "failed",
+              "exitCode": -1,
+              "commandClip": "\"C:\\\\WINDOWS\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command \"Set-Content -LiteralPath write_test.txt -Valu"
+            }
+          ],
+          "methods": {
+            "item/agentMessage/delta": 71,
+            "item/completed": 7,
+            "item/started": 7,
+            "mcpServer/startupStatus/updated": 6,
+            "thread/status/changed": 2,
+            "thread/tokenUsage/updated": 3,
+            "turn/completed": 1,
+            "turn/started": 1
+          },
+          "replyMentionsFileContent": false,
+          "finalTextClip": "1) hello.txtの読み取りは実行環境の起動エラーで失敗し、内容を確認できなかった。\n2) write_test.txtへの「x」の書き込みも同じエラーで失敗した。"
+        },
+        "writeTestFileExistsOnDisk": false,
+        "worktreeStatusPorcelain": "",
+        "serverRequestsDuringTurn": 0
+      }
+    },
+    {
+      "name": "3 three threads in parallel",
+      "status": "done",
+      "evidence": {
+        "threadIdsPresent": [
+          true,
+          true,
+          true
+        ],
+        "wallMs": 2950,
+        "sumOfTurnMs": 8211,
+        "overlapped": true,
+        "per": [
+          {
+            "thread": 0,
+            "status": "completed",
+            "note": null,
+            "startOffsetMs": 0,
+            "endOffsetMs": 2950,
+            "ms": 2950,
+            "ownMarker": true,
+            "otherMarkers": 0,
+            "deltaCount": 4
+          },
+          {
+            "thread": 1,
+            "status": "completed",
+            "note": null,
+            "startOffsetMs": 0,
+            "endOffsetMs": 2720,
+            "ms": 2720,
+            "ownMarker": true,
+            "otherMarkers": 0,
+            "deltaCount": 4
+          },
+          {
+            "thread": 2,
+            "status": "completed",
+            "note": null,
+            "startOffsetMs": 0,
+            "endOffsetMs": 2541,
+            "ms": 2541,
+            "ownMarker": true,
+            "otherMarkers": 0,
+            "deltaCount": 4
+          }
+        ]
+      }
+    },
+    {
+      "name": "4 thread/tokenUsage/updated",
+      "status": "done",
+      "evidence": {
+        "turns": [
+          {
+            "status": "completed",
+            "note": null,
+            "ms": 2345,
+            "updatedCount": 1,
+            "updates": [
+              {
+                "turnId": "01a14791-ab50-7ba3-84d2-8f47218cd73d",
+                "total": {
+                  "totalTokens": 17424,
+                  "inputTokens": 17419,
+                  "cachedInputTokens": 13440,
+                  "cacheWriteInputTokens": 0,
+                  "outputTokens": 5,
+                  "reasoningOutputTokens": 0
+                },
+                "last": {
+                  "totalTokens": 17424,
+                  "inputTokens": 17419,
+                  "cachedInputTokens": 13440,
+                  "cacheWriteInputTokens": 0,
+                  "outputTokens": 5,
+                  "reasoningOutputTokens": 0
+                },
+                "modelContextWindow": 475000
+              }
+            ]
+          },
+          {
+            "status": "completed",
+            "note": null,
+            "ms": 1503,
+            "updatedCount": 1,
+            "updates": [
+              {
+                "turnId": "01a14791-b5ec-7af3-9406-9ac78050b856",
+                "total": {
+                  "totalTokens": 34872,
+                  "inputTokens": 34862,
+                  "cachedInputTokens": 30720,
+                  "cacheWriteInputTokens": 0,
+                  "outputTokens": 10,
+                  "reasoningOutputTokens": 0
+                },
+                "last": {
+                  "totalTokens": 17448,
+                  "inputTokens": 17443,
+                  "cachedInputTokens": 17280,
+                  "cacheWriteInputTokens": 0,
+                  "outputTokens": 5,
+                  "reasoningOutputTokens": 0
+                },
+                "modelContextWindow": 475000
+              }
+            ]
+          }
+        ],
+        "interpretation": {
+          "totalGrowsAcrossTurns": true,
+          "secondTurnTotalMinusFirst": 17448,
+          "secondLastTotalTokens": 17448,
+          "totalEqualsPreviousPlusLast": true
+        }
+      }
+    }
+  ],
+  "serverRequests": [],
+  "configUnchanged": true,
+  "authUnchanged": true,
+  "stderrTail": [
+    "\u001b[2m2026-10-17T01:54:41.963293Z\u001b[0m \u001b[31mERROR\u001b[0m \u001b[2mcodex_core::tools::router\u001b[0m\u001b[2m:\u001b[0m \u001b[3merror\u001b[0m\u001b[2m=\u001b[0mexec_command failed: CreateProcess { message: \"Rejected(\\\"Failed to create unified exec process: helper_unknown_error: setup refresh had errors\\\")\" }",
+    "\u001b[2m2026-10-17T01:54:44.543968Z\u001b[0m \u001b[31mERROR\u001b[0m \u001b[2mcodex_core::tools::router\u001b[0m\u001b[2m:\u001b[0m \u001b[3merror\u001b[0m\u001b[2m=\u001b[0mexec_command failed: CreateProcess { message: \"Rejected(\\\"Failed to create unified exec process: helper_unknown_error: setup refresh had errors\\\")\" }",
+    "\u001b[2m2026-10-17T01:54:44.543975Z\u001b[0m \u001b[31mERROR\u001b[0m \u001b[2mcodex_core::tools::router\u001b[0m\u001b[2m:\u001b[0m \u001b[3merror\u001b[0m\u001b[2m=\u001b[0mexec_command failed: CreateProcess { message: \"Rejected(\\\"Failed to create unified exec process: helper_unknown_error: setup refresh had errors\\\")\" }",
+    ""
+  ]
+}

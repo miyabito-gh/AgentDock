@@ -104,3 +104,9 @@ node probes/app-server/org-probe.mjs 2b --c mcp_servers.node_repl.enabled=false
 ```
 
 効かない場合の代替: 環境変数で渡す（`$env:ORGPROBE_CODEX_ARGS='mcp_servers.node_repl.enabled=false'`）。それでもMCPが起動する場合は `mcpServer/startupStatus/updated` の通知を確認し、`--c features.<name>=false` 等を別途検討する。
+
+診断：プラグインを全部無効にするとsandboxが動くか。動けば原因のプラグインを絞る。`--no-plugins` は `config.toml` を読むだけで、`[plugins."<id>"]` 全部と `node_repl` を `-c` で無効化する（`--c` と併用可。渡した引数は結果JSONの `launchOverrides` に記録）。
+
+```powershell
+node probes/app-server/org-probe.mjs 2b --no-plugins
+```
