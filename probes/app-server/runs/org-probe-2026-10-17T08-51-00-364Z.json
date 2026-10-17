@@ -1,0 +1,56 @@
+{
+  "launchOverrides": [],
+  "version": "codex-cli 0.163.0",
+  "selected": "sandboxcheck",
+  "startedAt": "2026-10-17T08:51:00.453Z",
+  "durationMs": 3200,
+  "aborted": null,
+  "results": [
+    {
+      "name": "initialize",
+      "status": "done",
+      "evidence": {
+        "keys": [
+          "userAgent",
+          "codexHome",
+          "platformFamily",
+          "platformOs"
+        ]
+      }
+    },
+    {
+      "name": "4c sandbox health check (thread/start -> readiness -> command/exec)",
+      "status": "done",
+      "evidence": {
+        "launchOverrides": [],
+        "threadOverrideUsed": false,
+        "cwd": "C:\\Users\\wmasa\\AppData\\Local\\Temp\\agentdock-orgprobe-thI2yF\\general",
+        "thread": {
+          "id": "01a1490e-add7-7653-b1dd-cab4a7d5045d",
+          "sandbox": "readOnly",
+          "approvalPolicy": "never",
+          "model": "gpt-6.1-sol"
+        },
+        "readiness": "ready",
+        "readinessError": null,
+        "exec": {
+          "exitCode": 0,
+          "stdoutHead": "C:\\Users\\wmasa\\AppData\\Local\\Temp\\agentdock-orgprobe-thI2yF\\general\r\n",
+          "stderrHead": "",
+          "ms": 1828
+        },
+        "passed": true,
+        "stderrMentionsSetupRefreshErrors": false,
+        "stderrTail": [
+          ""
+        ]
+      }
+    }
+  ],
+  "serverRequests": [],
+  "configUnchanged": true,
+  "authUnchanged": true,
+  "stderrTail": [
+    ""
+  ]
+}

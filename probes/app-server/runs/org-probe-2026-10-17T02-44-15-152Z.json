@@ -1,0 +1,170 @@
+{
+  "launchOverrides": [
+    "features.plugins=false",
+    "mcp_servers.node_repl.enabled=false"
+  ],
+  "version": "codex-cli 0.162.1",
+  "selected": "2b",
+  "startedAt": "2026-10-17T02:44:15.162Z",
+  "durationMs": 25226,
+  "aborted": null,
+  "results": [
+    {
+      "name": "initialize",
+      "status": "done",
+      "evidence": {
+        "keys": [
+          "userAgent",
+          "codexHome",
+          "platformFamily",
+          "platformOs"
+        ]
+      }
+    },
+    {
+      "name": "2b isolate command-launch failure (plain/worktree x sandbox)",
+      "status": "done",
+      "evidence": {
+        "cases": [
+          {
+            "name": "a: plain folder, read-only",
+            "thread": {
+              "id": "01a147be-e693-7303-9039-942b2821923a",
+              "sandbox": "readOnly",
+              "approvalPolicy": "never",
+              "model": "gpt-6.1-sol"
+            },
+            "turn": {
+              "status": "completed",
+              "error": null,
+              "note": null,
+              "ms": 8192
+            },
+            "commandExecutions": [
+              {
+                "status": "completed",
+                "exitCode": 0,
+                "commandClip": "\"C:\\\\WINDOWS\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command 'Get-Content -LiteralPath hello.txt'",
+                "cwd": "C:\\Users\\wmasa\\AppData\\Local\\Temp\\agentdock-orgprobe-hDb7Bk\\repo",
+                "outputHead": "PROBE_FILE_CONTENT_42\r\n"
+              }
+            ],
+            "otherItems": [],
+            "methods": {
+              "item/agentMessage/delta": 54,
+              "item/commandExecution/outputDelta": 2,
+              "item/completed": 4,
+              "item/started": 4,
+              "mcpServer/startupStatus/updated": 2,
+              "thread/status/changed": 2,
+              "thread/tokenUsage/updated": 2,
+              "turn/completed": 1,
+              "turn/started": 1
+            },
+            "replyHead": "① 読み取り成功：`PROBE_FILE_CONTENT_42`、② write_a.txt の作成は読み取り専用制限で失敗したよ。",
+            "replyMentionsFileContent": true,
+            "writeFileExists": false,
+            "cwdStatusPorcelain": "",
+            "serverRequestsSoFar": 0
+          },
+          {
+            "name": "b: worktree, read-only (repro)",
+            "thread": {
+              "id": "01a147bf-08d4-7b90-9014-4b8bbb67e1a6",
+              "sandbox": "readOnly",
+              "approvalPolicy": "never",
+              "model": "gpt-6.1-sol"
+            },
+            "turn": {
+              "status": "completed",
+              "error": null,
+              "note": null,
+              "ms": 7810
+            },
+            "commandExecutions": [
+              {
+                "status": "completed",
+                "exitCode": 0,
+                "commandClip": "\"C:\\\\WINDOWS\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command 'Get-Content -LiteralPath hello.txt'",
+                "cwd": "C:\\Users\\wmasa\\AppData\\Local\\Temp\\agentdock-orgprobe-hDb7Bk\\wt2b",
+                "outputHead": "PROBE_FILE_CONTENT_42\r\n"
+              },
+              {
+                "status": "failed",
+                "exitCode": 1,
+                "commandClip": "\"C:\\\\WINDOWS\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command \"Set-Content -LiteralPath write_b.txt -Value 'x' -NoNewline\"",
+                "cwd": "C:\\Users\\wmasa\\AppData\\Local\\Temp\\agentdock-orgprobe-hDb7Bk\\wt2b",
+                "outputHead": "Set-Content : �p�X 'C:\\Users\\wmasa\\AppData\\Local\\Temp\\agentdock-orgprobe-hDb7Bk\\wt2b\\write_b.txt' �ւ̃A�N�Z�X�����ۂ�\r\n��܂����B\r\n�����ꏊ �s:2 ����:1\r\n+ Set-Content -LiteralPath write_b.txt -Value 'x' -NoNewline\r\n+ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\r\n    + CategoryInfo          :"
+              }
+            ],
+            "otherItems": [],
+            "methods": {
+              "item/agentMessage/delta": 55,
+              "item/commandExecution/outputDelta": 8,
+              "item/completed": 5,
+              "item/started": 5,
+              "mcpServer/startupStatus/updated": 2,
+              "thread/status/changed": 2,
+              "thread/tokenUsage/updated": 2,
+              "turn/completed": 1,
+              "turn/started": 1
+            },
+            "replyHead": "①読み取り成功、内容は「PROBE_FILE_CONTENT_42」；②write_b.txt の作成は書き込み権限がなく失敗したよ。",
+            "replyMentionsFileContent": true,
+            "writeFileExists": false,
+            "cwdStatusPorcelain": "",
+            "serverRequestsSoFar": 0
+          },
+          {
+            "name": "c: worktree, workspace-write",
+            "thread": {
+              "id": "01a147bf-2956-7321-9af6-99ae55b91b43",
+              "sandbox": "workspaceWrite",
+              "approvalPolicy": "never",
+              "model": "gpt-6.1-sol"
+            },
+            "turn": {
+              "status": "completed",
+              "error": null,
+              "note": null,
+              "ms": 7088
+            },
+            "commandExecutions": [
+              {
+                "status": "completed",
+                "exitCode": 0,
+                "commandClip": "\"C:\\\\WINDOWS\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command \"Get-Content -LiteralPath hello.txt; Set-Content -LiteralPath write_c.txt -Value 'x' -",
+                "cwd": "C:\\Users\\wmasa\\AppData\\Local\\Temp\\agentdock-orgprobe-hDb7Bk\\wt2b",
+                "outputHead": "PROBE_FILE_CONTENT_42\r\nx\r\n"
+              }
+            ],
+            "otherItems": [],
+            "methods": {
+              "item/agentMessage/delta": 56,
+              "item/commandExecution/outputDelta": 4,
+              "item/completed": 4,
+              "item/started": 4,
+              "mcpServer/startupStatus/updated": 2,
+              "thread/status/changed": 2,
+              "thread/tokenUsage/updated": 2,
+              "turn/completed": 1,
+              "turn/started": 1
+            },
+            "replyHead": "hello.txtの読み取りは成功（内容：`PROBE_FILE_CONTENT_42`）、`x`を含むwrite_c.txtの作成も成功したよ。",
+            "replyMentionsFileContent": true,
+            "writeFileExists": true,
+            "cwdStatusPorcelain": "?? write_c.txt",
+            "serverRequestsSoFar": 0
+          }
+        ]
+      }
+    }
+  ],
+  "serverRequests": [],
+  "configUnchanged": false,
+  "authUnchanged": true,
+  "stderrTail": [
+    "\u001b[2m2026-10-17T02:44:21.905508Z\u001b[0m \u001b[31mERROR\u001b[0m \u001b[2mcodex_core::tools::router\u001b[0m\u001b[2m:\u001b[0m \u001b[3merror\u001b[0m\u001b[2m=\u001b[0mpatch rejected: writing is blocked by read-only sandbox; rejected by user approval settings",
+    ""
+  ]
+}

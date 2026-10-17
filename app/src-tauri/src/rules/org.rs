@@ -158,7 +158,24 @@ pub fn descendants_from_gate(decision: &GateDecision, root: &AgentKey) -> Descen
 pub enum SandboxVerdict {
     Healthy,
     /// 失敗・応答なし・非対応。成功とは扱わない。`reason` は診断用（標準エラー本文は含めない）。
-    Unhealthy { reason: String },
+    /// `sandbox_failed` が真なら sandbox が実際に起動できなかった（準備未完了・確認コマンドの失敗）。
+    /// 偽なら確認自体を実行できなかった（要求の拒否・応答なし・非対応）で、sandbox の不調とは断定しない。
+    Unhealthy { reason: String, sandbox_failed: bool },
+}
+
+/// 確認自体を実行できなかったときの案内文の前半（理由と後半は `sandbox_notice` が付ける）。
+pub const SANDBOX_CHECK_NOT_RUN_PREFIX: &str = "確認を実行できませんでした: ";
+pub const SANDBOX_CHECK_NOT_RUN_SUFFIX: &str = "。これはAgentDockの確認処理の問題の可能性があります。組織実行は始めていません。";
+
+/// 判定結果からワークフロー画面に出す案内文を作る（`Healthy` は空）。
+pub fn sandbox_notice(verdict: &SandboxVerdict) -> String {
+    match verdict {
+        SandboxVerdict::Healthy => String::new(),
+        SandboxVerdict::Unhealthy { reason, sandbox_failed: true } => format!("{SANDBOX_UNHEALTHY_NOTICE}\n（{reason}）"),
+        SandboxVerdict::Unhealthy { reason, sandbox_failed: false } => {
+            format!("{SANDBOX_CHECK_NOT_RUN_PREFIX}{reason}{SANDBOX_CHECK_NOT_RUN_SUFFIX}")
+        }
+    }
 }
 
 /// 失敗時の案内文（DESIGN_ORG_P4 §5.2。ワークフロー画面の帯に出す）。
@@ -168,24 +185,30 @@ pub const SANDBOX_UNHEALTHY_NOTICE: &str = "Codex の sandbox を起動できな
 pub fn judge_sandbox(result: &Result<SandboxCheck, BackendError>) -> SandboxVerdict {
     let check = match result {
         Ok(c) => c,
-        Err(BackendError::Unsupported { .. }) => return unhealthy("このバックエンドでは sandbox の確認ができません".to_string()),
-        Err(BackendError::OutcomeUnknown { .. }) => return unhealthy("確認コマンドの結果が得られませんでした（応答なし）".to_string()),
-        Err(e) => return unhealthy(format!("確認を実行できませんでした: {e}")),
+        Err(BackendError::Unsupported { .. }) => return not_run("このバックエンドでは sandbox の確認ができません".to_string()),
+        Err(BackendError::OutcomeUnknown { .. }) => return not_run("確認コマンドの結果が得られませんでした（応答なし）".to_string()),
+        Err(e) => return not_run(e.to_string()),
     };
     match &check.readiness {
         Known::Value { value, .. } if value == "ready" => {}
-        Known::Value { value, .. } => return unhealthy(format!("sandbox の準備状態が ready ではありません（{value}）")),
-        _ => return unhealthy("sandbox の準備状態を読み取れませんでした".to_string()),
+        Known::Value { value, .. } => return failed(format!("sandbox の準備状態が ready ではありません（{value}）")),
+        _ => return not_run("sandbox の準備状態を読み取れませんでした".to_string()),
     }
     match &check.exit_code {
         Known::Value { value: 0, .. } => SandboxVerdict::Healthy,
-        Known::Value { value, .. } => unhealthy(format!("確認コマンドが終了コード {value} で失敗しました")),
-        _ => unhealthy("確認コマンドの終了コードを読み取れませんでした".to_string()),
+        Known::Value { value, .. } => failed(format!("確認コマンドが終了コード {value} で失敗しました")),
+        _ => not_run("確認コマンドの終了コードを読み取れませんでした".to_string()),
     }
 }
 
-fn unhealthy(reason: String) -> SandboxVerdict {
-    SandboxVerdict::Unhealthy { reason }
+/// sandbox が実際に起動できなかった。
+fn failed(reason: String) -> SandboxVerdict {
+    SandboxVerdict::Unhealthy { reason, sandbox_failed: true }
+}
+
+/// 確認を実行できなかった（sandbox の不調とは断定しない。始めない点は同じ）。
+fn not_run(reason: String) -> SandboxVerdict {
+    SandboxVerdict::Unhealthy { reason, sandbox_failed: false }
 }
 
 // ───────────────────────────── trust 追記の分類（J2-A） ─────────────────────────────
@@ -339,6 +362,13 @@ mod tests {
         // 終了コードを読めない（0 で代用しない）。
         let missing = check(Known::direct("ready".to_string()), Known::Missing);
         assert!(matches!(judge_sandbox(&Ok(missing)), SandboxVerdict::Unhealthy { .. }));
+        // 起動失敗は競合案内、要求の拒否は別文言（どちらも始めない）。
+        let started_bad = judge_sandbox(&Ok(check(Known::direct("ready".to_string()), Known::direct(1))));
+        assert!(sandbox_notice(&started_bad).starts_with(SANDBOX_UNHEALTHY_NOTICE));
+        let rejected = judge_sandbox(&Err(BackendError::Rejected { code: None, message: "custom outputBytesCap is not supported".into() }));
+        assert!(matches!(rejected, SandboxVerdict::Unhealthy { sandbox_failed: false, .. }));
+        let text = sandbox_notice(&rejected);
+        assert!(text.starts_with(SANDBOX_CHECK_NOT_RUN_PREFIX) && text.contains("outputBytesCap") && !text.contains("os error 32"));
         let unreadable = check(Known::Missing, Known::NotFetched);
         assert!(matches!(judge_sandbox(&Ok(unreadable)), SandboxVerdict::Unhealthy { .. }));
         for e in [

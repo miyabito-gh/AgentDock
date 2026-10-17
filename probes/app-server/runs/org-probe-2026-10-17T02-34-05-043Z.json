@@ -1,0 +1,199 @@
+{
+  "launchOverrides": [
+    "plugins.\"codex-app-tools@openai-bundled\".enabled=false",
+    "plugins.\"browser@openai-bundled\".enabled=false",
+    "plugins.\"unified-computer-use@openai-bundled\".enabled=false",
+    "plugins.\"visualize@openai-bundled\".enabled=false",
+    "plugins.\"computer-use@openai-bundled\".enabled=false",
+    "plugins.\"documents@openai-primary-runtime\".enabled=false",
+    "plugins.\"pdf@openai-primary-runtime\".enabled=false",
+    "plugins.\"spreadsheets@openai-primary-runtime\".enabled=false",
+    "plugins.\"presentations@openai-primary-runtime\".enabled=false",
+    "plugins.\"template-creator@openai-primary-runtime\".enabled=false",
+    "plugins.\"chrome@openai-bundled\".enabled=false",
+    "plugins.\"code-review@openai-bundled\".enabled=false",
+    "mcp_servers.node_repl.enabled=false"
+  ],
+  "version": "codex-cli 0.162.1",
+  "selected": "2b",
+  "startedAt": "2026-10-17T02:34:05.053Z",
+  "durationMs": 31170,
+  "aborted": null,
+  "results": [
+    {
+      "name": "initialize",
+      "status": "done",
+      "evidence": {
+        "keys": [
+          "userAgent",
+          "codexHome",
+          "platformFamily",
+          "platformOs"
+        ]
+      }
+    },
+    {
+      "name": "2b isolate command-launch failure (plain/worktree x sandbox)",
+      "status": "done",
+      "evidence": {
+        "cases": [
+          {
+            "name": "a: plain folder, read-only",
+            "thread": {
+              "id": "01a147b5-9767-7b63-a78a-5c59ffaa65ca",
+              "sandbox": "readOnly",
+              "approvalPolicy": "never",
+              "model": "gpt-6.1-sol"
+            },
+            "turn": {
+              "status": "completed",
+              "error": null,
+              "note": null,
+              "ms": 9475
+            },
+            "commandExecutions": [
+              {
+                "status": "failed",
+                "exitCode": -1,
+                "commandClip": "\"C:\\\\WINDOWS\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command 'Get-Content -LiteralPath hello.txt'",
+                "cwd": "C:\\Users\\wmasa\\AppData\\Local\\Temp\\agentdock-orgprobe-BcVgb5\\repo",
+                "outputHead": "Failed to create unified exec process: helper_unknown_error: setup refresh had errors"
+              },
+              {
+                "status": "failed",
+                "exitCode": -1,
+                "commandClip": "\"C:\\\\WINDOWS\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -NoProfile -Command 'Get-Content -LiteralPath hello.txt'",
+                "cwd": "C:\\Users\\wmasa\\AppData\\Local\\Temp\\agentdock-orgprobe-BcVgb5\\repo",
+                "outputHead": "Failed to create unified exec process: helper_unknown_error: setup refresh had errors"
+              },
+              {
+                "status": "failed",
+                "exitCode": -1,
+                "commandClip": "\"C:\\\\WINDOWS\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -NoProfile -Command \"Set-Content -LiteralPath write_a.txt -Value 'x' -NoNewline\"",
+                "cwd": "C:\\Users\\wmasa\\AppData\\Local\\Temp\\agentdock-orgprobe-BcVgb5\\repo",
+                "outputHead": "Failed to create unified exec process: helper_unknown_error: setup refresh had errors"
+              }
+            ],
+            "otherItems": [],
+            "methods": {
+              "item/agentMessage/delta": 65,
+              "item/completed": 6,
+              "item/started": 6,
+              "mcpServer/startupStatus/updated": 4,
+              "thread/status/changed": 2,
+              "thread/tokenUsage/updated": 3,
+              "turn/completed": 1,
+              "turn/started": 1
+            },
+            "replyHead": "1) hello.txt は実行環境のエラーで読めず、1行の内容は報告できなかった；2) write_a.txt の作成も同じエラーで失敗した。",
+            "replyMentionsFileContent": false,
+            "writeFileExists": false,
+            "cwdStatusPorcelain": "",
+            "serverRequestsSoFar": 0
+          },
+          {
+            "name": "b: worktree, read-only (repro)",
+            "thread": {
+              "id": "01a147b5-c1ed-7940-b4c0-9015b9eeb025",
+              "sandbox": "readOnly",
+              "approvalPolicy": "never",
+              "model": "gpt-6.1-sol"
+            },
+            "turn": {
+              "status": "completed",
+              "error": null,
+              "note": null,
+              "ms": 7805
+            },
+            "commandExecutions": [
+              {
+                "status": "failed",
+                "exitCode": -1,
+                "commandClip": "\"C:\\\\WINDOWS\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command \"Get-Content -LiteralPath hello.txt; Set-Content -LiteralPath write_b.txt -Value 'x' -",
+                "cwd": "C:\\Users\\wmasa\\AppData\\Local\\Temp\\agentdock-orgprobe-BcVgb5\\wt2b",
+                "outputHead": "Failed to create unified exec process: helper_unknown_error: setup refresh had errors"
+              }
+            ],
+            "otherItems": [],
+            "methods": {
+              "item/agentMessage/delta": 52,
+              "item/completed": 5,
+              "item/started": 5,
+              "mcpServer/startupStatus/updated": 4,
+              "thread/status/changed": 2,
+              "thread/tokenUsage/updated": 3,
+              "turn/completed": 1,
+              "turn/started": 1
+            },
+            "replyHead": "hello.txt の読み取りと write_b.txt の作成は、実行環境の起動エラーでどちらもできなかった。",
+            "replyMentionsFileContent": false,
+            "writeFileExists": false,
+            "cwdStatusPorcelain": "",
+            "serverRequestsSoFar": 0
+          },
+          {
+            "name": "c: worktree, workspace-write",
+            "thread": {
+              "id": "01a147b5-e250-7021-a180-43e95a762645",
+              "sandbox": "workspaceWrite",
+              "approvalPolicy": "never",
+              "model": "gpt-6.1-sol"
+            },
+            "turn": {
+              "status": "completed",
+              "error": null,
+              "note": null,
+              "ms": 10902
+            },
+            "commandExecutions": [
+              {
+                "status": "failed",
+                "exitCode": -1,
+                "commandClip": "\"C:\\\\WINDOWS\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command \"Get-Content -LiteralPath hello.txt; Set-Content -LiteralPath write_c.txt -Value 'x' -",
+                "cwd": "C:\\Users\\wmasa\\AppData\\Local\\Temp\\agentdock-orgprobe-BcVgb5\\wt2b",
+                "outputHead": "Failed to create unified exec process: helper_unknown_error: setup refresh had errors"
+              }
+            ],
+            "otherItems": [
+              {
+                "type": "fileChange",
+                "status": "failed"
+              }
+            ],
+            "methods": {
+              "item/agentMessage/delta": 53,
+              "item/completed": 6,
+              "item/started": 6,
+              "mcpServer/startupStatus/updated": 4,
+              "thread/status/changed": 2,
+              "thread/tokenUsage/updated": 4,
+              "turn/completed": 1,
+              "turn/started": 1
+            },
+            "replyHead": "実行環境のエラーで、hello.txtの読み取りも、内容が「x」のwrite_c.txtの作成も失敗したよ。",
+            "replyMentionsFileContent": false,
+            "writeFileExists": false,
+            "cwdStatusPorcelain": "",
+            "serverRequestsSoFar": 0
+          }
+        ]
+      }
+    }
+  ],
+  "serverRequests": [],
+  "configUnchanged": false,
+  "authUnchanged": true,
+  "stderrTail": [
+    "\u001b[2m2026-10-17T02:34:10.701752Z\u001b[0m \u001b[31mERROR\u001b[0m \u001b[2mcodex_core::tools::router\u001b[0m\u001b[2m:\u001b[0m \u001b[3merror\u001b[0m\u001b[2m=\u001b[0mexec_command failed: CreateProcess { message: \"Rejected(\\\"Failed to create unified exec process: helper_unknown_error: setup refresh had errors\\\")\" }",
+    "\u001b[2m2026-10-17T02:34:13.779884Z\u001b[0m \u001b[31mERROR\u001b[0m \u001b[2mcodex_core::tools::router\u001b[0m\u001b[2m:\u001b[0m \u001b[3merror\u001b[0m\u001b[2m=\u001b[0mexec_command failed: CreateProcess { message: \"Rejected(\\\"Failed to create unified exec process: helper_unknown_error: setup refresh had errors\\\")\" }",
+    "\u001b[2m2026-10-17T02:34:13.779895Z\u001b[0m \u001b[31mERROR\u001b[0m \u001b[2mcodex_core::tools::router\u001b[0m\u001b[2m:\u001b[0m \u001b[3merror\u001b[0m\u001b[2m=\u001b[0mexec_command failed: CreateProcess { message: \"Rejected(\\\"Failed to create unified exec process: helper_unknown_error: setup refresh had errors\\\")\" }",
+    "\u001b[2m2026-10-17T02:34:20.625894Z\u001b[0m \u001b[31mERROR\u001b[0m \u001b[2mcodex_core::tools::router\u001b[0m\u001b[2m:\u001b[0m \u001b[3merror\u001b[0m\u001b[2m=\u001b[0mexec_command failed: CreateProcess { message: \"Rejected(\\\"Failed to create unified exec process: helper_unknown_error: setup refresh had errors\\\")\" }",
+    "\u001b[2m2026-10-17T02:34:28.916072Z\u001b[0m \u001b[31mERROR\u001b[0m \u001b[2mcodex_core::tools::router\u001b[0m\u001b[2m:\u001b[0m \u001b[3merror\u001b[0m\u001b[2m=\u001b[0mexec_command failed: CreateProcess { message: \"Rejected(\\\"Failed to create unified exec process: helper_unknown_error: setup refresh had errors\\\")\" }",
+    "\u001b[2m2026-10-17T02:34:34.116346Z\u001b[0m \u001b[31mERROR\u001b[0m \u001b[2mcodex_core::tools::router\u001b[0m\u001b[2m:\u001b[0m \u001b[3merror\u001b[0m\u001b[2m=\u001b[0mExit code: 1",
+    "Wall time: 0.2 seconds",
+    "Output:",
+    "Failed to write file C:\\Users\\wmasa\\AppData\\Local\\Temp\\agentdock-orgprobe-BcVgb5\\wt2b\\write_c.txt",
+    "",
+    ""
+  ]
+}

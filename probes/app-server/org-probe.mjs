@@ -254,7 +254,7 @@ async function sandboxcheck() {
     const started = Date.now();
     try {
       const r = await ok('command/exec', { command: ['cmd.exe', '/d', '/c', 'cd'], cwd, sandboxPolicy: { type: 'readOnly', networkAccess: false },
-        timeoutMs: 20000, outputBytesCap: 4096 }, 30000);
+        timeoutMs: 20000 }, 30000);
       out.exec = { exitCode: r.exitCode, stdoutHead: clip(r.stdout, 200), stderrHead: clip(r.stderr, 1024), ms: Date.now() - started };
       out.passed = r.exitCode === 0;
     } catch (e) { out.exec = { error: clip(e.message, 500), ms: Date.now() - started }; out.passed = false; }

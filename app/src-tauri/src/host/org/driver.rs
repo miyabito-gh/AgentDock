@@ -22,7 +22,7 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use super::grant::OrgGrant;
 use super::ports::{AgentRuntime, OrgHostNotice, OrgSendResult, OrgSendSpec, RuntimeRead, Workspace};
 use super::stall::{StallWatch, DEFAULT_STALL_MS};
-use crate::rules::org::{chat_key_of_ref, judge_sandbox, turn_key_of_ref, SandboxVerdict, SANDBOX_UNHEALTHY_NOTICE};
+use crate::rules::org::{chat_key_of_ref, judge_sandbox, sandbox_notice, turn_key_of_ref, SandboxVerdict};
 
 /// 使用量の標本（`thread/tokenUsage/updated`）。turn の終端で1行にまとめて記録する。取れない値は None。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -377,10 +377,8 @@ impl<P: AgentRuntime + RuntimeRead + Workspace + 'static> OrgDriver<P> {
             }
             OrgAction::CheckSandbox { cwd } => {
                 let verdict = judge_sandbox(&self.ports.sandbox_check(&cwd).await);
-                Some(vec![match verdict {
-                    SandboxVerdict::Healthy => OrgInput::SandboxChecked { ok: true, detail: String::new() },
-                    SandboxVerdict::Unhealthy { reason } => OrgInput::SandboxChecked { ok: false, detail: format!("{SANDBOX_UNHEALTHY_NOTICE}\n（{reason}）") },
-                }])
+                let ok = verdict == SandboxVerdict::Healthy;
+                Some(vec![OrgInput::SandboxChecked { ok, detail: sandbox_notice(&verdict) }])
             }
             OrgAction::Send { task, chat, attempt, client_message_id, text, output_schema } => {
                 Some(self.exec_send(task, chat, attempt, client_message_id, text, output_schema).await)

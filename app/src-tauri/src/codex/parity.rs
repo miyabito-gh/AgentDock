@@ -429,14 +429,14 @@ impl ParityOps for CodexBackend {
 /// 確認コマンドの待ち時間（サーバー側の `timeoutMs` 20秒より少し長く取る）。
 const SANDBOX_EXEC_WAIT: Duration = Duration::from_secs(30);
 
-/// `command/exec` の引数（DESIGN_ORG_P4 §5.1）。書込みなし・ネットワークなし・20秒・出力4KBまで。
+/// `command/exec` の引数（DESIGN_ORG_P4 §5.1）。書込みなし・ネットワークなし・20秒。
+/// `outputBytesCap`・`disableOutputCap` は渡さない（Windows sandbox は独自の出力上限を拒否する）。出力は受信後に切り詰める。
 pub fn sandbox_check_exec_params(cwd: &str) -> Value {
     json!({
         "command": ["cmd.exe", "/d", "/c", "cd"],
         "cwd": cwd,
         "sandboxPolicy": {"type": "readOnly", "networkAccess": false},
         "timeoutMs": 20000,
-        "outputBytesCap": 4096,
     })
 }
 
@@ -944,6 +944,15 @@ pub fn judge_config(before: Option<&Value>, after: Option<&Value>, hash_before: 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sandbox_check_params_have_no_output_cap() {
+        let p = sandbox_check_exec_params("C:\\work");
+        let o = p.as_object().unwrap();
+        assert!(!o.contains_key("outputBytesCap") && !o.contains_key("disableOutputCap"));
+        assert_eq!(o["cwd"], "C:\\work");
+        assert_eq!(o["sandboxPolicy"]["type"], "readOnly");
+    }
 
     #[test]
     fn unimplemented_operations_are_unsupported_never_supported() {
