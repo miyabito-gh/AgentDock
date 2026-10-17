@@ -16,11 +16,11 @@ use serde_json::Value;
 
 use crate::limits::TurnKind;
 use crate::persist::{HaltReason, OrgEvent, OrgEventKind, WorkflowState, SCHEMA_VERSION};
-use crate::policy::{evaluate_plan, ConfirmReason, Decision, PlanKind, PolicyInput};
+use crate::policy::{ConfirmReason, Decision};
 use crate::prompt;
 use crate::roledef::LoadedRole;
-use crate::scheduler::{default_dep_ok, next_dispatch_with, promote_ready_with, DispatchGate};
-use crate::schemas::{self, ReviewerVerdict, VerdictKind, WorkerReport, ROLE_PLANNER, ROLE_REVIEWER, ROLE_WORKER};
+use crate::scheduler::{next_dispatch_with, promote_ready_with, DispatchGate};
+use crate::schemas::{ReviewerVerdict, WorkerReport, ROLE_PLANNER, ROLE_REVIEWER, ROLE_WORKER};
 use crate::state::Cause;
 use crate::types::*;
 use crate::Counters;
@@ -195,22 +195,6 @@ pub enum OrgAction {
 
 // ---------------------------------------------------------------- roles
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum RoleKind {
-    Planner,
-    Worker,
-    Reviewer,
-}
-
-fn role_kind(r: &RoleId) -> Option<RoleKind> {
-    match r.0.as_str() {
-        ROLE_PLANNER => Some(RoleKind::Planner),
-        ROLE_WORKER => Some(RoleKind::Worker),
-        ROLE_REVIEWER => Some(RoleKind::Reviewer),
-        _ => None,
-    }
-}
-
 /// First non-empty line of a failure detail, capped (a short reason for the user; never a long text).
 fn one_line(s: &str) -> String {
     s.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("").chars().take(200).collect()
@@ -238,7 +222,7 @@ pub fn standard_roles() -> Vec<Role> {
 // ---------------------------------------------------------------- in-memory bookkeeping
 
 #[derive(Clone, Debug)]
-struct RoleCfg {
+pub(crate) struct RoleCfg {
     sandbox: SandboxKind,
     model: Option<String>,
     effort: Option<String>,
@@ -247,7 +231,7 @@ struct RoleCfg {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Launch {
+pub(crate) enum Launch {
     Worktree,
     /// A reviewer's worktree is being moved to the commit under review.
     Refresh,
@@ -256,21 +240,21 @@ enum Launch {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum SandboxState {
+pub(crate) enum SandboxState {
     Unknown,
     Checking,
     Ok,
 }
 
 #[derive(Clone, Debug)]
-enum Output {
+pub(crate) enum Output {
     Plan { tasks: Vec<PlanTask>, decision: Decision },
     Report(WorkerReport),
     Verdict(ReviewerVerdict),
 }
 
 #[derive(Clone, Debug)]
-enum Flow {
+pub(crate) enum Flow {
     ReadingFinal { turn: TurnRef },
     WaitDesc { out: Output },
     WantCommit,
@@ -279,13 +263,13 @@ enum Flow {
 }
 
 #[derive(Clone, Copy, Debug, Default)]
-struct DescInfo {
+pub(crate) struct DescInfo {
     working: u32,
     unknown: u32,
     scan_complete: bool,
 }
 
-enum Sent {
+pub(crate) enum Sent {
     Yes,
     NoTurns,
     NotLive,
@@ -293,32 +277,32 @@ enum Sent {
 }
 
 pub struct OrgCore {
-    state: Option<WorkflowState>,
-    roles: Vec<Role>,
+    pub(crate) state: Option<WorkflowState>,
+    pub(crate) roles: Vec<Role>,
     /// Per-role chat settings from the role definition files (empty = standard defaults).
-    role_cfg: HashMap<RoleId, RoleCfg>,
-    now_ms: i64,
-    granted: bool,
-    live: HashMap<ChatRef, bool>,
-    sandbox: SandboxState,
-    launching: HashMap<TaskId, Launch>,
-    flows: HashMap<TaskId, Flow>,
-    early_turns: HashMap<ChatRef, Vec<(TurnRef, TurnEndKind)>>,
-    descendants: HashMap<ChatRef, DescInfo>,
-    open_requests: HashMap<ChatRef, u32>,
+    pub(crate) role_cfg: HashMap<RoleId, RoleCfg>,
+    pub(crate) now_ms: i64,
+    pub(crate) granted: bool,
+    pub(crate) live: HashMap<ChatRef, bool>,
+    pub(crate) sandbox: SandboxState,
+    pub(crate) launching: HashMap<TaskId, Launch>,
+    pub(crate) flows: HashMap<TaskId, Flow>,
+    pub(crate) early_turns: HashMap<ChatRef, Vec<(TurnRef, TurnEndKind)>>,
+    pub(crate) descendants: HashMap<ChatRef, DescInfo>,
+    pub(crate) open_requests: HashMap<ChatRef, u32>,
     /// Report summaries of this session (not persisted; prompts say "not obtained" when missing).
-    artifacts: HashMap<TaskId, String>,
-    findings: HashMap<TaskId, Vec<String>>,
-    replan_notes: HashMap<TaskId, String>,
-    last_kind: HashMap<TaskId, TurnKind>,
-    retry_ready: HashSet<TaskId>,
+    pub(crate) artifacts: HashMap<TaskId, String>,
+    pub(crate) findings: HashMap<TaskId, Vec<String>>,
+    pub(crate) replan_notes: HashMap<TaskId, String>,
+    pub(crate) last_kind: HashMap<TaskId, TurnKind>,
+    pub(crate) retry_ready: HashSet<TaskId>,
     /// Working folder to reuse for a task whose unused chat was dropped (this session only).
-    rechat_cwd: HashMap<TaskId, String>,
-    done_notified: bool,
-    limit_notified: bool,
-    out: Vec<OrgAction>,
+    pub(crate) rechat_cwd: HashMap<TaskId, String>,
+    pub(crate) done_notified: bool,
+    pub(crate) limit_notified: bool,
+    pub(crate) out: Vec<OrgAction>,
     /// Bumped whenever a flow changes, so `drive` knows whether another pass can make progress.
-    gen: u64,
+    pub(crate) gen: u64,
 }
 
 impl OrgCore {
@@ -410,23 +394,19 @@ impl OrgCore {
 
     // ------------------------------------------------------------ small helpers
 
-    fn s(&self) -> &WorkflowState {
+    pub(crate) fn s(&self) -> &WorkflowState {
         self.state.as_ref().expect("workflow state exists once started")
     }
 
-    fn task(&self, id: &TaskId) -> Option<&Task> {
+    pub(crate) fn task(&self, id: &TaskId) -> Option<&Task> {
         self.state.as_ref().and_then(|s| s.task(id))
     }
 
-    fn task_of_chat(&self, chat: &ChatRef) -> Option<TaskId> {
+    pub(crate) fn task_of_chat(&self, chat: &ChatRef) -> Option<TaskId> {
         self.s().tasks().iter().find(|t| t.chat() == Some(chat)).map(|t| t.id.clone())
     }
 
-    fn kind_of(&self, id: &TaskId) -> Option<RoleKind> {
-        self.task(id).and_then(|t| role_kind(&t.role))
-    }
-
-    fn rec(&mut self, kind: OrgEventKind) -> bool {
+    pub(crate) fn rec(&mut self, kind: OrgEventKind) -> bool {
         let at = self.now_ms;
         let Some(st) = self.state.as_mut() else { return false };
         match st.record(kind, at) {
@@ -438,60 +418,60 @@ impl OrgCore {
         }
     }
 
-    fn set_status(&mut self, id: &TaskId, to: TaskStatus, cause: Cause) -> bool {
+    pub(crate) fn set_status(&mut self, id: &TaskId, to: TaskStatus, cause: Cause) -> bool {
         self.rec(OrgEventKind::StatusChanged { task: id.clone(), to, cause })
     }
 
-    fn set_confirm(&mut self, id: &TaskId, to: ConfirmState) -> bool {
+    pub(crate) fn set_confirm(&mut self, id: &TaskId, to: ConfirmState) -> bool {
         if self.task(id).is_some_and(|t| t.confirm() == to) {
             return true;
         }
         self.rec(OrgEventKind::ConfirmChanged { task: id.clone(), to })
     }
 
-    fn notify(&mut self, n: OrgNotice) {
+    pub(crate) fn notify(&mut self, n: OrgNotice) {
         self.out.push(OrgAction::Notify(n));
     }
 
-    fn halt_if_none(&mut self, reason: HaltReason) {
+    pub(crate) fn halt_if_none(&mut self, reason: HaltReason) {
         if self.s().halt().is_none() {
             self.rec(OrgEventKind::Halted { reason: Some(reason) });
         }
     }
 
-    fn clear_halt(&mut self) {
+    pub(crate) fn clear_halt(&mut self) {
         if self.s().halt().is_some() {
             self.rec(OrgEventKind::Halted { reason: None });
         }
     }
 
-    fn can_act(&self) -> bool {
+    pub(crate) fn can_act(&self) -> bool {
         self.granted && self.s().halt().is_none()
     }
 
-    fn turns_remaining(&self) -> u32 {
+    pub(crate) fn turns_remaining(&self) -> u32 {
         let s = self.s();
         s.counters().turns_remaining(s.limits())
     }
 
-    fn flow_set(&mut self, id: TaskId, flow: Flow) {
+    pub(crate) fn flow_set(&mut self, id: TaskId, flow: Flow) {
         self.gen += 1;
         self.flows.insert(id, flow);
     }
 
-    fn flow_del(&mut self, id: &TaskId) {
+    pub(crate) fn flow_del(&mut self, id: &TaskId) {
         if self.flows.remove(id).is_some() {
             self.gen += 1;
         }
     }
 
-    fn forget(&mut self, id: &TaskId) {
+    pub(crate) fn forget(&mut self, id: &TaskId) {
         self.launching.remove(id);
         self.flow_del(id);
         self.retry_ready.remove(id);
     }
 
-    fn block(&mut self, id: &TaskId, reason: BlockedReason, why: &str) {
+    pub(crate) fn block(&mut self, id: &TaskId, reason: BlockedReason, why: &str) {
         if self.set_status(id, TaskStatus::Blocked(reason), Cause::Engine) {
             self.notify(OrgNotice::TaskBlocked { task: id.clone(), why: why.to_string() });
         }
@@ -499,7 +479,7 @@ impl OrgCore {
 
     // ------------------------------------------------------------ input processing
 
-    fn process(&mut self, input: OrgInput) {
+    pub(crate) fn process(&mut self, input: OrgInput) {
         match input {
             OrgInput::Tick { now_ms } => self.now_ms = now_ms,
             OrgInput::Grant { granted } => self.granted = granted,
@@ -597,7 +577,7 @@ impl OrgCore {
         }
     }
 
-    fn start(&mut self, workflow: WorkflowId, request: String, repo: String, limits: Limits) {
+    pub(crate) fn start(&mut self, workflow: WorkflowId, request: String, repo: String, limits: Limits) {
         if self.state.is_some() {
             self.notify(OrgNotice::Refused { reason: "ワークフローは既に開始されています".into() });
             return;
@@ -621,7 +601,7 @@ impl OrgCore {
         self.rec(OrgEventKind::TaskAdded { task: planner });
     }
 
-    fn user_resume(&mut self) {
+    pub(crate) fn user_resume(&mut self) {
         match self.s().halt() {
             Some(HaltReason::AwaitingPlanApproval) => {
                 self.notify(OrgNotice::Refused { reason: "計画の承認が必要です".into() });
@@ -646,50 +626,7 @@ impl OrgCore {
         }
     }
 
-    fn user_replan(&mut self) {
-        let s = self.s();
-        let planning_done = s.tasks().iter().filter(|t| t.role.0 == ROLE_PLANNER).all(|t| t.status() == TaskStatus::Completed);
-        let untouched = s
-            .tasks()
-            .iter()
-            .filter(|t| t.role.0 != ROLE_PLANNER)
-            .all(|t| matches!(t.status(), TaskStatus::Pending | TaskStatus::Ready | TaskStatus::Cancelled) && t.chat().is_none());
-        if !planning_done || !untouched {
-            self.notify(OrgNotice::Refused { reason: "作業が始まっているため計画の作り直しはできません".into() });
-            return;
-        }
-        let proposal: Vec<TaskId> = self
-            .s()
-            .tasks()
-            .iter()
-            .filter(|t| t.role.0 != ROLE_PLANNER && t.status() != TaskStatus::Cancelled)
-            .map(|t| t.id.clone())
-            .collect();
-        let note: Vec<String> = proposal
-            .iter()
-            .filter_map(|id| self.task(id))
-            .map(|t| format!("{} ({}): {}", t.id, t.role, t.title))
-            .collect();
-        for id in &proposal {
-            self.set_status(id, TaskStatus::Cancelled, Cause::User);
-        }
-        let n = self.s().tasks().iter().filter(|t| t.role.0 == ROLE_PLANNER).count() + 1;
-        let id = TaskId::new(format!("planner-{n}"));
-        self.replan_notes.insert(id.clone(), note.join("\n"));
-        self.clear_halt();
-        self.rec(OrgEventKind::TaskAdded {
-            task: PlanTask {
-                id,
-                role: RoleId::new(ROLE_PLANNER),
-                deps: vec![],
-                effects: vec![],
-                title: "再計画".into(),
-                instructions: String::new(),
-            },
-        });
-    }
-
-    fn user_cancel(&mut self, id: &TaskId) {
+    pub(crate) fn user_cancel(&mut self, id: &TaskId) {
         let Some(t) = self.task(id) else { return };
         let in_flight = matches!(t.status(), TaskStatus::Running | TaskStatus::Reviewing) || self.launching.contains_key(id);
         self.forget(id);
@@ -702,7 +639,7 @@ impl OrgCore {
     /// the first turn was never accepted and no attempt is open (rejected / not found / not live / worktree or chat
     /// creation refused). The task goes back to `Ready` and is sent as a new attempt by the usual path; an unknown
     /// outcome (`SendUnknown`) is never retried.
-    fn user_retry(&mut self, id: &TaskId) {
+    pub(crate) fn user_retry(&mut self, id: &TaskId) {
         if !self.is_retryable(id) {
             self.notify(OrgNotice::Refused { reason: "このタスクは、送っていないことを確認できないため、やり直せません".into() });
             return;
@@ -721,7 +658,7 @@ impl OrgCore {
     /// The bound chat cannot be resumed. When it is certain that nothing was ever sent to it (no dispatch recorded,
     /// no accepted turn, nothing in flight, confirmed), the binding is dropped and a new role chat is made in the same
     /// working folder; the task then goes on the usual path. Otherwise nothing changes (it stays stopped).
-    fn chat_unresumable(&mut self, id: &TaskId) {
+    pub(crate) fn chat_unresumable(&mut self, id: &TaskId) {
         let Some(t) = self.task(id) else { return };
         let certain = matches!(t.status(), TaskStatus::Ready | TaskStatus::Blocked(BlockedReason::NeedsAttention))
             && t.confirm() == ConfirmState::Confirmed
@@ -745,7 +682,7 @@ impl OrgCore {
         }
     }
 
-    fn chat_created(&mut self, id: &TaskId, result: CreateResult) {
+    pub(crate) fn chat_created(&mut self, id: &TaskId, result: CreateResult) {
         if self.launching.get(id) != Some(&Launch::Chat) {
             return;
         }
@@ -768,14 +705,14 @@ impl OrgCore {
     }
 
     /// The chat may exist but is not tied to the task. Never guessed: the user decides.
-    fn block_unknown_create(&mut self, id: &TaskId) {
+    pub(crate) fn block_unknown_create(&mut self, id: &TaskId) {
         self.block(id, BlockedReason::NeedsAttention, "役割チャットの作成結果が不明です");
         self.set_confirm(id, ConfirmState::SendUnknown);
     }
 
     // ---- send results
 
-    fn send_settled(&mut self, id: &TaskId, attempt: AttemptRef, outcome: SettleOutcome) {
+    pub(crate) fn send_settled(&mut self, id: &TaskId, attempt: AttemptRef, outcome: SettleOutcome) {
         if !self.rec(OrgEventKind::DispatchSettled { task: id.clone(), attempt, outcome: outcome.clone() }) {
             return;
         }
@@ -793,7 +730,7 @@ impl OrgCore {
         }
     }
 
-    fn not_live(&mut self, id: &TaskId) {
+    pub(crate) fn not_live(&mut self, id: &TaskId) {
         let Some(t) = self.task(id) else { return };
         if t.status() != TaskStatus::Running || t.confirm() != ConfirmState::SendUnknown {
             return;
@@ -813,7 +750,7 @@ impl OrgCore {
 
     // ---- turn ends
 
-    fn turn_ended_input(&mut self, chat: ChatRef, turn: TurnRef, end: TurnEndKind) {
+    pub(crate) fn turn_ended_input(&mut self, chat: ChatRef, turn: TurnRef, end: TurnEndKind) {
         let Some(id) = self.task_of_chat(&chat) else { return };
         let Some(t) = self.task(&id) else { return };
         if t.accepted_turn() == Some(&turn) {
@@ -827,7 +764,7 @@ impl OrgCore {
         }
     }
 
-    fn replay_early_turn(&mut self, id: &TaskId, accepted: &TurnRef) {
+    pub(crate) fn replay_early_turn(&mut self, id: &TaskId, accepted: &TurnRef) {
         let Some(chat) = self.task(id).and_then(|t| t.chat().cloned()) else { return };
         let Some(list) = self.early_turns.get_mut(&chat) else { return };
         if let Some(pos) = list.iter().position(|(t, _)| t == accepted) {
@@ -836,7 +773,7 @@ impl OrgCore {
         }
     }
 
-    fn turn_ended(&mut self, id: &TaskId, turn: TurnRef, end: TurnEndKind) {
+    pub(crate) fn turn_ended(&mut self, id: &TaskId, turn: TurnRef, end: TurnEndKind) {
         self.rec(OrgEventKind::TurnObserved { task: id.clone(), turn: turn.clone(), end });
         let Some(t) = self.task(id) else { return };
         if t.status() != TaskStatus::Running || self.flows.contains_key(id) {
@@ -867,7 +804,7 @@ impl OrgCore {
         }
     }
 
-    fn fail(&mut self, id: &TaskId, reason: FailReason) {
+    pub(crate) fn fail(&mut self, id: &TaskId, reason: FailReason) {
         if self.set_status(id, TaskStatus::Failed(reason), Cause::Engine) {
             self.notify(OrgNotice::TaskFailed { task: id.clone(), reason });
         }
@@ -875,7 +812,7 @@ impl OrgCore {
 
     // ---- final message -> artifact
 
-    fn final_message(&mut self, id: &TaskId, turn: TurnRef, text: Option<String>) {
+    pub(crate) fn final_message(&mut self, id: &TaskId, turn: TurnRef, text: Option<String>) {
         match self.flows.get(id) {
             Some(Flow::ReadingFinal { turn: t }) if *t == turn => {}
             _ => return,
@@ -894,36 +831,7 @@ impl OrgCore {
         }
     }
 
-    fn parse_output(&self, id: &TaskId, text: &str) -> Result<Output, String> {
-        match self.kind_of(id) {
-            Some(RoleKind::Planner) => {
-                let taken: HashSet<TaskId> = self.s().tasks().iter().map(|t| t.id.clone()).collect();
-                let tasks = schemas::parse_plan(text, &taken)?;
-                let planners = self.s().tasks().iter().filter(|t| t.role.0 == ROLE_PLANNER).count();
-                let kind = if planners <= 1 {
-                    PlanKind::Initial
-                } else {
-                    // A user-requested re-plan is always put to the user.
-                    PlanKind::Replan { scope_changed: true, auto_replans_used: self.s().counters().auto_replans_used }
-                };
-                let decision = evaluate_plan(&PolicyInput {
-                    tasks: &tasks,
-                    roles: &self.roles,
-                    limits: self.s().limits(),
-                    kind,
-                    requested_parallelism: None,
-                    turns_remaining: self.turns_remaining(),
-                })
-                .map_err(|errs| format!("計画の検証に失敗しました: {errs:?}"))?;
-                Ok(Output::Plan { tasks, decision })
-            }
-            Some(RoleKind::Worker) => Ok(Output::Report(schemas::parse_worker_report(text)?)),
-            Some(RoleKind::Reviewer) => Ok(Output::Verdict(schemas::parse_verdict(text)?)),
-            None => Err("未知の役割です".into()),
-        }
-    }
-
-    fn parse_failed(&mut self, id: &TaskId, reason: String) {
+    pub(crate) fn parse_failed(&mut self, id: &TaskId, reason: String) {
         if self.task(id).is_some_and(|t| t.format_fix_used()) {
             self.fail(id, FailReason::InvalidArtifact);
         } else {
@@ -931,7 +839,7 @@ impl OrgCore {
         }
     }
 
-    fn desc_state(&self, id: &TaskId) -> Option<u32> {
+    pub(crate) fn desc_state(&self, id: &TaskId) -> Option<u32> {
         let chat = self.task(id)?.chat()?;
         if self.open_requests.get(chat).copied().unwrap_or(0) > 0 {
             return None;
@@ -940,71 +848,9 @@ impl OrgCore {
         (d.scan_complete && d.working == 0).then_some(d.unknown)
     }
 
-    fn complete_output(&mut self, id: &TaskId, out: Output) {
-        match out {
-            Output::Plan { tasks, decision } => {
-                let n = tasks.len();
-                for t in tasks {
-                    self.rec(OrgEventKind::TaskAdded { task: t });
-                }
-                match decision {
-                    Decision::AutoApprove => self.notify(OrgNotice::PlanAutoApproved { tasks: n }),
-                    Decision::NeedsConfirmation(reasons) => {
-                        self.rec(OrgEventKind::Halted { reason: Some(HaltReason::AwaitingPlanApproval) });
-                        self.notify(OrgNotice::PlanNeedsApproval { reasons });
-                    }
-                }
-                if self.set_status(id, TaskStatus::Completed, Cause::Engine) {
-                    self.notify(OrgNotice::TaskCompleted { task: id.clone() });
-                }
-            }
-            Output::Report(r) => {
-                self.artifacts.insert(id.clone(), r.summary);
-                self.flow_set(id.clone(), Flow::WantCommit);
-            }
-            Output::Verdict(v) => self.complete_verdict(id, v),
-        }
-    }
-
-    fn complete_verdict(&mut self, id: &TaskId, v: ReviewerVerdict) {
-        let target = self.task(id).and_then(|t| t.deps.first().cloned());
-        let Some(target) = target else {
-            self.block(id, BlockedReason::NeedsAttention, "検証対象がありません");
-            return;
-        };
-        match v.verdict {
-            VerdictKind::Pass => {
-                // The reviewed task completes only now; then the reviewer itself.
-                if self.task(&target).is_some_and(|t| t.status() == TaskStatus::Reviewing) {
-                    self.set_status(&target, TaskStatus::Completed, Cause::Engine);
-                    self.notify(OrgNotice::TaskCompleted { task: target });
-                }
-                if self.set_status(id, TaskStatus::Completed, Cause::Engine) {
-                    self.notify(OrgNotice::TaskCompleted { task: id.clone() });
-                }
-            }
-            VerdictKind::Rework => {
-                let limit_reached = {
-                    let limits = self.s().limits().clone();
-                    self.task(&target).is_some_and(|t| t.rework_limit_reached(&limits))
-                };
-                if limit_reached {
-                    self.fail(&target, FailReason::LimitReached);
-                } else if self.task(&target).is_some_and(|t| t.status() == TaskStatus::Reviewing) {
-                    self.rec(OrgEventKind::ReworkCounted { task: target.clone() });
-                    self.set_status(&target, TaskStatus::Rework, Cause::Engine);
-                    self.set_status(&target, TaskStatus::Ready, Cause::Engine);
-                    self.findings.insert(target.clone(), v.findings.into_iter().filter(|f| !f.trim().is_empty()).collect());
-                }
-                // The reviewer waits until the worker task is under review again.
-                self.set_status(id, TaskStatus::Rework, Cause::Engine);
-            }
-        }
-    }
-
     // ---- workspace results
 
-    fn workspace_result(&mut self, id: &TaskId, result: WorkspaceOutcome) {
+    pub(crate) fn workspace_result(&mut self, id: &TaskId, result: WorkspaceOutcome) {
         if self.launching.get(id) == Some(&Launch::Refresh) {
             self.launching.remove(id);
             match result {
@@ -1034,21 +880,14 @@ impl OrgCore {
         }
         self.flow_del(id);
         match result {
-            WorkspaceOutcome::Committed { commit } => {
-                self.rec(OrgEventKind::Committed { task: id.clone(), commit });
-                let has_reviewer = self.s().tasks().iter().any(|t| t.role.0 == ROLE_REVIEWER && t.deps.contains(id));
-                let to = if has_reviewer { TaskStatus::Reviewing } else { TaskStatus::Completed };
-                if self.set_status(id, to, Cause::Engine) && to == TaskStatus::Completed {
-                    self.notify(OrgNotice::TaskCompleted { task: id.clone() });
-                }
-            }
+            WorkspaceOutcome::Committed { commit } => self.committed(id, commit),
             WorkspaceOutcome::NothingToCommit => self.block(id, BlockedReason::NeedsAttention, "コミットする変更がありません"),
             WorkspaceOutcome::Failed { detail } => self.block(id, BlockedReason::NeedsAttention, &format!("コミットできませんでした: {}", one_line(&detail))),
             _ => self.block(id, BlockedReason::NeedsAttention, "コミットできませんでした"),
         }
     }
 
-    fn sandbox_checked(&mut self, ok: bool, detail: String) {
+    pub(crate) fn sandbox_checked(&mut self, ok: bool, detail: String) {
         if self.sandbox != SandboxState::Checking {
             return;
         }
@@ -1070,7 +909,7 @@ impl OrgCore {
 
     /// The sandbox failed to start while a task was running: the task needs the user, not a reconciliation,
     /// and nothing new is launched until the user resumes (which re-checks the sandbox).
-    fn sandbox_failure(&mut self, chat: ChatRef) {
+    pub(crate) fn sandbox_failure(&mut self, chat: ChatRef) {
         let Some(id) = self.task_of_chat(&chat) else { return };
         let running = self.task(&id).is_some_and(|t| matches!(t.status(), TaskStatus::Running | TaskStatus::Reviewing));
         if running {
@@ -1082,7 +921,7 @@ impl OrgCore {
         self.notify(OrgNotice::SandboxUnhealthy { detail: "実行中のコマンドが sandbox の更新失敗（setup refresh had errors）を示しました".into() });
     }
 
-    fn freshness(&mut self, cause: ReconcileCause) {
+    pub(crate) fn freshness(&mut self, cause: ReconcileCause) {
         self.live.clear();
         self.early_turns.clear();
         // Child counts read before the interruption are stale: only a new read may complete a task (R-ORG M3).
@@ -1113,7 +952,7 @@ impl OrgCore {
 
     // ------------------------------------------------------------ driving
 
-    fn drive(&mut self) {
+    pub(crate) fn drive(&mut self) {
         // Repeat until nothing more is produced (a completion can make the next task ready).
         for _ in 0..32 {
             let before = (self.out.len(), self.gen);
@@ -1127,17 +966,7 @@ impl OrgCore {
         self.check_done();
     }
 
-    fn dep_ok(dep: &Task, dependent: &Task) -> bool {
-        if dependent.role.0 == ROLE_REVIEWER {
-            // A reviewer may start once the reviewed task is under review (committed).
-            dep.confirm() == ConfirmState::Confirmed
-                && (dep.status() == TaskStatus::Completed || (dep.status() == TaskStatus::Reviewing && dep.commit().is_some()))
-        } else {
-            default_dep_ok(dep, dependent)
-        }
-    }
-
-    fn promote(&mut self) {
+    pub(crate) fn promote(&mut self) {
         let mut ids = promote_ready_with(self.s().tasks(), &Self::dep_ok);
         // A reviewer sent back to wait becomes ready again when its target is under review again.
         let by_id: HashMap<&TaskId, &Task> = self.s().tasks().iter().map(|t| (&t.id, t)).collect();
@@ -1155,7 +984,7 @@ impl OrgCore {
         }
     }
 
-    fn advance_flows(&mut self) {
+    pub(crate) fn advance_flows(&mut self) {
         let mut ids: Vec<TaskId> = self.flows.keys().cloned().collect();
         ids.sort();
         for id in ids {
@@ -1197,14 +1026,14 @@ impl OrgCore {
         }
     }
 
-    fn limit_notice(&mut self) {
+    pub(crate) fn limit_notice(&mut self) {
         if !self.limit_notified {
             self.limit_notified = true;
             self.notify(OrgNotice::TurnLimitReached);
         }
     }
 
-    fn dispatch(&mut self) {
+    pub(crate) fn dispatch(&mut self) {
         if !self.can_act() {
             return;
         }
@@ -1233,66 +1062,10 @@ impl OrgCore {
         }
     }
 
-    fn launch(&mut self, id: &TaskId) {
-        let Some(t) = self.task(id) else { return };
-        let Some(kind) = role_kind(&t.role) else { return };
-        let (has_chat, has_cwd) = (t.chat().is_some(), t.chat_cwd().is_some());
-        let target_commit = t.deps.first().and_then(|d| self.task(d)).and_then(|d| d.commit().map(str::to_string));
-        if has_chat {
-            let rereview = kind == RoleKind::Reviewer && self.task(id).is_some_and(|t| t.accepted_turn().is_some());
-            if rereview {
-                // The reviewer's chat is tied to its worktree: move that to the new commit first, and send nothing
-                // until it is verified to be there (R-ORG M1).
-                let (Some(commit), Some(cwd)) = (target_commit, self.task(id).and_then(|t| t.chat_cwd().map(str::to_string))) else {
-                    self.block(id, BlockedReason::NeedsAttention, "検証対象のコミットまたは作業場所がありません");
-                    return;
-                };
-                self.launching.insert(id.clone(), Launch::Refresh);
-                self.out.push(OrgAction::Workspace(WorkspaceAction::RefreshDetached { task: id.clone(), cwd, commit }));
-                return;
-            }
-            self.continue_launch(id);
-            return;
-        }
-        if has_cwd {
-            // A creation was started earlier and its result was lost (e.g. restart).
-            self.block_unknown_create(id);
-            return;
-        }
-        // A new chat for a task whose earlier chat was never used: its working folder (worktree) is reused.
-        if let Some(cwd) = self.rechat_cwd.remove(id) {
-            self.begin_chat(id, cwd);
-            return;
-        }
-        let repo = self.s().repo().to_string();
-        match kind {
-            RoleKind::Planner => self.begin_chat(id, repo),
-            RoleKind::Worker => {
-                self.launching.insert(id.clone(), Launch::Worktree);
-                self.out.push(OrgAction::Workspace(WorkspaceAction::CreateWorktree { task: id.clone(), repo, base: WorktreeBase::Head }));
-            }
-            RoleKind::Reviewer => {
-                let Some(commit) = target_commit else {
-                    self.block(id, BlockedReason::NeedsAttention, "検証対象のコミットがありません");
-                    return;
-                };
-                self.launching.insert(id.clone(), Launch::Worktree);
-                self.out.push(OrgAction::Workspace(WorkspaceAction::CreateWorktree {
-                    task: id.clone(),
-                    repo,
-                    base: WorktreeBase::DetachedAt(commit),
-                }));
-            }
-        }
-    }
-
-    fn begin_chat(&mut self, id: &TaskId, cwd: String) {
+    pub(crate) fn begin_chat(&mut self, id: &TaskId, cwd: String) {
         let Some(t) = self.task(id) else { return };
         let role = t.role.clone();
-        let default_sandbox = match role_kind(&role) {
-            Some(RoleKind::Worker) => SandboxKind::WorkspaceWrite,
-            _ => SandboxKind::ReadOnly,
-        };
+        let default_sandbox = Self::default_sandbox(&role);
         let (sandbox, model, effort) = match self.role_cfg.get(&role) {
             Some(c) => (c.sandbox, c.model.clone(), c.effort.clone()),
             None => (default_sandbox, None, None),
@@ -1305,7 +1078,7 @@ impl OrgCore {
     }
 
     /// The chat exists: check the sandbox (once per App Server), then send.
-    fn continue_launch(&mut self, id: &TaskId) {
+    pub(crate) fn continue_launch(&mut self, id: &TaskId) {
         if !self.task(id).is_some_and(|t| t.status() == TaskStatus::Ready && t.chat().is_some()) {
             return;
         }
@@ -1336,56 +1109,16 @@ impl OrgCore {
 
     /// The role's own instructions (definition file) go before the work prompt. Without role definitions
     /// loaded (tests, defaults) the prompt is unchanged.
-    fn with_instructions(&self, id: &TaskId, text: String) -> String {
+    pub(crate) fn with_instructions(&self, id: &TaskId, text: String) -> String {
         match self.task(id).and_then(|t| self.role_cfg.get(&t.role)) {
             Some(c) if !c.instructions.trim().is_empty() => format!("【この役割の指示】\n{}\n\n{}", c.instructions.trim(), text),
             _ => text,
         }
     }
 
-    /// Turn kind and text for a ready task.
-    fn ready_turn(&self, id: &TaskId) -> Option<(TurnKind, String)> {
-        let t = self.task(id)?;
-        let s = self.s();
-        match role_kind(&t.role)? {
-            RoleKind::Planner => {
-                let first = s.tasks().iter().filter(|x| x.role.0 == ROLE_PLANNER).count() <= 1;
-                if first {
-                    Some((TurnKind::Plan, prompt::planner_prompt(s.request(), s.repo())))
-                } else {
-                    let prev = self.replan_notes.get(id).cloned().unwrap_or_else(|| "(前の計画は未取得)".into());
-                    Some((TurnKind::Replan, prompt::replan_prompt(s.request(), s.repo(), &prev)))
-                }
-            }
-            RoleKind::Worker => {
-                if t.accepted_turn().is_some() {
-                    let f = self.findings.get(id).map(Vec::as_slice);
-                    Some((TurnKind::Rework, prompt::worker_rework_prompt(t, f)))
-                } else {
-                    let deps: Vec<(TaskId, Option<String>)> = t.deps.iter().map(|d| (d.clone(), self.artifacts.get(d).cloned())).collect();
-                    Some((TurnKind::Task, prompt::worker_prompt(t, s.request(), &deps)))
-                }
-            }
-            RoleKind::Reviewer => {
-                let target = self.task(t.deps.first()?)?;
-                let commit = target.commit()?;
-                let summary = self.artifacts.get(&target.id).map(String::as_str);
-                Some((TurnKind::Review, prompt::reviewer_prompt(t, s.request(), (&target.id, summary, commit), target.rework_count() + 1)))
-            }
-        }
-    }
-
-    fn schema_for(&self, id: &TaskId) -> Value {
-        match self.kind_of(id) {
-            Some(RoleKind::Planner) => schemas::planner_plan_schema(),
-            Some(RoleKind::Reviewer) => schemas::reviewer_verdict_schema(),
-            _ => schemas::worker_report_schema(),
-        }
-    }
-
     /// The only place that produces `Send`. Events first (turn counted, `SendUnknown`,
     /// `Dispatched`), then the action. Never called for a task with an open or unknown attempt.
-    fn send_turn(&mut self, id: &TaskId, kind: TurnKind, text: String) -> Sent {
+    pub(crate) fn send_turn(&mut self, id: &TaskId, kind: TurnKind, text: String) -> Sent {
         if !self.can_act() {
             return Sent::NotAllowed;
         }
@@ -1425,7 +1158,7 @@ impl OrgCore {
         Sent::Yes
     }
 
-    fn check_done(&mut self) {
+    pub(crate) fn check_done(&mut self) {
         if self.done_notified {
             return;
         }

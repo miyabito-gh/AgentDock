@@ -5,6 +5,7 @@ pub mod core;
 pub mod dag;
 pub mod limits;
 pub mod persist;
+mod planned;
 pub mod policy;
 pub mod prompt;
 pub mod roledef;
