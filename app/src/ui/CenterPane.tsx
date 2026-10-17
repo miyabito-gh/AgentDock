@@ -28,6 +28,8 @@ import { filterSkills, isDisabled, originLabel, queryTerms, removeTrigger, skill
 import { PendingSendRow } from "./PendingSendRow";
 import { SendStatusBar } from "./SendStatusBar";
 import { queueCounts } from "./sendStatus";
+import { OrgInstructionBubble, OrgReportView } from "./OrgChatParts";
+import { isOrgInstruction, parseOrgReport } from "./orgChat";
 import { appearsInTurns, firstSendLockReason, type PendingSend } from "./pendingSend";
 import { PURPOSE_TAG, resendAvailability, type ResendCtx } from "./resend";
 
@@ -518,8 +520,8 @@ function UserBubble({ text, forceOpen, open, onToggle }: { text: string; forceOp
   );
 }
 
-function Messages({ chatId, turns, reqs, running, onRespond, onAct, extra, find, resend, locals, files, sends, agentName, decisions, pending, onPendingRestore, onPendingDismiss }: {
-  agentName?: (a: AgentKey) => string; decisions: DecisionItem[];
+function Messages({ orgBound, chatId, turns, reqs, running, onRespond, onAct, extra, find, resend, locals, files, sends, agentName, decisions, pending, onPendingRestore, onPendingDismiss }: {
+  orgBound: boolean; agentName?: (a: AgentKey) => string; decisions: DecisionItem[];
   pending: PendingSend[]; onPendingRestore: (p: PendingSend) => void; onPendingDismiss: (p: PendingSend) => void;
   turns: TurnRecord[]; reqs: PendingRequest[]; running: boolean; onRespond: CenterProps["onRespond"]; onAct: (a: string) => void; extra?: ReactNode; find: FindState; resend: ResendView;
   locals: AttachmentEntry[]; files: FileActions; sends: SentLocal[]; chatId: string;
@@ -538,6 +540,12 @@ function Messages({ chatId, turns, reqs, running, onRespond, onAct, extra, find,
   // 送った直後（履歴・live通知がまだ添付を運ばない間）は、送信時のローカルの記録から添付を出す
   const sentMap = useMemo(() => assignSends(turns, sends), [turns, sends]);
   const placed = useMemo(() => placeDecisions(turns, decisions), [turns, decisions]);
+  // 組織チャットの最初の利用者発話（組織が自動送信した指示かの判定対象。ここだけを畳む）
+  const firstUserId = useMemo(() => {
+    if (!orgBound) return null;
+    for (const t of turns) for (const e of t.entries) if (e.kind.kind === "userMessage") return e.key.itemId;
+    return null;
+  }, [orgBound, turns]);
   const toBottom = () => { const el = ref.current; if (el) el.scrollTop = el.scrollHeight; stick.current = true; setAway(false); };
   const onScroll = () => {
     const el = ref.current;
@@ -601,10 +609,14 @@ function Messages({ chatId, turns, reqs, running, onRespond, onAct, extra, find,
                 const atts = (e.attachments?.length ? e.attachments : sentMap.get(e.key.itemId)) ?? [];
                 return (
                   <div className="msg user" key={e.key.itemId}>
+                    {e.key.itemId === firstUserId && !noBody && isOrgInstruction(text)
+                      ? <OrgInstructionBubble text={text} forceOpen={find.open && needsExpand([text], find.query)} open={openMsgs.includes(e.key.itemId)} onToggle={() => toggleMsg(e.key.itemId)} />
+                      : <>
                     <div className="sr">あなた</div>
                     {noBody
                       ? (atts.length ? null : <div className="bubble" data-find="body"><span className="muted">（本文なし）</span></div>)
                       : <UserBubble text={text} forceOpen={find.open && needsExpand([text], find.query)} open={openMsgs.includes(e.key.itemId)} onToggle={() => toggleMsg(e.key.itemId)} />}
+                    </>}
                     {atts.length ? <MsgChips atts={atts} locals={locals} files={files} /> : null}
                     <div className="acts">
                       {noBody ? null : <CopyAct text={text} />}
@@ -617,7 +629,7 @@ function Messages({ chatId, turns, reqs, running, onRespond, onAct, extra, find,
                 {lead}
                 <div className="msg ai">
                   <div className="who">Codex</div>
-                  <div className="bubble" data-find="body"><Markdown text={text} streaming={t.end === null && e === lastAi} /></div>
+                  <div className="bubble" data-find="body">{(() => { const rep = orgBound && !(t.end === null && e === lastAi) ? parseOrgReport(text) : null; return rep ? <OrgReportView report={rep} raw={text} /> : <Markdown text={text} streaming={t.end === null && e === lastAi} />; })()}</div>
                   <div className="acts"><CopyAct text={text} /><button onClick={() => onAct(`fork:${t.key.turnId}`)}><Icon name="branch" />ここから分岐</button>
                     {mine && e === lastAi ? <button aria-disabled={blocked("regenerate", null) || undefined} onClick={() => onAct(`resend:regenerate|${t.key.turnId}|`)}><Icon name="refresh" />もう一度…</button> : null}</div>
                 </div>
@@ -1106,7 +1118,7 @@ export function CenterPane(p: CenterProps) {
       <Header snap={snap} chat={chat} onAct={p.onAct} commands={p.commands} local={p.local} onCwdToggle={() => setCwdOpenFor((id) => (id === chat.key.id ? null : chat.key.id))} wasLive={p.wasLive} externalLabel={p.externalLabel} cwdInfo={p.cwdInfo} leftShown={p.leftShown} rightShown={p.rightShown} />
       {cwdOpen ? <WorkFoldersPanel key={`wf-${chat.key.id}`} api={p.wf} lockReason={cwdLock} permissionText={PERMISSION_FULL[p.local?.permission ?? "workspaceWriteOnRequest"]} fallback={p.local?.nextFolders?.folders ?? [p.local?.nextCwd ?? knownValue(chat.cwd) ?? ""].filter(Boolean)} onClose={() => setCwdOpenFor(null)} /> : null}
       <Banners p={p} />
-      <Messages key={chat.key.id} chatId={chat.key.id} agentName={nameOf} decisions={p.decisions} turns={p.turns} reqs={reqs} running={running} onRespond={p.onRespond} onAct={p.onAct} find={find}
+      <Messages key={chat.key.id} orgBound={!!p.local?.org} chatId={chat.key.id} agentName={nameOf} decisions={p.decisions} turns={p.turns} reqs={reqs} running={running} onRespond={p.onRespond} onAct={p.onAct} find={find}
         locals={snap.attachments.filter((a) => keyStr(a.chat) === keyStr(chat.key))} files={p.files} sends={p.sends}
         pending={p.pending} onPendingRestore={p.onPendingRestore} onPendingDismiss={p.onPendingDismiss}
         resend={{ ctx: resendCtxOf(snap, chat, snap.sources.some((x) => x.connection.kind === "connected"), p.turns), rootAgentId: rootView(snap, chat)?.agent.key.id }}

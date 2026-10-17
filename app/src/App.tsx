@@ -11,6 +11,7 @@ import { PROJECTS_ENABLED } from "./ui/features";
 import { MAX_FETCH_PAGES, countFetched, fetchAllPages, loadMoreMessage, projectFetchMessage } from "./ui/listFetch";
 import { addDecision, mergeDecisions, type DecisionItem } from "./ui/decisions";
 import { ACCEPTED_HOLD_MS, hasInFlight, mergeAttempt, outcomeOfAttempt, rebindPending, reconcilePending, setPhase, type PendingOutcome, type PendingSend } from "./ui/pendingSend";
+import { withOrgTitles } from "./ui/orgChat";
 import { applyHostEvent, createEventPipeline, emptyBundle, replaceSnapshot, seqAction, UNKNOWN_CAPS } from "./ipc/live";
 import type { Bundle } from "./mock/data";
 
@@ -362,7 +363,8 @@ export default function App() {
     return () => { alive = false; unlisten?.(); pipe.dispose(); };
   }, [live, boot, loadChat, noteAttempt, say, sayErr, refreshProjects]);
 
-  const snap: HostSnapshot = bundle.snapshot;
+  // 組織の役割チャットの表示名だけ上書きする（表示用。保存済みの名前は変えない）
+  const snap: HostSnapshot = useMemo(() => withOrgTitles(bundle.snapshot, org?.workflow), [bundle.snapshot, org]);
 
   // 組織実行の状態を取り直す（読取りのみ。何も送らない）。古い応答は捨てる。
   useEffect(() => {
