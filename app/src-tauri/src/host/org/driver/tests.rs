@@ -435,7 +435,7 @@ async fn a_slot_value_that_cannot_be_written_stops_everything_after_it() {
     assert!(!r.log.lock().unwrap().iter().any(|l| l.contains("SlotWritten")));
     let create = OrgAction::CreateRoleChat {
         task: TaskId::new("plan-1"),
-        spec: org_engine::RoleChatSpec { role: org_engine::RoleId::new("planner"), cwd: "C:/repo".into(), sandbox: org_engine::SandboxKind::ReadOnly, model: None, effort: None },
+        spec: org_engine::RoleChatSpec { role: org_engine::RoleId::new("planner"), cwd: "C:/repo".into(), sandbox: org_engine::SandboxKind::ReadOnly, model: None, effort: None, approval: org_engine::ApprovalPolicy::OnRequest },
     };
     assert!(r.driver.exec(create, &mut stop).await.is_none());
     assert_eq!(*r.fake.creates.lock().unwrap(), creates_before);

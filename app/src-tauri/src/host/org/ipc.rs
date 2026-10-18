@@ -42,6 +42,15 @@ fn clean_note(note: Option<String>) -> Option<String> {
     note.map(|n| n.trim().to_string()).filter(|n| !n.is_empty())
 }
 
+/// 理由の長さを検査して整える。エンジンが渡す上限（`NOTE_MAX_CHARS`）を超えるものは、黙って切らずに拒否する。
+pub fn checked_note(note: Option<String>) -> Result<Option<String>, IpcError> {
+    let note = clean_note(note);
+    if note.as_deref().is_some_and(|n| n.chars().count() > org_engine::prompt::NOTE_MAX_CHARS) {
+        return Err(err(IpcErrorCode::InvalidArgs, format!("理由は{}文字までにしてください", org_engine::prompt::NOTE_MAX_CHARS)));
+    }
+    Ok(note)
+}
+
 /// gate の判断を受け付けられるか。工程が gate で、確認済みで判断を待っていて、選択肢にあり、理由が必須なら書かれていること。
 /// エンジンも同じ確認をする（ここは、受け付けられないものを入力に変えないための事前確認）。
 pub fn check_gate_decision(gs: &GraphSnapshot, task: &TaskSnapshot, choice: &str, note: Option<&str>) -> Result<(), String> {
@@ -61,6 +70,11 @@ pub fn check_extra_round(gs: &GraphSnapshot, task: &TaskSnapshot) -> Result<(), 
         return Err("周回の上限に達して止まっている工程ではありません".to_string());
     }
     Ok(())
+}
+
+/// 「この結果で受け入れる」を受け付けられるか。条件は「もう1周」と同じ（周回の上限で止まっている戻り先の工程、確認済み）。
+pub fn check_accept_round(gs: &GraphSnapshot, task: &TaskSnapshot) -> Result<(), String> {
+    check_extra_round(gs, task)
 }
 
 /// 候補のチャットを選べるか。AgentDockが作った（hosted）チャットで、組織の記録がまだないものだけ。
@@ -155,6 +169,9 @@ impl Host {
     /// 再開（必要なチャットだけを resume し、新しい送信権を作る）。画面が見ていたワークフローと同じときだけ。
     pub async fn org_resume_checked(self: &Arc<Self>, args: OrgWorkflowArgs, confirmed: UserConfirmed) -> Result<OrgResumeResult, IpcError> {
         self.org_check_workflow(&args.workflow_id)?;
+        if self.org_rt.view.lock().unwrap().as_ref().is_some_and(|v| v.halt == Some(org_engine::HaltReason::DefinitionUnavailable)) {
+            return Err(err(IpcErrorCode::InvalidArgs, "開始時のグラフ定義の写しを使えないため、このワークフローは再開できません"));
+        }
         let report: OrgResumeReport = self.org_resume(confirmed).await?;
         Ok(OrgResumeResult {
             resumed: report.resumed,
@@ -182,7 +199,8 @@ impl Host {
     pub fn org_replan(&self, args: OrgReplanArgs, _confirmed: &UserConfirmed) -> Result<(), IpcError> {
         let (_, tx) = self.org_check_workflow(&args.workflow_id)?;
         self.require_plan_pending()?;
-        let _ = tx.send(DriverMsg::Input(OrgInput::UserReplan { note: clean_note(args.note) }));
+        let note = checked_note(args.note)?;
+        let _ = tx.send(DriverMsg::Input(OrgInput::UserReplan { note }));
         Ok(())
     }
 
@@ -199,7 +217,7 @@ impl Host {
     pub fn org_gate_decide(&self, args: OrgGateDecideArgs, _confirmed: &UserConfirmed) -> Result<(), IpcError> {
         let (_, tx) = self.org_check_workflow(&args.workflow_id)?;
         let (gs, t) = self.org_graph_task(&args.task)?;
-        let note = clean_note(args.note);
+        let note = checked_note(args.note)?;
         check_gate_decision(&gs, &t, &args.choice, note.as_deref()).map_err(|m| err(IpcErrorCode::InvalidArgs, m))?;
         let _ = tx.send(DriverMsg::Input(OrgInput::UserGate { task: t.id, choice: args.choice, note }));
         Ok(())
@@ -210,7 +228,17 @@ impl Host {
         let (_, tx) = self.org_check_workflow(&args.workflow_id)?;
         let (gs, t) = self.org_graph_task(&args.task)?;
         check_extra_round(&gs, &t).map_err(|m| err(IpcErrorCode::InvalidArgs, m))?;
-        let _ = tx.send(DriverMsg::Input(OrgInput::UserExtraRound { task: t.id, note: clean_note(args.note) }));
+        let note = checked_note(args.note)?;
+        let _ = tx.send(DriverMsg::Input(OrgInput::UserExtraRound { task: t.id, note }));
+        Ok(())
+    }
+
+    /// 周回の上限で止まっている工程の「この結果で受け入れる」。周回を閉じるだけで、何も送らない。
+    pub fn org_accept_round(&self, args: OrgTaskArgs, _confirmed: &UserConfirmed) -> Result<(), IpcError> {
+        let (_, tx) = self.org_check_workflow(&args.workflow_id)?;
+        let (gs, t) = self.org_graph_task(&args.task)?;
+        check_accept_round(&gs, &t).map_err(|m| err(IpcErrorCode::InvalidArgs, m))?;
+        let _ = tx.send(DriverMsg::Input(OrgInput::UserAcceptRound { task: t.id }));
         Ok(())
     }
 
@@ -478,6 +506,25 @@ mod tests {
             });
         }
         out
+    }
+
+    #[test]
+    fn a_too_long_reason_is_refused_not_cut_silently() {
+        let max = org_engine::prompt::NOTE_MAX_CHARS;
+        assert_eq!(checked_note(Some("  ".into())).unwrap(), None);
+        assert_eq!(checked_note(Some(" ok ".into())).unwrap().as_deref(), Some("ok"));
+        assert!(checked_note(Some("あ".repeat(max))).is_ok());
+        assert_eq!(checked_note(Some("あ".repeat(max + 1))).unwrap_err().code, IpcErrorCode::InvalidArgs);
+    }
+
+    #[test]
+    fn resume_is_refused_when_the_definition_copy_is_unusable() {
+        let (host, mut rx) = host_with_workflow(Some(HaltReason::DefinitionUnavailable), vec![task("a", TaskStatus::Pending)]);
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let c = UserConfirmed::from_user_command();
+        let e = rt.block_on(host.org_resume_checked(wf("wf-1"), c)).unwrap_err();
+        assert_eq!(e.code, IpcErrorCode::InvalidArgs);
+        assert!(drain(&mut rx).is_empty());
     }
 
     #[test]

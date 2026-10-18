@@ -20,7 +20,7 @@ use crate::outschema::{builtin_schemas, OutSchema};
 use crate::persist::{HaltReason, OrgEvent, OrgEventKind, WorkflowState, SCHEMA_VERSION};
 use crate::policy::{ConfirmReason, Decision};
 use crate::prompt;
-use crate::roledef::LoadedRole;
+use crate::roledef::{ApprovalPolicy, LoadedRole};
 use crate::scheduler::{next_dispatch_with, promote_ready_with, DispatchGate};
 use crate::schemas::{ReviewerVerdict, WorkerReport, ROLE_PLANNER, ROLE_REVIEWER, ROLE_WORKER};
 use crate::state::Cause;
@@ -45,6 +45,14 @@ pub struct RoleChatSpec {
     /// None = the chat default (role definition files come in P-ORG-8).
     pub model: Option<String>,
     pub effort: Option<String>,
+    /// The role's approval policy from the role definition copy the workflow runs with (the host uses this one,
+    /// not the current role file; R-G M4).
+    #[serde(default = "default_on_request")]
+    pub approval: ApprovalPolicy,
+}
+
+fn default_on_request() -> ApprovalPolicy {
+    ApprovalPolicy::OnRequest
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -145,6 +153,9 @@ pub enum OrgInput {
     UserGate { task: TaskId, choice: String, note: Option<String> },
     /// The user adds one round to a feedback edge whose rounds ran out (`blocked{RoundLimit}`), with an optional reason.
     UserExtraRound { task: TaskId, note: Option<String> },
+    /// The user takes the result as it is instead of another round, for a feedback edge whose rounds ran out
+    /// (`blocked{RoundLimit}`; "accept this result"). The loop is closed; nothing is sent.
+    UserAcceptRound { task: TaskId },
     /// The host holds (or no longer holds) the send grant. Without it the engine produces no
     /// create / send / workspace-write action. A restored engine starts without it.
     Grant { granted: bool },
@@ -242,6 +253,7 @@ pub(crate) struct RoleCfg {
     sandbox: SandboxKind,
     model: Option<String>,
     effort: Option<String>,
+    approval: ApprovalPolicy,
     /// Role instructions from the definition file (put before each work prompt).
     pub(crate) instructions: String,
 }
@@ -384,7 +396,19 @@ impl OrgCore {
         }
         c.slot_values = slots;
         c.audit_pending = c.graph.is_some() && c.is_graph_mode();
+        // A graph workflow without a usable copy is not run as if it had no graph: it stays stopped (R-G M3).
+        // The halt is derived here on every restore (it is not an event), so it never outlives the cause.
+        if c.definition_missing() {
+            if let Some(s) = c.state.as_mut() {
+                s.halt = Some(HaltReason::DefinitionUnavailable);
+            }
+        }
         c
+    }
+
+    /// The workflow was started with a graph, but no usable copy of it is loaded.
+    pub fn definition_missing(&self) -> bool {
+        self.is_graph_mode() && self.graph.is_none()
     }
 
     /// The graph to run. For a workflow that already recorded its graph the fingerprint must match.
@@ -428,7 +452,7 @@ impl OrgCore {
             .map(|l| {
                 (
                     RoleId::new(l.def.id.clone()),
-                    RoleCfg { sandbox: l.def.sandbox, model: l.def.model.clone(), effort: l.def.effort.clone(), instructions: l.def.instructions.clone() },
+                    RoleCfg { sandbox: l.def.sandbox, model: l.def.model.clone(), effort: l.def.effort.clone(), approval: l.def.approval, instructions: l.def.instructions.clone() },
                 )
             })
             .collect();
@@ -562,6 +586,7 @@ impl OrgCore {
             OrgInput::StartGraph { workflow, request, repo, limits, roles_fingerprint } => self.start_graph(workflow, request, repo, limits, roles_fingerprint),
             OrgInput::UserGate { task, choice, note } => self.user_gate(&task, &choice, note),
             OrgInput::UserExtraRound { task, note } => self.user_extra_round(&task, note),
+            OrgInput::UserAcceptRound { task } => self.user_accept_round(&task),
             OrgInput::UserPause => self.halt_if_none(HaltReason::User),
             OrgInput::Shutdown => {
                 // Nothing to stop once every task is finished.
@@ -680,6 +705,10 @@ impl OrgCore {
     }
 
     pub(crate) fn user_resume(&mut self) {
+        if self.definition_missing() {
+            self.notify(OrgNotice::Refused { reason: "開始時のグラフ定義の写しを使えないため、このワークフローは再開できません".into() });
+            return;
+        }
         match self.s().halt() {
             Some(HaltReason::AwaitingPlanApproval) => {
                 self.notify(OrgNotice::Refused { reason: "計画の承認が必要です".into() });
@@ -901,6 +930,11 @@ impl OrgCore {
             self.set_confirm(id, ConfirmState::NeedsReconcile(ReconcileCause::Disconnect));
             return;
         };
+        if self.definition_missing() {
+            // Without the graph the output cannot be checked; that is not a format violation (no fix turn, no failure).
+            self.block(id, BlockedReason::NeedsAttention, "開始時のグラフ定義の写しを使えないため、結果を読めません");
+            return;
+        }
         match self.parse_output(id, &text) {
             Ok(out) => {
                 self.flow_set(id.clone(), Flow::WaitDesc { out });
@@ -1013,7 +1047,7 @@ impl OrgCore {
             .iter()
             .filter(|t| matches!(t.status(), TaskStatus::Running | TaskStatus::Reviewing) && t.confirm() == ConfirmState::Confirmed)
             // Its own turn already ended: no reconciliation needed (R-ORG H2).
-            .filter(|t| !t.is_idle_reviewing())
+            .filter(|t| !t.is_idle_reviewing() && !t.is_non_model_node())
             .map(|t| t.id.clone())
             .collect();
         for id in ids {
@@ -1148,15 +1182,15 @@ impl OrgCore {
         let Some(t) = self.task(id) else { return };
         let role = t.role.clone();
         let default_sandbox = Self::default_sandbox(&role);
-        let (sandbox, model, effort) = match self.role_cfg.get(&role) {
-            Some(c) => (c.sandbox, c.model.clone(), c.effort.clone()),
-            None => (default_sandbox, None, None),
+        let (sandbox, model, effort, approval) = match self.role_cfg.get(&role) {
+            Some(c) => (c.sandbox, c.model.clone(), c.effort.clone(), c.approval),
+            None => (default_sandbox, None, None, ApprovalPolicy::OnRequest),
         };
         if !self.rec(OrgEventKind::ChatRequested { task: id.clone(), cwd: cwd.clone() }) {
             return;
         }
         self.launching.insert(id.clone(), Launch::Chat);
-        self.out.push(OrgAction::CreateRoleChat { task: id.clone(), spec: RoleChatSpec { role, cwd, sandbox, model, effort } });
+        self.out.push(OrgAction::CreateRoleChat { task: id.clone(), spec: RoleChatSpec { role, cwd, sandbox, model, effort, approval } });
     }
 
     /// The chat exists: check the sandbox (once per App Server), then send.

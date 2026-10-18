@@ -321,6 +321,7 @@ export const orgReloadGraphs = (): Promise<OrgGraphsView> => invokeCmd("org_relo
 export const orgOpenGraphFile = (file: string): Promise<null> => invokeCmd("org_open_graph_file", { file });
 export const orgGateDecide = (workflowId: string, task: string, choice: string, note: string | null): Promise<null> => invokeCmd("org_gate_decide", { workflowId, task, choice, note });
 export const orgExtraRound = (workflowId: string, task: string, note: string | null): Promise<null> => invokeCmd("org_extra_round", { workflowId, task, note });
+export const orgAcceptRound = (workflowId: string, task: string): Promise<null> => invokeCmd("org_accept_round", { workflowId, task });
 export const orgStart = (args: StartOrgArgs): Promise<StartOrgResult> => invokeCmd("org_start", args);
 export const orgResume = (workflowId: string): Promise<OrgResumeResult> => invokeCmd("org_resume", { workflowId });
 export const orgPause = (workflowId: string): Promise<null> => invokeCmd("org_pause", { workflowId });

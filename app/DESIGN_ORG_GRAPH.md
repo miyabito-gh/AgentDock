@@ -376,9 +376,9 @@ agent ノードのタスク X の turn が live で完了し、最終メッセ�
 3. **周回の本体に入っているが出口（S）でない**ノード → `reviewing`（「後の判定待ち」）。どの本体にも入っていない → `completed`。
 4. 出る辺を選ぶ（`route.rs`、純関数。条件を宣言順に評価し、最初に合った辺。合わなければ既定。どれもなければ出口なし）。
    - 前向きの辺 → 行き先のタスクを作る（まだなければ）か、`rework` で待っている行き先を ready にする。
-   - フィードバックの辺 S→T → 回数が残っていれば `FeedbackCounted{edge}` を記録し、T: `reviewing`→`rework`→`ready`（今の Worker と同じ）、本体の途中のノード: `reviewing`→`rework`（待ち）、S: `rework`（待ち）。残っていなければ `onExhausted`（`fail`＝T を `failed{上限到達}`、`ask`＝T を `blocked{周回上限}`、S は `completed`）。
+   - フィードバックの辺 S→T → 回数が残っていれば `FeedbackCounted{edge}` を記録し、T: `reviewing`→`rework`→`ready`（今の Worker と同じ）、本体の途中のノード: `reviewing`→`rework`（待ち）、S: `rework`（待ち）。残っていなければ `onExhausted`（`fail`＝T を `failed{上限到達}`、S は `completed`。`ask`＝T を `blocked{周回上限}`、**S は `reviewing` のまま**＝「もう1周」で `rework` に戻せるようにするため）。`ask` の利用者の選択は2つ（どちらも `UserConfirmed`）: 「もう1周」（その辺の許容回数を1増やし、理由つきで周回を続ける）と、「**この結果で受け入れる**」（`UserAcceptRound`。T: `blocked`→`reviewing`、S から `EdgeTaken{edge: None}` を記録し、`take_forward` と同じく本体を閉じる＝本体の `reviewing` を `completed` にする。外側の本体がまだ開いているノードは `reviewing` のまま。何も送らず、回数も増えない。取り消す場合は従来どおりタスクの取消し）。
    - S が前向きの辺を選んだ（または出口なし）→ 本体を閉じる: 本体の `reviewing` のノードを `completed`、S を `completed`。ただし**外側の本体がまだ開いている**ノードは `reviewing` のまま残す。
-5. `rework` で待っているノード M は、本体の中の親 D について「D の最新のスロットの版が M の最後の出力より新しい（イベントの seq で比べる）」かつ D が `reviewing`／`completed` で確定、になったら ready に戻る。今の「reviewer は対象の worker が再び reviewing になったら ready」と同じ規則を一般化したもの。
+5. `rework` で待っているノード M は、本体の中の親 D について「D の最新の `EdgeTaken` が **M へ向かう前向きの辺**（`Task.edge_to == M`）で、その seq が M の最後の出力・辺の判断より新しい」かつ D が `reviewing`／`completed` で確定、になったら ready に戻る。上限到達（`to: None`）や差し戻しの辺では戻らない。今の「reviewer は対象の worker が再び reviewing になったら ready」と同じ規則を一般化したもの。
 6. 読取り役（`target` あり）が再び動くときは、今の `RefreshDetached` で対象の新しいコミットに作業場所を合わせてから送る（R-ORG M1 の修正と同じ）。
 
 - router: 実行も turn もなし。親の完了で即座に 4. を行い `completed`。
@@ -393,6 +393,7 @@ agent ノードのタスク X の turn が live で完了し、最終メッセ�
 |turn|今の turn 上限（初期30）は全ノードに効く。形式修正も1 turn。到達したら `blocked{上限}`、「上限を増やして再開／終了」（今のまま）。**周回の途中でも必ず止まる**|
 |開始ダイアログ|「通常 N turn、最大 M turn（形式修正込み）。1 turn あたり約1.7万トークンの土台があるため、最大でおよそ M×1.7万トークン（目安）」。M が turn 上限を超えるときは「途中で turn 上限に達して止まる可能性があります」|
 |利用者の「もう1周」|`ask` の上限到達カードで利用者が選んだときだけ、その辺の許容回数を1増やす（`FeedbackAllowanceRaised`、`UserConfirmed`）。自動では増えない|
+|利用者の「この結果で受け入れる」|同じカードで利用者が選んだときだけ、周回を閉じて先へ進む（`UserAcceptRound`、`UserConfirmed`）。自動では受け入れない|
 |並列|Worker同時2・全体3（Q4）。書込み役＝役割の sandbox が workspaceWrite（今の `Role.writes`）。G-B の folder では、同じ作業フォルダに書く役割は同時1|
 |受理不明・再送|今のまま。周回は「新しい指示」（判定に基づく）であって再送ではない。受理不明・要照合・停止未確認のタスクは辺を選ばない・本体を閉じない（確認状態≠確定なら何もしない）|
 
@@ -437,6 +438,8 @@ LineageSet { parent: WorkflowId, series: String },
 - `classify_after_restart` は今のまま（running／reviewing で確定のもの→要照合、`AwaitingPlanApproval` は保つ）。**gate の `blocked{承認待ち}` と `blocked{周回上限}` は変えない**（running ではない）。
 - 復元時、`completed` なのに `EdgeTaken` がないタスク（辺を選ぶ途中で落ちた）は、保存したスロットから `route.rs` で辺を選び直す（純関数なので同じ結果になる）。スロットが読めなければ `blocked{要対応}`。
 - 再開は今のまま利用者の「再開」だけ（自動 resume なし、U1）。
+- 送信しない gate／router が `running` のまま落ちた場合は、要照合にせず復元時に直す（router は辺を選び直す。gate は、この周回のスロットが保存済みならそこから辺を選び、なければ判断が失われたものとして `blocked{承認待ち}` に戻して利用者に聞き直す。エンジンは決めない）。
+- 開始時の写しが使えない（欠けている・指紋が違う）グラフのワークフローは、グラフなしの経路で動かさない。`HaltReason::DefinitionUnavailable` で止め（復元のたびに導く。イベントには残さない）、「再開」では解除できず、出力の読取りも形式違反にしない（`blocked{要対応}`）。
 
 ### 7.8 プロンプトの組立て（`prompt.rs` の一般化）【設計】
 

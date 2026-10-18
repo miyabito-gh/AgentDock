@@ -18,8 +18,21 @@ fn tid(s: &str) -> TaskId {
 
 fn compile(text: &str, id: &str) -> CompiledGraph {
     let def = parse_graph(text).unwrap();
-    let roles = ["planner", "worker", "verifier"].iter().map(|r| (RoleId::new(*r), RoleInfo { writes: *r == "worker" })).collect();
-    validate(&def, &roles, &builtin_schemas(), id, &Limits::default()).unwrap_or_else(|e| panic!("{e:?}"))
+    validate(&def, &role_infos(&["planner", "worker", "verifier"]), &builtin_schemas(), id, &Limits::default()).unwrap_or_else(|e| panic!("{e:?}"))
+}
+
+fn role_infos(ids: &[&str]) -> std::collections::BTreeMap<RoleId, RoleInfo> {
+    use crate::roledef::Workplace;
+    ids.iter()
+        .map(|r| {
+            let workplace = match *r {
+                "worker" => Workplace::OwnWorktree,
+                "verifier" | "reviewer" => Workplace::DetachedAtCommit,
+                _ => Workplace::SharedReadOnly,
+            };
+            (RoleId::new(*r), RoleInfo { writes: *r == "worker", workplace })
+        })
+        .collect()
 }
 
 fn quality(max_rounds: u32, on_exhausted: &str) -> CompiledGraph {
@@ -482,8 +495,7 @@ fn a_gate_is_decided_only_by_the_user() {
 fn graph_start_is_refused_for_a_graph_with_planned_tasks() {
     let g = {
         let def = parse_graph(template_json(crate::graph::TEMPLATE_STANDARD).unwrap()).unwrap();
-        let roles = ["planner", "worker", "reviewer"].iter().map(|r| (RoleId::new(*r), RoleInfo { writes: *r == "worker" })).collect();
-        validate(&def, &roles, &builtin_schemas(), "standard", &Limits::default()).unwrap()
+        validate(&def, &role_infos(&["planner", "worker", "reviewer"]), &builtin_schemas(), "standard", &Limits::default()).unwrap()
     };
     let mut sim = Sim::new(g);
     sim.start();
@@ -599,4 +611,207 @@ fn a_feedback_that_stopped_between_the_count_and_the_target_becoming_ready_is_he
     assert_eq!(r.status("build-1"), TaskStatus::Blocked(BlockedReason::NeedsAttention));
     assert_eq!(r.count(|k| matches!(k, OrgEventKind::EdgeTaken { .. } | OrgEventKind::FeedbackCounted { .. })), 0);
     assert_eq!(r.sends("build-1"), 0, "nothing is sent");
+}
+
+// ---------------------------------------------------------------- R-G fixes (G-A6)
+
+/// plan -> build -> test (back to build: 1 round, ask) -> review (back to plan on replan).
+const NESTED: &str = r#"{
+  "schemaVersion": 1, "id": "nested", "displayName": "n", "workspace": "git", "entry": "plan",
+  "slots": { "spec": { "schema": "spec" }, "report": { "schema": "workerReport" },
+             "v1": { "schema": "verdict3" }, "v2": { "schema": "verdict3" } },
+  "nodes": [
+    { "id": "plan", "kind": "agent", "role": "planner", "output": "spec" },
+    { "id": "build", "kind": "agent", "role": "worker", "output": "report", "capture": "commit", "reads": ["spec"] },
+    { "id": "test", "kind": "agent", "role": "verifier", "output": "v1", "target": "build", "reads": ["report"] },
+    { "id": "review", "kind": "agent", "role": "verifier", "output": "v2", "target": "build", "reads": ["report", "v1"] }
+  ],
+  "edges": [
+    { "from": "plan", "to": "build" }, { "from": "build", "to": "test" }, { "from": "test", "to": "review" },
+    { "from": "test", "to": "build", "when": { "slot": "v1", "path": "verdict", "eq": "rework" }, "feedback": { "maxRounds": 1, "onExhausted": "ask" } },
+    { "from": "review", "to": "plan", "when": { "slot": "v2", "path": "verdict", "eq": "replan" }, "feedback": { "maxRounds": 1, "onExhausted": "ask" } }
+  ]
+}"#;
+
+#[test]
+fn h1_an_inner_loop_out_of_rounds_does_not_wake_the_waiting_node_downstream() {
+    let mut sim = Sim::new(compile(NESTED, "nested"));
+    sim.start();
+    sim.complete("plan-1", SPEC);
+    sim.complete("build-1", REPORT);
+    sim.complete("test-1", PASS);
+    sim.complete("review-1", REPLAN);
+    assert_eq!(sim.status("review-1"), TaskStatus::Rework);
+    sim.complete("plan-1", SPEC);
+    sim.complete("build-1", REPORT);
+    sim.complete("test-1", REWORK);
+    sim.complete("build-1", REPORT);
+    sim.complete("test-1", REWORK);
+    assert_eq!(sim.status("build-1"), TaskStatus::Blocked(BlockedReason::RoundLimit));
+    assert_eq!(sim.status("test-1"), TaskStatus::Reviewing);
+    assert_eq!(sim.status("review-1"), TaskStatus::Rework, "waits: test did not pass");
+    assert_eq!(sim.sends("review-1"), 1, "no turn is sent to review");
+    // the parent's edge records where it led: none for "out of rounds"
+    assert_eq!(sim.t("test-1").edge_to(), None);
+    // with the user's extra round and a pass, review is woken (the forward edge leads to it)
+    sim.feed(OrgInput::UserExtraRound { task: tid("build-1"), note: None });
+    sim.complete("build-1", REPORT);
+    sim.complete("test-1", PASS);
+    assert_eq!(sim.t("test-1").edge_to(), Some(&tid("review-1")));
+    assert_eq!(sim.status("review-1"), TaskStatus::Running);
+}
+
+#[test]
+fn m1_accepting_the_result_at_the_limit_closes_the_loop_and_completes_the_workflow() {
+    let mut sim = Sim::new(quality(1, "ask"));
+    sim.to_verify();
+    sim.complete("verify-1", REWORK);
+    sim.complete("build-1", REPORT);
+    sim.complete("verify-1", REWORK);
+    assert_eq!(sim.status("build-1"), TaskStatus::Blocked(BlockedReason::RoundLimit));
+    let sends = sim.log.iter().filter(|a| matches!(a, OrgAction::Send { .. })).count();
+    // a task that is not waiting at the limit cannot be accepted
+    sim.feed(OrgInput::UserAcceptRound { task: tid("verify-1") });
+    assert_eq!(sim.status("build-1"), TaskStatus::Blocked(BlockedReason::RoundLimit));
+    sim.feed(OrgInput::UserAcceptRound { task: tid("build-1") });
+    for id in ["plan-1", "build-1", "verify-1"] {
+        assert_eq!(sim.status(id), TaskStatus::Completed, "{id}");
+    }
+    assert_eq!(sim.log.iter().filter(|a| matches!(a, OrgAction::Send { .. })).count(), sends, "nothing is sent");
+    assert_eq!(sim.fb("verify->build"), (1, 0), "no round is added");
+    assert!(sim.notices().iter().any(|n| matches!(n, OrgNotice::WorkflowCompleted)));
+    // not repeatable
+    let acts = sim.feed(OrgInput::UserAcceptRound { task: tid("build-1") });
+    assert!(acts.iter().any(|a| matches!(a, OrgAction::Notify(OrgNotice::Refused { .. }))));
+}
+
+#[test]
+fn m1_accepting_keeps_what_an_outer_loop_still_holds() {
+    // the inner loop (test -> build) ran out and is accepted, but review (outer loop's source) has not decided yet
+    let mut sim = Sim::new(compile(NESTED, "nested"));
+    sim.start();
+    sim.complete("plan-1", SPEC);
+    sim.complete("build-1", REPORT);
+    sim.complete("test-1", REWORK);
+    sim.complete("build-1", REPORT);
+    sim.complete("test-1", REWORK);
+    assert_eq!(sim.status("build-1"), TaskStatus::Blocked(BlockedReason::RoundLimit));
+    sim.feed(OrgInput::UserAcceptRound { task: tid("build-1") });
+    // plan / build / test are still inside the outer loop that review closes
+    for id in ["plan-1", "build-1", "test-1"] {
+        assert_eq!(sim.status(id), TaskStatus::Reviewing, "{id}");
+    }
+}
+
+fn gated_events(upto: impl Fn(&OrgEventKind) -> bool) -> (Vec<OrgEvent>, HashMap<(SlotId, u32), Value>) {
+    let mut sim = Sim::new(compile(GATE_GRAPH, "gated"));
+    sim.start();
+    sim.complete("draft-1", SPEC);
+    sim.feed(OrgInput::UserGate { task: tid("confirm-1"), choice: "ok".into(), note: None });
+    let events = sim.events();
+    let cut = events.iter().position(|e| upto(&e.kind)).expect("the event exists");
+    let slots = slot_files(&sim.log);
+    (events[..=cut].to_vec(), slots)
+}
+
+#[test]
+fn m2_a_gate_that_stopped_after_the_decision_asks_again_instead_of_waiting_for_reconcile() {
+    // crashed right after the gate went running: the choice was not stored
+    let (events, slots) = gated_events(|k| matches!(k, OrgEventKind::StatusChanged { task, to: TaskStatus::Running, .. } if task.0 == "confirm-1"));
+    let mut r = restore_sim(compile(GATE_GRAPH, "gated"), &events, slots);
+    assert_eq!(r.status("confirm-1"), TaskStatus::Running);
+    assert_eq!(r.t("confirm-1").confirm(), ConfirmState::Confirmed, "not reclassified");
+    r.feed(OrgInput::Tick { now_ms: 2000 });
+    assert_eq!(r.status("confirm-1"), TaskStatus::Blocked(BlockedReason::AwaitingApproval));
+    assert_eq!(r.t("confirm-1").confirm(), ConfirmState::Confirmed);
+    // the user can choose again
+    r.feed(OrgInput::UserGate { task: tid("confirm-1"), choice: "ok".into(), note: None });
+    for id in ["draft-1", "confirm-1", "end-1"] {
+        assert_eq!(r.status(id), TaskStatus::Completed, "{id}");
+    }
+}
+
+#[test]
+fn m2_a_gate_whose_choice_was_stored_goes_on_and_a_stopped_router_chooses_again() {
+    let (events, slots) = gated_events(|k| matches!(k, OrgEventKind::SlotWritten { task, .. } if task.0 == "confirm-1"));
+    let mut r = restore_sim(compile(GATE_GRAPH, "gated"), &events, slots);
+    assert_eq!(r.status("confirm-1"), TaskStatus::Running);
+    r.feed(OrgInput::Tick { now_ms: 2000 });
+    assert_eq!(r.status("confirm-1"), TaskStatus::Completed);
+    assert_eq!(r.count(|k| matches!(k, OrgEventKind::GateDecided { .. })), 0, "the user is not asked again");
+    assert!(r.st().task(&tid("end-1")).is_some());
+
+    // the router went running and then the app stopped
+    let (events, slots) = gated_events(|k| matches!(k, OrgEventKind::StatusChanged { task, to: TaskStatus::Running, .. } if task.0 == "end-1"));
+    let mut r = restore_sim(compile(GATE_GRAPH, "gated"), &events, slots);
+    assert_eq!(r.status("end-1"), TaskStatus::Running);
+    assert_eq!(r.t("end-1").confirm(), ConfirmState::Confirmed);
+    r.feed(OrgInput::Tick { now_ms: 2000 });
+    assert_eq!(r.status("end-1"), TaskStatus::Completed);
+    assert_eq!(r.sends("end-1"), 0);
+}
+
+#[test]
+fn m3_a_graph_workflow_without_its_copy_stays_stopped_and_is_not_failed_for_format() {
+    for broken in [None, Some(quality(2, "ask"))] {
+        let mut sim = Sim::new(quality(3, "ask"));
+        sim.start();
+        let events = sim.events();
+        let mut state = rebuild(&events);
+        crate::classify_after_restart(&mut state, 5).unwrap();
+        let mut core = OrgCore::restored_with(state, broken, HashMap::new(), 1000);
+        core.roles = roles();
+        assert!(core.definition_missing());
+        assert_eq!(core.state().unwrap().halt(), Some(HaltReason::DefinitionUnavailable));
+        let mut r = Sim { core, log: Vec::new(), unknown_sends: HashSet::new() };
+        r.feed(OrgInput::Grant { granted: true });
+        // "resume" does not release it
+        let acts = r.feed(OrgInput::UserResume);
+        assert!(acts.iter().any(|a| matches!(a, OrgAction::Notify(OrgNotice::Refused { .. }))));
+        assert_eq!(r.st().halt(), Some(HaltReason::DefinitionUnavailable));
+        // the turn of the running task ends and its final message is read: not a format violation
+        let (chat, turn) = (r.t("plan-1").chat().unwrap().clone(), r.t("plan-1").accepted_turn().unwrap().clone());
+        r.feed(OrgInput::TurnEnded { chat, turn: turn.clone(), end: TurnEndKind::Completed });
+        r.feed(OrgInput::FinalMessage { task: tid("plan-1"), turn, text: Some("not json".into()) });
+        assert_eq!(r.status("plan-1"), TaskStatus::Blocked(BlockedReason::NeedsAttention));
+        assert_eq!(r.sends("plan-1"), 0, "no format-fix turn");
+        assert!(!matches!(r.status("plan-1"), TaskStatus::Failed(_)));
+    }
+}
+
+#[test]
+fn m4_the_chat_is_made_with_the_approval_policy_of_the_loaded_role() {
+    use crate::{standard_definitions, ApprovalPolicy, LoadedRole};
+    let mut sim = Sim::new(quality(3, "ask"));
+    let loaded: Vec<LoadedRole> = standard_definitions()
+        .into_iter()
+        .filter(|d| ["planner", "worker", "verifier"].contains(&d.id.as_str()))
+        .map(|mut def| {
+            if def.id == "planner" {
+                def.approval = ApprovalPolicy::Untrusted;
+            }
+            LoadedRole { def, widened: vec![], confirmed: false }
+        })
+        .collect();
+    sim.core.set_roles(&loaded).unwrap();
+    sim.start();
+    let approval_of = |sim: &Sim, task: &str| {
+        sim.log.iter().find_map(|a| if let OrgAction::CreateRoleChat { task: t, spec } = a { (t.0 == task).then(|| spec.approval) } else { None }).unwrap()
+    };
+    assert_eq!(approval_of(&sim, "plan-1"), ApprovalPolicy::Untrusted);
+    sim.complete("plan-1", SPEC);
+    assert_eq!(approval_of(&sim, "build-1"), ApprovalPolicy::OnRequest);
+}
+
+#[test]
+fn m7_a_long_gate_reason_is_cut_in_the_slot_value() {
+    let mut sim = Sim::new(compile(GATE_GRAPH, "gated"));
+    sim.start();
+    sim.complete("draft-1", SPEC);
+    let long = "あ".repeat(NOTE_MAX_CHARS * 3);
+    sim.feed(OrgInput::UserGate { task: tid("confirm-1"), choice: "fix".into(), note: Some(long) });
+    let value = sim.log.iter().find_map(|a| if let OrgAction::PutSlot { slot, value, .. } = a { (slot.0 == "confirm").then(|| value.clone()) } else { None }).unwrap();
+    assert_eq!(value["note"].as_str().unwrap().chars().count(), NOTE_MAX_CHARS);
+    assert_eq!(value["choice"], "fix");
+    assert_eq!(sim.status("draft-1"), TaskStatus::Running, "the workflow goes on");
 }

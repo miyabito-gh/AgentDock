@@ -94,6 +94,7 @@ type Confirm =
   | { kind: "replan"; note: string }
   | { kind: "gate"; task: string; node: string; choice: string; label: string; needsNote: boolean; note: string }
   | { kind: "extraRound"; task: string; node: string; note: string }
+  | { kind: "acceptRound"; task: string; node: string }
   | { kind: "cancelTask"; task: string }
   | { kind: "acceptManual"; task: string }
   | { kind: "retry"; task: string }
@@ -243,6 +244,12 @@ export function OrgPane(p: OrgPaneProps) {
           </>,
           <button className="btn primary" disabled={busy} onClick={() => void go("もう1周", async () => { await host.orgExtraRound(wf.workflowId, c.task, c.note.trim() || null); return "もう1周します。"; })}>{busy ? "処理しています…" : "理由を書いてもう1周する"}</button>);
       }
+      case "acceptRound": {
+        const c = confirm;
+        return wrap(`この結果で受け入れる確認（${c.node}）`,
+          <p>工程「{c.node}」の周回が上限に達しています。<b>今ある結果のまま</b>この周回を終え、次へ進めます（何も送りません。周回の回数も増えません）。検証で直すべきとされた点が残っている可能性があります。受け入れずに続けるなら「もう1周」、やめるなら取り消してください。</p>,
+          <button className="btn primary" disabled={busy} onClick={() => void go("受け入れ", async () => { await host.orgAcceptRound(wf.workflowId, c.task); return "この結果で受け入れました。"; })}>{busy ? "処理しています…" : "この結果で受け入れる"}</button>);
+      }
       case "acceptManual":
         return wrap(`タスク ${confirm.task} を手動で完了にする確認`, <p>タスク {confirm.task} を、あなたの判断で完了として扱います。Codex の結果を確認できたという意味ではありません。依存するタスクが進み始めます。</p>,
           <button className="btn primary" disabled={busy} onClick={() => void go("手動完了", async () => { await host.orgAcceptManual(wf.workflowId, confirm.task); return `タスク ${confirm.task} を完了にしました。`; })}>{busy ? "処理しています…" : "完了にする"}</button>);
@@ -338,7 +345,7 @@ export function OrgPane(p: OrgPaneProps) {
           <div className="banner info" role="status"><Icon name="help" /><div>保存されている記録を読み取り専用で表示しています。再開・承認・取消しなどの操作はできません（実行中のワークフローがあれば、左の一覧の上の行から開けます）。</div></div>
         ) : null}
         {wf.halt && wf.halt.kind !== "awaitingPlanApproval" && !ro ? (
-          <div className={`banner ${wf.halt.kind === "sandboxUnhealthy" ? "err" : "warn"}`} role="status">
+          <div className={`banner ${wf.halt.kind === "sandboxUnhealthy" || wf.halt.kind === "definitionUnavailable" ? "err" : "warn"}`} role="status">
             <Icon name={orgIcon(wf.halt.icon)} />
             <div>
               <b>{wf.halt.label}</b>
@@ -414,7 +421,7 @@ export function OrgPane(p: OrgPaneProps) {
           </dl>
         </section>
 
-        {wf.graph ? <GraphSection graph={wf.graph} wf={wf} ro={ro} busy={busy} chatExists={chatExists} onOpenChat={p.onOpenChat} onGate={(n, c) => setConfirm({ kind: "gate", task: n.task!, node: n.label, choice: c.id, label: c.label, needsNote: c.needsNote, note: "" })} onExtra={(n) => setConfirm({ kind: "extraRound", task: n.task!, node: n.label, note: "" })} /> : null}
+        {wf.graph ? <GraphSection graph={wf.graph} wf={wf} ro={ro} busy={busy} chatExists={chatExists} onOpenChat={p.onOpenChat} onGate={(n, c) => setConfirm({ kind: "gate", task: n.task!, node: n.label, choice: c.id, label: c.label, needsNote: c.needsNote, note: "" })} onExtra={(n) => setConfirm({ kind: "extraRound", task: n.task!, node: n.label, note: "" })} onAccept={(n) => setConfirm({ kind: "acceptRound", task: n.task!, node: n.label })} /> : null}
 
         <section aria-label="タスク">
           <h4 className="org-h">タスク</h4>
@@ -471,11 +478,12 @@ export function OrgPane(p: OrgPaneProps) {
 }
 
 /** グラフで動くワークフローの流れ（一覧形式・読み取り専用）。ノードは先へ進む順。判断（gate）と周回上限のカードは、確認を経る操作だけを呼ぶ。 */
-function GraphSection({ graph, wf, ro, busy, chatExists, onOpenChat, onGate, onExtra }: {
+function GraphSection({ graph, wf, ro, busy, chatExists, onOpenChat, onGate, onExtra, onAccept }: {
   graph: OrgGraphView; wf: OrgWorkflowView; ro: boolean; busy: boolean;
   chatExists: (k: ChatKey | null) => boolean; onOpenChat: (k: ChatKey) => void;
   onGate: (n: OrgGraphNodeView, c: { id: string; label: string; needsNote: boolean }) => void;
   onExtra: (n: OrgGraphNodeView) => void;
+  onAccept: (n: OrgGraphNodeView) => void;
 }) {
   const taskOf = (n: OrgGraphNodeView): OrgTaskView | undefined => wf.tasks.find((t) => t.id === n.task);
   const cards = graph.nodes.filter((n) => (n.gate && n.status?.phase === "blocked") || n.roundLimit);
@@ -487,9 +495,9 @@ function GraphSection({ graph, wf, ro, busy, chatExists, onOpenChat, onGate, onE
           return (
             <section key={`${n.id}:limit`} className="org-card" aria-label="周回の上限">
               <h4><Icon name="alert" />周回が上限に達しました（{n.label}）</h4>
-              <p>辺「{r.edge}」は、許容 {r.allowed} 回のうち {r.used} 回を使い切りました。理由を書いてもう1周するか、タスクを取り消すかを選んでください。何もしなければ、このまま止まっています（自動では進みません）。</p>
+              <p>辺「{r.edge}」は、許容 {r.allowed} 回のうち {r.used} 回を使い切りました。理由を書いてもう1周するか、この結果で受け入れるか、タスクを取り消すかを選んでください。何もしなければ、このまま止まっています（自動では進みません）。</p>
               {r.awaiting
-                ? <div className="acts end org-card-acts"><button className="btn primary" disabled={busy} onClick={() => onExtra(n)}>理由を書いてもう1周…</button></div>
+                ? <div className="acts end org-card-acts"><button className="btn" disabled={busy} onClick={() => onAccept(n)}>この結果で受け入れる…</button><button className="btn primary" disabled={busy} onClick={() => onExtra(n)}>理由を書いてもう1周…</button></div>
                 : <p className="small muted">確認状態が確定ではないため、確認できるまで選べません（下の表の確認状態を見てください）。</p>}
             </section>
           );

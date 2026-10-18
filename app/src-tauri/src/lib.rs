@@ -277,6 +277,7 @@ pub fn run() {
             commands::org_open_graph_file,
             commands::org_gate_decide,
             commands::org_extra_round,
+            commands::org_accept_round,
             commands::org_start,
             commands::org_resume,
             commands::org_pause,

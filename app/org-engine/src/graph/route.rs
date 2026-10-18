@@ -87,7 +87,14 @@ mod tests {
         let def = crate::graph::def::parse_graph(text).unwrap();
         let roles = ["planner", "worker", "verifier", "router"]
             .iter()
-            .map(|r| (RoleId::new(*r), RoleInfo { writes: *r == "worker" }))
+            .map(|r| {
+                let workplace = match *r {
+                    "worker" => crate::roledef::Workplace::OwnWorktree,
+                    "verifier" => crate::roledef::Workplace::DetachedAtCommit,
+                    _ => crate::roledef::Workplace::SharedReadOnly,
+                };
+                (RoleId::new(*r), RoleInfo { writes: *r == "worker", workplace })
+            })
             .collect();
         validate(&def, &roles, &builtin_schemas(), id, &Limits::default()).unwrap_or_else(|e| panic!("{e:?}"))
     }
@@ -115,7 +122,7 @@ mod tests {
       "schemaVersion": 1, "id": "r", "displayName": "r", "workspace": "git", "entry": "a",
       "slots": { "verdict": { "schema": "verdict3" } },
       "nodes": [
-        { "id": "a", "kind": "agent", "role": "verifier", "output": "verdict" },
+        { "id": "a", "kind": "agent", "role": "planner", "output": "verdict" },
         { "id": "r", "kind": "router" },
         { "id": "x", "kind": "router" },
         { "id": "y", "kind": "router" },

@@ -53,6 +53,9 @@ pub enum HaltReason {
     SandboxUnhealthy,
     /// A plan is waiting for the user's approval. Cleared only by approving the plan.
     AwaitingPlanApproval,
+    /// The workflow runs a graph but its start-time copy cannot be used (missing, or the fingerprint differs).
+    /// Set when the engine is restored; "resume" does not clear it while the definition is still unavailable.
+    DefinitionUnavailable,
 }
 
 /// Snapshot of one workflow (`workflow.json`). Fields are read-only outside the
@@ -417,8 +420,10 @@ impl WorkflowState {
                 self.task_mut(task)?.last_output_seq = Some(ev.seq);
                 self.slots.insert(slot.clone(), *version);
             }
-            OrgEventKind::EdgeTaken { from, .. } => {
-                self.task_mut(from)?.edge_seq = Some(ev.seq);
+            OrgEventKind::EdgeTaken { from, to, .. } => {
+                let t = self.task_mut(from)?;
+                t.edge_seq = Some(ev.seq);
+                t.edge_to = to.clone();
             }
             OrgEventKind::FeedbackCounted { edge } => {
                 self.feedback.entry(edge.clone()).or_default().0 += 1;
@@ -662,6 +667,8 @@ pub fn classify_after_restart(state: &mut WorkflowState, at_ms: i64) -> Result<(
         .filter(|t| matches!(t.status, TaskStatus::Running | TaskStatus::Reviewing) && t.confirm == ConfirmState::Confirmed)
         // Its own turn has ended (observed): nothing may still be running on the Codex side (H2).
         .filter(|t| !t.is_idle_reviewing())
+        // A gate or router that stopped while running sent nothing to Codex; the graph pass repairs it (R-G M2).
+        .filter(|t| !t.is_non_model_node())
         .map(|t| t.id.clone())
         .collect();
     for id in ids {

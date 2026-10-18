@@ -30,6 +30,10 @@ id_type!(NoteId);
 
 use crate::graph::def::NodeId;
 
+/// Roles of the graph tasks that are not sent to a model.
+pub(crate) const ROLE_GATE: &str = "gate";
+pub(crate) const ROLE_ROUTER: &str = "router";
+
 /// How an observed turn ended (live observation).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
@@ -194,6 +198,9 @@ pub struct Task {
     /// Event seq of the latest `EdgeTaken` out of this task (the edge decision for its latest output).
     #[serde(default)]
     pub(crate) edge_seq: Option<u64>,
+    /// The task the latest `EdgeTaken` led to (None = no edge applied, or it ended the path / ran out of rounds).
+    #[serde(default)]
+    pub(crate) edge_to: Option<TaskId>,
 }
 
 impl Task {
@@ -219,6 +226,7 @@ impl Task {
             node: None,
             last_output_seq: None,
             edge_seq: None,
+            edge_to: None,
         }
     }
     pub fn status(&self) -> TaskStatus {
@@ -263,12 +271,20 @@ impl Task {
     pub fn edge_seq(&self) -> Option<u64> {
         self.edge_seq
     }
+    pub fn edge_to(&self) -> Option<&TaskId> {
+        self.edge_to.as_ref()
+    }
     /// The latest event seq at which this task produced something (an output or an edge decision).
     pub(crate) fn seen_seq(&self) -> u64 {
         self.last_output_seq.unwrap_or(0).max(self.edge_seq.unwrap_or(0))
     }
     pub fn attempts(&self) -> u32 {
         1 + self.rework_count
+    }
+    /// A gate or router node that never sent anything to a model: nothing of it can be running on the Codex side,
+    /// so a restart or a disconnect does not turn it into "needs reconcile" (the graph pass repairs it; R-G M2).
+    pub fn is_non_model_node(&self) -> bool {
+        self.node.is_some() && self.last_attempt.is_none() && (self.role.0 == ROLE_GATE || self.role.0 == ROLE_ROUTER)
     }
     /// Under review with its own accepted turn already observed to end: nothing of this task can still
     /// be running on the Codex side, so it needs no reconciliation and holds no running slot.

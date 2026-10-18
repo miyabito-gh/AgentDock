@@ -85,7 +85,7 @@ pub fn role_infos(roles: &[LoadedRole]) -> BTreeMap<RoleId, RoleInfo> {
     roles
         .iter()
         .filter(|r| r.enabled())
-        .map(|r| (RoleId::new(r.def.id.clone()), RoleInfo { writes: r.def.sandbox == SandboxKind::WorkspaceWrite }))
+        .map(|r| (RoleId::new(r.def.id.clone()), RoleInfo { writes: r.def.sandbox == SandboxKind::WorkspaceWrite, workplace: r.def.workplace }))
         .collect()
 }
 

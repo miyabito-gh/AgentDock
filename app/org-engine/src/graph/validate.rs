@@ -9,6 +9,7 @@ use serde_json::Value;
 
 use super::def::*;
 use crate::outschema::{gate_schema, Node, OutSchema, SCHEMA_PLAN};
+use crate::roledef::Workplace;
 use crate::types::Limits;
 
 pub const SCHEMA_VERSION: u32 = 1;
@@ -37,6 +38,8 @@ impl fmt::Display for GraphError {
 pub struct RoleInfo {
     /// The role's sandbox is workspaceWrite.
     pub writes: bool,
+    /// Where the role works (its definition's `workplace`): the node using it must fit (V8, DESIGN_ORG_GRAPH 8.1).
+    pub workplace: Workplace,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -320,6 +323,16 @@ pub fn validate(
                 e.add("V7", format!("周回 {} と {} が一部だけ重なっています（入れ子か、交わらないようにしてください）", a.edge, b.edge));
             }
         }
+        // A later writer in the same body would start from the first lap's commit of an earlier writer and never take
+        // in its newer commits (its worktree is made once). Not supported yet (R-G M6).
+        let writers: Vec<&NodeId> = a
+            .members
+            .iter()
+            .filter(|m| matches!(kind_of(m), Some(NodeKind::Agent { role, .. }) if roles.get(role).is_some_and(|i| i.writes)))
+            .collect();
+        if writers.len() > 1 {
+            e.add("V7", format!("周回 {} の本体に書込み役のノードが{}つあります（1つまで。後ろの書込み役が、前の書込み役の新しいコミットを取り込めません）", a.edge, writers.len()));
+        }
         for m in a.members.iter().filter(|m| **m != a.source) {
             for x in out_of(m) {
                 if !sa.contains(&x.to) {
@@ -355,7 +368,35 @@ pub fn validate(
         if *memory != MemoryUse::None {
             e.add("V8", format!("ノード「{}」の memory は none のみ使えます", n.id));
         }
-        if roles.contains_key(role) {
+        if let Some(info) = roles.get(role) {
+            // The kind of workplace fixes how the node is used (R-G M5): a role that reads a fixed result needs its
+            // `target`; a role with its own worktree writes (and captures); a shared read-only role has neither.
+            match info.workplace {
+                Workplace::DetachedAtCommit => {
+                    if target.is_none() {
+                        e.add("V8", format!("ノード「{}」の役割「{role}」は確定物に固定した場所で読む役割なので、target が必要です", n.id));
+                    }
+                    if writes {
+                        e.add("V8", format!("ノード「{}」の役割「{role}」は確定物を読むだけの作業場所ですが、書込み役の sandbox です", n.id));
+                    }
+                }
+                Workplace::OwnWorktree => {
+                    if !writes {
+                        e.add("V8", format!("ノード「{}」の役割「{role}」は専用の作業場所を持つ役割ですが、読取り専用の sandbox です", n.id));
+                    }
+                    if target.is_some() {
+                        e.add("V8", format!("ノード「{}」の役割「{role}」は専用の作業場所で書く役割なので、target は指定できません", n.id));
+                    }
+                }
+                Workplace::SharedReadOnly => {
+                    if target.is_some() {
+                        e.add("V8", format!("ノード「{}」の役割「{role}」は依頼の作業フォルダを読むだけの役割なので、target は指定できません", n.id));
+                    }
+                    if writes {
+                        e.add("V8", format!("ノード「{}」の役割「{role}」は読むだけの作業場所ですが、書込み役の sandbox です", n.id));
+                    }
+                }
+            }
             match (writes, capture) {
                 (true, None) => e.add("V8", format!("書込み役のノード「{}」には capture が必要です", n.id)),
                 (true, Some(c)) => {
@@ -494,10 +535,16 @@ mod tests {
     use crate::outschema::builtin_schemas;
 
     fn roles() -> BTreeMap<RoleId, RoleInfo> {
-        [("planner", false), ("worker", true), ("reviewer", false), ("verifier", false), ("writer", true)]
-            .into_iter()
-            .map(|(id, writes)| (RoleId::new(id), RoleInfo { writes }))
-            .collect()
+        [
+            ("planner", false, Workplace::SharedReadOnly),
+            ("worker", true, Workplace::OwnWorktree),
+            ("reviewer", false, Workplace::DetachedAtCommit),
+            ("verifier", false, Workplace::DetachedAtCommit),
+            ("writer", true, Workplace::OwnWorktree),
+        ]
+        .into_iter()
+        .map(|(id, writes, workplace)| (RoleId::new(id), RoleInfo { writes, workplace }))
+        .collect()
     }
 
     fn check(def: &GraphDef) -> Result<CompiledGraph, Vec<GraphError>> {
@@ -801,5 +848,58 @@ mod tests {
         assert!(rules(check(&build(&["save", "fix"], &["save"]))).contains(&"V12"));
         assert!(rules(check(&build(&["save", "save"], &["save"]))).contains(&"V12"));
         assert!(rules(check(&build(&[], &[]))).contains(&"V12"));
+    }
+
+    fn messages(r: Result<CompiledGraph, Vec<GraphError>>) -> String {
+        r.unwrap_err().into_iter().map(|e| e.message).collect::<Vec<_>>().join("
+")
+    }
+
+    #[test]
+    fn v8_the_role_workplace_fixes_how_the_node_is_used() {
+        // detachedAtCommit without a target
+        let mut d = ql();
+        if let NodeKind::Agent { target, .. } = &mut d.nodes[2].kind {
+            *target = None;
+        }
+        assert!(messages(check(&d)).contains("target が必要です"));
+        // sharedReadOnly with a target
+        let mut d = ql();
+        if let NodeKind::Agent { role, .. } = &mut d.nodes[2].kind {
+            *role = RoleId::new("planner");
+        }
+        assert!(messages(check(&d)).contains("target は指定できません"));
+        // ownWorktree on a role whose sandbox is read-only
+        let mut roles = roles();
+        roles.insert(RoleId::new("worker"), RoleInfo { writes: false, workplace: Workplace::OwnWorktree });
+        let r = validate(&ql(), &roles, &builtin_schemas(), "quality-loop", &Limits::default());
+        assert!(messages(r).contains("専用の作業場所を持つ役割ですが、読取り専用"));
+        // the templates still pass
+        check(&ql()).unwrap();
+    }
+
+    #[test]
+    fn v7_two_writers_in_one_loop_body_are_refused() {
+        let text = r#"{
+          "schemaVersion": 1, "id": "two", "displayName": "t", "workspace": "git", "entry": "plan",
+          "slots": { "spec": { "schema": "spec" }, "r1": { "schema": "workerReport" }, "r2": { "schema": "workerReport" }, "v": { "schema": "verdict3" } },
+          "nodes": [
+            { "id": "plan", "kind": "agent", "role": "planner", "output": "spec" },
+            { "id": "a", "kind": "agent", "role": "worker", "output": "r1", "capture": "commit" },
+            { "id": "b", "kind": "agent", "role": "writer", "output": "r2", "capture": "commit" },
+            { "id": "check", "kind": "agent", "role": "verifier", "output": "v", "target": "b" }
+          ],
+          "edges": [
+            { "from": "plan", "to": "a" }, { "from": "a", "to": "b" }, { "from": "b", "to": "check" },
+            { "from": "check", "to": "a", "when": { "slot": "v", "path": "verdict", "eq": "rework" }, "feedback": { "maxRounds": 2, "onExhausted": "ask" } }
+          ]
+        }"#;
+        let def = crate::graph::def::parse_graph(text).unwrap();
+        let r = check(&def);
+        assert!(messages(r).contains("書込み役のノードが2つあります"));
+        // the same two writers without a loop are fine
+        let mut def = def;
+        def.edges.pop();
+        check(&def).unwrap();
     }
 }

@@ -24,9 +24,6 @@ use crate::prompt::{self, NodePrompt, NOTE_MAX_CHARS};
 use crate::state::Cause;
 use crate::types::*;
 
-/// Roles of the tasks that are not sent to a model.
-const ROLE_GATE: &str = "gate";
-const ROLE_ROUTER: &str = "router";
 /// A slot value larger than this is a format violation (DESIGN_ORG_GRAPH 7.5).
 pub const MAX_SLOT_BYTES: usize = 256 * 1024;
 
@@ -432,11 +429,15 @@ impl OrgCore {
             None => None,
         };
         self.rec(OrgEventKind::EdgeTaken { from: id.clone(), edge: edge.map(EdgeDef::id), to });
-        // The loops this node closes: their members that only waited for the loop are complete now.
+        self.close_bodies(g, node, &closing);
+    }
+
+    /// The loops `node` closes: their members that only waited for the loop are complete now.
+    fn close_bodies(&mut self, g: &CompiledGraph, node: &NodeId, closing: &HashSet<EdgeId>) {
         for l in g.loops.iter().filter(|l| closing.contains(&l.edge)) {
             for m in l.members.iter().filter(|m| *m != node) {
                 let Some(tid) = self.task_of_node(m) else { continue };
-                let holds = self.open_loop_holds(g, m, &closing);
+                let holds = self.open_loop_holds(g, m, closing);
                 if !holds && self.task(&tid).is_some_and(|t| t.status() == TaskStatus::Reviewing && t.confirm() == ConfirmState::Confirmed) {
                     self.complete_task(&tid);
                 }
@@ -535,7 +536,9 @@ impl OrgCore {
         if !self.rec(OrgEventKind::GateDecided { task: id.clone(), choice: choice.to_string(), note: note_id }) {
             return;
         }
-        let value = json!({ "choice": choice, "note": note.unwrap_or_default() });
+        // The slot value is cut like the note itself (a long reason must not break the slot write; R-G M7).
+        let kept: String = note.unwrap_or_default().chars().take(NOTE_MAX_CHARS).collect();
+        let value = json!({ "choice": choice, "note": kept });
         if !self.set_status(id, TaskStatus::Running, Cause::User) {
             return;
         }
@@ -549,15 +552,7 @@ impl OrgCore {
         let Some(t) = self.task(id) else { return };
         let waiting = t.status() == TaskStatus::Blocked(BlockedReason::RoundLimit) && t.confirm() == ConfirmState::Confirmed;
         let Some(node) = t.node.clone() else { return };
-        // The loop whose rounds ran out: its source is under review, waiting on this target.
-        let found = g.loops.iter().find_map(|l| {
-            if l.target != node {
-                return None;
-            }
-            let src = self.task_of_node(&l.source).filter(|s| self.status_of(s) == Some(TaskStatus::Reviewing))?;
-            let (used, extra) = self.s().feedback_of(&l.edge);
-            (used >= l.max_rounds + extra).then(|| (src, l.clone()))
-        });
+        let found = self.exhausted_loop(&g, &node);
         let Some((source, l)) = found.filter(|_| waiting) else {
             self.notify(OrgNotice::Refused { reason: "上限に達した差し戻しを待っていないため、もう1周できません".into() });
             return;
@@ -570,6 +565,46 @@ impl OrgCore {
         }
         let eid = l.edge.clone();
         self.apply_feedback(&source, id, &l, &eid);
+    }
+
+    /// The loop whose rounds ran out with `target_node` as its target: its source is under review, waiting on it.
+    fn exhausted_loop(&self, g: &CompiledGraph, target_node: &NodeId) -> Option<(TaskId, LoopBody)> {
+        g.loops.iter().find_map(|l| {
+            if &l.target != target_node {
+                return None;
+            }
+            let src = self.task_of_node(&l.source).filter(|s| self.status_of(s) == Some(TaskStatus::Reviewing))?;
+            let (used, extra) = self.s().feedback_of(&l.edge);
+            (used >= l.max_rounds + extra).then(|| (src, l.clone()))
+        })
+    }
+
+    /// "Accept this result" for a loop whose rounds ran out: the blocked target goes back under review, the source's
+    /// path ends here (`EdgeTaken` with no edge) and the body is closed like a pass. Nothing is sent. The
+    /// source and the members stay under review when an outer loop still holds them.
+    pub(crate) fn user_accept_round(&mut self, id: &TaskId) {
+        let Some(g) = self.graph.clone() else { return };
+        let Some(t) = self.task(id) else { return };
+        let waiting = t.status() == TaskStatus::Blocked(BlockedReason::RoundLimit) && t.confirm() == ConfirmState::Confirmed;
+        let Some(node) = t.node.clone() else { return };
+        let found = self.exhausted_loop(&g, &node);
+        let Some((source, l)) = found.filter(|_| waiting) else {
+            self.notify(OrgNotice::Refused { reason: "上限に達した差し戻しを待っていないため、この結果で受け入れられません".into() });
+            return;
+        };
+        if self.task(&source).is_none_or(|s| s.confirm() != ConfirmState::Confirmed) {
+            self.notify(OrgNotice::Refused { reason: "検証側の確認状態が確定ではないため、この結果で受け入れられません".into() });
+            return;
+        }
+        if !self.set_status(id, TaskStatus::Reviewing, Cause::User) {
+            return;
+        }
+        let closing: HashSet<EdgeId> = g.loops.iter().filter(|x| x.source == l.source).map(|x| x.edge.clone()).collect();
+        if !self.open_loop_holds(&g, &l.source, &closing) {
+            self.complete_task(&source);
+        }
+        self.rec(OrgEventKind::EdgeTaken { from: source, edge: None, to: None });
+        self.close_bodies(&g, &l.source, &closing);
     }
 
     // ------------------------------------------------------------ the pass (restore repair, waiting members, routers, gates)
@@ -592,12 +627,37 @@ impl OrgCore {
 
     /// Once after a restore: states a crash between two events can leave behind that nothing would ever move on.
     /// They are only reported (the task is held with the reason); no edge is chosen again here and nothing goes on.
+    /// The one exception: a gate / router that was `running` (it sent nothing to Codex) is repaired first (below).
     /// - the target of a feedback edge still in `rework` (it is made ready in the same step as the count);
     /// - members of a loop whose source already took its edge and whose target is settled, but that were not
     ///   completed (the loop was being closed) and that no other open loop holds.
     /// An undecided edge (output newer than the last edge) is not reported: pass A of `graph_pass` chooses it again.
     fn audit_restore(&mut self) {
         let Some(g) = self.graph.clone() else { return };
+        // A gate or router that was `running` when the app stopped sent nothing to Codex (R-G M2):
+        // - a router chooses again (pure, same result);
+        // - a gate whose slot was written this round chooses the edge from it; otherwise the decision was lost
+        //   before it was stored, so it asks the user again (never decided here).
+        let running: Vec<TaskId> = self
+            .s()
+            .tasks()
+            .iter()
+            .filter(|t| t.status() == TaskStatus::Running && t.confirm() == ConfirmState::Confirmed && t.is_non_model_node())
+            .map(|t| t.id.clone())
+            .collect();
+        for id in running {
+            if !self.is_gate_task(&id) {
+                self.settle_node(&id);
+                continue;
+            }
+            let Some(t) = self.task(&id) else { continue };
+            let parent_edge = t.deps.first().and_then(|d| self.task(d)).and_then(|d| d.edge_seq()).unwrap_or(0);
+            if t.last_output_seq().is_some_and(|o| o > parent_edge) {
+                self.settle_node(&id);
+            } else {
+                self.open_gate(&id);
+            }
+        }
         let none = HashSet::new();
         let mut found: Vec<(TaskId, String)> = Vec::new();
         for l in &g.loops {
@@ -646,10 +706,13 @@ impl OrgCore {
             .iter()
             .filter(|t| t.node.is_some() && t.status() == TaskStatus::Rework && t.confirm() == ConfirmState::Confirmed)
             .filter(|t| {
+                // The parent must have taken the forward edge that leads here, after this task's last output. An edge
+                // that ended in "out of rounds" (`to: None`) or went back along a feedback edge does not count (R-G H1).
                 t.deps.first().and_then(|d| self.task(d)).is_some_and(|d| {
                     d.confirm() == ConfirmState::Confirmed
                         && matches!(d.status(), TaskStatus::Reviewing | TaskStatus::Completed)
-                        && d.seen_seq() > t.seen_seq()
+                        && d.edge_to() == Some(&t.id)
+                        && d.edge_seq().unwrap_or(0) > t.seen_seq()
                 })
             })
             .map(|t| t.id.clone())

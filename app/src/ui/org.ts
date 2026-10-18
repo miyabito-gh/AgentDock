@@ -58,7 +58,7 @@ export function workflowSummary(w: OrgWorkflowView): WorkflowSummary {
     if (cancelled > 0) return { label: `終了（取消し ${cancelled}件）`, icon: "ban", tone: "int", attention, planWaiting };
     return { label: "完了", icon: "check", tone: "done", attention, planWaiting };
   }
-  if (w.halt) return { label: w.halt.label, icon: w.halt.icon, tone: w.halt.kind === "sandboxUnhealthy" ? "fail" : "wait", attention, planWaiting };
+  if (w.halt) return { label: w.halt.label, icon: w.halt.icon, tone: w.halt.kind === "sandboxUnhealthy" || w.halt.kind === "definitionUnavailable" ? "fail" : "wait", attention, planWaiting };
   if (w.dispatching) return { label: "実行中", icon: "play", tone: "run", attention, planWaiting };
   return { label: "新しい送信は止まっています", icon: "pause", tone: "idle", attention, planWaiting };
 }

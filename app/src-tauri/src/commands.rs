@@ -964,6 +964,13 @@ pub async fn org_extra_round(host: Hs<'_>, args: crate::backend::org::OrgExtraRo
     host.org_extra_round(args, &confirmed)
 }
 
+/// 周回の上限で止まっている工程の「この結果で受け入れる」（利用者の操作だけ。何も送らない）。
+#[tauri::command]
+pub async fn org_accept_round(host: Hs<'_>, args: crate::backend::org::OrgTaskArgs) -> R<()> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.org_accept_round(args, &confirmed)
+}
+
 /// 取消し（利用者の操作だけが cancelled にする）。取り消したタスクのIDを返す。
 #[tauri::command]
 pub async fn org_cancel(host: Hs<'_>, args: crate::backend::org::OrgCancelArgs) -> R<Vec<String>> {

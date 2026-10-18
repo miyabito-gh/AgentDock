@@ -104,6 +104,8 @@ pub enum OrgHaltKind {
     NeedsResume,
     SandboxUnhealthy,
     AwaitingPlanApproval,
+    /// 開始時のグラフ定義の写しを使えない（「再開」では解除できない）。
+    DefinitionUnavailable,
 }
 
 /// ワークフロー全体の停止（新規ディスパッチが止まっている理由）。

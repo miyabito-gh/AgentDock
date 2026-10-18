@@ -94,6 +94,7 @@ pub fn halt_view(h: HaltReason) -> OrgHaltView {
         HaltReason::NeedsResume => (OrgHaltKind::NeedsResume, "送る先のチャットが live ではないため停止しています。「再開」で戻します", "pause", true),
         HaltReason::SandboxUnhealthy => (OrgHaltKind::SandboxUnhealthy, "Codex の sandbox を起動できないため停止しています", "alert-triangle", true),
         HaltReason::AwaitingPlanApproval => (OrgHaltKind::AwaitingPlanApproval, "計画の承認待ちです", "help-circle", false),
+        HaltReason::DefinitionUnavailable => (OrgHaltKind::DefinitionUnavailable, "開始時のグラフ定義の写しを使えないため、このワークフローは進められません（再開できません）", "alert-triangle", false),
     };
     OrgHaltView { kind, label: label.to_string(), icon: icon.to_string(), resumable }
 }
@@ -1040,7 +1041,17 @@ mod tests {
 
     fn compile(text: &str, id: &str) -> CompiledGraph {
         let def = org_engine::graph::parse_graph(text).unwrap();
-        let roles = ["planner", "worker", "verifier", "reviewer"].iter().map(|r| (org_engine::RoleId::new(*r), org_engine::graph::RoleInfo { writes: *r == "worker" })).collect();
+        let roles = ["planner", "worker", "verifier", "reviewer"]
+            .iter()
+            .map(|r| {
+                let workplace = match *r {
+                    "worker" => org_engine::Workplace::OwnWorktree,
+                    "verifier" | "reviewer" => org_engine::Workplace::DetachedAtCommit,
+                    _ => org_engine::Workplace::SharedReadOnly,
+                };
+                (org_engine::RoleId::new(*r), org_engine::graph::RoleInfo { writes: *r == "worker", workplace })
+            })
+            .collect();
         org_engine::graph::validate(&def, &roles, &org_engine::outschema::builtin_schemas(), id, &org_engine::Limits::default()).unwrap_or_else(|e| panic!("{e:?}"))
     }
 
@@ -1224,6 +1235,20 @@ mod tests {
         // an unconfirmed stop is shown but cannot be acted on
         let s_unc = gsnap(quality(), &[("verify->build", (3, 0))], &[], mk(ConfirmState::NeedsReconcile(ReconcileCause::Wake)));
         assert!(check_extra_round(s_unc.graph.as_ref().unwrap(), &s_unc.tasks[1]).is_err());
+        // "accept this result" is offered under the same conditions
+        use super::super::ipc::check_accept_round;
+        assert!(check_accept_round(gs, &s.tasks[1]).is_ok());
+        assert!(check_accept_round(gs, &s.tasks[0]).is_err());
+        assert!(check_accept_round(gs, &s.tasks[2]).is_err());
+        assert!(check_accept_round(s_more.graph.as_ref().unwrap(), &s_more.tasks[1]).is_err());
+        assert!(check_accept_round(s_unc.graph.as_ref().unwrap(), &s_unc.tasks[1]).is_err());
+    }
+
+    #[test]
+    fn an_unavailable_definition_halt_cannot_be_resumed() {
+        let h = halt_view(HaltReason::DefinitionUnavailable);
+        assert_eq!(h.kind, OrgHaltKind::DefinitionUnavailable);
+        assert!(!h.resumable);
     }
 
     #[test]
