@@ -1,17 +1,42 @@
 //! Persistence model (DESIGN_ORG 3.4, 4.7): snapshot + event log + usage rows,
 //! the `OrgStore` port, replay, and the restart classification. Pure: no I/O.
 //! File implementations live in the host (they reuse `store/atomic.rs`).
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+use crate::graph::def::{EdgeId, NodeId, SlotId};
 use crate::limits::{LimitError, TurnKind};
 use crate::state::{Cause, ConfirmError, TransitionError};
 use crate::types::*;
 use crate::Counters;
 
-pub const SCHEMA_VERSION: u32 = 1;
+/// 2 = graph events (DESIGN_ORG_GRAPH 7.6). Version 1 lines are still read.
+pub const SCHEMA_VERSION: u32 = 2;
+
+/// The graph a workflow was started with (a copy is kept by the host; the fingerprint detects mix-ups).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphRef {
+    pub graph_id: String,
+    pub fingerprint: String,
+    pub roles_fingerprint: String,
+}
+
+/// A note the user wrote (a reason, an addition). The text is kept in the event log.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserNote {
+    pub id: NoteId,
+    pub text: String,
+    pub scope: NoteScope,
+    /// Event seq at which the note was added.
+    pub seq: u64,
+}
+
+/// Graph id of a workflow that has no `GraphBound` record: the built-in template 1.
+pub const LEGACY_GRAPH_ID: &str = "standard";
 
 /// Why dispatching is stopped for the whole workflow. Cleared only by a user action.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -48,6 +73,18 @@ pub struct WorkflowState {
     pub(crate) request: String,
     #[serde(default)]
     pub(crate) repo: String,
+    /// None = no `GraphBound` event: the workflow runs as the built-in `standard`.
+    #[serde(default)]
+    pub(crate) graph: Option<GraphRef>,
+    /// Per feedback edge: (rounds used, rounds added by the user beyond the definition's `maxRounds`).
+    /// Counted over the whole workflow and never reset.
+    #[serde(default)]
+    pub(crate) feedback: BTreeMap<EdgeId, (u32, u32)>,
+    /// Latest version of each slot (the values are files kept by the host).
+    #[serde(default)]
+    pub(crate) slots: BTreeMap<SlotId, u32>,
+    #[serde(default)]
+    pub(crate) notes: Vec<UserNote>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -70,6 +107,10 @@ impl WorkflowState {
             last_seq: 0,
             request: String::new(),
             repo: String::new(),
+            graph: None,
+            feedback: BTreeMap::new(),
+            slots: BTreeMap::new(),
+            notes: Vec::new(),
         }
     }
 
@@ -99,6 +140,23 @@ impl WorkflowState {
     }
     pub fn repo(&self) -> &str {
         &self.repo
+    }
+    pub fn graph(&self) -> Option<&GraphRef> {
+        self.graph.as_ref()
+    }
+    /// The graph the workflow runs: the bound one, or the built-in `standard` when none was recorded.
+    pub fn graph_id(&self) -> &str {
+        self.graph.as_ref().map_or(LEGACY_GRAPH_ID, |g| g.graph_id.as_str())
+    }
+    /// (rounds used, rounds added by the user) of a feedback edge.
+    pub fn feedback_of(&self, edge: &EdgeId) -> (u32, u32) {
+        self.feedback.get(edge).copied().unwrap_or((0, 0))
+    }
+    pub fn slot_version(&self, slot: &SlotId) -> Option<u32> {
+        self.slots.get(slot).copied()
+    }
+    pub fn notes(&self) -> &[UserNote] {
+        &self.notes
     }
 
     /// Structural check for a deserialized snapshot. Always run it before use:
@@ -175,6 +233,22 @@ pub enum OrgEventKind {
     TurnObserved { task: TaskId, turn: TurnRef, end: TurnEndKind },
     /// A worker task's commit.
     Committed { task: TaskId, commit: String },
+    /// The graph the workflow started with (a copy's fingerprint). Without it the workflow runs as `standard`.
+    GraphBound { graph_id: String, fingerprint: String, roles_fingerprint: String },
+    /// A task was created for a node, through an edge (`via`) or as the entry.
+    ActivationAdded { task: PlanTask, node: NodeId, via: Option<EdgeId> },
+    /// A new version of a slot (the value is a file; the host writes it just before this event).
+    SlotWritten { task: TaskId, slot: SlotId, version: u32, bytes: u32 },
+    /// The edge chosen after the task's output (`edge: None` = no edge applies, the path ends here).
+    /// `to` is the task the edge led to, if any.
+    EdgeTaken { from: TaskId, edge: Option<EdgeId>, to: Option<TaskId> },
+    /// One round of a feedback edge was used.
+    FeedbackCounted { edge: EdgeId },
+    /// The user added rounds to a feedback edge (`UserConfirmed`).
+    FeedbackAllowanceRaised { edge: EdgeId, by: u32 },
+    /// The user decided a gate.
+    GateDecided { task: TaskId, choice: String, note: Option<NoteId> },
+    UserNoteAdded { id: NoteId, text: String, scope: NoteScope },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -195,6 +269,10 @@ pub enum ApplyError {
     AttemptOpen(TaskId),
     UnknownAttempt(TaskId),
     DuplicateSettle(TaskId),
+    AlreadyBound,
+    /// A slot version must be the previous one plus one.
+    BadSlotVersion(SlotId),
+    DuplicateNote(NoteId),
 }
 
 impl fmt::Display for ApplyError {
@@ -313,6 +391,45 @@ impl WorkflowState {
             }
             OrgEventKind::Committed { task, commit } => {
                 self.task_mut(task)?.commit = Some(commit.clone());
+            }
+            OrgEventKind::GraphBound { graph_id, fingerprint, roles_fingerprint } => {
+                if self.graph.is_some() {
+                    return Err(ApplyError::AlreadyBound);
+                }
+                self.graph = Some(GraphRef { graph_id: graph_id.clone(), fingerprint: fingerprint.clone(), roles_fingerprint: roles_fingerprint.clone() });
+            }
+            OrgEventKind::ActivationAdded { task, node, .. } => {
+                if self.task(&task.id).is_some() {
+                    return Err(ApplyError::DuplicateTask(task.id.clone()));
+                }
+                let mut t = Task::from_plan(task);
+                t.node = Some(node.clone());
+                self.tasks.push(t);
+            }
+            OrgEventKind::SlotWritten { task, slot, version, .. } => {
+                if *version != self.slots.get(slot).copied().unwrap_or(0) + 1 {
+                    return Err(ApplyError::BadSlotVersion(slot.clone()));
+                }
+                self.task_mut(task)?.last_output_seq = Some(ev.seq);
+                self.slots.insert(slot.clone(), *version);
+            }
+            OrgEventKind::EdgeTaken { from, .. } => {
+                self.task_mut(from)?.edge_seq = Some(ev.seq);
+            }
+            OrgEventKind::FeedbackCounted { edge } => {
+                self.feedback.entry(edge.clone()).or_default().0 += 1;
+            }
+            OrgEventKind::FeedbackAllowanceRaised { edge, by } => {
+                self.feedback.entry(edge.clone()).or_default().1 += *by;
+            }
+            OrgEventKind::GateDecided { task, .. } => {
+                self.task_mut(task)?;
+            }
+            OrgEventKind::UserNoteAdded { id, text, scope } => {
+                if self.notes.iter().any(|n| &n.id == id) {
+                    return Err(ApplyError::DuplicateNote(id.clone()));
+                }
+                self.notes.push(UserNote { id: id.clone(), text: text.clone(), scope: scope.clone(), seq: ev.seq });
             }
         }
         self.last_seq = ev.seq;

@@ -710,6 +710,7 @@ fn engine_has_no_input_for_resend_and_no_codex_request_action() {
     fn label(a: &OrgAction) -> &'static str {
         match a {
             OrgAction::Persist(_) => "persist",
+            OrgAction::PutSlot { .. } => "slot",
             OrgAction::CreateRoleChat { .. } => "create",
             OrgAction::CheckSandbox { .. } => "sandbox",
             OrgAction::Send { .. } => "send",
