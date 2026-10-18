@@ -5,12 +5,17 @@
 //! - 通知の本文は定型文だけ。会話の内容・ツール引数は入れない。
 
 
+use std::collections::{BTreeSet, HashMap};
+
+use org_engine::graph::{ActivationBound, CompiledGraph, Condition, EdgeDef, LoopBody, NodeId, NodeKind as GNode, OnExhausted, SlotId, WorkspaceKind};
 use org_engine::{
     BlockedReason as EBlocked, ConfirmReason, ConfirmState, Effect, FailReason, HaltReason, LoadedRole, OrgNotice, ReconcileCause, SandboxKind, TaskId,
     TaskStatus, UsageRow,
 };
+use serde_json::Value;
 
-use super::driver::{OrgSnapshot, TaskSnapshot};
+use super::driver::{GraphSnapshot, OrgSnapshot, TaskSnapshot};
+use super::graphs::{start_blocker, GraphReport};
 use super::ports::{OrgHostNotice, WorktreeFinding};
 use super::roles::RoleReport;
 use super::NoticeEntry;
@@ -38,8 +43,7 @@ pub fn status_view(s: TaskStatus) -> OrgStatusView {
                 EBlocked::ManualStop => (OrgReason::ManualStop, "止まっています（中断されました）"),
                 EBlocked::Limit => (OrgReason::Limit, "止まっています（上限）"),
                 EBlocked::NeedsAttention => (OrgReason::NeedsAttention, "止まっています（要対応）"),
-                // 専用の理由はG-A5で追加する（IPCの型を変えないため、今は要対応と同じ種類で文言だけ分ける）。
-                EBlocked::RoundLimit => (OrgReason::NeedsAttention, "止まっています（周回の上限）"),
+                EBlocked::RoundLimit => (OrgReason::RoundLimit, "止まっています（周回の上限）"),
             };
             (P::Blocked, Some(reason), label, "pause")
         }
@@ -229,13 +233,12 @@ pub fn notice_view(e: &NoticeEntry) -> Option<OrgNoticeView> {
             (K::PersistFailed, Attention, None, "記録を追記できないため、以後は何も送りません。AgentDock を再起動してください".to_string())
         }
         OrgHostNotice::SlotWriteFailed { slot } => (
-            K::PersistFailed,
+            K::SlotWriteFailed,
             Attention,
             None,
             format!("途中の出力（スロット「{slot}」）を保存できないため、以後は何も送りません。AgentDock を再起動してください"),
         ),
-        // 専用の種別はまだない（画面側の対応は G-A5）。設定に関する案内として出す。
-        OrgHostNotice::DefinitionNote { message, attention } => (K::Config, if *attention { Attention } else { Info }, None, message.clone()),
+        OrgHostNotice::DefinitionNote { message, attention } => (K::DefinitionNote, if *attention { Attention } else { Info }, None, message.clone()),
         OrgHostNotice::Reconciled { task, turn_read, turn_end, worktree } => {
             (K::Reconciled, Info, task_of(task), format!("{}: {}", task.0, reconcile_view(task, *turn_read, *turn_end, *worktree).text))
         }
@@ -255,6 +258,8 @@ pub struct ViewInput<'a> {
     /// 古い順。
     pub notices: &'a [NoticeEntry],
     pub usage_rows: &'a [UsageRow],
+    /// グラフの判定・gate の表示に使うスロットの値（`graph_slot_needs` が挙げた分を読んだもの。読めなかった版は入れない）。
+    pub slots: &'a HashMap<(SlotId, u32), Value>,
     /// 送信権が今あるか。
     pub dispatching: bool,
 }
@@ -395,6 +400,7 @@ pub fn workflow_view(input: &ViewInput<'_>) -> OrgWorkflowView {
         },
         usage: usage_view(snap, input.usage_rows),
         finished: !tasks.is_empty() && snap.tasks.iter().all(|t| finished(t.status)),
+        graph: snap.graph.as_ref().map(|gs| graph_view(gs, &snap.tasks, &tasks, input.slots)),
         tasks,
         plan_approval,
         sandbox_notice,
@@ -402,6 +408,316 @@ pub fn workflow_view(input: &ViewInput<'_>) -> OrgWorkflowView {
         notices: shown.into_iter().skip(skip).collect(),
         dispatching: input.dispatching,
         readonly: false,
+    }
+}
+
+// ───────────────────────────── グラフ（流れ）の表示 ─────────────────────────────
+
+/// 判定の履歴として読む版の数（新しい方から）。
+const VERDICT_HISTORY: u32 = 12;
+/// gate が見せるスロットの内容の長さの上限（文字）。
+const GATE_SHOW_CHARS: usize = 4000;
+/// 判定として出す文字列の長さの上限（文字）。
+const VERDICT_CHARS: usize = 80;
+/// 1 turn あたりの土台のトークン数（目安。見積りの表示だけに使う）。
+pub const TOKENS_PER_TURN_HINT: u32 = 17_000;
+
+/// 工程が書くスロット（agent の出力、または gate の自分のID）。
+fn output_slot(g: &CompiledGraph, node: &NodeId) -> Option<SlotId> {
+    match &g.node(node)?.kind {
+        GNode::Agent { output, .. } => Some(output.clone()),
+        GNode::Gate { .. } => Some(SlotId::new(node.0.clone())),
+        _ => None,
+    }
+}
+
+/// 工程の「判定」＝出力スロットのうち、辺の条件が見る項目。見る辺がなければ None（gate は選択 `choice`）。
+fn verdict_path(g: &CompiledGraph, node: &NodeId) -> Option<(SlotId, String)> {
+    let slot = output_slot(g, node)?;
+    let from_edge = g.outgoing(node).find_map(|e| e.when.as_ref().filter(|w| w.slot == slot).map(|w| w.path.clone()));
+    from_edge.or_else(|| matches!(g.node(node)?.kind, GNode::Gate { .. }).then(|| "choice".to_string())).map(|p| (slot, p))
+}
+
+fn at_path<'v>(root: &'v Value, path: &str) -> Option<&'v Value> {
+    path.split('.').try_fold(root, |cur, part| cur.as_object()?.get(part))
+}
+
+fn short(s: &str, max: usize) -> String {
+    let mut it = s.chars();
+    let head: String = it.by_ref().take(max).collect();
+    if it.next().is_some() { format!("{head}…") } else { head }
+}
+
+fn value_text(v: &Value) -> String {
+    match v {
+        Value::String(s) => short(s, VERDICT_CHARS),
+        other => short(&other.to_string(), VERDICT_CHARS),
+    }
+}
+
+/// スロットの `version` の値から判定を読む。版がなければ「まだ出力がない」、あっても値や項目が読めなければ「未取得」。
+fn verdict_of(slot: &SlotId, path: &str, version: Option<u32>, slots: &HashMap<(SlotId, u32), Value>) -> OrgVerdict {
+    let Some(version) = version else { return OrgVerdict::Pending };
+    match slots.get(&(slot.clone(), version)).and_then(|v| at_path(v, path)) {
+        Some(v) => OrgVerdict::Value { text: value_text(v) },
+        None => OrgVerdict::NotObtained,
+    }
+}
+
+fn condition_label(c: Option<&Condition>) -> String {
+    let Some(c) = c else { return "常に".to_string() };
+    let show = |v: &Value| match v {
+        Value::String(s) => s.clone(),
+        other => other.to_string(),
+    };
+    if let Some(x) = &c.eq {
+        format!("{} = {}", c.path, show(x))
+    } else if let Some(x) = &c.ne {
+        format!("{} ≠ {}", c.path, show(x))
+    } else if let Some(xs) = &c.in_ {
+        format!("{} が {} のいずれか", c.path, xs.iter().map(show).collect::<Vec<_>>().join("・"))
+    } else {
+        format!("{}（条件が不完全）", c.path)
+    }
+}
+
+/// 差し戻しの辺の（使った回数, 利用者が足した回数）。
+fn feedback_counts(gs: &GraphSnapshot, edge: &org_engine::graph::EdgeId) -> (u32, u32) {
+    gs.feedback.get(edge).copied().unwrap_or((0, 0))
+}
+
+/// 周回の上限に達して止まっている戻り先の工程の辺（`node` が戻り先で、使った回数が許容回数に届いているもの）。
+pub fn round_limit_of<'g>(gs: &'g GraphSnapshot, node: &NodeId) -> Option<(&'g LoopBody, u32, u32)> {
+    gs.graph.loops.iter().find_map(|l| {
+        if &l.target != node {
+            return None;
+        }
+        let (used, extra) = feedback_counts(gs, &l.edge);
+        let allowed = l.max_rounds + extra;
+        (used >= allowed).then_some((l, used, allowed))
+    })
+}
+
+/// gate の判断が受け付けられるか（工程が gate で、選択肢にあり、理由が必須なら書かれている）。エンジンも同じ確認をする。
+pub fn gate_check(g: &CompiledGraph, node: &NodeId, choice: &str, note: Option<&str>) -> Result<(), String> {
+    let Some(GNode::Gate { choices, .. }) = g.node(node).map(|d| &d.kind) else {
+        return Err("判断を求めている工程ではありません".to_string());
+    };
+    let Some(c) = choices.iter().find(|c| c.id == choice) else {
+        return Err("選択肢にない判断です".to_string());
+    };
+    if c.needs_note && note.is_none_or(|n| n.trim().is_empty()) {
+        return Err("この選択には理由が必要です".to_string());
+    }
+    Ok(())
+}
+
+/// 前向きの辺での深さ（入口が0）。周回のある定義でも止まるように、ノード数で打ち切る。
+fn depth_of(g: &CompiledGraph, node: &NodeId) -> usize {
+    let mut d = 0;
+    let mut cur = node;
+    while let Some(Some(p)) = g.parent.get(cur) {
+        d += 1;
+        cur = p;
+        if d > g.def.nodes.len() {
+            break;
+        }
+    }
+    d
+}
+
+/// 判定や gate の表示のためにホストが読むスロットの版（重複なし）。画面の更新のたびに読むので、版の数は小さく抑える。
+pub fn graph_slot_needs(gs: &GraphSnapshot) -> Vec<(SlotId, u32)> {
+    let g = &gs.graph;
+    let mut need: BTreeSet<(SlotId, u32)> = BTreeSet::new();
+    let latest = |slot: &SlotId, need: &mut BTreeSet<(SlotId, u32)>| {
+        if let Some(v) = gs.slot_versions.get(slot) {
+            need.insert((slot.clone(), *v));
+        }
+    };
+    for n in &g.def.nodes {
+        if let Some((slot, _)) = verdict_path(g, &n.id) {
+            latest(&slot, &mut need);
+        }
+        if let GNode::Gate { shows, .. } = &n.kind {
+            for s in shows {
+                latest(s, &mut need);
+            }
+        }
+    }
+    for l in &g.loops {
+        let Some(c) = g.def.edges.iter().find(|e| e.id() == l.edge).and_then(|e| e.when.as_ref()) else { continue };
+        if let Some(top) = gs.slot_versions.get(&c.slot) {
+            for v in top.saturating_sub(VERDICT_HISTORY - 1).max(1)..=*top {
+                need.insert((c.slot.clone(), v));
+            }
+        }
+    }
+    need.into_iter().collect()
+}
+
+fn edge_view(gs: &GraphSnapshot, e: &EdgeDef, tasks: &[TaskSnapshot]) -> OrgGraphEdgeView {
+    let label = condition_label(e.when.as_ref());
+    match &e.feedback {
+        Some(fb) => {
+            let (used, extra) = feedback_counts(gs, &e.id());
+            OrgGraphEdgeView { from: e.from.0.clone(), to: e.to.0.clone(), kind: OrgEdgeKind::Feedback, label, used, allowed: Some(fb.max_rounds + extra) }
+        }
+        None => {
+            // 通った辺＝行き先の工程のタスクが、元の工程のタスクを依存にして作られている。
+            let task_of = |n: &NodeId| tasks.iter().find(|t| t.node.as_ref() == Some(n));
+            let taken = match (task_of(&e.from), task_of(&e.to)) {
+                (Some(f), Some(t)) => t.deps.contains(&f.id),
+                _ => false,
+            };
+            OrgGraphEdgeView { from: e.from.0.clone(), to: e.to.0.clone(), kind: OrgEdgeKind::Forward, label, used: u32::from(taken), allowed: None }
+        }
+    }
+}
+
+/// グラフで動くワークフローの流れの写し。ノードは先へ進む順（深さ、同じなら定義の順）。
+pub fn graph_view(gs: &GraphSnapshot, tasks: &[TaskSnapshot], task_views: &[OrgTaskView], slots: &HashMap<(SlotId, u32), Value>) -> OrgGraphView {
+    let g = &gs.graph;
+    let mut order: Vec<usize> = (0..g.def.nodes.len()).collect();
+    order.sort_by_key(|i| (depth_of(g, &g.def.nodes[*i].id), *i));
+    let nodes = order
+        .into_iter()
+        .map(|i| {
+            let n = &g.def.nodes[i];
+            let task = tasks.iter().find(|t| t.node.as_ref() == Some(&n.id));
+            let tv = task.and_then(|t| task_views.iter().find(|v| v.id == t.id.0));
+            let (kind, role_id) = match &n.kind {
+                GNode::Agent { role, .. } => (OrgNodeKind::Agent, Some(role.0.clone())),
+                GNode::Gate { .. } => (OrgNodeKind::Gate, None),
+                GNode::Router => (OrgNodeKind::Router, None),
+                GNode::PlannedTasks { .. } => (OrgNodeKind::PlannedTasks, None),
+            };
+            // 周回の中の工程は、いちばん内側の周回の「第N周／最大M周」。
+            let inner = g.loops.iter().filter(|l| l.members.contains(&n.id)).min_by_key(|l| l.members.len());
+            let (round, max_round) = match (task, inner) {
+                (Some(_), Some(l)) => {
+                    let (used, extra) = feedback_counts(gs, &l.edge);
+                    (Some(used + 1), Some(l.max_rounds + extra + 1))
+                }
+                _ => (None, None),
+            };
+            let last_verdict = verdict_path(g, &n.id).map(|(slot, path)| verdict_of(&slot, &path, gs.slot_versions.get(&slot).copied(), slots));
+            let confirmed = tv.is_some_and(|v| v.confirm.state == OrgConfirmCode::Confirmed);
+            let phase_reason = tv.map(|v| (v.status.phase, v.status.reason));
+            let gate = match &n.kind {
+                GNode::Gate { prompt, choices, shows } => Some(OrgGateView {
+                    prompt: prompt.clone(),
+                    choices: choices.iter().map(|c| OrgGateChoiceView { id: c.id.clone(), label: c.label.clone(), needs_note: c.needs_note }).collect(),
+                    shows: shows
+                        .iter()
+                        .map(|s| {
+                            let text = gs.slot_versions.get(s).and_then(|v| slots.get(&(s.clone(), *v))).map(|v| serde_json::to_string_pretty(v).unwrap_or_default());
+                            let truncated = text.as_ref().is_some_and(|t| t.chars().count() > GATE_SHOW_CHARS);
+                            OrgGateShowView { slot: s.0.clone(), text: text.map(|t| short(&t, GATE_SHOW_CHARS)), truncated }
+                        })
+                        .collect(),
+                    awaiting: confirmed && phase_reason == Some((OrgTaskPhase::Blocked, Some(OrgReason::AwaitingApproval))),
+                }),
+                _ => None,
+            };
+            let round_limit = if phase_reason.is_some_and(|(p, r)| p == OrgTaskPhase::Blocked && r == Some(OrgReason::RoundLimit)) {
+                round_limit_of(gs, &n.id).map(|(l, used, allowed)| OrgRoundLimitView { edge: l.edge.0.clone(), used, allowed, awaiting: confirmed })
+            } else {
+                None
+            };
+            OrgGraphNodeView {
+                id: n.id.0.clone(),
+                label: n.label.clone().unwrap_or_else(|| n.id.0.clone()),
+                kind,
+                role_id,
+                task: task.map(|t| t.id.0.clone()),
+                status: tv.map(|v| v.status.clone()),
+                confirm: tv.map(|v| v.confirm.clone()),
+                round,
+                max_round,
+                last_verdict,
+                gate,
+                round_limit,
+            }
+        })
+        .collect();
+    let edges = g.def.edges.iter().map(|e| edge_view(gs, e, tasks)).collect();
+    let rounds = g
+        .loops
+        .iter()
+        .filter_map(|l| {
+            let e = g.def.edges.iter().find(|e| e.id() == l.edge)?;
+            let fb = e.feedback.as_ref()?;
+            let (used, extra) = feedback_counts(gs, &l.edge);
+            let history = match e.when.as_ref() {
+                Some(c) => {
+                    let top = gs.slot_versions.get(&c.slot).copied().unwrap_or(0);
+                    (top.saturating_sub(VERDICT_HISTORY - 1).max(1)..=top)
+                        .map(|v| OrgRoundEntryView { index: v, verdict: verdict_of(&c.slot, &c.path, Some(v), slots) })
+                        .collect()
+                }
+                None => Vec::new(),
+            };
+            let on_exhausted = match fb.on_exhausted {
+                OnExhausted::Fail => OrgOnExhausted::Fail,
+                OnExhausted::Ask => OrgOnExhausted::Ask,
+            };
+            Some(OrgRoundView { edge: l.edge.0.clone(), from: l.source.0.clone(), to: l.target.0.clone(), used, max_rounds: fb.max_rounds, extra, on_exhausted, history })
+        })
+        .collect();
+    OrgGraphView { graph_id: g.def.id.clone(), name: g.def.display_name.clone(), nodes, edges, rounds }
+}
+
+// ───────────────────────────── グラフ定義（テンプレート）の一覧 ─────────────────────────────
+
+/// 見積り。トークンは最大の turn 数 × 1 turn あたりの土台（目安）。
+pub fn estimate_view(b: &ActivationBound) -> OrgEstimateView {
+    OrgEstimateView {
+        activations: b.activations,
+        turns_typical: b.turns_typical,
+        turns_max: b.turns_max,
+        tokens_max: b.turns_max.saturating_mul(TOKENS_PER_TURN_HINT),
+    }
+}
+
+fn template_view(g: &CompiledGraph) -> OrgGraphTemplateView {
+    let blocker = start_blocker(g);
+    OrgGraphTemplateView {
+        id: g.def.id.clone(),
+        name: g.def.display_name.clone(),
+        description: g.def.description.clone(),
+        workspace: match g.def.workspace {
+            WorkspaceKind::Git => OrgWorkspaceKind::Git,
+            WorkspaceKind::Folder => OrgWorkspaceKind::Folder,
+        },
+        roles: g.roles_used().into_iter().map(|r| r.0).collect(),
+        file: format!("{}.json", g.def.id),
+        selectable: blocker.is_none(),
+        reasons: blocker.into_iter().map(str::to_string).collect(),
+        estimate: estimate_view(&g.bound),
+        suggested_max_turns: g.def.suggested_max_turns,
+    }
+}
+
+pub fn graphs_view(report: Option<&GraphReport>) -> OrgGraphsView {
+    let limits = org_engine::Limits::default();
+    let (loaded, templates, problems, created) = match report {
+        None => (false, Vec::new(), Vec::new(), Vec::new()),
+        Some(r) => (
+            true,
+            r.graphs.iter().map(template_view).collect(),
+            r.problems.iter().map(|p| OrgGraphProblemView { file: p.file.clone(), reasons: p.reasons.clone() }).collect(),
+            r.created.clone(),
+        ),
+    };
+    OrgGraphsView {
+        loaded,
+        templates,
+        problems,
+        created,
+        default_max_turns: limits.max_turns,
+        max_turns_limit: super::START_MAX_TURNS,
+        tokens_per_turn_hint: TOKENS_PER_TURN_HINT,
     }
 }
 
@@ -478,6 +794,7 @@ mod tests {
             limits: Limits::default(),
             turns_used: 4,
             auto_replans_used: 0,
+            graph: None,
         }
     }
 
@@ -496,6 +813,7 @@ mod tests {
             chat_cwd: None,
             retryable: false,
             never_sent: false,
+            node: None,
         }
     }
 
@@ -504,7 +822,7 @@ mod tests {
     }
 
     fn view_of(s: &OrgSnapshot, notices: &[NoticeEntry], rows: &[UsageRow]) -> OrgWorkflowView {
-        workflow_view(&ViewInput { snapshot: s, notices, usage_rows: rows, dispatching: false })
+        workflow_view(&ViewInput { snapshot: s, notices, usage_rows: rows, slots: &HashMap::new(), dispatching: false })
     }
 
     #[test]
@@ -699,5 +1017,221 @@ mod tests {
         for bad in ["", "..", "../x.json", "a/b.json", "a\\b.json", "C:x.json", "worker", "worker.json.bak"] {
             assert!(!is_plain_role_file_name(bad), "{bad}");
         }
+    }
+
+    // ───────────── グラフの表示 ─────────────
+
+    const GATE_GRAPH: &str = r#"{
+      "schemaVersion": 1, "id": "gated", "displayName": "g", "workspace": "git", "entry": "draft",
+      "slots": { "spec": { "schema": "spec" } },
+      "nodes": [
+        { "id": "draft", "kind": "agent", "role": "planner", "output": "spec" },
+        { "id": "confirm", "kind": "gate", "prompt": "OK?", "shows": ["spec"], "choices": [
+            { "id": "ok", "label": "ok" }, { "id": "fix", "label": "fix", "needsNote": true } ] },
+        { "id": "end", "kind": "router" }
+      ],
+      "edges": [
+        { "from": "draft", "to": "confirm" },
+        { "from": "confirm", "to": "end", "when": { "slot": "confirm", "path": "choice", "eq": "ok" } },
+        { "from": "confirm", "to": "draft", "when": { "slot": "confirm", "path": "choice", "eq": "fix" },
+          "feedback": { "maxRounds": 2, "onExhausted": "ask" } }
+      ]
+    }"#;
+
+    fn compile(text: &str, id: &str) -> CompiledGraph {
+        let def = org_engine::graph::parse_graph(text).unwrap();
+        let roles = ["planner", "worker", "verifier", "reviewer"].iter().map(|r| (org_engine::RoleId::new(*r), org_engine::graph::RoleInfo { writes: *r == "worker" })).collect();
+        org_engine::graph::validate(&def, &roles, &org_engine::outschema::builtin_schemas(), id, &org_engine::Limits::default()).unwrap_or_else(|e| panic!("{e:?}"))
+    }
+
+    fn quality() -> CompiledGraph {
+        compile(org_engine::graph::template_json(org_engine::graph::TEMPLATE_QUALITY_LOOP).unwrap(), "quality-loop")
+    }
+
+    fn gtask(id: &str, node: &str, parent: Option<&str>, status: TaskStatus, confirm: ConfirmState) -> TaskSnapshot {
+        let mut t = task(id, &parent.into_iter().collect::<Vec<_>>(), status, confirm);
+        t.node = Some(NodeId::new(node));
+        t.effects.clear();
+        t
+    }
+
+    fn gsnap(g: CompiledGraph, feedback: &[(&str, (u32, u32))], versions: &[(&str, u32)], tasks: Vec<TaskSnapshot>) -> OrgSnapshot {
+        let mut s = snap(tasks, None);
+        s.graph = Some(GraphSnapshot {
+            graph: g,
+            feedback: feedback.iter().map(|(e, c)| (org_engine::graph::EdgeId::new(*e), *c)).collect(),
+            slot_versions: versions.iter().map(|(sl, v)| (SlotId::new(*sl), *v)).collect(),
+        });
+        s
+    }
+
+    fn slot_map(items: &[(&str, u32, Value)]) -> HashMap<(SlotId, u32), Value> {
+        items.iter().map(|(s, v, val)| ((SlotId::new(*s), *v), val.clone())).collect()
+    }
+
+    #[test]
+    fn the_estimate_is_computed_from_the_definition_and_the_hint() {
+        let g = quality();
+        let e = estimate_view(&g.bound);
+        assert_eq!((e.activations, e.turns_typical, e.turns_max), (g.bound.activations, g.bound.turns_typical, g.bound.turns_max));
+        assert_eq!(e.turns_max, e.activations * 2, "worst case: one format fix for each turn");
+        assert_eq!(e.tokens_max, e.turns_max * TOKENS_PER_TURN_HINT);
+        assert_eq!(TOKENS_PER_TURN_HINT, 17_000);
+    }
+
+    #[test]
+    fn the_templates_list_says_what_cannot_be_chosen_and_why() {
+        let mut report = GraphReport::default();
+        report.graphs.push(quality());
+        report.graphs.push(compile(org_engine::graph::template_json(org_engine::graph::TEMPLATE_STANDARD).unwrap(), "standard"));
+        report.problems.push(super::super::graphs::GraphProblem { file: "bad.json".into(), reasons: vec!["V4: x".into()] });
+        let v = graphs_view(Some(&report));
+        assert!(v.loaded && v.templates.len() == 2 && v.problems.len() == 1);
+        assert!(v.templates.iter().all(|t| t.selectable && t.reasons.is_empty()), "both built-in templates can start");
+        assert_eq!(v.templates[0].roles, vec!["planner".to_string(), "verifier".to_string(), "worker".to_string()]);
+        assert_eq!((v.default_max_turns, v.max_turns_limit), (30, 200));
+        // not loaded is different from loaded and empty
+        let none = graphs_view(None);
+        assert!(!none.loaded && none.templates.is_empty());
+        // a folder template cannot be started yet: shown, but not selectable, with the reason
+        let mut folder = quality();
+        folder.def.workspace = WorkspaceKind::Folder;
+        let t = template_view(&folder);
+        assert!(!t.selectable && t.reasons.len() == 1);
+    }
+
+    #[test]
+    fn the_graph_view_shows_rounds_verdicts_and_untaken_branches() {
+        let tasks = vec![
+            gtask("plan-1", "plan", None, TaskStatus::Completed, ConfirmState::Confirmed),
+            gtask("build-1", "build", Some("plan-1"), TaskStatus::Running, ConfirmState::Confirmed),
+            gtask("verify-1", "verify", Some("build-1"), TaskStatus::Reviewing, ConfirmState::Confirmed),
+        ];
+        let s = gsnap(quality(), &[("verify->build", (1, 0))], &[("spec", 1), ("report", 2), ("verdict", 2)], tasks);
+        let slots = slot_map(&[("verdict", 1, serde_json::json!({ "verdict": "rework" })), ("verdict", 2, serde_json::json!({ "verdict": "pass" }))]);
+        let v = workflow_view(&ViewInput { snapshot: &s, notices: &[], usage_rows: &[], slots: &slots, dispatching: false });
+        let g = v.graph.expect("graph workflow carries its flow");
+        assert_eq!(g.graph_id, "quality-loop");
+        assert_eq!(g.nodes.iter().map(|n| n.id.as_str()).collect::<Vec<_>>(), vec!["plan", "build", "verify"], "forward order");
+        let build = &g.nodes[1];
+        assert_eq!((build.round, build.max_round), (Some(2), Some(4)), "second round of at most four passes");
+        assert_eq!(g.nodes[2].last_verdict, Some(OrgVerdict::Value { text: "pass".into() }));
+        assert_eq!(g.nodes[1].last_verdict, None, "build has no verdict");
+        let fb = g.edges.iter().find(|e| e.from == "verify" && e.to == "build").unwrap();
+        assert_eq!((fb.kind, fb.used, fb.allowed), (OrgEdgeKind::Feedback, 1, Some(3)));
+        let replan = g.edges.iter().find(|e| e.to == "plan").unwrap();
+        assert_eq!((replan.used, replan.allowed), (0, Some(1)), "an untaken branch stays at 0");
+        let fwd = g.edges.iter().find(|e| e.from == "plan" && e.to == "build").unwrap();
+        assert_eq!((fwd.kind, fwd.used, fwd.allowed), (OrgEdgeKind::Forward, 1, None));
+        let r = g.rounds.iter().find(|r| r.to == "build").unwrap();
+        assert_eq!((r.used, r.max_rounds, r.extra), (1, 3, 0));
+        assert_eq!(r.history.iter().map(|h| (h.index, h.verdict.clone())).collect::<Vec<_>>(), vec![
+            (1, OrgVerdict::Value { text: "rework".into() }),
+            (2, OrgVerdict::Value { text: "pass".into() }),
+        ]);
+    }
+
+    #[test]
+    fn an_unreadable_slot_is_not_obtained_and_a_missing_one_is_pending() {
+        let tasks = vec![
+            gtask("plan-1", "plan", None, TaskStatus::Completed, ConfirmState::Confirmed),
+            gtask("build-1", "build", Some("plan-1"), TaskStatus::Completed, ConfirmState::Confirmed),
+            gtask("verify-1", "verify", Some("build-1"), TaskStatus::Running, ConfirmState::Confirmed),
+        ];
+        // verdict has a version but its file could not be read; nothing was written for the others
+        let s = gsnap(quality(), &[], &[("verdict", 1)], tasks.clone());
+        let v = workflow_view(&ViewInput { snapshot: &s, notices: &[], usage_rows: &[], slots: &HashMap::new(), dispatching: false });
+        let g = v.graph.unwrap();
+        assert_eq!(g.nodes[2].last_verdict, Some(OrgVerdict::NotObtained), "read failure is shown as not obtained, never as an empty value");
+        assert_eq!(g.rounds[0].history, vec![OrgRoundEntryView { index: 1, verdict: OrgVerdict::NotObtained }]);
+        let s = gsnap(quality(), &[], &[], tasks);
+        let v = workflow_view(&ViewInput { snapshot: &s, notices: &[], usage_rows: &[], slots: &HashMap::new(), dispatching: false });
+        let g = v.graph.unwrap();
+        assert_eq!(g.nodes[2].last_verdict, Some(OrgVerdict::Pending));
+        assert!(g.rounds[0].history.is_empty());
+    }
+
+    #[test]
+    fn slots_to_read_are_the_latest_verdicts_gate_shows_and_a_bounded_history() {
+        let s = gsnap(quality(), &[], &[("spec", 1), ("report", 4), ("verdict", 30)], vec![]);
+        let need = graph_slot_needs(s.graph.as_ref().unwrap());
+        assert!(need.iter().all(|(slot, _)| slot.0 == "verdict"), "only the verdict is read: {need:?}");
+        assert_eq!(need.len(), 12, "a bounded history, newest 12 versions");
+        assert_eq!(need.iter().map(|(_, v)| *v).max(), Some(30));
+        let s = gsnap(compile(GATE_GRAPH, "gated"), &[], &[("spec", 3), ("confirm", 1)], vec![]);
+        let need = graph_slot_needs(s.graph.as_ref().unwrap());
+        assert!(need.contains(&(SlotId::new("confirm"), 1)) && need.contains(&(SlotId::new("spec"), 3)), "gate decision and the slot it shows");
+    }
+
+    #[test]
+    fn the_gate_card_is_actionable_only_while_it_waits_for_the_user_and_is_confirmed() {
+        use super::super::ipc::check_gate_decision;
+        let wait = TaskStatus::Blocked(EBlocked::AwaitingApproval);
+        let mk = |confirm| vec![gtask("draft-1", "draft", None, TaskStatus::Completed, ConfirmState::Confirmed), gtask("confirm-1", "confirm", Some("draft-1"), wait, confirm)];
+        let slots = slot_map(&[("spec", 1, serde_json::json!({ "goal": "x" }))]);
+        let s = gsnap(compile(GATE_GRAPH, "gated"), &[], &[("spec", 1)], mk(ConfirmState::Confirmed));
+        let v = workflow_view(&ViewInput { snapshot: &s, notices: &[], usage_rows: &[], slots: &slots, dispatching: false });
+        let gate = v.graph.as_ref().unwrap().nodes.iter().find(|n| n.id == "confirm").unwrap().gate.clone().unwrap();
+        assert!(gate.awaiting && gate.choices.len() == 2 && gate.choices[1].needs_note);
+        assert!(gate.shows[0].text.as_deref().is_some_and(|t| t.contains("goal")));
+        // unconfirmed (e.g. needs reconciling): shown, but not actionable
+        let s2 = gsnap(compile(GATE_GRAPH, "gated"), &[], &[("spec", 1)], mk(ConfirmState::NeedsReconcile(ReconcileCause::Restart)));
+        let v = workflow_view(&ViewInput { snapshot: &s2, notices: &[], usage_rows: &[], slots: &slots, dispatching: false });
+        assert!(!v.graph.unwrap().nodes.iter().find(|n| n.id == "confirm").unwrap().gate.as_ref().unwrap().awaiting);
+        // not obtained slot content stays None
+        let v = workflow_view(&ViewInput { snapshot: &s, notices: &[], usage_rows: &[], slots: &HashMap::new(), dispatching: false });
+        assert_eq!(v.graph.unwrap().nodes.iter().find(|n| n.id == "confirm").unwrap().gate.as_ref().unwrap().shows[0].text, None);
+
+        // the host-side check mirrors what the engine accepts
+        let gs = s.graph.as_ref().unwrap();
+        let t = &s.tasks[1];
+        assert!(check_gate_decision(gs, t, "ok", None).is_ok());
+        assert!(check_gate_decision(gs, t, "fix", None).is_err(), "a required reason");
+        assert!(check_gate_decision(gs, t, "fix", Some("   ")).is_err(), "blank is not a reason");
+        assert!(check_gate_decision(gs, t, "fix", Some("shorter")).is_ok());
+        assert!(check_gate_decision(gs, t, "nope", None).is_err());
+        assert!(check_gate_decision(gs, &s.tasks[0], "ok", None).is_err(), "not a gate");
+        let gs2 = s2.graph.as_ref().unwrap();
+        assert!(check_gate_decision(gs2, &s2.tasks[1], "ok", None).is_err(), "unconfirmed gate is not decided");
+    }
+
+    #[test]
+    fn one_more_round_is_offered_only_for_the_target_stopped_at_the_limit() {
+        use super::super::ipc::check_extra_round;
+        let stopped = TaskStatus::Blocked(EBlocked::RoundLimit);
+        let mk = |confirm| {
+            vec![
+                gtask("plan-1", "plan", None, TaskStatus::Completed, ConfirmState::Confirmed),
+                gtask("build-1", "build", Some("plan-1"), stopped, confirm),
+                gtask("verify-1", "verify", Some("build-1"), TaskStatus::Reviewing, ConfirmState::Confirmed),
+            ]
+        };
+        let s = gsnap(quality(), &[("verify->build", (3, 0))], &[], mk(ConfirmState::Confirmed));
+        let v = workflow_view(&ViewInput { snapshot: &s, notices: &[], usage_rows: &[], slots: &HashMap::new(), dispatching: false });
+        let g = v.graph.unwrap();
+        let build = g.nodes.iter().find(|n| n.id == "build").unwrap();
+        let limit = build.round_limit.clone().expect("the stopped target carries the limit card");
+        assert_eq!((limit.edge.as_str(), limit.used, limit.allowed, limit.awaiting), ("verify->build", 3, 3, true));
+        assert!(g.nodes.iter().filter(|n| n.id != "build").all(|n| n.round_limit.is_none()));
+        assert_eq!(build.status.as_ref().unwrap().reason, Some(OrgReason::RoundLimit));
+        let gs = s.graph.as_ref().unwrap();
+        assert!(check_extra_round(gs, &s.tasks[1]).is_ok());
+        assert!(check_extra_round(gs, &s.tasks[0]).is_err(), "a completed task");
+        assert!(check_extra_round(gs, &s.tasks[2]).is_err(), "the source of the loop is not the card");
+        // a user-added round raises the allowance, and with rounds left there is no card
+        let s_more = gsnap(quality(), &[("verify->build", (3, 1))], &[], mk(ConfirmState::Confirmed));
+        assert!(check_extra_round(s_more.graph.as_ref().unwrap(), &s_more.tasks[1]).is_err());
+        // an unconfirmed stop is shown but cannot be acted on
+        let s_unc = gsnap(quality(), &[("verify->build", (3, 0))], &[], mk(ConfirmState::NeedsReconcile(ReconcileCause::Wake)));
+        assert!(check_extra_round(s_unc.graph.as_ref().unwrap(), &s_unc.tasks[1]).is_err());
+    }
+
+    #[test]
+    fn definition_notices_have_their_own_kinds() {
+        let a = notice_view(&entry(1, OrgHostNotice::DefinitionNote { message: "m".into(), attention: true })).unwrap();
+        assert_eq!((a.kind, a.severity), (OrgNoticeKind::DefinitionNote, OrgSeverity::Attention));
+        let b = notice_view(&entry(2, OrgHostNotice::SlotWriteFailed { slot: "report".into() })).unwrap();
+        assert_eq!((b.kind, b.severity), (OrgNoticeKind::SlotWriteFailed, OrgSeverity::Attention));
+        assert_eq!(status_view(TaskStatus::Blocked(EBlocked::RoundLimit)).reason, Some(OrgReason::RoundLimit));
     }
 }

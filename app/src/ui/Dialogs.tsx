@@ -22,7 +22,7 @@ import { ExtensionsBody } from "./ExtensionsDialogs";
 import { InstructionBody, ReferenceBody, SkillsBody, type ComposeProps } from "./ComposeDialogs";
 import { WorkspaceChoice, WorktreesBody } from "./WorktreeDialogs";
 import { CloudBody } from "./CloudDialogs";
-import { OrgSettingsBody, OrgStartBody, type OrgSettingsProps } from "./OrgDialogs";
+import { OrgSettingsBody, OrgStartBody, type LoadGraphs, type OrgSettingsProps } from "./OrgDialogs";
 import { FolderListEditor } from "./WorkFoldersUi";
 import { FolderSetBar, type FolderTools } from "./WorkFolderSetsUi";
 import { inspectFolders, splitForNewChat } from "./workFolderSets";
@@ -123,7 +123,7 @@ export interface ComposeDialogProps extends ComposeProps {
 export interface NotifyProps { value: NotificationSettings; set: (n: NotificationSettings) => void }
 
 /** 組織実行（P-ORG-7b）。設定タブ（停滞時間・役割定義）と、開始ダイアログの操作。 */
-export interface OrgDialogProps { settings: OrgSettingsProps; start: (a: StartOrgArgs) => Promise<string | null>; browse: () => Promise<string | null> }
+export interface OrgDialogProps { settings: OrgSettingsProps; start: (a: StartOrgArgs) => Promise<string | null>; browse: () => Promise<string | null>; loadGraphs: LoadGraphs }
 
 export interface AutostartProps { value: boolean; set: (on: boolean) => void }
 export interface AppearanceProps { value: AppearanceSettings; view: ChatListView; set: (a: AppearanceSettings) => void; setView: (v: ChatListView) => void }
@@ -539,7 +539,7 @@ export function Dialogs({ org, folderTools, workspaceRoots, d, onClose, chats, s
       </Shell>);
     case "orgStart": return (
       <Shell title="組織実行を開始" onClose={onClose} close="キャンセル">
-        <OrgStartBody start={org.start} browse={org.browse} />
+        <OrgStartBody start={org.start} browse={org.browse} live={org.settings.live} loadGraphs={org.loadGraphs} />
       </Shell>);
     case "newChat": return (
       <Shell title="新しいチャット" onClose={onClose} foot={<><button className="btn" onClick={onClose}>キャンセル</button><button className="btn primary" disabled={(kind === "dev" && !cwd.trim()) || creating} onClick={() => void createNewChat()}>{creating ? <><span className="spinner" aria-hidden="true" /> 作成中…</> : kind === "dev" && isolate ? "worktreeを作って開始" : "作成"}</button></>}>

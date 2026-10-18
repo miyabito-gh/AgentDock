@@ -2,13 +2,13 @@
 // 選ぶ・開くだけでは何も送らない。再開・一時停止・承認・取消し・手動切替・上限変更は、明示的なボタンだけがホストの命令を呼ぶ（危険なものは確認ブロックを経る）。
 // 状態は文字＋アイコン名で示す（色だけにしない）。取得できない値は「—」「未取得」で、0や完了では代用しない。
 import { Fragment, useEffect, useState, type ReactNode } from "react";
-import type { Chat, ChatKey, ChatLocalView, HostSnapshot, OrgChatCandidate, OrgConfirmView, OrgSnapshotView, OrgStatusView, OrgTaskView, OrgWorkflowView } from "../ipc/types";
+import type { Chat, ChatKey, ChatLocalView, HostSnapshot, OrgChatCandidate, OrgConfirmView, OrgGraphNodeView, OrgGraphView, OrgSnapshotView, OrgStatusView, OrgTaskView, OrgWorkflowView } from "../ipc/types";
 import * as host from "../ipc/client";
 import { Icon, orgIcon } from "./Icon";
 import { Popover } from "./Popover";
 import { ConfirmBlock } from "./DialogParts";
 import { tipWithKey } from "./shortcuts";
-import { CONFIRM_TONE, EFFECT_TEXT, PHASE_TONE, artifactText, attemptText, groupTasks, orgPendingRequests, roleCounts, waitText, workflowSummary, type OrgTone } from "./org";
+import { CONFIRM_TONE, EFFECT_TEXT, NODE_KIND_TEXT, PHASE_TONE, artifactText, attemptText, edgeText, groupTasks, orgPendingRequests, roleCounts, roundText, verdictText, waitText, workflowSummary, type OrgTone } from "./org";
 
 /** 状態の表示（アイコン＋文字。形・色は `.st.<tone>`）。 */
 function Chip({ tone, icon, label, title }: { tone: OrgTone; icon: string; label: string; title?: string }) {
@@ -91,7 +91,9 @@ export const ORG_SEND_LOCK = "組織実行のチャットです。選んで見�
 type Confirm =
   | { kind: "resume" }
   | { kind: "cancelWorkflow" }
-  | { kind: "replan" }
+  | { kind: "replan"; note: string }
+  | { kind: "gate"; task: string; node: string; choice: string; label: string; needsNote: boolean; note: string }
+  | { kind: "extraRound"; task: string; node: string; note: string }
   | { kind: "cancelTask"; task: string }
   | { kind: "acceptManual"; task: string }
   | { kind: "retry"; task: string }
@@ -194,6 +196,12 @@ export function OrgPane(p: OrgPaneProps) {
       : `再開しました（チャット ${r.resumed.length} 件）。`;
   };
 
+  const noteField = (label: string, value: string, onChange: (v: string) => void, hint: string) => (
+    <div className="field"><span>{label}</span>
+      <textarea rows={3} style={{ width: "100%" }} value={value} maxLength={2000} aria-label={label} onChange={(e) => onChange(e.target.value)} />
+      <span className="note">{hint}</span></div>
+  );
+
   const confirmBlock = () => {
     if (!confirm) return null;
     const cancelBtn = <button className="btn" disabled={busy} onClick={() => setConfirm(null)}>やめる</button>;
@@ -209,8 +217,32 @@ export function OrgPane(p: OrgPaneProps) {
         return wrap(`タスク ${confirm.task} の取消しの確認`, <p>タスク {confirm.task} を取り消します。実行中なら、停止は Codex 側で確認できるまで「停止未確認」として扱います。依存するタスクは進めなくなります。</p>,
           <button className="btn danger" disabled={busy} onClick={() => void go("取り消し", async () => { await host.orgCancel({ workflowId: wf.workflowId, scope: { kind: "task", task: confirm.task } }); return `タスク ${confirm.task} を取り消しました。`; })}>{busy ? "取り消しています…" : "このタスクを取り消す"}</button>);
       case "replan":
-        return wrap("再計画の確認", <p>今の計画を差し戻し、Planner に再計画させます。まだ実行していないタスクは作り直されます。再計画の結果は、確認が必要なら改めて承認カードに出ます。</p>,
-          <button className="btn primary" disabled={busy} onClick={() => void go("再計画の要求", async () => { await host.orgReplan(wf.workflowId); return "再計画を要求しました。"; })}>{busy ? "要求しています…" : "差し戻して再計画する"}</button>);
+        return wrap("再計画の確認",
+          <>
+            <p>今の計画を差し戻し、Planner に再計画させます。まだ実行していないタスクは作り直されます。再計画の結果は、確認が必要なら改めて承認カードに出ます。</p>
+            {noteField("再計画への要望（任意）", confirm.note, (note) => setConfirm({ kind: "replan", note }), "例: タスクをもっと小さく分けてください。理由は Planner に利用者の要望として渡ります（権限や出力の形式は変わりません）。")}
+          </>,
+          <button className="btn primary" disabled={busy} onClick={() => void go("再計画の要求", async () => { await host.orgReplan(wf.workflowId, confirm.note.trim() || null); return "再計画を要求しました。"; })}>{busy ? "要求しています…" : "差し戻して再計画する"}</button>);
+      case "gate": {
+        const c = confirm;
+        const ready = !c.needsNote || c.note.trim() !== "";
+        return wrap(`判断の確認（${c.node}）`,
+          <>
+            <p>工程「{c.node}」の判断として「<b>{c.label}</b>」を選びます。選んだ道筋の次の工程が送られ始めます（差し戻しに進む選択は、周回の回数に数えられます）。送信が止まっているときは、判断を記録するだけで、「再開」するまで次の工程は送られません。</p>
+            {noteField(c.needsNote ? "理由（必須）" : "理由（任意）", c.note, (note) => setConfirm({ ...c, note }), "戻り先の次の turn に、利用者の要望として渡ります（権限や出力の形式は変わりません）。")}
+            {!ready ? <p className="small muted">この選択には理由が必要です。</p> : null}
+          </>,
+          <button className="btn primary" disabled={busy || !ready} onClick={() => void go("判断", async () => { await host.orgGateDecide(wf.workflowId, c.task, c.choice, c.note.trim() || null); return `「${c.label}」で進めます。`; })}>{busy ? "処理しています…" : "この判断で進める"}</button>);
+      }
+      case "extraRound": {
+        const c = confirm;
+        return wrap(`もう1周の確認（${c.node}）`,
+          <>
+            <p>工程「{c.node}」の周回が上限に達しています。<b>この辺の許容回数を1回だけ増やし</b>、もう1周します（自動では増えません。増やすたびにこの確認が要ります）。周回が増えるほど、使用量（トークン）も増えます。送信が止まっているときは、「再開」するまで送られません。</p>
+            {noteField("次の周回への理由（任意）", c.note, (note) => setConfirm({ ...c, note }), "戻り先の次の turn に、利用者の要望として渡ります（権限や出力の形式は変わりません）。")}
+          </>,
+          <button className="btn primary" disabled={busy} onClick={() => void go("もう1周", async () => { await host.orgExtraRound(wf.workflowId, c.task, c.note.trim() || null); return "もう1周します。"; })}>{busy ? "処理しています…" : "理由を書いてもう1周する"}</button>);
+      }
       case "acceptManual":
         return wrap(`タスク ${confirm.task} を手動で完了にする確認`, <p>タスク {confirm.task} を、あなたの判断で完了として扱います。Codex の結果を確認できたという意味ではありません。依存するタスクが進み始めます。</p>,
           <button className="btn primary" disabled={busy} onClick={() => void go("手動完了", async () => { await host.orgAcceptManual(wf.workflowId, confirm.task); return `タスク ${confirm.task} を完了にしました。`; })}>{busy ? "処理しています…" : "完了にする"}</button>);
@@ -363,7 +395,7 @@ export function OrgPane(p: OrgPaneProps) {
             </details>
             <div className="acts end org-card-acts">
               <button className="btn danger-line" disabled={busy} onClick={() => setConfirm({ kind: "cancelWorkflow" })}>取り消す…</button>
-              <button className="btn" disabled={busy} onClick={() => setConfirm({ kind: "replan" })}>差し戻して再計画…</button>
+              <button className="btn" disabled={busy} onClick={() => setConfirm({ kind: "replan", note: "" })}>差し戻して再計画…</button>
               <button className="btn primary" disabled={busy} title="承認すると、この計画のタスクが送られ始めます" onClick={() => void go("承認", async () => { await host.orgApprovePlan(wf.workflowId); return "計画を承認しました。"; })}>{busy ? "承認しています…" : "承認"}</button>
             </div>
           </section>
@@ -381,6 +413,8 @@ export function OrgPane(p: OrgPaneProps) {
             <dd>{use.knownTokens === null ? "未取得" : `${use.knownTokens.toLocaleString()}（取得できた分の合計）`}{use.rowsWithoutTokens > 0 ? `　取得できなかった行 ${use.rowsWithoutTokens}/${use.rows}` : ""}</dd>
           </dl>
         </section>
+
+        {wf.graph ? <GraphSection graph={wf.graph} wf={wf} ro={ro} busy={busy} chatExists={chatExists} onOpenChat={p.onOpenChat} onGate={(n, c) => setConfirm({ kind: "gate", task: n.task!, node: n.label, choice: c.id, label: c.label, needsNote: c.needsNote, note: "" })} onExtra={(n) => setConfirm({ kind: "extraRound", task: n.task!, node: n.label, note: "" })} /> : null}
 
         <section aria-label="タスク">
           <h4 className="org-h">タスク</h4>
@@ -432,6 +466,97 @@ export function OrgPane(p: OrgPaneProps) {
           </details>
         ) : null}
       </div>
+    </>
+  );
+}
+
+/** グラフで動くワークフローの流れ（一覧形式・読み取り専用）。ノードは先へ進む順。判断（gate）と周回上限のカードは、確認を経る操作だけを呼ぶ。 */
+function GraphSection({ graph, wf, ro, busy, chatExists, onOpenChat, onGate, onExtra }: {
+  graph: OrgGraphView; wf: OrgWorkflowView; ro: boolean; busy: boolean;
+  chatExists: (k: ChatKey | null) => boolean; onOpenChat: (k: ChatKey) => void;
+  onGate: (n: OrgGraphNodeView, c: { id: string; label: string; needsNote: boolean }) => void;
+  onExtra: (n: OrgGraphNodeView) => void;
+}) {
+  const taskOf = (n: OrgGraphNodeView): OrgTaskView | undefined => wf.tasks.find((t) => t.id === n.task);
+  const cards = graph.nodes.filter((n) => (n.gate && n.status?.phase === "blocked") || n.roundLimit);
+  return (
+    <>
+      {!ro ? cards.map((n) => {
+        if (n.roundLimit) {
+          const r = n.roundLimit;
+          return (
+            <section key={`${n.id}:limit`} className="org-card" aria-label="周回の上限">
+              <h4><Icon name="alert" />周回が上限に達しました（{n.label}）</h4>
+              <p>辺「{r.edge}」は、許容 {r.allowed} 回のうち {r.used} 回を使い切りました。理由を書いてもう1周するか、タスクを取り消すかを選んでください。何もしなければ、このまま止まっています（自動では進みません）。</p>
+              {r.awaiting
+                ? <div className="acts end org-card-acts"><button className="btn primary" disabled={busy} onClick={() => onExtra(n)}>理由を書いてもう1周…</button></div>
+                : <p className="small muted">確認状態が確定ではないため、確認できるまで選べません（下の表の確認状態を見てください）。</p>}
+            </section>
+          );
+        }
+        const g = n.gate!;
+        return (
+          <section key={`${n.id}:gate`} className="org-card" aria-label="判断待ち">
+            <h4><Icon name="help" />判断をお願いします（{n.label}）</h4>
+            <p style={{ whiteSpace: "pre-wrap" }}>{g.prompt}</p>
+            {g.shows.map((x) => (
+              <details key={x.slot} className="about" open>
+                <summary>見せる内容: {x.slot}</summary>
+                {x.text === null ? <p className="small muted">未取得（まだ出力がないか、読めませんでした）</p> : <pre className="mono small org-pre">{x.text}{x.truncated ? "\n…（長いため途中まで）" : ""}</pre>}
+              </details>
+            ))}
+            {g.awaiting
+              ? <div className="acts end org-card-acts">{g.choices.map((c) => <button key={c.id} className="btn" disabled={busy} onClick={() => onGate(n, c)}>{c.label}{c.needsNote ? "（理由を書く）" : ""}…</button>)}</div>
+              : <p className="small muted">いまは選べません（確認状態が確定ではないか、判断を受け付けていない状態です）。</p>}
+          </section>
+        );
+      }) : null}
+      <section aria-label="流れ">
+        <h4 className="org-h">流れ（{graph.name}）</h4>
+        <ol className="org-flow">
+          {graph.nodes.map((n) => {
+            const t = taskOf(n);
+            const rt = roundText(n);
+            const out = graph.edges.filter((e) => e.from === n.id);
+            const chat = t?.chat ?? null;
+            return (
+              <li key={n.id} className="org-flow-n">
+                <div className="org-flow-h">
+                  <b>{n.label}</b>
+                  <span className="mono muted">{n.id}</span>
+                  <span className="small muted">{NODE_KIND_TEXT[n.kind]}{n.roleId ? `：${n.roleId}` : ""}</span>
+                  {n.status ? <StatusChip s={n.status} /> : <Chip tone="idle" icon="circle" label="未実行" />}
+                  {n.confirm && n.confirm.state !== "confirmed" ? <ConfirmChip c={n.confirm} /> : null}
+                  {rt ? <span className="small">{rt}</span> : null}
+                  {n.lastVerdict ? <span className="small">判定: <b>{verdictText(n.lastVerdict)}</b></span> : null}
+                  {chat ? <button className="btn sm" disabled={!chatExists(chat)} title={chatExists(chat) ? "この工程のチャットを開きます（見るだけ。何も送りません）" : "チャットがまだ一覧にありません"} onClick={() => onOpenChat(chat)}>チャットを見る</button> : null}
+                </div>
+                {out.length > 0 ? (
+                  <ul className="org-flow-e">
+                    {out.map((e) => {
+                      const x = edgeText(e);
+                      return <li key={`${e.from}->${e.to}`} className={x.untaken ? "untaken" : undefined}><span className="mono">{x.head}</span>　{x.detail}{x.untaken ? "　（未実行）" : ""}</li>;
+                    })}
+                  </ul>
+                ) : <div className="small muted org-flow-e">この先はありません（ここで終わります）</div>}
+              </li>
+            );
+          })}
+        </ol>
+        {graph.rounds.length > 0 ? (
+          <div className="org-rounds">
+            <b className="small">周回の履歴</b>
+            <ul className="org-flow-e">
+              {graph.rounds.map((r) => (
+                <li key={r.edge}>
+                  <span className="mono">{r.from} ↺ {r.to}</span>　使用 {r.used}／許容 {r.maxRounds + r.extra} 回{r.extra > 0 ? `（あなたが ${r.extra} 回足しました）` : ""}。上限に達したら{r.onExhausted === "ask" ? "あなたに聞きます" : "戻り先を失敗にします"}。
+                  <div className="small">{r.history.length === 0 ? "判定: まだありません" : r.history.map((h) => `${h.index}回目: ${verdictText(h.verdict)}`).join("／")}</div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </section>
     </>
   );
 }

@@ -286,14 +286,11 @@ impl Host {
                 let why = report.problem_for(id).map(|p| p.reasons.join(" / ")).unwrap_or_else(|| "そのテンプレートがありません".to_string());
                 return Err(err(IpcErrorCode::InvalidArgs, format!("テンプレート「{id}」は使えません: {why}")));
             };
-            let planned = compiled.def.nodes.iter().any(|n| matches!(n.kind, org_engine::graph::NodeKind::PlannedTasks { .. }));
-            if planned && id != org_engine::graph::TEMPLATE_STANDARD {
-                return Err(err(IpcErrorCode::InvalidArgs, "計画（plannedTasks）を含むテンプレートは、組込みの standard だけが対応しています"));
+            if let Some(why) = graphs::start_blocker(compiled) {
+                return Err(err(IpcErrorCode::InvalidArgs, why));
             }
+            let planned = compiled.def.nodes.iter().any(|n| matches!(n.kind, org_engine::graph::NodeKind::PlannedTasks { .. }));
             if !planned {
-                if compiled.def.workspace != org_engine::graph::WorkspaceKind::Git {
-                    return Err(err(IpcErrorCode::InvalidArgs, "Git を使わない（folder）テンプレートには、まだ対応していません"));
-                }
                 let used = graphs::used_roles(compiled, &roles_report.roles).map_err(|m| err(IpcErrorCode::InvalidArgs, format!("テンプレート「{id}」は使えません: {m}")))?;
                 graph_start = Some((compiled.clone(), used));
             }
@@ -355,6 +352,22 @@ impl Host {
         };
         let report = roles::prepare_roles(&root, now_ms().0);
         *self.org_rt.roles.lock().unwrap() = Some(report.clone());
+        Ok(report)
+    }
+
+    /// グラフ定義を読み直す（足りない組込みテンプレートは作る。既存ファイルは上書きしない）。動いているワークフローがあるときは変えない。
+    /// 役割定義も読み直す（グラフの検証が使う役割の表のため）。
+    pub fn org_reload_graphs(&self) -> Result<graphs::GraphReport, IpcError> {
+        if self.org_rt.driver_active() {
+            return Err(blocked(BlockedReason::ChatBusy, "組織実行が動いている間は、グラフ定義を読み直せません"));
+        }
+        let Some(root) = self.persist.store().map(|s| s.root().to_path_buf()) else {
+            return Err(err(IpcErrorCode::Io, "保存先が使えないため、グラフ定義を読めません"));
+        };
+        let roles_report = roles::prepare_roles(&root, now_ms().0);
+        let report = graphs::prepare_graphs(&root, &roles_report.roles);
+        *self.org_rt.roles.lock().unwrap() = Some(roles_report);
+        *self.org_rt.graphs.lock().unwrap() = Some(report.clone());
         Ok(report)
     }
 
@@ -550,7 +563,7 @@ impl Host {
                 }
             }
         }
-        *self.org_rt.view.lock().unwrap() = Some(driver::snapshot_of(&state));
+        *self.org_rt.view.lock().unwrap() = Some(driver::snapshot_of(&state, None));
         // 今の定義ファイル（役割・グラフ）。画面の元として控え、開始時の定義との違いの案内にだけ使う（読むだけ。グラフは作成もしない）。
         let report = roles::prepare_roles(&root, now_ms().0);
         let current_graphs = graphs::load_graphs(&root, &report.roles);
@@ -685,6 +698,7 @@ mod tests {
             chat_cwd: None,
             retryable: false,
             never_sent: false,
+            node: None,
         }
     }
 
@@ -699,6 +713,7 @@ mod tests {
             limits: Limits::default(),
             turns_used: 0,
             auto_replans_used: 0,
+            graph: None,
         }
     }
 

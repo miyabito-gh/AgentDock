@@ -67,6 +67,18 @@ pub struct OrgSnapshot {
     pub limits: org_engine::Limits,
     pub turns_used: u32,
     pub auto_replans_used: u32,
+    /// グラフで動くワークフローの流れの写し（従来の計画経路と、読めなかったときは None）。
+    pub graph: Option<GraphSnapshot>,
+}
+
+/// グラフ定義と、画面に出すための進み具合（周回の回数・スロットの最新の版）。
+#[derive(Debug, Clone, PartialEq)]
+pub struct GraphSnapshot {
+    pub graph: org_engine::graph::CompiledGraph,
+    /// 差し戻しの辺ごとの（使った回数, 利用者が足した回数）。
+    pub feedback: std::collections::BTreeMap<org_engine::graph::EdgeId, (u32, u32)>,
+    /// スロットごとの最新の版。
+    pub slot_versions: std::collections::BTreeMap<org_engine::graph::SlotId, u32>,
 }
 
 /// 依頼文の先頭1行を名前にする（長いものは切る）。
@@ -93,10 +105,17 @@ pub struct TaskSnapshot {
     pub retryable: bool,
     /// 送信の記録（Dispatched）も受理されたturnもない（チャットは一度も発話を受けていない）。
     pub never_sent: bool,
+    /// このタスクが動かすグラフのノード（グラフで動くワークフローだけ）。
+    pub node: Option<org_engine::graph::NodeId>,
 }
 
-/// エンジンの状態から画面向けの写しを作る。
-pub fn snapshot_of(state: &org_engine::WorkflowState) -> OrgSnapshot {
+/// エンジンの状態から画面向けの写しを作る。`graph` はグラフで動くワークフローの定義（なければ None）。
+pub fn snapshot_of(state: &org_engine::WorkflowState, graph: Option<&org_engine::graph::CompiledGraph>) -> OrgSnapshot {
+    let graph = graph.filter(|_| state.graph().is_some()).map(|g| GraphSnapshot {
+        graph: g.clone(),
+        feedback: g.loops.iter().map(|l| (l.edge.clone(), state.feedback_of(&l.edge))).collect(),
+        slot_versions: state.slot_versions().map(|(s, v)| (s.clone(), v)).collect(),
+    });
     OrgSnapshot {
         workflow: state.workflow_id().clone(),
         title: title_of(state.request()),
@@ -118,6 +137,7 @@ pub fn snapshot_of(state: &org_engine::WorkflowState) -> OrgSnapshot {
                 chat_cwd: t.chat_cwd().map(str::to_string),
                 retryable: org_engine::retryable(t),
                 never_sent: t.last_attempt().is_none() && t.accepted_turn().is_none(),
+                node: t.node().cloned(),
             })
             .collect(),
         request: state.request().to_string(),
@@ -125,6 +145,7 @@ pub fn snapshot_of(state: &org_engine::WorkflowState) -> OrgSnapshot {
         limits: state.limits().clone(),
         turns_used: state.counters().turns_used,
         auto_replans_used: state.counters().auto_replans_used,
+        graph,
     }
 }
 
@@ -460,7 +481,7 @@ impl<P: AgentRuntime + RuntimeRead + Workspace + 'static> OrgDriver<P> {
                 crate::diag::log("org", &format!("snapshot failed: {e:?}"));
             }
         }
-        self.sink.publish(snapshot_of(state));
+        self.sink.publish(snapshot_of(state, self.core.graph()));
     }
 
     /// turn の終端で、最後に届いた使用量の標本を1行にして記録する。種別が分からない（再起動後など）ときは書かない。

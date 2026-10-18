@@ -393,12 +393,14 @@ export default function App() {
       return true;
     } catch (e) { sayErr(`${label}に失敗しました`, e); return false; }
   }, [live, say, sayErr]);
+  // グラフ定義（テンプレート）の読込み。読取りと、定義ファイルの読み直しだけで、何も送らない。
+  const orgLoadGraphs = useCallback(async (reload: boolean) => (live ? (reload ? host.orgReloadGraphs() : host.orgGraphsView()) : (await loadMock()).client.orgGraphsView()), [live]);
   const orgStart = async (a: StartOrgArgs): Promise<string | null> => {
     if (!live) return "モックでは動きません。";
     try {
       await host.orgStart(a);
       setDialog(null); setOrgScreen(true); setOrgTick((n) => n + 1);
-      say("組織実行を開始しました。Planner が計画を作ります。計画に確認が必要な内容があれば、承認するまでタスクは送られません。", 8000);
+      say(a.graphId ? "組織実行を開始しました。テンプレートの流れに沿って進みます。判断を求める工程は、あなたが選ぶまで進みません。" : "組織実行を開始しました。Planner が計画を作ります。計画に確認が必要な内容があれば、承認するまでタスクは送られません。", 8000);
       return null;
     } catch (e) { return host.asIpcError(e).message; }
   };
@@ -1729,7 +1731,7 @@ ${cur}` : p.text);
       {dialog ? (
         <Dialogs d={dialog} org={{
           settings: { live, stallMinutes: snap.settings.orgStallMinutes, setStall: async (m) => { if (!live) return "モックでは動きません。"; try { await host.orgSetStallMinutes(m); return null; } catch (e) { return host.asIpcError(e).message; } } },
-          start: orgStart, browse: folderTools.browse,
+          start: orgStart, browse: folderTools.browse, loadGraphs: orgLoadGraphs,
         }} folderTools={folderTools} workspaceRoots={snap.workspaceRoots} onClose={closeDialog} opCaps={snap.opCapabilities} resend={{ state: resendState, handlers: resendHandlers }} chats={snap.chats} source={src} models={models}
           prefs={{ goal: dialog.type === "goal" ? goals[dialog.chatId] : undefined, saveGoal,
             settings: dialog.type === "status" && dialog.chatId ? bundle.modelSettings[dialog.chatId] : undefined,

@@ -896,6 +896,28 @@ pub async fn org_roles_view(host: Hs<'_>) -> R<crate::backend::org::OrgRolesView
     Ok(host.org_roles_view())
 }
 
+/// グラフ定義（テンプレート）の読込み結果（読取りのみ）。
+#[tauri::command]
+pub async fn org_graphs_view(host: Hs<'_>) -> R<crate::backend::org::OrgGraphsView> {
+    Ok(host.org_graphs_view())
+}
+
+/// グラフ定義を読み直す（動いているワークフローがあれば拒否。何も送らない）。
+#[tauri::command]
+pub async fn org_reload_graphs(host: Hs<'_>) -> R<crate::backend::org::OrgGraphsView> {
+    host.org_reload_graphs_view()
+}
+
+/// グラフ定義ファイルを関連アプリで開く（利用者の操作のときだけ。グラフ定義フォルダ内のファイル名だけを受ける）。
+#[tauri::command]
+pub async fn org_open_graph_file(app: tauri::AppHandle, host: Hs<'_>, args: crate::backend::org::OrgOpenGraphFileArgs) -> R<()> {
+    use tauri_plugin_opener::OpenerExt;
+    let path = host.org_graph_file_path(&args)?;
+    app.opener()
+        .open_path(path.to_string_lossy(), None::<&str>)
+        .map_err(|e| IpcError { code: IpcErrorCode::Io, message: format!("開けませんでした: {e}"), blocked: None })
+}
+
 /// 開始（利用者の「開始」の操作だけ。送信権を作る）。
 #[tauri::command]
 pub async fn org_start(host: Hs<'_>, args: crate::backend::org::StartOrgArgs) -> R<crate::backend::org::StartOrgResult> {
@@ -923,9 +945,23 @@ pub async fn org_approve_plan(host: Hs<'_>, args: crate::backend::org::OrgWorkfl
 }
 
 #[tauri::command]
-pub async fn org_replan(host: Hs<'_>, args: crate::backend::org::OrgWorkflowArgs) -> R<()> {
+pub async fn org_replan(host: Hs<'_>, args: crate::backend::org::OrgReplanArgs) -> R<()> {
     let confirmed = UserConfirmed::from_user_command();
     host.org_replan(args, &confirmed)
+}
+
+/// gate の判断（利用者の操作だけ。判断を待っている gate だけを受ける）。
+#[tauri::command]
+pub async fn org_gate_decide(host: Hs<'_>, args: crate::backend::org::OrgGateDecideArgs) -> R<()> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.org_gate_decide(args, &confirmed)
+}
+
+/// 周回の上限で止まっている工程の「理由を書いてもう1周」（利用者の操作だけ）。
+#[tauri::command]
+pub async fn org_extra_round(host: Hs<'_>, args: crate::backend::org::OrgExtraRoundArgs) -> R<()> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.org_extra_round(args, &confirmed)
 }
 
 /// 取消し（利用者の操作だけが cancelled にする）。取り消したタスクのIDを返す。

@@ -89,6 +89,19 @@ pub fn role_infos(roles: &[LoadedRole]) -> BTreeMap<RoleId, RoleInfo> {
         .collect()
 }
 
+/// 今のホストがそのテンプレートを開始できない理由（できるなら None）。画面で選べなくするためと、開始のときの拒否に同じ文言を使う。
+/// 計画（plannedTasks）を含むのは組込みの `standard` だけが対応（従来の計画経路）。Git を使わない（folder）ものは未対応。
+pub fn start_blocker(g: &CompiledGraph) -> Option<&'static str> {
+    let planned = g.def.nodes.iter().any(|n| matches!(n.kind, NodeKind::PlannedTasks { .. }));
+    if planned && g.def.id != TEMPLATE_STANDARD {
+        Some("計画（plannedTasks）を含むテンプレートは、組込みの standard だけが対応しています")
+    } else if !planned && g.def.workspace != org_engine::graph::WorkspaceKind::Git {
+        Some("Git を使わない（folder）テンプレートには、まだ対応していません")
+    } else {
+        None
+    }
+}
+
 fn graph_roles(def: &org_engine::graph::GraphDef) -> Vec<RoleId> {
     let mut v = Vec::new();
     for n in &def.nodes {

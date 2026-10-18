@@ -1,6 +1,6 @@
 // 組織実行の表示用導出（P-ORG-7b）。状態の判定はホスト。ここは並べ替え・文言・色クラスの対応だけ。
 // 状態は文字とアイコン名（ホストの label／icon）で必ず示し、色だけで区別させない。
-import type { Chat, HostSnapshot, OrgConfirmCode, OrgEffect, OrgTaskPhase, OrgTaskView, OrgWorkflowView, PendingRequest } from "../ipc/types";
+import type { Chat, HostSnapshot, OrgConfirmCode, OrgEffect, OrgEstimateView, OrgGraphEdgeView, OrgGraphNodeView, OrgNodeKind, OrgTaskPhase, OrgTaskView, OrgVerdict, OrgWorkflowView, PendingRequest } from "../ipc/types";
 import { chatRequests } from "./derive";
 export { isOrgOwned, shownOrgIds } from "./orgHidden";
 
@@ -81,4 +81,37 @@ export function orgPendingRequests(snap: HostSnapshot, workflowId: string): { co
     if (r.length > 0) { count += r.length; first = first ?? c; }
   }
   return { count, first };
+}
+
+// ── グラフ（流れ）の表示・開始前の見積り。計算はホストの値を並べ替えるだけ（状態の判定はしない） ──
+
+export const NODE_KIND_TEXT: Record<OrgNodeKind, string> = { agent: "役割", gate: "あなたの判断", router: "分岐", plannedTasks: "計画のタスク" };
+
+/** 判定の文言。出力がまだなければ「—」、値を読めなければ「未取得」（空や既定値にしない）。 */
+export const verdictText = (v: OrgVerdict | null | undefined): string => (!v ? "" : v.kind === "pending" ? "—" : v.kind === "notObtained" ? "未取得" : v.text);
+
+/** 周回の中の工程の「第N周／最大M周」。周回の外・まだ動いていない工程は null。 */
+export const roundText = (n: OrgGraphNodeView): string | null => (n.round !== null && n.maxRound !== null ? `第${n.round}周／最大${n.maxRound}周` : null);
+
+/** 辺の一行。通っていない辺は「未実行」を付ける（薄く表示する側の目印）。 */
+export function edgeText(e: OrgGraphEdgeView): { head: string; detail: string; untaken: boolean } {
+  if (e.kind === "feedback") {
+    const allowed = e.allowed ?? 0;
+    return { head: `↺ ${e.to}`, detail: `${e.label}、最大${allowed}周・使用${e.used}回・残り${Math.max(0, allowed - e.used)}回`, untaken: e.used === 0 };
+  }
+  return { head: `→ ${e.to}`, detail: e.label, untaken: e.used === 0 };
+}
+
+const man = (tokens: number): string => String(Math.round(tokens / 1000) / 10);
+
+/** 開始前の見積り（定義から計算した上限。実績ではない）。ホストの値（最大 turn と 1 turn あたりの土台）を文にするだけ。 */
+export function estimateLines(e: OrgEstimateView | null, hint: number, maxTurns: number): { lines: string[]; over: boolean } {
+  if (!e) return { lines: ["見積り: 未取得（このテンプレートの定義を読み込めていません）"], over: false };
+  const perTurn = man(hint);
+  const lines = [
+    `通常 ${e.turnsTypical} turn／最大 ${e.turnsMax} turn（形式修正込み）。1 turn あたり約${perTurn}万トークンの土台があるため、最大でおよそ ${e.turnsMax}×${perTurn}万 ≒ ${man(e.tokensMax)}万トークン（目安。実際の使用量ではありません）。`,
+  ];
+  const over = e.turnsMax > maxTurns;
+  if (over) lines.push(`最大 ${e.turnsMax} turn は、turn 上限（${maxTurns}）を超えます。途中で turn 上限に達して止まる可能性があります。`);
+  return { lines, over };
 }

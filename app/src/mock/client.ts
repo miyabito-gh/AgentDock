@@ -1,9 +1,9 @@
 // モック切替用の仮実装（実IPCの代わりに仮データを返す）。製品の挙動ではない。
 import { makeBundle, MODELS, type Bundle } from "./data";
-import { mockOrgRoles, mockOrgView } from "./org";
+import { mockOrgGraphs, mockOrgRoles, mockOrgView } from "./org";
 import type {
   AgentKey, ChatKey, ChatModelSettings, ExternalId, ForkPurpose, InterruptChatResult, LocalId, ModelChoice, ModelInfo, MonitorScope, RecheckAgentsResult,
-  OrgRolesView, OrgSnapshotView, RequestAnswer, RequestKey, RespondOutcome, ResendAsForkResult, SendAttempt, SendIntent,
+  OrgGraphsView, OrgRolesView, OrgSnapshotView, RequestAnswer, RequestKey, RespondOutcome, ResendAsForkResult, SendAttempt, SendIntent,
 } from "../ipc/types";
 
 export async function getBundle(scenario: string): Promise<Bundle> {
@@ -44,4 +44,7 @@ export async function orgView(scenario: string): Promise<OrgSnapshotView> {
 }
 export async function orgRolesView(): Promise<OrgRolesView> {
   return mockOrgRoles();
+}
+export async function orgGraphsView(): Promise<OrgGraphsView> {
+  return mockOrgGraphs();
 }

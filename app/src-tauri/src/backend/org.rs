@@ -37,6 +37,8 @@ pub enum OrgReason {
     ManualStop,
     Limit,
     NeedsAttention,
+    /// 差し戻しの辺の周回が上限に達し、利用者の判断（もう1周・取消し）を待っている。
+    RoundLimit,
     ExecutionFailed,
     InvalidArtifact,
     LimitReached,
@@ -226,6 +228,10 @@ pub enum OrgNoticeKind {
     PersistFailed,
     Reconciled,
     Stalled,
+    /// 途中の出力（スロット）を保存できなかった（以後は何も送らない）。
+    SlotWriteFailed,
+    /// 定義（グラフ・役割）についての案内（開始時の定義との違い・写しが使えない・スロットを読めない）。
+    DefinitionNote,
 }
 
 /// 直近の通知の1件（新しいものが後ろ）。本文は定型文で、会話内容は入れない。
@@ -352,6 +358,9 @@ pub struct OrgWorkflowView {
     pub dispatching: bool,
     /// 全タスクが終わっているか（完了帯の表示用）。
     pub finished: bool,
+    /// グラフで動くワークフローの流れ（ノード・辺・周回）。従来の計画経路・過去の記録では None。
+    #[serde(default)]
+    pub graph: Option<OrgGraphView>,
     /// 保存データから読んだ過去のワークフロー（読み取り専用。操作は受け付けない）。
     #[serde(default)]
     pub readonly: bool,
@@ -422,6 +431,256 @@ pub struct OrgRolesView {
     pub created: Vec<String>,
 }
 
+// ───────────────────────────── グラフ（流れ）の表示 ─────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub enum OrgNodeKind {
+    Agent,
+    Gate,
+    Router,
+    PlannedTasks,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub enum OrgEdgeKind {
+    /// 先へ進む辺。
+    Forward,
+    /// 前の工程へ戻る辺（周回。回数に上限がある）。
+    Feedback,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub enum OrgOnExhausted {
+    /// 上限に達したら戻り先を失敗にする。
+    Fail,
+    /// 上限に達したら利用者に聞く（もう1周・取消し）。
+    Ask,
+}
+
+/// 判定（スロットの値のうち、辺の選択に使う項目）。値を読めなかったときは「未取得」で、空や既定値で代用しない。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum OrgVerdict {
+    /// まだ出力がない。
+    Pending,
+    /// 出力はあるが、値を読めなかった。
+    NotObtained,
+    Value { text: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgGateChoiceView {
+    pub id: String,
+    pub label: String,
+    /// 理由の入力が必須か。
+    pub needs_note: bool,
+}
+
+/// gate が見せるスロットの内容（長いものは切る）。`text=None` は未取得（まだ出力がない、または読めなかった）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgGateShowView {
+    pub slot: String,
+    pub text: Option<String>,
+    pub truncated: bool,
+}
+
+/// gate の工程。`awaiting=true` のときだけ、利用者の判断を受け付ける。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgGateView {
+    pub prompt: String,
+    pub choices: Vec<OrgGateChoiceView>,
+    pub shows: Vec<OrgGateShowView>,
+    pub awaiting: bool,
+}
+
+/// 周回が上限に達して止まっている戻り先の工程。`awaiting=true` のときだけ「もう1周」を受け付ける。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgRoundLimitView {
+    /// 上限に達した辺（`from->to`）。
+    pub edge: String,
+    pub used: u32,
+    pub allowed: u32,
+    pub awaiting: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgGraphNodeView {
+    pub id: String,
+    pub label: String,
+    pub kind: OrgNodeKind,
+    pub role_id: Option<String>,
+    /// この工程のタスク（まだ動いていない工程は None）。
+    pub task: Option<String>,
+    /// None＝まだ動いていない（未実行）。
+    pub status: Option<OrgStatusView>,
+    pub confirm: Option<OrgConfirmView>,
+    /// 周回の中の工程の「第N周」と「最大M周」（周回の外・まだ動いていない工程は None）。
+    pub round: Option<u32>,
+    pub max_round: Option<u32>,
+    /// 最後の判定（辺の選択に使う項目がない工程は None）。
+    pub last_verdict: Option<OrgVerdict>,
+    pub gate: Option<OrgGateView>,
+    pub round_limit: Option<OrgRoundLimitView>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgGraphEdgeView {
+    pub from: String,
+    pub to: String,
+    pub kind: OrgEdgeKind,
+    /// 辺の条件の文言（条件がなければ「常に」）。
+    pub label: String,
+    /// 通った回数（先へ進む辺は 0 か 1）。
+    pub used: u32,
+    /// 差し戻しの辺の許容回数（定義の最大＋利用者が足した分）。先へ進む辺は None。
+    pub allowed: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgRoundEntryView {
+    /// その辺の判定元スロットの何回目の出力か（1始まり）。
+    pub index: u32,
+    pub verdict: OrgVerdict,
+}
+
+/// 差し戻しの辺ごとの周回。履歴は古い順（読めた範囲の最近の分）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgRoundView {
+    pub edge: String,
+    pub from: String,
+    pub to: String,
+    pub used: u32,
+    /// 定義の最大。
+    pub max_rounds: u32,
+    /// 利用者が足した回数。
+    pub extra: u32,
+    pub on_exhausted: OrgOnExhausted,
+    pub history: Vec<OrgRoundEntryView>,
+}
+
+/// グラフで動くワークフローの流れ（読み取り専用）。ノードは先へ進む順に並ぶ。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgGraphView {
+    pub graph_id: String,
+    pub name: String,
+    pub nodes: Vec<OrgGraphNodeView>,
+    pub edges: Vec<OrgGraphEdgeView>,
+    pub rounds: Vec<OrgRoundView>,
+}
+
+// ───────────────────────────── グラフ定義（テンプレート） ─────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub enum OrgWorkspaceKind {
+    Git,
+    Folder,
+}
+
+/// 開始前の見積り（定義から計算した上限。実際の使用量ではない）。トークンは「1 turn あたりの土台」の目安からの概算。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgEstimateView {
+    /// 最大の活動数（周回を含む）。
+    pub activations: u32,
+    /// 通常の turn 数（1活動1 turn）。
+    pub turns_typical: u32,
+    /// 最大の turn 数（形式修正込み）。
+    pub turns_max: u32,
+    /// 最大の turn 数 × 1 turn あたりの土台（目安）。
+    pub tokens_max: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgGraphTemplateView {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub workspace: OrgWorkspaceKind,
+    /// 使う役割のID。
+    pub roles: Vec<String>,
+    /// 定義ファイルの名前（開く操作の指定に使う）。
+    pub file: String,
+    /// 開始に選べるか。選べないときは `reasons` に理由。
+    pub selectable: bool,
+    pub reasons: Vec<String>,
+    pub estimate: OrgEstimateView,
+    /// 定義が提案する turn 上限（なければ None）。
+    pub suggested_max_turns: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgGraphProblemView {
+    pub file: String,
+    pub reasons: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgGraphsView {
+    /// まだ読み込んでいなければ false（テンプレートは空。読み込んだ空とは違う）。
+    pub loaded: bool,
+    pub templates: Vec<OrgGraphTemplateView>,
+    /// 使えない定義ファイル（読めない・検証に通らない）。理由つき。
+    pub problems: Vec<OrgGraphProblemView>,
+    pub created: Vec<String>,
+    /// turn 上限の既定と、指定できる最大。
+    pub default_max_turns: u32,
+    pub max_turns_limit: u32,
+    /// 1 turn あたりの土台のトークン数（目安）。
+    pub tokens_per_turn_hint: u32,
+}
+
 // ───────────────────────────── 引数 ─────────────────────────────
 
 /// 開始。実行するコマンド（利用者の「開始」の操作）。並列数は未指定なら既定（同時書込み2・全体3）。
@@ -435,6 +694,58 @@ pub struct StartOrgArgs {
     /// 1〜4（範囲外は拒否）。
     pub max_writers: Option<u32>,
     pub max_total: Option<u32>,
+    /// テンプレート（グラフ定義）のID。None は従来の計画経路（`standard` と同じ）。
+    #[serde(default)]
+    pub graph_id: Option<String>,
+    /// turn 上限（None は既定の30。1〜200）。
+    #[serde(default)]
+    pub max_turns: Option<u32>,
+}
+
+/// 差し戻して再計画する。理由は Planner に利用者の要望として渡る（任意）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgReplanArgs {
+    pub workflow_id: String,
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+/// gate の判断。選択肢の定義が理由を必須にしているときは、理由が要る。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgGateDecideArgs {
+    pub workflow_id: String,
+    pub task: String,
+    pub choice: String,
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+/// 周回上限に達した工程の「理由を書いてもう1周」。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgExtraRoundArgs {
+    pub workflow_id: String,
+    /// 上限に達して止まっている戻り先の工程のタスク。
+    pub task: String,
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgOpenGraphFileArgs {
+    /// `OrgGraphTemplateView.file`／`OrgGraphProblemView.file`（フォルダ内のファイル名。パス区切りは受けない）。
+    pub file: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

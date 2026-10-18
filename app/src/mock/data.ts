@@ -197,6 +197,9 @@ export const SCENARIOS: Array<[string, string]> = [
   ["orgRun", "組織実行（再起動後・要対応あり）"],
   ["orgPlan", "組織実行（計画の承認待ち）"],
   ["orgDone", "組織実行（完了）"],
+  ["orgGraph", "組織実行（グラフ・2周目の検証中）"],
+  ["orgGate", "組織実行（グラフ・判断待ちの gate）"],
+  ["orgLimit", "組織実行（グラフ・周回の上限）"],
 ];
 
 const T = (id: string) => ({ backend: "codex" as const, source: SOURCE, requestId: id });

@@ -7,12 +7,14 @@
 //! - 画面が見ていたワークフローと違うものへの操作は受けない（`org_check_workflow`）。
 //! - 承認要求への応答・resume・中断を行わない。再送の入力はエンジンにない（受理されなかった送信は「再開」で新しい試行として送る）。
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
+use org_engine::graph::SlotId;
 use org_engine::{OrgInput, OrgStore, TaskId, TaskStatus, WorkflowId};
 use tokio::sync::mpsc::UnboundedSender;
 
-use super::driver::DriverMsg;
+use super::driver::{DriverMsg, GraphSnapshot, TaskSnapshot};
 use super::ports::RuntimeRead;
 use super::view::{self, ViewInput, STALL_MINUTES_MAX, STALL_MINUTES_MIN};
 use super::{OrgResumeReport, OrgStartArgs};
@@ -33,6 +35,32 @@ pub fn validate_stall_minutes(minutes: u32) -> Result<u32, IpcError> {
     } else {
         Err(err(IpcErrorCode::InvalidArgs, format!("停滞とみなす時間は {STALL_MINUTES_MIN}〜{STALL_MINUTES_MAX} 分で指定してください")))
     }
+}
+
+/// 利用者が書いた理由。空白だけなら書かれていないものとして扱う（None）。
+fn clean_note(note: Option<String>) -> Option<String> {
+    note.map(|n| n.trim().to_string()).filter(|n| !n.is_empty())
+}
+
+/// gate の判断を受け付けられるか。工程が gate で、確認済みで判断を待っていて、選択肢にあり、理由が必須なら書かれていること。
+/// エンジンも同じ確認をする（ここは、受け付けられないものを入力に変えないための事前確認）。
+pub fn check_gate_decision(gs: &GraphSnapshot, task: &TaskSnapshot, choice: &str, note: Option<&str>) -> Result<(), String> {
+    let Some(node) = task.node.as_ref() else { return Err("グラフの工程ではありません".to_string()) };
+    let waiting = task.status == TaskStatus::Blocked(org_engine::BlockedReason::AwaitingApproval) && task.confirm == org_engine::ConfirmState::Confirmed;
+    if !waiting {
+        return Err("この工程は、判断を待っていません".to_string());
+    }
+    view::gate_check(&gs.graph, node, choice, note)
+}
+
+/// 「もう1周」を受け付けられるか。戻り先の工程が周回の上限で止まっていて、確認済みであること。
+pub fn check_extra_round(gs: &GraphSnapshot, task: &TaskSnapshot) -> Result<(), String> {
+    let Some(node) = task.node.as_ref() else { return Err("グラフの工程ではありません".to_string()) };
+    let waiting = task.status == TaskStatus::Blocked(org_engine::BlockedReason::RoundLimit) && task.confirm == org_engine::ConfirmState::Confirmed;
+    if !waiting || view::round_limit_of(gs, node).is_none() {
+        return Err("周回の上限に達して止まっている工程ではありません".to_string());
+    }
+    Ok(())
 }
 
 /// 候補のチャットを選べるか。AgentDockが作った（hosted）チャットで、組織の記録がまだないものだけ。
@@ -67,13 +95,26 @@ impl Host {
             .and_then(|root| FileOrgStore::new(workflow_dir(&root, &snapshot.workflow.0)).read_usage().ok())
             .unwrap_or_default();
         let dispatching = self.org_rt.grants.is_active(&snapshot.workflow);
-        let workflow = view::workflow_view(&ViewInput { snapshot: &snapshot, notices: &notices, usage_rows: &usage_rows, dispatching });
+        // グラフの判定・gate の表示に使うスロットの値（保存ファイルの読取りだけ。読めなかった版は入れず、画面で「未取得」になる）。
+        let slots: HashMap<(SlotId, u32), serde_json::Value> = match (&snapshot.graph, root.as_deref()) {
+            (Some(gs), Some(root)) => {
+                let store = FileOrgStore::new(workflow_dir(root, &snapshot.workflow.0));
+                view::graph_slot_needs(gs).into_iter().filter_map(|(s, v)| store.read_slot(&s, v).ok().flatten().map(|val| ((s, v), val))).collect()
+            }
+            _ => HashMap::new(),
+        };
+        let workflow = view::workflow_view(&ViewInput { snapshot: &snapshot, notices: &notices, usage_rows: &usage_rows, slots: &slots, dispatching });
         OrgSnapshotView { workflow: Some(workflow), stall_minutes, history }
     }
 
     /// 直近に読んだ役割定義（読込み前は `loaded=false`）。
     pub fn org_roles_view(&self) -> OrgRolesView {
         view::roles_view(self.org_roles_report().as_ref())
+    }
+
+    /// 直近に読んだグラフ定義（読込み前は `loaded=false`）。読取りだけ。
+    pub fn org_graphs_view(&self) -> OrgGraphsView {
+        view::graphs_view(self.org_graphs_report().as_ref())
     }
 
     /// 画面が見ていたワークフローが、動いているものと同じか確かめる。
@@ -106,7 +147,8 @@ impl Host {
                 Some((w, t))
             }
         };
-        let wf = self.org_start(OrgStartArgs { request: args.request, repo: args.repo, parallelism, graph: None, max_turns: None }, confirmed).await?;
+        let graph = args.graph_id.map(|g| g.trim().to_string()).filter(|g| !g.is_empty());
+        let wf = self.org_start(OrgStartArgs { request: args.request, repo: args.repo, parallelism, graph, max_turns: args.max_turns }, confirmed).await?;
         Ok(StartOrgResult { workflow_id: wf.0 })
     }
 
@@ -136,10 +178,39 @@ impl Host {
     }
 
     /// 差し戻して再計画する。計画の承認待ちのときだけ（エンジンが、作業が始まっていれば拒否する）。
-    pub fn org_replan(&self, args: OrgWorkflowArgs, _confirmed: &UserConfirmed) -> Result<(), IpcError> {
+    /// 理由（任意）は Planner に利用者の要望として渡る。
+    pub fn org_replan(&self, args: OrgReplanArgs, _confirmed: &UserConfirmed) -> Result<(), IpcError> {
         let (_, tx) = self.org_check_workflow(&args.workflow_id)?;
         self.require_plan_pending()?;
-        let _ = tx.send(DriverMsg::Input(OrgInput::UserReplan { note: None }));
+        let _ = tx.send(DriverMsg::Input(OrgInput::UserReplan { note: clean_note(args.note) }));
+        Ok(())
+    }
+
+    /// 状態の写しのグラフと、指定したタスク（グラフで動くワークフローのときだけ）。
+    fn org_graph_task(&self, task: &str) -> Result<(GraphSnapshot, TaskSnapshot), IpcError> {
+        let view = self.org_rt.view.lock().unwrap();
+        let Some(v) = view.as_ref() else { return Err(err(IpcErrorCode::NotFound, "動いている組織実行がありません")) };
+        let Some(gs) = v.graph.clone() else { return Err(err(IpcErrorCode::InvalidArgs, "このワークフローはグラフで動いていません")) };
+        let t = v.tasks.iter().find(|t| t.id.0 == task).cloned().ok_or_else(|| err(IpcErrorCode::NotFound, format!("タスク {task} が見つかりません")))?;
+        Ok((gs, t))
+    }
+
+    /// gate の判断。判断を待っている gate だけ（エンジンへ渡すのは、受け付けられる入力だけ）。
+    pub fn org_gate_decide(&self, args: OrgGateDecideArgs, _confirmed: &UserConfirmed) -> Result<(), IpcError> {
+        let (_, tx) = self.org_check_workflow(&args.workflow_id)?;
+        let (gs, t) = self.org_graph_task(&args.task)?;
+        let note = clean_note(args.note);
+        check_gate_decision(&gs, &t, &args.choice, note.as_deref()).map_err(|m| err(IpcErrorCode::InvalidArgs, m))?;
+        let _ = tx.send(DriverMsg::Input(OrgInput::UserGate { task: t.id, choice: args.choice, note }));
+        Ok(())
+    }
+
+    /// 周回の上限で止まっている工程の「理由を書いてもう1周」。その辺の許容回数を1つだけ増やす。
+    pub fn org_extra_round(&self, args: OrgExtraRoundArgs, _confirmed: &UserConfirmed) -> Result<(), IpcError> {
+        let (_, tx) = self.org_check_workflow(&args.workflow_id)?;
+        let (gs, t) = self.org_graph_task(&args.task)?;
+        check_extra_round(&gs, &t).map_err(|m| err(IpcErrorCode::InvalidArgs, m))?;
+        let _ = tx.send(DriverMsg::Input(OrgInput::UserExtraRound { task: t.id, note: clean_note(args.note) }));
         Ok(())
     }
 
@@ -292,6 +363,21 @@ impl Host {
         Ok(path)
     }
 
+    /// グラフ定義ファイルの絶対パス（開く操作の対象）。読み込んだテンプレートか問題として報告したファイル名だけを受ける。
+    pub fn org_graph_file_path(&self, args: &OrgOpenGraphFileArgs) -> Result<std::path::PathBuf, IpcError> {
+        if !view::is_plain_role_file_name(&args.file) {
+            return Err(err(IpcErrorCode::InvalidArgs, "グラフ定義ファイルの名前が正しくありません"));
+        }
+        let Some(root) = self.persist.store().map(|s| s.root().to_path_buf()) else {
+            return Err(err(IpcErrorCode::Io, "保存先が使えないため、グラフ定義ファイルを開けません"));
+        };
+        let path = super::graphs::graphs_dir(&root).join(&args.file);
+        if !path.is_file() {
+            return Err(err(IpcErrorCode::NotFound, format!("グラフ定義ファイルが見つかりません: {}", args.file)));
+        }
+        Ok(path)
+    }
+
     /// 役割の有効化（権限を広げる定義）。確認画面に出した指紋が今の権限と一致するときだけ受ける。
     pub fn org_enable_role_checked(&self, args: OrgEnableRoleArgs, confirmed: UserConfirmed) -> Result<OrgRolesView, IpcError> {
         let current = self
@@ -312,6 +398,12 @@ impl Host {
     pub fn org_reload_roles_view(&self) -> Result<OrgRolesView, IpcError> {
         let report = self.org_reload_roles()?;
         Ok(view::roles_view(Some(&report)))
+    }
+
+    /// 読み直したグラフ定義（動いているワークフローがあれば拒否）。
+    pub fn org_reload_graphs_view(&self) -> Result<OrgGraphsView, IpcError> {
+        let report = self.org_reload_graphs()?;
+        Ok(view::graphs_view(Some(&report)))
     }
 
     /// 手動に切り替える（保存できたときだけ解放する）。
@@ -349,6 +441,7 @@ mod tests {
             chat_cwd: None,
             retryable: false,
             never_sent: false,
+            node: None,
         }
     }
 
@@ -366,6 +459,7 @@ mod tests {
             limits: Limits::default(),
             turns_used: 0,
             auto_replans_used: 0,
+            graph: None,
         });
         (host, rx)
     }

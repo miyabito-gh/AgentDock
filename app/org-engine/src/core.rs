@@ -398,6 +398,11 @@ impl OrgCore {
         Ok(())
     }
 
+    /// The graph this engine interprets (read-only; the host shows it on screen).
+    pub fn graph(&self) -> Option<&CompiledGraph> {
+        self.graph.as_ref()
+    }
+
     /// Whether this workflow runs a graph from the graph engine (otherwise it is the built-in `standard`).
     pub fn is_graph_mode(&self) -> bool {
         self.state.as_ref().is_some_and(|s| s.graph().is_some())

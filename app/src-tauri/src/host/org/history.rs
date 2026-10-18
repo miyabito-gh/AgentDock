@@ -34,9 +34,9 @@ fn stamp_of(dir: &Path) -> Stamp {
 fn read_one(dir: &Path) -> Option<OrgWorkflowView> {
     let store = ReadOnlyOrgStore::new(dir.to_path_buf());
     let (state, _report) = restore(&store).ok()?;
-    let snapshot = snapshot_of(&state);
+    let snapshot = snapshot_of(&state, None);
     let usage_rows = store.read_usage().unwrap_or_default();
-    let mut v = workflow_view(&ViewInput { snapshot: &snapshot, notices: &[], usage_rows: &usage_rows, dispatching: false });
+    let mut v = workflow_view(&ViewInput { snapshot: &snapshot, notices: &[], usage_rows: &usage_rows, slots: &Default::default(), dispatching: false });
     v.readonly = true;
     Some(v)
 }

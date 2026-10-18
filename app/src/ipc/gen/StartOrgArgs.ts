@@ -7,4 +7,12 @@ export type StartOrgArgs = { request: string, repo: string,
 /**
  * 1〜4（範囲外は拒否）。
  */
-maxWriters: number | null, maxTotal: number | null, };
+maxWriters: number | null, maxTotal: number | null, 
+/**
+ * テンプレート（グラフ定義）のID。None は従来の計画経路（`standard` と同じ）。
+ */
+graphId: string | null, 
+/**
+ * turn 上限（None は既定の30。1〜200）。
+ */
+maxTurns: number | null, };
