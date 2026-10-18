@@ -38,6 +38,8 @@ pub fn status_view(s: TaskStatus) -> OrgStatusView {
                 EBlocked::ManualStop => (OrgReason::ManualStop, "止まっています（中断されました）"),
                 EBlocked::Limit => (OrgReason::Limit, "止まっています（上限）"),
                 EBlocked::NeedsAttention => (OrgReason::NeedsAttention, "止まっています（要対応）"),
+                // 専用の理由はG-A5で追加する（IPCの型を変えないため、今は要対応と同じ種類で文言だけ分ける）。
+                EBlocked::RoundLimit => (OrgReason::NeedsAttention, "止まっています（周回の上限）"),
             };
             (P::Blocked, Some(reason), label, "pause")
         }

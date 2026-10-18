@@ -354,6 +354,14 @@ impl<P: AgentRuntime + RuntimeRead + Workspace + 'static> OrgDriver<P> {
                 }
                 None
             }
+            // G-A4で実装する（スロット値の書込み）。実装までは、書けないものとして以後の副作用を止める。
+            OrgAction::PutSlot { .. } => {
+                crate::diag::log("org", "PutSlot is not implemented yet; stopping");
+                self.persist_failed = true;
+                *stop_effects = true;
+                self.notice(OrgHostNotice::PersistFailed);
+                None
+            }
             OrgAction::Notify(n) => {
                 self.notice(OrgHostNotice::Engine(n));
                 None

@@ -48,6 +48,10 @@ impl OrgCore {
     /// The `Committed` arm of the commit result: the worker goes under review, or completes without a reviewer.
     pub(crate) fn committed(&mut self, id: &TaskId, commit: String) {
         self.rec(OrgEventKind::Committed { task: id.clone(), commit });
+        if self.is_graph_task(id) {
+            self.graph_committed(id);
+            return;
+        }
         let has_reviewer = self.s().tasks().iter().any(|t| t.role.0 == ROLE_REVIEWER && t.deps.contains(id));
         let to = if has_reviewer { TaskStatus::Reviewing } else { TaskStatus::Completed };
         if self.set_status(id, to, Cause::Engine) && to == TaskStatus::Completed {
@@ -107,6 +111,9 @@ impl OrgCore {
     }
 
     pub(crate) fn parse_output(&self, id: &TaskId, text: &str) -> Result<Output, String> {
+        if self.is_graph_task(id) {
+            return self.graph_parse_output(id, text);
+        }
         match self.kind_of(id) {
             Some(NodeKind::Planner) => {
                 let taken: HashSet<TaskId> = self.s().tasks().iter().map(|t| t.id.clone()).collect();
@@ -158,6 +165,7 @@ impl OrgCore {
                 self.flow_set(id.clone(), Flow::WantCommit);
             }
             Output::Verdict(v) => self.complete_verdict(id, v),
+            Output::Slot { slot, value } => self.graph_complete_slot(id, slot, value),
         }
     }
 
@@ -198,7 +206,10 @@ impl OrgCore {
     }
 
     pub(crate) fn dep_ok(dep: &Task, dependent: &Task) -> bool {
-        if dependent.role.0 == ROLE_REVIEWER {
+        if dependent.node.is_some() {
+            // Graph node: the parent has produced (and fixed) its output, whether or not a loop still holds it open.
+            dep.confirm() == ConfirmState::Confirmed && matches!(dep.status(), TaskStatus::Completed | TaskStatus::Reviewing)
+        } else if dependent.role.0 == ROLE_REVIEWER {
             // A reviewer may start once the reviewed task is under review (committed).
             dep.confirm() == ConfirmState::Confirmed
                 && (dep.status() == TaskStatus::Completed || (dep.status() == TaskStatus::Reviewing && dep.commit().is_some()))
@@ -208,6 +219,10 @@ impl OrgCore {
     }
 
     pub(crate) fn launch(&mut self, id: &TaskId) {
+        if self.is_graph_task(id) {
+            self.graph_launch(id);
+            return;
+        }
         let Some(t) = self.task(id) else { return };
         let Some(kind) = node_kind(&t.role) else { return };
         let (has_chat, has_cwd) = (t.chat().is_some(), t.chat_cwd().is_some());
@@ -262,6 +277,9 @@ impl OrgCore {
 
     /// Turn kind and text for a ready task.
     pub(crate) fn ready_turn(&self, id: &TaskId) -> Option<(TurnKind, String)> {
+        if self.is_graph_task(id) {
+            return self.graph_ready_turn(id);
+        }
         let t = self.task(id)?;
         let s = self.s();
         match node_kind(&t.role)? {
@@ -293,6 +311,9 @@ impl OrgCore {
     }
 
     pub(crate) fn schema_for(&self, id: &TaskId) -> Value {
+        if self.is_graph_task(id) {
+            return self.graph_schema_for(id);
+        }
         match self.kind_of(id) {
             Some(NodeKind::Planner) => schemas::planner_plan_schema(),
             Some(NodeKind::PlannedTasks(PlannedRole::Reviewer)) => schemas::reviewer_verdict_schema(),

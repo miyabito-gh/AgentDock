@@ -26,6 +26,9 @@ id_type!(RoleId);
 id_type!(ChatRef);
 id_type!(TurnRef);
 id_type!(AttemptRef);
+id_type!(NoteId);
+
+use crate::graph::def::NodeId;
 
 /// How an observed turn ended (live observation).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -61,6 +64,8 @@ pub enum BlockedReason {
     ManualStop,
     Limit,
     NeedsAttention,
+    /// A feedback edge ran out of rounds (`onExhausted: ask`); the user decides (DESIGN_ORG_GRAPH 7.3).
+    RoundLimit,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -180,6 +185,15 @@ pub struct Task {
     /// A format-fix request was sent for the current work turn (only one is allowed).
     #[serde(default)]
     pub(crate) format_fix_used: bool,
+    /// The graph node this task runs (None = a plannedTasks item, or template-1 data without a graph).
+    #[serde(default)]
+    pub(crate) node: Option<NodeId>,
+    /// Event seq of the latest `SlotWritten` of this task.
+    #[serde(default)]
+    pub(crate) last_output_seq: Option<u64>,
+    /// Event seq of the latest `EdgeTaken` out of this task (the edge decision for its latest output).
+    #[serde(default)]
+    pub(crate) edge_seq: Option<u64>,
 }
 
 impl Task {
@@ -202,6 +216,9 @@ impl Task {
             observed: None,
             commit: None,
             format_fix_used: false,
+            node: None,
+            last_output_seq: None,
+            edge_seq: None,
         }
     }
     pub fn status(&self) -> TaskStatus {
@@ -237,6 +254,19 @@ impl Task {
     pub fn format_fix_used(&self) -> bool {
         self.format_fix_used
     }
+    pub fn node(&self) -> Option<&NodeId> {
+        self.node.as_ref()
+    }
+    pub fn last_output_seq(&self) -> Option<u64> {
+        self.last_output_seq
+    }
+    pub fn edge_seq(&self) -> Option<u64> {
+        self.edge_seq
+    }
+    /// The latest event seq at which this task produced something (an output or an edge decision).
+    pub(crate) fn seen_seq(&self) -> u64 {
+        self.last_output_seq.unwrap_or(0).max(self.edge_seq.unwrap_or(0))
+    }
     pub fn attempts(&self) -> u32 {
         1 + self.rework_count
     }
@@ -245,8 +275,20 @@ impl Task {
     pub fn is_idle_reviewing(&self) -> bool {
         self.status == TaskStatus::Reviewing
             && self.confirm == ConfirmState::Confirmed
-            && self.observed.as_ref().is_some_and(|o| Some(&o.turn) == self.accepted_turn.as_ref())
+            && (self.observed.as_ref().is_some_and(|o| Some(&o.turn) == self.accepted_turn.as_ref())
+                // A graph node that never sent a turn (router, gate) has nothing running on the Codex side.
+                || (self.node.is_some() && self.last_attempt.is_none()))
     }
+}
+
+/// Where a user's note (reason, addition) applies (DESIGN_ORG_GRAPH 7.6, 10).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum NoteScope {
+    /// The next turn of this node.
+    Node { node: NodeId },
+    /// Every turn sent from now on.
+    AllFollowing,
 }
 
 /// Limits. Defaults follow DESIGN_ORG section 0.2 (Q4, Q5, Q11) and 4.3/4.7.

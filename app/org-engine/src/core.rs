@@ -9,12 +9,14 @@
 //! Flow: planner task -> plan validation -> (approval) -> worker tasks (own worktree, commit)
 //! -> reviewer tasks (detached at the commit) -> verdict. Nothing here turns termination,
 //! disconnection or an unknown send outcome into `cancelled` / `failed`.
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::graph::{CompiledGraph, SlotId};
 use crate::limits::TurnKind;
+use crate::outschema::{builtin_schemas, OutSchema};
 use crate::persist::{HaltReason, OrgEvent, OrgEventKind, WorkflowState, SCHEMA_VERSION};
 use crate::policy::{ConfirmReason, Decision};
 use crate::prompt;
@@ -133,6 +135,13 @@ impl OrgNotice {
 #[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum OrgInput {
     Start { workflow: WorkflowId, request: String, repo: String, limits: Limits },
+    /// Start a workflow that runs the graph given to `OrgCore::set_graph` (DESIGN_ORG_GRAPH 7). The start is the
+    /// user's operation itself; nothing is sent before the grant.
+    StartGraph { workflow: WorkflowId, request: String, repo: String, limits: Limits, roles_fingerprint: String },
+    /// The user decided a gate. `note` is the user's reason (required by choices with `needsNote`).
+    UserGate { task: TaskId, choice: String, note: Option<String> },
+    /// The user adds one round to a feedback edge whose rounds ran out (`blocked{RoundLimit}`), with an optional reason.
+    UserExtraRound { task: TaskId, note: Option<String> },
     /// The host holds (or no longer holds) the send grant. Without it the engine produces no
     /// create / send / workspace-write action. A restored engine starts without it.
     Grant { granted: bool },
@@ -182,6 +191,9 @@ pub enum OrgInput {
 pub enum OrgAction {
     /// Append to events.jsonl first. If the append fails, do not carry out later actions.
     Persist(OrgEvent),
+    /// Write a slot value (`slots\<slot>.<version>.json`) just before the `Persist(SlotWritten)` that follows it.
+    /// Not an outside effect (a stray file is harmless). If the write fails, the host stops later actions.
+    PutSlot { slot: SlotId, version: u32, value: Value },
     CreateRoleChat { task: TaskId, spec: RoleChatSpec },
     CheckSandbox { cwd: String },
     Send { task: TaskId, chat: ChatRef, attempt: AttemptRef, client_message_id: String, text: String, output_schema: Value },
@@ -227,7 +239,7 @@ pub(crate) struct RoleCfg {
     model: Option<String>,
     effort: Option<String>,
     /// Role instructions from the definition file (put before each work prompt).
-    instructions: String,
+    pub(crate) instructions: String,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -251,6 +263,8 @@ pub(crate) enum Output {
     Plan { tasks: Vec<PlanTask>, decision: Decision },
     Report(WorkerReport),
     Verdict(ReviewerVerdict),
+    /// A graph node's output, already checked against its slot's schema.
+    Slot { slot: SlotId, value: Value },
 }
 
 #[derive(Clone, Debug)]
@@ -300,6 +314,14 @@ pub struct OrgCore {
     pub(crate) rechat_cwd: HashMap<TaskId, String>,
     pub(crate) done_notified: bool,
     pub(crate) limit_notified: bool,
+    /// The graph this workflow runs (None = the built-in `standard`, handled by `planned.rs`).
+    pub(crate) graph: Option<CompiledGraph>,
+    /// Output schemas by id (built-in ones; user schemas are G-B).
+    pub(crate) schemas: BTreeMap<String, OutSchema>,
+    /// Slot values by (slot, version). A version that could not be read after a restart is absent ("not obtained").
+    pub(crate) slot_values: HashMap<(SlotId, u32), Value>,
+    /// Tasks whose edge could not be chosen (already reported; asked again only after a restart).
+    pub(crate) edge_stuck: HashSet<TaskId>,
     pub(crate) out: Vec<OrgAction>,
     /// Bumped whenever a flow changes, so `drive` knows whether another pass can make progress.
     pub(crate) gen: u64,
@@ -329,16 +351,48 @@ impl OrgCore {
             rechat_cwd: HashMap::new(),
             done_notified: false,
             limit_notified: false,
+            graph: None,
+            schemas: builtin_schemas(),
+            slot_values: HashMap::new(),
+            edge_stuck: HashSet::new(),
             out: Vec::new(),
             gen: 0,
         }
     }
 
     /// An engine for a restored workflow (after `recover_on_restart`). No grant, no live chats.
+    /// A workflow without a recorded graph runs as the built-in `standard`.
     pub fn restored(state: WorkflowState, now_ms: i64) -> Self {
         let mut c = Self::new(now_ms);
         c.state = Some(state);
         c
+    }
+
+    /// Like `restored`, with the graph copy and the slot values the host could read. A graph whose fingerprint
+    /// differs from the recorded one is not used (nothing is interpreted with a different definition).
+    pub fn restored_with(state: WorkflowState, graph: Option<CompiledGraph>, slots: HashMap<(SlotId, u32), Value>, now_ms: i64) -> Self {
+        let mut c = Self::restored(state, now_ms);
+        if let Some(g) = graph {
+            let _ = c.set_graph(g);
+        }
+        c.slot_values = slots;
+        c
+    }
+
+    /// The graph to run. For a workflow that already recorded its graph the fingerprint must match.
+    pub fn set_graph(&mut self, graph: CompiledGraph) -> Result<(), String> {
+        if let Some(bound) = self.state.as_ref().and_then(|s| s.graph()) {
+            if bound.fingerprint != graph.fingerprint {
+                return Err("開始時のグラフ定義と指紋が一致しません".into());
+            }
+        }
+        self.graph = Some(graph);
+        Ok(())
+    }
+
+    /// Whether this workflow runs a graph from the graph engine (otherwise it is the built-in `standard`).
+    pub fn is_graph_mode(&self) -> bool {
+        self.state.as_ref().is_some_and(|s| s.graph().is_some())
     }
 
     /// Use the loaded role definitions (P-ORG-8). Roles that are not enabled stay in the table, so a
@@ -379,7 +433,7 @@ impl OrgCore {
 
     pub fn handle(&mut self, input: OrgInput) -> Vec<OrgAction> {
         self.out.clear();
-        if self.state.is_none() && !matches!(input, OrgInput::Start { .. } | OrgInput::Tick { .. } | OrgInput::Grant { .. }) {
+        if self.state.is_none() && !matches!(input, OrgInput::Start { .. } | OrgInput::StartGraph { .. } | OrgInput::Tick { .. } | OrgInput::Grant { .. }) {
             return Vec::new();
         }
         self.process(input);
@@ -487,6 +541,9 @@ impl OrgCore {
                 self.live.insert(chat, live);
             }
             OrgInput::Start { workflow, request, repo, limits } => self.start(workflow, request, repo, limits),
+            OrgInput::StartGraph { workflow, request, repo, limits, roles_fingerprint } => self.start_graph(workflow, request, repo, limits, roles_fingerprint),
+            OrgInput::UserGate { task, choice, note } => self.user_gate(&task, &choice, note),
+            OrgInput::UserExtraRound { task, note } => self.user_extra_round(&task, note),
             OrgInput::UserPause => self.halt_if_none(HaltReason::User),
             OrgInput::Shutdown => {
                 // Nothing to stop once every task is finished.
@@ -500,6 +557,9 @@ impl OrgCore {
                 if self.s().halt() == Some(HaltReason::AwaitingPlanApproval) {
                     self.clear_halt();
                 }
+            }
+            OrgInput::UserReplan if self.is_graph_mode() => {
+                self.notify(OrgNotice::Refused { reason: "このグラフでは計画の作り直しはできません（差し戻しの辺で戻ります）".into() });
             }
             OrgInput::UserReplan => self.user_replan(),
             OrgInput::UserCancelTask { task } => self.user_cancel(&task),
@@ -958,6 +1018,7 @@ impl OrgCore {
             let before = (self.out.len(), self.gen);
             self.promote();
             self.advance_flows();
+            self.graph_pass();
             self.dispatch();
             if (self.out.len(), self.gen) == before {
                 break;
@@ -968,10 +1029,13 @@ impl OrgCore {
 
     pub(crate) fn promote(&mut self) {
         let mut ids = promote_ready_with(self.s().tasks(), &Self::dep_ok);
+        // Routers and gates are not sent to a model: the graph pass moves them (graphrun.rs).
+        ids.retain(|id| !self.is_non_agent_task(id));
         // A reviewer sent back to wait becomes ready again when its target is under review again.
         let by_id: HashMap<&TaskId, &Task> = self.s().tasks().iter().map(|t| (&t.id, t)).collect();
         for t in self.s().tasks() {
-            if t.role.0 == ROLE_REVIEWER
+            if t.node.is_none()
+                && t.role.0 == ROLE_REVIEWER
                 && t.status() == TaskStatus::Rework
                 && t.confirm() == ConfirmState::Confirmed
                 && t.deps.iter().all(|d| by_id.get(d).is_some_and(|dep| Self::dep_ok(dep, t)))
@@ -1110,6 +1174,10 @@ impl OrgCore {
     /// The role's own instructions (definition file) go before the work prompt. Without role definitions
     /// loaded (tests, defaults) the prompt is unchanged.
     pub(crate) fn with_instructions(&self, id: &TaskId, text: String) -> String {
+        // A graph node's prompt already contains the role's instructions in its fixed frame.
+        if self.task(id).is_some_and(|t| t.node.is_some()) {
+            return text;
+        }
         match self.task(id).and_then(|t| self.role_cfg.get(&t.role)) {
             Some(c) if !c.instructions.trim().is_empty() => format!("【この役割の指示】\n{}\n\n{}", c.instructions.trim(), text),
             _ => text,
@@ -1164,8 +1232,12 @@ impl OrgCore {
         }
         let s = self.s();
         let all_done = s.halt().is_none()
-            && s.tasks().iter().any(|t| t.role.0 != ROLE_PLANNER)
-            && s.tasks().iter().all(|t| t.status() == TaskStatus::Completed && t.confirm() == ConfirmState::Confirmed);
+            && if s.graph().is_some() {
+                self.graph_done()
+            } else {
+                s.tasks().iter().any(|t| t.role.0 != ROLE_PLANNER)
+                    && s.tasks().iter().all(|t| t.status() == TaskStatus::Completed && t.confirm() == ConfirmState::Confirmed)
+            };
         if all_done {
             self.done_notified = true;
             self.notify(OrgNotice::WorkflowCompleted);
