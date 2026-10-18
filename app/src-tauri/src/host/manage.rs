@@ -323,6 +323,7 @@ impl Host {
         let (worktree_path, worktree_removed) = self.chat_worktree_path(&chat).unwrap_or((None, false));
         // 引き継ぎ元の以前の thread の本数。削除は今の thread だけで、以前の thread には触れない。
         let previous = self.read(|d| d.locals.get(&chat).and_then(|l| l.conversation.as_ref()).map(|c| c.threads.len()).unwrap_or(0)) as u32;
+        let blocked_reason = self.workspace_in_use_message(&chat);
         Ok(DeletePreview {
             chat,
             deletes_backend_history: origin != ChatOrigin::External,
@@ -334,6 +335,7 @@ impl Host {
             worktree_path,
             worktree_removed,
             previous_threads: previous,
+            blocked_reason,
         })
     }
 
@@ -341,6 +343,14 @@ impl Host {
     pub async fn delete_chat(self: &Arc<Self>, args: ChatArgs, confirmed: &UserConfirmed) -> Result<DeleteOutcome, IpcError> {
         self.check_not_org_owned(&args.chat)?;
         let chat = args.chat;
+        // 作業領域を別の thread（引き継ぎ先）が使っているときは削除しない（領域ごと消えるため）。引き継ぎ中の元も削除しない。
+        // 引き継ぎのガードを削除の間じゅう持つ（引き継ぎ側が先なら削除を断り、削除が先なら引き継ぎは「実行中」で始まらない）。
+        let Some(_handoff_guard) = self.handoff_inflight.try_begin(&chat) else {
+            return Err(err(IpcErrorCode::Blocked, "引き継ぎを実行中のため、削除できません。結果が出てからお試しください"));
+        };
+        if let Some(m) = self.workspace_in_use_message(&chat) {
+            return Err(err(IpcErrorCode::Blocked, m));
+        }
         if !self.manage_rt.deleting.lock().unwrap().insert(chat.clone()) {
             return Err(err(IpcErrorCode::Rejected, "このチャットの削除を実行中です"));
         }
@@ -466,6 +476,10 @@ impl Host {
                 Err(e) => failed.push(format!("履歴の削除に失敗しました（{e}）")),
             }
         }
+        // 領域を消す直前に、作業領域を使う thread がないか確かめ直す（確認の後に引き継ぎ先ができた場合にデータを失わない）。
+        if failed.is_empty() {
+            self.check_area_removable(chat)?;
+        }
         if failed.is_empty() {
             let host = self.clone();
             let c = chat.clone();
@@ -496,6 +510,14 @@ impl Host {
                 Ok(DeleteOutcome::Partial { done, failed })
             }
             pending @ DeleteOutcome::Pending { .. } => Ok(pending),
+        }
+    }
+
+    /// 領域を消す直前の確認。作業領域を別の thread が使っていれば中止する（領域は消さない）。
+    pub(super) fn check_area_removable(&self, chat: &ChatKey) -> Result<(), IpcError> {
+        match self.workspace_in_use_message(chat) {
+            Some(m) => Err(blocked(BlockedReason::ChatBusy, m)),
+            None => Ok(()),
         }
     }
 

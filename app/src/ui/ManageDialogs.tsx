@@ -79,7 +79,8 @@ export function DeleteBody({ chat, d }: { chat: Chat | undefined; d: DeleteProps
             {pv.worktreeRemoved ? <li>このチャットが使っていた worktree は既に削除されています（ブランチは残ります）</li> : null}
             {pv.worktreePath ? <li>このチャットが使っている worktree（<span className="mono">{pv.worktreePath}</span>）とそのブランチ（worktree は残ります。メニュー「作業 → worktree を管理」から削除できます）</li> : null}
           </ul>
-          {pv.requiresStop ? (
+          {pv.blockedReason ? <p className="why" role="alert"><b>削除できません。</b>{pv.blockedReason}</p> : null}
+          {pv.requiresStop && !pv.blockedReason ? (
             <p style={{ color: "var(--fail)" }}>作業中、または停止を確認できていません。作業を中断し、停止を確認してから削除します。停止を確認できなければ、削除を保留します（会話・添付・成果物は残り、送信は止まります）。</p>
           ) : null}
         </>

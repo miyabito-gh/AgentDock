@@ -97,6 +97,7 @@ pub fn apply_chain_resolution(chats: &mut [RestoredChat], now: UnixMillis) -> Ch
                 chat: c.local.chat.clone()?,
                 segments: c.local.conversation.as_ref().map(|r| r.threads.iter().map(|t| t.chat.clone()).collect()).unwrap_or_default(),
                 superseded_by: c.local.superseded_by.as_ref().map(|s| s.by.clone()),
+                replaces: c.local.conversation.as_ref().and_then(|r| r.replaces.clone()),
             })
         })
         .collect();
@@ -246,6 +247,7 @@ impl Host {
                         seed: None,
                         purpose_delivered_rev: None,
                         compacted_since_delivery: false,
+                        replaces: None,
                     });
                     rec.purpose = purpose;
                     let out = view(rec);
@@ -274,6 +276,7 @@ mod tests {
             seed: None,
             purpose_delivered_rev: delivered,
             compacted_since_delivery: false,
+            replaces: None,
         }
     }
     const NOW: UnixMillis = UnixMillis(9);

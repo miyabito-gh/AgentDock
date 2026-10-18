@@ -136,6 +136,9 @@ pub struct ConversationRecord {
     /// 届けた後に、この thread で文脈の圧縮を観測したか（真なら次の手動送信で目的メモを再び添える）。
     #[serde(default)]
     pub compacted_since_delivery: bool,
+    /// 空の先頭のやり直しで置き換えた、空の先頭（N）。起動時の照合が、N に印を書く前に落ちた状態を直すのに使う。通常は None。
+    #[serde(default)]
+    pub replaces: Option<ChatKey>,
 }
 
 /// 目的メモ（利用者が書く固定文）。
@@ -475,6 +478,7 @@ mod tests {
             }),
             purpose_delivered_rev: Some(2),
             compacted_since_delivery: true,
+            replaces: Some(key()),
         });
         f.superseded_by = Some(Superseded { by: key(), at: UnixMillis(7) });
         f.context_usage = Some(ContextUsageSample { used: 12_345, window: Some(200_000), observed_at: UnixMillis(8), turn: Some(ExternalId("t".into())), stale_after_compaction: true });

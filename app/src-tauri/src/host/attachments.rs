@@ -28,7 +28,7 @@ pub fn model_lacks_input(models: &[ModelInfo], model_id: &str, kind: AttachmentK
     models.iter().find(|m| m.id == model_id).is_some_and(|m| !m.input_kinds.is_empty() && !m.input_kinds.contains(&kind))
 }
 
-fn not_ready_message(state: &AttachmentState) -> &'static str {
+pub(super) fn not_ready_message(state: &AttachmentState) -> &'static str {
     match state {
         AttachmentState::Copying => "コピー中の添付があります。完了してから送信してください",
         AttachmentState::CopyFailed { .. } => "コピーに失敗した添付があります。取り外すか、もう一度添付してください",

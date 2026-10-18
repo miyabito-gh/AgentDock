@@ -592,6 +592,8 @@ pub struct ChainEntry {
     /// `conversation.threads` の chat（古い順）。会話の記録がなければ空。
     pub segments: Vec<ChatKey>,
     pub superseded_by: Option<ChatKey>,
+    /// 空の先頭のやり直しで、この先頭が置き換えた空の先頭（`ConversationRecord.replaces`）。
+    pub replaces: Option<ChatKey>,
 }
 
 /// 保存の修復: `chat` の `superseded_by` を `by` にする（引き継ぎ時の保存が途中で止まった場合）。
@@ -636,16 +638,24 @@ pub fn resolve_chains(entries: &[ChainEntry]) -> ChainResolution {
             }
         }
     }
+    // やり直しで置き換えられた空の先頭 → 置き換えた先頭（どちらも読み込めているものだけ）。
+    let replaced_by: HashMap<&ChatKey, &ChatKey> = entries.iter().filter_map(|e| e.replaces.as_ref().filter(|r| *r != &e.chat && index.contains_key(r)).map(|r| (r, &e.chat))).collect();
     let mut out = ChainResolution::default();
     // 修復後の superseded_by（読み込めた先のみ）。
     let mut effective: HashMap<&ChatKey, &ChatKey> = HashMap::new();
     for e in entries {
         let own = e.superseded_by.as_ref().filter(|by| *by != &e.chat && index.contains_key(by));
         // 自分が別の先頭に引き継がれて隠れている主張者（空の先頭のやり直しで残る N など）は、競合の相手に数えない。
-        let retired = |c: &ChatKey| index.get(c).and_then(|x| x.superseded_by.as_ref()).is_some_and(|by| by != c && index.contains_key(by));
+        let retired = |c: &ChatKey| replaced_by.contains_key(c) || index.get(c).and_then(|x| x.superseded_by.as_ref()).is_some_and(|by| by != c && index.contains_key(by));
         let candidates: Vec<&ChatKey> = claims.get(&e.chat).map(|l| l.iter().copied().filter(|c| !retired(c)).collect()).unwrap_or_default();
         if candidates.len() > 1 {
             out.conflicts.push(ChainConflict { segment: e.chat.clone(), claimants: candidates.iter().map(|c| (*c).clone()).collect() });
+        }
+        // やり直しの途中で落ち、空の先頭に印が書かれていない: 置き換えた先頭へ修復する。
+        if let (None, Some(by)) = (&e.superseded_by, replaced_by.get(&e.chat)) {
+            out.repairs.push(ChainRepair { chat: e.chat.clone(), by: (*by).clone() });
+            effective.insert(&e.chat, *by);
+            continue;
         }
         match (&e.superseded_by, candidates.as_slice()) {
             (None, [only]) if index.contains_key(*only) && *only != &e.chat => {
@@ -739,7 +749,7 @@ mod tests {
         }
     }
     fn conv() -> ConversationRecord {
-        ConversationRecord { id: LocalId("c1".into()), purpose: None, threads: vec![], seed: None, purpose_delivered_rev: None, compacted_since_delivery: false }
+        ConversationRecord { id: LocalId("c1".into()), purpose: None, threads: vec![], seed: None, purpose_delivered_rev: None, compacted_since_delivery: false, replaces: None }
     }
 
     // ── 使用率 ──
@@ -1205,7 +1215,7 @@ mod tests {
     // ── 起動時の照合 ──
 
     fn ce(chat: &str, segs: &[&str], by: Option<&str>) -> ChainEntry {
-        ChainEntry { chat: ck(chat), segments: segs.iter().map(|s| ck(s)).collect(), superseded_by: by.map(ck) }
+        ChainEntry { chat: ck(chat), segments: segs.iter().map(|s| ck(s)).collect(), superseded_by: by.map(ck), replaces: None }
     }
 
     #[test]
@@ -1274,6 +1284,21 @@ mod tests {
         // やり直しの途中で落ちて n が未だ印を持たないときは、本物の競合として報告する。
         let r = resolve_chains(&[ce("p", &[], Some("n")), ce("n", &["p"], None), ce("n2", &["p"], None)]);
         assert_eq!(r.conflicts.len(), 1);
+    }
+
+    #[test]
+    fn chains_redo_interrupted_before_marking_the_empty_head_is_repaired() {
+        let mut n2 = ce("n2", &["p"], None);
+        n2.replaces = Some(ck("n"));
+        let r = resolve_chains(&[ce("p", &[], Some("n")), ce("n", &["p"], None), n2]);
+        assert_eq!(r.repairs, vec![ChainRepair { chat: ck("n"), by: ck("n2") }]);
+        assert!(r.conflicts.is_empty(), "{r:?}");
+        assert_eq!(r.hidden, vec![ck("p"), ck("n")], "N と N2 が両方先頭になることはない");
+        // N2 の領域が読めなければ修復せず、N が先頭のまま。
+        let mut lone = ce("n2", &["p"], None);
+        lone.replaces = Some(ck("gone"));
+        let r = resolve_chains(&[lone]);
+        assert!(r.repairs.is_empty() && r.hidden.is_empty());
     }
 
     #[test]

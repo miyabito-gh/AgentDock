@@ -81,12 +81,13 @@ pub(super) fn handoff_conversation(src: &ChatKey, src_rec: Option<&ConversationR
         seed: Some(seed),
         purpose_delivered_rev: None,
         compacted_since_delivery: false,
+        replaces: None,
     }
 }
 
 /// 空の先頭 N のやり直し先 N2 の記録。資料は N の `seed.material` をそのまま使う（P を読み直さない）。
 /// 列は N と同じ（空の N は列に入れない）。N の資料が `Pending` でなければ None。
-pub(super) fn redo_conversation(src_rec: &ConversationRecord, now: UnixMillis) -> Option<ConversationRecord> {
+pub(super) fn redo_conversation(src: &ChatKey, src_rec: &ConversationRecord, now: UnixMillis) -> Option<ConversationRecord> {
     let old = src_rec.seed.as_ref().filter(|s| s.state == SeedState::Pending)?;
     Some(ConversationRecord {
         id: src_rec.id.clone(),
@@ -95,6 +96,7 @@ pub(super) fn redo_conversation(src_rec: &ConversationRecord, now: UnixMillis) -
         seed: Some(HandoffSeed { created_at: now, state: SeedState::Pending, ..old.clone() }),
         purpose_delivered_rev: None,
         compacted_since_delivery: false,
+        replaces: Some(src.clone()),
     })
 }
 
@@ -105,7 +107,30 @@ pub(super) fn purpose_for_fork(rec: Option<&ConversationRecord>) -> Option<Purpo
 
 /// 分岐先の会話の記録（別の会話。id は新規、以前の thread・引き継ぎ資料・届けた記録は持たない）。
 pub(super) fn fork_conversation(id: LocalId, purpose: PurposeNote) -> ConversationRecord {
-    ConversationRecord { id, purpose: Some(purpose), threads: Vec::new(), seed: None, purpose_delivered_rev: None, compacted_since_delivery: false }
+    ConversationRecord { id, purpose: Some(purpose), threads: Vec::new(), seed: None, purpose_delivered_rev: None, compacted_since_delivery: false, replaces: None }
+}
+
+/// チャット領域の作業領域（`workspace`）を作業フォルダとして使っている、別のチャット（`candidates` は (チャット, 作業フォルダ)）。
+/// 引き継ぎ先の N や、鎖の先頭が P0 の領域を共有しているときに、領域ごとの削除でデータを失わないための判断。
+pub(super) fn workspace_users(workspace: &std::path::Path, owner: &ChatKey, candidates: &[(ChatKey, String)]) -> Vec<ChatKey> {
+    candidates.iter().filter(|(k, cwd)| k != owner && crate::store::layout::is_inside(workspace, std::path::Path::new(cwd))).map(|(k, _)| k.clone()).collect()
+}
+
+/// 添付の事前検査（読取りのみ）。引き継ぎ元の台帳にあり、使える状態で、コピーが実在すること。だめなら理由（P を隠す前に止める）。
+pub(super) fn attachment_blocker(ledger: &[crate::backend::local::AttachmentEntry], ids: &[LocalId], exists: &dyn Fn(&str) -> bool) -> Option<String> {
+    use crate::backend::local::{AttachmentSource, AttachmentState};
+    for id in ids {
+        let Some(a) = ledger.iter().find(|a| &a.id == id) else {
+            return Some("指定した添付が元のチャットの台帳に見つかりません。付け直してください".into());
+        };
+        if a.state != AttachmentState::Ready {
+            return Some(format!("添付「{}」は使えない状態です（{}）", a.display_name, super::attachments::not_ready_message(&a.state)));
+        }
+        if !matches!(a.source, AttachmentSource::Skill { .. }) && !a.copy_path.as_deref().is_some_and(exists) {
+            return Some(format!("添付「{}」のコピーが見つかりません。取り外して、もう一度添付してください", a.display_name));
+        }
+    }
+    None
 }
 
 // ───────────────────────────── ホスト ─────────────────────────────
@@ -154,6 +179,8 @@ impl Host {
     pub(super) async fn handoff_send_ctx(self: &Arc<Self>, chat: &ChatKey) -> HandoffFacts {
         let connected = self.is_connected();
         let redo = self.read(|d| is_redo_source(d.locals.get(chat).and_then(|l| l.conversation.as_ref()), d.chat(chat).is_some_and(|c| c.no_history)));
+        // 履歴に依頼を含む turn がないと確かめられたときだけやり直しにする（読めない・依頼があるなら通常の引き継ぎ）。
+        let redo = redo && connected && self.head_is_empty(chat).await;
         let gate = if connected { Some(self.queue_gate_input(chat).await) } else { None };
         let (descendants_busy, unknown_descendants) = gate.as_ref().map(|g| descendant_summary(&g.descendants)).unwrap_or((false, 0));
         let scan_incomplete = gate.as_ref().is_some_and(|g| !g.descendant_scan_complete);
@@ -187,6 +214,39 @@ impl Host {
             }
         });
         HandoffFacts { ctx, redo, scan_incomplete }
+    }
+
+    /// このチャットの作業領域を、別のチャットが作業フォルダとして使っているときの理由（削除を止める。領域は消さない）。
+    /// 保存先がない・領域が別のチャットのものでないときは None。
+    pub(super) fn workspace_in_use_message(&self, chat: &ChatKey) -> Option<String> {
+        let store = self.persist.store()?;
+        let workspace = crate::store::layout::workspace_dir(&crate::store::layout::chat_dir(store.root(), &self.persist.dir_id_for(chat)));
+        let candidates: Vec<(ChatKey, String)> = self.read(|d| {
+            let mut out: Vec<(ChatKey, String)> = d.chats.iter().filter_map(|c| c.cwd.value().map(|v| (c.key.clone(), v.clone()))).collect();
+            for (k, l) in &d.locals {
+                if !out.iter().any(|(o, _)| o == k) {
+                    if let Some(cwd) = l.cached_meta.as_ref().and_then(|m| m.cwd.value().cloned()) {
+                        out.push((k.clone(), cwd));
+                    }
+                }
+            }
+            out
+        });
+        let users = workspace_users(&workspace, chat, &candidates);
+        if users.is_empty() {
+            return None;
+        }
+        let names: Vec<String> = users.iter().take(3).map(|k| format!("「{}」", self.chat_title(k))).collect();
+        let more = if users.len() > 3 { format!("ほか{}件", users.len() - 3) } else { String::new() };
+        Some(format!("この thread の作業フォルダを、引き継ぎ先の thread（{}{}）が使っています。先に今の thread を削除するか、そのまま残してください", names.join("、"), more))
+    }
+
+    /// 先頭に依頼を含む turn が1つもないか（読取りのみ）。Codex に履歴がない（`no rollout found`）ときも空。それ以外の読取り失敗は空と確かめられない。
+    async fn head_is_empty(self: &Arc<Self>, chat: &ChatKey) -> bool {
+        match self.read_history(agent_key_of(chat), ReadOptions { include_turns: true }).await {
+            Ok(h) => !h.turns.iter().any(|t| t.entries.iter().any(|e| e.kind == ActivityKind::UserMessage)),
+            Err(e) => crate::rules::manage::backend_delete_target_missing(&e),
+        }
     }
 
     fn handoff_source(&self, chat: &ChatKey) -> Option<Source> {
@@ -253,6 +313,11 @@ impl Host {
             Ok(notes) => with_scan_note(notes, scan_incomplete),
             Err(b) => return stop(b.message),
         };
+        // 添付の検査は P を隠す前に済ませる（予測できる失敗で「作ったが送れない」にしない）。
+        let ledger = self.read(|d| d.locals.get(&p).map(|l| l.attachments.clone()).unwrap_or_default());
+        if let Some(m) = attachment_blocker(&ledger, &args.attachments, &|path| std::path::Path::new(path).exists()) {
+            return stop(m);
+        }
         if let Err(e) = self.precheck_space() {
             return stop(e.message);
         }
@@ -263,7 +328,7 @@ impl Host {
         let now = now_ms();
         // C1・C2 資料を用意する。やり直しは N の資料をそのまま使う（読取りもしない）。通常は P の履歴を読む（読取りのみ）。
         let seed = match (&src.conversation, redo) {
-            (Some(rec), true) => match redo_conversation(rec, now).and_then(|r| r.seed) {
+            (Some(rec), true) => match redo_conversation(&p, rec, now).and_then(|r| r.seed) {
                 Some(s) => s,
                 None => return stop("引き継ぎ資料が見つからないため、やり直せません".into()),
             },
@@ -318,7 +383,7 @@ impl Host {
         }
         // C4 N の chat.json を保存して待つ: 会話の記録（目的メモの写し・以前の thread の列・資料 Pending）と下書き。
         let record = if redo {
-            src.conversation.as_ref().and_then(|r| redo_conversation(r, now))
+            src.conversation.as_ref().and_then(|r| redo_conversation(&p, r, now))
         } else {
             Some(handoff_conversation(&p, src.conversation.as_ref(), Some(src.title.clone()), seed, self.local_id("conv"), now))
         };
@@ -340,6 +405,13 @@ impl Host {
             });
         }
         // C5 P の chat.json を保存して待つ: supersededBy=N、下書きの文を空にする。ここで先頭が替わる。
+        // 削除が始まっていないか確かめ直す（P の領域を N が使うため、削除中の P を隠して先へ進まない）。
+        if self.manage_rt.is_deleting(&p) || self.read(|d| d.locals.get(&p).is_some_and(|l| l.delete_pending.is_some())) {
+            return Ok(HandoffResult::CreatedNotSent {
+                chat: n_chat(self),
+                message: format!("元のチャットの削除が始まっているため、送っていません。入力した文は新しいチャットの入力欄にあります{}", attach_msg(self)),
+            });
+        }
         let cleared_attachments = args.attachments.clone();
         self.update_local(&p, true, Duration::ZERO, |f| {
             f.superseded_by = Some(Superseded { by: n.clone(), at: now });
@@ -408,7 +480,7 @@ mod tests {
         PurposeNote { text: text.into(), revision: rev, updated_at: UnixMillis(1), source: crate::store::records::PurposeSource::Chat }
     }
     fn record(purpose: Option<PurposeNote>, threads: Vec<ThreadSegment>) -> ConversationRecord {
-        ConversationRecord { id: LocalId("c0".into()), purpose, threads, seed: None, purpose_delivered_rev: Some(7), compacted_since_delivery: true }
+        ConversationRecord { id: LocalId("c0".into()), purpose, threads, seed: None, purpose_delivered_rev: Some(7), compacted_since_delivery: true, replaces: None }
     }
     fn fact(state: AgentState, freshness: Freshness, terminal_explicit: bool) -> AgentFact {
         AgentFact {
@@ -469,7 +541,7 @@ mod tests {
         assert!(is_redo_source(Some(&empty_head), true));
         assert!(!is_redo_source(Some(&empty_head), false), "履歴がある先頭はやり直しではない");
         assert!(!is_redo_source(None, true));
-        let redo = redo_conversation(&empty_head, UnixMillis(20)).expect("Pending なら作れる");
+        let redo = redo_conversation(&key("n"), &empty_head, UnixMillis(20)).expect("Pending なら作れる");
         let s = redo.seed.as_ref().unwrap();
         // 資料の本文・元の引き継ぎ元は N のものをそのまま。時刻だけ新しく、受理は未確認。
         assert_eq!((s.material.as_str(), &s.from, s.created_at, s.state), ("■ 以前の会話からの引き継ぎ\n本文", &key("p"), UnixMillis(20), SeedState::Pending));
@@ -478,7 +550,7 @@ mod tests {
         // 受理を確認済みの資料はやり直せない（二重に送らない）。
         empty_head.seed = Some(seed(SeedState::Delivered));
         assert!(!is_redo_source(Some(&empty_head), true));
-        assert!(redo_conversation(&empty_head, UnixMillis(20)).is_none());
+        assert!(redo_conversation(&key("n"), &empty_head, UnixMillis(20)).is_none());
     }
 
     #[test]
@@ -600,6 +672,82 @@ mod tests {
         assert!(d.locals.get(&p).unwrap().superseded_by.is_none(), "P の印が外れる");
         assert!(d.locals.get(&n).is_none());
         assert!(d.locals.contains_key(&key("o")));
+    }
+
+    #[test]
+    fn workspace_users_are_found_only_inside_the_owners_workspace() {
+        let ws = std::path::Path::new(r"C:\app\chats\dir-p\workspace");
+        let c = vec![
+            (key("p"), r"C:\app\chats\dir-p\workspace".to_string()),
+            (key("n"), r"C:\app\chats\dir-p\workspace".to_string()),
+            (key("sub"), r"c:\APP\chats\dir-p\workspace\inner".to_string()),
+            (key("other"), r"C:\app\chats\dir-x\workspace".to_string()),
+            (key("dev"), r"D:\proj".to_string()),
+            (key("rel"), "workspace".to_string()),
+        ];
+        assert_eq!(workspace_users(ws, &key("p"), &c), vec![key("n"), key("sub")]);
+        assert!(workspace_users(ws, &key("p"), &c[3..]).is_empty(), "使う thread がなければ空");
+    }
+
+    #[tokio::test]
+    async fn deleting_the_source_is_refused_while_another_thread_uses_its_workspace_and_allowed_otherwise() {
+        let root = temp_root("h1");
+        let store = Arc::new(Store::open(root.clone()).unwrap());
+        let (p_id, p_dir) = store.create_chat_dir().unwrap();
+        let (p, n) = (key("p"), key("n"));
+        store.register_dir(&p, &p_id);
+        let ws = layout::workspace_dir(&p_dir);
+        std::fs::write(ws.join("out.txt"), b"keep").unwrap();
+        let host = Arc::new(Host::with_store(root.clone(), store.clone()));
+        let mk = |k: &ChatKey, cwd: String| Chat {
+            key: k.clone(), kind: ChatKind::General, cwd: Known::direct(cwd), name: Known::NotFetched, preview: Known::NotFetched, pinned: false, archived: Known::NotFetched,
+            origin: ChatOrigin::AppManaged, draft: None, created_at: Known::NotFetched, last_used_at: None, no_history: false, project_id: None,
+        };
+        let ws_text = ws.to_string_lossy().into_owned();
+        host.mutate(|d| ((), d.upsert_chat(mk(&p, ws_text.clone()))));
+        // N がまだ無い: 使う thread がないので止めない（従来どおり、領域ごと消せる）。
+        assert!(host.workspace_in_use_message(&p).is_none());
+        // N が P の作業領域を使う: 削除は止まり、理由を返す。領域は消えない。
+        // 削除が使用確認を通過した後に N が作られた場合: 領域を消す直前の確認が止める。
+        assert!(host.check_area_removable(&p).is_ok());
+        host.mutate(|d| ((), d.upsert_chat(mk(&n, ws_text.clone()))));
+        assert!(host.check_area_removable(&p).is_err(), "N ができた後は領域を消さない");
+        assert!(ws.join("out.txt").exists());
+        // 削除が引き継ぎのガードを持っている間、引き継ぎは始まらない。
+        let g = host.handoff_inflight.try_begin(&p).unwrap();
+        assert!(matches!(host.handoff_and_send(HandoffAndSendArgs { chat: p.clone(), text: "x".into(), attachments: vec![] }, &UserConfirmed::from_user_command()).await.unwrap(), HandoffResult::NotStarted { .. }));
+        drop(g);
+        let m = host.workspace_in_use_message(&p).expect("止める");
+        assert!(m.contains("引き継ぎ先"), "{m}");
+        let e = host.delete_chat(crate::backend::local::ChatArgs { chat: p.clone() }, &UserConfirmed::from_user_command()).await.unwrap_err();
+        assert_eq!(e.code, IpcErrorCode::Blocked);
+        assert_eq!(std::fs::read(ws.join("out.txt")).unwrap(), b"keep");
+        assert!(!host.manage_rt.is_deleting(&p), "削除中の印は残らない");
+        // 使う thread が無くなれば（N を削除した後）、従来どおり P の領域は消せる。
+        host.mutate(|d| ((), d.forget_deleted_chat(&n)));
+        assert!(host.workspace_in_use_message(&p).is_none());
+        store.remove_chat_dir(&p).unwrap();
+        assert!(!p_dir.exists());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn attachment_blocker_stops_unready_missing_and_unknown_attachments_before_anything_is_created() {
+        use crate::backend::local::{AttachmentEntry, AttachmentSource, AttachmentState};
+        use crate::backend::model::AttachmentKind;
+        let mk = |id: &str, state: AttachmentState, path: Option<&str>| AttachmentEntry {
+            id: LocalId(id.into()), chat: key("p"), kind: AttachmentKind::File, display_name: format!("{id}.txt"), source: AttachmentSource::ClipboardImage,
+            copy_path: path.map(Into::into), size: Known::NotFetched, attached_at: UnixMillis(1), state, used_by: vec![],
+        };
+        let ledger = vec![mk("ok", AttachmentState::Ready, Some("a")), mk("busy", AttachmentState::Copying, None), mk("gone", AttachmentState::Ready, Some("zz")), mk("nopath", AttachmentState::Ready, None)];
+        let exists = |p: &str| p == "a";
+        let ids = |v: &[&str]| v.iter().map(|s| LocalId((*s).into())).collect::<Vec<_>>();
+        assert_eq!(attachment_blocker(&ledger, &ids(&["ok"]), &exists), None);
+        assert_eq!(attachment_blocker(&ledger, &[], &exists), None);
+        assert!(attachment_blocker(&ledger, &ids(&["ok", "busy"]), &exists).unwrap().contains("コピー中"));
+        assert!(attachment_blocker(&ledger, &ids(&["gone"]), &exists).unwrap().contains("見つかりません"));
+        assert!(attachment_blocker(&ledger, &ids(&["nopath"]), &exists).is_some());
+        assert!(attachment_blocker(&ledger, &ids(&["nothing"]), &exists).unwrap().contains("台帳"));
     }
 
     // ── 引き継ぎが始まらない経路（P を変えない） ──

@@ -25,4 +25,8 @@ worktreeRemoved: boolean,
 /**
  * 引き継ぎ元の以前の thread の本数（DESIGN_CONT §9）。削除するのは今の thread だけで、直前の thread が一覧に戻る。
  */
-previousThreads: number, };
+previousThreads: number, 
+/**
+ * 削除できない理由（作業領域を引き継ぎ先の thread が使っている等）。あれば削除は実行できず、領域は消えない。
+ */
+blockedReason: string | null, };

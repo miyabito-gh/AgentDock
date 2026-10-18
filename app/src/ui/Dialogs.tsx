@@ -593,7 +593,7 @@ export function Dialogs({ cont, org, folderTools, workspaceRoots, d, onClose, ch
       const label = m.running ? "削除しています…" : pv?.requiresStop ? "中断して削除" : "削除";
       return (
         <Shell title="チャットを削除" onClose={onClose}
-          foot={<><button className="btn" onClick={onClose}>{finished ? "閉じる" : "キャンセル"}</button>{finished && m.outcome?.kind !== "partial" ? null : <button className="btn danger" disabled={!pv || m.running} onClick={m.run}>{label}</button>}</>}>
+          foot={<><button className="btn" onClick={onClose}>{finished ? "閉じる" : "キャンセル"}</button>{finished && m.outcome?.kind !== "partial" ? null : <button className="btn danger" disabled={!pv || m.running || !!pv.blockedReason} title={pv?.blockedReason ?? undefined} onClick={m.run}>{label}</button>}</>}>
           <DeleteBody chat={c} d={m} />
         </Shell>);
     }

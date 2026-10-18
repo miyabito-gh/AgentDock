@@ -2,7 +2,7 @@
 // 規則: 引き継ぎは利用者の送信操作の中だけ（ここは案内と状態の表示。AgentDock から勝手に送らない）。
 //       案内は「資料を確認できた」「止める理由がない」ときだけ送信ボタンを「引き継いで送信」にする。確認できない・止める理由があるときは通常の「送信」のまま。
 //       閾値の案内は Known かつ live の使用率のときだけ。「このthreadで続ける」はメモリだけ（再起動で戻る）。
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Chat, ChatKey, ChatLocalView, ContinuationSettings } from "../ipc/types";
 import type { HandoffPreview } from "../ipc/types";
 import * as host from "../ipc/client";
@@ -35,7 +35,11 @@ export function useHandoff(a: { chat: Chat; local: ChatLocalView | undefined; se
   const [declined, setDeclined] = useState<Record<string, number>>({});
   const [manual, setManual] = useState<Record<string, boolean>>({});
   const [tick, setTick] = useState(0);
-  const [pv, setPv] = useState<{ id: string; state: PreviewState }>({ id: "", state: LOADING });
+  // 作業が終わるたびに増やす（送信・実行の完了後は資料が古くなるので、1回だけ取り直す）
+  const [doneCount, setDoneCount] = useState(0);
+  const wasRunning = useRef(running);
+  useEffect(() => { if (wasRunning.current && !running) setDoneCount((n) => n + 1); wasRunning.current = running; }, [running]);
+  const [pv, setPv] = useState<{ id: string; key: string; state: PreviewState }>({ id: "", key: "", state: LOADING });
   const usage = local?.contextUsage ?? { kind: "notFetched" as const };
   const ineligible = handoffIneligible({ orgOwned: !!local?.org && !local.org.released, supersededBy: !!local?.supersededBy, worktree });
   const suggest = ineligible === null && shouldSuggest(usage, settings.suggestAtPercent, declined[id] ?? null);
@@ -48,18 +52,21 @@ export function useHandoff(a: { chat: Chat; local: ChatLocalView | undefined; se
     window.addEventListener("agentdock:handoff-open", h);
     return () => window.removeEventListener("agentdock:handoff-open", h);
   }, [id]);
-  const usageStamp = usage.kind === "known" ? usage.observedAt : 0;
   const purposeRev = local?.conversation?.purpose?.revision ?? 0;
   useEffect(() => {
-    if (!active || !load) return;
+    // 作業中は読まない（結果を使わず、履歴の全件読みが重い）。終わったときに1回だけ読む
+    if (!active || !load || running) return;
+    // 同じ入力（チャット・目的メモの版・往復数の設定・再確認の回数）では取り直さない。使用率の更新は起点にしない
+    const key = `${id}|${purposeRev}|${settings.rounds}|${tick}|${doneCount}`;
+    if (pv.id === id && pv.key === key && pv.state.kind !== "loading") return;
     let alive = true;
     // 前の確認結果がある間は、それを見せたまま取り直す（ボタンの文言を点滅させない）。取り直しに失敗したら失敗として扱う
-    setPv((cur) => (cur.id === id && cur.state.kind === "ok" ? cur : { id, state: LOADING }));
-    load(chat.key).then((p) => { if (alive) setPv({ id, state: { kind: "ok", p } }); }).catch((e) => { if (alive) setPv({ id, state: { kind: "error", message: host.asIpcError(e).message } }); });
+    setPv((cur) => (cur.id === id && cur.state.kind === "ok" ? cur : { id, key, state: LOADING }));
+    load(chat.key).then((p) => { if (alive) setPv({ id, key, state: { kind: "ok", p } }); }).catch((e) => { if (alive) setPv({ id, key, state: { kind: "error", message: host.asIpcError(e).message } }); });
     return () => { alive = false; };
-    // 使用率の更新・目的メモの版・作業中の変化・「再確認」で取り直す（読み取りのみ）
+    // 資料が古くなる条件（チャット切替・目的メモ変更・往復数の設定変更・送信の完了＝作業の終了・「再確認」）だけで取り直す（読み取りのみ）
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, id, usageStamp, purposeRev, running, tick]);
+  }, [active, id, purposeRev, settings.rounds, running, tick, doneCount]);
   const preview: PreviewState = pv.id === id ? pv.state : LOADING;
   const armed = active && !running && preview.kind === "ok" && preview.p.blockers.length === 0;
   const percent = usage.kind === "known" ? usage.percent : null;
