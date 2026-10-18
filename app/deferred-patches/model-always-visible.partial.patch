@@ -1,0 +1,119 @@
+diff --git a/app/src/styles.css b/app/src/styles.css
+index f6cdafb..7d00c23 100644
+--- a/app/src/styles.css
++++ b/app/src/styles.css
+@@ -508,7 +508,7 @@ textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;paddin
+ .card .c1 .nm{font-weight:700;flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ .card .c1 .rel{flex:none}
+ .card .c1 .st{flex:none;margin-left:auto}
+-.card .c1 .mdl{flex:0 1 auto;min-width:0;max-width:9ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--fs-xs);color:var(--ink2);background:var(--surface2);border-radius:3px;padding:0 5px;cursor:default}
++.card .c1 .mdl{flex:0 1 auto;min-width:0;max-width:14ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--fs-xs);color:var(--ink2);background:var(--surface2);border-radius:3px;padding:0 5px;cursor:default}
+ .card .c1 .mdl-tip{position:fixed;z-index:60;max-width:min(300px,86vw);white-space:pre-line;overflow-wrap:anywhere;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:var(--r2);box-shadow:var(--sh-3);padding:6px 8px;font-size:var(--fs-s);font-weight:400}
+ .card .rel{font-size:var(--fs-xs);color:var(--ink3)}
+ .card .c2{display:flex;flex-wrap:wrap;gap:0 10px;align-items:baseline;font-size:var(--fs-s);color:var(--ink2);min-width:0}
+diff --git a/app/src/ui/Dock.tsx b/app/src/ui/Dock.tsx
+index 486c079..6b2e362 100644
+--- a/app/src/ui/Dock.tsx
++++ b/app/src/ui/Dock.tsx
+@@ -50,7 +50,7 @@ function Berth({ a, depth, orphan, mini, confirmed, onConfirmFail, rootName, chi
+       <div className="c1">
+         <span className="nm" title={a.agent.parent.kind === "root" ? undefined : "Codexが付けた呼び名です（役割ではありません）"}>{a.agent.parent.kind === "root" ? (rootName ?? showKnown(a.agent.displayName)) : showKnown(a.agent.displayName)}</span>
+         <span className="rel" title={a.agent.parent.kind === "root" ? "役割: メイン（会話の本体）" : undefined}>{rel}</span>
+-        {a.agent.parent.kind === "root" ? null : <ModelBadge model={a.agent.model} effort={a.agent.effort} spawn={a.agent.spawnSpec} compact={mini} />}
++        <ModelBadge model={a.agent.model} effort={a.agent.effort} spawn={a.agent.spawnSpec} root={a.agent.parent.kind === "root"} />
+         <span className={`st ${m.c}${outcome ? " hist" : ""}`}><i aria-hidden="true" />{m.t}</span>
+       </div>
+       {childNote || (a.agent.parent.kind !== "root" && a.agent.agentPath.kind === "value") || (!mini && a.agent.parent.kind !== "root") ? (
+diff --git a/app/src/ui/ModelBadge.tsx b/app/src/ui/ModelBadge.tsx
+index 2acac1c..db5bc60 100644
+--- a/app/src/ui/ModelBadge.tsx
++++ b/app/src/ui/ModelBadge.tsx
+@@ -1,23 +1,22 @@
+ import { useId, useState } from "react";
+ import type { Known, SpawnSpec } from "../ipc/types";
+-import { modelBadge, modelTooltip } from "./modelLabel";
++import { modelBadgeText, modelTooltip } from "./modelLabel";
+ 
+-/** 子カードの名前の行に置く短いモデル表示（記録値）。全文はホバー／フォーカスのツールチップ（キーボードで届く）。
+- *  取れていないときは印を出さず、見えない代わりに名前の行の高さも変えない（ツールチップは親の `title` 側で補う）。
+- *  `compact`（コンパクト監視窓）は印を省いて「i」だけ出し、全文はツールチップで読める。 */
+-export function ModelBadge({ model, effort, spawn, compact }: { model: Known<string>; effort: Known<string>; spawn?: Known<SpawnSpec>; compact: boolean }) {
++/** カードの名前の行に置く短いモデル表示（記録値）。常に表示し、全文はホバー／フォーカスのツールチップ（キーボードで届く）。
++ *  取れていないときは「モデル未取得」と出す（空や既定値で代用しない）。幅が足りなければ省略記号で切る。
++ *  `root` は親（メイン）のカード。ツールチップに親の記録値であることを添える。 */
++export function ModelBadge({ model, effort, spawn, root = false }: { model: Known<string>; effort: Known<string>; spawn?: Known<SpawnSpec>; root?: boolean }) {
+   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+   const id = useId();
+-  const badge = modelBadge(model, effort);
+-  if (badge === null) return null;
+-  const tip = modelTooltip(model, effort, spawn);
++  const badge = modelBadgeText(model, effort);
++  const tip = modelTooltip(model, effort, spawn, root);
+   const show = (el: HTMLElement) => { const r = el.getBoundingClientRect(); setPos({ x: Math.max(4, Math.min(r.left, window.innerWidth - 300)), y: r.bottom + 4 }); };
+   return (
+     <span className="mdl" tabIndex={0} role="note" aria-label={tip} aria-describedby={pos ? id : undefined}
+       onMouseEnter={(e) => show(e.currentTarget)} onMouseLeave={() => setPos(null)}
+       onFocus={(e) => show(e.currentTarget)} onBlur={() => setPos(null)}
+       onKeyDown={(e) => { if (e.key === "Escape" && pos) { e.stopPropagation(); setPos(null); } }}>
+-      {compact ? "i" : badge}
++      {badge}
+       {pos ? <span id={id} role="tooltip" className="mdl-tip" style={{ left: pos.x, top: pos.y }}>{tip}</span> : null}
+     </span>
+   );
+diff --git a/app/src/ui/modelLabel.test.ts b/app/src/ui/modelLabel.test.ts
+index 03473ea..41092a4 100644
+--- a/app/src/ui/modelLabel.test.ts
++++ b/app/src/ui/modelLabel.test.ts
+@@ -1,7 +1,7 @@
+ // 実行: node --test src/ui/modelLabel.test.ts （tscの対象外）
+ import { test } from "node:test";
+ import assert from "node:assert/strict";
+-import { effortChar, modelBadge, modelTooltip, shortModel } from "./modelLabel.ts";
++import { effortChar, modelBadge, modelBadgeText, modelTooltip, shortModel } from "./modelLabel.ts";
+ 
+ const v = (value: string) => ({ kind: "value", value, basis: "direct" }) as never;
+ const nf = { kind: "notFetched" } as never;
+@@ -33,3 +33,13 @@ test("modelTooltip says recorded value and never invents unknown ones", () => {
+   assert.equal(modelTooltip(nf, nf), "モデル: 未確認");
+   assert.equal(modelTooltip(v("m"), { kind: "unsupported" } as never), "モデル: m・推論強度: 非対応（記録値。いま使用中とは限りません）");
+ });
++
++test("modelBadgeText shows an explicit not-fetched label instead of vanishing", () => {
++  assert.equal(modelBadgeText(v("gpt-6.1-sol"), v("high")), "Sol·高");
++  assert.equal(modelBadgeText(nf, v("high")), "モデル未取得");
++});
++
++test("modelTooltip marks the root's recorded model", () => {
++  assert.equal(modelTooltip(nf, nf, undefined, true), "親（メイン）のモデル（記録値）\nモデル: 未確認");
++  assert.equal(modelTooltip(nf, nf), "モデル: 未確認");
++});
+diff --git a/app/src/ui/modelLabel.ts b/app/src/ui/modelLabel.ts
+index 5bfab47..2eb809a 100644
+--- a/app/src/ui/modelLabel.ts
++++ b/app/src/ui/modelLabel.ts
+@@ -32,6 +32,11 @@ export function modelBadge(model: Known<string>, effort: Known<string>): string
+   return e === null ? shortModel(m) : `${shortModel(m)}·${effortChar(e)}`;
+ }
+ 
++/** 常時表示用の文字列。取れていないときは「モデル未取得」（空や既定値で代用しない）。 */
++export function modelBadgeText(model: Known<string>, effort: Known<string>): string {
++  return modelBadge(model, effort) ?? "モデル未取得";
++}
++
+ const absent = (k: Known<string>): string => (k.kind === "unsupported" ? "非対応" : "未確認");
+ 
+ /** 親の履歴に記録された起動時の指定の1行。値が取れたときだけ返し、取れないとき（未確認・非対応・中身が空）は null（行を出さない）。 */
+@@ -48,7 +53,12 @@ export function spawnSpecLine(spec: Known<SpawnSpec> | undefined): string | null
+ }
+ 
+ /** ツールチップの全文。記録値であることを必ず添える。`spawn` を渡すと起動時の指定を続ける。 */
+-export function modelTooltip(model: Known<string>, effort: Known<string>, spawn?: Known<SpawnSpec>): string {
++export function modelTooltip(model: Known<string>, effort: Known<string>, spawn?: Known<SpawnSpec>, root = false): string {
++  const head = root ? "親（メイン）のモデル（記録値）\n" : "";
++  return head + modelTooltipBody(model, effort, spawn);
++}
++
++function modelTooltipBody(model: Known<string>, effort: Known<string>, spawn?: Known<SpawnSpec>): string {
+   const m = valueOf(model);
+   const e = valueOf(effort);
+   const line = spawnSpecLine(spawn);
