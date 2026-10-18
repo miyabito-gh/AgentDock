@@ -75,6 +75,20 @@ impl CompiledGraph {
     pub fn node(&self, id: &NodeId) -> Option<&NodeDef> {
         self.def.nodes.iter().find(|n| &n.id == id)
     }
+    /// The roles the graph needs: every agent node's role and the roles a `plannedTasks` node may use.
+    pub fn roles_used(&self) -> std::collections::BTreeSet<RoleId> {
+        let mut used = std::collections::BTreeSet::new();
+        for n in &self.def.nodes {
+            match &n.kind {
+                NodeKind::Agent { role, .. } => {
+                    used.insert(role.clone());
+                }
+                NodeKind::PlannedTasks { allowed_roles, .. } => used.extend(allowed_roles.iter().cloned()),
+                _ => {}
+            }
+        }
+        used
+    }
     /// Outgoing edges in declaration order.
     pub fn outgoing<'a>(&'a self, from: &'a NodeId) -> impl Iterator<Item = &'a EdgeDef> + 'a {
         self.def.edges.iter().filter(move |e| &e.from == from)

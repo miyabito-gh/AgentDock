@@ -354,12 +354,19 @@ impl<P: AgentRuntime + RuntimeRead + Workspace + 'static> OrgDriver<P> {
                 }
                 None
             }
-            // G-A4で実装する（スロット値の書込み）。実装までは、書けないものとして以後の副作用を止める。
-            OrgAction::PutSlot { .. } => {
-                crate::diag::log("org", "PutSlot is not implemented yet; stopping");
-                self.persist_failed = true;
-                *stop_effects = true;
-                self.notice(OrgHostNotice::PersistFailed);
+            // スロットの値の書込み（`Persist(SlotWritten)` の直前に来る）。外へ出る副作用ではないが、書けないまま次へ進むと、
+            // 値のない版を指す記録ができる。書けなければ以後の副作用を止める（追記の失敗と同じ扱い。辺を推測で選ばない）。
+            OrgAction::PutSlot { slot, version, value } => {
+                if self.persist_failed {
+                    *stop_effects = true;
+                    return None;
+                }
+                if let Err(e) = self.store.put_slot(&slot, version, &value) {
+                    crate::diag::log("org", &format!("slot write failed slot={} version={version}: {e:?}", slot.0));
+                    self.persist_failed = true;
+                    *stop_effects = true;
+                    self.notice(OrgHostNotice::SlotWriteFailed { slot: slot.0.clone() });
+                }
                 None
             }
             OrgAction::Notify(n) => {

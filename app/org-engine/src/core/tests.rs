@@ -467,13 +467,29 @@ fn plan_with_declared_effect_waits_for_approval() {
 fn replan_cancels_the_proposal_and_asks_again() {
     let mut sim = Sim::new();
     sim.with_plan(&plan_json(&[("a", "worker", &[], &["pushMergeTag"])]));
-    sim.feed(OrgInput::UserReplan);
+    sim.feed(OrgInput::UserReplan { note: None });
     assert_eq!(sim.t("a").status(), TaskStatus::Cancelled);
     assert_eq!(sim.st().halt(), None);
     assert_eq!(sim.sends("planner-2"), 1);
     sim.complete_turn("planner-2", &plan_json(&[("b", "worker", &[], &[])]));
     // a re-plan is always put to the user
     assert_eq!(sim.st().halt(), Some(HaltReason::AwaitingPlanApproval));
+}
+
+#[test]
+fn replan_reason_reaches_the_new_planner_as_a_user_note() {
+    let mut sim = Sim::new();
+    sim.with_plan(&plan_json(&[("a", "worker", &[], &["pushMergeTag"])]));
+    sim.feed(OrgInput::UserReplan { note: Some("  split it into smaller steps  ".into()) });
+    let note = sim.st().notes().iter().find(|n| matches!(&n.scope, NoteScope::Node { node } if node.0 == "planner-2")).unwrap();
+    assert_eq!(note.text, "split it into smaller steps");
+    let text = sim.log.iter().find_map(|a| if let OrgAction::Send { task, text, .. } = a { (task.0 == "planner-2").then(|| text.clone()) } else { None }).unwrap();
+    assert!(text.contains("split it into smaller steps") && text.contains("-----BEGIN USER NOTE-----"));
+    // a blank reason adds nothing
+    let mut sim = Sim::new();
+    sim.with_plan(&plan_json(&[("a", "worker", &[], &["pushMergeTag"])]));
+    sim.feed(OrgInput::UserReplan { note: Some("   ".into()) });
+    assert!(sim.st().notes().is_empty());
 }
 
 #[test]

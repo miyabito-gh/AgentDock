@@ -29,12 +29,21 @@ pub fn planner_prompt(request: &str, repo: &str) -> String {
     )
 }
 
-pub fn replan_prompt(request: &str, repo: &str, previous: &str) -> String {
-    format!(
+/// `notes`: the user's reasons for sending the plan back (a delimited block of their own, after the material).
+pub fn replan_prompt(request: &str, repo: &str, previous: &str, notes: &[String]) -> String {
+    let mut s = format!(
         "{}\n\n利用者は前の計画を承認せず、計画の作り直しを求めています。前の計画を踏まえて作り直してください。\n{}",
         planner_prompt(request, repo),
         quote("前の計画（要約）", previous)
-    )
+    );
+    if !notes.is_empty() {
+        s.push_str(&format!("\n{NOTE_NOTE}\n"));
+        for n in notes {
+            s.push_str(&quote_note(n));
+            s.push('\n');
+        }
+    }
+    s
 }
 
 /// `deps`: dependency task ids with their report summary when it is known in this session.

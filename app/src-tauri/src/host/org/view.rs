@@ -228,6 +228,14 @@ pub fn notice_view(e: &NoticeEntry) -> Option<OrgNoticeView> {
         OrgHostNotice::PersistFailed => {
             (K::PersistFailed, Attention, None, "記録を追記できないため、以後は何も送りません。AgentDock を再起動してください".to_string())
         }
+        OrgHostNotice::SlotWriteFailed { slot } => (
+            K::PersistFailed,
+            Attention,
+            None,
+            format!("途中の出力（スロット「{slot}」）を保存できないため、以後は何も送りません。AgentDock を再起動してください"),
+        ),
+        // 専用の種別はまだない（画面側の対応は G-A5）。設定に関する案内として出す。
+        OrgHostNotice::DefinitionNote { message, attention } => (K::Config, if *attention { Attention } else { Info }, None, message.clone()),
         OrgHostNotice::Reconciled { task, turn_read, turn_end, worktree } => {
             (K::Reconciled, Info, task_of(task), format!("{}: {}", task.0, reconcile_view(task, *turn_read, *turn_end, *worktree).text))
         }

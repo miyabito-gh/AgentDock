@@ -127,6 +127,10 @@ pub enum OrgHostNotice {
     Reconciled { task: TaskId, turn_read: bool, turn_end: Option<TurnEnd>, worktree: WorktreeFinding },
     /// 実行中のまま新しい出力がない（通知だけ。自動で中断・再送・resume しない）。組織の通知種別（P-ORG-7 が画面・OS通知にする）。
     Stalled { task: TaskId, quiet_minutes: u32 },
+    /// スロットの値（`slots\` のファイル）を書けなかったため、以後は何も送らない（次の工程を、値なしで選ばない）。
+    SlotWriteFailed { slot: String },
+    /// 定義（グラフ・役割）についての案内。`attention` は利用者の対処が要るもの（写しを使えない・スロットを読めない）。
+    DefinitionNote { message: String, attention: bool },
 }
 
 /// 組織の通知の急ぎ度（通知集約の窓に載せる区分。承認待ち・停止系は即時、完了・失敗はワークフロー単位で2秒集約）。
@@ -135,8 +139,12 @@ impl OrgHostNotice {
         match self {
             OrgHostNotice::Engine(n) => n.urgency(),
             // 照合結果・設定の照合は知らせるだけ（集約）。停滞・保存失敗・送らなかった理由は利用者の対処が要るので即時。
-            OrgHostNotice::Reconciled { .. } | OrgHostNotice::Config(_) => org_engine::NoticeUrgency::Aggregated,
-            OrgHostNotice::SendRefused { .. } | OrgHostNotice::PersistFailed | OrgHostNotice::Stalled { .. } => org_engine::NoticeUrgency::Immediate,
+            OrgHostNotice::Reconciled { .. } | OrgHostNotice::Config(_) | OrgHostNotice::DefinitionNote { attention: false, .. } => org_engine::NoticeUrgency::Aggregated,
+            OrgHostNotice::SendRefused { .. }
+            | OrgHostNotice::PersistFailed
+            | OrgHostNotice::SlotWriteFailed { .. }
+            | OrgHostNotice::DefinitionNote { attention: true, .. }
+            | OrgHostNotice::Stalled { .. } => org_engine::NoticeUrgency::Immediate,
         }
     }
 }
@@ -226,6 +234,8 @@ fn notice_label(n: &OrgHostNotice) -> &'static str {
         OrgHostNotice::PersistFailed => "persist-failed",
         OrgHostNotice::Reconciled { .. } => "reconciled",
         OrgHostNotice::Stalled { .. } => "stalled",
+        OrgHostNotice::SlotWriteFailed { .. } => "slot-write-failed",
+        OrgHostNotice::DefinitionNote { .. } => "definition-note",
     }
 }
 

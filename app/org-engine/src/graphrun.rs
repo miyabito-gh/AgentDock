@@ -113,7 +113,7 @@ impl OrgCore {
         }
     }
 
-    fn add_note(&mut self, text: &str, scope: NoteScope) -> Option<NoteId> {
+    pub(crate) fn add_note(&mut self, text: &str, scope: NoteScope) -> Option<NoteId> {
         let id = NoteId::new(format!("note-{}", self.s().last_seq() + 1));
         let text: String = text.chars().take(NOTE_MAX_CHARS).collect();
         self.rec(OrgEventKind::UserNoteAdded { id: id.clone(), text, scope }).then_some(id)
@@ -191,7 +191,8 @@ impl OrgCore {
             return;
         };
         let Some(t) = self.task(id) else { return };
-        let Some(def) = t.node.as_ref().and_then(|n| g.node(n)) else { return };
+        let Some(node_id) = t.node.clone() else { return };
+        let Some(def) = g.node(&node_id) else { return };
         let GNode::Agent { capture, target, .. } = &def.kind else { return };
         let (has_chat, has_cwd, accepted) = (t.chat().is_some(), t.chat_cwd().is_some(), t.accepted_turn().is_some());
         let target_commit = target.as_ref().and_then(|n| self.task_of_node(n)).and_then(|tid| self.task(&tid)).and_then(|t| t.commit().map(str::to_string));
@@ -220,8 +221,15 @@ impl OrgCore {
         let repo = self.s().repo().to_string();
         match (capture, target) {
             (Some(CaptureKind::Commit), _) => {
+                let base = match self.writer_base(&g, &node_id) {
+                    Ok(b) => b,
+                    Err(why) => {
+                        self.block(id, BlockedReason::NeedsAttention, &why);
+                        return;
+                    }
+                };
                 self.launching.insert(id.clone(), Launch::Worktree);
-                self.out.push(OrgAction::Workspace(WorkspaceAction::CreateWorktree { task: id.clone(), repo, base: WorktreeBase::Head }));
+                self.out.push(OrgAction::Workspace(WorkspaceAction::CreateWorktree { task: id.clone(), repo, base }));
             }
             (Some(CaptureKind::Snapshot), _) => self.block(id, BlockedReason::NeedsAttention, "snapshot の確定にはまだ対応していません"),
             (None, Some(_)) => {
@@ -234,6 +242,22 @@ impl OrgCore {
             }
             (None, None) => self.begin_chat(id, repo),
         }
+    }
+
+    /// Where a writer's new branch starts: the newest fixed commit of the nearest writer before it in the graph
+    /// (DESIGN_ORG_GRAPH 9.1), or HEAD when there is none. A writer before it without a commit is an error: nothing is
+    /// guessed (the branch would silently miss the earlier work).
+    fn writer_base(&self, g: &CompiledGraph, node: &NodeId) -> Result<WorktreeBase, String> {
+        let mut cur = node.clone();
+        for _ in 0..=g.def.nodes.len() {
+            let Some(Some(p)) = g.parent.get(&cur) else { return Ok(WorktreeBase::Head) };
+            if matches!(g.node(p).map(|d| &d.kind), Some(GNode::Agent { capture: Some(CaptureKind::Commit), .. })) {
+                let commit = self.task_of_node(p).and_then(|t| self.task(&t)).and_then(|t| t.commit().map(str::to_string));
+                return commit.map(WorktreeBase::FromCommit).ok_or_else(|| format!("前の書込み工程 {p} のコミットがありません"));
+            }
+            cur = p.clone();
+        }
+        Ok(WorktreeBase::Head)
     }
 
     pub(crate) fn graph_ready_turn(&self, id: &TaskId) -> Option<(TurnKind, String)> {
@@ -566,9 +590,49 @@ impl OrgCore {
         !tasks.is_empty() && tasks.iter().all(|t| t.status() == TaskStatus::Completed && t.confirm() == ConfirmState::Confirmed && !Self::edge_pending(t))
     }
 
+    /// Once after a restore: states a crash between two events can leave behind that nothing would ever move on.
+    /// They are only reported (the task is held with the reason); no edge is chosen again here and nothing goes on.
+    /// - the target of a feedback edge still in `rework` (it is made ready in the same step as the count);
+    /// - members of a loop whose source already took its edge and whose target is settled, but that were not
+    ///   completed (the loop was being closed) and that no other open loop holds.
+    /// An undecided edge (output newer than the last edge) is not reported: pass A of `graph_pass` chooses it again.
+    fn audit_restore(&mut self) {
+        let Some(g) = self.graph.clone() else { return };
+        let none = HashSet::new();
+        let mut found: Vec<(TaskId, String)> = Vec::new();
+        for l in &g.loops {
+            let tgt = self.task_of_node(&l.target).and_then(|t| self.task(&t));
+            let src = self.task_of_node(&l.source).and_then(|t| self.task(&t));
+            if let Some(t) = tgt.filter(|t| t.status() == TaskStatus::Rework && t.confirm() == ConfirmState::Confirmed) {
+                found.push((t.id.clone(), format!("工程 {} の差し戻しが途中で止まっています（戻り先が再開の準備に入っていません）", l.target)));
+            }
+            let (Some(src), Some(tgt)) = (src, tgt) else { continue };
+            let settled = src.edge_seq().is_some_and(|e| src.last_output_seq().is_none_or(|o| e >= o));
+            if !(settled && matches!(src.status(), TaskStatus::Completed | TaskStatus::Reviewing) && matches!(tgt.status(), TaskStatus::Reviewing | TaskStatus::Completed)) {
+                continue;
+            }
+            for m in &l.members {
+                let Some(task) = self.task_of_node(m).and_then(|t| self.task(&t)) else { continue };
+                if task.status() == TaskStatus::Reviewing && task.confirm() == ConfirmState::Confirmed && !self.open_loop_holds(&g, m, &none) {
+                    found.push((task.id.clone(), format!("工程 {m} が、周回を閉じる途中で止まっています（完了にしていません）")));
+                }
+            }
+        }
+        let mut seen = HashSet::new();
+        for (id, why) in found {
+            if seen.insert(id.clone()) {
+                self.block(&id, BlockedReason::NeedsAttention, &format!("復元時の確認: {why}"));
+            }
+        }
+    }
+
     pub(crate) fn graph_pass(&mut self) {
         if !self.is_graph_mode() || self.graph.is_none() {
             return;
+        }
+        if self.audit_pending {
+            self.audit_pending = false;
+            self.audit_restore();
         }
         // A. Edge decisions a crash left open: chosen again from the stored values (never from a guess).
         let pending: Vec<TaskId> = self.s().tasks().iter().filter(|t| Self::edge_pending(t) && !self.edge_stuck.contains(&t.id)).map(|t| t.id.clone()).collect();

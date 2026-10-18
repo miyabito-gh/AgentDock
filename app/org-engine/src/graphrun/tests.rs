@@ -491,3 +491,112 @@ fn graph_start_is_refused_for_a_graph_with_planned_tasks() {
     assert!(sim.notices().iter().any(|n| matches!(n, OrgNotice::Refused { .. })));
     let _ = HaltReason::User;
 }
+
+// ---------------------------------------------------------------- writer bases, audit, roles
+
+const TWO_WRITERS: &str = r#"{
+  "schemaVersion": 1, "id": "two-writers", "displayName": "t", "workspace": "git", "entry": "plan",
+  "slots": { "spec": { "schema": "spec" }, "r1": { "schema": "workerReport" }, "r2": { "schema": "workerReport" } },
+  "nodes": [
+    { "id": "plan", "kind": "agent", "role": "planner", "output": "spec" },
+    { "id": "build", "kind": "agent", "role": "worker", "output": "r1", "capture": "commit", "reads": ["spec"] },
+    { "id": "polish", "kind": "agent", "role": "worker", "output": "r2", "capture": "commit", "reads": ["r1"] }
+  ],
+  "edges": [ { "from": "plan", "to": "build" }, { "from": "build", "to": "polish" } ]
+}"#;
+
+fn worktree_base(sim: &Sim, task: &str) -> WorktreeBase {
+    sim.log
+        .iter()
+        .find_map(|a| if let OrgAction::Workspace(WorkspaceAction::CreateWorktree { task: t, base, .. }) = a { (t.0 == task).then(|| base.clone()) } else { None })
+        .unwrap_or_else(|| panic!("no worktree for {task}"))
+}
+
+#[test]
+fn a_writer_starts_from_the_nearest_earlier_writers_newest_commit() {
+    let mut sim = Sim::new(compile(TWO_WRITERS, "two-writers"));
+    sim.start();
+    sim.complete("plan-1", SPEC);
+    assert_eq!(worktree_base(&sim, "build-1"), WorktreeBase::Head, "no writer before it");
+    sim.complete("build-1", REPORT);
+    let commit = sim.t("build-1").commit().unwrap().to_string();
+    assert_eq!(worktree_base(&sim, "polish-1"), WorktreeBase::FromCommit(commit));
+}
+
+#[test]
+fn a_writer_is_held_when_the_earlier_writer_has_no_commit() {
+    let mut sim = Sim::new(compile(TWO_WRITERS, "two-writers"));
+    sim.start();
+    sim.complete("plan-1", SPEC);
+    sim.complete("build-1", REPORT);
+    // the earlier writer's commit is lost (as after a damaged record): the later writer is not started from HEAD
+    let events: Vec<OrgEvent> = sim.events().into_iter().filter(|e| !matches!(&e.kind, OrgEventKind::Committed { .. })).collect();
+    let g = compile(TWO_WRITERS, "two-writers");
+    let mut r = restore_sim(g.clone(), &events[..events.iter().position(|e| matches!(&e.kind, OrgEventKind::ActivationAdded { node, .. } if node.0 == "polish")).unwrap_or(events.len())], slot_files(&sim.log));
+    assert!(r.t("build-1").commit().is_none());
+    let base = r.core.writer_base(&g, &NodeId::new("polish"));
+    assert!(base.is_err(), "{base:?}");
+}
+
+#[test]
+fn the_restore_audit_holds_what_a_crash_left_unmoved_and_does_not_move_it_on() {
+    // verify passes and the loops are closed, but the crash came before the members were completed
+    let mut sim = Sim::new(quality(3, "ask"));
+    sim.to_verify();
+    sim.complete("verify-1", PASS);
+    let events = sim.events();
+    let slots = slot_files(&sim.log);
+    let last_edge = events.iter().rposition(|e| matches!(&e.kind, OrgEventKind::EdgeTaken { from, .. } if from.0 == "verify-1")).unwrap();
+    // keep the edge, drop the later status changes that complete the members
+    let cut: Vec<OrgEvent> = events[..=last_edge].to_vec();
+    let mut r = restore_sim(quality(3, "ask"), &cut, slots.clone());
+    assert_eq!(r.status("build-1"), TaskStatus::Reviewing);
+    let acts = r.feed(OrgInput::Tick { now_ms: 2000 });
+    assert!(acts.iter().any(|a| matches!(a, OrgAction::Notify(OrgNotice::TaskBlocked { why, .. }) if why.contains("復元時の確認"))), "{acts:?}");
+    assert_eq!(r.status("build-1"), TaskStatus::Blocked(BlockedReason::NeedsAttention));
+    assert_eq!(r.count(|k| matches!(k, OrgEventKind::EdgeTaken { .. } | OrgEventKind::FeedbackCounted { .. })), 0, "no edge is chosen again");
+    // reported once
+    assert!(r.feed(OrgInput::Tick { now_ms: 3000 }).is_empty());
+
+    // an undecided edge is not reported: it is chosen again from the stored value
+    let cut_edge = events.iter().position(|e| matches!(&e.kind, OrgEventKind::EdgeTaken { from, .. } if from.0 == "verify-1")).unwrap();
+    let mut r = restore_sim(quality(3, "ask"), &events[..cut_edge], slots);
+    let acts = r.feed(OrgInput::Tick { now_ms: 2000 });
+    assert!(!acts.iter().any(|a| matches!(a, OrgAction::Notify(OrgNotice::TaskBlocked { why, .. }) if why.contains("復元時の確認"))));
+}
+
+#[test]
+fn set_roles_asks_for_the_roles_the_graph_uses() {
+    use crate::{standard_definitions, LoadedRole};
+    let load = |ids: &[&str]| -> Vec<LoadedRole> {
+        standard_definitions().into_iter().filter(|d| ids.contains(&d.id.as_str())).map(|def| LoadedRole { def, widened: vec![], confirmed: false }).collect()
+    };
+    // without a graph: the three standard roles (the built-in standard workflow)
+    let mut core = OrgCore::new(0);
+    assert!(core.set_roles(&load(&["planner", "worker", "reviewer"])).is_ok());
+    assert!(core.set_roles(&load(&["planner", "worker"])).is_err());
+    // with a graph: the roles it uses, not the standard three
+    let mut core = OrgCore::new(0);
+    core.set_graph(quality(3, "ask")).unwrap();
+    assert!(core.set_roles(&load(&["planner", "worker", "verifier"])).is_ok());
+    let e = core.set_roles(&load(&["planner", "worker", "reviewer"])).unwrap_err();
+    assert!(e.contains("verifier"), "{e}");
+}
+
+#[test]
+fn a_feedback_that_stopped_between_the_count_and_the_target_becoming_ready_is_held_with_a_reason() {
+    let mut sim = Sim::new(quality(3, "ask"));
+    sim.to_verify();
+    sim.complete("verify-1", REWORK);
+    let events = sim.events();
+    let slots = slot_files(&sim.log);
+    let counted = events.iter().position(|e| matches!(&e.kind, OrgEventKind::FeedbackCounted { .. })).unwrap();
+    let to_rework = counted + events[counted..].iter().position(|e| matches!(&e.kind, OrgEventKind::StatusChanged { task, to: TaskStatus::Rework, .. } if task.0 == "build-1")).unwrap();
+    let mut r = restore_sim(quality(3, "ask"), &events[..=to_rework], slots);
+    assert_eq!(r.status("build-1"), TaskStatus::Rework);
+    let acts = r.feed(OrgInput::Tick { now_ms: 2000 });
+    assert!(acts.iter().any(|a| matches!(a, OrgAction::Notify(OrgNotice::TaskBlocked { task, why }) if task.0 == "build-1" && why.contains("差し戻しが途中で止まっています"))), "{acts:?}");
+    assert_eq!(r.status("build-1"), TaskStatus::Blocked(BlockedReason::NeedsAttention));
+    assert_eq!(r.count(|k| matches!(k, OrgEventKind::EdgeTaken { .. } | OrgEventKind::FeedbackCounted { .. })), 0);
+    assert_eq!(r.sends("build-1"), 0, "nothing is sent");
+}

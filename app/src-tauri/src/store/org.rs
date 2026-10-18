@@ -2,6 +2,7 @@
 //!
 //! `%LOCALAPPDATA%\com.agentdock.app\org\<workflowId>\` に
 //! `workflow.json`（原子的書換え）・`events.jsonl`（追記。末尾の壊れた行は復元時に無視して報告）・`usage.jsonl`（使用量の行）。
+//! `graph.json`・`roles.json`（開始時の定義の写し）と `slots\`（スロットの値。`<スロットID>.<版>.json`）も同じフォルダ。
 //! 期限・容量による自動削除はしない。読めない `workflow.json` は `.corrupt-<ms>` へ退避して残す（イベントから再構築できる）。
 
 use std::path::{Path, PathBuf};
@@ -10,6 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use org_engine::{
     parse_events, parse_usage, EventRead, OrgEvent, OrgStore, SnapshotLoad, StoreError, UsageRow, WorkflowState,
 };
+use org_engine::graph::SlotId;
 
 use super::atomic::{append_line, write_atomic};
 use super::layout::{corrupt_aside_name, sanitize_file_name};
@@ -17,6 +19,10 @@ use super::layout::{corrupt_aside_name, sanitize_file_name};
 pub const SNAPSHOT_FILE: &str = "workflow.json";
 pub const EVENTS_FILE: &str = "events.jsonl";
 pub const USAGE_FILE: &str = "usage.jsonl";
+/// スロットの値のフォルダ（`slots\<スロットID>.<版>.json`）。
+pub const SLOTS_DIR: &str = "slots";
+/// スロットの値の大きさの上限（書くとき。エンジンの上限は256KB。読むときは余裕を見てこの2倍まで）。
+pub const SLOT_MAX_BYTES: usize = 256 * 1024;
 
 /// `<root>\org\<workflowId>`。IDはファイル名として安全な形にする。
 pub fn workflow_dir(root: &Path, workflow_id: &str) -> PathBuf {
@@ -33,6 +39,9 @@ impl FileOrgStore {
     }
     pub fn dir(&self) -> &Path {
         &self.dir
+    }
+    fn slot_path(&self, slot: &SlotId, version: u32) -> PathBuf {
+        self.dir.join(SLOTS_DIR).join(format!("{}.{version}.json", sanitize_file_name(&slot.0)))
     }
     fn read_text(&self, name: &str) -> Result<Option<String>, StoreError> {
         match std::fs::read(self.dir.join(name)) {
@@ -88,6 +97,30 @@ impl OrgStore for FileOrgStore {
     fn read_usage(&self) -> Result<Vec<UsageRow>, StoreError> {
         Ok(self.read_text(USAGE_FILE)?.map(|t| parse_usage(&t)).unwrap_or_default())
     }
+
+    fn put_slot(&self, slot: &SlotId, version: u32, value: &serde_json::Value) -> Result<(), StoreError> {
+        let bytes = serde_json::to_vec(value).map_err(|e| StoreError::Io(e.to_string()))?;
+        if bytes.len() > SLOT_MAX_BYTES {
+            return Err(StoreError::Io("スロットの値が大きすぎます（256KBまで）".into()));
+        }
+        write_atomic(&self.slot_path(slot, version), &bytes).map_err(io)
+    }
+
+    /// 読めない・壊れている・大きすぎるものは「未取得」（`None`）。値を補ったり、別の版で代用したりしない。
+    fn read_slot(&self, slot: &SlotId, version: u32) -> Result<Option<serde_json::Value>, StoreError> {
+        let path = self.slot_path(slot, version);
+        match std::fs::metadata(&path) {
+            Ok(m) if m.len() as usize > SLOT_MAX_BYTES * 2 => return Ok(None),
+            Ok(_) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(io(e)),
+        }
+        match std::fs::read(&path) {
+            Ok(b) => Ok(serde_json::from_slice(&b).ok()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(io(e)),
+        }
+    }
 }
 
 /// `<root>\org\` のワークフローのフォルダを新しい順に並べる（IDは `wf-<ms>` なので名前順＝作成順）。読取りだけ。
@@ -135,6 +168,12 @@ impl OrgStore for ReadOnlyOrgStore {
     }
     fn read_usage(&self) -> Result<Vec<UsageRow>, StoreError> {
         self.inner.read_usage()
+    }
+    fn put_slot(&self, _slot: &SlotId, _version: u32, _value: &serde_json::Value) -> Result<(), StoreError> {
+        Err(read_only())
+    }
+    fn read_slot(&self, slot: &SlotId, version: u32) -> Result<Option<serde_json::Value>, StoreError> {
+        self.inner.read_slot(slot, version)
     }
 }
 

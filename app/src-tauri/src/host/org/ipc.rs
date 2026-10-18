@@ -106,7 +106,7 @@ impl Host {
                 Some((w, t))
             }
         };
-        let wf = self.org_start(OrgStartArgs { request: args.request, repo: args.repo, parallelism }, confirmed).await?;
+        let wf = self.org_start(OrgStartArgs { request: args.request, repo: args.repo, parallelism, graph: None, max_turns: None }, confirmed).await?;
         Ok(StartOrgResult { workflow_id: wf.0 })
     }
 
@@ -139,7 +139,7 @@ impl Host {
     pub fn org_replan(&self, args: OrgWorkflowArgs, _confirmed: &UserConfirmed) -> Result<(), IpcError> {
         let (_, tx) = self.org_check_workflow(&args.workflow_id)?;
         self.require_plan_pending()?;
-        let _ = tx.send(DriverMsg::Input(OrgInput::UserReplan));
+        let _ = tx.send(DriverMsg::Input(OrgInput::UserReplan { note: None }));
         Ok(())
     }
 

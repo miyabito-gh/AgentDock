@@ -15,6 +15,9 @@ struct MemStore {
     log: Log,
     events: Mutex<Vec<OrgEvent>>,
     fail_after: Option<usize>,
+    /// 書いたスロットの値（`<スロット>.<版>`）。
+    slots: Mutex<Vec<String>>,
+    fail_slots: bool,
 }
 
 impl OrgStore for MemStore {
@@ -41,6 +44,14 @@ impl OrgStore for MemStore {
     }
     fn read_usage(&self) -> Result<Vec<Row>, StoreError> {
         Ok(Vec::new())
+    }
+    fn put_slot(&self, slot: &org_engine::graph::SlotId, version: u32, _value: &serde_json::Value) -> Result<(), StoreError> {
+        if self.fail_slots {
+            return Err(StoreError::Io("disk full".into()));
+        }
+        self.log.lock().unwrap().push(format!("slot:{}.{version}", slot.0));
+        self.slots.lock().unwrap().push(format!("{}.{version}", slot.0));
+        Ok(())
     }
 }
 
@@ -123,10 +134,14 @@ struct Rig {
 }
 
 fn rig(fail_after: Option<usize>) -> Rig {
+    rig_full(fail_after, false)
+}
+
+fn rig_full(fail_after: Option<usize>, fail_slots: bool) -> Rig {
     let log: Log = Arc::default();
     let fake = Arc::new(Fake { reg: GrantRegistry::default(), log: log.clone(), live: Mutex::new(true), sandbox_exit: Mutex::new(0), sends: Mutex::new(0), creates: Mutex::new(0), clock: Arc::new(std::sync::atomic::AtomicI64::new(1000)), reconcile: Mutex::new(None), reconcile_reads: Mutex::new(0) });
     let sink = Arc::new(Sink::default());
-    let store: DynStore = Arc::new(MemStore { log: log.clone(), events: Mutex::new(Vec::new()), fail_after });
+    let store: DynStore = Arc::new(MemStore { log: log.clone(), events: Mutex::new(Vec::new()), fail_after, slots: Mutex::new(Vec::new()), fail_slots });
     let clock = fake.clock.clone();
     let driver = OrgDriver::new(OrgCore::new(0), store, fake.clone(), sink.clone(), Box::new(move || clock.load(std::sync::atomic::Ordering::SeqCst)));
     Rig { driver, fake, sink, log }
@@ -378,4 +393,53 @@ async fn the_driver_task_ends_once_every_task_is_finished_so_a_new_workflow_can_
     tokio::time::timeout(Duration::from_secs(5), handle).await.expect("the driver stops by itself").unwrap();
     assert!(tx.is_closed(), "the send side is closed, which is what lets the host start another workflow");
     assert!(!fake.reg.is_active(&WorkflowId::new("w1")), "the send grant is revoked when the driver finishes");
+}
+
+fn slot_written(version: u32) -> OrgAction {
+    OrgAction::Persist(OrgEvent {
+        schema_version: SCHEMA_VERSION,
+        seq: 9,
+        at_ms: 0,
+        kind: org_engine::OrgEventKind::SlotWritten { task: TaskId::new("plan-1"), slot: org_engine::graph::SlotId::new("spec"), version, bytes: 1 },
+    })
+}
+
+fn put_slot(version: u32) -> OrgAction {
+    OrgAction::PutSlot { slot: org_engine::graph::SlotId::new("spec"), version, value: serde_json::json!({"goal": "g"}) }
+}
+
+#[tokio::test]
+async fn a_slot_value_is_written_before_its_record_is_appended() {
+    let mut r = rig(None);
+    let mut stop = false;
+    assert!(r.driver.exec(put_slot(1), &mut stop).await.is_none());
+    assert!(r.driver.exec(slot_written(1), &mut stop).await.is_none());
+    assert!(!stop && !r.driver.persist_failed);
+    let log = r.log.lock().unwrap().clone();
+    let put = log.iter().position(|l| l == "slot:spec.1").unwrap();
+    let rec = log.iter().position(|l| l.contains("SlotWritten")).unwrap();
+    assert!(put < rec, "{log:?}");
+}
+
+#[tokio::test]
+async fn a_slot_value_that_cannot_be_written_stops_everything_after_it() {
+    let mut r = rig_full(None, true);
+    start(&mut r).await;
+    let creates_before = *r.fake.creates.lock().unwrap();
+    let mut stop = false;
+    assert!(r.driver.exec(put_slot(1), &mut stop).await.is_none());
+    assert!(stop && r.driver.persist_failed);
+    assert!(r.sink.notices.lock().unwrap().iter().any(|n| matches!(n, OrgHostNotice::SlotWriteFailed { slot } if slot == "spec")));
+    // the record of that version is not appended, and no later effect runs (nothing is chosen from a value that is not there)
+    assert!(r.driver.exec(slot_written(1), &mut stop).await.is_none());
+    assert!(!r.log.lock().unwrap().iter().any(|l| l.contains("SlotWritten")));
+    let create = OrgAction::CreateRoleChat {
+        task: TaskId::new("plan-1"),
+        spec: org_engine::RoleChatSpec { role: org_engine::RoleId::new("planner"), cwd: "C:/repo".into(), sandbox: org_engine::SandboxKind::ReadOnly, model: None, effort: None },
+    };
+    assert!(r.driver.exec(create, &mut stop).await.is_none());
+    assert_eq!(*r.fake.creates.lock().unwrap(), creates_before);
+    // a later write is not even tried
+    assert!(r.driver.exec(put_slot(2), &mut stop).await.is_none());
+    assert!(!r.log.lock().unwrap().iter().any(|l| l.starts_with("slot:")));
 }

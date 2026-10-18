@@ -65,6 +65,9 @@ pub enum WorktreeBase {
     /// The repository's current HEAD.
     Head,
     DetachedAt(String),
+    /// A new branch for a writer, started from the newest fixed result (commit) of the nearest writer node
+    /// before it in the graph (DESIGN_ORG_GRAPH 9.1).
+    FromCommit(String),
 }
 
 /// Requests for the `Workspace` port (host implementation: P-ORG-5).
@@ -155,7 +158,8 @@ pub enum OrgInput {
     UserManual { task: TaskId },
     UserAcceptManual { task: TaskId },
     UserApprovePlan,
-    UserReplan,
+    /// Send the plan back. `note` is the user's reason; it reaches the Planner as a user note.
+    UserReplan { note: Option<String> },
     UserRaiseTurnLimit { to: u32 },
     /// The user asks to try a blocked task again (a new attempt; only when it is certain nothing was sent).
     UserRetryTask { task: TaskId },
@@ -322,6 +326,8 @@ pub struct OrgCore {
     pub(crate) slot_values: HashMap<(SlotId, u32), Value>,
     /// Tasks whose edge could not be chosen (already reported; asked again only after a restart).
     pub(crate) edge_stuck: HashSet<TaskId>,
+    /// A restored graph workflow is checked once for states a crash can leave behind (`audit_restore`).
+    pub(crate) audit_pending: bool,
     pub(crate) out: Vec<OrgAction>,
     /// Bumped whenever a flow changes, so `drive` knows whether another pass can make progress.
     pub(crate) gen: u64,
@@ -355,6 +361,7 @@ impl OrgCore {
             schemas: builtin_schemas(),
             slot_values: HashMap::new(),
             edge_stuck: HashSet::new(),
+            audit_pending: false,
             out: Vec::new(),
             gen: 0,
         }
@@ -376,6 +383,7 @@ impl OrgCore {
             let _ = c.set_graph(g);
         }
         c.slot_values = slots;
+        c.audit_pending = c.graph.is_some() && c.is_graph_mode();
         c
     }
 
@@ -396,12 +404,17 @@ impl OrgCore {
     }
 
     /// Use the loaded role definitions (P-ORG-8). Roles that are not enabled stay in the table, so a
-    /// plan using them needs confirmation (policy) and the scheduler never dispatches them. The three
-    /// standard roles must be present; otherwise nothing changes and the reason is returned.
+    /// plan using them needs confirmation (policy) and the scheduler never dispatches them. Every role
+    /// the graph uses must be present (set the graph first); without a graph, the three standard roles
+    /// of the built-in `standard` workflow. Otherwise nothing changes and the reason is returned.
     pub fn set_roles(&mut self, loaded: &[LoadedRole]) -> Result<(), String> {
-        for std_id in [ROLE_PLANNER, ROLE_WORKER, ROLE_REVIEWER] {
-            if !loaded.iter().any(|l| l.def.id == std_id) {
-                return Err(format!("標準役割「{std_id}」の定義を読めません"));
+        let required: Vec<String> = match self.graph.as_ref() {
+            Some(g) => g.roles_used().into_iter().map(|r| r.0).collect(),
+            None => [ROLE_PLANNER, ROLE_WORKER, ROLE_REVIEWER].iter().map(|s| s.to_string()).collect(),
+        };
+        for id in required {
+            if !loaded.iter().any(|l| l.def.id == id) {
+                return Err(format!("役割「{id}」の定義を読めません"));
             }
         }
         self.roles = loaded.iter().map(LoadedRole::to_role).collect();
@@ -558,10 +571,10 @@ impl OrgCore {
                     self.clear_halt();
                 }
             }
-            OrgInput::UserReplan if self.is_graph_mode() => {
+            OrgInput::UserReplan { .. } if self.is_graph_mode() => {
                 self.notify(OrgNotice::Refused { reason: "このグラフでは計画の作り直しはできません（差し戻しの辺で戻ります）".into() });
             }
-            OrgInput::UserReplan => self.user_replan(),
+            OrgInput::UserReplan { note } => self.user_replan(note),
             OrgInput::UserCancelTask { task } => self.user_cancel(&task),
             OrgInput::UserManual { task } => {
                 self.forget(&task);

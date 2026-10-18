@@ -1,6 +1,7 @@
 //! 組織実行（P-ORG-5）の `Workspace` ポートのホスト実装。worktree台帳（`worktrees.json`）と作成・コミットの安全条件を共用する。
 //!
 //! - 作成は組織実行のタスク用だけ（Worker＝`agentdock/org/<workflow>/<task>` ブランチの専用worktree、Reviewer＝対象コミット固定のdetached）。
+//!   Workerの始点は HEAD、またはグラフで前にある書込みノードの最新コミット（`FromCommit`。そのコミットが解決できなければ作らない）。
 //!   通常チャットのworktree（指定しないチャットは通常の作業場所）の仕様は変えない。記録（`org` つき）を保存してからgitを実行する。
 //! - コミットは所有記録のあるworktreeの中だけ（`gitops::org`）。push・merge・reset・force・利用者のブランチへの操作は持たない。
 //! - 失敗・拒否・結果不明を成功にしない。結果は `WorkspaceOutcome` で返す。統合（マージ）は利用者が手動で行う。
@@ -26,7 +27,7 @@ impl Host {
 
     async fn org_create_worktree(self: &Arc<Self>, workflow: &WorkflowId, task: &org_engine::TaskId, repo: &str, base: WorktreeBase) -> WorkspaceOutcome {
         let access = match base {
-            WorktreeBase::Head => OrgWorktreeAccess::Writable,
+            WorktreeBase::Head | WorktreeBase::FromCommit(_) => OrgWorktreeAccess::Writable,
             WorktreeBase::DetachedAt(_) => OrgWorktreeAccess::DetachedReadOnly,
         };
         let owner = OrgWorktreeOwner { workflow_id: workflow.0.clone(), task_id: task.0.clone(), access };
@@ -59,7 +60,7 @@ impl Host {
         let main_path = listed.first().map(|w| w.path.clone()).unwrap_or_else(|| top.clone());
         let rev = match &base {
             WorktreeBase::Head => "HEAD".to_string(),
-            WorktreeBase::DetachedAt(c) => c.clone(),
+            WorktreeBase::DetachedAt(c) | WorktreeBase::FromCommit(c) => c.clone(),
         };
         let base_commit = match gw::resolve_commit(&git, Path::new(&top), &rev).await {
             Ok(c) => c,
@@ -108,7 +109,7 @@ impl Host {
             return failed(format!("実行前の記録を保存できなかったため、worktreeは作っていません（{message}）"));
         }
         let made: Result<(), go::OrgGitError> = match access {
-            OrgWorktreeAccess::Writable => gw::add(&git, Path::new(&top), &path, &branch, &base_commit).await.map_err(Into::into),
+            OrgWorktreeAccess::Writable => go::add_branch_worktree_from_commit(&git, Path::new(&top), &root_str, &path, &branch, &base_commit).await.map(|_| ()),
             OrgWorktreeAccess::DetachedReadOnly => go::add_detached_worktree(&git, Path::new(&top), &root_str, &path, &base_commit).await.map(|_| ()),
         };
         let outcome = match made {

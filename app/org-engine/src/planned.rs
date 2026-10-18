@@ -8,6 +8,7 @@ use serde_json::Value;
 
 use crate::core::{OrgAction, OrgCore, OrgNotice, SandboxKind, WorkspaceAction, WorktreeBase};
 use crate::core::{Flow, Launch, Output};
+use crate::graph::NodeId;
 use crate::limits::TurnKind;
 use crate::persist::{HaltReason, OrgEventKind};
 use crate::policy::{evaluate_plan, Decision, PlanKind, PolicyInput};
@@ -67,7 +68,8 @@ impl OrgCore {
         }
     }
 
-    pub(crate) fn user_replan(&mut self) {
+    pub(crate) fn user_replan(&mut self, reason: Option<String>) {
+        let reason = reason.map(|x| x.trim().to_string()).filter(|x| !x.is_empty());
         let s = self.s();
         let planning_done = s.tasks().iter().filter(|t| t.role.0 == ROLE_PLANNER).all(|t| t.status() == TaskStatus::Completed);
         let untouched = s
@@ -97,6 +99,11 @@ impl OrgCore {
         let n = self.s().tasks().iter().filter(|t| t.role.0 == ROLE_PLANNER).count() + 1;
         let id = TaskId::new(format!("planner-{n}"));
         self.replan_notes.insert(id.clone(), note.join("\n"));
+        // The user's reason goes to the new Planner turn as a note of its own (never mixed into the material).
+        // Recorded before the task, so a restored workflow still has it.
+        if let Some(text) = reason.as_deref() {
+            self.add_note(text, NoteScope::Node { node: NodeId::new(id.0.clone()) });
+        }
         self.clear_halt();
         self.rec(OrgEventKind::TaskAdded {
             task: PlanTask {
@@ -289,7 +296,13 @@ impl OrgCore {
                     Some((TurnKind::Plan, prompt::planner_prompt(s.request(), s.repo())))
                 } else {
                     let prev = self.replan_notes.get(id).cloned().unwrap_or_else(|| "(前の計画は未取得)".into());
-                    Some((TurnKind::Replan, prompt::replan_prompt(s.request(), s.repo(), &prev)))
+                    let notes: Vec<String> = s
+                        .notes()
+                        .iter()
+                        .filter(|n| matches!(&n.scope, NoteScope::Node { node } if node.0 == id.0))
+                        .map(|n| n.text.clone())
+                        .collect();
+                    Some((TurnKind::Replan, prompt::replan_prompt(s.request(), s.repo(), &prev, &notes)))
                 }
             }
             NodeKind::PlannedTasks(PlannedRole::Worker) => {

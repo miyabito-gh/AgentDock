@@ -4,6 +4,7 @@
 //! - `ports.rs`: エンジンが使うポートの trait と `Host` による実装（作成・送信・読取り）。
 //! - `observe.rs`: ホストの観測（イベント・送信結果・中断）をエンジンへの入力に変える純粋な変換。
 //! - `driver.rs`: `OrgCore` を所有し action を実行する専用task。
+//! - `graphs.rs`: グラフ定義ファイルの読込み・初回作成と、開始時の定義の写し（`graph.json`・`roles.json`）。
 //!
 //! 守ること:
 //! - 監視・照合・再起動の経路からは組織の送信を呼べない（送信権は司令taskだけが持つ。`Host` が持つのは失効の管理表だけ）。
@@ -13,6 +14,7 @@
 
 pub mod driver;
 pub mod grant;
+pub mod graphs;
 pub mod history;
 pub mod ipc;
 pub mod notify;
@@ -60,6 +62,8 @@ pub struct OrgRuntime {
     notice_serial: std::sync::atomic::AtomicU64,
     /// 直近に読んだ役割定義（P-ORG-8）。UI（P-ORG-7）が理由を表示する元。
     roles: Mutex<Option<roles::RoleReport>>,
+    /// 直近に読んだグラフ定義（G-A4）。UI（G-A5）が一覧と誤りの理由を表示する元。
+    graphs: Mutex<Option<graphs::GraphReport>>,
     /// 過去のワークフローの読込み結果の控え（読取り専用。保存ファイルが変わったときだけ読み直す）。
     pub(in crate::host) history_cache: Mutex<history::HistoryCache>,
 }
@@ -141,7 +145,14 @@ pub struct OrgStartArgs {
     pub repo: String,
     /// 同時に動かす数（書込み役・全体。1〜4）。None は既定。
     pub parallelism: Option<(u32, u32)>,
+    /// テンプレート（グラフ定義）のID。None は従来の計画経路（組込みの `standard` と同じ）。
+    pub graph: Option<String>,
+    /// turn 上限。None は既定（30）。
+    pub max_turns: Option<u32>,
 }
+
+/// 開始ダイアログで指定できる turn 上限の最大（暴走防止の上限は静的上限と turn 上限の両方で効く）。
+pub const START_MAX_TURNS: u32 = 200;
 
 /// 再開の結果。再開できなかったチャットは live に戻していない（エンジンは送らずに止まる）。
 #[derive(Debug, Clone, Default)]
@@ -256,18 +267,57 @@ impl Host {
         if self.org_rt.driver_active() {
             return Err(blocked(BlockedReason::ChatBusy, "組織実行はすでに動いています（同時に動かせるのは1件です）"));
         }
-        // 役割定義を読む（初回は標準3役を作る）。有効な役割だけがエンジンに渡る。
+        if let Some(m) = args.max_turns {
+            if !(1..=START_MAX_TURNS).contains(&m) {
+                return Err(err(IpcErrorCode::InvalidArgs, format!("turn 上限は 1〜{START_MAX_TURNS} で指定してください")));
+            }
+            limits.max_turns = m;
+        }
+        // 役割定義を読む（初回は標準の役割を作る）。有効な役割だけがエンジンに渡る。
         let mut core = OrgCore::new(now_ms().0);
-        {
-            let report = roles::prepare_roles(&root, now_ms().0);
-            if let Err(msg) = core.set_roles(&report.roles) {
-                *self.org_rt.roles.lock().unwrap() = Some(report);
+        let roles_report = roles::prepare_roles(&root, now_ms().0);
+        *self.org_rt.roles.lock().unwrap() = Some(roles_report.clone());
+        // テンプレート。指定がなければ従来の計画経路（定義ファイルには依存しない）。計画経路の `standard` も同じ。
+        let mut graph_start: Option<(org_engine::graph::CompiledGraph, Vec<org_engine::LoadedRole>)> = None;
+        if let Some(id) = args.graph.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            let report = graphs::prepare_graphs(&root, &roles_report.roles);
+            *self.org_rt.graphs.lock().unwrap() = Some(report.clone());
+            let Some(compiled) = report.find(id) else {
+                let why = report.problem_for(id).map(|p| p.reasons.join(" / ")).unwrap_or_else(|| "そのテンプレートがありません".to_string());
+                return Err(err(IpcErrorCode::InvalidArgs, format!("テンプレート「{id}」は使えません: {why}")));
+            };
+            let planned = compiled.def.nodes.iter().any(|n| matches!(n.kind, org_engine::graph::NodeKind::PlannedTasks { .. }));
+            if planned && id != org_engine::graph::TEMPLATE_STANDARD {
+                return Err(err(IpcErrorCode::InvalidArgs, "計画（plannedTasks）を含むテンプレートは、組込みの standard だけが対応しています"));
+            }
+            if !planned {
+                if compiled.def.workspace != org_engine::graph::WorkspaceKind::Git {
+                    return Err(err(IpcErrorCode::InvalidArgs, "Git を使わない（folder）テンプレートには、まだ対応していません"));
+                }
+                let used = graphs::used_roles(compiled, &roles_report.roles).map_err(|m| err(IpcErrorCode::InvalidArgs, format!("テンプレート「{id}」は使えません: {m}")))?;
+                graph_start = Some((compiled.clone(), used));
+            }
+        }
+        // グラフを先に渡す（役割の確認は、グラフが使う役割に対して行う）。
+        if let Some((compiled, _)) = &graph_start {
+            if let Err(msg) = core.set_graph(compiled.clone()) {
                 return Err(err(IpcErrorCode::Io, msg));
             }
-            *self.org_rt.roles.lock().unwrap() = Some(report);
+        }
+        if let Err(msg) = core.set_roles(&roles_report.roles) {
+            return Err(err(IpcErrorCode::Io, msg));
         }
         let workflow = WorkflowId::new(format!("wf-{}", now_ms().0));
-        let store: Arc<dyn OrgStore + Send + Sync> = Arc::new(FileOrgStore::new(workflow_dir(&root, &workflow.0)));
+        let wf_dir = workflow_dir(&root, &workflow.0);
+        // 開始時の定義の写しを先に保存する（保存できなければ始めない）。復元はこの写しで行う。
+        let roles_fingerprint = match &graph_start {
+            Some((compiled, used)) => Some(
+                graphs::save_copies(&wf_dir, compiled, used)
+                    .map_err(|e| err(IpcErrorCode::Io, format!("開始時の定義の写しを保存できないため、始めません: {e}")))?,
+            ),
+            None => None,
+        };
+        let store: Arc<dyn OrgStore + Send + Sync> = Arc::new(FileOrgStore::new(wf_dir));
         let driver = OrgDriver::new(core, store, Arc::new(self.clone()), self.clone() as Arc<dyn OrgSink>, Box::new(|| now_ms().0));
         // 登録は確認と同じロックの中で行う（先に動き出したものがあれば、ここで断る）。
         let Some(tx) = self.spawn_org_driver(workflow.clone(), driver) else {
@@ -276,13 +326,23 @@ impl Host {
         // 送信権 → 開始。順序をチャネルで保つ。
         let grant = OrgGrant::issue(confirmed, workflow.clone(), &self.org_rt.grants);
         let _ = tx.send(DriverMsg::Install(grant));
-        let _ = tx.send(DriverMsg::Input(OrgInput::Start { workflow: workflow.clone(), request: args.request, repo: args.repo.trim().to_string(), limits }));
+        let repo = args.repo.trim().to_string();
+        let start = match roles_fingerprint {
+            Some(roles_fingerprint) => OrgInput::StartGraph { workflow: workflow.clone(), request: args.request, repo, limits, roles_fingerprint },
+            None => OrgInput::Start { workflow: workflow.clone(), request: args.request, repo, limits },
+        };
+        let _ = tx.send(DriverMsg::Input(start));
         Ok(workflow)
     }
 
     /// 直近に読んだ役割定義の結果（無効の理由を含む）。まだ読んでいなければ None。
     pub fn org_roles_report(&self) -> Option<roles::RoleReport> {
         self.org_rt.roles.lock().unwrap().clone()
+    }
+
+    /// 直近に読んだグラフ定義の結果（誤りの理由を含む）。まだ読んでいなければ None。
+    pub fn org_graphs_report(&self) -> Option<graphs::GraphReport> {
+        self.org_rt.graphs.lock().unwrap().clone()
     }
 
     /// 役割定義を読み直す。動いているワークフローがあるときは変えない（途中で権限が変わらないように）。
@@ -491,16 +551,55 @@ impl Host {
             }
         }
         *self.org_rt.view.lock().unwrap() = Some(driver::snapshot_of(&state));
-        let store: Arc<dyn OrgStore + Send + Sync> = Arc::new(store);
-        // 役割定義は読み直す。読めなければ標準の既定のまま（権限を広げない側）。
-        let mut core = OrgCore::restored(state, now_ms().0);
+        // 今の定義ファイル（役割・グラフ）。画面の元として控え、開始時の定義との違いの案内にだけ使う（読むだけ。グラフは作成もしない）。
         let report = roles::prepare_roles(&root, now_ms().0);
-        if let Err(e) = core.set_roles(&report.roles) {
+        let current_graphs = graphs::load_graphs(&root, &report.roles);
+        *self.org_rt.roles.lock().unwrap() = Some(report.clone());
+        *self.org_rt.graphs.lock().unwrap() = Some(current_graphs.clone());
+        // グラフで動いていたワークフローは、開始時の写しで復元する（今の定義ファイルでは代用しない）。
+        let mut notes: Vec<OrgHostNotice> = Vec::new();
+        let mut copy: Option<(org_engine::graph::CompiledGraph, Vec<org_engine::LoadedRole>)> = None;
+        if let Some(bound) = state.graph() {
+            match graphs::load_copies(&dir, bound) {
+                Ok((g, r)) => {
+                    let ids: Vec<org_engine::RoleId> = g.roles_used().into_iter().collect();
+                    if let Some(message) = graphs::definitions_changed(bound, &ids, &current_graphs, &report.roles) {
+                        notes.push(OrgHostNotice::DefinitionNote { message, attention: false });
+                    }
+                    copy = Some((g, r));
+                }
+                Err(why) => {
+                    crate::diag::log("org", &format!("definition copy unusable: {why}"));
+                    notes.push(OrgHostNotice::DefinitionNote {
+                        message: format!("開始時の定義の写しを使えないため、このワークフローは進められません（{why}）"),
+                        attention: true,
+                    });
+                }
+            }
+        }
+        let store: Arc<dyn OrgStore + Send + Sync> = Arc::new(store);
+        // スロットの値を読み戻す。読めないものは「未取得」のまま（その値で辺を選ばず、止まる）。
+        let (slots, unreadable) = graphs::read_slots(store.as_ref(), &state);
+        for slot in unreadable {
+            notes.push(OrgHostNotice::DefinitionNote {
+                message: format!("スロット「{slot}」の値を読めませんでした（未取得として扱い、これを使う次の工程は選びません）"),
+                attention: true,
+            });
+        }
+        let (graph, copied_roles) = match copy {
+            Some((g, r)) => (Some(g), Some(r)),
+            None => (None, None),
+        };
+        let mut core = OrgCore::restored_with(state, graph, slots, now_ms().0);
+        // 写しの役割で動かす。写しがない（従来の計画経路のワークフロー）ときは今の役割定義（読めなければ標準の既定のまま。権限を広げない側）。
+        if let Err(e) = core.set_roles(copied_roles.as_deref().unwrap_or(&report.roles)) {
             crate::diag::log("org", &format!("roles on restore: {e}"));
         }
-        *self.org_rt.roles.lock().unwrap() = Some(report);
         let driver = OrgDriver::new(core, store, Arc::new(self.clone()), self.clone() as Arc<dyn OrgSink>, Box::new(|| now_ms().0));
-        let Some(tx) = self.spawn_org_driver(workflow, driver) else { return };
+        let Some(tx) = self.spawn_org_driver(workflow.clone(), driver) else { return };
+        for n in notes {
+            OrgSink::notice(&**self, &workflow, n);
+        }
         for r in recoveries {
             let _ = tx.send(DriverMsg::Input(r));
         }

@@ -1,8 +1,8 @@
 //! 組織実行の通知を OS 通知の集約器へつなぐ変換（P-ORG-7a）。判断は `rules::notify`、ここは種類の振り分けだけ。
 //!
-//! - 即時: 計画承認待ち、タスクの停止（止まった・上限・利用上限・sandbox・取消の停止未確認・送信の見送り・保存失敗）、停滞。
+//! - 即時: 計画承認待ち、タスクの停止（止まった・上限・利用上限・sandbox・取消の停止未確認・送信の見送り・保存失敗・スロットの保存失敗）、停滞。
 //! - 2秒集約（ワークフロー単位）: ワークフローの完了とタスクの失敗。
-//! - 出さない: タスク完了・自動承認・子孫未確認・拒否の文言・設定照合・照合結果（画面の通知欄には出る）。
+//! - 出さない: タスク完了・自動承認・子孫未確認・拒否の文言・設定照合・照合結果・定義の案内（画面の通知欄には出る）。
 //! - 本文には会話内容・理由の文言を入れない（`rules::notify::render` が定型文だけで作る）。
 
 use org_engine::{OrgNotice, TaskId, WorkflowId};
@@ -52,9 +52,9 @@ pub fn notify_input_of(
             OrgNotice::PlanAutoApproved { .. } | OrgNotice::TaskCompleted { .. } | OrgNotice::DescendantsUnconfirmed { .. } | OrgNotice::Refused { .. } => None,
         },
         OrgHostNotice::SendRefused { task, .. } => Some(attention(OrgAttention::TaskStopped, Some(task))),
-        OrgHostNotice::PersistFailed => Some(attention(OrgAttention::TaskStopped, None)),
+        OrgHostNotice::PersistFailed | OrgHostNotice::SlotWriteFailed { .. } => Some(attention(OrgAttention::TaskStopped, None)),
         OrgHostNotice::Stalled { task, .. } => Some(attention(OrgAttention::Stalled, Some(task))),
-        OrgHostNotice::Config(_) | OrgHostNotice::Reconciled { .. } => None,
+        OrgHostNotice::Config(_) | OrgHostNotice::Reconciled { .. } | OrgHostNotice::DefinitionNote { .. } => None,
     }
 }
 

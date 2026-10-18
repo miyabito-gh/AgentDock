@@ -155,6 +155,10 @@ impl WorkflowState {
     pub fn slot_version(&self, slot: &SlotId) -> Option<u32> {
         self.slots.get(slot).copied()
     }
+    /// The latest version of every slot (what the host reads back after a restart).
+    pub fn slot_versions(&self) -> impl Iterator<Item = (&SlotId, u32)> + '_ {
+        self.slots.iter().map(|(s, v)| (s, *v))
+    }
     pub fn notes(&self) -> &[UserNote] {
         &self.notes
     }
@@ -549,6 +553,15 @@ pub trait OrgStore {
     fn read_events(&self) -> Result<EventRead, StoreError>;
     fn append_usage(&self, row: &UsageRow) -> Result<(), StoreError>;
     fn read_usage(&self) -> Result<Vec<UsageRow>, StoreError>;
+    /// Write one version of a slot value (`slots\<slot>.<version>.json`, atomically). A store that cannot keep
+    /// slot files fails (the workflow then stops instead of going on without the value).
+    fn put_slot(&self, _slot: &SlotId, _version: u32, _value: &serde_json::Value) -> Result<(), StoreError> {
+        Err(StoreError::Io("この保存口はスロットの値を保存できません".into()))
+    }
+    /// Read one version back. `Ok(None)` = not there or not readable ("not obtained"; never guessed).
+    fn read_slot(&self, _slot: &SlotId, _version: u32) -> Result<Option<serde_json::Value>, StoreError> {
+        Ok(None)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

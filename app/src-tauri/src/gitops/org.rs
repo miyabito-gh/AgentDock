@@ -6,6 +6,8 @@
 //!   （Workerのsandboxから `.git` ファイルを書き換えられても、別のgitdir・ブランチへは書かない）。フックは走らせない。
 //! - `refresh_detached_worktree`: 再レビューのため、所有する読取り用worktreeを別のコミットへ動かす（確認は同じ。HEADを読み戻して確かめる）。
 //! - `add_detached_worktree`: 対象コミットを固定したdetached worktree（Reviewer等の読取り用）。ブランチを作らず、利用者のブランチを使わない。
+//! - `add_branch_worktree_from_commit`: 書込みノード（Worker等）の専用worktree。組織のブランチ `agentdock/org/…` を、指定のコミットから新しく作る
+//!   （前の書込みノードの最新コミットから始める場合は、そのコミットを渡す）。
 //! - `diff_commits`: コミット間差分（統計と変更ファイル一覧。読取りのみ）。
 //!
 //! 判定は純粋ロジック（`rules::org_worktree`）。ここはGitの実行と実在確認だけ。統合（マージ）は手動で、この層には作らない。
@@ -16,7 +18,7 @@ use super::worktree::{self as gw, ok, WtError};
 use super::{Git, GitOp};
 use crate::backend::model::WorktreeRecord;
 use crate::rules::baseline::norm_path;
-use crate::rules::org_worktree::{admin_dir_matches, authorize_commit, authorize_refresh, parse_name_status, ChangedFile, Refusal};
+use crate::rules::org_worktree::{admin_dir_matches, authorize_commit, authorize_refresh, parse_name_status, ChangedFile, Refusal, ORG_BRANCH_PREFIX};
 use crate::rules::worktree::is_under;
 
 /// 組織実行のGit操作の失敗。拒否（操作していない）とGitの失敗を区別する。
@@ -166,6 +168,32 @@ pub async fn add_detached_worktree(git: &Git, repo: &Path, root: &str, path: &st
     }
     let sha = gw::resolve_commit(git, repo, commit).await?;
     ok(git.run(repo, &GitOp::WorktreeAddDetached { path: path.to_string(), commit: sha.clone() }).await.map_err(WtError::from)?)?;
+    Ok(sha)
+}
+
+/// 書込み用の専用worktreeを、組織のブランチ（`agentdock/org/…`）を新しく作って `path`（置き場所 `root` の配下）に追加する。
+/// 始点は `commit`（HEAD でも、前の書込みノードのコミットでもよい。解決できなければ作らない）。解決した始点のコミットIDを返す。
+/// 利用者のブランチ名・置き場所の外・既存のパスには作らない。既存のブランチ名は git が拒否する（上書きしない）。
+pub async fn add_branch_worktree_from_commit(git: &Git, repo: &Path, root: &str, path: &str, branch: &str, commit: &str) -> Result<String, OrgGitError> {
+    if !branch.starts_with(ORG_BRANCH_PREFIX) || branch.len() == ORG_BRANCH_PREFIX.len() {
+        return Err(Refusal::BranchNotOrg.into());
+    }
+    if !is_under(root, path) {
+        return Err(Refusal::OutsideRoot.into());
+    }
+    let target = Path::new(path);
+    if target.exists() {
+        return Err(WtError::Exit { message: format!("作成先がすでに存在します: {path}") }.into());
+    }
+    let parent_real = target.parent().and_then(resolved);
+    let root_real = resolved(Path::new(root));
+    match (parent_real, root_real) {
+        (Some(p), Some(r)) if norm_path(&p) == norm_path(&r) || is_under(&r, &p) => {}
+        (None, _) | (_, None) => return Err(Refusal::PathMissing.into()),
+        _ => return Err(Refusal::OutsideRoot.into()),
+    }
+    let sha = gw::resolve_commit(git, repo, commit).await?;
+    gw::add(git, repo, path, branch, &sha).await?;
     Ok(sha)
 }
 
@@ -369,6 +397,59 @@ mod tests {
         std::fs::write(Path::new(&path).join("a.txt"), "edit\n").unwrap();
         assert_eq!(refused(commit_all_in_owned_worktree(&git, &[rec], &r.root, &path, "w1", "t1", "m").await), Refusal::ReadOnly);
         assert_eq!(sh(Path::new(&path), &["rev-parse", "HEAD"]), first);
+    }
+
+    #[tokio::test]
+    async fn a_writer_branch_starts_from_the_given_earlier_commit_and_only_as_an_org_branch() {
+        if !git_ok() {
+            return;
+        }
+        let r = rig();
+        let git = Git::new(None);
+        let first = sh(&r.repo, &["rev-parse", "HEAD"]);
+        std::fs::write(r.repo.join("a.txt"), "two
+").unwrap();
+        sh(&r.repo, &["commit", "-q", "-am", "second"]);
+        let second = sh(&r.repo, &["rev-parse", "HEAD"]);
+        let branches_before = sh(&r.repo, &["for-each-ref", "--format=%(refname)"]);
+
+        let path = Path::new(&r.root).join("w-from").to_string_lossy().into_owned();
+        let branch = "agentdock/org/w1/t2";
+        let sha = add_branch_worktree_from_commit(&git, &r.repo, &r.root, &path, branch, &first).await.unwrap();
+        assert_eq!(sha, first);
+        // the new branch starts at the given commit (not at HEAD), with that commit's files
+        assert_eq!(sh(Path::new(&path), &["rev-parse", "HEAD"]), first);
+        assert_eq!(sh(Path::new(&path), &["branch", "--show-current"]), branch);
+        assert_eq!(std::fs::read_to_string(Path::new(&path).join("a.txt")).unwrap(), "one
+");
+        // the users branch and checkout are untouched; only the new org branch is added
+        assert_eq!(sh(&r.repo, &["rev-parse", "main"]), second);
+        assert_eq!(sh(&r.repo, &["branch", "--show-current"]), "main");
+        assert_eq!(std::fs::read_to_string(r.repo.join("a.txt")).unwrap(), "two
+");
+        assert_eq!(sh(&r.repo, &["for-each-ref", "--format=%(refname)"]).lines().count(), branches_before.lines().count() + 1);
+
+        // and the organisation's own commit rule works in it (the commit sits on top of the given commit)
+        let rec = record(&r, "w-from", branch, Some(OrgWorktreeAccess::Writable));
+        std::fs::write(Path::new(&path).join("b.txt"), "b
+").unwrap();
+        let out = commit_all_in_owned_worktree(&git, &[rec], &r.root, &path, "w1", "t1", "agentdock: t1").await.unwrap();
+        let CommitResult::Committed { commit } = out else { panic!("expected a commit") };
+        assert_eq!(sh(Path::new(&path), &["rev-parse", &format!("{commit}^")]), first);
+
+        // refused: a users branch name, a place outside the root, an existing path, a commit that does not resolve, an existing branch
+        let p2 = Path::new(&r.root).join("w-x").to_string_lossy().into_owned();
+        assert_eq!(add_branch_worktree_from_commit(&git, &r.repo, &r.root, &p2, "feature/x", &first).await, Err(OrgGitError::Refused(Refusal::BranchNotOrg)));
+        assert_eq!(add_branch_worktree_from_commit(&git, &r.repo, &r.root, &p2, ORG_BRANCH_PREFIX, &first).await, Err(OrgGitError::Refused(Refusal::BranchNotOrg)));
+        let outside = r.base.join("outside").to_string_lossy().into_owned();
+        assert_eq!(add_branch_worktree_from_commit(&git, &r.repo, &r.root, &outside, "agentdock/org/w1/t3", &first).await, Err(OrgGitError::Refused(Refusal::OutsideRoot)));
+        assert!(add_branch_worktree_from_commit(&git, &r.repo, &r.root, &path, "agentdock/org/w1/t4", &first).await.is_err());
+        for bad in ["--all", "no-such-ref", "0000000000000000000000000000000000000000"] {
+            assert!(add_branch_worktree_from_commit(&git, &r.repo, &r.root, &p2, "agentdock/org/w1/t5", bad).await.is_err(), "{bad}");
+        }
+        assert!(!Path::new(&p2).exists());
+        assert!(add_branch_worktree_from_commit(&git, &r.repo, &r.root, &p2, branch, &first).await.is_err(), "an existing branch is not overwritten");
+        assert!(sh(&r.repo, &["for-each-ref", "--format=%(refname)"]).lines().all(|l| l != "refs/heads/agentdock/org/w1/t5"));
     }
 
     /// 作業フォルダの `.git` ファイルを、別のgitdirへ向ける（Workerのsandboxから書ける想定の改ざん）。
