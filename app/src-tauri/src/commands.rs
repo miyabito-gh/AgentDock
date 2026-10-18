@@ -532,6 +532,23 @@ pub async fn preview_revert(host: Hs<'_>, args: PreviewRevertArgs) -> R<RevertPl
 }
 
 #[tauri::command]
+pub async fn set_purpose_note(host: Hs<'_>, args: SetPurposeNoteArgs) -> R<crate::backend::local::ConversationView> {
+    host.inner().clone().set_purpose_note(args)
+}
+
+/// 引き継ぎの事前表示（読取りのみ）。
+#[tauri::command]
+pub async fn preview_handoff(host: Hs<'_>, args: ChatArgs) -> R<HandoffPreview> {
+    host.inner().clone().preview_handoff(args).await
+}
+
+/// 以前の thread の履歴（読取りのみ。resumeしない）。
+#[tauri::command]
+pub async fn read_segment_history(host: Hs<'_>, args: ReadSegmentHistoryArgs) -> R<AgentHistory> {
+    host.inner().clone().read_segment_history(args).await
+}
+
+#[tauri::command]
 pub async fn set_work_mode(host: Hs<'_>, args: SetWorkModeArgs) -> R<SettingsImpact> {
     host.set_work_mode(args)
 }
@@ -621,6 +638,14 @@ pub async fn reconcile_fork(host: Hs<'_>, args: ReconcileForkArgs) -> R<ForkReco
 pub async fn resend_as_fork(host: Hs<'_>, args: ResendAsForkArgs) -> R<ResendAsForkResult> {
     let confirmed = UserConfirmed::from_user_command();
     host.inner().clone().resend_as_fork(args, &confirmed).await
+}
+
+/// 継続チャット: 「引き継いで送信」（DESIGN_CONT §6.3）。利用者の操作だけが呼ぶ。新しい thread を作り、資料つきで1回だけ送る。
+/// 引き継ぎ元の thread は resume・送信・アーカイブ・削除しない。受理不明・拒否は再送しない。
+#[tauri::command]
+pub async fn handoff_and_send(host: Hs<'_>, args: HandoffAndSendArgs) -> R<HandoffResult> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().handoff_and_send(args, &confirmed).await
 }
 
 /// 状態不明の子孫の「履歴で再確認」（読取りのみ。resume・送信・停止をしない）。

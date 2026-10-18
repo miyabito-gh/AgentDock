@@ -1036,3 +1036,36 @@ button.uchip:hover{background:var(--accent-weak)}
 .org-raw{margin-top:8px}
 .org-raw summary{cursor:pointer;color:var(--accent-text);font-size:var(--fs-s)}
 .org-raw pre{white-space:pre-wrap;overflow-wrap:anywhere;margin:4px 0 0;font-size:var(--fs-s)}
+
+/* 継続チャット（目的メモ・文脈の使用率・引き継ぎの案内） */
+.ctxchip{color:var(--ink2);white-space:nowrap}
+.ctxchip.dim{color:var(--ink3)}
+.ctxchip.warn{color:var(--wait-ink)}
+.ctxchip.strong{color:var(--fail-ink);font-weight:600}
+.handoff-note{border:1px solid var(--wait-line);background:var(--wait-bg);color:var(--wait-ink);border-radius:var(--r2);padding:4px 8px;margin-bottom:4px;font-size:var(--fs-s)}
+.handoff-note.muted{border-color:var(--line);background:var(--surface2);color:var(--ink2)}
+.handoff-note .hn-line{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.handoff-note .hn-text{flex:1 1 14em;min-width:0}
+.handoff-note .hn-acts{display:flex;gap:6px;flex-wrap:wrap}
+.handoff-note .hn-sub{margin-top:2px;overflow-wrap:anywhere}
+.handoff-note .hn-sub ul,.handoff-note ul.hn-sub{margin:2px 0 2px 1.2em;padding:0}
+.handoff-note .hn-sub.why{color:var(--fail-ink)}
+.send.handoff{width:auto;padding:0 10px;gap:6px}
+.send.handoff .lbl{font-size:var(--fs-s);white-space:nowrap}
+.purposeline{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:2px 4px 0}
+.purposeline .linkish{border:0;background:none;padding:0;color:var(--accent-text);cursor:pointer;text-align:left;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.purposeline .linkish:hover{text-decoration:underline}
+.field .note.over{color:var(--fail-ink)}
+.cont-env{max-height:40vh;overflow:auto;background:var(--surface2);border:1px solid var(--line2);border-radius:var(--r1);padding:8px 10px}
+
+/* 継続チャット: 以前の会話（読取り専用）と資料の折りたたみ（DESIGN_CONT §7.4） */
+.prevthreads{max-width:760px;margin:0 auto 8px}
+.prevhead{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:center;margin:0 0 12px;font-size:var(--fs-s)}
+.prevnote{font-size:var(--fs-s)}
+.prevnote.bad{color:var(--fail-ink)}
+.prevseg.readonly{opacity:.9}
+.threadsep{display:flex;align-items:center;gap:8px;margin:14px 0;color:var(--ink2);font-size:var(--fs-s)}
+.threadsep::before,.threadsep::after{content:"";flex:1;border-top:1px solid var(--line)}
+.envfold{align-self:flex-end;max-width:100%}
+.envbody{margin:4px 0 6px;max-width:100%}
+.envbody pre{margin:0;padding:8px 10px;border:1px solid var(--line);border-radius:var(--r2);background:var(--surface);white-space:pre-wrap;overflow-wrap:anywhere;max-height:320px;overflow:auto}

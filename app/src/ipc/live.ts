@@ -160,6 +160,8 @@ export function applyHostEvent(b: Bundle, e: HostEvent): Bundle {
       return set({ worktrees: e.record ? upsert(s.worktrees, e.record, (w) => w.id === e.id) : s.worktrees.filter((w) => w.id !== e.id) });
     case "cloudTaskUpdated": // クラウド委任の記録の1件（状態語は原文のまま。AgentDockの状態へ写像しない）
       return set({ cloudTasks: upsert(s.cloudTasks, e.record, (t) => t.id === e.record.id) });
+    case "contextUsageUpdated": // そのチャットの使用率だけを置き換える。補足情報がまだ無いチャットへの通知は捨てる（断片を作らない）
+      return set({ chatLocals: s.chatLocals.map((l) => (l.chat.id === e.chat.id ? { ...l, contextUsage: e.usage } : l)) });
     case "settingsUpdated":
       return set({ settings: e.settings });
     case "opCapabilitiesUpdated": // experimental の拒否などによる降格。能力を出し直す

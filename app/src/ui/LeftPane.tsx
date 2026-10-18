@@ -15,6 +15,7 @@ import { projectUpdateMessage } from "./listFetch";
 import { PROJECTS_ENABLED } from "./features";
 import { OrgHistoryRows, OrgListRow } from "./OrgPane";
 import { isOrgOwned } from "./org";
+import { isHiddenPredecessor } from "./continuity";
 import type { OrgWorkflowView } from "../ipc/types";
 import { UNKNOWN_KEY, collapseAll, flattenGroups, groupChats, shortNames, worktreeOf, type FlatItem, type FolderGroup } from "./folderGroups";
 
@@ -73,7 +74,8 @@ export function LeftPane({ org, snap, sel, onSelect, onAct, onAcknowledge, onCha
   // アプリ側のアーカイブ（Codex へ未反映でも一覧から隠す、M43）と Codex 側のアーカイブのどちらかなら、アーカイブ扱い。
   const archived = (c: Chat) => localOf(c)?.visibility.kind === "archived" || knownValue(c.archived) === true;
   // 外部作成の会話を「一覧から外した」ものは、元の履歴を消さずにアプリの一覧からだけ隠す。
-  const removed = (c: Chat) => localOf(c)?.visibility.kind === "removedFromList";
+  // 引き継ぎ済みの以前の thread（supersededBy あり）も一覧から隠す。隠すだけで削除・アーカイブはしない（DESIGN_CONT §9）。
+  const removed = (c: Chat) => localOf(c)?.visibility.kind === "removedFromList" || isHiddenPredecessor(localOf(c));
   const visible = sortChats(snap.chats).filter((c) => !removed(c) && !isOrgOwned(localOf(c), org?.shown ?? null)).filter((c) =>
     (showArch ? archived(c) : !archived(c) || (q !== "" && inclArch)) && (!q || chatName(c).includes(q)));
   const loadedCount = snap.chats.filter((c) => !removed(c) && !isOrgOwned(localOf(c), org?.shown ?? null) && !archived(c)).length;

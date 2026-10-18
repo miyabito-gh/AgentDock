@@ -993,6 +993,8 @@ impl Host {
         let chat = pending.chat().clone();
         let client_message_id = pending.client_message_id().to_string();
         let since = pending.since;
+        // 受理と確定したら、送った本文の資料の見出しから目的メモの「届いた版」を記録する（照合は読取りだけで、再送しない）。
+        let delivered_env = crate::rules::continuity::delivered_envelope(pending.text());
         let make = |state: SendState| SendAttempt { attempt_id: attempt_id.clone(), client_message_id: client_message_id.clone(), at: since, state };
         match self.backend.reconcile_send(pending).await {
             ReconcileOutcome::Accepted { turn } => {
@@ -1000,6 +1002,10 @@ impl Host {
                 // 追加指示として送ったキュー項目なら、記録を消す前にその項目を控える（受理と確定したので取り消す）。
                 let steered = self.read(|d| d.queues.get(&chat).and_then(|f| f.unresolved_sends.iter().find(|r| &r.attempt == attempt_id)).and_then(|r| r.entry.clone()));
                 self.drop_unresolved_record(&chat, attempt_id);
+                // キュー項目の送信には資料を付けないので、利用者の手動送信（項目に結び付いていない記録）だけ対象にする。
+                if let (Some(env), None) = (delivered_env, &steered) {
+                    self.note_envelope_delivered(&chat, env);
+                }
                 self.baseline_bound(&chat, attempt_id, &turn.turn_id);
                 // 受理不明のときに記録した作業フォルダの指定を、送信記録へ移す（受理と確定したときだけ）。
                 self.promote_folders_after_reconcile(&chat);

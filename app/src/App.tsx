@@ -672,6 +672,40 @@ export default function App() {
   };
   const onSend = async (text: string, steer: boolean, attachments: string[]): Promise<boolean> => (chat ? sendTo(chat, text, steer, attachments) : false);
 
+  /** 「引き継いで送信」（DESIGN_CONT §7.3）。利用者の送信操作の中だけで呼ぶ。拒否・受理不明で再送しない。 */
+  const onHandoffSend = async (text: string, attachments: string[]): Promise<boolean> => {
+    if (!chat) return false;
+    if (!live) { say("引き継ぎはモックでは動きません。"); return false; }
+    try {
+      const r = await host.handoffAndSend(chat.key, text, attachments);
+      if (r.stage === "notStarted") {
+        say(r.startUnknown ? `新しい thread を開始できたか確認できません（${r.message}）。再送はしません。一覧で確認してください。` : `引き継ぎを始められませんでした（${r.message}）。何も送っていません。`, 7000);
+        return false;
+      }
+      const nid = r.chat.key.id;
+      selectChat(nid);
+      if (r.stage === "createdNotSent") {
+        // 依頼の文を新しい thread の下書きへ入れる（画面に出し、保存も試みる）。元のチャットの下書きは消さない（false を返す）
+        setDrafts((d) => ({ ...d, [nid]: text }));
+        const saved = await host.setDraft(r.chat.key, text).then(() => true, () => false);
+        say(`新しい thread は作りましたが、依頼は送っていません（${r.message}）。依頼の文は新しい thread の入力欄に入れました${saved ? "" : "（下書きの保存は確認できていません）"}。新しい thread の入力欄の添付を確認してください（付いていなければ付け直してください）。`, 8000);
+        return false;
+      }
+      noteAttempt(nid, r.send);
+      const cur = attemptsRef.current[nid] ?? r.send;
+      const row: PendingSend = { id: `ps${++pendingSeq.current}`, text, startedAt: Date.now(), steer: false, phase: null, outcome: outcomeOfAttempt(cur), attemptId: cur.attemptId, first: true };
+      setPendingSends((m) => ({ ...m, [nid]: [...(m[nid] ?? []), row] }));
+      return true;
+    } catch (e) { sayErr("引き継いで送信できませんでした", e); return false; }
+  };
+  /** 引き継ぎ資料の確認（読取りのみ）。モックは仮の資料。 */
+  const loadHandoffPreview = (k: ChatKey) => (live ? host.previewHandoff(k) : loadMock().then((m) => m.client.previewHandoff(k)));
+  /** 目的メモの保存。失敗の文（成功なら null）を返す。 */
+  const savePurpose = async (chatId: string, text: string, expectedRevision: number | null): Promise<string | null> => {
+    if (!live) return "モックでは保存できません。";
+    try { await host.setPurposeNote({ backend: "codex", id: chatId }, text, expectedRevision); say(text.trim() === "" ? "目的メモを削除しました。" : "目的メモを保存しました。"); return null; } catch (e) { return host.asIpcError(e).message; }
+  };
+
   const pendingRestore =(c: Chat, p: PendingSend) => {
     // 入力欄に別の文があれば、その前に戻した文を置く（どちらも失わない）。
     const cur = drafts[c.key.id] ?? "";
@@ -1518,6 +1552,9 @@ ${cur}` : p.text);
       case "cloud": setDialog({ type: "cloud", chatId: chat?.key.id ?? null }); break;
       case "parity": setDialog({ type: "parity" }); break;
       case "goal": if (chat) setDialog({ type: "goal", chatId: chat.key.id }); else say("チャットを選んでください。"); break;
+      case "purpose": if (chat) setDialog({ type: "purpose", chatId: chat.key.id }); else say("チャットを選んでください。"); break;
+      case "handoffPreview": if (chat) setDialog({ type: "handoffPreview", chatId: chat.key.id }); break;
+      case "handoff": if (chat && !dialog) window.dispatchEvent(new Event("agentdock:handoff-open")); break;
       case "review": if (chat) setDialog({ type: "review", chatId: chat.key.id }); else say("チャットを選んでください。"); break;
       case "fork": if (chat) setDialog({ type: "fork", chatId: chat.key.id, throughTurn: null }); else say("チャットを選んでください。"); break;
       case "compact": if (chat) setDialog({ type: "compact", chatId: chat.key.id }); else say("チャットを選んでください。"); break;
@@ -1706,7 +1743,7 @@ ${cur}` : p.text);
                 externalLabel={bundle.externalLabel[chat.key.id]} wasLive={liveSeen.current.has(chat.key.id)} enterMode={enterMode}
                 draft={curDraft} setDraft={(v) => onDraft(chat, v)}
                 onAct={act} commands={cmdViews} onRespond={(r, a) => void onRespond(r, a)}
-                onSend={onSend} onModel={onModel} onWorkMode={onWorkMode} workModes={workModes}
+                onSend={onSend} loadHandoffPreview={loadHandoffPreview} onHandoffSend={onHandoffSend} onModel={onModel} onWorkMode={onWorkMode} workModes={workModes}
                 decisions={decisions[chat.key.id] ?? NO_DECISIONS} pending={markRetryable(pendingSends[chat.key.id], attempts[chat.key.id])} onPendingRestore={(p) => pendingRestore(chat, p)} onPendingDismiss={(p) => pendingDismiss(chat, p)} goal={goals[chat.key.id]} goalBusy={goalBusy} onGoalReload={() => void loadGoal(chat.key)} onGoalClear={clearGoal}
                 notice={live ? noticeOf(attempts[chat.key.id], steerOf[chat.key.id] ? { attemptId: steerOf[chat.key.id].attemptId, queueInstead: () => { void onSend(steerOf[chat.key.id].text, false, steerOf[chat.key.id].attachments); } } : null) : null} onRetrySend={() => void onRetrySend()}
                 queue={snap.queues.find((q) => q.chat.id === chat.key.id)} local={snap.chatLocals.find((l) => l.chat.id === chat.key.id)}
@@ -1729,7 +1766,10 @@ ${cur}` : p.text);
       {mini && !live ? <MiniWindow {...dockProps} top={miniTop} /> : null}
       {palette && !dialog ? <CommandPalette views={cmdViews} onRun={act} onClose={() => setPalette(false)} /> : null}
       {dialog ? (
-        <Dialogs d={dialog} org={{
+        <Dialogs d={dialog} cont={{
+          value: snap.settings.continuation, locals: snap.chatLocals, savePurpose, loadPreview: (id) => loadHandoffPreview({ backend: "codex", id }),
+          setValue: (c) => updateSettings((s) => ({ ...s, continuation: c }), "継続チャットの設定を保存できませんでした。次回の起動では保存されている値に戻ります"),
+        }} org={{
           settings: { live, stallMinutes: snap.settings.orgStallMinutes, setStall: async (m) => { if (!live) return "モックでは動きません。"; try { await host.orgSetStallMinutes(m); return null; } catch (e) { return host.asIpcError(e).message; } } },
           start: orgStart, browse: folderTools.browse, loadGraphs: orgLoadGraphs,
         }} folderTools={folderTools} workspaceRoots={snap.workspaceRoots} onClose={closeDialog} opCaps={snap.opCapabilities} resend={{ state: resendState, handlers: resendHandlers }} chats={snap.chats} source={src} models={models}

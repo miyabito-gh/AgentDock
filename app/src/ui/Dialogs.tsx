@@ -22,6 +22,7 @@ import { ExtensionsBody } from "./ExtensionsDialogs";
 import { InstructionBody, ReferenceBody, SkillsBody, type ComposeProps } from "./ComposeDialogs";
 import { WorkspaceChoice, WorktreesBody } from "./WorktreeDialogs";
 import { CloudBody } from "./CloudDialogs";
+import { ContinuationSettingsBody, HandoffPreviewBody, PurposeBody, type ContinuityDialogProps } from "./ContinuityDialogs";
 import { OrgSettingsBody, OrgStartBody, type LoadGraphs, type OrgSettingsProps } from "./OrgDialogs";
 import { FolderListEditor } from "./WorkFoldersUi";
 import { FolderSetBar, type FolderTools } from "./WorkFolderSetsUi";
@@ -50,6 +51,8 @@ export type DialogState =
   | { type: "compact"; chatId: string }
   | { type: "resend"; chatId: string; purpose: "editResend" | "regenerate"; turnId: string; itemId: string | null }
   | { type: "goal"; chatId: string }
+  | { type: "purpose"; chatId: string }
+  | { type: "handoffPreview"; chatId: string }
   | { type: "status"; chatId: string | null }
   | { type: "usage" }
   | { type: "attach" }
@@ -94,7 +97,7 @@ function Shell({ title, children, foot, footLeft, close, wide, full, onClose, lo
   );
 }
 
-const TABS: Array<[string, string]> = [["general", "全般"], ["display", "表示"], ["notify", "通知"], ["input", "入力"], ["model", "モデル"], ["codex", "Codex"], ["mcp", "MCP・Plugins"], ["skills", "Skills"], ["org", "組織実行"], ["storage", "保存と容量"]];
+const TABS: Array<[string, string]> = [["general", "全般"], ["display", "表示"], ["notify", "通知"], ["input", "入力"], ["model", "モデル"], ["codex", "Codex"], ["mcp", "MCP・Plugins"], ["skills", "Skills"], ["org", "組織実行"], ["continuation", "継続チャット"], ["storage", "保存と容量"]];
 
 export interface CodexExe { path: string; setPath: (p: string) => void; placeholder: string; connect: (p: string) => void; openDiag: () => void; browse: () => void; live: boolean; sandboxWorkaround: { value: boolean; set: (on: boolean) => void } }
 
@@ -142,8 +145,8 @@ const UI_SIZE_CHOICES: Array<[UiTextSize, string]> = [["Small", "小"], ["Normal
 const BODY_SIZE_CHOICES: Array<[BodyTextSize, string]> = [["Small", "小"], ["Normal", "標準"], ["Large", "大"], ["XLarge", "特大"]];
 const LIST_VIEW_CHOICES: Array<[ChatListView, string]> = [["Recent", "最近使った順"], ["ByFolder", "作業フォルダごと"]];
 
-function SettingsBody({ tab, enterMode, setEnterMode, top, source, models, exe, notify, autostart, appearance, manage, chats, compose, opCaps, org }: {
-  org: OrgSettingsProps;
+function SettingsBody({ tab, enterMode, setEnterMode, top, source, models, exe, notify, autostart, appearance, manage, chats, compose, opCaps, org, cont }: {
+  org: OrgSettingsProps; cont: ContinuityDialogProps;
   manage: ManageProps; chats: Chat[]; compose: ComposeDialogProps; opCaps: OpCapability[];
   autostart: AutostartProps;
   appearance: AppearanceProps;
@@ -186,6 +189,7 @@ function SettingsBody({ tab, enterMode, setEnterMode, top, source, models, exe, 
         <div className="field"><span>抑制</span><span className="small">通常画面を操作している間だけ、選択中のチャットの通知を止めます。別のチャット、画面が背後にあるとき、監視窓だけのときは通知します。通知を開くと該当のチャットを表示するだけで、回答や再実行はしません。</span></div>
       </>);
     case "org": return <OrgSettingsBody {...org} />;
+    case "continuation": return <ContinuationSettingsBody value={cont.value} set={cont.setValue} />;
     case "input": return (
       <>
         <div className="field"><span>送信キー</span><div>
@@ -398,8 +402,9 @@ function RenameDialog({ chat, onClose, run }: { chat: Chat | undefined; onClose:
 /** isolate は「分離」（worktreeを作成してから開始）。worktree は既存のAgentDock作成worktreeの記録ID（チャットに結び付ける）。 */
 export interface NewChatInput { cwd: string | null; model: string; firstMessage: string | null; isolate: boolean; worktree: string | null; /** 追加の作業フォルダ（プライマリ以外）。 */ extraFolders: string[]; /** 強い確認を済ませたパス（ホストが再検査する）。 */ confirmedStrong: string[] }
 
-export function Dialogs({ org, folderTools, workspaceRoots, d, onClose, chats, source, models, enterMode, setEnterMode, top, setTab, onAct, exe, onCreateChat, notify, autostart, appearance, quit, force, manage, onRename, opCaps, live, changesTick, turnRecords, onRevertDone, prefs, threadOps, worktree, cloudTasks, compose, resend }: {
+export function Dialogs({ cont, org, folderTools, workspaceRoots, d, onClose, chats, source, models, enterMode, setEnterMode, top, setTab, onAct, exe, onCreateChat, notify, autostart, appearance, quit, force, manage, onRename, opCaps, live, changesTick, turnRecords, onRevertDone, prefs, threadOps, worktree, cloudTasks, compose, resend }: {
   org: OrgDialogProps;
+  cont: ContinuityDialogProps;
   compose: ComposeDialogProps;
   /** 作業フォルダのセットの保存・「参照…」。 */
   folderTools: FolderTools;
@@ -535,7 +540,7 @@ export function Dialogs({ org, folderTools, workspaceRoots, d, onClose, chats, s
     case "settings": return (
       <Shell title="設定" wide onClose={onClose} close="閉じる">
         <div className="tabs vt" role="tablist" aria-orientation="vertical">{TABS.map(([k, t]) => <button key={k} role="tab" aria-selected={d.tab === k} onClick={() => setTab(k)}>{t}</button>)}</div>
-        <div className="content"><SettingsBody tab={d.tab} enterMode={enterMode} setEnterMode={setEnterMode} top={top} source={source} models={models} exe={exe} notify={notify} autostart={autostart} appearance={appearance} manage={manage} chats={chats} compose={compose} opCaps={opCaps} org={org.settings} /></div>
+        <div className="content"><SettingsBody tab={d.tab} enterMode={enterMode} setEnterMode={setEnterMode} top={top} source={source} models={models} exe={exe} notify={notify} autostart={autostart} appearance={appearance} manage={manage} chats={chats} compose={compose} opCaps={opCaps} org={org.settings} cont={cont} /></div>
       </Shell>);
     case "orgStart": return (
       <Shell title="組織実行を開始" onClose={onClose} close="キャンセル">
@@ -643,6 +648,22 @@ export function Dialogs({ org, folderTools, workspaceRoots, d, onClose, chats, s
       <Shell title="Goal" onClose={onClose} close="閉じる">
         <GoalBody key={d.chatId} chat={chats.find((x) => x.key.id === d.chatId)} current={prefs.goal} live={live} cap={opCaps.find((c) => c.op === "goal")} save={(u) => prefs.saveGoal(d.chatId, u)} />
       </Shell>);
+    case "purpose": {
+      const ch = chats.find((x) => x.key.id === d.chatId);
+      const lc = cont.locals.find((l) => l.chat.id === d.chatId);
+      return (
+        <Shell title="目的メモ" onClose={onClose} close="キャンセル">
+          <PurposeBody key={d.chatId} chatName={ch ? chatName(ch) : "（不明）"} current={lc?.conversation?.purpose ?? null} live={live} orgOwned={!!lc?.org && !lc.org.released}
+            save={(text, rev) => cont.savePurpose(d.chatId, text, rev)} onDone={onClose} />
+        </Shell>);
+    }
+    case "handoffPreview": {
+      const ch = chats.find((x) => x.key.id === d.chatId);
+      return (
+        <Shell title="引き継ぎ資料" wide onClose={onClose} close="閉じる">
+          <HandoffPreviewBody key={d.chatId} chatName={ch ? chatName(ch) : "（不明）"} live={live} load={() => cont.loadPreview(d.chatId)} />
+        </Shell>);
+    }
     case "status": return (
       <Shell title="Codex の状態" wide onClose={onClose} close="閉じる">
         <StatusBody live={live} chat={chats.find((x) => x.key.id === d.chatId)} settings={prefs.settings} local={prefs.local} caps={opCaps} />

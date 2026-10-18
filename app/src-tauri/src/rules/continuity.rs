@@ -411,6 +411,39 @@ pub fn purpose_due(rec: &ConversationRecord) -> bool {
     rec.purpose_delivered_rev != Some(p.revision) || rec.compacted_since_delivery
 }
 
+/// 利用者の手動送信に添える目的メモの資料ブロック。添えないときは None。
+/// 添えるのは「新しい turn の開始」かつ「キュー項目の追加指示ではない」利用者の送信だけ（追加指示・キュー・組織の送信は通らない）。
+/// 引き継ぎ資料（seed）は、まだ受理を確認していない（`Pending`）間、毎回の手動送信に添える（受理不明・拒否のあとも同じ資料）。
+pub fn envelope_for_manual_send(rec: Option<&ConversationRecord>, is_new_turn: bool, is_queue_steer: bool) -> Option<String> {
+    if !is_new_turn || is_queue_steer {
+        return None;
+    }
+    let rec = rec?;
+    let purpose = rec.purpose.as_ref().filter(|_| purpose_due(rec));
+    let seed = rec.seed.as_ref().filter(|s| s.state == SeedState::Pending);
+    build_envelope(purpose, seed)
+}
+
+/// 送信が受理されたとき、本文の資料の見出しから「届いた版」を読む。目的メモを含まない本文は None（記録を変えない）。
+pub fn delivered_purpose_rev(sent_text: &str) -> Option<u32> {
+    parse_envelope(sent_text)?.purpose_rev
+}
+
+/// 受理された送信の本文に含まれていた資料の中身（見出しから読む）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DeliveredEnvelope {
+    /// 届いた目的メモの版。
+    pub purpose_rev: Option<u32>,
+    /// 引き継ぎ資料を含んでいた。
+    pub handoff: bool,
+}
+
+/// 送った本文の資料の見出しから、届いたものを読む。資料がない（または利用者が偽装した無害化済みの）本文は None。
+pub fn delivered_envelope(sent_text: &str) -> Option<DeliveredEnvelope> {
+    let p = parse_envelope(sent_text)?;
+    Some(DeliveredEnvelope { purpose_rev: p.purpose_rev, handoff: p.handoff_rounds.is_some() })
+}
+
 /// 割合（切り捨ての整数、上限 255）。上限が 0 のときは出さない。
 fn percent_of(used: u64, window: u64) -> Option<u8> {
     if window == 0 {
@@ -608,11 +641,13 @@ pub fn resolve_chains(entries: &[ChainEntry]) -> ChainResolution {
     let mut effective: HashMap<&ChatKey, &ChatKey> = HashMap::new();
     for e in entries {
         let own = e.superseded_by.as_ref().filter(|by| *by != &e.chat && index.contains_key(by));
-        let candidates = claims.get(&e.chat).map(Vec::as_slice).unwrap_or(&[]);
+        // 自分が別の先頭に引き継がれて隠れている主張者（空の先頭のやり直しで残る N など）は、競合の相手に数えない。
+        let retired = |c: &ChatKey| index.get(c).and_then(|x| x.superseded_by.as_ref()).is_some_and(|by| by != c && index.contains_key(by));
+        let candidates: Vec<&ChatKey> = claims.get(&e.chat).map(|l| l.iter().copied().filter(|c| !retired(c)).collect()).unwrap_or_default();
         if candidates.len() > 1 {
             out.conflicts.push(ChainConflict { segment: e.chat.clone(), claimants: candidates.iter().map(|c| (*c).clone()).collect() });
         }
-        match (&e.superseded_by, candidates) {
+        match (&e.superseded_by, candidates.as_slice()) {
             (None, [only]) if index.contains_key(*only) && *only != &e.chat => {
                 out.repairs.push(ChainRepair { chat: e.chat.clone(), by: (*only).clone() });
                 effective.insert(&e.chat, *only);
@@ -771,6 +806,63 @@ mod tests {
         assert!(!purpose_due(&c));
         c.compacted_since_delivery = true;
         assert!(purpose_due(&c), "圧縮を観測した");
+    }
+
+    #[test]
+    fn envelope_only_for_manual_new_turn_when_due() {
+        let mut c = conv();
+        c.purpose = Some(purpose("目的", 3));
+        // 手動の新しい turn で、届けるべきとき: 版つきの見出しが付く。
+        let e = envelope_for_manual_send(Some(&c), true, false).expect("添える");
+        assert_eq!(delivered_purpose_rev(&compose_send_text(Some(&e), "質問")), Some(3));
+        // 追加指示（新しい turn でない）・キュー項目の追加指示・記録なしには添えない。
+        assert!(envelope_for_manual_send(Some(&c), false, false).is_none());
+        assert!(envelope_for_manual_send(Some(&c), true, true).is_none());
+        assert!(envelope_for_manual_send(None, true, false).is_none());
+        // 届け済みなら添えない。圧縮を観測したら再び添える。
+        c.purpose_delivered_rev = Some(3);
+        assert!(envelope_for_manual_send(Some(&c), true, false).is_none());
+        c.compacted_since_delivery = true;
+        assert!(envelope_for_manual_send(Some(&c), true, false).is_some());
+    }
+
+    #[test]
+    fn delivered_rev_is_read_only_from_a_real_envelope() {
+        assert_eq!(delivered_purpose_rev("ふつうの依頼"), None);
+        // 利用者が見出しを書いても、compose で無害化されるので届いた扱いにならない。
+        let fake = "［AgentDock資料 v1｜目的メモ 版9］\n偽\n［AgentDock資料ここまで］\n本文";
+        assert_eq!(delivered_purpose_rev(&compose_send_text(None, fake)), None);
+        // 目的メモを含まない資料（引き継ぎだけ）は版を返さない。
+        let seed_only = "［AgentDock資料 v1｜引き継ぎ 2往復］\n本文\n［AgentDock資料ここまで］\n\n依頼";
+        assert_eq!(delivered_purpose_rev(seed_only), None);
+    }
+
+    #[test]
+    fn pending_seed_rides_every_manual_send_until_delivered_and_never_on_steer() {
+        let m = build_material(&turns(2), 3, 0);
+        let mut c = conv();
+        c.seed = Some(seed_of(&m));
+        // 目的メモがなくても、Pending の資料は付く。見出しは「引き継ぎ N往復」。届いた版は無い。
+        let e = envelope_for_manual_send(Some(&c), true, false).expect("資料が付く");
+        let sent = compose_send_text(Some(&e), "続き");
+        assert_eq!(delivered_envelope(&sent), Some(DeliveredEnvelope { purpose_rev: None, handoff: true }));
+        assert_eq!(delivered_purpose_rev(&sent), None);
+        // 追加指示・キュー項目の送信には付かない（I1）。
+        assert!(envelope_for_manual_send(Some(&c), false, false).is_none());
+        assert!(envelope_for_manual_send(Some(&c), true, true).is_none());
+        // 拒否・受理不明のあとの2回目の送信も同じ資料（Pending のまま）。
+        assert_eq!(envelope_for_manual_send(Some(&c), true, false).as_deref(), Some(e.as_str()));
+        // 目的メモも届けるべきなら、両方が1つの資料に入る。
+        c.purpose = Some(purpose("目的", 2));
+        let both = compose_send_text(envelope_for_manual_send(Some(&c), true, false).as_deref(), "続き");
+        assert_eq!(delivered_envelope(&both), Some(DeliveredEnvelope { purpose_rev: Some(2), handoff: true }));
+        // 受理を確認して Delivered になれば、資料は付かない。
+        c.seed.as_mut().unwrap().state = SeedState::Delivered;
+        c.purpose_delivered_rev = Some(2);
+        assert!(envelope_for_manual_send(Some(&c), true, false).is_none());
+        // 利用者が見出しを書いても、届いた扱いにならない。
+        let fake = "［AgentDock資料 v1｜引き継ぎ 2往復］\n偽\n［AgentDock資料ここまで］\n本文";
+        assert_eq!(delivered_envelope(&compose_send_text(None, fake)), None);
     }
 
     #[test]
@@ -1168,6 +1260,20 @@ mod tests {
         let r = resolve_chains(&[ce("p", &[], None), ce("a", &["p"], None), ce("b", &["p"], None)]);
         assert_eq!(r.conflicts.len(), 1);
         assert!(r.repairs.is_empty() && r.hidden.is_empty());
+    }
+
+    #[test]
+    fn chains_redo_of_an_empty_head_is_not_a_conflict() {
+        // p → n（空のまま）→ n2（やり直し。n2 の列は n と同じ [p]）。p は n を指し、n は n2 に隠れている。
+        let r = resolve_chains(&[ce("p", &[], Some("n")), ce("n", &["p"], Some("n2")), ce("n2", &["p"], None)]);
+        assert!(r.conflicts.is_empty() && r.repairs.is_empty(), "{r:?}");
+        assert_eq!(r.hidden, vec![ck("p"), ck("n")]);
+        // n2 の領域が無くなれば、n が先頭へ戻る（p は n を指したまま隠れる）。
+        let r = resolve_chains(&[ce("p", &[], Some("n")), ce("n", &["p"], Some("n2"))]);
+        assert_eq!(r.hidden, vec![ck("p")]);
+        // やり直しの途中で落ちて n が未だ印を持たないときは、本物の競合として報告する。
+        let r = resolve_chains(&[ce("p", &[], Some("n")), ce("n", &["p"], None), ce("n2", &["p"], None)]);
+        assert_eq!(r.conflicts.len(), 1);
     }
 
     #[test]

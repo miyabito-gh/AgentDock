@@ -9,6 +9,7 @@ import { commandContext } from "./commandViews";
 import { chatAgents, chatName, chatRequests, chatStops, historyOutcomeOf, isRunning, rootView, stopOpen } from "./derive";
 import { isActiveState } from "./chatState";
 import { classifyCarry } from "./chips";
+import { splitEnvelope } from "./continuity";
 import { UnverifiedNote } from "./ChangesDialog";
 import { About, FootActions } from "./DialogParts";
 import { PURPOSE_SUFFIX, type ResendCtx, type ResendPlan, type ResendTarget } from "./resend";
@@ -57,7 +58,7 @@ export function resendTargetOf(turns: TurnRecord[], turnId: string, purpose: Pur
     turnId, purpose,
     userIndex: purpose === "editResend" ? (idx < 0 ? 0 : idx) : null,
     // 添付だけの依頼は本文が無い。空の文として扱い（編集・再生成できる）、添付は別に引き継ぐ。
-    requestText: entry && entry.text.kind === "value" ? entry.text.value : entry && entry.attachments.length > 0 ? "" : null,
+    requestText: entry && entry.text.kind === "value" ? splitEnvelope(entry.text.value).userText : entry && entry.attachments.length > 0 ? "" : null,
     attachments: entry ? entry.attachments : [],
   };
 }

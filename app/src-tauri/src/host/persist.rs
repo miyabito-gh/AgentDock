@@ -265,8 +265,8 @@ impl HostData {
             }),
             conversation: f.conversation.as_ref().map(crate::rules::continuity::conversation_view),
             superseded_by: f.superseded_by.as_ref().map(|s| s.by.clone()),
-            // 保存値だけの導出（live かどうかと能力の判定は C2 で `ContextUsageUpdated` が上書きする）。
-            context_usage: crate::rules::continuity::usage_view(f.context_usage.as_ref(), Support::Supported, false),
+            // 能力（接続元の宣言）と、この接続の今の値かどうか（`usage_live` とルートの鮮度）から導く。
+            context_usage: self.usage_view_of(chat),
             save,
         })
     }
@@ -318,8 +318,10 @@ impl HostData {
 impl Host {
     /// 保存層から復元した状態でホストを作る。
     pub fn with_store(app_data_dir: std::path::PathBuf, store: Arc<Store>) -> Self {
-        let restored = store.load_all();
-        let exe = restored.settings.as_ref().and_then(|s| s.settings.executable_for("codex").map(str::to_string));
+        let mut restored = store.load_all();
+        // 継続チャットの鎖の照合（隠す・途中停止の修復・競合の警告。削除・resume・送信はしない）。
+        super::continuity::resolve_chains_on_load(&store, &mut restored, now_ms());
+        let exe =restored.settings.as_ref().and_then(|s| s.settings.executable_for("codex").map(str::to_string));
         let mut host = Host::new(app_data_dir);
         host.persist = Persist::new(Some(store));
         host.restore_windows(restored.windows.clone());

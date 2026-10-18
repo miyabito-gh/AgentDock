@@ -14,6 +14,8 @@ pub mod changes;
 pub mod chat_prefs;
 pub mod cloud;
 pub mod compose;
+pub mod continuity;
+pub mod continuity_handoff;
 pub mod extensions;
 pub mod lifecycle;
 #[cfg(test)]
@@ -199,6 +201,8 @@ pub struct Host {
     read_limit: read_limit::ReadLimiter,
     /// 実行中の「編集して再送・再生成」（チャットごとの二重実行防止。`thread_ops.rs`）。
     resend_inflight: thread_ops::ResendInflight,
+    /// 実行中の「引き継いで送信」（引き継ぎ元ごとの二重実行防止。`continuity_handoff.rs`）。
+    handoff_inflight: continuity_handoff::HandoffInflight,
     /// 作成直後の最初の依頼の送信が確定していないチャット（同じチャットへの別の送信を止める）。
     first_sends: Mutex<HashSet<ChatKey>>,
     /// 組織実行（`org/`）の作業状態。送信権の失効管理・監視の受け口・稼働中の司令task。
@@ -244,6 +248,7 @@ impl Host {
             cloud_rt: cloud::CloudRuntime::default(),
             read_limit: read_limit::ReadLimiter::default(),
             resend_inflight: thread_ops::ResendInflight::default(),
+            handoff_inflight: continuity_handoff::HandoffInflight::default(),
             first_sends: Mutex::new(HashSet::new()),
             org_rt: org::OrgRuntime::default(),
         }
@@ -364,6 +369,8 @@ impl Host {
                     host.start_scan(root);
                 }
                 Followup::ObserveArtifact { agent, item, path } => self.observe_artifact(agent, item, path),
+                Followup::ContextUsage { chat, sample } => self.note_context_usage(&chat, sample),
+                Followup::SaveChatLocal(chat) => self.schedule_save(crate::backend::local::SaveScope::ChatLocal { chat }, continuity::SAVE_DELAY),
             }
         }
     }
@@ -604,7 +611,13 @@ impl Host {
 
     // ── 会話の開始・再開 ──
 
-    pub async fn start_chat(self: &Arc<Self>, args: StartChatArgs, _confirmed: &UserConfirmed) -> Result<StartChatResult, IpcError> {
+    pub async fn start_chat(self: &Arc<Self>, args: StartChatArgs, confirmed: &UserConfirmed) -> Result<StartChatResult, IpcError> {
+        self.start_chat_in(args, None, confirmed).await
+    }
+
+    /// `start_chat` の本体。`reuse_workspace` は一般チャットが使う既存の作業領域のパス（引き継ぎ: 引き継ぎ元と同じ領域を使う）。
+    /// 指定したときは新しい作業領域を作らず、開始に失敗しても既存の領域には触れない（`area` が None のため）。
+    pub(super) async fn start_chat_in(self: &Arc<Self>, args: StartChatArgs, reuse_workspace: Option<String>, _confirmed: &UserConfirmed) -> Result<StartChatResult, IpcError> {
         let mut area: Option<LocalId> = None;
         self.check_worktree_binding(&args.worktree, args.cwd.as_deref().map(str::trim))?;
         let (kind, cwd) = match args.cwd.as_deref().map(str::trim).filter(|c| !c.is_empty()) {
@@ -614,12 +627,15 @@ impl Host {
                 }
                 (ChatKind::Development, c.to_string())
             }
-            None => {
-                // 一般チャット: アプリ管理の作業領域（専用領域のチャット別フォルダ内）を割り当てる（M21）。
-                let (dir, id) = self.new_general_workspace()?;
-                area = id;
-                (ChatKind::General, dir)
-            }
+            None => match reuse_workspace {
+                Some(dir) => (ChatKind::General, dir),
+                None => {
+                    // 一般チャット: アプリ管理の作業領域（専用領域のチャット別フォルダ内）を割り当てる（M21）。
+                    let (dir, id) = self.new_general_workspace()?;
+                    area = id;
+                    (ChatKind::General, dir)
+                }
+            },
         };
         // 追加の作業フォルダ（experimental）。UIの確認結果は信用せず、ここで集合ごと再検査する（強い確認は confirmedStrong に無ければ拒否）。
         // 主フォルダだけの作成も同じ検査を通す（UNC・ネットワークドライブ・システム・~/.codex・AgentDockの領域。一般チャットのアプリ管理領域は対象外）。
@@ -982,10 +998,12 @@ impl Host {
         let work_mode = if is_new_turn { self.chat_work_mode(&args.chat) } else { None };
         let model = self.model_for_send(&args.chat, selected_model, work_mode);
         let chat = args.chat.clone();
+        // 利用者の手動送信（新しい turn・キュー項目の追加指示でない）にだけ、届けるべき目的メモの資料を添える。
+        let text = if is_new_turn && steer_entry.is_none() { self.compose_manual_text(&chat, &args.text) } else { args.text };
         let request = SendRequest {
             chat: args.chat,
             mode,
-            text: args.text,
+            text,
             attachments,
             speed_tier: if is_new_turn { model.as_ref().and_then(|m| m.speed_tier.clone()) } else { None },
             model,
@@ -1055,6 +1073,9 @@ impl Host {
         }
         self.emit_send(&chat, &attempt);
         self.emit_send_phase(&chat, SendPhase::Preparing);
+        // 目的メモの資料を含む利用者の送信は、受理を確認できたときだけ「届いた版」を記録する（本文の見出しから読むので再送も同じ）。
+        // 引き継ぎ資料を含む送信も同じ（受理を確認したときだけ Delivered にする。受理不明は Pending のまま）。
+        let delivered_env = if matches!(auth, SendAuth::User) && matches!(request.mode, SendMode::NewTurn) { crate::rules::continuity::delivered_envelope(&request.text) } else { None };
         let sent_cwd = if matches!(request.mode, SendMode::NewTurn) { request.cwd.clone() } else { None };
         let sent_folders = if matches!(request.mode, SendMode::NewTurn) { request.work_folders.clone() } else { None };
         // 作業フォルダの並びは送信の直前にも存在を確かめる。消えていたら外して送らず、理由を出して止める（再送権は残す）。
@@ -1121,6 +1142,9 @@ impl Host {
             // ユーザーの利用として最近利用時刻を更新する（背景活動では更新しない、§3.6）。組織実行の送信は利用者の利用ではない。
             if matches!(auth, SendAuth::User) {
                 self.touch_chat_used(&chat);
+            }
+            if let Some(env) = delivered_env {
+                self.note_envelope_delivered(&chat, env);
             }
         }
         attempt

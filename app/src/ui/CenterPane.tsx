@@ -2,7 +2,7 @@ import { multiFolderMark } from "./workFolders";
 import { ORG_SEND_LOCK } from "./OrgPane";
 import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import type {
-  AgentKey, AgentView, ArtifactEntry, AttachmentEntry, EntryAttachment, Chat, ChatKey, ChatLocalView, ChatModelSettings, ChatQueue, DecisionOption, FileRef, Goal, HostSnapshot, Known, ModelInfo, PendingRequest, PathInfo, SkillInfo,
+  AgentKey, AgentView, ArtifactEntry, AttachmentEntry, EntryAttachment, Chat, ChatKey, ChatLocalView, ChatModelSettings, ChatQueue, DecisionOption, FileRef, Goal, HostSnapshot, Known, ModelInfo, PendingRequest, PathInfo, SkillInfo, ThreadSegmentView,
   PermissionPreset, QueueEntry, RequestAnswer, ActivityKind, SaveState, StopRecord, TurnRecord, WorkMode, WorkModeInfo,
 } from "../ipc/types";
 import { Icon } from "./Icon";
@@ -28,11 +28,17 @@ import { filterSkills, isDisabled, originLabel, queryTerms, removeTrigger, skill
 import { PendingSendRow } from "./PendingSendRow";
 import { SendStatusBar } from "./SendStatusBar";
 import { queueCounts } from "./sendStatus";
+import { HandoffNotice, PurposeLine, UsageChip, useHandoff, type HandoffUi } from "./HandoffNotice";
+import { worktreeOf } from "./folderGroups";
+import type { HandoffPreview } from "../ipc/types";
 import { OrgInstructionBubble, OrgReportView } from "./OrgChatParts";
 import { isOrgInstruction, parseOrgReport } from "./orgChat";
 import { appearsInTurns, firstSendLockReason, type PendingSend } from "./pendingSend";
+import { EnvelopeFold, PreviousThreads, usePrevThreads } from "./PreviousThreads";
+import { splitEnvelope } from "./continuity";
 import { PURPOSE_TAG, resendAvailability, type ResendCtx } from "./resend";
 
+const NO_THREADS: ThreadSegmentView[] = [];
 const SCOPE_TEXT = { once: "1回だけ", session: "このセッション中", persistent: "以後ずっと（永続）", unknown: "効力範囲は不明" } as const;
 
 export interface CenterProps {
@@ -97,6 +103,10 @@ export interface CenterProps {
   pending: PendingSend[];
   onPendingRestore: (p: PendingSend) => void;
   onPendingDismiss: (p: PendingSend) => void;
+  /** 引き継ぎ資料の確認（読取りのみ。モックでは仮の資料）。 */
+  loadHandoffPreview?: (chat: ChatKey) => Promise<HandoffPreview>;
+  /** 「引き継いで送信」。受け付けたら true（下書きを消す）。止まったら false。 */
+  onHandoffSend?: (text: string, attachments: string[]) => boolean | Promise<boolean>;
 }
 
 export interface FileActions {
@@ -524,14 +534,15 @@ function UserBubble({ text, forceOpen, open, onToggle }: { text: string; forceOp
   );
 }
 
-function Messages({ orgBound, chatId, turns, reqs, running, onRespond, onAct, extra, find, resend, locals, files, sends, agentName, decisions, pending, onPendingRestore, onPendingDismiss }: {
-  orgBound: boolean; agentName?: (a: AgentKey) => string; decisions: DecisionItem[];
+function Messages({ orgBound, headKey, threads, chatId, turns, reqs, running, onRespond, onAct, extra, find, resend, locals, files, sends, agentName, decisions, pending, onPendingRestore, onPendingDismiss }: {
+  orgBound: boolean; headKey: ChatKey; threads: ThreadSegmentView[]; agentName?: (a: AgentKey) => string; decisions: DecisionItem[];
   pending: PendingSend[]; onPendingRestore: (p: PendingSend) => void; onPendingDismiss: (p: PendingSend) => void;
   turns: TurnRecord[]; reqs: PendingRequest[]; running: boolean; onRespond: CenterProps["onRespond"]; onAct: (a: string) => void; extra?: ReactNode; find: FindState; resend: ResendView;
   locals: AttachmentEntry[]; files: FileActions; sends: SentLocal[]; chatId: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
+  const prev = usePrevThreads(headKey, threads);
   const [away, setAway] = useState(false);
   // 長い依頼文の展開状態（依頼の項目単位。チャット別に覚える）
   const [openMsgs, setOpenMsgs] = useState<string[]>(() => foldMem.get(chatId).openMsgs);
@@ -564,8 +575,9 @@ function Messages({ orgBound, chatId, turns, reqs, running, onRespond, onAct, ex
   }, [turns, reqs.length, running, pending.length]);
   return (
     <div className="msgs-wrap">
-    {find.open ? <FindBar root={ref} query={find.query} setQuery={find.setQuery} focusTick={find.tick} partial={find.partial} onClose={find.close} /> : null}
+    {find.open ? <FindBar root={ref} query={find.query} setQuery={find.setQuery} focusTick={find.tick} partial={find.partial} unloadedPrev={prev.unloaded} onClose={find.close} /> : null}
     <div className="msgs" id="msgs" aria-live="polite" ref={ref} onScroll={onScroll}>
+      <PreviousThreads threads={threads} prev={prev} />
       {placed.head.map((it) => <DecisionRow key={it.record.id} it={it} agentName={agentName} />)}
       {turns.map((t) => {
         // 完了したturnの途中経過と作業の記録は「作業の経過」に畳む（実行中・失敗・中断・phase不明は畳まない）
@@ -609,21 +621,25 @@ function Messages({ orgBound, chatId, turns, reqs, running, onRespond, onAct, ex
               const lead = !wfDone && e.kind.kind !== "userMessage" ? (wfDone = true, wfBlock) : null;
               if (e.kind.kind === "userMessage") {
                 // 添付だけの依頼は本文の項目がない。空の吹き出しにせず、中立の表示にする（コピーは本文があるときだけ）。
-                const noBody = e.text.kind !== "value" || !e.text.value.trim();
+                // 資料つきの依頼は、利用者の文だけを吹き出しにし、資料は折りたたみの行へ（コピー・再送の基準も利用者の文）
+                const env = e.text.kind === "value" ? splitEnvelope(e.text.value) : null;
+                const utext = env ? env.userText : text;
+                const noBody = e.text.kind !== "value" || !utext.trim();
                 const atts = (e.attachments?.length ? e.attachments : sentMap.get(e.key.itemId)) ?? [];
                 return (
                   <div className="msg user" key={e.key.itemId}>
-                    {e.key.itemId === firstUserId && !noBody && isOrgInstruction(text)
-                      ? <OrgInstructionBubble text={text} forceOpen={find.open && needsExpand([text], find.query)} open={openMsgs.includes(e.key.itemId)} onToggle={() => toggleMsg(e.key.itemId)} />
+                    {e.key.itemId === firstUserId && !noBody && isOrgInstruction(utext)
+                      ? <OrgInstructionBubble text={utext} forceOpen={find.open && needsExpand([utext], find.query)} open={openMsgs.includes(e.key.itemId)} onToggle={() => toggleMsg(e.key.itemId)} />
                       : <>
                     <div className="sr">あなた</div>
+                    {env?.envelope ? <EnvelopeFold env={env} /> : null}
                     {noBody
                       ? (atts.length ? null : <div className="bubble" data-find="body"><span className="muted">（本文なし）</span></div>)
-                      : <UserBubble text={text} forceOpen={find.open && needsExpand([text], find.query)} open={openMsgs.includes(e.key.itemId)} onToggle={() => toggleMsg(e.key.itemId)} />}
+                      : <UserBubble text={utext} forceOpen={find.open && needsExpand([utext], find.query)} open={openMsgs.includes(e.key.itemId)} onToggle={() => toggleMsg(e.key.itemId)} />}
                     </>}
                     {atts.length ? <MsgChips atts={atts} locals={locals} files={files} /> : null}
                     <div className="acts">
-                      {noBody ? null : <CopyAct text={text} />}
+                      {noBody ? null : <CopyAct text={utext} />}
                       {mine ? <button aria-disabled={blocked("editResend", e.key.itemId) || undefined} onClick={() => onAct(`resend:editResend|${t.key.turnId}|${e.key.itemId}`)}><Icon name="branch" />編集して分岐…</button> : null}
                     </div>
                   </div>);
@@ -853,7 +869,7 @@ function skillOrigin(f: AttachmentEntry, api: SkillPickApi | null): string | nul
   return s ? originLabel(s) : null;
 }
 
-function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock: string | null }) {
+function Composer({ p, running, lock, hu }: { p: CenterProps; running: boolean; lock: string | null; hu: HandoffUi }) {
   const { settings, models, attachments } = p;
   const dflt = models.find((m) => m.isDefault) ?? models[0];
   const [model, setModel] = useState(settings?.selected?.model ?? dflt?.id ?? "");
@@ -878,7 +894,9 @@ function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock
   const send = async (asSteer = false) => {
     if (empty || lock || attachBlock) return;
     if (asSteer && steerWhy) return;
-    const ok = await p.onSend(p.draft, running && asSteer, attachments.map((a) => a.id));
+    const ids = attachments.map((a) => a.id);
+    // 引き継ぎの案内中で、資料を確認でき止める理由がないときだけ「引き継いで送信」（送信キーも同じ）。それ以外は通常の送信
+    const ok = hu.armed && !asSteer && !running && p.onHandoffSend ? await p.onHandoffSend(p.draft, ids) : await p.onSend(p.draft, running && asSteer, ids);
     if (ok) p.setDraft("");
   };
   const pickModel = (id: string) => {
@@ -954,6 +972,7 @@ function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock
           </div>
         ) : null}
         {lock ? <div className="lockmsg">{lock}</div> : null}
+        <HandoffNotice ui={hu} onPreview={() => p.onAct("handoffPreview")} />
         {attachBlock ? <div className="lockmsg">{attachBlock}</div> : null}
         {wmSelected && !wmUsable ? (
           <div className="lockmsg">計画／実行（{WORK_MODE_TEXT[wmSelected]}）を選んだままですが、この Codex 接続では使えないため、送信は止まります。<button className="small" onClick={() => p.onWorkMode(null)}>選択を外す</button></div>
@@ -1028,6 +1047,7 @@ function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock
               {speedKeptLine ? <div className="small why">{speedKeptLine}</div> : null}
             </div>
           </Popover>
+          <UsageChip local={p.local} settings={p.snap.settings.continuation} />
           {permOff ? <span className={`small acc ${perm === "fullAccess" ? "danger" : ""}`} title={`権限は既定から外れています: ${PERMISSION_FULL[perm]}（次の送信から適用。変更は「…」）`}>権限: {PERMISSION_LABEL[perm]}</span> : null}
           {speedName ? <span className="small muted" title="速度の指定（次の送信から適用）">速度 {speedName}</span> : null}
           {wmSelected ? <span className="small muted" title={`計画／実行の指定: ${WORK_MODE_TEXT[wmSelected]}（次の送信から適用）`}>{wmShort(wmSelected)}</span> : null}
@@ -1041,7 +1061,7 @@ function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock
           <div className="ctrl-r">
           {running ? <button className="btn-line" aria-label="中断" title="実行中の作業に中断を要求します（停止の確認は別に行います）" onClick={() => p.onAct("interrupt")}><Icon name="stop" /><span className="lbl">中断</span></button> : null}
           <span className="sendgrp">
-            <button className="btn-main send" aria-label={running ? "完了後に送る依頼として登録" : "送信"} title={running ? `完了後に送信（親と子孫の作業が終わってから送ります）。${enterHint}` : enterHint} disabled={!!lock || !!attachBlock || empty} onClick={() => void send()}><Icon name="send" /></button>
+            <button className={`btn-main send${hu.armed ? " handoff" : ""}`} aria-label={hu.armed ? "引き継いで送信" : running ? "完了後に送る依頼として登録" : "送信"} title={hu.armed ? `新しい thread へ引き継いで送信します（目的メモ＋直近${hu.rounds}往復）。${enterHint}` : running ? `完了後に送信（親と子孫の作業が終わってから送ります）。${enterHint}` : enterHint} disabled={!!lock || !!attachBlock || empty} onClick={() => void send()}><Icon name="send" />{hu.armed ? <span className="lbl">引き継いで送信</span> : null}</button>
             {/* 追加指示は送る前に決めず、送る時点で選ぶ（1回限り）。実行中のみ */}
             {running ? (
               <Popover role="menu" align="right" label="送信方法" title="この送信の送り方（完了後に送信／追加指示で送る）" triggerClassName="btn-main sendmore" trigger={<span aria-hidden="true">▾</span>}>
@@ -1060,6 +1080,7 @@ function Composer({ p, running, lock }: { p: CenterProps; running: boolean; lock
           </div>
         </div>
       </div>
+      <PurposeLine local={p.local} onEdit={() => p.onAct("purpose")} />
     </div>
   );
 }
@@ -1117,12 +1138,15 @@ export function CenterPane(p: CenterProps) {
     return v ? showKnown(v.agent.displayName) : a.id;
   };
   const lock = sendLockReason(snap, chat, p.local) ?? firstSendLockReason(p.pending);
+  // 引き継ぎの案内（worktree に結び付いたチャットは対象外）。台帳の結び付き（作成元チャット）か、作業フォルダが台帳の worktree 内か
+  const inWorktree = snap.worktrees.some((w) => w.createdForChat?.id === chat.key.id) || worktreeOf(knownValue(chat.cwd) ?? null, snap.worktrees) !== null;
+  const hu = useHandoff({ chat, local: p.local, settings: snap.settings.continuation, running, worktree: inWorktree, load: p.loadHandoffPreview });
   return (
     <>
       <Header snap={snap} chat={chat} onAct={p.onAct} commands={p.commands} local={p.local} onCwdToggle={() => setCwdOpenFor((id) => (id === chat.key.id ? null : chat.key.id))} wasLive={p.wasLive} externalLabel={p.externalLabel} cwdInfo={p.cwdInfo} leftShown={p.leftShown} rightShown={p.rightShown} />
       {cwdOpen ? <WorkFoldersPanel key={`wf-${chat.key.id}`} api={p.wf} lockReason={cwdLock} permissionText={PERMISSION_FULL[p.local?.permission ?? "workspaceWriteOnRequest"]} fallback={p.local?.nextFolders?.folders ?? [p.local?.nextCwd ?? knownValue(chat.cwd) ?? ""].filter(Boolean)} onClose={() => setCwdOpenFor(null)} /> : null}
       <Banners p={p} />
-      <Messages key={chat.key.id} orgBound={!!p.local?.org} chatId={chat.key.id} agentName={nameOf} decisions={p.decisions} turns={p.turns} reqs={reqs} running={running} onRespond={p.onRespond} onAct={p.onAct} find={find}
+      <Messages key={chat.key.id} orgBound={!!p.local?.org} headKey={chat.key} threads={p.local?.conversation?.threads ?? NO_THREADS} chatId={chat.key.id} agentName={nameOf} decisions={p.decisions} turns={p.turns} reqs={reqs} running={running} onRespond={p.onRespond} onAct={p.onAct} find={find}
         locals={snap.attachments.filter((a) => keyStr(a.chat) === keyStr(chat.key))} files={p.files} sends={p.sends}
         pending={p.pending} onPendingRestore={p.onPendingRestore} onPendingDismiss={p.onPendingDismiss}
         resend={{ ctx: resendCtxOf(snap, chat, snap.sources.some((x) => x.connection.kind === "connected"), p.turns), rootAgentId: rootView(snap, chat)?.agent.key.id }}
@@ -1136,7 +1160,7 @@ export function CenterPane(p: CenterProps) {
         turnHasOutput: p.turns.some((t) => t.end === null && t.entries.some((e) => e.kind.kind !== "userMessage")),
         queue: queueCounts(snap.queues.find((q) => keyStr(q.chat) === keyStr(chat.key))?.entries),
       }} />
-      <Composer key={`${chat.key.id}:${p.models.length}`} p={p} running={running} lock={lock} />
+      <Composer key={`${chat.key.id}:${p.models.length}`} p={p} running={running} lock={lock} hu={hu} />
     </>
   );
 }

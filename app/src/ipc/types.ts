@@ -194,6 +194,10 @@ export type { ChatMarks } from "./gen/ChatMarks";
 export type { ContextUsageView } from "./gen/ContextUsageView";
 export type { ContinuationSettings } from "./gen/ContinuationSettings";
 export type { ConversationView } from "./gen/ConversationView";
+export type { SetPurposeNoteArgs } from "./gen/SetPurposeNoteArgs";
+export type { HandoffPreview } from "./gen/HandoffPreview";
+export type { HandoffResult } from "./gen/HandoffResult";
+export type { HandoffAndSendArgs } from "./gen/HandoffAndSendArgs";
 export type { HandoffBlock } from "./gen/HandoffBlock";
 export type { HandoffBlockKind } from "./gen/HandoffBlockKind";
 export type { PurposeNoteView } from "./gen/PurposeNoteView";
@@ -425,6 +429,8 @@ export type { WindowPrefs } from "./gen/WindowPrefs";
 
 import type { AgentHistory } from "./gen/AgentHistory";
 import type { Chat } from "./gen/Chat";
+import type { ConversationView } from "./gen/ConversationView";
+import type { SetPurposeNoteArgs } from "./gen/SetPurposeNoteArgs";
 import type { ChatModelSettings } from "./gen/ChatModelSettings";
 import type { ChatSummary } from "./gen/ChatSummary";
 import type { HostSnapshot } from "./gen/HostSnapshot";
@@ -681,6 +687,7 @@ export interface CommandMap {
   get_baseline_status: { args: ChatArgs; result: SegmentStatus[] };
   delete_baselines: { args: ChatArgs; result: null };
   set_repo_baseline: { args: SetRepoBaselineArgs; result: BaselineSettings };
+  set_purpose_note: { args: SetPurposeNoteArgs; result: ConversationView };
   set_work_mode: { args: SetWorkModeArgs; result: SettingsImpact };
   list_work_modes: { args: Record<string, never>; result: WorkModeInfo[] };
   get_goal: { args: ChatArgs; result: Known<Goal> };

@@ -21,4 +21,8 @@ worktreePath: string | null,
 /**
  * worktreeに結び付いていたが、台帳に記録がない（すでに削除された）。ブランチは残る。
  */
-worktreeRemoved: boolean, };
+worktreeRemoved: boolean, 
+/**
+ * 引き継ぎ元の以前の thread の本数（DESIGN_CONT §9）。削除するのは今の thread だけで、直前の thread が一覧に戻る。
+ */
+previousThreads: number, };

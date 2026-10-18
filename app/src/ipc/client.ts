@@ -14,13 +14,14 @@ import {
   type ChatLocalView, type DeleteOutcome, type DeletePreview, type UsageReport, type ManageOutcome,
   type ChangeList, type ChangeScope, type ChangeSource, type ExternalId, type RevertPlan, type RevertResult, type SegmentStatus, type UnifiedDiff,
   type PathInfo, type BackendStatus, type Goal, type GoalUpdate, type Known, type MemoryStatus, type OpAck, type ResetMemoryResult, type WorkMode, type WorkModeInfo,
-  type FolderCheck, type WorkFoldersView,
+  type FolderCheck, type WorkFoldersView, type ConversationView,
   type GitInfo, type WorktreeRecord, type WorktreeRemoveOutcome, type WorktreeRemovePreview,
   type HandoffText, type InstructionFiles, type InstructionTemplateResult, type OpenSideResult, type ReferenceBlock, type ReferenceTurns, type SideSessionMeta, type SideTranscript, type SkillList, type SkillPreview,
   type DecisionRecord, type ExtensionOp, type ExtensionOpRecord, type ExtensionView, type ToolServerList, type ToolServerLoginStart,
   type CloudApplyResult, type CloudCommandOutput, type CloudEnvHint, type CloudTaskList, type CloudTaskRecord,
   type CompactChatResult, type CompactionSnapshot, type ForkPurpose, type ForkReconcile, type ForkResult, type RecheckAgentsResult, type ResendAsForkResult, type OpReconcile, type ParityOp, type ReviewChoices, type ReviewDelivery, type ReviewOutcome, type ReviewTarget,
 } from "./types";
+import type { HandoffPreview, HandoffResult } from "./types";
 
 /** 型付きinvoke。引数は `args` 1個で渡す（types.ts CommandMap の規約）。 */
 export function invokeCmd<K extends CommandName>(name: K, args: CommandMap[K]["args"]): Promise<CommandMap[K]["result"]> {
@@ -203,6 +204,7 @@ export const setRepoBaseline = (repo: string, choice: RepoRecordChoice | null, a
 
 // ── 計画／実行・Goal・状態・memories（段階③ P3-3） ──
 /** 計画／実行の選択（次のturnから適用）。null＝選択を外す。受理されたかは、設定の更新通知を受けたときだけ「受理済み」に出る。 */
+export const setPurposeNote = (chat: ChatKey, text: string, expectedRevision: number | null): Promise<ConversationView> => invokeCmd("set_purpose_note", { chat, text, expectedRevision });
 export const setWorkMode = (chat: ChatKey, mode: WorkMode | null): Promise<SettingsImpact> => invokeCmd("set_work_mode", { chat, mode });
 export const listWorkModes = (): Promise<WorkModeInfo[]> => invokeCmd("list_work_modes", {});
 /** 目標の取得（読取りのみ。resumeしない）。値なし＝目標は設定されていない、未取得＝読めなかった。 */
@@ -284,6 +286,14 @@ export const closeSide = (side: LocalId, interrupt: boolean): Promise<SideSessio
 export const readSide = (side: LocalId): Promise<SideTranscript> => invokeCmd("read_side", { side });
 /** 選んだ発言を主会話へ渡す引用ブロック（入力欄へ入れるだけで、自動送信しない）。entries は SideTranscript.entries の添字。 */
 export const handoffSide = (side: LocalId, entries: number[]): Promise<HandoffText> => invokeCmd("handoff_side", { side, entries });
+
+// ── 継続チャット（DESIGN_CONT §8。ホスト側は C3 で実装。CommandMap への登録は C2 の型の再export後に合わせる）──
+/** 引き継ぎ資料の確認（読取りのみ。止める理由があっても読めた範囲の資料を返す）。 */
+export const previewHandoff = (chat: ChatKey): Promise<HandoffPreview> => invoke("preview_handoff", { args: { chat } });
+/** 新しい thread へ引き継いで送る（ユーザーの送信操作のときだけ。拒否・受理不明で再送しない）。 */
+export const handoffAndSend = (chat: ChatKey, text: string, attachments: LocalId[] = []): Promise<HandoffResult> => invoke("handoff_and_send", { args: { chat, text, attachments } });
+/** 以前の thread の履歴（読取りのみ。resume しない）。 */
+export const readSegmentHistory = (head: ChatKey, segment: ChatKey): Promise<AgentHistory> => invoke("read_segment_history", { args: { head, segment } });
 
 // ── MCP・Plugins（段階③ P3-5）。一覧・履歴は読取りのみ。認可URL・導入・削除・再読込みはユーザーの明示操作だけ。 ──
 export const listToolServers = (): Promise<ToolServerList> => invokeCmd("list_tool_servers", {});

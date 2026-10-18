@@ -2,12 +2,20 @@
 import type {
   Agent, AgentKey, AgentState, AgentStatus, AgentView, AttachmentEntry, ArtifactEntry, Capabilities, Chat, ChatKey,
   ChatModelSettings, Evidence, EvidenceSource, Freshness, HostSnapshot, Known, ModelInfo,
-  ChatQueue, PendingRequest, QueueEntry, QueueEntryState, SaveState, SourceInfo, StopRecord, TurnRecord, WaitInfo,
+  ChatLocalView, ChatQueue, PendingRequest, QueueEntry, QueueEntryState, SaveState, SourceInfo, StopRecord, TurnRecord, WaitInfo,
 } from "../ipc/types";
 import { DEFAULT_SETTINGS } from "../ipc/live";
 
 const NOW = Date.now();
 const ago = (s: number) => NOW - s * 1000;
+
+/** 継続チャットの表示確認用の補足情報（目的メモ・文脈 72%）。他の項目は空。 */
+const mockLocal = (id: string, patch: Partial<ChatLocalView>): ChatLocalView => ({
+  chat: ck(id), pinned: false, lastUsedAt: null, model: null, permission: null, nextCwd: null, nextFolders: null, acceptedFolders: null, unconfirmedFolders: null,
+  memoryMode: null, reviewOf: null, forkOf: null, draft: { text: "", attachments: [], updatedAt: null }, visibility: { kind: "visible" }, deletePending: null,
+  marks: { awaitingAnswer: false, unacknowledgedFailure: false }, acknowledgedFailures: [], org: null, conversation: null, supersededBy: null,
+  contextUsage: { kind: "notFetched" }, save: { kind: "unsaved" }, ...patch,
+});
 
 const ck = (id: string): ChatKey => ({ backend: "codex", id });
 const qentry = (id: string, text: string, state: QueueEntryState, order: number): QueueEntry =>
@@ -161,7 +169,14 @@ function base(): Bundle {
         view(e0, status("unknown", "notLoaded", 5400, { evidence: ev("historyRead", 5400) }), null, "historyOnly"),
       ],
       requests: [], stops: [], queues: [queue], monitorScope: { kind: "selectedChat", chat: ck("a") },
-      chatLocals: [], saveStatus: [], settings: DEFAULT_SETTINGS, modelSettings: [], startupWarnings: [],
+      chatLocals: [
+        mockLocal("a", {
+          contextUsage: { kind: "known", used: 144000, window: 200000, percent: 72, observedAt: ago(300), live: true },
+          conversation: { id: "mock-conv-a", purpose: { text: "再接続の二重送信を直す。\nテストは追加しない。", revision: 2, updatedAt: ago(7200) }, threads: [], seed: null, purposeDue: true },
+        }),
+        mockLocal("c", { contextUsage: { kind: "known", used: 60000, window: 200000, percent: 30, observedAt: ago(3600), live: false } }),
+        mockLocal("b", { contextUsage: { kind: "afterCompaction", observedAt: ago(600) } }),
+      ], saveStatus: [], settings: DEFAULT_SETTINGS, modelSettings: [], startupWarnings: [],
       attachments: MOCK_ATTACHMENTS, artifacts: MOCK_ARTIFACTS, quit: { kind: "idle" },
       opCapabilities: [], workspaceRoots: "unknown", pendingOps: [], sideSessions: [], worktrees: [], cloudTasks: [], historyConfirmations: [],
     },

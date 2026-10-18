@@ -231,6 +231,10 @@ export const APP_COMMANDS: Command[] = [
   app("deleteChat", "deleteChat", { label: "削除…", group: "チャット", needsChat: true, danger: true, why: (ctx) => (ctx.deletePending ? "削除保留中です" : null) }),
   app("quit", "quit", { label: "AgentDock を終了…", group: "チャット", danger: true, keywords: ["終了", "閉じる"] }),
 
+  // 継続チャット（DESIGN_CONT §7）。引き継げない理由（組織実行・worktree 等）は押したあとの案内行に出す。
+  app("purposeNote", "purpose", { label: "目的メモ…", group: "作業", needsChat: true, why: notPending, keywords: ["メモ", "目的", "継続"] }),
+  app("handoffThread", "handoff", { label: "新しい thread へ引き継ぐ…", group: "作業", needsChat: true, why: notPending, keywords: ["引き継ぎ", "文脈", "継続", "新しいthread"] }),
+
   app("reloadHistory", "reloadHistory", {
     label: "状態を再照合", group: "作業", needsChat: true, keywords: ["再確認", "更新"],
     why: (ctx) => (ctx.isLive ? "最新の状態です" : null),

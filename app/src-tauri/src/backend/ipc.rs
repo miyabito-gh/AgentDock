@@ -14,7 +14,7 @@ use super::backend::{
     ChatSummary, InterruptAck, ProjectSummary, ManageOp, ManageOutcome, Page, PermissionPreset, RespondOutcome, ResumeOutcome,
     AgentHistory,
 };
-use super::local::{RepoRecordChoice, AppSettings, ArtifactEntry, AttachmentEntry, ChatLocalView, ChatQueue, QuitPhase, SaveScope, SaveStatus};
+use super::local::{RepoRecordChoice, AppSettings, ArtifactEntry, AttachmentEntry, ChatLocalView, ChatQueue, ContextUsageView, HandoffBlock, QuitPhase, SaveScope, SaveStatus};
 use super::model::*;
 use super::changes::ListStatus;
 use super::parity::{ExtensionOp, ExtensionOpResult, Goal, GoalUpdate, MemoryStatus, ReviewTarget, ToolServerView};
@@ -118,6 +118,7 @@ pub mod command_names {
     pub const GET_WORK_FOLDERS: &str = "get_work_folders";
     pub const CHECK_WORK_FOLDER: &str = "check_work_folder";
     pub const SET_NEXT_WORK_FOLDERS: &str = "set_next_work_folders";
+    pub const SET_PURPOSE_NOTE: &str = "set_purpose_note";
 }
 
 // ───────────────────────────── エラー ─────────────────────────────
@@ -400,6 +401,76 @@ pub struct SendMessageArgs {
     /// 受理不明なら項目を残したまま保留にし（自動送信しない）、照合で受理と確定したら取り消す。受理なしなら待機のまま。
     #[serde(default)]
     pub steer_entry: Option<LocalId>,
+}
+
+/// 目的メモの保存（DESIGN_CONT §5・§8）。`text` が空（空白のみ）なら削除。`expected_revision` は画面が見ていた版（無ければ null）で、違えば拒否する。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct SetPurposeNoteArgs {
+    pub chat: ChatKey,
+    pub text: String,
+    pub expected_revision: Option<u32>,
+}
+
+/// 以前の thread の履歴の読取り（DESIGN_CONT §8）。`segment` は `head` の会話の記録にある thread だけ。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct ReadSegmentHistoryArgs {
+    pub head: ChatKey,
+    pub segment: ChatKey,
+}
+
+/// 引き継ぎの事前表示（読取りのみ）。止める理由があっても、読めた範囲の資料は返す。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct HandoffPreview {
+    pub blockers: Vec<HandoffBlock>,
+    /// 止めない注記（子の状態未確認など）。
+    pub notes: Vec<String>,
+    /// 送る資料ブロック（目的メモ込み。利用者の文は含めない）。
+    pub envelope: String,
+    pub chars: u32,
+    pub rounds_included: u32,
+    pub rounds_available: u32,
+    pub truncated: bool,
+}
+
+/// 「引き継いで送信」の結果（C3 が実装する）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(tag = "stage", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum HandoffResult {
+    /// 新しい thread を作らずに止まった（前提・読取り・開始の拒否／受理不明）。元の thread は変わっていない。
+    NotStarted { message: String, start_unknown: bool },
+    /// 新しい thread は先頭になったが、送っていない（保存・添付の失敗。下書きは新しい側にある）。
+    CreatedNotSent { chat: Chat, message: String },
+    /// 送信した（結果は send の状態。受理不明は既存の照合へ）。
+    /// `notes` は送信前に出した止めない注記（子の状態が未確認のまま送った等）。
+    Sent {
+        chat: Chat,
+        send: SendAttempt,
+        #[serde(default)]
+        notes: Vec<String>,
+    },
+}
+
+/// 「引き継いで送信」の引数（DESIGN_CONT §8）。`attachments` は引き継ぎ元の送信前の添付（台帳のID）。文が空で添付もなければ拒否する。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct HandoffAndSendArgs {
+    pub chat: ChatKey,
+    pub text: String,
+    #[serde(default)]
+    pub attachments: Vec<LocalId>,
 }
 
 /// 送信試行。`state` が `acceptanceUnknown` の間、UIは再送ボタンを出さない。
@@ -1224,6 +1295,8 @@ pub enum HostEvent {
     ModelSettingsUpdated { chat: ChatKey, settings: ChatModelSettings },
     /// チャット別の補足情報（ピン・下書き・モデル/権限・保存状態）の更新。
     ChatLocalUpdated { local: ChatLocalView },
+    /// 文脈の使用率の更新（ルートの値だけ。保存は2秒まとめ）。会話の記録の変化は `ChatLocalUpdated` で運ぶ。
+    ContextUsageUpdated { chat: ChatKey, usage: ContextUsageView },
     SaveStatusUpdated { status: SaveStatus },
     /// チャット1件分の、結果が未確認の操作（レビュー・圧縮）。一覧全体で置き換える。
     PendingOpsUpdated { chat: ChatKey, pending_ops: Vec<PendingOp> },

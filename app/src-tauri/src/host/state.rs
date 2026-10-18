@@ -12,14 +12,18 @@ use super::stop;
 use crate::backend::backend::*;
 use crate::backend::decision::DecisionRecord;
 use crate::backend::ipc::*;
-use crate::backend::local::{AppSettings, ChatMarks, SaveScope, SaveStatus};
+use crate::backend::local::{AppSettings, ChatMarks, ContextUsageView, SaveScope, SaveStatus};
 use crate::backend::model::*;
 use crate::rules::notify::NotifyInput;
-use crate::store::records::{ActivityLine, ChatLocalFile, QueueFile};
+use crate::store::records::{ActivityLine, ChatLocalFile, ContextUsageSample, QueueFile};
 
 /// イベント適用後にホストが非同期で行う追加作業（reducer内では待たない）。
 #[derive(Debug, Clone, PartialEq)]
 pub enum Followup {
+    /// ルートの文脈使用量を保存領域へ取り込む（領域の割り当てが要るので reducer の外）。書込みは2秒まとめ。
+    ContextUsage { chat: ChatKey, sample: ContextUsageSample },
+    /// reducer が補足情報（chat.json）を書き換えた。書込みを2秒まとめで依頼する。
+    SaveChatLocal(ChatKey),
     /// ルートの新しいturn開始を契機に、子孫を再走査する（読み取りのみ）。
     ScanDescendants(AgentKey),
     /// 会話で作られたファイルの候補。実在を確認できたものだけ成果物にする（ファイルを読むので別taskで行う）。
@@ -127,6 +131,8 @@ pub struct HostData {
     pub activity_outbox: Vec<(ChatKey, ActivityLine)>,
     /// 応答記録（`decisions.jsonl`、項目51）。ホストが `mutate` の直後に取り出して書く。
     pub decision_outbox: Vec<DecisionRecord>,
+    /// この接続で文脈使用量のイベントを受けたチャット（保存値ではなく今の値の印）。切断・欠落で空にする。
+    usage_live: HashSet<ChatKey>,
 }
 
 impl Default for HostData {
@@ -163,8 +169,14 @@ impl Default for HostData {
             wake_reconciled: HashMap::new(),
             activity_outbox: Vec::new(),
             decision_outbox: Vec::new(),
+            usage_live: HashSet::new(),
         }
     }
+}
+
+/// 文脈使用量の観測値を作る。直近の呼び出しのトークン数（`last`）が無ければ作らない（0 で代用しない）。上限が無い・0 なら None。
+pub fn usage_sample(turn: Option<&ExternalId>, last_total: Option<u64>, context_window: Option<u64>, now: UnixMillis) -> Option<ContextUsageSample> {
+    Some(ContextUsageSample { used: last_total?, window: context_window.filter(|w| *w > 0), observed_at: now, turn: turn.cloned(), stale_after_compaction: false })
 }
 
 /// 外部作成の会話で、ユーザーが再開して live 購読が成立するまで送信を止めるか。
@@ -400,6 +412,66 @@ impl HostData {
 
     fn chat_of_agent(&self, a: &AgentKey) -> Option<ChatKey> {
         self.view(a).map(|v| v.agent.chat.clone())
+    }
+
+    // ── 文脈の使用率・圧縮の観測（DESIGN_CONT §4） ──
+
+    /// チャットのルートのエージェントなら、そのチャット（子孫・side相談の値は使わない）。
+    fn root_chat_of(&self, a: &AgentKey) -> Option<ChatKey> {
+        let chat = self.view(a).filter(|v| matches!(v.agent.parent, ParentLink::Root)).map(|v| v.agent.chat.clone())?;
+        (agent_key_of(&chat) == *a && !self.is_side_thread(&chat)).then_some(chat)
+    }
+
+    /// 使用率の表示。能力が非対応なら非対応、保存値だけなら `live=false`、この接続で値を受けてルートが live のときだけ `live=true`。
+    pub(super) fn usage_view_of(&self, chat: &ChatKey) -> ContextUsageView {
+        let cap = self.sources.iter().find(|s| s.backend == chat.backend).map(|s| s.capabilities.context_usage).unwrap_or(Support::Unknown);
+        let live = self.usage_live.contains(chat) && self.root_view(chat).is_some_and(|v| v.freshness == Freshness::Live);
+        crate::rules::continuity::usage_view(self.locals.get(chat).and_then(|f| f.context_usage.as_ref()), cap, live)
+    }
+
+    fn usage_event(&self, chat: &ChatKey) -> HostEvent {
+        HostEvent::ContextUsageUpdated { chat: chat.clone(), usage: self.usage_view_of(chat) }
+    }
+
+    /// ルートの使用量を取り込む（置き換え。圧縮後の印はこの値で解除される）。保存領域は呼び出し側が割り当てた `dir_id`。
+    pub fn note_context_usage(&mut self, chat: &ChatKey, sample: ContextUsageSample, dir_id: crate::backend::model::LocalId) -> Vec<HostEvent> {
+        let file = self.locals.entry(chat.clone()).or_insert_with(|| ChatLocalFile::new(dir_id, Some(chat.clone())));
+        file.context_usage = Some(sample);
+        self.usage_live.insert(chat.clone());
+        vec![self.usage_event(chat)]
+    }
+
+    /// ルートで文脈の圧縮を観測した。値の割合表示を止め、目的メモを次の手動送信で再び添える。変えたときだけ `true`（書込みを依頼する）。
+    fn note_compaction(&mut self, chat: &ChatKey) -> (Vec<HostEvent>, bool) {
+        let Some(file) = self.locals.get_mut(chat) else { return (Vec::new(), false) };
+        let mut usage_changed = false;
+        if let Some(s) = file.context_usage.as_mut().filter(|s| !s.stale_after_compaction) {
+            s.stale_after_compaction = true;
+            usage_changed = true;
+        }
+        let mut conv_changed = false;
+        if let Some(c) = file.conversation.as_mut().filter(|c| !c.compacted_since_delivery) {
+            c.compacted_since_delivery = true;
+            conv_changed = true;
+        }
+        let ev = if conv_changed {
+            // 会話の記録の変化は補足情報の更新で運ぶ（使用率の表示も含まれる）。
+            self.local_view(chat).map(|local| HostEvent::ChatLocalUpdated { local }).into_iter().collect()
+        } else if usage_changed {
+            vec![self.usage_event(chat)]
+        } else {
+            Vec::new()
+        };
+        (ev, usage_changed || conv_changed)
+    }
+
+    /// 「この接続の今の値」の印を外す（切断・イベントの欠落）。保存値は残り、表示は `live=false` になる。
+    fn clear_usage_live(&mut self, only: Option<&ChatKey>) -> Vec<HostEvent> {
+        let gone: Vec<ChatKey> = match only {
+            Some(c) => self.usage_live.take(c).into_iter().collect(),
+            None => self.usage_live.drain().collect(),
+        };
+        gone.iter().map(|c| self.usage_event(c)).collect()
     }
 
     /// 要求の新しい状態（応答済み・受理未確認・別の場所で解決）を応答記録に積む。記録の対象でない状態は積まない。
@@ -866,6 +938,8 @@ impl HostData {
                     self.running_turn.clear();
                     self.latest_turn_start.clear();
                     self.wake_reconciled.clear();
+                    // 使用率は保存値のまま残し、今の値ではない表示にする。
+                    out.extend(self.clear_usage_live(None));
                     let mut expired_chats = Vec::new();
                     for r in &mut self.requests {
                         if r.key.source == env.source && r.state == RequestState::Pending {
@@ -1012,6 +1086,16 @@ impl HostData {
                         self.record_activity(chat, ActivityLine::Activity { at: now, activity: activity.clone() });
                     }
                 }
+                // ルートの文脈の圧縮（Codexの自動圧縮・手動の圧縮とも item で観測する）。
+                if activity.phase == ActivityPhase::Completed && matches!(activity.kind, ActivityKind::ContextCompaction) {
+                    if let Some(chat) = self.root_chat_of(&activity.key.agent) {
+                        let (ev, changed) = self.note_compaction(&chat);
+                        out.extend(ev);
+                        if changed {
+                            follow.push(Followup::SaveChatLocal(chat));
+                        }
+                    }
+                }
                 // サブエージェント関連のitem（spawn・待機・送信など）が来たら、子孫の監視を始める（既に動いていれば何もしない）。
                 if matches!(activity.kind, ActivityKind::SubAgent) {
                     if let Some(v) = self.view(&activity.key.agent).filter(|v| !self.is_side_thread(&v.agent.chat)) {
@@ -1104,7 +1188,13 @@ impl HostData {
             // ツールサーバーの通知は、ホストの拡張管理（`extensions.rs`）が見る。エージェントの状態には使わない。
             BackendEvent::ToolServerStatusChanged { .. } | BackendEvent::ToolServerLoginCompleted { .. } | BackendEvent::RateLimitsUpdated => {}
             // 組織実行（host/org）だけが使う。エージェント状態には流用しない。
-            BackendEvent::TokenUsage { .. } | BackendEvent::TurnFailureClass { .. } | BackendEvent::SandboxFailureObserved { .. } => {}
+            BackendEvent::TurnFailureClass { .. } | BackendEvent::SandboxFailureObserved { .. } => {}
+            // 文脈の使用量はチャットのルートの値だけ取り込む（子孫の値・直近のトークン数が無い値は使わない）。
+            BackendEvent::TokenUsage { agent, turn, last_total, context_window, .. } => {
+                if let (Some(chat), Some(sample)) = (self.root_chat_of(agent), usage_sample(turn.as_ref(), *last_total, *context_window, now)) {
+                    follow.push(Followup::ContextUsage { chat, sample });
+                }
+            }
             BackendEvent::ModelRerouted { agent, effective, .. } => {
                 if let Some(chat) = self.view(agent).filter(|_| self.is_root(agent)).map(|v| v.agent.chat.clone()) {
                     let s = self.model_settings.entry(chat.clone()).or_insert_with(|| ChatModelSettings::blank(ApplyTiming::Unknown));
@@ -1119,9 +1209,15 @@ impl HostData {
             }),
             BackendEvent::Gap { scope, reason } => {
                 match scope {
-                    GapScope::Source => out.extend(self.set_freshness_where(None, Freshness::NeedsReconcile, now, |f| f == Freshness::Live)),
+                    GapScope::Source => {
+                        out.extend(self.set_freshness_where(None, Freshness::NeedsReconcile, now, |f| f == Freshness::Live));
+                        out.extend(self.clear_usage_live(None));
+                    }
                     GapScope::Agent { agent } => {
-                        out.extend(self.set_freshness_where(Some(agent), Freshness::NeedsReconcile, now, |f| f == Freshness::Live))
+                        out.extend(self.set_freshness_where(Some(agent), Freshness::NeedsReconcile, now, |f| f == Freshness::Live));
+                        if let Some(chat) = self.root_chat_of(agent) {
+                            out.extend(self.clear_usage_live(Some(&chat)));
+                        }
                     }
                 }
                 out.push(HostEvent::Warning { source: Some(env.source.clone()), message: format!("イベントの欠落の可能性: {reason}"), raw_label: Some("gap".into()) });
@@ -1773,5 +1869,70 @@ mod tests {
         d.mark_used(&ck("c"), UnixMillis(900));
         d.upsert_chat(mk("c", 100));
         assert_eq!(ids(&d), ["c", "a", "b"]);
+    }
+
+    // ── 文脈の使用率・圧縮（DESIGN_CONT §4） ──
+
+    fn token_usage(agent_id: &str, last: Option<u64>, window: Option<u64>) -> BackendEvent {
+        BackendEvent::TokenUsage { agent: ak(agent_id), turn: Some(ExternalId("t1".into())), last_total: last, thread_total: None, context_window: window }
+    }
+    fn ingest(d: &mut HostData, ev: BackendEvent) -> Vec<Followup> {
+        let (_, follow) = d.apply_event(&env(1, 50, ev), &caps());
+        for f in &follow {
+            if let Followup::ContextUsage { chat, sample } = f {
+                d.note_context_usage(chat, sample.clone(), LocalId("dir".into()));
+            }
+        }
+        follow
+    }
+
+    #[test]
+    fn usage_sample_rejects_missing_last_total_and_zero_window() {
+        let t = ExternalId("t".into());
+        assert!(usage_sample(Some(&t), None, Some(100), UnixMillis(1)).is_none(), "last が無ければ作らない（0 で代用しない）");
+        assert_eq!(usage_sample(Some(&t), Some(0), Some(100), UnixMillis(1)).unwrap().used, 0);
+        assert_eq!(usage_sample(None, Some(5), Some(0), UnixMillis(1)).unwrap().window, None);
+        assert_eq!(usage_sample(None, Some(5), None, UnixMillis(1)).unwrap().window, None);
+    }
+
+    #[test]
+    fn only_root_usage_is_ingested() {
+        let mut d = HostData::default();
+        live_root(&mut d, AgentState::Running);
+        d.set_live(agent("child", false), status(AgentState::Running, None, StateScope::Agent));
+        assert!(ingest(&mut d, token_usage("child", Some(10), Some(100))).is_empty(), "子孫の値は使わない");
+        assert!(ingest(&mut d, token_usage("root", None, Some(100))).is_empty(), "last なしは捨てる");
+        assert!(d.locals.get(&ck("root")).is_none());
+        assert_eq!(d.usage_view_of(&ck("root")), ContextUsageView::NotFetched);
+        assert_eq!(ingest(&mut d, token_usage("root", Some(0), Some(200))).len(), 1);
+        assert!(matches!(d.usage_view_of(&ck("root")), ContextUsageView::Known { used: 0, window: 200, percent: 0, live: true, .. }));
+    }
+
+    #[test]
+    fn usage_without_window_and_compaction_and_disconnect() {
+        let mut d = HostData::default();
+        live_root(&mut d, AgentState::Running);
+        ingest(&mut d, token_usage("root", Some(500), None));
+        assert!(matches!(d.usage_view_of(&ck("root")), ContextUsageView::WindowUnknown { used: 500, .. }));
+        ingest(&mut d, token_usage("root", Some(150), Some(200)));
+        // 圧縮を観測: 割合を出さず、保存を依頼する。会話の記録があれば再送付の印も立てる。
+        d.locals.get_mut(&ck("root")).unwrap().conversation = Some(crate::store::records::ConversationRecord {
+            id: LocalId("c".into()),
+            purpose: None,
+            threads: vec![],
+            seed: None,
+            purpose_delivered_rev: None,
+            compacted_since_delivery: false,
+        });
+        let (ev, changed) = d.note_compaction(&ck("root"));
+        assert!(changed && matches!(ev.as_slice(), [HostEvent::ChatLocalUpdated { .. }]));
+        assert!(d.locals[&ck("root")].conversation.as_ref().unwrap().compacted_since_delivery);
+        assert!(matches!(d.usage_view_of(&ck("root")), ContextUsageView::AfterCompaction { .. }));
+        assert!(!d.note_compaction(&ck("root")).1, "二度目は変化なし");
+        // 次の値で圧縮後の印が外れる。切断で今の値の印を外す（保存値のまま live=false）。
+        ingest(&mut d, token_usage("root", Some(20), Some(200)));
+        assert!(matches!(d.usage_view_of(&ck("root")), ContextUsageView::Known { percent: 10, live: true, .. }));
+        let ev = d.clear_usage_live(None);
+        assert!(matches!(ev.as_slice(), [HostEvent::ContextUsageUpdated { usage: ContextUsageView::Known { live: false, .. }, .. }]));
     }
 }

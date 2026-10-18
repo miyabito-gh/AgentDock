@@ -41,7 +41,7 @@ function clearHighlights() {
   reg?.delete("find-cur");
 }
 
-export function FindBar({ root, query, setQuery, focusTick, partial, onClose }: {
+export function FindBar({ root, query, setQuery, focusTick, partial, unloadedPrev, onClose }: {
   /** 検索対象の会話領域（.msgs）。 */
   root: RefObject<HTMLElement | null>;
   query: string;
@@ -50,6 +50,8 @@ export function FindBar({ root, query, setQuery, focusTick, partial, onClose }: 
   focusTick: number;
   /** 本文が部分取得のとき true。 */
   partial: boolean;
+  /** 未読込みの以前の thread がある（継続チャット）。検索の対象外であることを注記する。 */
+  unloadedPrev?: boolean;
   onClose: () => void;
 }) {
   const input = useRef<HTMLInputElement>(null);
@@ -156,6 +158,7 @@ export function FindBar({ root, query, setQuery, focusTick, partial, onClose }: 
         }} />
       <span className={`find-count${query && info.n === 0 ? " none" : ""}`} role="status" aria-live="polite">{status}</span>
       {partial ? <span className="find-note">読み込み済みの範囲を検索</span> : null}
+      {unloadedPrev ? <span className="find-note">以前の会話は［表示］で読み込むと検索できます</span> : null}
       <button type="button" className="find-btn" onClick={() => move(-1)} disabled={info.n === 0} aria-label="前の一致" title="前の一致（Shift+Enter）">↑</button>
       <button type="button" className="find-btn" onClick={() => move(1)} disabled={info.n === 0} aria-label="次の一致" title="次の一致（Enter）">↓</button>
       <button type="button" className="find-btn" onClick={onClose} aria-label="検索を閉じる" title="閉じる（Esc）"><Icon name="x" /></button>

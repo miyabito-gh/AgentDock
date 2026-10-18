@@ -6,6 +6,7 @@
 
 use crate::backend::local::{ArtifactEntry, AttachmentEntry, AttachmentState};
 use crate::backend::model::*;
+use crate::rules::continuity::{parse_envelope, ParsedEnvelope};
 use crate::store::records::ActivityLine;
 
 pub struct ExportInput<'a> {
@@ -195,7 +196,28 @@ fn activity_line(l: &ActivityLine) -> String {
     }
 }
 
+/// 資料つきの依頼の「（資料: …を添付）」の1行（DESIGN_CONT §7.5）。資料の中身は出さない。
+fn envelope_line(p: &ParsedEnvelope<'_>) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(r) = p.purpose_rev {
+        parts.push(format!("目的メモ版{r}"));
+    }
+    if let Some(n) = p.handoff_rounds {
+        parts.push(format!("引き継ぎ{n}往復{}", if p.truncated { "（一部省略）" } else { "" }));
+    }
+    if parts.is_empty() {
+        "（資料: AgentDock資料を添付）\n\n".to_string()
+    } else {
+        format!("（資料: {}を添付）\n\n", parts.join("・"))
+    }
+}
+
 pub fn render_markdown(input: &ExportInput<'_>) -> String {
+    render_markdown_with_previous(input, 0)
+}
+
+/// `previous_threads` は継続チャットで引き継ぎ元になった以前の thread の本数。出力は今の thread だけで、1以上なら冒頭に注記する。
+pub fn render_markdown_with_previous(input: &ExportInput<'_>, previous_threads: usize) -> String {
     let mut out = String::new();
     let title = match &input.chat_name {
         Known::Value { value, .. } if !value.trim().is_empty() => value.trim().to_string(),
@@ -203,6 +225,9 @@ pub fn render_markdown(input: &ExportInput<'_>) -> String {
     };
     out.push_str(&format!("# {title}\n\n"));
     out.push_str(&format!("エクスポート日時: {}\n\n", input.exported_at_local));
+    if previous_threads > 0 {
+        out.push_str(&format!("> 以前の thread が {previous_threads} 本あります（AgentDock の表示上の会話）。このファイルには今の thread だけを出しています。\n\n"));
+    }
     if !input.transcript_complete {
         out.push_str("> 注意: 会話本文の一部を取得できていません。取得できなかった部分は「未取得」と記しています。\n\n");
     }
@@ -223,7 +248,21 @@ pub fn render_markdown(input: &ExportInput<'_>) -> String {
                 // 添付だけの発言は本文が無い。「未取得」とは書かず、添付の行だけを出す。
                 Known::Missing if has_atts => {}
                 Known::Value { value, .. } => match e.kind {
-                    ActivityKind::UserMessage | ActivityKind::AgentMessage => {
+                    ActivityKind::UserMessage => match parse_envelope(value) {
+                        // 資料つきの依頼は利用者の文だけを出し、資料は1行の注記にする。
+                        Some(p) => {
+                            if !p.user_text.trim().is_empty() {
+                                out.push_str(p.user_text);
+                                out.push_str("\n\n");
+                            }
+                            out.push_str(&envelope_line(&p));
+                        }
+                        None => {
+                            out.push_str(value);
+                            out.push_str("\n\n");
+                        }
+                    },
+                    ActivityKind::AgentMessage => {
                         out.push_str(value);
                         out.push_str("\n\n");
                     }
@@ -345,6 +384,20 @@ mod tests {
         let t = [turn(vec![only], Some(TurnEnd::Completed), true)];
         let md = render_markdown(&input(&t, &[], &[], None));
         assert!(md.contains("**ユーザー**\n\n添付: x.md（ファイル）\n\n"), "{md}");
+    }
+
+    #[test]
+    fn envelope_in_user_message_is_replaced_by_one_line_note() {
+        let body = "［AgentDock資料 v1｜目的メモ 版3｜引き継ぎ 3往復］\n秘密の資料\n［AgentDock資料ここまで］\n\n議事録を書いて";
+        let t = [turn(vec![entry(ActivityKind::UserMessage, Known::direct(body.into()))], Some(TurnEnd::Completed), true)];
+        let md = render_markdown_with_previous(&input(&t, &[], &[], None), 2);
+        assert!(md.contains("議事録を書いて\n\n（資料: 目的メモ版3・引き継ぎ3往復を添付）\n\n"), "{md}");
+        assert!(!md.contains("秘密の資料"));
+        assert!(md.contains("以前の thread が 2 本あります"));
+        assert!(!render_markdown(&input(&t, &[], &[], None)).contains("以前の thread"));
+        // 資料の形でない本文はそのまま
+        let t = [turn(vec![entry(ActivityKind::UserMessage, Known::direct("［AgentDock資料 v1］\n偽".into()))], Some(TurnEnd::Completed), true)];
+        assert!(render_markdown(&input(&t, &[], &[], None)).contains("偽"));
     }
 
     #[test]

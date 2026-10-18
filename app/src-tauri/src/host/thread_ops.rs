@@ -119,7 +119,7 @@ impl Host {
     }
 
     /// 名前を付ける（受け付けられなければそのまま。履歴のない会話は名前を付けられないことがある）。
-    async fn rename_best_effort(self: &Arc<Self>, chat: &ChatKey, name: String, confirmed: &UserConfirmed) {
+    pub(super) async fn rename_best_effort(self: &Arc<Self>, chat: &ChatKey, name: String, confirmed: &UserConfirmed) {
         if self.backend.manage_chat(chat.clone(), ManageOp::Rename { name: name.clone() }, confirmed).await.is_err() {
             return;
         }
@@ -440,9 +440,15 @@ impl Host {
         });
         // 元の会話の権限・モデル・作業モード・worktreeを、分岐先の未設定の項目へ写す（送る前に。元より広い権限で走らせない）。
         self.inherit_fork_settings(&origin.chat, key);
+        // 目的メモは分岐先へ写す（分岐は別の会話。id は新規、以前の thread・引き継ぎ資料・届けた記録は引き継がない）。
+        let purpose = self.read(|d| super::continuity_handoff::purpose_for_fork(d.locals.get(&origin.chat).and_then(|l| l.conversation.as_ref())));
+        let conv_id = self.local_id("conv");
         let mut conflict = false;
         self.update_local(key, true, std::time::Duration::ZERO, |f| {
             f.hosted = true;
+            if f.conversation.is_none() {
+                f.conversation = purpose.map(|p| super::continuity_handoff::fork_conversation(conv_id, p));
+            }
             let (o, c) = merge_fork_of(f.fork_of.take(), origin);
             f.fork_of = Some(o);
             conflict = c;
@@ -467,7 +473,7 @@ impl Host {
     }
 
     /// 分岐先へ、元のチャットのローカル設定を写す（未設定の項目だけ）。メモリへ即時反映し、保存は呼び出し側が待つ。
-    fn inherit_fork_settings(self: &Arc<Self>, src: &ChatKey, dst: &ChatKey) {
+    pub(super) fn inherit_fork_settings(self: &Arc<Self>, src: &ChatKey, dst: &ChatKey) {
         let inherit = self.read(|d| {
             let ms = d.model_settings.get(src);
             ForkInherit::from_source(d.locals.get(src), ms.and_then(|s| s.selected.clone()), ms.and_then(|s| s.work_mode))

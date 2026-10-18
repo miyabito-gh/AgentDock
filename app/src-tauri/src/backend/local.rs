@@ -1120,6 +1120,9 @@ pub struct DeletePreview {
     /// worktreeに結び付いていたが、台帳に記録がない（すでに削除された）。ブランチは残る。
     #[serde(default)]
     pub worktree_removed: bool,
+    /// 引き継ぎ元の以前の thread の本数（DESIGN_CONT §9）。削除するのは今の thread だけで、直前の thread が一覧に戻る。
+    #[serde(default)]
+    pub previous_threads: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

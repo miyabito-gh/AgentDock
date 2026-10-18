@@ -5,6 +5,13 @@ import type {
   AgentKey, ChatKey, ChatModelSettings, ExternalId, ForkPurpose, InterruptChatResult, LocalId, ModelChoice, ModelInfo, MonitorScope, RecheckAgentsResult,
   OrgGraphsView, OrgRolesView, OrgSnapshotView, RequestAnswer, RequestKey, RespondOutcome, ResendAsForkResult, SendAttempt, SendIntent,
 } from "../ipc/types";
+import type { HandoffPreview } from "../ipc/types";
+
+/** 引き継ぎ資料の仮の確認結果（読取りのみの表示確認用。送れない）。 */
+export async function previewHandoff(_chat: ChatKey): Promise<HandoffPreview> {
+  const envelope = "【AgentDock 引き継ぎ資料】（モックの仮データ）\n目的メモ: 再接続の二重送信を直す。\n直近3往復: …";
+  return { blockers: [], notes: ["子2件の状態は未確認のまま送ります（モック）"], envelope, chars: envelope.length, roundsIncluded: 3, roundsAvailable: 5, truncated: false };
+}
 
 export async function getBundle(scenario: string): Promise<Bundle> {
   return makeBundle(scenario);

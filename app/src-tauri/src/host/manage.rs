@@ -21,7 +21,7 @@ use crate::backend::backend::*;
 use crate::backend::ipc::*;
 use crate::backend::local::*;
 use crate::backend::model::*;
-use crate::rules::export::{render_markdown, ExportInput};
+use crate::rules::export::{render_markdown_with_previous, ExportInput};
 use crate::rules::manage::{archive_ready, backend_delete_target_missing,delete_decision, delete_result, refresh_delete_pending, save_blocks_chat, ChatWork, DeleteDecision};
 use crate::store::records::ChatLocalFile;
 use crate::store::{atomic, layout, legacy_area_usage, StoreError};
@@ -73,7 +73,17 @@ impl HostData {
         self.locals.remove(chat);
         self.queues.remove(chat);
         self.save_status.retain(|s, _| !scope_is_of(s, chat));
-        self.remove_chat(chat)
+        // 継続チャット: このチャットへ引き継いだ印を持つ以前の thread を、同じセッションで一覧へ戻す（メモリ上だけ。
+        // 保存は起動時の照合に任せる: 引き継ぎ先の領域が無ければ隠さない）。
+        let freed: Vec<ChatKey> = self.locals.iter().filter(|(_, l)| l.superseded_by.as_ref().is_some_and(|s| &s.by == chat)).map(|(k, _)| k.clone()).collect();
+        let mut events = self.remove_chat(chat);
+        for k in freed {
+            if let Some(l) = self.locals.get_mut(&k) {
+                l.superseded_by = None;
+            }
+            events.extend(self.local_view(&k).map(|local| HostEvent::ChatLocalUpdated { local }));
+        }
+        events
     }
 
     /// 外部作成の会話を「一覧から外す」。補足情報（ピン・下書き・添付・キュー等）は消し、元の履歴には触れない。
@@ -311,6 +321,8 @@ impl Host {
             None => Known::NotFetched,
         };
         let (worktree_path, worktree_removed) = self.chat_worktree_path(&chat).unwrap_or((None, false));
+        // 引き継ぎ元の以前の thread の本数。削除は今の thread だけで、以前の thread には触れない。
+        let previous = self.read(|d| d.locals.get(&chat).and_then(|l| l.conversation.as_ref()).map(|c| c.threads.len()).unwrap_or(0)) as u32;
         Ok(DeletePreview {
             chat,
             deletes_backend_history: origin != ChatOrigin::External,
@@ -321,6 +333,7 @@ impl Host {
             requires_stop: delete_decision(&work, pending.as_ref()) != DeleteDecision::Proceed,
             worktree_path,
             worktree_removed,
+            previous_threads: previous,
         })
     }
 
@@ -544,6 +557,7 @@ impl Host {
         let chat = args.chat;
         // 本文はCodexの保存履歴から取り直す（アプリは本文を保存していない）。取得できなければ、空のファイルを成功にしない。
         let history = self.read_history(agent_key_of(&chat), ReadOptions { include_turns: true }).await?;
+        let previous_threads = self.read(|d| d.locals.get(&chat).and_then(|l| l.conversation.as_ref()).map_or(0, |c| c.threads.len()));
         let (name, attachments, artifacts) = self.read(|d| {
             let l = d.locals.get(&chat);
             (
@@ -566,7 +580,7 @@ impl Host {
         } else {
             None
         };
-        let md = render_markdown(&ExportInput {
+        let md = render_markdown_with_previous(&ExportInput {
             chat_name: name,
             turns: &history.turns,
             transcript_complete: history.turns.iter().all(|t| t.complete),
@@ -574,7 +588,7 @@ impl Host {
             artifacts: &artifacts,
             monitor_activity: activity.as_deref(),
             exported_at_local: crate::win::clock::local_time_text(),
-        });
+        }, previous_threads);
         let bytes = md.into_bytes();
         let needed = bytes.len() as u64;
         let store = self.persist.store().cloned();
