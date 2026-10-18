@@ -260,6 +260,13 @@ export type { OrgRolesView } from "./gen/OrgRolesView";
 export type { OrgSetStallArgs } from "./gen/OrgSetStallArgs";
 export type { OrgSeverity } from "./gen/OrgSeverity";
 export type { OrgSnapshotView } from "./gen/OrgSnapshotView";
+export type { OrgDeleteArgs } from "./gen/OrgDeleteArgs";
+export type { OrgDeleteChatRow } from "./gen/OrgDeleteChatRow";
+export type { OrgDeleteOutcome } from "./gen/OrgDeleteOutcome";
+export type { OrgDeletePreview } from "./gen/OrgDeletePreview";
+export type { OrgDeletionView } from "./gen/OrgDeletionView";
+export type { OrgKeptWorktreeRow } from "./gen/OrgKeptWorktreeRow";
+export type { OrgManageVerdict } from "./gen/OrgManageVerdict";
 export type { OrgStatusView } from "./gen/OrgStatusView";
 export type { OrgTaskArgs } from "./gen/OrgTaskArgs";
 export type { OrgTaskPhase } from "./gen/OrgTaskPhase";
@@ -491,6 +498,9 @@ import type { OrgResumeResult } from "./gen/OrgResumeResult";
 import type { OrgRolesView } from "./gen/OrgRolesView";
 import type { OrgSetStallArgs } from "./gen/OrgSetStallArgs";
 import type { OrgSnapshotView } from "./gen/OrgSnapshotView";
+import type { OrgDeleteArgs } from "./gen/OrgDeleteArgs";
+import type { OrgDeleteOutcome } from "./gen/OrgDeleteOutcome";
+import type { OrgDeletePreview } from "./gen/OrgDeletePreview";
 import type { OrgTaskArgs } from "./gen/OrgTaskArgs";
 import type { OrgWorkflowArgs } from "./gen/OrgWorkflowArgs";
 import type { StartOrgArgs } from "./gen/StartOrgArgs";
@@ -738,7 +748,7 @@ export interface CommandMap {
   cloud_task_status: { args: CloudTaskIdArgs; result: CloudCommandOutput };
   cloud_task_diff: { args: CloudTaskIdArgs; result: CloudCommandOutput };
   apply_cloud_task: { args: CloudApplyArgs; result: CloudApplyResult };
-org_view: { args: Record<string, never>; result: OrgSnapshotView };  org_roles_view: { args: Record<string, never>; result: OrgRolesView };  org_graphs_view: { args: Record<string, never>; result: OrgGraphsView };  org_reload_graphs: { args: Record<string, never>; result: OrgGraphsView };  org_open_graph_file: { args: OrgOpenGraphFileArgs; result: null };  org_gate_decide: { args: OrgGateDecideArgs; result: null };  org_extra_round: { args: OrgExtraRoundArgs; result: null };  org_accept_round: { args: OrgTaskArgs; result: null };  org_start: { args: StartOrgArgs; result: StartOrgResult };  org_resume: { args: OrgWorkflowArgs; result: OrgResumeResult };  org_pause: { args: OrgWorkflowArgs; result: null };  org_approve_plan: { args: OrgWorkflowArgs; result: null };  org_replan: { args: OrgReplanArgs; result: null };  org_cancel: { args: OrgCancelArgs; result: Array<string> };  org_accept_manual: { args: OrgTaskArgs; result: null };  org_retry_task: { args: OrgTaskArgs; result: null };  org_raise_turn_limit: { args: OrgRaiseTurnLimitArgs; result: null };  org_release_chat: { args: ChatArgs; result: null };  org_recover_candidates: { args: OrgTaskArgs; result: Array<OrgChatCandidate> };  org_choose_chat: { args: OrgChooseChatArgs; result: null };  org_set_stall_minutes: { args: OrgSetStallArgs; result: number };  org_reload_roles: { args: Record<string, never>; result: OrgRolesView };  org_enable_role: { args: OrgEnableRoleArgs; result: OrgRolesView };  org_open_role_file: { args: OrgOpenRoleFileArgs; result: null };
+org_view: { args: Record<string, never>; result: OrgSnapshotView };  org_roles_view: { args: Record<string, never>; result: OrgRolesView };  org_graphs_view: { args: Record<string, never>; result: OrgGraphsView };  org_reload_graphs: { args: Record<string, never>; result: OrgGraphsView };  org_open_graph_file: { args: OrgOpenGraphFileArgs; result: null };  org_gate_decide: { args: OrgGateDecideArgs; result: null };  org_extra_round: { args: OrgExtraRoundArgs; result: null };  org_accept_round: { args: OrgTaskArgs; result: null };  org_start: { args: StartOrgArgs; result: StartOrgResult };  org_resume: { args: OrgWorkflowArgs; result: OrgResumeResult };  org_pause: { args: OrgWorkflowArgs; result: null };  org_approve_plan: { args: OrgWorkflowArgs; result: null };  org_replan: { args: OrgReplanArgs; result: null };  org_cancel: { args: OrgCancelArgs; result: Array<string> };  org_accept_manual: { args: OrgTaskArgs; result: null };  org_retry_task: { args: OrgTaskArgs; result: null };  org_raise_turn_limit: { args: OrgRaiseTurnLimitArgs; result: null };  org_release_chat: { args: ChatArgs; result: null };  org_preview_delete: { args: OrgWorkflowArgs; result: OrgDeletePreview };  org_delete_workflow: { args: OrgDeleteArgs; result: OrgDeleteOutcome };  org_archive_workflow: { args: OrgWorkflowArgs; result: null };  org_unarchive_workflow: { args: OrgWorkflowArgs; result: null };  org_recover_candidates: { args: OrgTaskArgs; result: Array<OrgChatCandidate> };  org_choose_chat: { args: OrgChooseChatArgs; result: null };  org_set_stall_minutes: { args: OrgSetStallArgs; result: number };  org_reload_roles: { args: Record<string, never>; result: OrgRolesView };  org_enable_role: { args: OrgEnableRoleArgs; result: OrgRolesView };  org_open_role_file: { args: OrgOpenRoleFileArgs; result: null };
 }
 export type CommandName = keyof CommandMap;
 

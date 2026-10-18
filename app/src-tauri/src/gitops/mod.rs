@@ -94,6 +94,8 @@ pub enum GitOp {
     CommitStaged { message: String },
     /// コミットを固定したdetached HEADのworktreeを追加する（ブランチを作らない・チェックアウトしない。読取り用）。
     WorktreeAddDetached { path: String, commit: String },
+    /// `from..to` のコミット数（`rev-list --count`。読取りのみ）。ブランチにあって基準にないコミット数に使う。
+    RevListCount { from: String, to: String },
     /// 2つのコミットの差分の統計（読取りのみ）。
     DiffCommitsStat { from: String, to: String },
     /// 2つのコミットの差分の変更ファイル一覧（`--name-status`。読取りのみ）。
@@ -260,6 +262,11 @@ impl GitOp {
                 a.extend([commit.clone(), "--".into()]);
                 a
             }
+            GitOp::RevListCount { from, to } => {
+                check(valid_ref(from), "from")?;
+                check(valid_ref(to), "to")?;
+                vec!["--no-optional-locks".into(), "rev-list".into(), "--count".into(), format!("{from}..{to}"), "--".into()]
+            }
             GitOp::DiffCommitsStat { from, to } => commits_diff(&["--stat"], from, to)?,
             GitOp::DiffCommitsNames { from, to } => commits_diff(&["--name-status"], from, to)?,
         })
@@ -374,6 +381,16 @@ b".into()) }.args().is_err());
         assert!(add("a..b", "HEAD").is_err());
         assert!(add("agentdock/x-1", "HEAD").is_ok());
         assert!(GitOp::BranchDeleteMerged { branch: "-D".into() }.args().is_err());
+    }
+
+    #[test]
+    fn rev_list_count_is_read_only_and_rejects_option_like_values() {
+        assert_eq!(
+            GitOp::RevListCount { from: "HEAD".into(), to: "refs/heads/agentdock/org/w/t".into() }.args().unwrap(),
+            ["--no-optional-locks", "rev-list", "--count", "HEAD..refs/heads/agentdock/org/w/t", "--"]
+        );
+        assert!(GitOp::RevListCount { from: "--all".into(), to: "x".into() }.args().is_err());
+        assert!(GitOp::RevListCount { from: "HEAD".into(), to: "a..b".into() }.args().is_err());
     }
 
     #[test]

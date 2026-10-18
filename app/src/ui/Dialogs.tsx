@@ -1,7 +1,7 @@
 import { isNewChatSubmitKey } from "./quickNew";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { OrgRunningNote, StartOrgArgs } from "../ipc/types";
-import type { Chat, ChatKey, ChatLocalView, ChatPendingOp, ChatQueue, ChatModelSettings, ForceKillPreview, Goal, GoalUpdate, Known, ModelInfo, NotificationSettings, OpCapability, QuitDecision, QuitPhase, RevertResult, SaveStatus, SideSessionMeta, SourceInfo, StopRecord, StopSummary, TurnRecord, WorktreeRecord, CloudTaskRecord } from "../ipc/types";
+import type { Chat, ChatKey, ChatLocalView, ChatPendingOp, ChatQueue, ChatModelSettings, ForceKillPreview, Goal, GoalUpdate, Known, ModelInfo, NotificationSettings, OrgDeleteOutcome, OrgDeletePreview, OpCapability, QuitDecision, QuitPhase, RevertResult, SaveStatus, SideSessionMeta, SourceInfo, StopRecord, StopSummary, TurnRecord, WorktreeRecord, CloudTaskRecord } from "../ipc/types";
 import type { AppearanceSettings, BodyTextSize, ChatListView, StrongReason, ThemePref, UiTextSize, Support } from "../ipc/types";
 import { chatName } from "./derive";
 import { SCOPE_TEXT } from "./Chrome";
@@ -23,7 +23,7 @@ import { InstructionBody, ReferenceBody, SkillsBody, type ComposeProps } from ".
 import { WorkspaceChoice, WorktreesBody } from "./WorktreeDialogs";
 import { CloudBody } from "./CloudDialogs";
 import { ContinuationSettingsBody, HandoffPreviewBody, PurposeBody, type ContinuityDialogProps } from "./ContinuityDialogs";
-import { OrgSettingsBody, OrgStartBody, type LoadGraphs, type OrgSettingsProps } from "./OrgDialogs";
+import { OrgDeleteDialog, OrgSettingsBody, OrgStartBody, type LoadGraphs, type OrgSettingsProps } from "./OrgDialogs";
 import { FolderListEditor } from "./WorkFoldersUi";
 import { FolderSetBar, type FolderTools } from "./WorkFolderSetsUi";
 import { inspectFolders, splitForNewChat } from "./workFolderSets";
@@ -35,6 +35,7 @@ export type DialogState =
   | { type: "worktrees" }
   | { type: "cloud"; chatId: string | null }
   | { type: "orgStart" }
+  | { type: "orgDelete"; workflowId: string }
   | { type: "quit" }
   | { type: "force" }
   | { type: "delete"; chatId: string }
@@ -126,7 +127,8 @@ export interface ComposeDialogProps extends ComposeProps {
 export interface NotifyProps { value: NotificationSettings; set: (n: NotificationSettings) => void }
 
 /** 組織実行（P-ORG-7b）。設定タブ（停滞時間・役割定義）と、開始ダイアログの操作。 */
-export interface OrgDialogProps { settings: OrgSettingsProps; start: (a: StartOrgArgs) => Promise<string | null>; browse: () => Promise<string | null>; loadGraphs: LoadGraphs }
+export interface OrgDialogProps { settings: OrgSettingsProps; start: (a: StartOrgArgs) => Promise<string | null>; browse: () => Promise<string | null>; loadGraphs: LoadGraphs;
+  previewDelete: (id: string) => Promise<OrgDeletePreview>; deleteWorkflow: (id: string, deleteChats: boolean, expect: ChatKey[]) => Promise<OrgDeleteOutcome>; onDeleted: (id: string) => void }
 
 export interface AutostartProps { value: boolean; set: (on: boolean) => void }
 export interface AppearanceProps { value: AppearanceSettings; view: ChatListView; set: (a: AppearanceSettings) => void; setView: (v: ChatListView) => void }
@@ -545,6 +547,10 @@ export function Dialogs({ cont, org, folderTools, workspaceRoots, d, onClose, ch
     case "orgStart": return (
       <Shell title="組織実行を開始" onClose={onClose} close="キャンセル">
         <OrgStartBody start={org.start} browse={org.browse} live={org.settings.live} loadGraphs={org.loadGraphs} />
+      </Shell>);
+    case "orgDelete": return (
+      <Shell title="ワークフローを削除" onClose={onClose} close="閉じる">
+        <OrgDeleteDialog workflowId={d.workflowId} live={org.settings.live} preview={org.previewDelete} remove={org.deleteWorkflow} onDone={() => org.onDeleted(d.workflowId)} />
       </Shell>);
     case "newChat": return (
       <Shell title="新しいチャット" onClose={onClose} foot={<><button className="btn" onClick={onClose}>キャンセル</button><button className="btn primary" disabled={(kind === "dev" && !cwd.trim()) || creating} onClick={() => void createNewChat()}>{creating ? <><span className="spinner" aria-hidden="true" /> 作成中…</> : kind === "dev" && isolate ? "worktreeを作って開始" : "作成"}</button></>}>

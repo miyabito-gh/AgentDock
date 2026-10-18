@@ -115,6 +115,8 @@ export interface OrgPaneProps {
   onReload: () => void;
   /** 命令の実行（App が実接続か確認し、失敗を通知し、成功したら取り直す）。f が文字を返したらそれを通知する。 */
   run: (label: string, f: () => Promise<string | void>) => Promise<boolean>;
+  /** 削除の確認ダイアログを開く（開くだけ。消すのはダイアログの「削除する」）。 */
+  onDelete: (workflowId: string) => void;
 }
 
 const chatName = (chats: Chat[], k: ChatKey | null | undefined): string => {
@@ -327,17 +329,28 @@ export function OrgPane(p: OrgPaneProps) {
           {canResume && !ro ? <button className="btn primary" disabled={busy} title="必要なチャットを再開し、止めていたタスクの送信を始めます（確認があります）" onClick={() => setConfirm({ kind: "resume" })}>再開…</button> : null}
           {wf.dispatching && !ro ? <button className="btn" disabled={busy} title="新しいタスクの送信を止めます。実行中のタスクは止めません" onClick={() => void go("一時停止", async () => { await host.orgPause(wf.workflowId); return "新しい送信を止めました。実行中のタスクは止めていません。"; })}>一時停止</button> : null}
           <span className="grow" />
-          {ro ? null : <Popover role="menu" align="right" triggerClassName="btn subtle icon" label="ワークフローの操作" title="ワークフローの操作" trigger={<Icon name="more" />}>
-            {(close) => (
-              <>
-                <button type="button" role="menuitem" disabled={wf.finished} title={wf.finished ? "すべて終わっています" : undefined} onClick={() => { close(); setConfirm({ kind: "raise", to: String(lim.maxTurns + 10) }); }}>turn上限を上げる…</button>
-                <button type="button" role="menuitem" onClick={() => { close(); p.onReload(); }}>状態を取り直す</button>
-                <button type="button" role="menuitem" disabled={!wf.finished} title={wf.finished ? undefined : "実行中のワークフローがあります"} onClick={() => { close(); p.onAct("orgStart"); }}>新しいワークフローを開始…</button>
-                <hr />
-                <button type="button" role="menuitem" className="danger" disabled={wf.finished} onClick={() => { close(); setConfirm({ kind: "cancelWorkflow" }); }}>ワークフローを取り消す…</button>
-              </>
-            )}
-          </Popover>}
+          <Popover role="menu" align="right" triggerClassName="btn subtle icon" label="ワークフローの操作" title="ワークフローの操作" trigger={<Icon name="more" />}>
+            {(close) => {
+              const manageOff = !wf.finished || wf.tasks.some((t) => t.confirm.state !== "confirmed");
+              const offTip = "実行中・停止未確認・通信断のタスクがあるため、まだ削除できません";
+              return (
+                <>
+                  {ro ? null : <>
+                    <button type="button" role="menuitem" disabled={wf.finished} title={wf.finished ? "すべて終わっています" : undefined} onClick={() => { close(); setConfirm({ kind: "raise", to: String(lim.maxTurns + 10) }); }}>turn上限を上げる…</button>
+                    <button type="button" role="menuitem" onClick={() => { close(); p.onReload(); }}>状態を取り直す</button>
+                    <button type="button" role="menuitem" disabled={!wf.finished} title={wf.finished ? undefined : "実行中のワークフローがあります"} onClick={() => { close(); p.onAct("orgStart"); }}>新しいワークフローを開始…</button>
+                    <hr />
+                    <button type="button" role="menuitem" className="danger" disabled={wf.finished} onClick={() => { close(); setConfirm({ kind: "cancelWorkflow" }); }}>ワークフローを取り消す…</button>
+                    <hr />
+                  </>}
+                  {wf.archivedAt === null
+                    ? <button type="button" role="menuitem" disabled={manageOff || !!wf.deletion} title={manageOff ? offTip : undefined} onClick={() => { close(); void p.run("アーカイブ", async () => { await host.orgArchiveWorkflow(wf.workflowId); return "ワークフローをアーカイブしました（アーカイブ一覧から戻せます）。"; }); }}>アーカイブ</button>
+                    : <button type="button" role="menuitem" onClick={() => { close(); void p.run("アーカイブの解除", async () => { await host.orgUnarchiveWorkflow(wf.workflowId); return "アーカイブを解除しました。"; }); }}>アーカイブを解除</button>}
+                  <button type="button" role="menuitem" className="danger" disabled={manageOff && !wf.deletion} title={manageOff && !wf.deletion ? offTip : undefined} onClick={() => { close(); p.onDelete(wf.workflowId); }}>{wf.deletion ? "削除を続ける…" : "削除…"}</button>
+                </>
+              );
+            }}
+          </Popover>
         </div>
 
         {confirmBlock()}

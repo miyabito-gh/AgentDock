@@ -322,7 +322,7 @@ export const applyCloudTask = (taskId: string, folder: string): Promise<CloudApp
 
 // ── 組織実行（P-ORG-7a。薄い呼び出し口。画面は P-ORG-7b）。org_view 等の閲覧は何も送らない ──
 import type {
-  OrgSnapshotView, OrgRolesView, OrgGraphsView, StartOrgArgs, StartOrgResult, OrgResumeResult, OrgCancelArgs, OrgChatCandidate, ChatKey as OrgChatKey,
+  OrgSnapshotView, OrgRolesView, OrgGraphsView, StartOrgArgs, StartOrgResult, OrgResumeResult, OrgCancelArgs, OrgChatCandidate, ChatKey as OrgChatKey, OrgDeletePreview, OrgDeleteOutcome,
 } from "./types";
 export const orgView = (): Promise<OrgSnapshotView> => invokeCmd("org_view", {});
 export const orgRolesView = (): Promise<OrgRolesView> => invokeCmd("org_roles_view", {});
@@ -341,6 +341,10 @@ export const orgCancel = (args: OrgCancelArgs): Promise<string[]> => invokeCmd("
 export const orgAcceptManual = (workflowId: string, task: string): Promise<null> => invokeCmd("org_accept_manual", { workflowId, task });
 export const orgRetryTask = (workflowId: string, task: string): Promise<null> => invokeCmd("org_retry_task", { workflowId, task });
 export const orgRaiseTurnLimit = (workflowId: string, to: number): Promise<null> => invokeCmd("org_raise_turn_limit", { workflowId, to });
+export const orgPreviewDelete = (workflowId: string): Promise<OrgDeletePreview> => invokeCmd("org_preview_delete", { workflowId });
+export const orgDeleteWorkflow = (workflowId: string, deleteChats: boolean, expectChats: OrgChatKey[]): Promise<OrgDeleteOutcome> => invokeCmd("org_delete_workflow", { workflowId, deleteChats, expectChats });
+export const orgArchiveWorkflow = (workflowId: string): Promise<null> => invokeCmd("org_archive_workflow", { workflowId });
+export const orgUnarchiveWorkflow = (workflowId: string): Promise<null> => invokeCmd("org_unarchive_workflow", { workflowId });
 export const orgReleaseChat = (chat: OrgChatKey): Promise<null> => invokeCmd("org_release_chat", { chat });
 export const orgRecoverCandidates = (workflowId: string, task: string): Promise<OrgChatCandidate[]> => invokeCmd("org_recover_candidates", { workflowId, task });
 export const orgChooseChat = (workflowId: string, task: string, chat: OrgChatKey): Promise<null> => invokeCmd("org_choose_chat", { workflowId, task, chat });

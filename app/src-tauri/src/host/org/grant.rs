@@ -52,6 +52,11 @@ impl GrantRegistry {
         self.released.lock().unwrap().insert(chat.clone());
     }
 
+    /// ワークフローの削除後に、解放表から外す（そのチャットはもう存在しない）。
+    pub fn forget_chat(&self, chat: &ChatKey) {
+        self.released.lock().unwrap().remove(chat);
+    }
+
     pub fn is_released(&self, chat: &ChatKey) -> bool {
         self.released.lock().unwrap().contains(chat)
     }

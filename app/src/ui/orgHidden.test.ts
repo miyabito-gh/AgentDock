@@ -4,7 +4,8 @@ import assert from "node:assert/strict";
 import { isOrgOwned, shownOrgIds } from "./orgHidden.ts";
 
 const local = (workflowId: string, released = false) => ({ org: { workflowId, taskId: "t1", roleId: "worker", released } }) as never;
-const view = (cur: string | null, hist: string[]) => ({ workflow: cur ? { workflowId: cur } : null, history: hist.map((workflowId) => ({ workflowId })) }) as never;
+const view = (cur: string | null, hist: string[], archived: string[] = []) =>
+  ({ workflow: cur ? { workflowId: cur } : null, history: hist.map((workflowId) => ({ workflowId })), archived: archived.map((workflowId) => ({ workflowId })) }) as never;
 
 test("役割チャットの隠し条件: 出せるワークフローのものだけ隠す。出せない（読めない・件数の外）ものは通常の一覧に出す", () => {
   const shown = shownOrgIds(view("wf-3", ["wf-2"]), false);
@@ -20,4 +21,11 @@ test("未取得は従来どおり隠す。取得に失敗していて何も無�
   assert.equal(isOrgOwned(local("wf-1"), null), true);
   const failed = shownOrgIds(null, true);
   assert.equal(isOrgOwned(local("wf-1"), failed), false);
+});
+
+test("アーカイブしたワークフローの役割チャットは、通常の一覧へ漏らさず隠し続ける", () => {
+  const shown = shownOrgIds(view("wf-3", ["wf-2"], ["wf-1"]), false);
+  assert.equal(isOrgOwned(local("wf-1"), shown), true);
+  // 削除済み（どこにも出ない）ワークフローのものは、手動に切り替え済みでなければ孤立させず通常の一覧に出す
+  assert.equal(isOrgOwned(local("wf-0"), shown), false);
 });

@@ -10,16 +10,21 @@ use std::time::SystemTime;
 
 use org_engine::{restore, OrgStore, WorkflowId};
 
-use super::driver::snapshot_of;
+use super::driver::{snapshot_of, OrgSnapshot};
 use super::view::{workflow_view, ViewInput};
-use crate::backend::org::OrgWorkflowView;
-use crate::store::org::{list_workflow_dirs_newest, workflow_dir, ReadOnlyOrgStore, EVENTS_FILE, SNAPSHOT_FILE, USAGE_FILE};
+use crate::backend::org::{OrgDeletionView, OrgWorkflowView};
+use crate::store::org::{
+    list_workflow_dirs_newest, read_archived_at, read_delete_record, workflow_dir, ReadOnlyOrgStore, DELETE_FILE, EVENTS_FILE, LISTING_FILE, SNAPSHOT_FILE,
+    USAGE_FILE,
+};
 
-/// 画面に出す過去のワークフローの件数（新しい順の先頭から。動いている1件を含む）。
+/// 画面に出す過去のワークフローの件数（新しい順の先頭から。動いている1件を含む。アーカイブは数えない）。
 pub const HISTORY_KEEP: usize = 10;
+/// アーカイブ一覧の件数（新しい順）。
+pub const ARCHIVED_KEEP: usize = 50;
 
 /// 保存ファイルの更新の目印（変わっていなければ読み直さない）。
-type Stamp = [(Option<SystemTime>, u64); 3];
+type Stamp = [(Option<SystemTime>, u64); 5];
 
 /// フォルダごとの読込み結果の控え。`None`＝読めなかった（次も同じ目印なら再度読まない）。
 #[derive(Default)]
@@ -27,42 +32,87 @@ pub struct HistoryCache(HashMap<PathBuf, (Stamp, Option<OrgWorkflowView>)>);
 
 fn stamp_of(dir: &Path) -> Stamp {
     let one = |name: &str| std::fs::metadata(dir.join(name)).map(|m| (m.modified().ok(), m.len())).unwrap_or((None, 0));
-    [one(SNAPSHOT_FILE), one(EVENTS_FILE), one(USAGE_FILE)]
+    [one(SNAPSHOT_FILE), one(EVENTS_FILE), one(USAGE_FILE), one(DELETE_FILE), one(LISTING_FILE)]
 }
 
-/// 1件を読み取り専用で読む。読めなければ None。
+/// 削除の途中の記録（読めなければ None）。
+pub fn deletion_view_of(dir: &Path) -> Option<OrgDeletionView> {
+    let rec = read_delete_record(dir).ok().flatten()?;
+    Some(OrgDeletionView { requested_at: rec.requested_at, done: rec.done, failed: rec.failed })
+}
+
+/// 状態を読めないが `delete.json` はある、削除途中のフォルダの最小の行（ID・削除途中・済／失敗だけ。他は未取得のまま）。
+fn minimal_row(dir: &Path) -> OrgWorkflowView {
+    let id = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let empty = OrgSnapshot {
+        workflow: WorkflowId::new(id),
+        title: None,
+        halt: None,
+        tasks: Vec::new(),
+        request: String::new(),
+        repo: String::new(),
+        limits: org_engine::Limits::default(),
+        turns_used: 0,
+        auto_replans_used: 0,
+        graph: None,
+    };
+    workflow_view(&ViewInput { snapshot: &empty, notices: &[], usage_rows: &[], slots: &Default::default(), dispatching: false })
+}
+
+/// 1件を読み取り専用で読む。読めなければ None（削除途中の記録があるときは最小の行）。
 fn read_one(dir: &Path) -> Option<OrgWorkflowView> {
     let store = ReadOnlyOrgStore::new(dir.to_path_buf());
-    let (state, _report) = restore(&store).ok()?;
-    let snapshot = snapshot_of(&state, None);
-    let usage_rows = store.read_usage().unwrap_or_default();
-    let mut v = workflow_view(&ViewInput { snapshot: &snapshot, notices: &[], usage_rows: &usage_rows, slots: &Default::default(), dispatching: false });
+    let deletion = deletion_view_of(dir);
+    let mut v = match restore(&store) {
+        Ok((state, _report)) => {
+            let snapshot = snapshot_of(&state, None);
+            let usage_rows = store.read_usage().unwrap_or_default();
+            workflow_view(&ViewInput { snapshot: &snapshot, notices: &[], usage_rows: &usage_rows, slots: &Default::default(), dispatching: false })
+        }
+        Err(_) if deletion.is_some() => minimal_row(dir),
+        Err(_) => return None,
+    };
     v.readonly = true;
+    v.archived_at = read_archived_at(dir);
+    v.deletion = deletion;
     Some(v)
 }
 
-/// 保存済みの過去のワークフロー（新しい順に先頭 `keep` 件のうち、`active` 以外の読めるもの）。
-pub fn read_history(root: &Path, active: Option<&WorkflowId>, keep: usize, cache: &mut HistoryCache) -> Vec<OrgWorkflowView> {
-    let active_dir = active.map(|w| workflow_dir(root, &w.0));
-    let dirs: Vec<PathBuf> = list_workflow_dirs_newest(root).into_iter().take(keep).collect();
-    cache.0.retain(|k, _| dirs.contains(k));
-    let mut out = Vec::new();
-    for dir in dirs {
-        if active_dir.as_ref() == Some(&dir) {
-            continue;
+fn read_cached(dir: &Path, cache: &mut HistoryCache) -> Option<OrgWorkflowView> {
+    let stamp = stamp_of(dir);
+    match cache.0.get(dir) {
+        Some((s, v)) if *s == stamp => v.clone(),
+        _ => {
+            let v = read_one(dir);
+            cache.0.insert(dir.to_path_buf(), (stamp, v.clone()));
+            v
         }
-        let stamp = stamp_of(&dir);
-        let entry = match cache.0.get(&dir) {
-            Some((s, v)) if *s == stamp => v.clone(),
-            _ => {
-                let v = read_one(&dir);
-                cache.0.insert(dir.clone(), (stamp, v.clone()));
-                v
-            }
-        };
-        out.extend(entry);
     }
-    out
+}
+
+fn is_archived(dir: &Path) -> bool {
+    dir.join(LISTING_FILE).exists() && read_archived_at(dir).is_some()
+}
+
+/// 保存済みの過去のワークフロー（アーカイブを除いた新しい順の先頭 `keep` 件のうち `active` 以外の読めるもの）と、
+/// アーカイブしたワークフロー（新しい順に先頭 `archived_keep` 件のうち `active` 以外の読めるもの）。
+pub fn read_lists(root: &Path, active: Option<&WorkflowId>, keep: usize, archived_keep: usize, cache: &mut HistoryCache) -> (Vec<OrgWorkflowView>, Vec<OrgWorkflowView>) {
+    let active_dir = active.map(|w| workflow_dir(root, &w.0));
+    let (archived_all, normal_all): (Vec<PathBuf>, Vec<PathBuf>) = list_workflow_dirs_newest(root).into_iter().partition(|d| is_archived(d));
+    let normal: Vec<PathBuf> = normal_all.into_iter().take(keep).collect();
+    let archived: Vec<PathBuf> = archived_all.into_iter().take(archived_keep).collect();
+    cache.0.retain(|k, _| normal.contains(k) || archived.contains(k));
+    let mut read = |dirs: &[PathBuf]| -> Vec<OrgWorkflowView> {
+        dirs.iter().filter(|d| active_dir.as_ref() != Some(*d)).filter_map(|d| read_cached(d, cache)).collect()
+    };
+    let history = read(&normal);
+    let archived = read(&archived);
+    (history, archived)
+}
+
+/// 保存済みの過去のワークフロー（新しい順に先頭 `keep` 件のうち、`active` 以外の読めるもの。アーカイブは除く）。
+pub fn read_history(root: &Path, active: Option<&WorkflowId>, keep: usize, cache: &mut HistoryCache) -> Vec<OrgWorkflowView> {
+    read_lists(root, active, keep, 0, cache).0
 }
 
 #[cfg(test)]
@@ -154,6 +204,54 @@ mod tests {
         let ids: Vec<String> = read_history(&root, None, HISTORY_KEEP, &mut cache).into_iter().map(|v| v.workflow_id).collect();
         assert_eq!(ids, vec!["wf-103", "wf-101"]);
         assert_eq!(files(&bad), before);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn archived_workflows_leave_the_history_and_do_not_consume_its_count() {
+        let root = temp_root();
+        for i in 1..=5 {
+            seed(&root, &format!("wf-{}", 100 + i), TaskStatus::Completed);
+        }
+        // the two newest are archived: history still shows 3 others, the archived list shows the two (newest first)
+        for id in ["wf-105", "wf-104"] {
+            crate::store::org::write_archived(&workflow_dir(&root, id), crate::backend::model::UnixMillis(7)).unwrap();
+        }
+        let mut cache = HistoryCache::default();
+        let (history, archived) = read_lists(&root, None, 3, ARCHIVED_KEEP, &mut cache);
+        let ids = |v: &[OrgWorkflowView]| v.iter().map(|w| w.workflow_id.clone()).collect::<Vec<_>>();
+        assert_eq!(ids(&history), vec!["wf-103", "wf-102", "wf-101"]);
+        assert_eq!(ids(&archived), vec!["wf-105", "wf-104"]);
+        assert!(archived.iter().all(|w| w.archived_at.is_some()) && history.iter().all(|w| w.archived_at.is_none()));
+        // un-archiving puts it back at its place
+        crate::store::org::remove_archived(&workflow_dir(&root, "wf-105")).unwrap();
+        let (history, archived) = read_lists(&root, None, 3, ARCHIVED_KEEP, &mut cache);
+        assert_eq!(ids(&history), vec!["wf-105", "wf-103", "wf-102"]);
+        assert_eq!(ids(&archived), vec!["wf-104"]);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_half_deleted_workflow_is_listed_as_a_minimal_row_with_its_progress() {
+        let root = temp_root();
+        let dir = seed(&root, "wf-101", TaskStatus::Completed);
+        let rec = crate::rules::org_manage::DeleteRecord {
+            requested_at: crate::backend::model::UnixMillis(3),
+            delete_chats: true,
+            chats: vec![],
+            done: vec!["役割チャット a".into()],
+            failed: vec!["記録フォルダ: x".into()],
+        };
+        crate::store::org::write_delete_record(&dir, &rec).unwrap();
+        // the record files are gone (a later step failed): the state cannot be read, but the row remains
+        std::fs::remove_file(dir.join(SNAPSHOT_FILE)).unwrap();
+        std::fs::remove_file(dir.join(EVENTS_FILE)).unwrap();
+        let h = read_history(&root, None, HISTORY_KEEP, &mut HistoryCache::default());
+        assert_eq!(h.len(), 1);
+        assert_eq!(h[0].workflow_id, "wf-101");
+        assert!(h[0].readonly && !h[0].finished);
+        let d = h[0].deletion.as_ref().expect("progress shown");
+        assert_eq!((d.done.len(), d.failed.len()), (1, 1));
         let _ = std::fs::remove_dir_all(&root);
     }
 

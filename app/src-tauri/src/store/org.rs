@@ -13,8 +13,12 @@ use org_engine::{
 };
 use org_engine::graph::SlotId;
 
+use serde::{Deserialize, Serialize};
+
 use super::atomic::{append_line, write_atomic};
 use super::layout::{corrupt_aside_name, sanitize_file_name};
+use crate::backend::model::UnixMillis;
+use crate::rules::org_manage::DeleteRecord;
 
 pub const SNAPSHOT_FILE: &str = "workflow.json";
 pub const EVENTS_FILE: &str = "events.jsonl";
@@ -23,6 +27,13 @@ pub const USAGE_FILE: &str = "usage.jsonl";
 pub const SLOTS_DIR: &str = "slots";
 /// スロットの値の大きさの上限（書くとき。エンジンの上限は256KB。読むときは余裕を見てこの2倍まで）。
 pub const SLOT_MAX_BYTES: usize = 256 * 1024;
+
+/// 削除の進みの記録（`rules::org_manage::DeleteRecord`）。あるフォルダは復元の対象にしない。
+pub const DELETE_FILE: &str = "delete.json";
+/// アーカイブした印（`{schemaVersion, archivedAt}`）。チャット側には書かない。
+pub const LISTING_FILE: &str = "listing.json";
+const GRAPH_COPY_FILE: &str = "graph.json";
+const ROLES_COPY_FILE: &str = "roles.json";
 
 /// `<root>\org\<workflowId>`。IDはファイル名として安全な形にする。
 pub fn workflow_dir(root: &Path, workflow_id: &str) -> PathBuf {
@@ -130,6 +141,82 @@ pub fn list_workflow_dirs_newest(root: &Path) -> Vec<PathBuf> {
     dirs.sort();
     dirs.reverse();
     dirs
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Listing {
+    schema_version: u32,
+    archived_at: UnixMillis,
+}
+
+/// アーカイブした時刻。印がない・読めないときは None（一覧から隠さない側に倒す）。
+pub fn read_archived_at(dir: &Path) -> Option<UnixMillis> {
+    let b = std::fs::read(dir.join(LISTING_FILE)).ok()?;
+    serde_json::from_slice::<Listing>(&b).ok().map(|l| l.archived_at)
+}
+
+/// アーカイブの印を書く（原子的書換え）。
+pub fn write_archived(dir: &Path, at: UnixMillis) -> Result<(), String> {
+    let bytes = serde_json::to_vec_pretty(&Listing { schema_version: 1, archived_at: at }).map_err(|e| e.to_string())?;
+    write_atomic(&dir.join(LISTING_FILE), &bytes).map_err(|e| e.to_string())
+}
+
+/// アーカイブの印を消す（なければ何もしない）。
+pub fn remove_archived(dir: &Path) -> Result<(), String> {
+    match std::fs::remove_file(dir.join(LISTING_FILE)) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// 削除の進みの記録。なければ `Ok(None)`、読めなければ `Err`（途中かどうか分からないので、呼び出し側は削除を進めない）。
+pub fn read_delete_record(dir: &Path) -> Result<Option<DeleteRecord>, String> {
+    match std::fs::read(dir.join(DELETE_FILE)) {
+        Ok(b) => serde_json::from_slice(&b).map(Some).map_err(|e| format!("{DELETE_FILE} を読めません: {e}")),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(format!("{DELETE_FILE} を読めません: {e}")),
+    }
+}
+
+/// 削除の進みの記録を書く（原子的書換え）。書けなければ Err（削除は始めない）。
+pub fn write_delete_record(dir: &Path, rec: &DeleteRecord) -> Result<(), String> {
+    let bytes = serde_json::to_vec_pretty(rec).map_err(|e| e.to_string())?;
+    write_atomic(&dir.join(DELETE_FILE), &bytes).map_err(|e| format!("{DELETE_FILE} を書けません: {e}"))
+}
+
+/// 記録フォルダを順に消す: slots → graph・roles → usage → events → workflow → listing → フォルダ（delete.json ごと）。
+/// ない物は飛ばす。失敗したらそこで止めて理由を返す（前の段は消えたまま。`delete.json` は最後までフォルダに残る）。
+pub fn remove_workflow_files(dir: &Path) -> Result<(), String> {
+    let skip_missing = |r: std::io::Result<()>, name: &str| match r {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(format!("{name}: {e}")),
+    };
+    skip_missing(std::fs::remove_dir_all(dir.join(SLOTS_DIR)), SLOTS_DIR)?;
+    for name in [GRAPH_COPY_FILE, ROLES_COPY_FILE, USAGE_FILE, EVENTS_FILE, SNAPSHOT_FILE, LISTING_FILE] {
+        skip_missing(std::fs::remove_file(dir.join(name)), name)?;
+    }
+    skip_missing(std::fs::remove_dir_all(dir), "フォルダ")
+}
+
+/// 記録フォルダの合計の大きさ。読めない部分があれば None（0で代用しない）。
+pub fn dir_bytes(dir: &Path) -> Option<u64> {
+    let mut total = 0u64;
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        for e in std::fs::read_dir(&d).ok()? {
+            let e = e.ok()?;
+            let m = e.metadata().ok()?;
+            if m.is_dir() {
+                stack.push(e.path());
+            } else {
+                total += m.len();
+            }
+        }
+    }
+    Some(total)
 }
 
 /// 過去のワークフローを表示するための読取り専用の保存口。何も書かない・退避しない（読めない `workflow.json` はそのまま残し、
@@ -261,6 +348,48 @@ mod tests {
         let names: Vec<String> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
         assert!(names.iter().all(|n| !n.contains(".tmp-")), "{names:?}");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn rec(done: &[&str]) -> DeleteRecord {
+        DeleteRecord { requested_at: UnixMillis(5), delete_chats: true, chats: vec![], done: done.iter().map(|s| s.to_string()).collect(), failed: vec![] }
+    }
+
+    #[test]
+    fn delete_record_and_archive_mark_round_trip_and_unreadable_ones_are_reported() {
+        let dir = temp();
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(read_delete_record(&dir).unwrap(), None);
+        assert_eq!(read_archived_at(&dir), None);
+        write_delete_record(&dir, &rec(&["a"])).unwrap();
+        assert_eq!(read_delete_record(&dir).unwrap(), Some(rec(&["a"])));
+        write_archived(&dir, UnixMillis(9)).unwrap();
+        assert_eq!(read_archived_at(&dir), Some(UnixMillis(9)));
+        remove_archived(&dir).unwrap();
+        remove_archived(&dir).unwrap();
+        assert_eq!(read_archived_at(&dir), None);
+        std::fs::write(dir.join(DELETE_FILE), b"{ broken").unwrap();
+        assert!(read_delete_record(&dir).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_failing_step_stops_the_removal_and_keeps_delete_json_and_the_rest() {
+        let dir = temp();
+        let store = FileOrgStore::new(dir.clone());
+        seed(&store);
+        store.put_slot(&SlotId::new("s"), 1, &serde_json::json!(1)).unwrap();
+        write_delete_record(&dir, &rec(&[])).unwrap();
+        // usage.jsonl cannot be removed as a file (it is a folder here), so the steps after it must not run
+        std::fs::create_dir_all(dir.join(USAGE_FILE)).unwrap();
+        let e = remove_workflow_files(&dir).unwrap_err();
+        assert!(e.contains(USAGE_FILE), "{e}");
+        assert!(!dir.join(SLOTS_DIR).exists(), "earlier steps are done");
+        assert!(dir.join(EVENTS_FILE).exists() && dir.join(DELETE_FILE).exists(), "later steps and delete.json remain");
+        // after the cause is gone the removal completes (the folder disappears with delete.json)
+        std::fs::remove_dir_all(dir.join(USAGE_FILE)).unwrap();
+        remove_workflow_files(&dir).unwrap();
+        assert!(!dir.exists());
+        remove_workflow_files(&dir).unwrap();
     }
 
     #[test]

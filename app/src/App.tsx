@@ -364,9 +364,9 @@ export default function App() {
   }, [live, boot, loadChat, noteAttempt, say, sayErr, refreshProjects]);
 
   // 組織の役割チャットの表示名だけ上書きする（表示用。保存済みの名前は変えない）
-  const snap: HostSnapshot = useMemo(() => [org?.workflow, ...(org?.history ?? [])].reduce((s, w) => withOrgTitles(s, w), bundle.snapshot), [bundle.snapshot, org]);
+  const snap: HostSnapshot = useMemo(() => [org?.workflow, ...(org?.history ?? []), ...(org?.archived ?? [])].reduce((s, w) => withOrgTitles(s, w), bundle.snapshot), [bundle.snapshot, org]);
   // 過去のワークフローを開いているときは、その1件を画面に出す（なければ実行中の1件）。役割チャットを通常の一覧から隠すかは、出せるワークフローかで決める。
-  const orgHist = orgSel ? org?.history.find((w) => w.workflowId === orgSel) ?? null : null;
+  const orgHist = orgSel ? [...(org?.history ?? []), ...(org?.archived ?? [])].find((w) => w.workflowId === orgSel) ?? null : null;
   const orgShown: OrgSnapshotView | null = org && orgHist ? { ...org, workflow: orgHist } : org;
   const orgShownIds = useMemo(() => shownOrgIds(org, !!orgErr), [org, orgErr]);
 
@@ -1692,7 +1692,7 @@ ${cur}` : p.text);
           style={{ ...(!leftTemp && leftOpen ? { "--lw": `${paneW.left}px` } : {}), ...(!rightTemp && rightOpen ? { "--rw": `${paneW.dock}px` } : {}) } as CSSProperties}
         >
           <aside className="left" id="pane-left" aria-label="チャット一覧">
-            <LeftPane org={{ wf: org?.workflow ?? null, selected: orgScreen && !orgHist, onOpen: () => { setOrgSel(null); setOrgScreen(true); setLNarrow(false); setQuick((q) => (q.open ? { ...q, open: false } : q)); }, onStart: () => act("orgStart"), history: org?.history ?? [], selectedHistory: orgHist?.workflowId ?? null, onOpenHistory: (id) => { setOrgSel(id); setOrgScreen(true); setLNarrow(false); setQuick((q) => (q.open ? { ...q, open: false } : q)); }, shown: orgShownIds }} creating={creating} onCreatingAct={creatingAct} snap={snap} sel={chat ? keyStr(chat.key) : null} onSelect={(id) => { selectChat(id); setLNarrow(false); }} onAct={act} onAcknowledge={(c) => onAcknowledge(c.key, null)}
+            <LeftPane org={{ wf: org?.workflow ?? null, selected: orgScreen && !orgHist, onOpen: () => { setOrgSel(null); setOrgScreen(true); setLNarrow(false); setQuick((q) => (q.open ? { ...q, open: false } : q)); }, onStart: () => act("orgStart"), history: org?.history ?? [], archived: org?.archived ?? [], onUnarchive: (id) => void orgRun("アーカイブの解除", async () => { await host.orgUnarchiveWorkflow(id); return "アーカイブを解除しました。"; }), onDelete: (id) => setDialog({ type: "orgDelete", workflowId: id }), selectedHistory: orgHist?.workflowId ?? null, onOpenHistory: (id) => { setOrgSel(id); setOrgScreen(true); setLNarrow(false); setQuick((q) => (q.open ? { ...q, open: false } : q)); }, shown: orgShownIds }} creating={creating} onCreatingAct={creatingAct} snap={snap} sel={chat ? keyStr(chat.key) : null} onSelect={(id) => { selectChat(id); setLNarrow(false); }} onAct={act} onAcknowledge={(c) => onAcknowledge(c.key, null)}
               onChatAct={chatAct} chatList={snap.settings.chatList} projects={projects} onNotice={say} onReclassify={reclassify} onFetchProjectChats={fetchProjectChats} onLoadMore={listCursor ? loadMoreChats : undefined}
               onNewChatIn={(cwd, choices) => { setDialog({ type: "newChat", dev: true, cwd, cwdChoices: choices.length > 1 ? choices : undefined }); setLNarrow(false); }}
               onChatList={(f) => updateSettings((s) => ({ ...s, chatList: f(s.chatList) }), "一覧の表示設定を保存できませんでした。次回の起動では保存されている値に戻ります")} listStatus={listStatus} uiSize={snap.settings.appearance.uiText} />
@@ -1700,7 +1700,7 @@ ${cur}` : p.text);
           <main className="center">
             {orgScreen ? (
               <OrgPane snap={snap} org={orgShown} error={orgErr} live={live} leftShown={leftTemp ? lNarrow : leftOpen} rightShown={rightTemp ? rNarrow : rightOpen}
-                onAct={act} onOpenChat={(k) => selectChat(k.id)} onReload={() => setOrgTick((n) => n + 1)} run={orgRun} />
+                onAct={act} onOpenChat={(k) => selectChat(k.id)} onReload={() => setOrgTick((n) => n + 1)} run={orgRun} onDelete={(id) => setDialog({ type: "orgDelete", workflowId: id })} />
             ) : quick.open || (!chat && live) ? (
               <QuickNewPane models={models} model={quick.model ?? pickQuickModel(models, snap.settings.lastNewChat)} setModel={(id) => setQuick((q) => ({ ...q, model: id }))}
                 text={quick.text} setText={(v) => setQuick((q) => ({ ...q, text: v }))} enterMode={enterMode} busy={!!quick.busy} inputRef={quickRef}
@@ -1743,6 +1743,9 @@ ${cur}` : p.text);
         }} org={{
           settings: { live, stallMinutes: snap.settings.orgStallMinutes, setStall: async (m) => { if (!live) return "モックでは動きません。"; try { await host.orgSetStallMinutes(m); return null; } catch (e) { return host.asIpcError(e).message; } } },
           start: orgStart, browse: folderTools.browse, loadGraphs: orgLoadGraphs,
+          previewDelete: (id) => (live ? host.orgPreviewDelete(id) : Promise.reject(new Error("モックでは動きません。"))),
+          deleteWorkflow: (id, del, expect) => host.orgDeleteWorkflow(id, del, expect),
+          onDeleted: (id) => { setDialog(null); if (orgSel === id) setOrgSel(null); setOrgTick((n) => n + 1); say("ワークフローを削除しました。worktree とブランチは残しています。", 6000); },
         }} folderTools={folderTools} workspaceRoots={snap.workspaceRoots} onClose={closeDialog} opCaps={snap.opCapabilities} resend={{ state: resendState, handlers: resendHandlers }} chats={snap.chats} source={src} models={models}
           prefs={{ goal: dialog.type === "goal" ? goals[dialog.chatId] : undefined, saveGoal,
             settings: dialog.type === "status" && dialog.chatId ? bundle.modelSettings[dialog.chatId] : undefined,

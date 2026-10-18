@@ -4,6 +4,7 @@
 //! - `ports.rs`: エンジンが使うポートの trait と `Host` による実装（作成・送信・読取り）。
 //! - `observe.rs`: ホストの観測（イベント・送信結果・中断）をエンジンへの入力に変える純粋な変換。
 //! - `driver.rs`: `OrgCore` を所有し action を実行する専用task。
+//! - `manage.rs`: 終わったワークフローの削除・アーカイブ（DESIGN_ORG_DELETE）。
 //! - `graphs.rs`: グラフ定義ファイルの読込み・初回作成と、開始時の定義の写し（`graph.json`・`roles.json`）。
 //!
 //! 守ること:
@@ -17,6 +18,7 @@ pub mod grant;
 pub mod graphs;
 pub mod history;
 pub mod ipc;
+pub mod manage;
 pub mod notify;
 pub mod observe;
 pub mod ports;
@@ -66,6 +68,8 @@ pub struct OrgRuntime {
     graphs: Mutex<Option<graphs::GraphReport>>,
     /// 過去のワークフローの読込み結果の控え（読取り専用。保存ファイルが変わったときだけ読み直す）。
     pub(in crate::host) history_cache: Mutex<history::HistoryCache>,
+    /// 削除を実行中のワークフロー（二重実行の防止）。
+    pub(in crate::host) deleting: Mutex<std::collections::HashSet<String>>,
 }
 
 /// 溜めた通知の1件（通知の重複排除と画面の並びに使う通し番号つき）。
@@ -525,7 +529,8 @@ impl Host {
             (released, owned)
         });
         self.org_rt.grants.restore_released(released);
-        let Some(dir) = list_workflow_dirs_newest(&root).into_iter().next() else { return };
+        // 削除の途中（`delete.json` あり）のフォルダは復元しない（自動で続けない。一覧には最小の行で出る）。
+        let Some(dir) = list_workflow_dirs_newest(&root).into_iter().find(|d| !d.join(crate::store::org::DELETE_FILE).exists()) else { return };
         // まず読取りだけで調べる。全タスクが終わっているものは、状態の分類（`halted Restart` の追記）も司令taskも作らない
         // （過去のワークフローとして `org_view` が読取り専用で出す）。
         match restore(&ReadOnlyOrgStore::new(dir.clone())) {

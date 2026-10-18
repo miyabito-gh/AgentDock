@@ -39,7 +39,7 @@ type OpenMenu = { kind: "chat"; id: string } | { kind: "group"; key: string };
 
 export function LeftPane({ org, snap, sel, onSelect, onAct, onAcknowledge, onChatAct, chatList, onChatList, projects = null, onNotice, listStatus, uiSize = "Normal", onNewChatIn, onReclassify, onFetchProjectChats, onLoadMore, creating = [], onCreatingAct }: {
   /** 組織実行（P-ORG-7b）。ワークフロー1件＝1行。役割チャットは通常の一覧から隠し、ワークフロー画面から辿る。wf が null なら開始の入口だけ（足元）。 */
-  org?: { wf: OrgWorkflowView | null; selected: boolean; onOpen: () => void; onStart: () => void; history: OrgWorkflowView[]; selectedHistory: string | null; onOpenHistory: (id: string) => void; shown: ReadonlySet<string> | null };
+  org?: { wf: OrgWorkflowView | null; selected: boolean; onOpen: () => void; onStart: () => void; history: OrgWorkflowView[]; archived: OrgWorkflowView[]; onUnarchive: (id: string) => void; onDelete: (id: string) => void; selectedHistory: string | null; onOpenHistory: (id: string) => void; shown: ReadonlySet<string> | null };
   /** 作成中の仮行（先頭。ピンより上）と、その操作。 */
   creating?: CreatingChat[]; onCreatingAct?: (id: string, op: "retry" | "dismiss" | "refresh") => void;
   /** プロジェクト見出しの「このプロジェクトのチャットを取得」。roots を cwd 条件に読む（読み取りのみ）。結果の通知は呼び出し側が出す。 */
@@ -473,13 +473,29 @@ export function LeftPane({ org, snap, sel, onSelect, onAct, onAcknowledge, onCha
         {projectsNote ? <div className={`small${projectsNote.bad ? " lt-fail" : ""}`} role="status">{projectsNote.text}</div> : null}
         {listStatus && !listStatus.ok ? <div className="small lt-fail" role="status">{listStatus.text}</div> : null}
       </div>
-      {org?.wf ? <OrgListRow wf={org.wf} selected={org.selected} onOpen={org.onOpen} onStart={org.onStart} /> : null}
+      {org?.wf && org.wf.archivedAt === null ? <OrgListRow wf={org.wf} selected={org.selected} onOpen={org.onOpen} onStart={org.onStart} /> : null}
       {org && org.history.length > 0 ? <OrgHistoryRows history={org.history} selectedId={org.selectedHistory} onOpen={org.onOpenHistory} /> : null}
       <div className="left-scroll" ref={scrollerRef} onScroll={() => { if (menu) closeMenu(false); if (windowed) measure(); }}>
         {showArch ? (
           <>
             <div className="list-h"><span>アーカイブ</span><button className="small" style={{ height: 20 }} onClick={() => setShowArch(false)}>戻る</button></div>
-            {rest.length ? listRows() : <div className="empty-note">アーカイブしたチャットはありません</div>}
+            {org && org.archived.length > 0 ? (
+              <div className="left-org" aria-label="アーカイブしたワークフロー">
+                <div className="list-h"><span>組織ワークフロー</span></div>
+                {org.archived.map((wf) => (
+                  <div key={wf.workflowId} className="row-chat org-row">
+                    <span className="tag ai">組織</span>
+                    <span className="nm">{wf.title ?? wf.request.slice(0, 30)}</span>
+                    <span className="marks">
+                      <button type="button" className="small" onClick={() => org.onOpenHistory(wf.workflowId)}>開く</button>
+                      <button type="button" className="small" onClick={() => org.onUnarchive(wf.workflowId)}>アーカイブを解除</button>
+                      <button type="button" className="small" onClick={() => org.onDelete(wf.workflowId)}>削除…</button>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            {rest.length ? listRows() : org && org.archived.length > 0 ? null : <div className="empty-note">アーカイブしたチャットはありません</div>}
           </>
         ) : (
           <>
@@ -505,7 +521,7 @@ export function LeftPane({ org, snap, sel, onSelect, onAct, onAcknowledge, onCha
         </div>
       ) : null}
       <div className="left-foot">
-        <button className="small" style={{ height: 22 }} onClick={() => setShowArch(true)}><Icon name="archive" />アーカイブ（{snap.chats.filter((c) => !removed(c) && !isOrgOwned(localOf(c), org?.shown ?? null) && archived(c)).length}）</button>
+        <button className="small" style={{ height: 22 }} onClick={() => setShowArch(true)}><Icon name="archive" />アーカイブ（{snap.chats.filter((c) => !removed(c) && !isOrgOwned(localOf(c), org?.shown ?? null) && archived(c)).length + (org?.archived.length ?? 0)}）</button>
         {org && !org.wf ? <button className="small" style={{ height: 22 }} onClick={org.onStart} title="複数の役割のチャットで進める組織実行を開始します（開始のダイアログが開くだけです）">組織実行を開始…</button> : null}
         <span className="only-narrow-l"><button className="small" style={{ height: 22 }} onClick={() => onAct("toggleLeft")}>閉じる</button></span>
       </div>

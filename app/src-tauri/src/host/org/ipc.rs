@@ -95,12 +95,20 @@ impl Host {
         let stall_minutes = self.read(|d| d.settings.org_stall_minutes);
         let root = self.persist.store().map(|s| s.root().to_path_buf());
         let snapshot = self.org_snapshot();
-        // 過去のワークフロー（保存データの読取りだけ。何も書かず、司令taskへも何も渡さない）。
-        let history = root
+        // 過去のワークフロー・アーカイブしたワークフロー（保存データの読取りだけ。何も書かず、司令taskへも何も渡さない）。
+        let (history, mut archived) = root
             .as_deref()
-            .map(|r| super::history::read_history(r, snapshot.as_ref().map(|s| &s.workflow), super::history::HISTORY_KEEP, &mut self.org_rt.history_cache.lock().unwrap()))
+            .map(|r| {
+                super::history::read_lists(
+                    r,
+                    snapshot.as_ref().map(|s| &s.workflow),
+                    super::history::HISTORY_KEEP,
+                    super::history::ARCHIVED_KEEP,
+                    &mut self.org_rt.history_cache.lock().unwrap(),
+                )
+            })
             .unwrap_or_default();
-        let Some(snapshot) = snapshot else { return OrgSnapshotView { workflow: None, stall_minutes, history } };
+        let Some(snapshot) = snapshot else { return OrgSnapshotView { workflow: None, stall_minutes, history, archived } };
         let notices = self.org_rt.notice_entries();
         let usage_rows = self
             .persist
@@ -117,8 +125,16 @@ impl Host {
             }
             _ => HashMap::new(),
         };
-        let workflow = view::workflow_view(&ViewInput { snapshot: &snapshot, notices: &notices, usage_rows: &usage_rows, slots: &slots, dispatching });
-        OrgSnapshotView { workflow: Some(workflow), stall_minutes, history }
+        let mut workflow = view::workflow_view(&ViewInput { snapshot: &snapshot, notices: &notices, usage_rows: &usage_rows, slots: &slots, dispatching });
+        // 動いている（または直前まで動いていた）ワークフローのアーカイブの印・削除の進みも載せる。
+        if let Some(dir) = root.as_deref().map(|r| workflow_dir(r, &snapshot.workflow.0)) {
+            workflow.archived_at = crate::store::org::read_archived_at(&dir);
+            workflow.deletion = super::history::deletion_view_of(&dir);
+        }
+        if workflow.archived_at.is_some() {
+            archived.insert(0, workflow.clone());
+        }
+        OrgSnapshotView { workflow: Some(workflow), stall_minutes, history, archived }
     }
 
     /// 直近に読んだ役割定義（読込み前は `loaded=false`）。

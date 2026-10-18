@@ -14,7 +14,7 @@ const base = (over: Partial<OrgWorkflowView>): OrgWorkflowView => ({
   repo: "C:\Users\wmasa\Documents\Rust\Sample", halt: null, graph: null,
   limits: { maxWriters: 2, maxTotal: 3, maxRework: 2, maxAutoReplans: 1, maxTurns: 30, maxTasks: 20, stagnationMinutes: 30 },
   usage: { turnsUsed: 11, turnsRemaining: 19, autoReplansUsed: 0, knownTokens: 184_300, rows: 6, rowsWithoutTokens: 1 },
-  tasks: [], planApproval: null, sandboxNotice: null, trust: null, notices: [], dispatching: true, finished: false, readonly: false, ...over,
+  tasks: [], planApproval: null, sandboxNotice: null, trust: null, notices: [], dispatching: true, finished: false, readonly: false, archivedAt: null, deletion: null, ...over,
 });
 
 const RUN_TASKS: OrgTaskView[] = [
@@ -38,20 +38,20 @@ export function mockOrgView(scenario: string): OrgSnapshotView {
   const g = graphScenario(scenario);
   if (g) return g;
   if (scenario === "orgPlan") {
-    return { stallMinutes: 30, history: [], workflow: base({ tasks: PLAN_TASKS, dispatching: false, halt: { kind: "awaitingPlanApproval", label: "計画の承認待ち", icon: "eye", resumable: false },
+    return { stallMinutes: 30, history: [], archived: [], workflow: base({ tasks: PLAN_TASKS, dispatching: false, halt: { kind: "awaitingPlanApproval", label: "計画の承認待ち", icon: "eye", resumable: false },
       usage: { turnsUsed: 1, turnsRemaining: 29, autoReplansUsed: 0, knownTokens: null, rows: 1, rowsWithoutTokens: 1 },
       planApproval: { reasonsKnown: true, reasons: [{ task: "T1", text: "ネットワーク取得・パッケージ導入を含みます" }, { task: "T2", text: "あなたの作業ツリー・ブランチへの書込みを含みます" }] } }) };
   }
   if (scenario === "orgRun") {
-    return { stallMinutes: 30, history: [], workflow: base({ tasks: RUN_TASKS, dispatching: false,
+    return { stallMinutes: 30, history: [], archived: [], workflow: base({ tasks: RUN_TASKS, dispatching: false,
       halt: { kind: "restart", label: "再起動後の照合済み（再開待ち）", icon: "pause", resumable: true },
       trust: { kind: "codexTrustAppended", severity: "info", text: "Codex が作業フォルダを信頼済みとして ~/.codex/config.toml に追記しました。", projects: ["C:\Users\wmasa\AppData\Local\com.agentdock.app\worktrees\wf-1-T1"] },
       notices: [{ serial: 1, kind: "taskBlocked", severity: "attention", task: "T4", text: "受理を確認できないため止まっています" }, { serial: 2, kind: "reconciled", severity: "info", task: null, text: "再起動後の照合を終えました" }] }) };
   }
   if (scenario === "orgDone") {
-    return { stallMinutes: 30, history: [], workflow: base({ tasks: RUN_TASKS.filter((t) => t.status.phase === "completed"), dispatching: false, finished: true }) };
+    return { stallMinutes: 30, history: [], archived: [], workflow: base({ tasks: RUN_TASKS.filter((t) => t.status.phase === "completed"), dispatching: false, finished: true }) };
   }
-  return { stallMinutes: 30, history: [], workflow: null };
+  return { stallMinutes: 30, history: [], archived: [], workflow: null };
 }
 
 // グラフで動くワークフロー（品質向上周回）。verify が rework を返し、build が2周目。
@@ -100,7 +100,7 @@ function graphScenario(scenario: string): OrgSnapshotView | null {
       qn(b, "build", "実装", "worker", { round: 2, maxRound: 4 }),
       qn(v, "verify", "検証", "verifier", { round: 2, maxRound: 4, lastVerdict: { kind: "value", text: "rework" } }),
     ], 1, ["rework"]);
-    return { stallMinutes: 30, history: [], workflow: base({ title: "品質向上の依頼", tasks: QUALITY_TASKS, graph }) };
+    return { stallMinutes: 30, history: [], archived: [], workflow: base({ title: "品質向上の依頼", tasks: QUALITY_TASKS, graph }) };
   }
   if (scenario === "orgLimit") {
     const tasks = [QUALITY_TASKS[0], { ...QUALITY_TASKS[1], status: st("blocked", "止まっています（やり直しの上限）", "pause", "roundLimit") }, QUALITY_TASKS[2]];
@@ -109,7 +109,7 @@ function graphScenario(scenario: string): OrgSnapshotView | null {
       qn(tasks[1], "build", "実装", "worker", { round: 4, maxRound: 4, roundLimit: { edge: "verify->build", used: 3, allowed: 3, awaiting: true } }),
       qn(tasks[2], "verify", "検証", "verifier", { round: 4, maxRound: 4, lastVerdict: { kind: "value", text: "rework" } }),
     ], 3, ["rework", "rework", "rework"]);
-    return { stallMinutes: 30, history: [], workflow: base({ title: "品質向上の依頼", tasks, graph }) };
+    return { stallMinutes: 30, history: [], archived: [], workflow: base({ title: "品質向上の依頼", tasks, graph }) };
   }
   if (scenario === "orgGate") {
     const tasks = [
@@ -134,7 +134,7 @@ function graphScenario(scenario: string): OrgSnapshotView | null {
       ],
       rounds: [{ edge: "confirm->draft", from: "confirm", to: "draft", used: 0, maxRounds: 2, extra: 0, onExhausted: "ask", history: [] }],
     };
-    return { stallMinutes: 30, history: [], workflow: base({ title: "下書きの確認", tasks, graph }) };
+    return { stallMinutes: 30, history: [], archived: [], workflow: base({ title: "下書きの確認", tasks, graph }) };
   }
   return null;
 }

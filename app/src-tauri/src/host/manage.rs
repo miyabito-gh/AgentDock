@@ -41,6 +41,15 @@ impl ManageRuntime {
     }
 }
 
+/// 削除の呼出し元。組織ワークフローの削除は、停止の確認が要る場面で中断も削除保留の記録もせず断る。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(in crate::host) enum DeleteMode {
+    /// 利用者がチャットを削除する（組織が所有するチャットは断る）。
+    User,
+    /// 組織ワークフローの削除から、そのワークフローの役割チャットを削除する。
+    OrgWorkflow { workflow_id: String },
+}
+
 /// 管理の監視間隔（アーカイブ送信の可否・削除保留の更新）。
 const MANAGE_TICK: Duration = Duration::from_secs(2);
 /// 削除のための中断後、停止を待つ時間（停止確認の期限＋余裕）。
@@ -341,8 +350,20 @@ impl Host {
 
     /// 削除を実行する（ユーザーが確認画面で選んだ後だけ）。結果は `DeleteOutcome`。停止を確認できなければ `Pending`。
     pub async fn delete_chat(self: &Arc<Self>, args: ChatArgs, confirmed: &UserConfirmed) -> Result<DeleteOutcome, IpcError> {
-        self.check_not_org_owned(&args.chat)?;
-        let chat = args.chat;
+        self.delete_chat_core(args.chat, confirmed, DeleteMode::User).await
+    }
+
+    /// 削除の本体。`mode` が `OrgWorkflow` のときは、所有記録のワークフローが一致するチャットだけ組織のガードを通す。
+    pub(in crate::host) async fn delete_chat_core(self: &Arc<Self>, chat: ChatKey, confirmed: &UserConfirmed, mode: DeleteMode) -> Result<DeleteOutcome, IpcError> {
+        match &mode {
+            DeleteMode::User => self.check_not_org_owned(&chat)?,
+            DeleteMode::OrgWorkflow { workflow_id } => {
+                let other = self.read(|d| d.locals.get(&chat).and_then(|l| l.org.clone())).filter(|b| b.released_at.is_none() && &b.workflow_id != workflow_id);
+                if other.is_some() {
+                    return Err(blocked(BlockedReason::OrgOwned, "別の組織ワークフローのチャットです"));
+                }
+            }
+        }
         // 作業領域を別の thread（引き継ぎ先）が使っているときは削除しない（領域ごと消えるため）。引き継ぎ中の元も削除しない。
         // 引き継ぎのガードを削除の間じゅう持つ（引き継ぎ側が先なら削除を断り、削除が先なら引き継ぎは「実行中」で始まらない）。
         let Some(_handoff_guard) = self.handoff_inflight.try_begin(&chat) else {
@@ -357,12 +378,13 @@ impl Host {
         // 控えの取得（B・E）と同じ作業キューで排他し、削除後に控えの領域が再作成されないようにする。
         let queue = self.baseline_rt.queue_lock(&chat);
         let _baseline_q = queue.lock().await;
-        let res = self.delete_inner(&chat, confirmed).await;
+        let res = self.delete_inner(&chat, confirmed, &mode).await;
         self.manage_rt.deleting.lock().unwrap().remove(&chat);
         res
     }
 
-    async fn delete_inner(self: &Arc<Self>, chat: &ChatKey, confirmed: &UserConfirmed) -> Result<DeleteOutcome, IpcError> {
+    async fn delete_inner(self: &Arc<Self>, chat: &ChatKey, confirmed: &UserConfirmed, mode: &DeleteMode) -> Result<DeleteOutcome, IpcError> {
+        let org_mode = matches!(mode, DeleteMode::OrgWorkflow { .. });
         let origin = self.chat_origin(chat).ok_or_else(|| err(IpcErrorCode::NotFound, "チャットの種別を確認できません"))?;
         // 保存に失敗している内容があれば、削除（と保留の記録）を完了と見せない。
         if let Some(scope) = self.read(|d| save_blocks_chat(&d.save_status.values().cloned().collect::<Vec<_>>(), chat)) {
@@ -383,6 +405,10 @@ impl Host {
             }
         }
         let mut decision = delete_decision(&work, pending.as_ref());
+        if org_mode && decision != DeleteDecision::Proceed {
+            // 組織ワークフローの削除は終わったものだけが対象。削除のために中断せず、削除保留も作らず断る（停止の確認が先）。
+            return Err(blocked(BlockedReason::ChatBusy, "停止を確認できていない、または作業が終わっていないため、削除できません。停止を確認してから削除してください"));
+        }
         if decision == DeleteDecision::StopFirst {
             if work.has_unfinished || work.queue_in_flight {
                 // 中断の間も送信・キュー送信を止める（保留の記録を先に残す）。

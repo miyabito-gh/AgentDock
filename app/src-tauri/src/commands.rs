@@ -996,6 +996,31 @@ pub async fn org_accept_round(host: Hs<'_>, args: crate::backend::org::OrgTaskAr
     host.org_accept_round(args, &confirmed)
 }
 
+/// 削除確認の内容（読取りのみ。何も消さない）。
+#[tauri::command]
+pub async fn org_preview_delete(host: Hs<'_>, args: crate::backend::org::OrgWorkflowArgs) -> R<crate::backend::org::OrgDeletePreview> {
+    host.inner().clone().org_preview_delete(args).await
+}
+
+/// 終わったワークフローの削除（利用者が確認画面で選んだ後だけ。worktree・ブランチは消さない）。
+#[tauri::command]
+pub async fn org_delete_workflow(host: Hs<'_>, args: crate::backend::org::OrgDeleteArgs) -> R<crate::backend::org::OrgDeleteOutcome> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().org_delete_workflow(args, &confirmed).await
+}
+
+/// 終わったワークフローのアーカイブ（アプリ内だけの印。Codex へは送らない）。
+#[tauri::command]
+pub async fn org_archive_workflow(host: Hs<'_>, args: crate::backend::org::OrgWorkflowArgs) -> R<()> {
+    host.inner().clone().org_archive_workflow(args).await
+}
+
+/// アーカイブの解除（印を消すだけ）。
+#[tauri::command]
+pub async fn org_unarchive_workflow(host: Hs<'_>, args: crate::backend::org::OrgWorkflowArgs) -> R<()> {
+    host.inner().clone().org_unarchive_workflow(args).await
+}
+
 /// 取消し（利用者の操作だけが cancelled にする）。取り消したタスクのIDを返す。
 #[tauri::command]
 pub async fn org_cancel(host: Hs<'_>, args: crate::backend::org::OrgCancelArgs) -> R<Vec<String>> {

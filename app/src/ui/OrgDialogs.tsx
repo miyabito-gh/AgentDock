@@ -2,10 +2,12 @@
 // 開始・有効化は、押したときだけホストの命令を呼ぶ。テンプレートを選ぶ・見積りを見る・定義ファイルを開くだけでは何も送らない。
 // 有効化は権限の指紋を添えて確認後に送る（ホストが今の権限と照合する）。
 import { Fragment, useCallback, useEffect, useState } from "react";
-import type { OrgGraphProblemView, OrgGraphTemplateView, OrgGraphsView, OrgRoleView, OrgRolesView, StartOrgArgs } from "../ipc/types";
+import type { ChatKey, OrgDeleteOutcome, OrgDeletePreview, OrgGraphProblemView, OrgGraphTemplateView, OrgGraphsView, OrgRoleView, OrgRolesView, StartOrgArgs } from "../ipc/types";
 import * as host from "../ipc/client";
 import { FootActions, ConfirmBlock } from "./DialogParts";
 import { estimateLines } from "./org";
+import { showKnown } from "./format";
+import { fmtBytes } from "./ManageDialogs";
 
 /** 標準（従来の計画経路）。ホストの定義ファイルに依存せず、いつでも選べる。送るときは graphId を付けない（今までの開始と同じ）。 */
 export const STANDARD_ID = "standard";
@@ -322,5 +324,80 @@ export function OrgSettingsBody({ live, stallMinutes, setStall }: OrgSettingsPro
         </>
       )}
     </>
+  );
+}
+
+/** ワークフローの削除（DESIGN_ORG_DELETE §6）。確認の内容は読取りで取得し、押したときだけ削除を実行する。worktree とブランチは削除しない。 */
+export function OrgDeleteDialog({ workflowId, live, preview, remove, onDone }: {
+  workflowId: string;
+  live: boolean;
+  preview: (id: string) => Promise<OrgDeletePreview>;
+  remove: (id: string, deleteChats: boolean, expect: ChatKey[]) => Promise<OrgDeleteOutcome>;
+  onDone: () => void;
+}) {
+  const [pv, setPv] = useState<OrgDeletePreview | null>(null);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
+  const [delChats, setDelChats] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [partial, setPartial] = useState<{ done: string[]; failed: string[] } | null>(null);
+  const load = useCallback(async () => {
+    setLoadErr(null);
+    try { setPv(await preview(workflowId)); } catch (e) { setLoadErr(host.asIpcError(e).message); }
+  }, [preview, workflowId]);
+  useEffect(() => { void load(); }, [load]);
+  const reasons = pv?.verdict.kind === "blocked" ? pv.verdict.reasons : [];
+  // チャットの会話を残す選択なら、チャット単位の理由（と接続の理由）は削除を止めない（最終判定はホスト）。
+  const chatSpecific = (r: string) => !!pv?.chats.some((c) => c.blocked === r) || r.startsWith("Codex に接続していません");
+  const effective = delChats ? reasons : reasons.filter((r) => !chatSpecific(r));
+  const resuming = !!pv?.deletion;
+  const can = !!pv && live && !busy && effective.length === 0;
+  const run = async () => {
+    if (!pv || !can) return;
+    setBusy(true); setErr(null);
+    try {
+      const o = await remove(workflowId, delChats, pv.chats.map((c) => c.chat));
+      if (o.kind === "deleted") { onDone(); return; }
+      setPartial({ done: o.done, failed: o.failed });
+      await load();
+    } catch (e) { setErr(host.asIpcError(e).message); }
+    setBusy(false);
+  };
+  const label = busy ? "削除しています…" : resuming || partial ? "削除を続ける" : "削除する";
+  const nm = (c: OrgDeletePreview["chats"][number]) => c.name ?? c.chat.id;
+  return (
+    <div className="content">
+      {!pv && !loadErr ? <p className="small muted">確認の内容を読み込んでいます…</p> : null}
+      {loadErr ? <p className="why err" role="alert">確認の内容を取得できませんでした（{loadErr}）。<button type="button" className="btn sm" onClick={() => void load()}>取り直す</button></p> : null}
+      {pv ? (
+        <ConfirmBlock label="ワークフローの削除の確認" wide actions={<button className="btn danger" disabled={!can} onClick={() => void run()}>{label}</button>}>
+          <p>このワークフロー{pv.title ? `「${pv.title}」` : ""}の記録（計画・経過・使用量）を削除します。元に戻せません。</p>
+          {(pv.deletion || partial) ? (
+            <div className="banner warn" role="status"><div><b>削除の途中です。</b>
+              <div>済: {(partial?.done ?? pv.deletion?.done ?? []).join("、") || "なし"}</div>
+              <div>失敗: {(partial?.failed ?? pv.deletion?.failed ?? []).join("、") || "なし"}</div></div></div>
+          ) : null}
+          {pv.chats.length > 0 ? (
+            <>
+              <label><input type="checkbox" checked={delChats} disabled={busy || resuming} onChange={(e) => setDelChats(e.target.checked)} />役割チャット {pv.chats.length}件の会話も削除する（Codex の履歴を含む）</label>
+              {!delChats ? <p className="small muted">オフにすると、手動に切り替えて通常のチャットとして一覧に残します。</p> : null}
+              <ul className="check-list">{pv.chats.map((c) => <li key={c.chat.id}>{nm(c)}（{c.roleId || "—"}・{c.taskId || "—"}）{c.blocked && delChats ? <span className="why err"> {c.blocked}</span> : null}</li>)}</ul>
+            </>
+          ) : null}
+          <p className="small"><b>残るもの</b>: 手動に切り替え済みのチャット {pv.keptReleased.length}件／worktree {pv.worktrees.length}件</p>
+          {pv.worktrees.length > 0 ? (
+            <ul className="check-list">{pv.worktrees.map((w) => (
+              <li key={w.path}><span className="mono">{w.path}</span>{w.branch ? <> ブランチ <span className="mono">{w.branch}</span></> : null}
+                {!w.exists ? "（フォルダなし）" : <>　未コミット: {showKnown(w.dirty, (n) => `${n}件`)}</>}
+                <span className={w.unmergedCommits.kind === "value" && w.unmergedCommits.value > 0 ? "why err" : undefined}>　未取込みコミット: {showKnown(w.unmergedCommits, (n) => `${n}件`)}</span>
+                {w.unmergedCommits.kind === "value" && w.unmergedCommits.value > 0 ? <span className="small"> ブランチに残ります。取り込む場合は削除の前後どちらでも可能です。</span> : null}</li>
+            ))}</ul>
+          ) : null}
+          <p className="small muted">worktree とブランチは削除しません。不要なら worktree の管理から個別に削除してください。記録の容量: {showKnown(pv.recordBytes, fmtBytes)}</p>
+          {effective.length > 0 ? <div className="banner warn" role="status"><div><b>まだ削除できません。</b><ul>{effective.map((r, i) => <li key={i}>{r}</li>)}</ul></div></div> : null}
+          {err ? <p className="why err" role="alert">{err}</p> : null}
+        </ConfirmBlock>
+      ) : null}
+    </div>
   );
 }

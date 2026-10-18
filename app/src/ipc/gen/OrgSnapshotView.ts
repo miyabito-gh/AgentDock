@@ -12,4 +12,8 @@ stallMinutes: number,
 /**
  * 保存済みの過去のワークフロー（新しい順。最近の一部だけ。`workflow` と同じものは含めない。読み取り専用）。
  */
-history: Array<OrgWorkflowView>, };
+history: Array<OrgWorkflowView>, 
+/**
+ * アーカイブしたワークフロー（新しい順に最大50件。読み取り専用）。
+ */
+archived: Array<OrgWorkflowView>, };

@@ -409,6 +409,8 @@ pub fn workflow_view(input: &ViewInput<'_>) -> OrgWorkflowView {
         notices: shown.into_iter().skip(skip).collect(),
         dispatching: input.dispatching,
         readonly: false,
+        archived_at: None,
+        deletion: None,
     }
 }
 

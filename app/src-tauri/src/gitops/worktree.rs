@@ -139,6 +139,12 @@ pub async fn ignored_count(git: &Git, worktree: &Path) -> Result<u32, WtError> {
     Ok(count_ignored_v2(&String::from_utf8_lossy(&out.stdout)))
 }
 
+/// ブランチにあって、現在のHEADにないコミットの数（未取込みのコミット。読取りのみ）。読めなければ `Err`（0で代用しない）。
+pub async fn unmerged_count(git: &Git, repo: &Path, branch: &str) -> Result<u32, WtError> {
+    let out = ok(git.run(repo, &GitOp::RevListCount { from: "HEAD".into(), to: format!("refs/heads/{branch}") }).await?)?;
+    out.stdout_text().trim().parse::<u32>().map_err(|_| WtError::Exit { message: "コミット数を読み取れませんでした".to_string() })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

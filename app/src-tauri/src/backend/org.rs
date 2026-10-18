@@ -6,7 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::model::{ChatKey, TurnEnd};
+use super::model::{ChatKey, Known, OrgWorktreeAccess, TurnEnd, UnixMillis};
 
 // ───────────────────────────── 状態（2軸） ─────────────────────────────
 
@@ -366,6 +366,12 @@ pub struct OrgWorkflowView {
     /// 保存データから読んだ過去のワークフロー（読み取り専用。操作は受け付けない）。
     #[serde(default)]
     pub readonly: bool,
+    /// アーカイブした時刻（アプリ内だけの操作。左一覧から隠す）。
+    #[serde(default)]
+    pub archived_at: Option<UnixMillis>,
+    /// 削除が途中のとき、その進み（済／失敗）。続きは「削除を続ける」から。
+    #[serde(default)]
+    pub deletion: Option<OrgDeletionView>,
 }
 
 /// 現在の組織実行（なければ `workflow=None`）。
@@ -380,6 +386,9 @@ pub struct OrgSnapshotView {
     /// 保存済みの過去のワークフロー（新しい順。最近の一部だけ。`workflow` と同じものは含めない。読み取り専用）。
     #[serde(default)]
     pub history: Vec<OrgWorkflowView>,
+    /// アーカイブしたワークフロー（新しい順に最大50件。読み取り専用）。
+    #[serde(default)]
+    pub archived: Vec<OrgWorkflowView>,
 }
 
 // ───────────────────────────── 役割定義 ─────────────────────────────
@@ -877,4 +886,104 @@ pub struct OrgResumeResult {
 pub struct OrgResumeFailure {
     pub chat: ChatKey,
     pub message: String,
+}
+
+// ───────────────────────────── 削除・アーカイブ（DESIGN_ORG_DELETE） ─────────────────────────────
+
+/// 削除・アーカイブの判定。拒否のときは理由の一覧（利用者向けの文）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum OrgManageVerdict {
+    Allowed,
+    Blocked { reasons: Vec<String> },
+}
+
+/// 削除の進み（途中で止まったとき）。`done`・`failed` は段の名前（利用者向けの文）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgDeletionView {
+    pub requested_at: UnixMillis,
+    pub done: Vec<String>,
+    pub failed: Vec<String>,
+}
+
+/// 削除で消える（または解放される）未解放の役割チャット1件。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgDeleteChatRow {
+    pub chat: ChatKey,
+    /// 記録の所有情報から分からないときは空。
+    pub task_id: String,
+    pub role_id: String,
+    pub name: Option<String>,
+    /// このチャットが削除できない理由（あれば）。
+    pub blocked: Option<String>,
+}
+
+/// 残る所有worktree1件（自動では消さない）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgKeptWorktreeRow {
+    pub path: String,
+    pub branch: String,
+    pub access: OrgWorktreeAccess,
+    /// フォルダがまだあるか。
+    pub exists: bool,
+    /// 未コミット・無視ファイルの件数（読めなければ未取得）。
+    #[cfg_attr(test, ts(as = "Known<u32>"))]
+    pub dirty: Known<u32>,
+    /// ブランチにあって現在のHEADにない（未取込みの）コミット数（読めなければ未取得）。
+    #[cfg_attr(test, ts(as = "Known<u32>"))]
+    pub unmerged_commits: Known<u32>,
+}
+
+/// 削除確認の内容（読取りのみ）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgDeletePreview {
+    pub workflow_id: String,
+    pub title: Option<String>,
+    pub verdict: OrgManageVerdict,
+    /// 消える（または「残す」を選ぶと解放される）未解放の役割チャット。
+    pub chats: Vec<OrgDeleteChatRow>,
+    /// 手動に切り替え済みで残るチャット。
+    pub kept_released: Vec<ChatKey>,
+    /// 残る所有worktree。
+    pub worktrees: Vec<OrgKeptWorktreeRow>,
+    #[cfg_attr(test, ts(as = "Known<u32>"))]
+    pub record_bytes: Known<u64>,
+    /// 途中の削除があれば、その進み。
+    pub deletion: Option<OrgDeletionView>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgDeleteArgs {
+    pub workflow_id: String,
+    /// false なら役割チャットを消さず、手動に切り替えて通常チャットとして残す。
+    pub delete_chats: bool,
+    /// 確認画面で見せたチャット。実行時の集合と違えば拒否（確認し直し）。
+    pub expect_chats: Vec<ChatKey>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum OrgDeleteOutcome {
+    Deleted,
+    /// 途中で止まった。完了と偽らず、残りは同じ操作で続ける。
+    Partial { done: Vec<String>, failed: Vec<String> },
 }
