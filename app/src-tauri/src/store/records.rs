@@ -103,6 +103,117 @@ pub struct ChatLocalFile {
     /// 組織実行が作ったチャットの所有記録。所有はこの記録だけで判定する（推定しない）。
     #[serde(default)]
     pub org: Option<OrgBinding>,
+    // ── 継続チャット（DESIGN_CONT §3。既定値あり。SCHEMA_VERSION は上げない） ──
+    /// このチャット（thread）が会話の先頭として持つ会話の記録。None＝目的メモも引き継ぎもない普通のチャット。
+    #[serde(default)]
+    pub conversation: Option<ConversationRecord>,
+    /// この thread が引き継がれた先。Some で、かつ引き継ぎ先のチャット領域が保存先にあるとき、左一覧から隠す。
+    #[serde(default)]
+    pub superseded_by: Option<Superseded>,
+    /// 直近に観測した文脈の使用量（ルートのエージェントの値だけ）。表示用で、いつの値かと一緒に出す。
+    #[serde(default)]
+    pub context_usage: Option<ContextUsageSample>,
+}
+
+/// 会話の記録。将来 AgentDockプロジェクト（G-C）ができたら `purpose` をプロジェクトのゴール・メモへ移す（DESIGN_ORG_GRAPH §5.3）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationRecord {
+    /// 会話のID（最初に記録を作ったときに採番。引き継いでも変えない）。
+    pub id: LocalId,
+    /// 目的メモ。None＝未設定。
+    #[serde(default)]
+    pub purpose: Option<PurposeNote>,
+    /// 以前の thread の列（古い順）。先頭（このチャット自身）は含めない。
+    #[serde(default)]
+    pub threads: Vec<ThreadSegment>,
+    /// この thread へ引き継いだときの資料。最初の thread では None。
+    #[serde(default)]
+    pub seed: Option<HandoffSeed>,
+    /// 目的メモをこの thread へ届けた版（受理を確認した送信に含めた版）。thread が替われば新しい先頭では None から始まる。
+    #[serde(default)]
+    pub purpose_delivered_rev: Option<u32>,
+    /// 届けた後に、この thread で文脈の圧縮を観測したか（真なら次の手動送信で目的メモを再び添える）。
+    #[serde(default)]
+    pub compacted_since_delivery: bool,
+}
+
+/// 目的メモ（利用者が書く固定文）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PurposeNote {
+    pub text: String,
+    /// 保存のたびに1増やす（届けたかの判定と、同時編集の検出に使う）。
+    pub revision: u32,
+    pub updated_at: UnixMillis,
+    /// 由来。最小版は常に Chat。
+    #[serde(default)]
+    pub source: PurposeSource,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PurposeSource {
+    #[default]
+    Chat,
+}
+
+/// 以前の thread 1本。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadSegment {
+    pub chat: ChatKey,
+    /// 引き継いだ時刻（この thread が先頭でなくなった時刻）。
+    pub handed_off_at: UnixMillis,
+    /// 引き継ぎ時点の表示名（一覧から隠れた後の区切り線に出す）。
+    #[serde(default)]
+    pub title: Option<String>,
+}
+
+/// 引き継がれた側に付ける印。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Superseded {
+    pub by: ChatKey,
+    pub at: UnixMillis,
+}
+
+/// 新しい先頭へ入れた引き継ぎ資料。再起動後も同じ資料で送り直せるよう、組み立てた本文をそのまま持つ。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HandoffSeed {
+    /// 引き継ぎ元。
+    pub from: ChatKey,
+    /// 組み立てた資料の本文（目的メモは含めない。目的メモは送るときの版を使う）。
+    pub material: String,
+    pub rounds_included: u32,
+    pub truncated: bool,
+    pub created_at: UnixMillis,
+    pub state: SeedState,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SeedState {
+    /// まだ受理を確認していない（次の手動送信に資料を付ける）。受理不明もここ（照合か履歴で確定する）。
+    Pending,
+    /// 資料を含む送信の受理を確認した、または履歴で資料つきの依頼を観測した。
+    Delivered,
+}
+
+/// 文脈の使用量の観測値。推定値は持たない。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextUsageSample {
+    /// 直近のモデル呼び出しのトークン数（`last.totalTokens`）。
+    pub used: u64,
+    /// 文脈の上限。バックエンドが示さなければ None（割合は出さない）。
+    pub window: Option<u64>,
+    pub observed_at: UnixMillis,
+    pub turn: Option<ExternalId>,
+    /// この値の後で文脈の圧縮を観測した（次の値が来るまで割合を出さない）。
+    #[serde(default)]
+    pub stale_after_compaction: bool,
 }
 
 /// 組織実行が作ったチャットの所有記録。
@@ -245,6 +356,9 @@ impl ChatLocalFile {
             accepted_folders: None,
             unconfirmed_folders: None,
             org: None,
+            conversation: None,
+            superseded_by: None,
+            context_usage: None,
         }
     }
 }
@@ -329,6 +443,52 @@ mod tests {
         let v: serde_json::Value = serde_json::from_slice(&to_bytes(&f).unwrap()).unwrap();
         assert_eq!(v["pendingOps"][0]["op"], "compact");
         assert_eq!(v["schemaVersion"], 1);
+    }
+
+    /// 継続チャットの追加フィールドを持たない旧ファイルが読め、追加分は既定値になる。
+    #[test]
+    fn chat_local_without_continuity_fields_still_reads() {
+        let mut v: serde_json::Value = serde_json::from_slice(&to_bytes(&sample_local()).unwrap()).unwrap();
+        let o = v.as_object_mut().unwrap();
+        for k in ["conversation", "supersededBy", "contextUsage"] {
+            assert!(o.remove(k).is_some(), "{k}");
+        }
+        let back: ChatLocalFile = parse_versioned(&serde_json::to_vec(&v).unwrap()).unwrap();
+        assert_eq!(back, sample_local());
+        assert!(back.conversation.is_none() && back.superseded_by.is_none() && back.context_usage.is_none());
+    }
+
+    #[test]
+    fn continuity_fields_round_trip() {
+        let mut f = sample_local();
+        f.conversation = Some(ConversationRecord {
+            id: LocalId("c1".into()),
+            purpose: Some(PurposeNote { text: "目的".into(), revision: 3, updated_at: UnixMillis(4), source: PurposeSource::Chat }),
+            threads: vec![ThreadSegment { chat: key(), handed_off_at: UnixMillis(5), title: Some("前".into()) }],
+            seed: Some(HandoffSeed {
+                from: key(),
+                material: "資料".into(),
+                rounds_included: 3,
+                truncated: true,
+                created_at: UnixMillis(6),
+                state: SeedState::Pending,
+            }),
+            purpose_delivered_rev: Some(2),
+            compacted_since_delivery: true,
+        });
+        f.superseded_by = Some(Superseded { by: key(), at: UnixMillis(7) });
+        f.context_usage = Some(ContextUsageSample { used: 12_345, window: Some(200_000), observed_at: UnixMillis(8), turn: Some(ExternalId("t".into())), stale_after_compaction: true });
+        let bytes = to_bytes(&f).unwrap();
+        let back: ChatLocalFile = parse_versioned(&bytes).unwrap();
+        assert_eq!(back, f);
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["schemaVersion"], 1);
+        assert_eq!(v["conversation"]["seed"]["state"], "pending");
+        assert_eq!(v["conversation"]["threads"][0]["handedOffAt"], 5);
+        assert_eq!(v["contextUsage"]["staleAfterCompaction"], true);
+        // 内側の項目が欠けた古い形（purposeだけ）も読める。
+        let min: ConversationRecord = serde_json::from_str(r#"{"id":"c"}"#).unwrap();
+        assert!(min.purpose.is_none() && min.threads.is_empty() && min.seed.is_none() && !min.compacted_since_delivery);
     }
 
     /// `speedTier` を持たない旧い `model` も読める。

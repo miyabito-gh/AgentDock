@@ -31,7 +31,7 @@ const caps: Capabilities = {
   resume: "supported", listLoaded: "supported", approvalKinds: [{ kind: "commandApproval" }, { kind: "fileChangeApproval" }, { kind: "userInput" }],
   steer: "supported", interrupt: "supported", modelSelection: "supported", effortSelection: "supported",
   rename: "supported", archive: "supported", delete: "unknown", externalHistory: "supported",
-  attachmentKinds: ["image", "file"], managedExecControl: "experimental", projects: "unknown", workspaceRoots: "unknown", ops: [],
+  attachmentKinds: ["image", "file"], managedExecControl: "experimental", projects: "unknown", workspaceRoots: "unknown", contextUsage: "unsupported", ops: [],
 };
 
 const source = (connection: SourceInfo["connection"], version?: SourceInfo["version"]): SourceInfo => ({

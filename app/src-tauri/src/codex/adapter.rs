@@ -80,6 +80,8 @@ pub fn codex_capabilities_for(experimental: bool, version: Option<&str>) -> Capa
         projects: exp,
         // thread/start・turn/start の runtimeWorkspaceRoots はexperimental。
         workspace_roots: exp,
+        // thread/tokenUsage/updated は安定API。
+        context_usage: Support::Supported,
         ops: super::parity::op_capabilities(version, experimental),
     }
 }
@@ -104,6 +106,7 @@ fn unknown_capabilities() -> Capabilities {
         managed_exec_control: Support::Unknown,
         projects: Support::Unknown,
         workspace_roots: Support::Unknown,
+        context_usage: Support::Unknown,
         // 接続前でも一覧できるよう、宣言と確認状況（版不明＝すべて未確認）を持つ。
         ops: super::parity::op_capabilities(None, true),
     }

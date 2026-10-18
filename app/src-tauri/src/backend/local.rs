@@ -167,7 +167,163 @@ pub struct ChatLocalView {
     /// 組織実行が作ったチャットの所有記録（左一覧で隠す・ドックのバッジ用。P-ORG-7）。None＝通常のチャット。
     #[serde(default)]
     pub org: Option<OrgBindingView>,
+    /// 継続チャットの会話の記録（目的メモ・以前の thread。DESIGN_CONT §3.4）。None＝普通のチャット。
+    #[serde(default)]
+    pub conversation: Option<ConversationView>,
+    /// このチャットが引き継がれた先（Some のときは引き継ぎ先がある限り左一覧から隠れる）。
+    #[serde(default)]
+    pub superseded_by: Option<ChatKey>,
+    /// 文脈の使用率の表示（保存値からの導出。live の値はホストが `ContextUsageUpdated` で上書きする）。
+    #[serde(default)]
+    pub context_usage: ContextUsageView,
     pub save: SaveState,
+}
+
+// ───────────────────────────── 継続チャット（DESIGN_CONT §3.4） ─────────────────────────────
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationView {
+    pub id: LocalId,
+    pub purpose: Option<PurposeNoteView>,
+    /// 以前の thread（古い順）。
+    pub threads: Vec<ThreadSegmentView>,
+    pub seed: Option<SeedView>,
+    /// 次の手動送信で目的メモを添えるか（`rules::continuity::purpose_due` の結果）。
+    pub purpose_due: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct PurposeNoteView {
+    pub text: String,
+    pub revision: u32,
+    pub updated_at: UnixMillis,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadSegmentView {
+    pub chat: ChatKey,
+    pub handed_off_at: UnixMillis,
+    pub title: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct SeedView {
+    pub from: ChatKey,
+    pub rounds_included: u32,
+    pub truncated: bool,
+    /// 資料の文字数。
+    pub chars: u32,
+    pub state: SeedStateView,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub enum SeedStateView {
+    /// まだ受理を確認していない（次の手動送信に資料を付ける）。
+    Pending,
+    /// 資料を含む送信の受理を確認した。
+    Delivered,
+}
+
+/// 文脈の使用率の表示。未取得・非対応・上限なし・圧縮後・前回値を値で区別する。推定はしない。
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum ContextUsageView {
+    /// この接続でまだ値が届いていない（保存値もない）。
+    #[default]
+    NotFetched,
+    /// バックエンドが能力として示していない。
+    Unsupported,
+    /// 使用量は届いたが上限が示されない。割合は出さない。
+    WindowUnknown {
+        #[cfg_attr(test, ts(type = "number"))]
+        used: u64,
+        observed_at: UnixMillis,
+    },
+    /// 割合を出せる値。`live=false` は保存値（前回の応答時点、接続後に未更新）。`percent` は切り捨ての整数（100 超もそのまま、上限 255）。
+    Known {
+        #[cfg_attr(test, ts(type = "number"))]
+        used: u64,
+        #[cfg_attr(test, ts(type = "number"))]
+        window: u64,
+        percent: u8,
+        observed_at: UnixMillis,
+        live: bool,
+    },
+    /// 圧縮を観測した後で、次の値をまだ受けていない。
+    AfterCompaction { observed_at: UnixMillis },
+}
+
+/// 継続チャットの設定。古い `settings.json`（この項目なし）は既定値で読む。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase", default)]
+pub struct ContinuationSettings {
+    /// この割合（%）以上の使用率を観測したら「次の送信で引き継ぐ」を案内する。None＝案内しない。既定 Some(70)。範囲 50〜95。
+    pub suggest_at_percent: Option<u8>,
+    /// 引き継ぎ資料に入れる直近の往復数。既定 3。範囲 1〜10。
+    pub rounds: u8,
+}
+
+impl Default for ContinuationSettings {
+    fn default() -> Self {
+        ContinuationSettings { suggest_at_percent: Some(70), rounds: 3 }
+    }
+}
+
+impl ContinuationSettings {
+    /// 範囲外の値を範囲内へ寄せる（案内の割合 50〜95、往復数 1〜10）。
+    pub fn normalized(&self) -> Self {
+        ContinuationSettings { suggest_at_percent: self.suggest_at_percent.map(|p| p.clamp(50, 95)), rounds: self.rounds.clamp(1, 10) }
+    }
+}
+
+/// 引き継ぎを止める理由の種類（`rules::continuity::handoff_blocker`）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub enum HandoffBlockKind {
+    NotConnected,
+    AlreadyHandedOff,
+    OrgOwned,
+    Deleting,
+    Worktree,
+    Busy,
+    StopUnconfirmed,
+    UnresolvedSend,
+    PendingOp,
+    FolderOpRunning,
+    QueueNotEmpty,
+    DescendantsBusy,
+    StateUnknown,
+    ExternalActivity,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct HandoffBlock {
+    pub kind: HandoffBlockKind,
+    pub message: String,
 }
 
 /// 組織実行が作ったチャットの所有（UIへ出す形）。`released` が真なら「手動に切り替え」済みで、通常チャットとして送信できる。
@@ -580,6 +736,9 @@ pub struct AppSettings {
     /// 通知だけで、自動では中断しない。古い `settings.json` は30で読む。
     #[serde(default = "default_org_stall_minutes")]
     pub org_stall_minutes: u32,
+    /// 継続チャット（DESIGN_CONT §3.2）。古い `settings.json` は既定値で読む。
+    #[serde(default)]
+    pub continuation: ContinuationSettings,
 }
 
 fn default_org_stall_minutes() -> u32 {
@@ -815,6 +974,7 @@ impl Default for AppSettings {
             last_new_chat: None,
             sandbox_workaround: false,
             org_stall_minutes: default_org_stall_minutes(),
+            continuation: ContinuationSettings::default(),
         }
     }
 }

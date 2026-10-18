@@ -2,6 +2,7 @@
 import type { AppearanceSettings } from "./AppearanceSettings";
 import type { BaselineSettings } from "./BaselineSettings";
 import type { ChatListSettings } from "./ChatListSettings";
+import type { ContinuationSettings } from "./ContinuationSettings";
 import type { LayoutSettings } from "./LayoutSettings";
 import type { ModelChoice } from "./ModelChoice";
 import type { MonitorWindowScope } from "./MonitorWindowScope";
@@ -86,4 +87,8 @@ sandboxWorkaround: boolean,
  * 組織実行で、実行中のタスクに新しい出力がないときに「止まっているかもしれない」と知らせるまでの時間（分。1〜1440）。
  * 通知だけで、自動では中断しない。古い `settings.json` は30で読む。
  */
-orgStallMinutes: number, };
+orgStallMinutes: number, 
+/**
+ * 継続チャット（DESIGN_CONT §3.2）。古い `settings.json` は既定値で読む。
+ */
+continuation: ContinuationSettings, };

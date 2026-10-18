@@ -2,6 +2,8 @@
 import type { AcceptedFolders } from "./AcceptedFolders";
 import type { ChatKey } from "./ChatKey";
 import type { ChatMarks } from "./ChatMarks";
+import type { ContextUsageView } from "./ContextUsageView";
+import type { ConversationView } from "./ConversationView";
 import type { DeletePending } from "./DeletePending";
 import type { Draft } from "./Draft";
 import type { ForkOrigin } from "./ForkOrigin";
@@ -65,4 +67,16 @@ acknowledgedFailures: Array<TurnKey>,
 /**
  * 組織実行が作ったチャットの所有記録（左一覧で隠す・ドックのバッジ用。P-ORG-7）。None＝通常のチャット。
  */
-org: OrgBindingView | null, save: SaveState, };
+org: OrgBindingView | null, 
+/**
+ * 継続チャットの会話の記録（目的メモ・以前の thread。DESIGN_CONT §3.4）。None＝普通のチャット。
+ */
+conversation: ConversationView | null, 
+/**
+ * このチャットが引き継がれた先（Some のときは引き継ぎ先がある限り左一覧から隠れる）。
+ */
+supersededBy: ChatKey | null, 
+/**
+ * 文脈の使用率の表示（保存値からの導出。live の値はホストが `ContextUsageUpdated` で上書きする）。
+ */
+contextUsage: ContextUsageView, save: SaveState, };

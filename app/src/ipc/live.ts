@@ -13,7 +13,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   mainWindow: { alwaysOnTop: false, bounds: null }, monitorWindow: { alwaysOnTop: false, bounds: null },
   monitorScope: "selectedChat", defaultModel: null, sendKey: "ctrlEnter", acknowledgedWarnings: [], tools: { git: null }, cloudEnvByRepo: {}, baselines: { enabled: true, repos: [] }, layout: { leftWidth: null, dockWidth: null },
   chatList: { view: "Recent", pinnedFolders: [], collapsedFolders: [] }, appearance: { theme: "System", uiText: "Normal", bodyText: "Normal" },
-  dismissedVersionNotice: null, recentSkills: [], workFolderSets: [], lastNewChat: null, sandboxWorkaround: false, orgStallMinutes: 30,
+  dismissedVersionNotice: null, recentSkills: [], workFolderSets: [], lastNewChat: null, sandboxWorkaround: false, orgStallMinutes: 30, continuation: { suggestAtPercent: 70, rounds: 3 },
 };
 
 const emptySnapshot = (): HostSnapshot => ({
@@ -30,7 +30,7 @@ export const emptyBundle = (): Bundle => ({
 export const UNKNOWN_CAPS: Capabilities = {
   descendantMonitoring: "unknown", descendantSearch: "unknown", historyReadWithoutResume: "unknown", resume: "unknown", listLoaded: "unknown",
   approvalKinds: [], steer: "unknown", interrupt: "unknown", modelSelection: "unknown", effortSelection: "unknown", rename: "unknown",
-  archive: "unknown", delete: "unknown", externalHistory: "unknown", attachmentKinds: [], managedExecControl: "unknown", projects: "unknown", workspaceRoots: "unknown", ops: [],
+  archive: "unknown", delete: "unknown", externalHistory: "unknown", attachmentKinds: [], managedExecControl: "unknown", projects: "unknown", workspaceRoots: "unknown", contextUsage: "unknown", ops: [],
 };
 
 const upsert =<T,>(list: T[], item: T, same: (a: T) => boolean): T[] => {

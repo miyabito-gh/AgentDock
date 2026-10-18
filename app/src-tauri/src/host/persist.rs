@@ -263,6 +263,10 @@ impl HostData {
                 role_id: o.role_id.clone(),
                 released: o.released_at.is_some(),
             }),
+            conversation: f.conversation.as_ref().map(crate::rules::continuity::conversation_view),
+            superseded_by: f.superseded_by.as_ref().map(|s| s.by.clone()),
+            // 保存値だけの導出（live かどうかと能力の判定は C2 で `ContextUsageUpdated` が上書きする）。
+            context_usage: crate::rules::continuity::usage_view(f.context_usage.as_ref(), Support::Supported, false),
             save,
         })
     }

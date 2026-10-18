@@ -11,10 +11,12 @@
 //! - [`work_folders`]: 作業フォルダ（複数）の正規化・拒否・強い確認の判定（項目39 WF-1）
 //! - [`org`]: 組織実行のsandbox健全性の判定とconfig.tomlのtrust追記の分類（P-ORG-4c）
 //! - [`org_worktree`]: 組織実行のworktreeの所有確認・ブランチ名・コミット間差分の解析（P-ORG-5）
+//! - [`continuity`]: 継続チャットの資料の組立て・使用率の表示区分・引き継ぎの前提・起動時の照合（G-P、DESIGN_CONT）
 //! - [`compose`]・[`side`]: 参考ブロックの組立て、side相談の停止範囲・引渡し（段階③ P3-4）
 
 pub mod baseline;
 pub mod compose;
+pub mod continuity;
 pub mod decision;
 pub mod diff;
 pub mod export;

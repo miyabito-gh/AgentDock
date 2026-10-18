@@ -33,6 +33,10 @@ projects: Support,
  */
 workspaceRoots: Support, 
 /**
+ * 文脈の使用量（使用トークン数・上限）の通知（DESIGN_CONT §3.3）。Unsupported なら使用率の表示と閾値の案内を出さない。
+ */
+contextUsage: Support, 
+/**
  * VS Code拡張との同等性の操作ごとの能力（段階③、`app/DESIGN_P3.md` §2.1）。
  */
 ops: Array<OpCapability>, };
