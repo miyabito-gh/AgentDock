@@ -8,7 +8,8 @@ import { Icon, orgIcon } from "./Icon";
 import { Popover } from "./Popover";
 import { ConfirmBlock } from "./DialogParts";
 import { tipWithKey } from "./shortcuts";
-import { CONFIRM_TONE, EFFECT_TEXT, NODE_KIND_TEXT, PHASE_TONE, artifactText, attemptText, edgeText, groupTasks, orgPendingRequests, roleCounts, roundText, verdictText, waitText, workflowSummary, type OrgTone } from "./org";
+import { roleLabel } from "./orgChat";
+import { CONFIRM_TONE, EFFECT_TEXT, NODE_KIND_TEXT, PHASE_TONE, artifactText, attemptText, edgeText, groupTasks, orgPendingRequests, roleCounts, reworkLimitText, roundText, verdictText, waitText, workflowSummary, type OrgTone } from "./org";
 
 /** 状態の表示（アイコン＋文字。形・色は `.st.<tone>`）。 */
 function Chip({ tone, icon, label, title }: { tone: OrgTone; icon: string; label: string; title?: string }) {
@@ -486,6 +487,7 @@ function GraphSection({ graph, wf, ro, busy, chatExists, onOpenChat, onGate, onE
   onAccept: (n: OrgGraphNodeView) => void;
 }) {
   const taskOf = (n: OrgGraphNodeView): OrgTaskView | undefined => wf.tasks.find((t) => t.id === n.task);
+  const nameOf = (id: string): string => graph.nodes.find((x) => x.id === id)?.label ?? id;
   const cards = graph.nodes.filter((n) => (n.gate && n.status?.phase === "blocked") || n.roundLimit);
   return (
     <>
@@ -493,9 +495,9 @@ function GraphSection({ graph, wf, ro, busy, chatExists, onOpenChat, onGate, onE
         if (n.roundLimit) {
           const r = n.roundLimit;
           return (
-            <section key={`${n.id}:limit`} className="org-card" aria-label="周回の上限">
-              <h4><Icon name="alert" />周回が上限に達しました（{n.label}）</h4>
-              <p>辺「{r.edge}」は、許容 {r.allowed} 回のうち {r.used} 回を使い切りました。理由を書いてもう1周するか、この結果で受け入れるか、タスクを取り消すかを選んでください。何もしなければ、このまま止まっています（自動では進みません）。</p>
+            <section key={`${n.id}:limit`} className="org-card" aria-label="やり直しの上限">
+              <h4><Icon name="alert" />やり直しが上限に達しました（{n.label}）</h4>
+              <p title={`辺 ${r.edge}`}>工程「{n.label}」へのやり直しは、最大 {r.allowed} 回のうち {r.used} 回を使い切りました（{reworkLimitText(r.used, r.allowed)}）。理由を書いてもう1周するか、この結果で受け入れるか、タスクを取り消すかを選んでください。何もしなければ、このまま止まっています（自動では進みません）。</p>
               {r.awaiting
                 ? <div className="acts end org-card-acts"><button className="btn" disabled={busy} onClick={() => onAccept(n)}>この結果で受け入れる…</button><button className="btn primary" disabled={busy} onClick={() => onExtra(n)}>理由を書いてもう1周…</button></div>
                 : <p className="small muted">確認状態が確定ではないため、確認できるまで選べません（下の表の確認状態を見てください）。</p>}
@@ -507,9 +509,9 @@ function GraphSection({ graph, wf, ro, busy, chatExists, onOpenChat, onGate, onE
           <section key={`${n.id}:gate`} className="org-card" aria-label="判断待ち">
             <h4><Icon name="help" />判断をお願いします（{n.label}）</h4>
             <p style={{ whiteSpace: "pre-wrap" }}>{g.prompt}</p>
-            {g.shows.map((x) => (
+            {g.shows.map((x, i) => (
               <details key={x.slot} className="about" open>
-                <summary>見せる内容: {x.slot}</summary>
+                <summary title={x.slot}>見せる内容{g.shows.length > 1 ? `（${i + 1}）` : ""}</summary>
                 {x.text === null ? <p className="small muted">未取得（まだ出力がないか、読めませんでした）</p> : <pre className="mono small org-pre">{x.text}{x.truncated ? "\n…（長いため途中まで）" : ""}</pre>}
               </details>
             ))}
@@ -530,9 +532,8 @@ function GraphSection({ graph, wf, ro, busy, chatExists, onOpenChat, onGate, onE
             return (
               <li key={n.id} className="org-flow-n">
                 <div className="org-flow-h">
-                  <b>{n.label}</b>
-                  <span className="mono muted">{n.id}</span>
-                  <span className="small muted">{NODE_KIND_TEXT[n.kind]}{n.roleId ? `：${n.roleId}` : ""}</span>
+                  <b title={n.id}>{n.label}</b>
+                  <span className="small muted" title={n.roleId ?? undefined}>{NODE_KIND_TEXT[n.kind]}{n.roleId ? `：${roleLabel(n.roleId)}` : ""}</span>
                   {n.status ? <StatusChip s={n.status} /> : <Chip tone="idle" icon="circle" label="未実行" />}
                   {n.confirm && n.confirm.state !== "confirmed" ? <ConfirmChip c={n.confirm} /> : null}
                   {rt ? <span className="small">{rt}</span> : null}
@@ -542,8 +543,8 @@ function GraphSection({ graph, wf, ro, busy, chatExists, onOpenChat, onGate, onE
                 {out.length > 0 ? (
                   <ul className="org-flow-e">
                     {out.map((e) => {
-                      const x = edgeText(e);
-                      return <li key={`${e.from}->${e.to}`} className={x.untaken ? "untaken" : undefined}><span className="mono">{x.head}</span>　{x.detail}{x.untaken ? "　（未実行）" : ""}</li>;
+                      const x = edgeText(e, nameOf);
+                      return <li key={`${e.from}->${e.to}`} className={x.untaken ? "untaken" : undefined} title={x.title}><span>{x.head}</span>　{x.detail}{x.untaken ? "　（未実行）" : ""}</li>;
                     })}
                   </ul>
                 ) : <div className="small muted org-flow-e">この先はありません（ここで終わります）</div>}
@@ -557,8 +558,8 @@ function GraphSection({ graph, wf, ro, busy, chatExists, onOpenChat, onGate, onE
             <ul className="org-flow-e">
               {graph.rounds.map((r) => (
                 <li key={r.edge}>
-                  <span className="mono">{r.from} ↺ {r.to}</span>　使用 {r.used}／許容 {r.maxRounds + r.extra} 回{r.extra > 0 ? `（あなたが ${r.extra} 回足しました）` : ""}。上限に達したら{r.onExhausted === "ask" ? "あなたに聞きます" : "戻り先を失敗にします"}。
-                  <div className="small">{r.history.length === 0 ? "判定: まだありません" : r.history.map((h) => `${h.index}回目: ${verdictText(h.verdict)}`).join("／")}</div>
+                  <span title={r.edge}>{nameOf(r.from)} ↺ {nameOf(r.to)}</span>　やり直し 使用 {r.used}／最大 {r.maxRounds + r.extra} 回{r.extra > 0 ? `（あなたが ${r.extra} 回足しました）` : ""}。上限に達したら{r.onExhausted === "ask" ? "あなたに聞きます" : "戻り先を失敗にします"}。
+                  <div className="small">{r.history.length === 0 ? "判定: まだありません" : r.history.map((h) => `${h.index}回目の判定: ${verdictText(h.verdict)}`).join("／")}</div>
                 </li>
               ))}
             </ul>

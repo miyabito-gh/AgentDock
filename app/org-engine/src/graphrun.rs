@@ -479,7 +479,7 @@ impl OrgCore {
             }
             crate::graph::OnExhausted::Ask => {
                 if target_status == Some(TaskStatus::Reviewing) {
-                    self.block(&target, BlockedReason::RoundLimit, &format!("工程 {} の差し戻しが上限（{}周）に達しました。理由を書いてもう1周するか、取り消すか選んでください", l.target, fb.max_rounds + extra));
+                    self.block(&target, BlockedReason::RoundLimit, &format!("工程 {} へのやり直しが上限（最大{}回）に達しました。理由を書いてもう1回やり直すか、取り消すか選んでください", l.target, fb.max_rounds + extra));
                 }
                 // The source stays under review: it must be able to wait again if the user adds a round.
                 if self.status_of(id) == Some(TaskStatus::Running) {
@@ -554,7 +554,7 @@ impl OrgCore {
         let Some(node) = t.node.clone() else { return };
         let found = self.exhausted_loop(&g, &node);
         let Some((source, l)) = found.filter(|_| waiting) else {
-            self.notify(OrgNotice::Refused { reason: "上限に達した差し戻しを待っていないため、もう1周できません".into() });
+            self.notify(OrgNotice::Refused { reason: "上限に達したやり直しを待っていないため、もう1回やり直せません".into() });
             return;
         };
         if let Some(text) = nonblank(note) {

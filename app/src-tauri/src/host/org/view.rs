@@ -43,7 +43,7 @@ pub fn status_view(s: TaskStatus) -> OrgStatusView {
                 EBlocked::ManualStop => (OrgReason::ManualStop, "止まっています（中断されました）"),
                 EBlocked::Limit => (OrgReason::Limit, "止まっています（上限）"),
                 EBlocked::NeedsAttention => (OrgReason::NeedsAttention, "止まっています（要対応）"),
-                EBlocked::RoundLimit => (OrgReason::RoundLimit, "止まっています（周回の上限）"),
+                EBlocked::RoundLimit => (OrgReason::RoundLimit, "止まっています（やり直しの上限）"),
             };
             (P::Blocked, Some(reason), label, "pause")
         }
@@ -465,20 +465,32 @@ fn verdict_of(slot: &SlotId, path: &str, version: Option<u32>, slots: &HashMap<(
     }
 }
 
+/// 判定値の日本語訳（画面のため）。未知の値は元のまま。画面側（`org.ts` の `verdictJa`）と同じ対応。
+fn verdict_ja(v: &str) -> &str {
+    match v {
+        "rework" => "やり直し",
+        "pass" => "合格",
+        "replan" => "計画からやり直し",
+        other => other,
+    }
+}
+
+/// 辺の条件の文言。項目名 `verdict` は「判定」、判定値は訳す（それ以外の項目名・値はそのまま）。
 fn condition_label(c: Option<&Condition>) -> String {
     let Some(c) = c else { return "常に".to_string() };
     let show = |v: &Value| match v {
-        Value::String(s) => s.clone(),
+        Value::String(s) => verdict_ja(s).to_string(),
         other => other.to_string(),
     };
+    let path = if c.path == "verdict" { "判定" } else { c.path.as_str() };
     if let Some(x) = &c.eq {
-        format!("{} = {}", c.path, show(x))
+        format!("{} = {}", path, show(x))
     } else if let Some(x) = &c.ne {
-        format!("{} ≠ {}", c.path, show(x))
+        format!("{} ≠ {}", path, show(x))
     } else if let Some(xs) = &c.in_ {
-        format!("{} が {} のいずれか", c.path, xs.iter().map(show).collect::<Vec<_>>().join("・"))
+        format!("{} が {} のいずれか", path, xs.iter().map(show).collect::<Vec<_>>().join("・"))
     } else {
-        format!("{}（条件が不完全）", c.path)
+        format!("{}（条件が不完全）", path)
     }
 }
 

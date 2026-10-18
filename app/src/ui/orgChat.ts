@@ -6,7 +6,7 @@ import type { OrgBindingView } from "../ipc/gen/OrgBindingView";
 /** 組織が最初の送信に付ける役割の指示の先頭（org-engine の with_instructions）。 */
 export const ORG_INSTRUCTION_MARK = "【この役割の指示】";
 
-const ROLE_NAME: Record<string, string> = { planner: "Planner", worker: "Worker", reviewer: "Reviewer" };
+const ROLE_NAME: Record<string, string> = { planner: "Planner", worker: "Worker", reviewer: "Reviewer", verifier: "Verifier" };
 export const roleLabel = (role: string): string => ROLE_NAME[role] ?? role;
 
 /** 役割チャットの表示名「<役割名> <タスクID>: <タスク名>」。組織が所有していない（無い・手動に切替済み）か、タスクが見つからなければ null（従来の名前のまま）。 */

@@ -64,8 +64,8 @@ const quality = (nodes: OrgGraphNodeView[], used: number, history: Array<"rework
   edges: [
     { from: "plan", to: "build", kind: "forward", label: "常に", used: 1, allowed: null },
     { from: "build", to: "verify", kind: "forward", label: "常に", used: 1, allowed: null },
-    { from: "verify", to: "build", kind: "feedback", label: "verdict = rework", used, allowed: 3 },
-    { from: "verify", to: "plan", kind: "feedback", label: "verdict = replan", used: 0, allowed: 1 },
+    { from: "verify", to: "build", kind: "feedback", label: "判定 = やり直し", used, allowed: 3 },
+    { from: "verify", to: "plan", kind: "feedback", label: "判定 = 計画からやり直し", used: 0, allowed: 1 },
   ],
   rounds: [
     { edge: "verify->build", from: "verify", to: "build", used, maxRounds: 3, extra: 0, onExhausted: "ask", history: history.map((h, i) => ({ index: i + 1, verdict: { kind: "value", text: h } })) },
@@ -96,18 +96,18 @@ function graphScenario(scenario: string): OrgSnapshotView | null {
   if (scenario === "orgGraph") {
     const [p, b, v] = QUALITY_TASKS;
     const graph = quality([
-      qn(p, "plan", "plan", "planner"),
-      qn(b, "build", "build", "worker", { round: 2, maxRound: 4 }),
-      qn(v, "verify", "verify", "verifier", { round: 2, maxRound: 4, lastVerdict: { kind: "value", text: "rework" } }),
+      qn(p, "plan", "計画", "planner"),
+      qn(b, "build", "実装", "worker", { round: 2, maxRound: 4 }),
+      qn(v, "verify", "検証", "verifier", { round: 2, maxRound: 4, lastVerdict: { kind: "value", text: "rework" } }),
     ], 1, ["rework"]);
     return { stallMinutes: 30, history: [], workflow: base({ title: "品質向上の依頼", tasks: QUALITY_TASKS, graph }) };
   }
   if (scenario === "orgLimit") {
-    const tasks = [QUALITY_TASKS[0], { ...QUALITY_TASKS[1], status: st("blocked", "止まっています（周回の上限）", "pause", "roundLimit") }, QUALITY_TASKS[2]];
+    const tasks = [QUALITY_TASKS[0], { ...QUALITY_TASKS[1], status: st("blocked", "止まっています（やり直しの上限）", "pause", "roundLimit") }, QUALITY_TASKS[2]];
     const graph = quality([
-      qn(tasks[0], "plan", "plan", "planner"),
-      qn(tasks[1], "build", "build", "worker", { round: 4, maxRound: 4, roundLimit: { edge: "verify->build", used: 3, allowed: 3, awaiting: true } }),
-      qn(tasks[2], "verify", "verify", "verifier", { round: 4, maxRound: 4, lastVerdict: { kind: "value", text: "rework" } }),
+      qn(tasks[0], "plan", "計画", "planner"),
+      qn(tasks[1], "build", "実装", "worker", { round: 4, maxRound: 4, roundLimit: { edge: "verify->build", used: 3, allowed: 3, awaiting: true } }),
+      qn(tasks[2], "verify", "検証", "verifier", { round: 4, maxRound: 4, lastVerdict: { kind: "value", text: "rework" } }),
     ], 3, ["rework", "rework", "rework"]);
     return { stallMinutes: 30, history: [], workflow: base({ title: "品質向上の依頼", tasks, graph }) };
   }

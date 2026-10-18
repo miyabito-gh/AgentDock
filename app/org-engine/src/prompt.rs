@@ -153,7 +153,7 @@ pub struct NodePrompt<'a> {
 pub fn node_prompt(p: &NodePrompt<'_>) -> String {
     let mut s = format!("あなたは{}です。{}\n", p.role, p.workplace);
     if let Some((n, max)) = p.round {
-        s.push_str(&format!("第{n}周／最大{max}周です。\n"));
+        s.push_str(&format!("実行{n}回目／最大{max}回です（やり直しは最大{}回）。\n", max.saturating_sub(1)));
     }
     if p.rework {
         s.push_str("これは前の回答を踏まえてやり直す回です。資料の最新の内容に沿って、同じJSONスキーマで答えてください。\n");
