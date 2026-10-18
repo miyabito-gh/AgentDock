@@ -32,6 +32,11 @@ export function modelBadge(model: Known<string>, effort: Known<string>): string 
   return e === null ? shortModel(m) : `${shortModel(m)}·${effortChar(e)}`;
 }
 
+/** 常時表示用の文字列。取れていないときは「モデル未取得」（空や既定値で代用しない）。 */
+export function modelBadgeText(model: Known<string>, effort: Known<string>): string {
+  return modelBadge(model, effort) ?? "モデル未取得";
+}
+
 const absent = (k: Known<string>): string => (k.kind === "unsupported" ? "非対応" : "未確認");
 
 /** 親の履歴に記録された起動時の指定の1行。値が取れたときだけ返し、取れないとき（未確認・非対応・中身が空）は null（行を出さない）。 */
@@ -48,7 +53,12 @@ export function spawnSpecLine(spec: Known<SpawnSpec> | undefined): string | null
 }
 
 /** ツールチップの全文。記録値であることを必ず添える。`spawn` を渡すと起動時の指定を続ける。 */
-export function modelTooltip(model: Known<string>, effort: Known<string>, spawn?: Known<SpawnSpec>): string {
+export function modelTooltip(model: Known<string>, effort: Known<string>, spawn?: Known<SpawnSpec>, root = false): string {
+  const head = root ? "親（メイン）のモデル（記録値）\n" : "";
+  return head + modelTooltipBody(model, effort, spawn);
+}
+
+function modelTooltipBody(model: Known<string>, effort: Known<string>, spawn?: Known<SpawnSpec>): string {
   const m = valueOf(model);
   const e = valueOf(effort);
   const line = spawnSpecLine(spawn);

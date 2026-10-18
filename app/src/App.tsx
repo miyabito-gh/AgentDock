@@ -26,9 +26,6 @@ import { LeftPane, type ChatOp } from "./ui/LeftPane";
 import { CenterPane, EmptyCenter, type FileActions, type SendNotice } from "./ui/CenterPane";
 import { fenceCode, insertBlock } from "./ui/attach";
 import { DockPane, MiniWindow, type DockActions, type DockFocus } from "./ui/Dock";
-import { sendLockReason } from "./ui/CenterPane";
-import { pendingView } from "./ui/pendingSend";
-import { queueCounts } from "./ui/sendStatus";
 import { commandViews } from "./ui/commandViews";
 import { cwdOpenWhy } from "./ui/commands";
 import { matchShortcut } from "./ui/shortcuts";
@@ -1651,34 +1648,8 @@ ${cur}` : p.text);
     }).map((a) => keyStr(a.agent.key)))
     : confirmed;
 
-  // ドックのカードの指示欄・回答（中央と同じ onSend／onRespond を通す。対象は押したカード1件）
+  // ドックのカードの回答（中央と同じ onRespond を通す。対象は押したカード1件）
   const dockActions: DockActions = {
-    draftOf: (c) => drafts[c.key.id] ?? snap.chatLocals.find((l) => l.chat.id === c.key.id)?.draft.text ?? c.draft ?? "",
-    onDraft,
-    send: (c, text) => sendTo(c, text, false, []),
-    block: (c) => {
-      const lock = sendLockReason(snap, c, snap.chatLocals.find((l) => l.chat.id === c.key.id));
-      if (lock) return lock;
-      const atts = live ? (snap.chatLocals.find((l) => l.chat.id === c.key.id)?.draft.attachments.length ?? 0) : snap.attachments.filter((a) => a.chat.id === c.key.id).length;
-      if (atts > 0) return "添付は中央で送ってください";
-      if ((pendingSends[c.key.id] ?? []).some((x) => x.first && x.outcome === null)) return "最初の依頼を送信しています";
-      if (hasInFlight(pendingSends[c.key.id] ?? [])) return "送信の応答を待っています";
-      return null;
-    },
-    note: (c) => {
-      const list = markRetryable(pendingSends[c.key.id], attempts[c.key.id]);
-      const p = list[list.length - 1];
-      if (!p) return null;
-      const v = pendingView(p, Date.now());
-      // 送信中・受理・受理不明は、カード内の段階表示（status）が出す。ここは未送信の理由だけ。
-      return v.kind === "unsent" ? `送信できませんでした（${v.reason}）。中央で入力欄へ戻せます` : null;
-    },
-    status: (c) => ({
-      pending: markRetryable(pendingSends[c.key.id], attempts[c.key.id]),
-      running: isRunning(snap, c),
-      turnHasOutput: null,
-      queue: queueCounts(snap.queues.find((q) => q.chat.id === c.key.id)?.entries),
-    }),
     respond: (r, a) => void onRespond(r, a),
   };
   const dockProps = {

@@ -68,6 +68,7 @@ const KNOWN_UNMAPPED_PREFIXES: &[&str] = &[
     "thread/attachment/",
     "thread/compacted",
     "thread/reverted",
+    "thread/readState/",
     "model/verification",
     "model/safetyBuffering/",
     "modelProvider/",

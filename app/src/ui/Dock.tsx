@@ -6,13 +6,11 @@ import { Icon } from "./Icon";
 import { OrgBadge } from "./OrgPane";
 import { Popover } from "./Popover";
 import type { Known } from "../ipc/types";
-import { chatAgents, chatDisplay, chatRequests, chatStatusText, descendantStates, historyOutcomeOf, chatName, isDoneLike, isRunning, isWorkingForDock, previewTitle, rootView } from "./derive";
-import { CHAT_DISPLAY_TEXT, HISTORY_OUTCOME_TEXT, historyBreakdown, historyBreakdownText, parkGroup, rawStateText, sortByDockRank, unknownCount, unknownNote, unknownSignature } from "./chatState";
+import { chatAgents, chatDisplay, chatRequests, chatStatusText, descendantStates, historyOutcomeOf, chatName, isDoneLike, isWorkingForDock, previewTitle, rootView } from "./derive";
+import { CHAT_DISPLAY_TEXT, isActiveState, HISTORY_OUTCOME_TEXT, historyBreakdown, historyBreakdownText, parkGroup, rawStateText, sortByDockRank, unknownCount, unknownNote, unknownSignature } from "./chatState";
 import { FRESH, SOURCE_LABEL, STATE, hms, keyStr, showKnown } from "./format";
 import { TitleBar } from "./Chrome";
 import { ModelBadge } from "./ModelBadge";
-import { SendStatusBar } from "./SendStatusBar";
-import type { StatusInput } from "./sendStatus";
 
 function waitText(a: AgentView): string | null {
   const w = a.status.wait;
@@ -29,6 +27,29 @@ function waitText(a: AgentView): string | null {
 function activityText(k: Known<string>): string {
   if (k.kind === "value") return k.value;
   return k.kind === "notFetched" ? "未確認" : k.kind === "unsupported" ? "このAIでは非対応" : "活動なし";
+}
+
+/** 活動の行は1行固定（高さが伸び縮みしない）。長い文は先頭だけ出し、全文は title で読む。 */
+const ACT_MAX = 60;
+function shortAct(s: string): string {
+  const one = s.replace(/\s+/g, " ").trim();
+  return one.length > ACT_MAX ? `${one.slice(0, ACT_MAX)}…` : one;
+}
+
+/** 表示更新の間引き（最小間隔 ms）。承認・質問の増減（bypass の変化）は即時に反映する。 */
+function useThrottled<T>(value: T, ms: number, bypass: string): T {
+  const [out, setOut] = useState(value);
+  const last = useRef(0);
+  const lastBypass = useRef(bypass);
+  useEffect(() => {
+    const wait = ms - (Date.now() - last.current);
+    if (bypass !== lastBypass.current || wait <= 0) {
+      lastBypass.current = bypass; last.current = Date.now(); setOut(value); return;
+    }
+    const t = window.setTimeout(() => { last.current = Date.now(); setOut(value); }, wait);
+    return () => window.clearTimeout(t);
+  }, [value, ms, bypass]);
+  return out;
 }
 
 /** 状態不明カードの「確認済みにして隠す」の署名（新しい活動・turnが届けば変わる）。 */
@@ -50,7 +71,7 @@ function Berth({ a, depth, orphan, mini, confirmed, onConfirmFail, rootName, chi
       <div className="c1">
         <span className="nm" title={a.agent.parent.kind === "root" ? undefined : "Codexが付けた呼び名です（役割ではありません）"}>{a.agent.parent.kind === "root" ? (rootName ?? showKnown(a.agent.displayName)) : showKnown(a.agent.displayName)}</span>
         <span className="rel" title={a.agent.parent.kind === "root" ? "役割: メイン（会話の本体）" : undefined}>{rel}</span>
-        {a.agent.parent.kind === "root" ? null : <ModelBadge model={a.agent.model} effort={a.agent.effort} spawn={a.agent.spawnSpec} compact={mini} />}
+        <ModelBadge model={a.agent.model} effort={a.agent.effort} spawn={a.agent.spawnSpec} root={a.agent.parent.kind === "root"} />
         <span className={`st ${m.c}${outcome ? " hist" : ""}`}><i aria-hidden="true" />{m.t}</span>
       </div>
       {childNote || (a.agent.parent.kind !== "root" && a.agent.agentPath.kind === "value") || (!mini && a.agent.parent.kind !== "root") ? (
@@ -65,7 +86,7 @@ function Berth({ a, depth, orphan, mini, confirmed, onConfirmFail, rootName, chi
           )}
         </div>
       ) : null}
-      <div className="c3" title={act}>{act}</div>
+      <div className="c3" title={act}>{shortAct(act)}</div>
       {mini && !outcome ? null : (
         <div className="c4">
           {mini ? null : (
@@ -257,18 +278,8 @@ function RootBlock({ snap, c, views, showHead, selected, mini, parentOnly, confi
   );
 }
 
-/** ドックのカードから呼ぶ操作（本窓のみ。監視窓には渡さない）。送信・回答は中央と同じ経路で、押した1件だけに作用する。 */
+/** ドックのカードから呼ぶ操作（本窓のみ。監視窓には渡さない）。回答は中央と同じ経路で、押した1件だけに作用する。 */
 export interface DockActions {
-  draftOf: (c: Chat) => string;
-  onDraft: (c: Chat, text: string) => void;
-  /** 実行中なら「完了後に送る」登録、そうでなければ新しいturn。結果の案内は呼び出し側が出す。 */
-  send: (c: Chat, text: string) => Promise<boolean>;
-  /** 送れない理由（無ければ null）。 */
-  block: (c: Chat) => string | null;
-  /** 直近の送信の結果（1行）。 */
-  note: (c: Chat) => string | null;
-  /** 段階表示の入力（送信した・受理待ち・応答待ち・キュー）。中央の入力欄の表示と同じ規則。 */
-  status: (c: Chat) => StatusInput;
   respond: (r: PendingRequest, a: RequestAnswer) => void;
 }
 /** 通知を押したチャット（tick が変わるたびに1回）。 */
@@ -334,25 +345,6 @@ function TaskCard({ snap, c, band, line, open, marked, mini, at, confirmed, acti
   const act = root?.currentActivity ? activityText(root.currentActivity.summary) : root ? "活動なし" : "未確認";
   const nameOf = (a: AgentKey): string => { const v = chatAgents(snap, c).find((x) => keyStr(x.agent.key) === keyStr(a)); return v ? showKnown(v.agent.displayName) : a.id; };
   const notLive = !!root && root.freshness !== "live";
-  const canWrite = !!actions && !mini;
-  const draft = canWrite ? actions.draftOf(c) : "";
-  const block = canWrite ? actions.block(c) : null;
-  const note = canWrite ? actions.note(c) : null;
-  const run = isRunning(snap, c);
-  const [busy, setBusy] = useState(false);
-  const ta = useRef<HTMLTextAreaElement>(null);
-  // 指示欄は1〜3行（約66px）まで内容に合わせて伸びる（表示だけ）
-  useLayoutEffect(() => {
-    const el = ta.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 66)}px`;
-  }, [draft, body]);
-  const send = async () => {
-    if (!actions || busy || block || !draft.trim()) return;
-    setBusy(true);
-    try { if (await actions.send(c, draft)) actions.onDraft(c, ""); } finally { setBusy(false); }
-  };
   const chip = chatChipClass(snap, c);
   const stateText = chatStatusText(snap, c);
   return (
@@ -388,7 +380,7 @@ function TaskCard({ snap, c, band, line, open, marked, mini, at, confirmed, acti
       {body ? (
         <>
           {notLive ? <div className="tc-fresh">{FRESH[root.freshness].t}</div> : null}
-          <div className={`tc-act ${working ? "" : "clamp"}`} title={act}>{act}</div>
+          <div className="tc-act" title={act}>{shortAct(act)}</div>
           <div className="tc-kids">
             {sum.notFetched ? <div className="tc-kids-none small muted">{sumText}</div> : <KidsToggle text={sumText} open={kidsOpen} onToggle={onToggleKids} />}
             {kidsOpen && !sum.notFetched ? (
@@ -399,27 +391,13 @@ function TaskCard({ snap, c, band, line, open, marked, mini, at, confirmed, acti
               </div>
             ) : null}
           </div>
-          {canWrite ? (
-            <div className="tc-send">
-              <textarea ref={ta} rows={1} aria-label={`${chatName(c)}への次の指示`} value={draft} disabled={!!block}
-                placeholder={run ? "完了後に送る次の依頼（Ctrl＋Enter）" : "次の指示（Ctrl＋Enter で送信）"}
-                title={block ?? "下書きは中央の入力欄と共有しています"}
-                onChange={(e) => actions.onDraft(c, e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter" && e.ctrlKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); } }} />
-              <button className="btn-main small" disabled={!!block || busy || !draft.trim()} title={block ?? (run ? "完了後に送る依頼として登録します" : "送信")} onClick={() => void send()}>{run ? "完了後に送る" : "送信"}</button>
-              {busy && run ? <div className="tc-note" role="status"><span className="spinner" aria-hidden="true" /> 受け付けました（キューへ登録しています）</div> : null}
-              <SendStatusBar compact input={actions.status(c)} />
-              {block ? <div className="tc-note">{block}</div> : null}
-              {note ? <div className="tc-note" role="status">{note}</div> : null}
-            </div>
-          ) : null}
         </>
       ) : null}
     </section>
   );
 }
 
-export function DockPane({ snap, scope, selId, mini, confirmed, onScope, onOpen, onConfirmFail, onAct, onRecheck, actions, focusReq }: {
+export function DockPane({ snap: snapIn, scope, selId, mini, confirmed, onScope, onOpen, onConfirmFail, onAct, onRecheck, actions, focusReq }: {
   snap: HostSnapshot; scope: MonitorScope; selId: string | null; mini?: boolean; confirmed: Set<string>;
   /** 状態不明の子の「履歴で再確認」（本窓のみ。保存履歴を読むだけ）。結果の案内は呼び出し側が出す。 */
   onRecheck?: (chat: ChatKey, agents: AgentKey[]) => Promise<void>;
@@ -427,6 +405,8 @@ export function DockPane({ snap, scope, selId, mini, confirmed, onScope, onOpen,
   actions?: DockActions; focusReq?: DockFocus | null;
   onScope: (s: MonitorScope) => void; onOpen: (id: string) => void; onConfirmFail: (key: string) => void; onAct: (a: string) => void;
 }) {
+  // 更新は1秒に間引く（活動のたびの再描画でチカチカしない）。承認・質問の増減は即時。
+  const snap = useThrottled(snapIn, 1000, snapIn.requests.filter((r) => r.state.kind === "pending").map((r) => `${r.key.source}/${r.key.requestId}`).join("|"));
   // 表示（タスク｜選択中｜全）と「親のみ」はウィンドウ内の記憶（ホストへは保存しない）。表示範囲の変更だけで送信先・中断・承認を変えない。
   const [view, setView] = useState<DockView>("task");
   const [parentOnly, setParentOnly] = useState(false);
@@ -448,6 +428,9 @@ export function DockPane({ snap, scope, selId, mini, confirmed, onScope, onOpen,
   const taskOrder = useRef<string[]>([]);
   const bandOrder = useRef<string[]>([]);
   const allOrder = useRef<string[]>([]);
+  const allSig = useRef("");
+  const taskSig = useRef("");
+  const kidSig = useRef<Map<string, string>>(new Map());
   const scrollRef = useRef<HTMLDivElement>(null);
   const [dim, setDim] = useState({ h: 9999, w: 9999 });
   useLayoutEffect(() => {
@@ -472,7 +455,10 @@ export function DockPane({ snap, scope, selId, mini, confirmed, onScope, onOpen,
   const viewLabel = onItems.length ? `表示: ${onItems.join("・")}` : "表示 ▾";
   const viewTitle = onItems.length ? `表示の設定（${onItems.join("・")}がオン）` : "表示の設定（親のみ表示・終了済みも表示）";
   // 「選択中」「全」: 全の並びは最近動かした順（入力中は並べ替えを保留）
-  const allIds = stableOrder(allOrder.current, orderByRecency(snap.chats, rec).map(cid), typing);
+  // 並び（チャット）は、作業状態（working か否か）が変わったときだけ入れ替える。それ以外は前回の並びを保つ（入力中も保つ）。
+  const workSig = snap.chats.map((c) => `${cid(c)}:${isWorkingForDock(snap, c) ? 1 : 0}`).join("|");
+  const holdAll = typing || workSig === allSig.current;
+  const allIds = stableOrder(allOrder.current, orderByRecency(snap.chats, rec).map(cid), holdAll);
   const allById = new Map(snap.chats.map((c) => [cid(c), c] as const));
   const chats = isSel ? snap.chats.filter((c) => c.key.id === selId) : allIds.flatMap((id) => allById.get(id) ?? []);
   const visibleOf = (c: Chat) => chatAgents(snap, c).filter((v) => {
@@ -501,8 +487,10 @@ export function DockPane({ snap, scope, selId, mini, confirmed, onScope, onOpen,
     [isTask, snap, rec, closed],
   );
   // 入力中は、並びだけでなく所属（帯・タスク列）も保つ（カードを作り直さない＝フォーカス・変換を保つ）。
-  const { band: bandIds, task: taskIds } = stableMembership(bandOrder.current, taskOrder.current, sel.attention.map(cid), sel.tasks.map(cid), typing, new Set(allById.keys()));
-  useEffect(() => { bandOrder.current = bandIds; taskOrder.current = taskIds; allOrder.current = allIds; });
+  // 作業状態・対応待ち・閉じたものが変わらない間は、所属と並びも前回のまま。
+  const memberSig = `${workSig}#${sel.attention.map(cid).join("|")}#${[...closed.keys()].join("|")}`;
+  const { band: bandIds, task: taskIds } = stableMembership(bandOrder.current, taskOrder.current, sel.attention.map(cid), sel.tasks.map(cid), typing || memberSig === taskSig.current, new Set(allById.keys()));
+  useEffect(() => { bandOrder.current = bandIds; taskOrder.current = taskIds; allOrder.current = allIds; allSig.current = workSig; taskSig.current = memberSig; });
   const inTask = new Set([...bandIds, ...taskIds]);
   const bandChats = bandIds.flatMap((id) => allById.get(id) ?? []);
   const taskChats = taskIds.flatMap((id) => allById.get(id) ?? []);
@@ -529,12 +517,16 @@ export function DockPane({ snap, scope, selId, mini, confirmed, onScope, onOpen,
   };
   const closeCard = (c: Chat) => setClosed((m) => new Map(m).set(cid(c), rec.get(cid(c))?.sig ?? chatSignature(snap, c)));
   const kidOrderNow = new Map<string, string[]>();
-  useEffect(() => { kidOrder.current = kidOrderNow; });
+  const kidSigNow = new Map<string, string>();
+  useEffect(() => { kidOrder.current = kidOrderNow; kidSig.current = kidSigNow; });
   const toggleIn = <T,>(set: Set<T>, v: T): Set<T> => { const n = new Set(set); if (n.has(v)) n.delete(v); else n.add(v); return n; };
   const card = (c: Chat, band: boolean) => {
     const id = cid(c);
     // 入力中は子の並びも凍結（新しい子は末尾）
-    const order = stableOrder(kidOrder.current.get(id) ?? [], branchOrder(snap, c), typing);
+    // 子の並びは、子の作業状態が変わったときだけ入れ替える
+    const ksig = chatAgents(snap, c).map((v) => `${keyStr(v.agent.key)}:${isActiveState(v.status.state) ? 1 : 0}`).join("|");
+    kidSigNow.set(id, ksig);
+    const order = stableOrder(kidOrder.current.get(id) ?? [], branchOrder(snap, c), typing || ksig === kidSig.current.get(id));
     kidOrderNow.set(id, order);
     const isOpen = kidsOpen.get(id) ?? isWorkingForDock(snap, c);
     return (

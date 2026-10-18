@@ -508,13 +508,13 @@ textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;paddin
 .card .c1 .nm{font-weight:700;flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .card .c1 .rel{flex:none}
 .card .c1 .st{flex:none;margin-left:auto}
-.card .c1 .mdl{flex:0 1 auto;min-width:0;max-width:9ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--fs-xs);color:var(--ink2);background:var(--surface2);border-radius:3px;padding:0 5px;cursor:default}
+.card .c1 .mdl{flex:0 1 auto;min-width:0;max-width:14ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--fs-xs);color:var(--ink2);background:var(--surface2);border-radius:3px;padding:0 5px;cursor:default}
 .card .c1 .mdl-tip{position:fixed;z-index:60;max-width:min(300px,86vw);white-space:pre-line;overflow-wrap:anywhere;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:var(--r2);box-shadow:var(--sh-3);padding:6px 8px;font-size:var(--fs-s);font-weight:400}
 .card .rel{font-size:var(--fs-xs);color:var(--ink3)}
 .card .c2{display:flex;flex-wrap:wrap;gap:0 10px;align-items:baseline;font-size:var(--fs-s);color:var(--ink2);min-width:0}
 .card .kvp{white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}
 .card .path{max-width:100%;font-size:var(--fs-xs);color:var(--ink2);background:var(--surface2);border-radius:3px;padding:0 5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
-.card .c3{font-size:var(--fs-s);white-space:normal;overflow-wrap:anywhere;word-break:break-word;min-width:0}
+.card .c3{font-size:var(--fs-s);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-height:1.4em;min-width:0}
 .card .c4{font-size:var(--fs-xs);color:var(--ink3);display:flex;flex-wrap:wrap;gap:0 8px;align-items:center;min-width:0}
 .card .c4 .stale-t{color:var(--stale)}
 .card .c4 button{margin-left:auto}
@@ -547,8 +547,7 @@ textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;paddin
 .tc-line:hover{background:var(--hover)}
 .tcard.line{padding:3px 6px;margin-bottom:4px}
 .tc-fresh{font-size:var(--fs-xs);color:var(--stale);margin-top:2px}
-.tc-act{font-size:var(--fs-s);margin-top:4px;color:var(--ink2);overflow-wrap:anywhere}
-.tc-act.clamp{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.tc-act{font-size:var(--fs-s);margin-top:4px;color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-height:1.4em}
 .tc-kids{margin-top:4px}
 .kids-toggle{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left;margin:2px 0}
 .tc-kids-none{margin:2px 0}
@@ -562,9 +561,6 @@ textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;paddin
 .tc-reqs{margin-top:6px}
 .tc-reqs .req{margin:0 0 6px;max-width:none}
 .tc-req-mini{display:flex;gap:6px;align-items:center;font-size:var(--fs-s);color:var(--wait-ink);margin:4px 0}
-.tc-send{display:flex;flex-wrap:wrap;gap:4px;align-items:flex-end;margin-top:6px}
-.tc-send textarea{flex:1 1 120px;min-width:0;resize:none;min-height:24px;font:inherit;font-size:var(--fs-s)}
-.tc-note{flex:1 0 100%;font-size:var(--fs-xs);color:var(--ink2)}
 .dock-more{margin-top:4px}
 .dock-more-h{font-size:var(--fs-s);font-weight:700;color:var(--ink2);margin:6px 0 2px}
 .tc-over{border:1px solid var(--card-line);border-radius:var(--r1);margin:0 0 3px;background:var(--surface)}
