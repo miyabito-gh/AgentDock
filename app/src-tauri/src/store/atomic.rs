@@ -101,7 +101,14 @@ pub fn free_space(path: &Path) -> io::Result<u64> {
             _ => break,
         }
     }
-    free_space_of(probe)
+    let result = free_space_of(probe);
+    // 診断ログ（挙動は変えない）。0またはエラーのときだけ、実際に問い合わせたパスと値を残す。
+    match &result {
+        Ok(0) => eprintln!("[store] free_space: 0 bytes reported (probe={}, requested={})", probe.display(), path.display()),
+        Err(e) => eprintln!("[store] free_space: query failed (probe={}, requested={}): {e}", probe.display(), path.display()),
+        Ok(_) => {}
+    }
+    result
 }
 
 #[cfg(windows)]

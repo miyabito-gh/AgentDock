@@ -84,6 +84,26 @@ enum Protection {
     Corrupt,
 }
 
+/// 空き取得→判定。取得値が0で必要量が正なら、`wait` の後に1回だけ再取得する。取得失敗は止めない。
+fn check_space_with(
+    needed: u64,
+    mut query: impl FnMut() -> std::io::Result<u64>,
+    wait: impl FnOnce(),
+) -> Result<(), StoreError> {
+    let mut available = match query() {
+        Ok(v) => v,
+        Err(_) => return Ok(()),
+    };
+    if available == 0 && needed.saturating_add(FREE_SPACE_MARGIN_BYTES) > 0 {
+        wait();
+        available = match query() {
+            Ok(v) => v,
+            Err(_) => return Ok(()),
+        };
+    }
+    space_check(needed, available)
+}
+
 /// 書込み量に余白を足して、空きと比べる（純粋関数）。
 pub fn space_check(needed: u64, available: u64) -> Result<(), StoreError> {
     let required = needed.saturating_add(FREE_SPACE_MARGIN_BYTES);
@@ -529,10 +549,7 @@ impl Store {
     /// 書込み前の空き確認。`needed` に [`FREE_SPACE_MARGIN_BYTES`] を足して比べる。
     /// 空きを取得できないときは止めない（書込み自体が失敗すればその結果を報告する）。
     pub fn check_space(&self, needed: u64) -> Result<(), StoreError> {
-        match atomic::free_space(&self.root) {
-            Ok(available) => space_check(needed, available),
-            Err(_) => Ok(()),
-        }
+        check_space_with(needed, || atomic::free_space(&self.root), || std::thread::sleep(std::time::Duration::from_millis(100)))
     }
 
     /// 使用量の集計（重い。設定画面を開いたときなどに背景で実行）。
@@ -801,6 +818,26 @@ mod tests {
 
     fn key(id: &str) -> ChatKey {
         ChatKey { backend: BackendKind::Codex, id: ExternalId(id.into()) }
+    }
+
+    #[test]
+    fn check_space_retries_once_when_zero() {
+        let mut calls = 0;
+        let mut waits = 0;
+        // 1回目0・2回目に十分な空き → 通る。
+        let r = check_space_with(10, || { calls += 1; Ok(if calls == 1 { 0 } else { FREE_SPACE_MARGIN_BYTES + 10 }) }, || waits += 1);
+        assert!(r.is_ok());
+        assert_eq!((calls, waits), (2, 1));
+        // 2回とも0 → 従来どおり不足。
+        let mut calls = 0;
+        let r = check_space_with(10, || { calls += 1; Ok(0) }, || {});
+        assert!(matches!(r, Err(StoreError::InsufficientSpace { available: 0, .. })));
+        assert_eq!(calls, 2);
+        // 取得失敗は止めない（再取得もしない）。
+        let mut calls = 0;
+        let r = check_space_with(10, || { calls += 1; Err(std::io::Error::other("x")) }, || {});
+        assert!(r.is_ok());
+        assert_eq!(calls, 1);
     }
 
     #[test]
