@@ -1106,3 +1106,37 @@ button.uchip:hover{background:var(--accent-weak)}
 .org-note-list{list-style:none;margin:4px 0;padding:0}
 .org-note-list li{display:flex;gap:6px;align-items:baseline;flex-wrap:wrap;margin:3px 0}
 .org-note-text{overflow-wrap:anywhere}
+
+/* 組織実行の成果物パネルと取り込み（DESIGN_ORG_R3）。色は既存トークンのみ。 */
+.org-artifacts{margin:14px 0 12px}
+.org-art-list{list-style:none;margin:0 0 6px;padding:0;border:1px solid var(--line);border-radius:var(--r2);background:var(--surface)}
+.org-art-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 10px;border-bottom:1px solid var(--line2)}
+.org-art-row:last-child{border-bottom:0}
+.org-art-id{flex:none;font-weight:700}
+.org-art-title{flex:1 1 12em;min-width:0;overflow-wrap:anywhere}
+.org-art-num{flex:none;white-space:nowrap;font-variant-numeric:tabular-nums}
+.org-art-rev{flex:none}
+.org-art-acts{flex:none;display:flex;gap:4px;margin-left:auto}
+.org-art-note{flex:1 0 100%}
+.org-art-foot{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 6px}
+.org-recs{margin:0 0 8px;display:flex;flex-direction:column;gap:6px}
+.org-rec{border:1px solid var(--line);border-radius:var(--r2);padding:6px 10px;background:var(--surface)}
+.org-rec .acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
+.org-art-detail{overflow:auto;min-height:0;display:flex;flex-direction:column;gap:6px;padding-bottom:8px}
+.org-art-detail>p,.org-art-detail>.org-art-meta,.org-art-detail>.org-art-find,.org-art-detail>details,.org-art-detail>.org-art-file{margin:0 12px}
+.org-art-meta{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
+.org-art-find{border:1px solid var(--line2);border-radius:var(--r2);padding:6px 10px;background:var(--surface2)}
+.org-art-files{border:1px solid var(--line);border-radius:var(--r2);margin:0 12px;max-height:12em;overflow:auto}
+.org-art-file{border:1px solid var(--line);border-radius:var(--r2);overflow:hidden}
+.org-art-file .chg-fh .seg{margin-left:auto}
+.org-art-img{padding:8px;text-align:center;background:var(--surface2)}
+.org-art-img img{max-width:100%;max-height:60vh;object-fit:contain}
+.org-art-md,.org-art-table{padding:8px 12px;overflow:auto;max-height:50vh}
+.org-art-pre{margin:0;padding:8px 12px;max-height:50vh;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}
+.org-art-file .diffview{max-height:50vh;overflow:auto}
+.org-imp-list{list-style:none;padding-left:0}
+.org-imp-list li{margin:4px 0}
+.org-imp-files{max-height:14em;overflow:auto;border:1px solid var(--line);border-radius:var(--r2)}
+.org-imp-files .chg-rowbtn{cursor:default}
+.org-consent{display:block;margin:6px 0}
+.linkish{height:auto;padding:0;border:0;background:transparent;color:var(--accent-text);text-decoration:underline;cursor:pointer;font:inherit}

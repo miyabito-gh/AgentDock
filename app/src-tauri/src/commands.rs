@@ -1155,6 +1155,67 @@ pub async fn org_hold_task(host: Hs<'_>, args: crate::backend::org::OrgHoldArgs)
     host.org_hold_task(args, &confirmed)
 }
 
+/// 成果物パネルの中身（読取りのみ。作業フォルダ・ブランチ・worktreeを変えない）。
+#[tauri::command]
+pub async fn org_artifacts(host: Hs<'_>, args: crate::backend::org_artifacts::OrgArtifactsArgs) -> R<crate::backend::org_artifacts::OrgArtifactsView> {
+    host.inner().clone().org_artifacts(args).await
+}
+
+/// 成果物の1ファイルの差分（読取りのみ）。
+#[tauri::command]
+pub async fn org_artifact_diff(host: Hs<'_>, args: crate::backend::org_artifacts::OrgArtifactPathArgs) -> R<crate::backend::org_artifacts::OrgArtifactDiff> {
+    host.inner().clone().org_artifact_diff(args).await
+}
+
+/// 成果物の1ファイルのプレビュー（読取りのみ）。
+#[tauri::command]
+pub async fn org_artifact_preview(host: Hs<'_>, args: crate::backend::org_artifacts::OrgArtifactPathArgs) -> R<crate::backend::org_artifacts::OrgArtifactPreview> {
+    host.inner().clone().org_artifact_preview(args).await
+}
+
+/// 成果物を関連アプリで開く（利用者の操作のときだけ）。読取り専用のコピーを AgentDock の領域へ書き出して開く。実行形式は確認が要る。
+#[tauri::command]
+pub async fn org_artifact_open(app: tauri::AppHandle, host: Hs<'_>, args: crate::backend::org_artifacts::OrgArtifactOpenArgs) -> R<crate::backend::org_artifacts::OrgArtifactOpenResult> {
+    use tauri_plugin_opener::OpenerExt;
+    let path = host.inner().clone().org_artifact_open_target(args).await?;
+    app.opener()
+        .open_path(path.to_string_lossy(), None::<&str>)
+        .map_err(|e| IpcError { code: IpcErrorCode::Io, message: format!("開けませんでした: {e}"), blocked: None })?;
+    Ok(crate::backend::org_artifacts::OrgArtifactOpenResult { path: path.to_string_lossy().into_owned() })
+}
+
+/// 取り込みの確認の材料（作業フォルダには何も書かない）。
+#[tauri::command]
+pub async fn org_import_preview(host: Hs<'_>, args: crate::backend::org_artifacts::OrgImportPreviewArgs) -> R<crate::backend::org_artifacts::OrgImportPreview> {
+    host.inner().clone().org_import_preview(args).await
+}
+
+/// 取り込みの実行（確認ダイアログの「取り込む」だけ。確認から変わっていれば何も書かない）。
+#[tauri::command]
+pub async fn org_import(host: Hs<'_>, args: crate::backend::org_artifacts::OrgImportArgs) -> R<crate::backend::org_artifacts::OrgImportResult> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().org_import(args, &confirmed).await
+}
+
+/// 結果が確認できなかった取り込みの確認（読取りのみ。再実行しない）。
+#[tauri::command]
+pub async fn org_import_verify(host: Hs<'_>, args: crate::backend::org_artifacts::OrgImportRecordArgs) -> R<crate::backend::org_artifacts::OrgImportResult> {
+    host.inner().clone().org_import_verify(args).await
+}
+
+/// 取り込み前に戻せるかの確認（読取りのみ）。
+#[tauri::command]
+pub async fn org_import_undo_preview(host: Hs<'_>, args: crate::backend::org_artifacts::OrgImportRecordArgs) -> R<crate::backend::org_artifacts::OrgUndoPreview> {
+    host.inner().clone().org_import_undo_preview(args).await
+}
+
+/// 取り込み前に戻す（確認ダイアログの後だけ。送信済みなどでは何もしない）。
+#[tauri::command]
+pub async fn org_import_undo(host: Hs<'_>, args: crate::backend::org_artifacts::OrgUndoArgs) -> R<crate::backend::org_artifacts::OrgUndoResult> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().org_import_undo(args, &confirmed).await
+}
+
 /// 削除確認の内容（読取りのみ。何も消さない）。
 #[tauri::command]
 pub async fn org_preview_delete(host: Hs<'_>, args: crate::backend::org::OrgWorkflowArgs) -> R<crate::backend::org::OrgDeletePreview> {

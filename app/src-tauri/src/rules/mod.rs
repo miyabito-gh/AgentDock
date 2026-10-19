@@ -13,6 +13,7 @@
 //! - [`org_interject`]・[`org_timeline`]: 組織実行の割り込み指示の経路の判定、進行タイムラインの整形（DESIGN_ORG_R2）
 //! - [`org_manage`]: 組織ワークフローの削除・アーカイブの可否と削除の手順（DESIGN_ORG_DELETE）
 //! - [`org_worktree`]: 組織実行のworktreeの所有確認・ブランチ名・コミット間差分の解析（P-ORG-5）
+//! - [`org_artifacts`]: 組織実行の成果物パネルと確認つきの取り込みの判定・解析・台帳（DESIGN_ORG_R3）
 //! - [`continuity`]: 継続チャットの資料の組立て・使用率の表示区分・引き継ぎの前提・起動時の照合（G-P、DESIGN_CONT）
 //! - [`org_intake`]・[`git_prep`]・[`git_push`]: 依頼整理の要約・依頼文・状態遷移、Gitの準備、アプリからのプッシュ（DESIGN_ORG_INTAKE）
 //! - [`compose`]・[`side`]: 参考ブロックの組立て、side相談の停止範囲・引渡し（段階③ P3-4）
@@ -28,6 +29,7 @@ pub mod git_push;
 pub mod manage;
 pub mod notify;
 pub mod org;
+pub mod org_artifacts;
 pub mod org_interject;
 pub mod org_intake;
 pub mod org_manage;

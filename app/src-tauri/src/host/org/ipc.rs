@@ -131,6 +131,7 @@ impl Host {
         if let Some(dir) = root.as_deref().map(|r| workflow_dir(r, &snapshot.workflow.0)) {
             workflow.archived_at = crate::store::org::read_archived_at(&dir);
             workflow.deletion = super::history::deletion_view_of(&dir);
+            workflow.artifact_hint = super::artifacts::hint_for(&dir, &workflow.tasks);
         }
         if workflow.archived_at.is_some() {
             archived.insert(0, workflow.clone());

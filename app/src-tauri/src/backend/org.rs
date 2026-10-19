@@ -461,6 +461,9 @@ pub struct OrgWorkflowView {
     /// 計画の作成後に追加した追加指示の件数（計画には反映されていない。承認カードに出す）。
     #[serde(default)]
     pub notes_after_plan: u32,
+    /// 成果物の印（レビュー待ち・取り込み済みの件数。エンジン状態と台帳だけから導く。Gitの事実は成果物パネルで確認する）。
+    #[serde(default)]
+    pub artifact_hint: Option<super::org_artifacts::OrgArtifactHint>,
 }
 
 /// 現在の組織実行（なければ `workflow=None`）。

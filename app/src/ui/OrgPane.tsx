@@ -18,6 +18,7 @@ import { activityLines, elapsedText, lineText, stabilize, type ActivityLine, typ
 import { useThrottled } from "./useThrottled";
 import { takeNoteDraft } from "./orgNoteDraft";
 import { rootView } from "./derive";
+import { ArtifactsSection } from "./OrgArtifacts";
 
 /** 状態の表示（アイコン＋文字。形・色は `.st.<tone>`）。 */
 function Chip({ tone, icon, label, title }: { tone: OrgTone; icon: string; label: string; title?: string }) {
@@ -42,6 +43,7 @@ export function OrgListRow({ wf, selected, onOpen, onStart, counts }: { wf: OrgW
             {counts && counts.wait > 0 ? <span className="mark wait" title={`承認・質問の回答待ち ${counts.wait}件。ワークフロー画面から回答できます`}>回答待ち {counts.wait}</span> : null}
             {counts && counts.fail > 0 ? <span className="mark fail" title={`回答を届けられなかった要求 ${counts.fail}件。ワークフロー画面で理由と次の手を確認してください`}>回答不可 {counts.fail}</span> : null}
             {sum.attention > 0 ? <span className="mark fail" title={`止まっている・要確認のタスク ${sum.attention}件`}>要対応 {sum.attention}</span> : null}
+            {wf.artifactHint && wf.artifactHint.ready > 0 ? <span className="mark wait" title="あなたの確認と取り込みを待っている成果（AIのレビュー中とは別）。ワークフロー画面の「成果物」で確認します">レビュー待ち {wf.artifactHint.ready}</span> : null}
           </span>
         </button>
         <Popover role="menu" align="right" triggerClassName="row-more" label={`組織実行「${name}」の操作`} trigger={<span aria-hidden="true">…</span>}>
@@ -75,7 +77,7 @@ export function OrgHistoryRows({ history, selectedId, onOpen }: { history: OrgWo
 状態: ${sum.label}`}>
               <span className="tag ai" title="過去の組織実行（保存済み。読み取り専用）">組織</span>
               <span className="nm">{name}</span>
-              <span className="marks"><Chip tone={sum.tone} icon={sum.icon} label={sum.label} /></span>
+              <span className="marks"><Chip tone={sum.tone} icon={sum.icon} label={sum.label} />{wf.artifactHint && wf.artifactHint.ready > 0 ? <span className="mark wait" title="あなたの確認と取り込みを待っている成果">レビュー待ち {wf.artifactHint.ready}</span> : null}</span>
             </button>
           </div>
         );
@@ -583,7 +585,8 @@ export function OrgPane(p: OrgPaneProps) {
           </div>
         ) : null}
         {wf.finished ? (
-          <div className="banner info" role="status"><Icon name="branch" /><div>ブランチ・差分を確認して取り込んでください。AgentDock は自動でマージしません。</div></div>
+          <div className="banner info" role="status"><Icon name="branch" /><div>成果物を確認して取り込んでください。AgentDock は自動でマージしません。
+            {wf.tasks.some((t) => t.commit) ? <button type="button" className="btn sm" style={{ marginLeft: 8 }} onClick={() => p.onAct(`orgArtifacts:${wf.workflowId}`)}>成果物を見る</button> : null}</div></div>
         ) : null}
         {approvals.count > 0 && approvals.first && !ro ? (
           <div className="banner warn" role="status"><Icon name="alert" /><div>Codex の承認・質問の待ちが {approvals.count} 件あります。
@@ -706,7 +709,7 @@ export function OrgPane(p: OrgPaneProps) {
                           <td><ConfirmChip c={t.confirm} /></td>
                           <td>{waitMsg ? <b>{waitMsg}</b> : waitText(t)}</td>
                           <td>{attemptText(t)}</td>
-                          <td>{artifactText(t)}</td>
+                          <td>{t.commit ? <button type="button" className="linkish" title="成果物の中身を開きます（見るだけ。何も書きません）" onClick={() => p.onAct(`orgArtifacts:${wf.workflowId}:${t.id}`)}>{artifactText(t)}</button> : artifactText(t)}</td>
                           <td>{taskActions(t)}</td>
                         </tr>
                         {t.reconcile || t.stallNotified || t.needsChatChoice || t.attentionNote || w.pending.length > 0 || w.gaps.length > 0 ? (
@@ -728,6 +731,8 @@ export function OrgPane(p: OrgPaneProps) {
             </div>
           ))}
         </section>
+
+        <ArtifactsSection wf={wf} live={p.live} onAct={p.onAct} />
 
         {shownNotices.length > 0 ? (
           <details className="about">

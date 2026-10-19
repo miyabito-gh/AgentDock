@@ -500,6 +500,13 @@ impl<P: AgentRuntime + RuntimeRead + Workspace + 'static> OrgDriver<P> {
                 }
                 None
             }
+            // Worker報告・Reviewer判定の控え（表示用）。経路の判定には使わないので、書けなくても以後の副作用は止めない（診断ログだけ）。
+            OrgAction::PutOutput { task, attempt, value } => {
+                if let Err(e) = self.store.put_output(&task, attempt, &value) {
+                    crate::diag::log("org", &format!("output write failed task={} attempt={attempt}: {e:?}", task.0));
+                }
+                None
+            }
             OrgAction::Notify(n) => {
                 self.notice(OrgHostNotice::Engine(n));
                 None

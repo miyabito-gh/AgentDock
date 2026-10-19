@@ -709,6 +709,15 @@ pub trait OrgStore {
     fn put_slot(&self, _slot: &SlotId, _version: u32, _value: &serde_json::Value) -> Result<(), StoreError> {
         Err(StoreError::Io("この保存口はスロットの値を保存できません".into()))
     }
+    /// Write a displayed plannedTasks output (`outputs\<task>.<attempt>.json`, atomically). Display only; the engine never
+    /// reads it, so a store that cannot keep it does not hold anything up.
+    fn put_output(&self, _task: &TaskId, _attempt: u32, _value: &serde_json::Value) -> Result<(), StoreError> {
+        Err(StoreError::Io("この保存口は出力を保存できません".into()))
+    }
+    /// Read one stored output back. `Ok(None)` = not there or not readable ("not obtained"; never guessed).
+    fn read_output(&self, _task: &TaskId, _attempt: u32) -> Result<Option<serde_json::Value>, StoreError> {
+        Ok(None)
+    }
     /// Read one version back. `Ok(None)` = not there or not readable ("not obtained"; never guessed).
     fn read_slot(&self, _slot: &SlotId, _version: u32) -> Result<Option<serde_json::Value>, StoreError> {
         Ok(None)

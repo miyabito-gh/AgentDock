@@ -169,10 +169,29 @@ impl OrgCore {
                 }
             }
             Output::Report(r) => {
+                let attempt = self.task(id).map_or(0, |t| t.rework_count());
+                let value = serde_json::json!({
+                    "summary": r.summary,
+                    "changedFiles": r.changed_files,
+                    "tests": { "ran": r.tests.ran, "passed": r.tests.passed },
+                });
+                self.out.push(OrgAction::PutOutput { task: id.clone(), attempt, value });
                 self.artifacts.insert(id.clone(), r.summary);
                 self.flow_set(id.clone(), Flow::WantCommit);
             }
-            Output::Verdict(v) => self.complete_verdict(id, v),
+            Output::Verdict(v) => {
+                // The verdict belongs to the reviewed worker's current attempt (read before a send-back counts it).
+                let attempt = self.task(id).and_then(|t| t.deps.first().cloned()).and_then(|d| self.task(&d).map(|t| t.rework_count())).unwrap_or(0);
+                let value = serde_json::json!({
+                    "verdict": match v.verdict {
+                        VerdictKind::Pass => "pass",
+                        VerdictKind::Rework => "rework",
+                    },
+                    "findings": v.findings,
+                });
+                self.out.push(OrgAction::PutOutput { task: id.clone(), attempt, value });
+                self.complete_verdict(id, v)
+            }
             Output::Slot { slot, value } => self.graph_complete_slot(id, slot, value),
         }
     }

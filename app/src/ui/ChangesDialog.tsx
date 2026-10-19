@@ -4,13 +4,13 @@
 //       戻せない理由・要確認の理由は消さない。部分的にしか戻せなかったときは完了と書かない。通信断・取得不能を成功と書かない。
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import * as host from "../ipc/client";
-import type { Chat, ChangedFile, ChangeList, ChangeSource, GitInfo, ListStatus, OpCapability, RepoBaselinePref, RevertPlan, RevertResult, SegmentStatus, TurnRecord, UnifiedDiff } from "../ipc/types";
-import { showKnown } from "./format";
+import type { Chat, ChangeList, ChangeSource, GitInfo, ListStatus, OpCapability, RepoBaselinePref, RevertPlan, RevertResult, SegmentStatus, TurnRecord, UnifiedDiff } from "../ipc/types";
+import { Counts, DiffText, kindIcon, pathText } from "./DiffParts";
 import { About, ConfirmBlock, FootActions } from "./DialogParts";
 import { RepoRecordPanel, type SetRepoFn } from "./RepoRecordPanel";
 import type { BaselineContext } from "./revertView";
 import { failureText, gitKindOf, noBaselineReason, ownerCardShown, ownerExplainsNoBaseline, repoPanelVisible, sameReason } from "./revertView";
-import { allState, confirmSummary, defaultRequest, DIFF_ROW_LIMIT, diffRows, fileKey, headline, keepChosen, mergeRows, planChanged, requestName, requestOptions, resultText, setChecked, splitPath, statusSlot, STATE_LABEL, STATE_MARK, toggleAll, type Row } from "./changesView";
+import { allState, confirmSummary, defaultRequest, fileKey, headline, keepChosen, mergeRows, planChanged, requestName, requestOptions, resultText, setChecked, splitPath, statusSlot, STATE_LABEL, STATE_MARK, toggleAll, type Row } from "./changesView";
 
 const SOURCE_TEXT: Record<ChangeSource, string> = { baseline: "このチャット", git: "Git（HEAD比較）" };
 
@@ -52,34 +52,6 @@ function baselineContextOf(info: GitInfo | null, baselinesEnabled: boolean | und
 export function UnverifiedNote({ cap }: { cap: OpCapability | undefined }) {
   if (cap?.verification !== "unverified") return null;
   return <p className="small muted"><span className="unv">未確認</span> {UNVERIFIED_TEXT}</p>;
-}
-
-/** 統一diffの表示。行番号（旧・新）と記号の列つき。本文は加工しない。巨大な差分は先頭だけ。 */
-function DiffText({ text }: { text: string }) {
-  const rows = diffRows(text);
-  const shown = rows.length > DIFF_ROW_LIMIT ? rows.slice(0, DIFF_ROW_LIMIT) : rows;
-  return (
-    <div className="diffview" role="region" aria-label="差分" tabIndex={0}>
-      {shown.map((r, i) => (
-        <div key={i} className={`ln ${r.kind}`}>
-          <span className="no" aria-hidden="true">{r.old ?? ""}</span><span className="no" aria-hidden="true">{r.new ?? ""}</span>
-          <span className="sg" aria-hidden="true">{r.kind === "add" ? "+" : r.kind === "del" ? "−" : ""}</span>
-          <span className="tx">{r.kind === "hunk" || r.kind === "meta" ? r.text : r.text === "" ? " " : r.text}</span>
-        </div>))}
-      {rows.length > shown.length ? <div className="ln meta"><span className="tx">先頭 {shown.length} 行のみ表示しています（全 {rows.length} 行）。</span></div> : null}
-    </div>
-  );
-}
-
-/** 種類アイコン（A/M/D/R）。色は追加=緑、削除=赤、変更=青、移動=灰。 */
-function kindIcon(f: ChangedFile): { letter: string; cls: string; title: string } {
-  if (f.moveTo) return { letter: "R", cls: "mov", title: "移動" };
-  return f.kind === "added" ? { letter: "A", cls: "add", title: "追加" } : f.kind === "deleted" ? { letter: "D", cls: "del", title: "削除" } : { letter: "M", cls: "mod", title: "変更" };
-}
-const pathText = (f: ChangedFile) => `${f.path}${f.moveTo ? ` → ${f.moveTo}` : ""}`;
-function Counts({ f }: { f: ChangedFile }) {
-  if (f.binary) return <span className="chg-num muted">バイナリ</span>;
-  return <span className="chg-num"><span className="chg-add">{showKnown(f.additions, (v) => `+${v}`)}</span> <span className="chg-del">{showKnown(f.deletions, (v) => `−${v}`)}</span></span>;
 }
 
 export interface ChangesProps {

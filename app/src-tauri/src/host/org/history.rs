@@ -15,7 +15,7 @@ use super::view::{workflow_view, ViewInput};
 use crate::backend::org::{OrgDeletionView, OrgWorkflowView};
 use crate::store::org::{
     list_workflow_dirs_newest, read_archived_at, read_delete_record, workflow_dir, ReadOnlyOrgStore, DELETE_FILE, EVENTS_FILE, LISTING_FILE, SNAPSHOT_FILE,
-    USAGE_FILE,
+    IMPORTS_FILE, USAGE_FILE,
 };
 
 /// 画面に出す過去のワークフローの件数（新しい順の先頭から。動いている1件を含む。アーカイブは数えない）。
@@ -24,7 +24,7 @@ pub const HISTORY_KEEP: usize = 10;
 pub const ARCHIVED_KEEP: usize = 50;
 
 /// 保存ファイルの更新の目印（変わっていなければ読み直さない）。
-type Stamp = [(Option<SystemTime>, u64); 5];
+type Stamp = [(Option<SystemTime>, u64); 6];
 
 /// フォルダごとの読込み結果の控え。`None`＝読めなかった（次も同じ目印なら再度読まない）。
 #[derive(Default)]
@@ -32,7 +32,7 @@ pub struct HistoryCache(HashMap<PathBuf, (Stamp, Option<OrgWorkflowView>)>);
 
 fn stamp_of(dir: &Path) -> Stamp {
     let one = |name: &str| std::fs::metadata(dir.join(name)).map(|m| (m.modified().ok(), m.len())).unwrap_or((None, 0));
-    [one(SNAPSHOT_FILE), one(EVENTS_FILE), one(USAGE_FILE), one(DELETE_FILE), one(LISTING_FILE)]
+    [one(SNAPSHOT_FILE), one(EVENTS_FILE), one(USAGE_FILE), one(DELETE_FILE), one(LISTING_FILE), one(IMPORTS_FILE)]
 }
 
 /// 削除の途中の記録（読めなければ None）。
@@ -78,6 +78,7 @@ fn read_one(dir: &Path) -> Option<OrgWorkflowView> {
     v.readonly = true;
     v.archived_at = read_archived_at(dir);
     v.deletion = deletion;
+    v.artifact_hint = super::artifacts::hint_for(dir, &v.tasks);
     Some(v)
 }
 

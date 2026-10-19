@@ -351,6 +351,21 @@ export const orgPreviewDelete = (workflowId: string): Promise<OrgDeletePreview> 
 export const orgDeleteWorkflow = (workflowId: string, deleteChats: boolean, expectChats: OrgChatKey[]): Promise<OrgDeleteOutcome> => invokeCmd("org_delete_workflow", { workflowId, deleteChats, expectChats });
 export const orgArchiveWorkflow = (workflowId: string): Promise<null> => invokeCmd("org_archive_workflow", { workflowId });
 export const orgUnarchiveWorkflow = (workflowId: string): Promise<null> => invokeCmd("org_unarchive_workflow", { workflowId });
+// ── 成果物パネルと確認つきの取り込み（DESIGN_ORG_R3）。閲覧・プレビューは作業フォルダを変えない。org_import／org_import_undo は確認ダイアログの後だけ ──
+import type {
+  OrgArtifactsView, OrgArtifactDiff, OrgArtifactPreview, OrgArtifactOpenResult, OrgImportPreview, OrgImportResult, OrgUndoPreview, OrgUndoResult,
+} from "./types";
+export const orgArtifacts = (workflowId: string): Promise<OrgArtifactsView> => invokeCmd("org_artifacts", { workflowId });
+export const orgArtifactDiff = (workflowId: string, task: string, path: string, moveTo: string | null): Promise<OrgArtifactDiff> => invokeCmd("org_artifact_diff", { workflowId, task, path, moveTo });
+export const orgArtifactPreview = (workflowId: string, task: string, path: string, moveTo: string | null): Promise<OrgArtifactPreview> => invokeCmd("org_artifact_preview", { workflowId, task, path, moveTo });
+/** 読取り専用のコピーを書き出して開く。実行形式は `blocked.openNeedsConfirm`（確認のうえ riskConfirmed=true で再実行）。 */
+export const orgArtifactOpen = (workflowId: string, task: string, path: string, moveTo: string | null, riskConfirmed = false): Promise<OrgArtifactOpenResult> =>
+  invokeCmd("org_artifact_open", { workflowId, task, path, moveTo, riskConfirmed });
+export const orgImportPreview = (workflowId: string, tasks: string[]): Promise<OrgImportPreview> => invokeCmd("org_import_preview", { workflowId, tasks });
+export const orgImport = (workflowId: string, token: string, acceptNotPassed: boolean): Promise<OrgImportResult> => invokeCmd("org_import", { workflowId, token, acceptNotPassed });
+export const orgImportVerify = (workflowId: string, recordId: string): Promise<OrgImportResult> => invokeCmd("org_import_verify", { workflowId, recordId });
+export const orgImportUndoPreview = (workflowId: string, recordId: string): Promise<OrgUndoPreview> => invokeCmd("org_import_undo_preview", { workflowId, recordId });
+export const orgImportUndo = (workflowId: string, recordId: string, expectedHead: string): Promise<OrgUndoResult> => invokeCmd("org_import_undo", { workflowId, recordId, expectedHead });
 // ── 依頼整理（DESIGN_ORG_INTAKE §1）。会話中は組織実行を始めない。org_intake_start だけが開始する ──
 import type {
   IntakeBeginMode, IntakeBeginResult, IntakeSaveArgs, IntakeView, ModelChoice as IntakeModel, SendAttempt as IntakeSend,

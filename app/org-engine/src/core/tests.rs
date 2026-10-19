@@ -513,6 +513,28 @@ fn worker_review_pass_completes_both_and_the_workflow() {
 }
 
 #[test]
+fn reports_and_verdicts_are_kept_for_display_per_attempt() {
+    let mut sim = Sim::new();
+    sim.with_plan(&plan_json(&[("w", "worker", &[], &[]), ("r", "reviewer", &["w"], &[])]));
+    sim.complete_turn("w", REPORT);
+    sim.complete_turn("r", REWORK);
+    sim.complete_turn("w", REPORT);
+    sim.complete_turn("r", PASS);
+    let outputs: Vec<(String, u32, Value)> = sim
+        .log
+        .iter()
+        .filter_map(|a| if let OrgAction::PutOutput { task, attempt, value } = a { Some((task.0.clone(), *attempt, value.clone())) } else { None })
+        .collect();
+    let keys: Vec<(&str, u32)> = outputs.iter().map(|(t, a, _)| (t.as_str(), *a)).collect();
+    // the worker's attempt n is judged by the reviewer's attempt n
+    assert_eq!(keys, [("w", 0), ("r", 0), ("w", 1), ("r", 1)]);
+    assert_eq!(outputs[0].2["changedFiles"], json!(["a.rs"]));
+    assert_eq!(outputs[0].2["tests"], json!({"ran": true, "passed": true}));
+    assert_eq!(outputs[1].2, json!({"verdict": "rework", "findings": ["fix the edge case"]}));
+    assert_eq!(outputs[3].2["verdict"], json!("pass"));
+}
+
+#[test]
 fn rework_is_limited_to_two_sendbacks() {
     let mut sim = Sim::new();
     sim.with_plan(&plan_json(&[("w", "worker", &[], &[]), ("r", "reviewer", &["w"], &[])]));
@@ -731,6 +753,7 @@ fn engine_has_no_input_for_resend_and_no_codex_request_action() {
         match a {
             OrgAction::Persist(_) => "persist",
             OrgAction::PutSlot { .. } => "slot",
+            OrgAction::PutOutput { .. } => "output",
             OrgAction::CreateRoleChat { .. } => "create",
             OrgAction::CheckSandbox { .. } => "sandbox",
             OrgAction::Send { .. } => "send",

@@ -24,6 +24,7 @@ import { WorkspaceChoice, WorktreesBody } from "./WorktreeDialogs";
 import { CloudBody } from "./CloudDialogs";
 import { ContinuationSettingsBody, HandoffPreviewBody, PurposeBody, type ContinuityDialogProps } from "./ContinuityDialogs";
 import { OrgDeleteDialog, OrgSettingsBody, type OrgSettingsProps } from "./OrgDialogs";
+import { OrgArtifactsBody, OrgImportBody } from "./OrgArtifacts";
 import { IntakeStartBody, OrgIntakeBeginBody } from "./OrgIntake";
 import { GitPrepBody, GitPushBody } from "./GitDialogs";
 import { FolderListEditor } from "./WorkFoldersUi";
@@ -41,6 +42,8 @@ export type DialogState =
   | { type: "gitPrep"; folder: string; /** 準備できたら開始ダイアログへ戻る。 */ backToStart?: boolean }
   | { type: "gitPush"; folder: string }
   | { type: "orgDelete"; workflowId: string }
+  | { type: "orgArtifacts"; workflowId: string; /** 開いたとき選ぶ成果（タスクID）。 */ task: string | null }
+  | { type: "orgImport"; workflowId: string; tasks: string[] }
   | { type: "quit" }
   | { type: "force" }
   | { type: "delete"; chatId: string }
@@ -574,6 +577,14 @@ export function Dialogs({ cont, org, folderTools, workspaceRoots, d, onClose, ch
     case "orgDelete": return (
       <Shell title="ワークフローを削除" onClose={onClose} close="閉じる">
         <OrgDeleteDialog workflowId={d.workflowId} live={org.settings.live} preview={org.previewDelete} remove={org.deleteWorkflow} onDone={() => org.onDeleted(d.workflowId)} />
+      </Shell>);
+    case "orgArtifacts": return (
+      <Shell title="成果物" wide onClose={onClose} close="閉じる">
+        <OrgArtifactsBody workflowId={d.workflowId} initialTask={d.task} live={org.settings.live} onImport={(tasks) => org.go({ type: "orgImport", workflowId: d.workflowId, tasks })} onPush={(folder) => org.go({ type: "gitPush", folder })} />
+      </Shell>);
+    case "orgImport": return (
+      <Shell title="成果を取り込む" wide onClose={onClose} close="キャンセル">
+        <OrgImportBody workflowId={d.workflowId} initialTasks={d.tasks} live={org.settings.live} onBack={() => org.go({ type: "orgArtifacts", workflowId: d.workflowId, task: d.tasks[0] ?? null })} onPush={(folder) => org.go({ type: "gitPush", folder })} onClose={onClose} />
       </Shell>);
     case "newChat": return (
       <Shell title="新しいチャット" onClose={onClose} foot={<><button className="btn" onClick={onClose}>キャンセル</button><button className="btn primary" disabled={(kind === "dev" && !cwd.trim()) || creating} onClick={() => void createNewChat()}>{creating ? <><span className="spinner" aria-hidden="true" /> 作成中…</> : kind === "dev" && isolate ? "worktreeを作って開始" : "作成"}</button></>}>

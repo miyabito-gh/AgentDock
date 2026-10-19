@@ -12,6 +12,7 @@ use org_engine::{
     parse_events, parse_usage, EventRead, OrgEvent, OrgStore, SnapshotLoad, StoreError, UsageRow, WorkflowState,
 };
 use org_engine::graph::SlotId;
+use org_engine::TaskId;
 
 use serde::{Deserialize, Serialize};
 
@@ -25,6 +26,10 @@ pub const EVENTS_FILE: &str = "events.jsonl";
 pub const USAGE_FILE: &str = "usage.jsonl";
 /// スロットの値のフォルダ（`slots\<スロットID>.<版>.json`）。
 pub const SLOTS_DIR: &str = "slots";
+/// 計画経路の Worker 報告・Reviewer 判定の控え（`outputs\<タスクID>.<試行>.json`。表示用でエンジンは読まない）。
+pub const OUTPUTS_DIR: &str = "outputs";
+/// 取り込み・戻すの台帳（追記のみ。DESIGN_ORG_R3 §2.6）。ワークフローの記録と一緒にだけ消える。
+pub const IMPORTS_FILE: &str = "imports.jsonl";
 /// スロットの値の大きさの上限（書くとき。エンジンの上限は256KB。読むときは余裕を見てこの2倍まで）。
 pub const SLOT_MAX_BYTES: usize = 256 * 1024;
 
@@ -55,6 +60,9 @@ impl FileOrgStore {
     }
     fn slot_path(&self, slot: &SlotId, version: u32) -> PathBuf {
         self.dir.join(SLOTS_DIR).join(format!("{}.{version}.json", sanitize_file_name(&slot.0)))
+    }
+    fn output_path(&self, task: &TaskId, attempt: u32) -> PathBuf {
+        self.dir.join(OUTPUTS_DIR).join(format!("{}.{attempt}.json", sanitize_file_name(&task.0)))
     }
     fn read_text(&self, name: &str) -> Result<Option<String>, StoreError> {
         match std::fs::read(self.dir.join(name)) {
@@ -119,20 +127,36 @@ impl OrgStore for FileOrgStore {
         write_atomic(&self.slot_path(slot, version), &bytes).map_err(io)
     }
 
+    fn put_output(&self, task: &TaskId, attempt: u32, value: &serde_json::Value) -> Result<(), StoreError> {
+        let bytes = serde_json::to_vec(value).map_err(|e| StoreError::Io(e.to_string()))?;
+        if bytes.len() > SLOT_MAX_BYTES {
+            return Err(StoreError::Io("出力が大きすぎます（256KBまで）".into()));
+        }
+        write_atomic(&self.output_path(task, attempt), &bytes).map_err(io)
+    }
+
+    /// 読めない・壊れている・大きすぎるものは「未取得」（`None`）。
+    fn read_output(&self, task: &TaskId, attempt: u32) -> Result<Option<serde_json::Value>, StoreError> {
+        read_json_capped(&self.output_path(task, attempt))
+    }
+
     /// 読めない・壊れている・大きすぎるものは「未取得」（`None`）。値を補ったり、別の版で代用したりしない。
     fn read_slot(&self, slot: &SlotId, version: u32) -> Result<Option<serde_json::Value>, StoreError> {
-        let path = self.slot_path(slot, version);
-        match std::fs::metadata(&path) {
-            Ok(m) if m.len() as usize > SLOT_MAX_BYTES * 2 => return Ok(None),
-            Ok(_) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(e) => return Err(io(e)),
-        }
-        match std::fs::read(&path) {
-            Ok(b) => Ok(serde_json::from_slice(&b).ok()),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(e) => Err(io(e)),
-        }
+        read_json_capped(&self.slot_path(slot, version))
+    }
+}
+
+fn read_json_capped(path: &Path) -> Result<Option<serde_json::Value>, StoreError> {
+    match std::fs::metadata(path) {
+        Ok(m) if m.len() as usize > SLOT_MAX_BYTES * 2 => return Ok(None),
+        Ok(_) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(io(e)),
+    }
+    match std::fs::read(path) {
+        Ok(b) => Ok(serde_json::from_slice(&b).ok()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(io(e)),
     }
 }
 
@@ -188,7 +212,7 @@ pub fn write_delete_record(dir: &Path, rec: &DeleteRecord) -> Result<(), String>
     write_atomic(&dir.join(DELETE_FILE), &bytes).map_err(|e| format!("{DELETE_FILE} を書けません: {e}"))
 }
 
-/// 記録フォルダを順に消す: slots → graph・roles → usage → events → workflow → listing → フォルダ（delete.json ごと）。
+/// 記録フォルダを順に消す: slots → outputs → graph・roles → imports → usage → events → workflow → listing → フォルダ（delete.json ごと）。
 /// ない物は飛ばす。失敗したらそこで止めて理由を返す（前の段は消えたまま。`delete.json` は最後までフォルダに残る）。
 pub fn remove_workflow_files(dir: &Path) -> Result<(), String> {
     let skip_missing = |r: std::io::Result<()>, name: &str| match r {
@@ -197,7 +221,8 @@ pub fn remove_workflow_files(dir: &Path) -> Result<(), String> {
         Err(e) => Err(format!("{name}: {e}")),
     };
     skip_missing(std::fs::remove_dir_all(dir.join(SLOTS_DIR)), SLOTS_DIR)?;
-    for name in [GRAPH_COPY_FILE, ROLES_COPY_FILE, USAGE_FILE, EVENTS_FILE, SNAPSHOT_FILE, LISTING_FILE] {
+    skip_missing(std::fs::remove_dir_all(dir.join(OUTPUTS_DIR)), OUTPUTS_DIR)?;
+    for name in [GRAPH_COPY_FILE, ROLES_COPY_FILE, IMPORTS_FILE, USAGE_FILE, EVENTS_FILE, SNAPSHOT_FILE, LISTING_FILE] {
         skip_missing(std::fs::remove_file(dir.join(name)), name)?;
     }
     skip_missing(std::fs::remove_dir_all(dir), "フォルダ")
@@ -263,6 +288,12 @@ impl OrgStore for ReadOnlyOrgStore {
     }
     fn read_slot(&self, slot: &SlotId, version: u32) -> Result<Option<serde_json::Value>, StoreError> {
         self.inner.read_slot(slot, version)
+    }
+    fn put_output(&self, _task: &TaskId, _attempt: u32, _value: &serde_json::Value) -> Result<(), StoreError> {
+        Err(read_only())
+    }
+    fn read_output(&self, task: &TaskId, attempt: u32) -> Result<Option<serde_json::Value>, StoreError> {
+        self.inner.read_output(task, attempt)
     }
 }
 
@@ -392,6 +423,27 @@ mod tests {
         remove_workflow_files(&dir).unwrap();
         assert!(!dir.exists());
         remove_workflow_files(&dir).unwrap();
+    }
+
+    #[test]
+    fn outputs_and_the_import_ledger_round_trip_and_go_with_the_workflow_record() {
+        let dir = temp();
+        let store = FileOrgStore::new(dir.clone());
+        seed(&store);
+        let v = serde_json::json!({"summary": "s"});
+        assert_eq!(store.read_output(&TaskId::new("t/1"), 0).unwrap(), None, "not obtained is not guessed");
+        store.put_output(&TaskId::new("t/1"), 0, &v).unwrap();
+        assert_eq!(store.read_output(&TaskId::new("t/1"), 0).unwrap(), Some(v.clone()));
+        assert_eq!(store.read_output(&TaskId::new("t/1"), 1).unwrap(), None);
+        std::fs::write(dir.join(OUTPUTS_DIR).join("broken.0.json"), b"{ no").unwrap();
+        assert_eq!(store.read_output(&TaskId::new("broken"), 0).unwrap(), None);
+        let ro = ReadOnlyOrgStore::new(dir.clone());
+        assert_eq!(ro.read_output(&TaskId::new("t/1"), 0).unwrap(), Some(v.clone()));
+        assert!(ro.put_output(&TaskId::new("t/1"), 2, &v).is_err());
+        std::fs::write(dir.join(IMPORTS_FILE), b"{}
+").unwrap();
+        remove_workflow_files(&dir).unwrap();
+        assert!(!dir.exists());
     }
 
     #[test]

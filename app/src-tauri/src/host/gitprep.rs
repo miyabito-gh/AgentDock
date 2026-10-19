@@ -25,7 +25,7 @@ pub struct GitPrepRuntime {
 }
 
 /// 実行中の印。手放すと外れる。
-struct BusyGuard<'a> {
+pub(in crate::host) struct BusyGuard<'a> {
     rt: &'a GitPrepRuntime,
     key: String,
 }
@@ -37,7 +37,8 @@ impl Drop for BusyGuard<'_> {
 }
 
 impl GitPrepRuntime {
-    fn begin(&self, folder: &str) -> Option<BusyGuard<'_>> {
+    /// 同じフォルダのGit操作（準備・プッシュ・組織実行の取り込みと戻す）を1本に絞る印を取る。取れなければ実行中。
+    pub(in crate::host) fn begin(&self, folder: &str) -> Option<BusyGuard<'_>> {
         let key = folder.to_lowercase();
         let inserted = self.busy.lock().unwrap().insert(key.clone());
         inserted.then(|| BusyGuard { rt: self, key })
@@ -47,7 +48,7 @@ impl GitPrepRuntime {
 /// 記録ファイル名（保存領域の直下）。
 pub const GIT_OPS_LOG: &str = "git-ops.jsonl";
 
-fn busy_error() -> IpcError {
+pub(in crate::host) fn busy_error() -> IpcError {
     blocked(BlockedReason::ChatBusy, "このフォルダのGit操作が実行中です。終わってからもう一度操作してください")
 }
 
@@ -80,7 +81,7 @@ impl Host {
     }
 
     /// 実行の記録（失敗しても操作は止めない）。
-    fn log_git_op(&self, record: serde_json::Value) {
+    pub(in crate::host) fn log_git_op(&self, record: serde_json::Value) {
         use std::io::Write;
         let Some(root) = self.persist.store().map(|s| s.root().to_path_buf()) else { return };
         let mut obj = match record {

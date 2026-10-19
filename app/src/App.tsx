@@ -1543,6 +1543,9 @@ ${cur}` : p.text);
       return;
     }
     if (a.startsWith("gitPush:")) { setDialog({ type: "gitPush", folder: a.slice(8) }); return; }
+    // 組織実行の成果物: `orgArtifacts:<workflowId>[:<task>]`（見るだけ）、`orgImport:<workflowId>:<task,task…>`（確認ダイアログを開くだけ。取り込むのは確認ダイアログの主操作）。
+    if (a.startsWith("orgArtifacts:")) { const [wid, task] = a.slice(13).split(":"); setDialog({ type: "orgArtifacts", workflowId: wid, task: task ?? null }); return; }
+    if (a.startsWith("orgImport:")) { const [wid, tasks] = a.slice(10).split(":"); setDialog({ type: "orgImport", workflowId: wid, tasks: (tasks ?? "").split(",").filter((x) => x) }); return; }
     if (a.startsWith("fork:")) { if (chat) setDialog({ type: "fork", chatId: chat.key.id, throughTurn: a.slice(5) }); return; }
     if (a.startsWith("settings:")) { setDialog({ type: "settings", tab: a.split(":")[1] }); return; }
     switch (a) {

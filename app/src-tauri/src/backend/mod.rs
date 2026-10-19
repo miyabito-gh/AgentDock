@@ -16,6 +16,8 @@ pub mod decision;
 pub mod ipc;
 /// 組織実行（DESIGN_ORG・P-ORG-7a）のIPC型。
 pub mod org;
+/// 組織実行の成果物パネルと「取り込む」（`app/DESIGN_ORG_R3.md` §3）のIPC型。
+pub mod org_artifacts;
 /// 段階②のアプリ側データとIPC追加分（`app/DESIGN_P2.md`）。
 pub mod local;
 pub mod model;

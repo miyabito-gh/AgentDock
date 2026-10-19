@@ -226,7 +226,7 @@ pub fn notice_view(e: &NoticeEntry) -> Option<OrgNoticeView> {
             OrgNotice::CancelUnconfirmed { task } => {
                 (K::CancelUnconfirmed, Attention, task_of(task), format!("{} を取り消しました。Codex 側の停止は確認できていません", task.0))
             }
-            OrgNotice::WorkflowCompleted => (K::WorkflowCompleted, Info, None, "ワークフローが完了しました。ブランチ・差分を確認して取り込んでください".to_string()),
+            OrgNotice::WorkflowCompleted => (K::WorkflowCompleted, Info, None, "ワークフローが完了しました。成果物を確認して取り込んでください（AgentDock は自動でマージしません）".to_string()),
             OrgNotice::Refused { reason } => (K::Refused, Attention, None, reason.clone()),
         },
         OrgHostNotice::Config(t) => {
@@ -518,6 +518,7 @@ pub fn workflow_view(input: &ViewInput<'_>) -> OrgWorkflowView {
         notes: snap.notes.iter().map(note_view).collect(),
         interjects: interjects_view(&snap.interjects),
         notes_after_plan: snap.notes_after_plan,
+        artifact_hint: None,
     }
 }
 

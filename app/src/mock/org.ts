@@ -15,7 +15,7 @@ const base = (over: Partial<OrgWorkflowView>): OrgWorkflowView => ({
   repo: "C:\Users\wmasa\Documents\Rust\Sample", halt: null, graph: null,
   limits: { maxWriters: 2, maxTotal: 3, maxRework: 2, maxAutoReplans: 1, maxTurns: 30, maxTasks: 20, stagnationMinutes: 30, maxRetries: 3 },
   usage: { turnsUsed: 11, turnsRemaining: 19, autoReplansUsed: 0, knownTokens: 184_300, rows: 6, rowsWithoutTokens: 1 },
-  tasks: [], planApproval: null, sandboxNotice: null, trust: null, notices: [], dispatching: true, finished: false, readonly: false, archivedAt: null, deletion: null, notes: [], interjects: [], notesAfterPlan: 0, ...over,
+  tasks: [], planApproval: null, sandboxNotice: null, trust: null, notices: [], dispatching: true, finished: false, readonly: false, archivedAt: null, deletion: null, notes: [], interjects: [], notesAfterPlan: 0, artifactHint: null, ...over,
 });
 
 const RUN_TASKS: OrgTaskView[] = [

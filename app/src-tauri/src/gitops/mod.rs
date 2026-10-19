@@ -5,10 +5,15 @@
 //! タイムアウトと出力上限（16MiB）あり、実行は直列化する。`git` の場所は設定 `tools.git`（なければPATH）。
 //! 強制系（`--force`）は削除操作の2段目の確認後にだけ呼出し側が指定する。`branch -D` は提供しない。
 //!
+//! 組織実行の成果物の読取り（`artifacts`）と取り込み（`import`）の操作は、読取り系に加えて書込み系（`CommitTree`・`MergeFfOnly`・`ResetKeep`・`RestorePaths`）を持つ。
+//! 書込み系は `--hard`・`--force` を型で表せず、フックを走らせず、`import` が直前に「本体の作業フォルダ・`agentdock/` でないブランチ」を確かめてから使う。
+//!
 //! 「変更の控え」用の操作（[`snapshot::SnapshotOp`]）は別の列挙型で、必ず [`snapshot::SnapshotEnv`] を要求する。
 //! 控え用の操作はAgentDock領域（チャット領域内の専用objects置き場と一時インデックス）にだけ書き、
 //! ユーザーの作業ツリー・インデックス・stash・ブランチ・refs・リポジトリの `objects` には書かない（DESIGN_P3B §1.1）。
 
+pub mod artifacts;
+pub mod import;
 pub mod org;
 pub mod prep;
 pub mod push;
@@ -135,6 +140,31 @@ pub enum GitOp {
     Push { remote: String, branch: String, sha: String },
     /// リモートのブランチの先端（`ls-remote --heads`。読取りのみ）。
     LsRemoteBranch { remote: String, branch: String },
+    // ── 組織実行の成果物（DESIGN_ORG_R3 §3.4。`artifacts`・`import` だけが使う） ──
+    /// 2つのコミット（またはコミットとツリー）の行数（`--numstat -z -M`。読取りのみ）。
+    DiffCommitsNumstat { from: String, to: String },
+    /// 2つのコミット（またはコミットとツリー）の変更ファイル一覧（`--name-status -M`。移動を検出する。読取りのみ）。
+    DiffCommitsNamesM { from: String, to: String },
+    /// 1ファイルの差分（`old_path` があれば移動として両パス。読取りのみ）。
+    DiffCommitsFile { from: String, to: String, path: String, old_path: Option<String> },
+    /// コミット内のファイルの大きさ（`cat-file -s`。読取りのみ）。`commit` は40桁（または64桁）の16進だけ。
+    BlobSize { commit: String, path: String },
+    /// コミット内のファイルの中身（`cat-file blob`。読取りのみ）。
+    ShowBlob { commit: String, path: String },
+    /// `a` が `b` の祖先か（`merge-base --is-ancestor`。終了コード 0＝祖先、1＝違う。読取りのみ）。
+    IsAncestor { a: String, b: String },
+    /// コミットを含むリモート追跡ブランチ（`branch -r --contains`。読取りのみ）。
+    RemoteContains { commit: String },
+    /// 2つのコミットの合成（`merge-tree --write-tree`）。どの作業ツリー・索引・ブランチにも書かない（オブジェクトだけ増える）。終了コード 0＝成功、1＝衝突。
+    MergeTree { ours: String, theirs: String },
+    /// ツリーと親からコミットを作る（オブジェクトだけ。refを書かない）。作者は `identity`、なければ利用者のGit設定。署名なし。
+    CommitTree { tree: String, parents: Vec<String>, message: String, identity: Option<(String, String)> },
+    /// 早送りの反映（`merge --ff-only`）。今のブランチのref・索引・対象ファイルだけが動く。フックなし。
+    MergeFfOnly { commit: String },
+    /// 取り込み前に戻す（`reset --keep`。作業ツリーの未コミットの変更は残し、重なるときはGitが拒否する）。フックなし。
+    ResetKeep { commit: String },
+    /// 指定のパスだけをコミットの内容に戻す（`checkout <commit> -- <paths>`）。途中で止まった取り込みの後始末に使う。フックなし。
+    RestorePaths { commit: String, paths: Vec<String> },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -202,6 +232,11 @@ fn check(ok: bool, what: &str) -> Result<(), GitError> {
 
 fn strings(xs: &[&str]) -> Vec<String> {
     xs.iter().map(|s| s.to_string()).collect()
+}
+
+/// コミットのID（40桁、またはSHA-256の64桁の16進）。
+fn valid_oid(s: &str) -> bool {
+    (s.len() == 40 || s.len() == 64) && s.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
 fn commits_diff(mode: &[&str], from: &str, to: &str) -> Result<Vec<String>, GitError> {
@@ -351,6 +386,81 @@ impl GitOp {
                 check(crate::rules::git_push::valid_push_branch(branch), "branch")?;
                 vec!["ls-remote".into(), "--heads".into(), remote.clone(), format!("refs/heads/{branch}")]
             }
+            GitOp::DiffCommitsNumstat { from, to } => commits_diff(&["--numstat", "-z", "-M"], from, to)?,
+            GitOp::DiffCommitsNamesM { from, to } => commits_diff(&["--name-status", "-M"], from, to)?,
+            GitOp::DiffCommitsFile { from, to, path, old_path } => {
+                check(valid_path(path), "path")?;
+                let mut a = commits_diff(if old_path.is_some() { &["-M"] } else { &[] }, from, to)?;
+                a.push(path.clone());
+                if let Some(o) = old_path {
+                    check(valid_path(o), "old_path")?;
+                    a.push(o.clone());
+                }
+                a
+            }
+            GitOp::BlobSize { commit, path } => {
+                check(valid_oid(commit), "commit")?;
+                check(valid_path(path), "path")?;
+                vec!["--no-optional-locks".into(), "cat-file".into(), "-s".into(), format!("{commit}:{path}")]
+            }
+            GitOp::ShowBlob { commit, path } => {
+                check(valid_oid(commit), "commit")?;
+                check(valid_path(path), "path")?;
+                vec!["--no-optional-locks".into(), "cat-file".into(), "blob".into(), format!("{commit}:{path}")]
+            }
+            GitOp::IsAncestor { a, b } => {
+                check(valid_ref(a), "a")?;
+                check(valid_ref(b), "b")?;
+                vec!["--no-optional-locks".into(), "merge-base".into(), "--is-ancestor".into(), a.clone(), b.clone()]
+            }
+            GitOp::RemoteContains { commit } => {
+                check(valid_oid(commit), "commit")?;
+                vec!["--no-optional-locks".into(), "branch".into(), "-r".into(), "--contains".into(), commit.clone()]
+            }
+            GitOp::MergeTree { ours, theirs } => {
+                check(valid_ref(ours), "ours")?;
+                check(valid_ref(theirs), "theirs")?;
+                let mut a = strings(&["--no-optional-locks", "merge-tree", "--write-tree", "-z", "--name-only", "--no-messages"]);
+                a.extend([ours.clone(), theirs.clone()]);
+                a
+            }
+            GitOp::CommitTree { tree, parents, message, identity } => {
+                check(valid_oid(tree), "tree")?;
+                check(!parents.is_empty() && parents.iter().all(|p| valid_oid(p)), "parents")?;
+                check(!message.trim().is_empty() && !message.contains('\0'), "message")?;
+                let mut a = strings(&["-c", "commit.gpgsign=false"]);
+                if let Some((name, email)) = identity {
+                    let ok = |s: &str| !s.trim().is_empty() && !s.chars().any(|c| c.is_control());
+                    check(ok(name) && ok(email), "identity")?;
+                    a.extend(["-c".into(), format!("user.name={name}"), "-c".into(), format!("user.email={email}")]);
+                }
+                a.extend(["commit-tree".into(), tree.clone()]);
+                for p in parents {
+                    a.extend(["-p".into(), p.clone()]);
+                }
+                a.extend(["-m".into(), message.clone()]);
+                a
+            }
+            GitOp::MergeFfOnly { commit } => {
+                check(valid_oid(commit), "commit")?;
+                let mut a = strings(&["-c", "core.hooksPath=/dev/null", "merge", "--ff-only", "--no-edit", "--no-stat", "-q"]);
+                a.push(commit.clone());
+                a
+            }
+            GitOp::ResetKeep { commit } => {
+                check(valid_oid(commit), "commit")?;
+                let mut a = strings(&["-c", "core.hooksPath=/dev/null", "reset", "--keep", "-q"]);
+                a.extend([commit.clone(), "--".into()]);
+                a
+            }
+            GitOp::RestorePaths { commit, paths } => {
+                check(valid_oid(commit), "commit")?;
+                check(!paths.is_empty() && paths.iter().all(|p| valid_path(p)), "paths")?;
+                let mut a = strings(&["-c", "core.hooksPath=/dev/null", "checkout", "-q"]);
+                a.extend([commit.clone(), "--".into()]);
+                a.extend(paths.iter().cloned());
+                a
+            }
             GitOp::DiffCommitsStat { from, to } => commits_diff(&["--stat"], from, to)?,
             GitOp::DiffCommitsNames { from, to } => commits_diff(&["--name-status"], from, to)?,
         })
@@ -367,6 +477,11 @@ impl GitOp {
             | GitOp::WorktreeAddDetached { .. }
             | GitOp::Init
             | GitOp::CommitStagedAs { .. }
+            | GitOp::MergeTree { .. }
+            | GitOp::CommitTree { .. }
+            | GitOp::MergeFfOnly { .. }
+            | GitOp::ResetKeep { .. }
+            | GitOp::RestorePaths { .. }
             | GitOp::SetUpstream { .. } => WRITE_TIMEOUT,
             // ネットワークを使う操作。資格情報マネージャの画面を待つ分も含める。
             GitOp::Push { .. } => PUSH_TIMEOUT,
@@ -505,6 +620,66 @@ b".into()) }.args().is_err());
         assert!(agentdock.contains(&"user.name=AgentDock".to_string()) && agentdock.contains(&"core.hooksPath=/dev/null".to_string()));
         assert!(GitOp::CommitStagedAs { message: "m".into(), identity: Some(("a
 b".into(), "e".into())) }.args().is_err());
+    }
+
+    const OID: &str = "0123456789abcdef0123456789abcdef01234567";
+
+    #[test]
+    fn artifact_read_ops_are_read_only_and_keep_paths_after_double_dash() {
+        let n = GitOp::DiffCommitsNumstat { from: "a".into(), to: "b".into() }.args().unwrap();
+        assert!(n.contains(&"--numstat".to_string()) && n.contains(&"-z".to_string()) && n.contains(&"--no-optional-locks".to_string()));
+        assert_eq!(n[n.len() - 3..], ["a", "b", "--"]);
+        let f = GitOp::DiffCommitsFile { from: "a".into(), to: "b".into(), path: "new name.txt".into(), old_path: Some("old.txt".into()) }.args().unwrap();
+        assert!(f.contains(&"-M".to_string()));
+        let dd = f.iter().position(|x| x == "--").unwrap();
+        assert_eq!(f[dd + 1..], ["new name.txt", "old.txt"]);
+        assert!(GitOp::DiffCommitsFile { from: "--output=x".into(), to: "b".into(), path: "p".into(), old_path: None }.args().is_err());
+        assert!(GitOp::DiffCommitsNamesM { from: "a..b".into(), to: "b".into() }.args().is_err());
+        assert_eq!(GitOp::ShowBlob { commit: OID.into(), path: "-x/a b.md".into() }.args().unwrap().last().unwrap(), &format!("{OID}:-x/a b.md"));
+        assert!(GitOp::ShowBlob { commit: "HEAD".into(), path: "a".into() }.args().is_err(), "only a full object id");
+        assert!(GitOp::BlobSize { commit: format!("{OID}x"), path: "a".into() }.args().is_err());
+        assert!(GitOp::BlobSize { commit: OID.into(), path: "a\nb".into() }.args().is_err());
+        assert!(GitOp::RemoteContains { commit: "main".into() }.args().is_err());
+        assert!(GitOp::IsAncestor { a: "-h".into(), b: "HEAD".into() }.args().is_err());
+        let m = GitOp::MergeTree { ours: "HEAD".into(), theirs: OID.into() }.args().unwrap();
+        assert!(m.contains(&"--write-tree".to_string()) && m.contains(&"--no-messages".to_string()));
+    }
+
+    #[test]
+    fn import_write_ops_cannot_express_hard_or_force_and_skip_hooks() {
+        let ops = vec![
+            GitOp::MergeFfOnly { commit: OID.into() },
+            GitOp::ResetKeep { commit: OID.into() },
+            GitOp::RestorePaths { commit: OID.into(), paths: vec!["a.txt".into()] },
+            GitOp::CommitTree { tree: OID.into(), parents: vec![OID.into(), OID.into()], message: "m".into(), identity: Some(("A".into(), "a@b".into())) },
+        ];
+        for op in &ops {
+            let a = op.args().unwrap();
+            for bad in ["--hard", "--force", "-f", "--no-ff", "--soft", "--mixed", "--merge"] {
+                assert!(!a.contains(&bad.to_string()), "{op:?} must not carry {bad}");
+            }
+            if !matches!(op, GitOp::CommitTree { .. }) {
+                assert!(a.windows(2).any(|w| w == ["-c", "core.hooksPath=/dev/null"]), "{op:?} runs no hooks");
+            }
+        }
+        assert!(GitOp::MergeFfOnly { commit: OID.into() }.args().unwrap().contains(&"--ff-only".to_string()));
+        assert!(GitOp::ResetKeep { commit: OID.into() }.args().unwrap().contains(&"--keep".to_string()));
+        // コミットは40桁の16進だけ。ブランチ名・オプション風は拒否。
+        for bad in ["HEAD", "main", "--hard", "abc", ""] {
+            assert!(GitOp::MergeFfOnly { commit: bad.into() }.args().is_err(), "{bad}");
+            assert!(GitOp::ResetKeep { commit: bad.into() }.args().is_err(), "{bad}");
+        }
+        // パスは `--` の後ろ。空・改行入りは拒否。
+        let r = GitOp::RestorePaths { commit: OID.into(), paths: vec!["-rf".into(), "b c.txt".into()] }.args().unwrap();
+        let dd = r.iter().position(|x| x == "--").unwrap();
+        assert_eq!(r[dd + 1..], ["-rf", "b c.txt"]);
+        assert!(GitOp::RestorePaths { commit: OID.into(), paths: vec![] }.args().is_err());
+        assert!(GitOp::RestorePaths { commit: OID.into(), paths: vec!["a\nb".into()] }.args().is_err());
+        assert!(GitOp::CommitTree { tree: OID.into(), parents: vec![], message: "m".into(), identity: None }.args().is_err());
+        assert!(GitOp::CommitTree { tree: "HEAD".into(), parents: vec![OID.into()], message: "m".into(), identity: None }.args().is_err());
+        assert!(GitOp::CommitTree { tree: OID.into(), parents: vec![OID.into()], message: " ".into(), identity: None }.args().is_err());
+        let own = GitOp::CommitTree { tree: OID.into(), parents: vec![OID.into()], message: "m".into(), identity: None }.args().unwrap();
+        assert!(!own.iter().any(|a| a.starts_with("user.")), "the users own identity is used as configured");
     }
 
     #[test]

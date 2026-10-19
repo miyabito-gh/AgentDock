@@ -232,6 +232,10 @@ pub enum OrgAction {
     /// Write a slot value (`slots\<slot>.<version>.json`) just before the `Persist(SlotWritten)` that follows it.
     /// Not an outside effect (a stray file is harmless). If the write fails, the host stops later actions.
     PutSlot { slot: SlotId, version: u32, value: Value },
+    /// Keep a plannedTasks worker report / reviewer verdict for display (`outputs\<task>.<attempt>.json`; `attempt` is the
+    /// reviewed worker's rework count at that time). Not an outside effect and never read back by the engine: if the host
+    /// cannot write it, later actions are not held up (unlike `PutSlot`).
+    PutOutput { task: TaskId, attempt: u32, value: Value },
     CreateRoleChat { task: TaskId, spec: RoleChatSpec },
     CheckSandbox { cwd: String },
     Send { task: TaskId, chat: ChatRef, attempt: AttemptRef, client_message_id: String, text: String, output_schema: Value },

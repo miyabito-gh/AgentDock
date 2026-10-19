@@ -3,6 +3,7 @@
 //! - `grant.rs`: 送信権（`OrgGrant`・`DispatchPermit`）と失効の管理。
 //! - `ports.rs`: エンジンが使うポートの trait と `Host` による実装（作成・送信・読取り）。
 //! - `observe.rs`: ホストの観測（イベント・送信結果・中断）をエンジンへの入力に変える純粋な変換。
+//! - `artifacts.rs`: 成果物パネルと確認つきの取り込み・戻す（DESIGN_ORG_R3）。
 //! - `driver.rs`: `OrgCore` を所有し action を実行する専用task。
 //! - `manage.rs`: 終わったワークフローの削除・アーカイブ（DESIGN_ORG_DELETE）。
 //! - `graphs.rs`: グラフ定義ファイルの読込み・初回作成と、開始時の定義の写し（`graph.json`・`roles.json`）。
@@ -14,6 +15,7 @@
 //! - 受理不明の送信を再送しない。通信断・終了を失敗・取消に変換しない。resume は利用者の再開操作の中だけ。
 //! - `~/.codex` は書き換えない（config.toml は前後を読むだけ）。
 
+pub mod artifacts;
 pub mod driver;
 pub mod grant;
 pub mod graphs;
@@ -77,6 +79,8 @@ pub struct OrgRuntime {
     pub(in crate::host) deleting: Mutex<std::collections::HashSet<String>>,
     /// 動いている（または直前まで動いていた）ワークフローの進行タイムライン（DESIGN_ORG_R2 1）。
     pub(in crate::host) timeline: Mutex<Option<timeline::TimelineBuf>>,
+    /// 取り込みの確認の控え（`artifacts.rs`。メモリだけ）。
+    pub(in crate::host) artifacts: artifacts::ArtifactRuntime,
 }
 
 /// 溜めた通知の1件（通知の重複排除と画面の並びに使う通し番号つき）。
