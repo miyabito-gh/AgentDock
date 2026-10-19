@@ -10,6 +10,8 @@
 //! ユーザーの作業ツリー・インデックス・stash・ブランチ・refs・リポジトリの `objects` には書かない（DESIGN_P3B §1.1）。
 
 pub mod org;
+pub mod prep;
+pub mod push;
 pub mod snapshot;
 pub mod worktree;
 
@@ -55,6 +57,8 @@ pub const INHERITED_GIT_VARS: &[&str] = &[
 
 const READ_TIMEOUT: Duration = Duration::from_secs(30);
 const WRITE_TIMEOUT: Duration = Duration::from_secs(120);
+const PUSH_TIMEOUT: Duration = Duration::from_secs(300);
+const NETWORK_READ_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GitOp {
@@ -104,6 +108,33 @@ pub enum GitOp {
     AbsoluteGitDir,
     /// 読取り用のdetached worktreeを、別のコミットへ動かす（`checkout --detach`。フックは走らせない）。組織実行の所有worktree内だけで使う。
     CheckoutDetached { commit: String },
+    // ── Gitの準備・プッシュ（DESIGN_ORG_INTAKE §2・§3。`prep`・`push` だけが使う） ──
+    /// `git init`（既定のブランチ名は利用者のGit設定に従う）。`--git-dir` を指定して一時領域に作ることもある。
+    Init,
+    /// 利用者のGit設定の読取り（`user.name`・`user.email` だけ。未設定なら非0終了）。
+    ConfigGet { key: String },
+    /// 作業ツリーの状態に、未追跡ファイルを1つずつ含める（読取りのみ。最初のコミットに入るファイルの一覧用）。
+    StatusAllUntracked,
+    /// 追跡中のファイル（読取りのみ）。`path` 配下に1件でもあれば追跡されている。
+    LsFilesCached { path: String },
+    /// リモート名の一覧（読取りのみ）。
+    Remotes,
+    /// リモートのURL（読取りのみ。出力は呼出し側が資格情報を伏せてから使う）。
+    RemoteUrl { remote: String },
+    /// 現在のブランチの追跡先（`origin/main` の形。なければ非0終了。読取りのみ）。
+    Upstream,
+    /// `<upstream>..HEAD` のコミット（`<sha>`・作者・件名をタブ区切り。最大201件。読取りのみ）。
+    LogRange { upstream: String },
+    /// リモートのどのブランチにもないコミット（`HEAD --not --remotes=<remote>`。追跡先がないとき。読取りのみ）。
+    LogNotRemote { remote: String },
+    /// ステージ済みの変更をコミットする。`identity` があればその名義、なければ利用者のGit設定の名義（設定は書かない）。署名なし・フックなし。
+    CommitStagedAs { message: String, identity: Option<(String, String)> },
+    /// 追跡先（`<remote>/<branch>`）の設定（リポジトリの設定にだけ書く）。
+    SetUpstream { remote: String, branch: String },
+    /// プッシュ。送るのは `<コミット>:refs/heads/<ブランチ>` の1つだけ。強制・削除・全ブランチ・タグ・ミラーは表現できない。
+    Push { remote: String, branch: String, sha: String },
+    /// リモートのブランチの先端（`ls-remote --heads`。読取りのみ）。
+    LsRemoteBranch { remote: String, branch: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -267,6 +298,59 @@ impl GitOp {
                 check(valid_ref(to), "to")?;
                 vec!["--no-optional-locks".into(), "rev-list".into(), "--count".into(), format!("{from}..{to}"), "--".into()]
             }
+            GitOp::Init => strings(&["init", "-q"]),
+            GitOp::ConfigGet { key } => {
+                check(matches!(key.as_str(), "user.name" | "user.email"), "key")?;
+                vec!["config".into(), "--get".into(), key.clone()]
+            }
+            GitOp::StatusAllUntracked => strings(&["--no-optional-locks", "status", "--porcelain=v2", "-z", "--untracked-files=all"]),
+            GitOp::LsFilesCached { path } => {
+                check(valid_path(path), "path")?;
+                let mut a = strings(&["--no-optional-locks", "ls-files", "-z", "--cached", "--"]);
+                a.push(path.clone());
+                a
+            }
+            GitOp::Remotes => strings(&["remote"]),
+            GitOp::RemoteUrl { remote } => {
+                check(crate::rules::git_push::valid_remote_name(remote), "remote")?;
+                vec!["remote".into(), "get-url".into(), remote.clone()]
+            }
+            GitOp::Upstream => strings(&["--no-optional-locks", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]),
+            GitOp::LogRange { upstream } => {
+                check(valid_ref(upstream), "upstream")?;
+                vec!["--no-optional-locks".into(), "log".into(), "-n".into(), "201".into(), "--no-color".into(), "--format=%H%x09%an%x09%s".into(), format!("{upstream}..HEAD"), "--".into()]
+            }
+            GitOp::LogNotRemote { remote } => {
+                check(crate::rules::git_push::valid_remote_name(remote), "remote")?;
+                vec!["--no-optional-locks".into(), "log".into(), "-n".into(), "201".into(), "--no-color".into(), "--format=%H%x09%an%x09%s".into(), "HEAD".into(), "--not".into(), format!("--remotes={remote}"), "--".into()]
+            }
+            GitOp::CommitStagedAs { message, identity } => {
+                check(!message.trim().is_empty() && !message.contains('\0'), "message")?;
+                let mut a = strings(&["-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false"]);
+                if let Some((name, email)) = identity {
+                    let ok = |s: &str| !s.trim().is_empty() && !s.chars().any(|c| c.is_control());
+                    check(ok(name) && ok(email), "identity")?;
+                    a.extend(["-c".into(), format!("user.name={name}"), "-c".into(), format!("user.email={email}")]);
+                }
+                a.extend(strings(&["commit", "--no-verify", "-q", "-m"]));
+                a.push(message.clone());
+                a
+            }
+            GitOp::SetUpstream { remote, branch } => {
+                check(crate::rules::git_push::valid_remote_name(remote), "remote")?;
+                check(crate::rules::git_push::valid_push_branch(branch), "branch")?;
+                vec!["branch".into(), format!("--set-upstream-to={remote}/{branch}"), branch.clone()]
+            }
+            GitOp::Push { remote, branch, sha } => {
+                check(crate::rules::git_push::valid_remote_name(remote), "remote")?;
+                let refspec = crate::rules::git_push::push_refspec(sha, branch).map_err(|w| GitError::InvalidArgument(w))?;
+                vec!["push".into(), "--porcelain".into(), "--".into(), remote.clone(), refspec]
+            }
+            GitOp::LsRemoteBranch { remote, branch } => {
+                check(crate::rules::git_push::valid_remote_name(remote), "remote")?;
+                check(crate::rules::git_push::valid_push_branch(branch), "branch")?;
+                vec!["ls-remote".into(), "--heads".into(), remote.clone(), format!("refs/heads/{branch}")]
+            }
             GitOp::DiffCommitsStat { from, to } => commits_diff(&["--stat"], from, to)?,
             GitOp::DiffCommitsNames { from, to } => commits_diff(&["--name-status"], from, to)?,
         })
@@ -280,7 +364,13 @@ impl GitOp {
             | GitOp::StageAll
             | GitOp::CommitStaged { .. }
             | GitOp::CheckoutDetached { .. }
-            | GitOp::WorktreeAddDetached { .. } => WRITE_TIMEOUT,
+            | GitOp::WorktreeAddDetached { .. }
+            | GitOp::Init
+            | GitOp::CommitStagedAs { .. }
+            | GitOp::SetUpstream { .. } => WRITE_TIMEOUT,
+            // ネットワークを使う操作。資格情報マネージャの画面を待つ分も含める。
+            GitOp::Push { .. } => PUSH_TIMEOUT,
+            GitOp::LsRemoteBranch { .. } => NETWORK_READ_TIMEOUT,
             _ => READ_TIMEOUT,
         }
     }
@@ -398,6 +488,23 @@ b".into()) }.args().is_err());
         assert_eq!(GitOp::RevParse { rev: "main".into() }.args().unwrap(), ["rev-parse", "--verify", "--quiet", "main^{commit}"]);
         assert!(GitOp::RevParse { rev: "--all".into() }.args().is_err());
         assert!(GitOp::RevParse { rev: "a^b".into() }.args().is_err());
+    }
+
+    #[test]
+    fn prep_and_push_ops_are_allowlisted_and_read_ops_use_no_optional_locks() {
+        assert!(GitOp::ConfigGet { key: "user.name".into() }.args().is_ok());
+        assert!(GitOp::ConfigGet { key: "core.sshCommand".into() }.args().is_err());
+        assert!(GitOp::StatusAllUntracked.args().unwrap().contains(&"--untracked-files=all".to_string()));
+        assert!(GitOp::LogRange { upstream: "origin/main".into() }.args().unwrap().contains(&"origin/main..HEAD".to_string()));
+        assert!(GitOp::LogRange { upstream: "--all".into() }.args().is_err());
+        assert!(GitOp::RemoteUrl { remote: "-x".into() }.args().is_err());
+        assert!(GitOp::LsRemoteBranch { remote: "origin".into(), branch: "main".into() }.args().unwrap().ends_with(&["refs/heads/main".to_string()]));
+        let named = GitOp::CommitStagedAs { message: "m".into(), identity: None }.args().unwrap();
+        assert!(!named.iter().any(|a| a.starts_with("user.")), "the user's own identity is used as configured");
+        let agentdock = GitOp::CommitStagedAs { message: "m".into(), identity: Some(("AgentDock".into(), "agentdock@localhost".into())) }.args().unwrap();
+        assert!(agentdock.contains(&"user.name=AgentDock".to_string()) && agentdock.contains(&"core.hooksPath=/dev/null".to_string()));
+        assert!(GitOp::CommitStagedAs { message: "m".into(), identity: Some(("a
+b".into(), "e".into())) }.args().is_err());
     }
 
     #[test]

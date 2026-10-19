@@ -39,7 +39,7 @@ const caps: Capabilities = {
   resume: "supported", listLoaded: "supported", approvalKinds: [{ kind: "commandApproval" }, { kind: "fileChangeApproval" }, { kind: "userInput" }],
   steer: "supported", interrupt: "supported", modelSelection: "supported", effortSelection: "supported",
   rename: "supported", archive: "supported", delete: "unknown", externalHistory: "supported",
-  attachmentKinds: ["image", "file"], managedExecControl: "experimental", projects: "unknown", workspaceRoots: "unknown", contextUsage: "unsupported", ops: [],
+  attachmentKinds: ["image", "file"], managedExecControl: "experimental", projects: "unknown", workspaceRoots: "unknown", contextUsage: "unsupported", structuredOutput: "unsupported", ops: [],
 };
 
 const source = (connection: SourceInfo["connection"], version?: SourceInfo["version"]): SourceInfo => ({
@@ -172,7 +172,7 @@ function base(): Bundle {
       chatLocals: [
         mockLocal("a", {
           contextUsage: { kind: "known", used: 144000, window: 200000, percent: 72, observedAt: ago(300), live: true },
-          conversation: { id: "mock-conv-a", purpose: { text: "再接続の二重送信を直す。\nテストは追加しない。", revision: 2, updatedAt: ago(7200) }, threads: [], seed: null, purposeDue: true },
+          conversation: { id: "mock-conv-a", purpose: { text: "再接続の二重送信を直す。\nテストは追加しない。", revision: 2, updatedAt: ago(7200) }, threads: [], seed: null, purposeDue: true, intake: null },
         }),
         mockLocal("c", { contextUsage: { kind: "known", used: 60000, window: 200000, percent: 30, observedAt: ago(3600), live: false } }),
         mockLocal("b", { contextUsage: { kind: "afterCompaction", observedAt: ago(600) } }),

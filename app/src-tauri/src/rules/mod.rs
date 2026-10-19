@@ -13,6 +13,7 @@
 //! - [`org_manage`]: 組織ワークフローの削除・アーカイブの可否と削除の手順（DESIGN_ORG_DELETE）
 //! - [`org_worktree`]: 組織実行のworktreeの所有確認・ブランチ名・コミット間差分の解析（P-ORG-5）
 //! - [`continuity`]: 継続チャットの資料の組立て・使用率の表示区分・引き継ぎの前提・起動時の照合（G-P、DESIGN_CONT）
+//! - [`org_intake`]・[`git_prep`]・[`git_push`]: 依頼整理の要約・依頼文・状態遷移、Gitの準備、アプリからのプッシュ（DESIGN_ORG_INTAKE）
 //! - [`compose`]・[`side`]: 参考ブロックの組立て、side相談の停止範囲・引渡し（段階③ P3-4）
 
 pub mod baseline;
@@ -21,9 +22,12 @@ pub mod continuity;
 pub mod decision;
 pub mod diff;
 pub mod export;
+pub mod git_prep;
+pub mod git_push;
 pub mod manage;
 pub mod notify;
 pub mod org;
+pub mod org_intake;
 pub mod org_manage;
 pub mod org_worktree;
 pub mod queue;

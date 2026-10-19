@@ -193,6 +193,9 @@ pub struct ConversationView {
     pub seed: Option<SeedView>,
     /// 次の手動送信で目的メモを添えるか（`rules::continuity::purpose_due` の結果）。
     pub purpose_due: bool,
+    /// 組織実行の依頼整理の状態（依頼整理をしていないチャットは None）。要約の中身は `org_intake_view` で読む。
+    #[serde(default)]
+    pub intake: Option<super::intake::IntakeState>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

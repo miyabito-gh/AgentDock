@@ -449,6 +449,7 @@ export function OrgPane(p: OrgPaneProps) {
                     <button type="button" role="menuitem" className="danger" disabled={wf.finished} onClick={() => { close(); setConfirm({ kind: "cancelWorkflow" }); }}>ワークフローを取り消す…</button>
                     <hr />
                   </>}
+                  <button type="button" role="menuitem" title="作業フォルダの今のブランチを、確認のうえリモートへ送ります（取り込みの後に使います）" onClick={() => { close(); p.onAct(`gitPush:${wf.repo}`); }}>プッシュ…</button>
                   {wf.archivedAt === null
                     ? <button type="button" role="menuitem" disabled={manageOff || !!wf.deletion} title={manageOff ? offTip : undefined} onClick={() => { close(); void p.run("アーカイブ", async () => { await host.orgArchiveWorkflow(wf.workflowId); return "ワークフローをアーカイブしました（アーカイブ一覧から戻せます）。"; }); }}>アーカイブ</button>
                     : <button type="button" role="menuitem" onClick={() => { close(); void p.run("アーカイブの解除", async () => { await host.orgUnarchiveWorkflow(wf.workflowId); return "アーカイブを解除しました。"; }); }}>アーカイブを解除</button>}

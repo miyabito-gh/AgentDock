@@ -23,7 +23,7 @@ export const MENUBAR: MenuSpec[] = [
     title: "作業",
     entries: [
       h("変更"), id("changeList"), id("revertChanges"), id("codeReview"), id("reviewToNewChat"),
-      "-", h("会話"), id("fork"), id("compact"), id("purposeNote"), id("handoffThread"), id("reloadHistory"),
+      "-", h("会話"), id("fork"), id("compact"), id("purposeNote"), id("handoffThread"), id("orgIntakeFromChat"), id("reloadHistory"),
       "-", h("依頼の補助"), id("goal"), id("workMode"), id("referenceChat"), id("skills"), id("instructionFiles"), id("sideChat"),
       "-", h("実行"), id("interrupt"),
     ],

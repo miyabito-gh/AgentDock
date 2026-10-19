@@ -210,6 +210,9 @@ pub enum BlockedReason {
     WorktreeDirty,
     /// 作成直後の最初の依頼の送信が確定していない間、同じチャットへの別の送信（手動・キュー）を止めている。
     FirstSendInFlight,
+    /// 組織実行を始める作業フォルダが、まだGitの準備を終えていない（リポジトリでない・コミットがない・前回の準備が途中）。
+    /// UIは「Gitを準備」ダイアログへ誘導できる。
+    RepoNotPrepared { repo: super::git_ops::RepoStatusView },
 }
 
 /// 保存先の選択ダイアログ（ファイルの書込みはしない）。
@@ -1295,6 +1298,8 @@ pub enum HostEvent {
     ModelSettingsUpdated { chat: ChatKey, settings: ChatModelSettings },
     /// チャット別の補足情報（ピン・下書き・モデル/権限・保存状態）の更新。
     ChatLocalUpdated { local: ChatLocalView },
+    /// 組織実行の依頼整理の更新（要約の完了・失敗、状態の変化）。画面は `org_intake_view` で読み直す。
+    IntakeUpdated { chat: ChatKey },
     /// 文脈の使用率の更新（ルートの値だけ。保存は2秒まとめ）。会話の記録の変化は `ChatLocalUpdated` で運ぶ。
     ContextUsageUpdated { chat: ChatKey, usage: ContextUsageView },
     SaveStatusUpdated { status: SaveStatus },

@@ -37,6 +37,10 @@ workspaceRoots: Support,
  */
 contextUsage: Support, 
 /**
+ * 構造化出力（turn ごとに最終回答の形を指定する）。Unsupported なら依頼整理の「要約を作る」を出さず、「手で書く」だけにする（DESIGN_ORG_INTAKE §1.3）。
+ */
+structuredOutput: Support, 
+/**
  * VS Code拡張との同等性の操作ごとの能力（段階③、`app/DESIGN_P3.md` §2.1）。
  */
 ops: Array<OpCapability>, };

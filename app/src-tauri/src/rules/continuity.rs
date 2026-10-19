@@ -488,6 +488,7 @@ pub fn conversation_view(rec: &ConversationRecord) -> ConversationView {
             },
         }),
         purpose_due: purpose_due(rec),
+        intake: rec.intake.as_ref().map(|i| i.state.clone()),
     }
 }
 
@@ -750,7 +751,7 @@ mod tests {
         }
     }
     fn conv() -> ConversationRecord {
-        ConversationRecord { id: LocalId("c1".into()), purpose: None, threads: vec![], seed: None, purpose_delivered_rev: None, compacted_since_delivery: false, replaces: None }
+        ConversationRecord { id: LocalId("c1".into()), purpose: None, threads: vec![], seed: None, purpose_delivered_rev: None, compacted_since_delivery: false, replaces: None, intake: None }
     }
 
     // ── 使用率 ──

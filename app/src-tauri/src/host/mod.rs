@@ -17,6 +17,7 @@ pub mod compose;
 pub mod continuity;
 pub mod continuity_handoff;
 pub mod extensions;
+pub mod gitprep;
 pub mod lifecycle;
 #[cfg(test)]
 mod load_test;
@@ -156,6 +157,15 @@ pub(super) enum SendAuth<'a> {
     Org(org::grant::DispatchPermit<'a>),
 }
 
+/// 利用者の送信に付ける追加の指定（通常は何も付けない）。
+#[derive(Default)]
+pub(super) struct SendExtras {
+    /// 最終回答の形（構造化出力）。新しい turn にだけ付く。
+    pub output_schema: Option<serde_json::Value>,
+    /// 呼出し側が先に決めた照合用のメッセージID。
+    pub client_message_id: Option<String>,
+}
+
 // ───────────────────────────── Host ─────────────────────────────
 
 pub struct Host {
@@ -207,6 +217,8 @@ pub struct Host {
     first_sends: Mutex<HashSet<ChatKey>>,
     /// 組織実行（`org/`）の作業状態。送信権の失効管理・監視の受け口・稼働中の司令task。
     org_rt: org::OrgRuntime,
+    /// Gitの準備・プッシュの実行中のフォルダ（二重実行の防止。`gitprep.rs`）。
+    gitprep_rt: gitprep::GitPrepRuntime,
 }
 
 /// 最初の依頼の送信が確定（または後続タスクが終了）したら、同じチャットの送信停止を解く。
@@ -251,6 +263,7 @@ impl Host {
             handoff_inflight: continuity_handoff::HandoffInflight::default(),
             first_sends: Mutex::new(HashSet::new()),
             org_rt: org::OrgRuntime::default(),
+            gitprep_rt: gitprep::GitPrepRuntime::default(),
         }
     }
 
@@ -358,6 +371,8 @@ impl Host {
         self.baseline_observe(&env.event);
         // 組織実行: 観測をエンジンへ知らせるだけ（ロックの外・待たない・送信しない）。
         self.org_observe_event(&env.event);
+        // 依頼整理: 要約の turn の終端を観測したら、履歴を読んで結果を取り込む（待たない・送らない）。
+        self.intake_observe_event(&env.event);
         self.refresh_unnamed_chat(&env.event);
         if !matches!(env.event, BackendEvent::Activity { .. } | BackendEvent::ActivityDelta { .. } | BackendEvent::ArtifactObserved { .. }) {
             self.kick_queue();
@@ -950,6 +965,11 @@ impl Host {
     }
 
     pub async fn send_message(self: &Arc<Self>, args: SendMessageArgs, confirmed: &UserConfirmed) -> Result<SendAttempt, IpcError> {
+        self.send_message_with(args, confirmed, SendExtras::default()).await
+    }
+
+    /// `send_message` の本体。`extras` は通常の送信にはない指定（依頼整理の要約の turn の出力形式・照合用のメッセージID）。
+    pub(super) async fn send_message_with(self: &Arc<Self>, args: SendMessageArgs, confirmed: &UserConfirmed, extras: SendExtras) -> Result<SendAttempt, IpcError> {
         // 本文が空でも、添付が1件以上あれば送れる（text項目は付けない。adapter側）。
         if args.text.trim().is_empty() && args.attachments.is_empty() {
             return Err(err(IpcErrorCode::InvalidArgs, "メッセージが空です"));
@@ -1016,8 +1036,8 @@ impl Host {
             cwd,
             work_folders,
             work_mode,
-            client_message_id: self.local_id("cm").0,
-            output_schema: None,
+            client_message_id: extras.client_message_id.unwrap_or_else(|| self.local_id("cm").0),
+            output_schema: extras.output_schema,
         };
         let attempt = self.dispatch_send(request).await;
         // 送信に使った添付は下書きから外し、試行を記録する（拒否されても、再送（retry_send）は同じ添付で行う）。

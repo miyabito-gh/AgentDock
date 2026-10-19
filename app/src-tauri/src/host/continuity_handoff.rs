@@ -82,6 +82,8 @@ pub(super) fn handoff_conversation(src: &ChatKey, src_rec: Option<&ConversationR
         purpose_delivered_rev: None,
         compacted_since_delivery: false,
         replaces: None,
+        // 依頼整理の記録（要約・状態）は会話の記録の一部。新しい先頭へ写す。
+        intake: src_rec.and_then(|r| r.intake.clone()),
     }
 }
 
@@ -97,6 +99,7 @@ pub(super) fn redo_conversation(src: &ChatKey, src_rec: &ConversationRecord, now
         purpose_delivered_rev: None,
         compacted_since_delivery: false,
         replaces: Some(src.clone()),
+        intake: src_rec.intake.clone(),
     })
 }
 
@@ -107,7 +110,7 @@ pub(super) fn purpose_for_fork(rec: Option<&ConversationRecord>) -> Option<Purpo
 
 /// 分岐先の会話の記録（別の会話。id は新規、以前の thread・引き継ぎ資料・届けた記録は持たない）。
 pub(super) fn fork_conversation(id: LocalId, purpose: PurposeNote) -> ConversationRecord {
-    ConversationRecord { id, purpose: Some(purpose), threads: Vec::new(), seed: None, purpose_delivered_rev: None, compacted_since_delivery: false, replaces: None }
+    ConversationRecord { id, purpose: Some(purpose), threads: Vec::new(), seed: None, purpose_delivered_rev: None, compacted_since_delivery: false, replaces: None, intake: None }
 }
 
 /// チャット領域の作業領域（`workspace`）を作業フォルダとして使っている、別のチャット（`candidates` は (チャット, 作業フォルダ)）。
@@ -480,7 +483,7 @@ mod tests {
         PurposeNote { text: text.into(), revision: rev, updated_at: UnixMillis(1), source: crate::store::records::PurposeSource::Chat }
     }
     fn record(purpose: Option<PurposeNote>, threads: Vec<ThreadSegment>) -> ConversationRecord {
-        ConversationRecord { id: LocalId("c0".into()), purpose, threads, seed: None, purpose_delivered_rev: Some(7), compacted_since_delivery: true, replaces: None }
+        ConversationRecord { id: LocalId("c0".into()), purpose, threads, seed: None, purpose_delivered_rev: Some(7), compacted_since_delivery: true, replaces: None, intake: None }
     }
     fn fact(state: AgentState, freshness: Freshness, terminal_explicit: bool) -> AgentFact {
         AgentFact {
@@ -512,6 +515,21 @@ mod tests {
     }
 
     // ── 記録の組立て ──
+
+    #[test]
+    fn handoff_and_redo_carry_the_intake_record_to_the_new_head_but_a_fork_does_not() {
+        use crate::backend::intake::{IntakeRecord, IntakeStartPrefs, IntakeState};
+        let intake = IntakeRecord { id: LocalId("i1".into()), state: IntakeState::Ready, summary: None, rev: 3, prefs: IntakeStartPrefs::default(), last_error: None, started: vec![] };
+        let mut src = record(Some(purpose("目的", 1)), vec![]);
+        src.intake = Some(intake.clone());
+        let rec = handoff_conversation(&key("p"), Some(&src), None, seed(SeedState::Pending), LocalId("new".into()), UnixMillis(9));
+        assert_eq!(rec.intake, Some(intake.clone()));
+        // 空の先頭のやり直しでも写る
+        src.seed = Some(seed(SeedState::Pending));
+        assert_eq!(redo_conversation(&key("n"), &src, UnixMillis(10)).unwrap().intake, Some(intake));
+        // 分岐は別の会話なので持たない
+        assert!(fork_conversation(LocalId("f".into()), purpose("目的", 1)).intake.is_none());
+    }
 
     #[test]
     fn new_head_copies_purpose_and_chain_but_starts_undelivered_with_pending_seed() {

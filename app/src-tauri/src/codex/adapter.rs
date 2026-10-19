@@ -82,6 +82,8 @@ pub fn codex_capabilities_for(experimental: bool, version: Option<&str>) -> Capa
         workspace_roots: exp,
         // thread/tokenUsage/updated は安定API。
         context_usage: Support::Supported,
+        // turn/start の outputSchema は安定API。
+        structured_output: Support::Supported,
         ops: super::parity::op_capabilities(version, experimental),
     }
 }
@@ -107,6 +109,7 @@ fn unknown_capabilities() -> Capabilities {
         projects: Support::Unknown,
         workspace_roots: Support::Unknown,
         context_usage: Support::Unknown,
+        structured_output: Support::Unknown,
         // 接続前でも一覧できるよう、宣言と確認状況（版不明＝すべて未確認）を持つ。
         ops: super::parity::op_capabilities(None, true),
     }

@@ -31,6 +31,7 @@ import { PendingSendRow } from "./PendingSendRow";
 import { SendStatusBar } from "./SendStatusBar";
 import { queueCounts } from "./sendStatus";
 import { HandoffNotice, PurposeLine, UsageChip, useHandoff, type HandoffUi } from "./HandoffNotice";
+import { IntakeSection } from "./OrgIntake";
 import { worktreeOf } from "./folderGroups";
 import type { HandoffPreview } from "../ipc/types";
 import { OrgInstructionBubble, OrgReportView } from "./OrgChatParts";
@@ -1163,6 +1164,7 @@ export function CenterPane(p: CenterProps) {
         turnHasOutput: p.turns.some((t) => t.end === null && t.entries.some((e) => e.kind.kind !== "userMessage")),
         queue: queueCounts(snap.queues.find((q) => keyStr(q.chat) === keyStr(chat.key))?.entries),
       }} />
+      <IntakeSection chat={chat.key} local={p.local} live />
       <Composer key={`${chat.key.id}:${p.models.length}`} p={p} running={running} lock={lock} hu={hu} />
     </>
   );

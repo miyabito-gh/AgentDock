@@ -943,6 +943,103 @@ pub async fn org_open_graph_file(app: tauri::AppHandle, host: Hs<'_>, args: crat
         .map_err(|e| IpcError { code: IpcErrorCode::Io, message: format!("開けませんでした: {e}"), blocked: None })
 }
 
+/// 依頼整理チャットを作る（普通のチャット。組織実行はまだ始まらない）。
+#[tauri::command]
+pub async fn org_intake_begin(host: Hs<'_>, args: crate::backend::intake::IntakeBeginArgs) -> R<crate::backend::intake::IntakeBeginResult> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().org_intake_begin(args, &confirmed).await
+}
+
+/// 既存の自分のチャットを依頼整理にする（目的メモは変えない）。
+#[tauri::command]
+pub async fn org_intake_attach(host: Hs<'_>, args: crate::backend::intake::IntakeChatArgs) -> R<crate::backend::intake::IntakeView> {
+    host.inner().clone().org_intake_attach(args).await
+}
+
+/// 依頼整理の写し（読取りのみ）。
+#[tauri::command]
+pub async fn org_intake_view(host: Hs<'_>, args: crate::backend::intake::IntakeChatArgs) -> R<crate::backend::intake::IntakeView> {
+    host.inner().clone().org_intake_view(args).await
+}
+
+/// 「要約を作る」（押した回数だけ1回送る。再送しない）。
+#[tauri::command]
+pub async fn org_intake_summarize(host: Hs<'_>, args: crate::backend::intake::IntakeChatArgs) -> R<SendAttempt> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().org_intake_summarize(args, &confirmed).await
+}
+
+/// 「履歴から読み直す」（履歴の読取りだけ）。
+#[tauri::command]
+pub async fn org_intake_reload_summary(host: Hs<'_>, args: crate::backend::intake::IntakeChatArgs) -> R<crate::backend::intake::IntakeView> {
+    host.inner().clone().org_intake_reload_summary(args).await
+}
+
+/// 要約・開始時の設定の保存（手で書く・編集）。
+#[tauri::command]
+pub async fn org_intake_save(host: Hs<'_>, args: crate::backend::intake::IntakeSaveArgs) -> R<crate::backend::intake::IntakeView> {
+    host.inner().clone().org_intake_save(args).await
+}
+
+/// 依頼整理の確定版で組織実行を開始する（確認ダイアログの「開始」だけ）。
+#[tauri::command]
+pub async fn org_intake_start(host: Hs<'_>, args: crate::backend::intake::IntakeStartArgs) -> R<crate::backend::org::StartOrgResult> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().org_intake_start(args, confirmed).await
+}
+
+/// 依頼整理をやめる（チャットは消さない）。
+#[tauri::command]
+pub async fn org_intake_abandon(host: Hs<'_>, args: crate::backend::intake::IntakeChatArgs) -> R<crate::backend::intake::IntakeView> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().org_intake_abandon(args, &confirmed).await
+}
+
+/// 作業フォルダのGitの状態（読取りのみ）。
+#[tauri::command]
+pub async fn git_repo_status(host: Hs<'_>, args: crate::backend::git_ops::GitFolderArgs) -> R<crate::backend::git_ops::RepoStatusView> {
+    host.git_repo_status(args).await
+}
+
+/// Gitの準備のプレビュー（読取りのみ。何も作らない）。
+#[tauri::command]
+pub async fn git_prep_preview(host: Hs<'_>, args: crate::backend::git_ops::GitPrepArgs) -> R<crate::backend::git_ops::RepoPrepPreview> {
+    host.git_prep_preview(args).await
+}
+
+/// Gitの準備の実行（確認ダイアログの「Gitを準備する」だけ。`.git` フォルダだけを作る）。
+#[tauri::command]
+pub async fn git_prepare_repo(host: Hs<'_>, args: crate::backend::git_ops::GitPrepareArgs) -> R<crate::backend::git_ops::RepoPrepResult> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.git_prepare_repo(args, &confirmed).await
+}
+
+/// 前回の途中の準備（印のある `.git` でコミットなし）を取り除く（確認ダイアログの後だけ）。
+#[tauri::command]
+pub async fn git_prep_remove_interrupted(host: Hs<'_>, args: crate::backend::git_ops::GitFolderArgs) -> R<()> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.git_prep_remove_interrupted(args, &confirmed).await
+}
+
+/// プッシュ前の確認（読取りのみ。ネットワークは使わない）。
+#[tauri::command]
+pub async fn git_push_preview(host: Hs<'_>, args: crate::backend::git_ops::PushPreviewArgs) -> R<crate::backend::git_ops::PushPreview> {
+    host.git_push_preview(args).await
+}
+
+/// プッシュの実行（確認ダイアログの「プッシュする」だけ。確認時のコミットだけを送る。強制しない）。
+#[tauri::command]
+pub async fn git_push(host: Hs<'_>, args: crate::backend::git_ops::GitPushArgs) -> R<crate::backend::git_ops::PushResult> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.git_push(args, &confirmed).await
+}
+
+/// 結果が分からなかったプッシュの確認（`ls-remote`。読取りのみ）。
+#[tauri::command]
+pub async fn git_push_verify(host: Hs<'_>, args: crate::backend::git_ops::GitPushVerifyArgs) -> R<crate::backend::git_ops::PushVerify> {
+    host.git_push_verify(args).await
+}
+
 /// 開始（利用者の「開始」の操作だけ。送信権を作る）。
 #[tauri::command]
 pub async fn org_start(host: Hs<'_>, args: crate::backend::org::StartOrgArgs) -> R<crate::backend::org::StartOrgResult> {

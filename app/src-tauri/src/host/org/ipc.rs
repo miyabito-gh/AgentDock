@@ -168,6 +168,16 @@ impl Host {
 
     /// 開始の引数を検査して `org_start` へ渡す。並列数の範囲外は拒否する。
     pub async fn org_start_checked(self: &Arc<Self>, args: StartOrgArgs, confirmed: UserConfirmed) -> Result<StartOrgResult, IpcError> {
+        self.org_start_checked_with(args, None, confirmed).await
+    }
+
+    /// `org_start_checked` の本体。`origin` は依頼整理を経た開始のときだけ付く（`org_intake_start`）。
+    pub(in crate::host) async fn org_start_checked_with(
+        self: &Arc<Self>,
+        args: StartOrgArgs,
+        origin: Option<crate::backend::intake::IntakeOrigin>,
+        confirmed: UserConfirmed,
+    ) -> Result<StartOrgResult, IpcError> {
         let parallelism = match (args.max_writers, args.max_total) {
             (None, None) => None,
             (w, t) => {
@@ -179,9 +189,9 @@ impl Host {
         };
         let graph = args.graph_id.map(|g| g.trim().to_string()).filter(|g| !g.is_empty());
         let wf = self
-            .org_start(OrgStartArgs { request: args.request, repo: args.repo, parallelism, graph, max_turns: args.max_turns, max_retries: args.max_retries }, confirmed)
+            .org_start(OrgStartArgs { request: args.request, repo: args.repo, parallelism, graph, max_turns: args.max_turns, max_retries: args.max_retries, origin }, confirmed)
             .await?;
-        Ok(StartOrgResult { workflow_id: wf.0 })
+        Ok(StartOrgResult { workflow_id: wf.0, intake_warning: None })
     }
 
     /// 再開（必要なチャットだけを resume し、新しい送信権を作る）。画面が見ていたワークフローと同じときだけ。

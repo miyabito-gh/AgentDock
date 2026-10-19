@@ -970,6 +970,9 @@ pub struct OrgSetStallArgs {
 #[serde(rename_all = "camelCase")]
 pub struct StartOrgResult {
     pub workflow_id: String,
+    /// 開始は成功したが、依頼整理側の記録（開始済みの印）を保存できなかったときの警告。ワークフローは動いている。
+    #[serde(default)]
+    pub intake_warning: Option<String>,
 }
 
 /// 再開の結果。再開できなかったチャットは live に戻していない（その分は送らずに止まる）。

@@ -350,6 +350,32 @@ export const orgPreviewDelete = (workflowId: string): Promise<OrgDeletePreview> 
 export const orgDeleteWorkflow = (workflowId: string, deleteChats: boolean, expectChats: OrgChatKey[]): Promise<OrgDeleteOutcome> => invokeCmd("org_delete_workflow", { workflowId, deleteChats, expectChats });
 export const orgArchiveWorkflow = (workflowId: string): Promise<null> => invokeCmd("org_archive_workflow", { workflowId });
 export const orgUnarchiveWorkflow = (workflowId: string): Promise<null> => invokeCmd("org_unarchive_workflow", { workflowId });
+// ── 依頼整理（DESIGN_ORG_INTAKE §1）。会話中は組織実行を始めない。org_intake_start だけが開始する ──
+import type {
+  IntakeBeginMode, IntakeBeginResult, IntakeSaveArgs, IntakeView, ModelChoice as IntakeModel, SendAttempt as IntakeSend,
+  GitPrepArgs, GitPrepareArgs, GitPushArgs, GitPushVerifyArgs, PushPreview, PushResult, PushVerify, RepoPrepPreview, RepoPrepResult, RepoStatusView,
+} from "./types";
+export const orgIntakeBegin = (folder: string, mode: IntakeBeginMode, model: IntakeModel | null = null): Promise<IntakeBeginResult> => invokeCmd("org_intake_begin", { folder, mode, model });
+export const orgIntakeAttach = (chat: ChatKey): Promise<IntakeView> => invokeCmd("org_intake_attach", { chat });
+/** 依頼整理の写し（読取りだけ。何も送らない）。 */
+export const orgIntakeView = (chat: ChatKey): Promise<IntakeView> => invokeCmd("org_intake_view", { chat });
+/** 「要約を作る」（押した回数だけ1回送る。再送しない）。 */
+export const orgIntakeSummarize = (chat: ChatKey): Promise<IntakeSend> => invokeCmd("org_intake_summarize", { chat });
+/** 「履歴から読み直す」（履歴の読取りだけ）。 */
+export const orgIntakeReloadSummary = (chat: ChatKey): Promise<IntakeView> => invokeCmd("org_intake_reload_summary", { chat });
+export const orgIntakeSave = (a: IntakeSaveArgs): Promise<IntakeView> => invokeCmd("org_intake_save", a);
+/** 確認ダイアログの「開始」だけ。composedRequest は確認で見せた依頼文（現在の内容と違えばホストが拒否する）。 */
+export const orgIntakeStart = (chat: ChatKey, rev: number, composedRequest: string): Promise<StartOrgResult> => invokeCmd("org_intake_start", { chat, rev, composedRequest });
+export const orgIntakeAbandon = (chat: ChatKey): Promise<IntakeView> => invokeCmd("org_intake_abandon", { chat });
+
+// ── Gitの準備・プッシュ（DESIGN_ORG_INTAKE §2・§3）。プレビューは読取りだけ。実行は確認ダイアログの後だけ ──
+export const gitRepoStatus = (folder: string): Promise<RepoStatusView> => invokeCmd("git_repo_status", { folder });
+export const gitPrepPreview = (a: GitPrepArgs): Promise<RepoPrepPreview> => invokeCmd("git_prep_preview", a);
+export const gitPrepareRepo = (a: GitPrepareArgs): Promise<RepoPrepResult> => invokeCmd("git_prepare_repo", a);
+export const gitPrepRemoveInterrupted = (folder: string): Promise<null> => invokeCmd("git_prep_remove_interrupted", { folder });
+export const gitPushPreview = (folder: string, remote: string | null = null): Promise<PushPreview> => invokeCmd("git_push_preview", { folder, remote });
+export const gitPush = (a: GitPushArgs): Promise<PushResult> => invokeCmd("git_push", a);
+export const gitPushVerify = (a: GitPushVerifyArgs): Promise<PushVerify> => invokeCmd("git_push_verify", a);
 export const orgReleaseChat = (chat: OrgChatKey): Promise<null> => invokeCmd("org_release_chat", { chat });
 export const orgRecoverCandidates = (workflowId: string, task: string): Promise<OrgChatCandidate[]> => invokeCmd("org_recover_candidates", { workflowId, task });
 export const orgChooseChat = (workflowId: string, task: string, chat: OrgChatKey): Promise<null> => invokeCmd("org_choose_chat", { workflowId, task, chat });

@@ -32,6 +32,8 @@ pub const SLOT_MAX_BYTES: usize = 256 * 1024;
 pub const DELETE_FILE: &str = "delete.json";
 /// アーカイブした印（`{schemaVersion, archivedAt}`）。チャット側には書かない。
 pub const LISTING_FILE: &str = "listing.json";
+/// 開始時の依頼整理の要約の写し（`IntakeCopy`。依頼整理を経て始めたワークフローだけ）。
+pub const INTAKE_FILE: &str = "intake.json";
 const GRAPH_COPY_FILE: &str = "graph.json";
 const ROLES_COPY_FILE: &str = "roles.json";
 

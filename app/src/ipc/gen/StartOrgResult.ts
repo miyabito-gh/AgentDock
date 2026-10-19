@@ -3,4 +3,8 @@
 /**
  * 開始の結果。
  */
-export type StartOrgResult = { workflowId: string, };
+export type StartOrgResult = { workflowId: string, 
+/**
+ * 開始は成功したが、依頼整理側の記録（開始済みの印）を保存できなかったときの警告。ワークフローは動いている。
+ */
+intakeWarning: string | null, };

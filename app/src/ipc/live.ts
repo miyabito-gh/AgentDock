@@ -30,7 +30,7 @@ export const emptyBundle = (): Bundle => ({
 export const UNKNOWN_CAPS: Capabilities = {
   descendantMonitoring: "unknown", descendantSearch: "unknown", historyReadWithoutResume: "unknown", resume: "unknown", listLoaded: "unknown",
   approvalKinds: [], steer: "unknown", interrupt: "unknown", modelSelection: "unknown", effortSelection: "unknown", rename: "unknown",
-  archive: "unknown", delete: "unknown", externalHistory: "unknown", attachmentKinds: [], managedExecControl: "unknown", projects: "unknown", workspaceRoots: "unknown", contextUsage: "unknown", ops: [],
+  archive: "unknown", delete: "unknown", externalHistory: "unknown", attachmentKinds: [], managedExecControl: "unknown", projects: "unknown", workspaceRoots: "unknown", contextUsage: "unknown", structuredOutput: "unknown", ops: [],
 };
 
 const upsert =<T,>(list: T[], item: T, same: (a: T) => boolean): T[] => {
@@ -172,6 +172,7 @@ export function applyHostEvent(b: Bundle, e: HostEvent): Bundle {
     case "toolServersChanged": // 開いているMCP・Pluginsの表示が画面側で取り直す（状態は変えない）
     case "toolServerLoginUpdated":
     case "extensionOpUpdated":
+    case "intakeUpdated": // 依頼整理の更新の合図（画面側が org_intake_view で取り直す。状態は変えない）
     case "orgUpdated": // 組織実行の状態の合図（画面側が取り直す。P-ORG-7。状態は変えない）
     case "decisionRecorded": // 応答記録の追記。画面側（App）が会話の行として保持する（状態は変えない）
     case "goalUpdated": // 画面側（App）が目標の表示を置き換える（状態は変えない）

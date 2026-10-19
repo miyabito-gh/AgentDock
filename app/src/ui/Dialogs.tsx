@@ -1,6 +1,6 @@
 import { isNewChatSubmitKey } from "./quickNew";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import type { OrgRunningNote, StartOrgArgs } from "../ipc/types";
+import type { IntakeBeginMode, OrgRunningNote } from "../ipc/types";
 import type { Chat, ChatKey, ChatLocalView, ChatPendingOp, ChatQueue, ChatModelSettings, ForceKillPreview, Goal, GoalUpdate, Known, ModelInfo, NotificationSettings, OrgDeleteOutcome, OrgDeletePreview, OpCapability, QuitDecision, QuitPhase, RevertResult, SaveStatus, SideSessionMeta, SourceInfo, StopRecord, StopSummary, TurnRecord, WorktreeRecord, CloudTaskRecord } from "../ipc/types";
 import type { AppearanceSettings, BodyTextSize, ChatListView, StrongReason, ThemePref, UiTextSize, Support } from "../ipc/types";
 import { chatName } from "./derive";
@@ -23,7 +23,9 @@ import { InstructionBody, ReferenceBody, SkillsBody, type ComposeProps } from ".
 import { WorkspaceChoice, WorktreesBody } from "./WorktreeDialogs";
 import { CloudBody } from "./CloudDialogs";
 import { ContinuationSettingsBody, HandoffPreviewBody, PurposeBody, type ContinuityDialogProps } from "./ContinuityDialogs";
-import { OrgDeleteDialog, OrgSettingsBody, OrgStartBody, type LoadGraphs, type OrgSettingsProps } from "./OrgDialogs";
+import { OrgDeleteDialog, OrgSettingsBody, type OrgSettingsProps } from "./OrgDialogs";
+import { IntakeStartBody, OrgIntakeBeginBody } from "./OrgIntake";
+import { GitPrepBody, GitPushBody } from "./GitDialogs";
 import { FolderListEditor } from "./WorkFoldersUi";
 import { FolderSetBar, type FolderTools } from "./WorkFolderSetsUi";
 import { inspectFolders, splitForNewChat } from "./workFolderSets";
@@ -34,7 +36,10 @@ export type DialogState =
   | { type: "newChat"; dev?: boolean; cwd?: string; cwdChoices?: string[]; /** 「同じ作業フォルダで新規」: 先頭＝プライマリ。開いたとき検査して並べる。 */ initialFolders?: string[]; folderNote?: string; /** 作成に失敗したときの「入力し直す」: 同じ値を入れて開くだけ（送らない）。 */ prefill?: { model: string; first: string; isolate: boolean; worktree: string | null } }
   | { type: "worktrees" }
   | { type: "cloud"; chatId: string | null }
-  | { type: "orgStart" }
+  | { type: "orgStart"; /** Gitの準備から戻ったとき、入れていた作業フォルダを引き継ぐ。 */ folder?: string }
+  | { type: "orgIntakeStart"; chatId: string }
+  | { type: "gitPrep"; folder: string; /** 準備できたら開始ダイアログへ戻る。 */ backToStart?: boolean }
+  | { type: "gitPush"; folder: string }
   | { type: "orgDelete"; workflowId: string }
   | { type: "quit" }
   | { type: "force" }
@@ -127,7 +132,13 @@ export interface ComposeDialogProps extends ComposeProps {
 export interface NotifyProps { value: NotificationSettings; set: (n: NotificationSettings) => void }
 
 /** 組織実行（P-ORG-7b）。設定タブ（停滞時間・役割定義）と、開始ダイアログの操作。 */
-export interface OrgDialogProps { settings: OrgSettingsProps; start: (a: StartOrgArgs) => Promise<string | null>; browse: () => Promise<string | null>; loadGraphs: LoadGraphs;
+export interface OrgDialogProps { settings: OrgSettingsProps;
+  /** 依頼整理のチャットを作って開く。失敗の理由（成功は null。成功時に呼び出し側がダイアログを閉じる）。組織実行は始めない。 */
+  begin: (folder: string, mode: IntakeBeginMode) => Promise<string | null>; browse: () => Promise<string | null>;
+  /** 依頼整理から組織実行を開始できた（ダイアログを閉じてワークフロー画面へ）。 */
+  onIntakeStarted: (workflowId: string, warning: string | null) => void;
+  /** 別のダイアログへ切り替える。 */
+  go: (d: DialogState) => void;
   previewDelete: (id: string) => Promise<OrgDeletePreview>; deleteWorkflow: (id: string, deleteChats: boolean, expect: ChatKey[]) => Promise<OrgDeleteOutcome>; onDeleted: (id: string) => void }
 
 export interface AutostartProps { value: boolean; set: (on: boolean) => void }
@@ -545,8 +556,20 @@ export function Dialogs({ cont, org, folderTools, workspaceRoots, d, onClose, ch
         <div className="content"><SettingsBody tab={d.tab} enterMode={enterMode} setEnterMode={setEnterMode} top={top} source={source} models={models} exe={exe} notify={notify} autostart={autostart} appearance={appearance} manage={manage} chats={chats} compose={compose} opCaps={opCaps} org={org.settings} cont={cont} /></div>
       </Shell>);
     case "orgStart": return (
-      <Shell title="組織実行を開始" onClose={onClose} close="キャンセル">
-        <OrgStartBody start={org.start} browse={org.browse} live={org.settings.live} loadGraphs={org.loadGraphs} />
+      <Shell title="組織実行を始める" onClose={onClose} close="キャンセル">
+        <OrgIntakeBeginBody begin={org.begin} browse={org.browse} live={org.settings.live} initialFolder={d.folder ?? ""} onPrepare={(folder) => org.go({ type: "gitPrep", folder, backToStart: true })} />
+      </Shell>);
+    case "orgIntakeStart": return (
+      <Shell title="この内容で組織実行を開始" wide onClose={onClose} close="キャンセル">
+        <IntakeStartBody chat={{ backend: "codex", id: d.chatId }} onStarted={org.onIntakeStarted} onPrepare={(folder) => org.go({ type: "gitPrep", folder })} />
+      </Shell>);
+    case "gitPrep": return (
+      <Shell title="Gitを準備" wide onClose={onClose} close="閉じる">
+        <GitPrepBody folder={d.folder} onDone={(prepared) => (d.backToStart && prepared ? org.go({ type: "orgStart", folder: d.folder }) : onClose())} />
+      </Shell>);
+    case "gitPush": return (
+      <Shell title="プッシュ" wide onClose={onClose} close="閉じる">
+        <GitPushBody folder={d.folder} onDone={onClose} />
       </Shell>);
     case "orgDelete": return (
       <Shell title="ワークフローを削除" onClose={onClose} close="閉じる">

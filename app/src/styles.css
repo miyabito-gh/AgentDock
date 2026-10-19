@@ -1071,3 +1071,10 @@ button.uchip:hover{background:var(--accent-weak)}
 .envfold{align-self:flex-end;max-width:100%}
 .envbody{margin:4px 0 6px;max-width:100%}
 .envbody pre{margin:0;padding:8px 10px;border:1px solid var(--line);border-radius:var(--r2);background:var(--surface);white-space:pre-wrap;overflow-wrap:anywhere;max-height:320px;overflow:auto}
+
+/* ==== 組織実行の依頼整理（DESIGN_ORG_INTAKE §1）: 入力欄の上の帯と要約カード ==== */
+.intake{max-width:792px;width:100%;margin:0 auto;padding:4px 16px 0}
+.intake .lockmsg{color:var(--ink);background:var(--info-bg);border:1px solid var(--info-line);border-radius:var(--r2);padding:6px 10px;margin-bottom:6px}
+.intake-card{border:1px solid var(--card-line);background:var(--surface);border-radius:var(--r2);padding:8px 10px;margin-bottom:6px;max-height:46vh;overflow:auto}
+.intake-card .field{margin:6px 0}
+.intake-card textarea,.intake-card select{font:inherit}

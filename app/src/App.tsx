@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { readText } from "@tauri-apps/plugin-clipboard-manager";
-import type { RepoRecordChoice, AgentKey, AppSettings, AttachmentEntry, Chat, ChatKey, Goal, GoalUpdate, Known, WorkMode, WorkModeInfo, WorkFoldersView, DeleteOutcome, DeletePreview, UsageReport, ForceKillPreview, HostEvent, HostEventEnvelope, HostSnapshot, ModelInfo, PathInfo, ProjectsOutcome, MonitorScope, PendingRequest, PermissionPreset, QuitDecision, QuitPhase, RequestAnswer, SendAttempt, SettingsImpact, SkillInfo, SourceInfo, OrgSnapshotView, StartOrgArgs } from "./ipc/types";
+import type { RepoRecordChoice, AgentKey, AppSettings, AttachmentEntry, Chat, ChatKey, Goal, GoalUpdate, Known, WorkMode, WorkModeInfo, WorkFoldersView, DeleteOutcome, DeletePreview, UsageReport, ForceKillPreview, HostEvent, HostEventEnvelope, HostSnapshot, ModelInfo, PathInfo, ProjectsOutcome, MonitorScope, PendingRequest, PermissionPreset, QuitDecision, QuitPhase, RequestAnswer, SendAttempt, SettingsImpact, SkillInfo, SourceInfo, OrgSnapshotView, IntakeBeginMode } from "./ipc/types";
 import * as host from "./ipc/client";
 import { LinkContext, RefContext, type PathAction, type RefActions } from "./ui/Markdown";
 import { copyText } from "./ui/markdown/parts";
@@ -390,16 +390,20 @@ export default function App() {
       return true;
     } catch (e) { sayErr(`${label}に失敗しました`, e); return false; }
   }, [live, say, sayErr]);
-  // グラフ定義（テンプレート）の読込み。読取りと、定義ファイルの読み直しだけで、何も送らない。
-  const orgLoadGraphs = useCallback(async (reload: boolean) => (live ? (reload ? host.orgReloadGraphs() : host.orgGraphsView()) : (await loadMock()).client.orgGraphsView()), [live]);
-  const orgStart = async (a: StartOrgArgs): Promise<string | null> => {
+  // 依頼整理のチャットを作って開く（組織実行はまだ始まらない。開始は要約の確認ダイアログの「開始」だけ）。
+  const intakeBegin = async (folder: string, mode: IntakeBeginMode): Promise<string | null> => {
     if (!live) return "モックでは動きません。";
     try {
-      await host.orgStart(a);
-      setDialog(null); setOrgScreen(true); setOrgTick((n) => n + 1);
-      say(a.graphId ? "組織実行を開始しました。テンプレートの流れに沿って進みます。判断を求める工程は、あなたが選ぶまで進みません。" : "組織実行を開始しました。Planner が計画を作ります。計画に確認が必要な内容があれば、承認するまでタスクは送られません。", 8000);
+      const r = await host.orgIntakeBegin(folder, mode);
+      setDialog(null); setOrgScreen(false); setSelId(r.chat.key.id);
+      say(mode === "write" ? "依頼整理のチャットを作りました（組織実行はまだ始まっていません）。下の要約に依頼を書いてください。" : "依頼整理のチャットを作りました（組織実行はまだ始まっていません）。AI と依頼を詰めて、「要約を作る」を押してください。", 9000);
       return null;
     } catch (e) { return host.asIpcError(e).message; }
+  };
+  // 依頼整理の確認ダイアログの「開始」で組織実行が始まった。
+  const intakeStarted = (_workflowId: string, warning: string | null) => {
+    setDialog(null); setOrgScreen(true); setOrgTick((n) => n + 1);
+    say(warning ?? "組織実行を開始しました。Planner が計画を作ります。計画に確認が必要な内容があれば、承認するまでタスクは送られません。", warning ? 10000 : 8000);
   };
   // このアプリの起動中に一度でも live 監視になったエージェント（再起動後の保存履歴表示と、接続断からの回復を区別する）。
   const liveSeen = useRef<Set<string>>(new Set());
@@ -408,6 +412,14 @@ export default function App() {
   const settingsQueue = useRef<Promise<void>>(Promise.resolve());
   const settingsPending = useRef(0);
   useEffect(() => { if (settingsPending.current === 0) settingsRef.current = snap.settings; }, [snap.settings]);
+  // 依頼整理の帯・要約カード（入力欄まわり）からの合図: ダイアログを開く／ワークフロー画面を開く。送信・開始はしない（開くだけ）。
+  useEffect(() => {
+    const onDialog = (e: Event) => { const d = (e as CustomEvent<DialogState | undefined>).detail; if (d) setDialog((cur) => cur ?? d); };
+    const onOrg = () => { setOrgScreen(true); setLNarrow(false); };
+    window.addEventListener("agentdock:dialog", onDialog);
+    window.addEventListener("agentdock:open-org", onOrg);
+    return () => { window.removeEventListener("agentdock:dialog", onDialog); window.removeEventListener("agentdock:open-org", onOrg); };
+  }, []);
   for (const v of snap.agents) if (v.freshness === "live") liveSeen.current.add(v.agent.key.id);
   const mainTop = live ? snap.settings.mainWindow.alwaysOnTop : mockMainTop;
   const miniTop = live ? snap.settings.monitorWindow.alwaysOnTop : mockMiniTop;
@@ -1527,6 +1539,7 @@ ${cur}` : p.text);
       if (chat && turnId && (purpose === "editResend" || purpose === "regenerate")) setDialog({ type: "resend", chatId: chat.key.id, purpose, turnId, itemId: itemId || null });
       return;
     }
+    if (a.startsWith("gitPush:")) { setDialog({ type: "gitPush", folder: a.slice(8) }); return; }
     if (a.startsWith("fork:")) { if (chat) setDialog({ type: "fork", chatId: chat.key.id, throughTurn: a.slice(5) }); return; }
     if (a.startsWith("settings:")) { setDialog({ type: "settings", tab: a.split(":")[1] }); return; }
     switch (a) {
@@ -1536,6 +1549,11 @@ ${cur}` : p.text);
         if (live) host.closeThisWindow().catch((e) => sayErr("窓を閉じられませんでした", e)); else say("モックではトレイへ格納しません。");
         break;
       case "orgStart": setLNarrow(false); setDialog({ type: "orgStart" }); break;
+      case "orgIntakeFromChat":
+        if (!chat) { say("チャットを選んでください。"); break; }
+        if (!live) { say("この操作はモックでは動きません。"); break; }
+        host.orgIntakeAttach(chat.key).then(() => say("このチャットを、組織実行の依頼整理にしました（組織実行はまだ始まっていません）。入力欄の上の帯から進めます。", 8000)).catch((e) => sayErr("依頼整理にできませんでした", e));
+        break;
       case "newChatQuick":
         if (!live) { say("この操作はモックでは動きません。"); break; }
         setOrgScreen(false);
@@ -1744,7 +1762,7 @@ ${cur}` : p.text);
           setValue: (c) => updateSettings((s) => ({ ...s, continuation: c }), "継続チャットの設定を保存できませんでした。次回の起動では保存されている値に戻ります"),
         }} org={{
           settings: { live, stallMinutes: snap.settings.orgStallMinutes, setStall: async (m) => { if (!live) return "モックでは動きません。"; try { await host.orgSetStallMinutes(m); return null; } catch (e) { return host.asIpcError(e).message; } } },
-          start: orgStart, browse: folderTools.browse, loadGraphs: orgLoadGraphs,
+          begin: intakeBegin, browse: folderTools.browse, onIntakeStarted: intakeStarted, go: setDialog,
           previewDelete: (id) => (live ? host.orgPreviewDelete(id) : Promise.reject(new Error("モックでは動きません。"))),
           deleteWorkflow: (id, del, expect) => host.orgDeleteWorkflow(id, del, expect),
           onDeleted: (id) => { setDialog(null); if (orgSel === id) setOrgSel(null); setOrgTick((n) => n + 1); say("ワークフローを削除しました。worktree とブランチは残しています。", 6000); },

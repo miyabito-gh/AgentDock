@@ -6,6 +6,7 @@
 //! - `driver.rs`: `OrgCore` を所有し action を実行する専用task。
 //! - `manage.rs`: 終わったワークフローの削除・アーカイブ（DESIGN_ORG_DELETE）。
 //! - `graphs.rs`: グラフ定義ファイルの読込み・初回作成と、開始時の定義の写し（`graph.json`・`roles.json`）。
+//! - `intake.rs`: 開始前の依頼整理（要約の turn・保存・開始。エンジンもドライバも作らない。DESIGN_ORG_INTAKE §1）。
 //!
 //! 守ること:
 //! - 監視・照合・再起動の経路からは組織の送信を呼べない（送信権は司令taskだけが持つ。`Host` が持つのは失効の管理表だけ）。
@@ -17,6 +18,7 @@ pub mod driver;
 pub mod grant;
 pub mod graphs;
 pub mod history;
+pub mod intake;
 pub mod ipc;
 pub mod manage;
 pub mod notify;
@@ -68,6 +70,8 @@ pub struct OrgRuntime {
     graphs: Mutex<Option<graphs::GraphReport>>,
     /// 過去のワークフローの読込み結果の控え（読取り専用。保存ファイルが変わったときだけ読み直す）。
     pub(in crate::host) history_cache: Mutex<history::HistoryCache>,
+    /// 開始前の依頼整理の作業状態（`intake.rs`）。
+    pub(in crate::host) intake: intake::IntakeRuntime,
     /// 削除を実行中のワークフロー（二重実行の防止）。
     pub(in crate::host) deleting: Mutex<std::collections::HashSet<String>>,
 }
@@ -155,6 +159,8 @@ pub struct OrgStartArgs {
     pub max_turns: Option<u32>,
     /// 新しい試行での再送の上限（0〜10）。None は既定（3）。
     pub max_retries: Option<u32>,
+    /// 依頼整理を経て始めるときの由来（`org_intake_start` だけが付ける）。あれば `intake.json` を、ドライバ登録の前に保存する（保存できなければ始めない）。
+    pub origin: Option<crate::backend::intake::IntakeOrigin>,
 }
 
 /// 開始ダイアログで指定できる turn 上限の最大（暴走防止の上限は静的上限と turn 上限の両方で効く）。
@@ -256,8 +262,8 @@ impl Host {
             return Err(err(IpcErrorCode::InvalidArgs, format!("作業フォルダが見つかりません: {}", args.repo)));
         }
         // Workerは専用worktreeで作業するため、Gitリポジトリでコミットが1つ以上あることを、始める前に読取りだけで確かめる。
-        let git = self.git_for_worktree();
-        precheck_repo_has_commit(&git, args.repo.trim()).await.map_err(|m| err(IpcErrorCode::InvalidArgs, m))?;
+        // 準備が要る状態は `RepoNotPrepared` で返す（UIが「Gitを準備」ダイアログへ誘導する）。
+        self.precheck_repo_ready(args.repo.trim()).await?;
         let mut limits = Limits::default();
         if let Some((writers, total)) = args.parallelism {
             limits = limits.with_parallelism(writers, total).map_err(|_| err(IpcErrorCode::InvalidArgs, "並列数は 1〜4 で指定してください"))?;
@@ -323,6 +329,10 @@ impl Host {
             ),
             None => None,
         };
+        // 依頼整理を経た開始: 開始時の要約の写しを、ドライバ登録の前に保存する（保存できなければ始めない）。
+        if let Some(origin) = &args.origin {
+            intake::save_copy(&wf_dir, origin, now_ms()).map_err(|e| err(IpcErrorCode::Io, format!("依頼整理の写しを保存できないため、始めません: {e}")))?;
+        }
         let store: Arc<dyn OrgStore + Send + Sync> = Arc::new(FileOrgStore::new(wf_dir));
         let driver = OrgDriver::new(core, store, Arc::new(self.clone()), self.clone() as Arc<dyn OrgSink>, Box::new(|| now_ms().0));
         // 登録は確認と同じロックの中で行う（先に動き出したものがあれば、ここで断る）。
@@ -524,6 +534,8 @@ impl Host {
         // 起動しただけでは送信権は存在しない（前の実行の許可は引き継がない）。
         self.org_rt.grants.revoke_all();
         let Some(root) = self.persist.store().map(|s| s.root().to_path_buf()) else { return };
+        // 依頼整理を経て始めたのに、開始済みの印を保存できていなかったものを `intake.json` から直す（読取りと記録の更新だけ）。
+        self.intake_reconcile_started(&root);
         // 解放済みのチャットの印を先に反映し、未解放の組織チャットを監視の対応表へ入れる。
         let (released, owned): (Vec<ChatKey>, Vec<(ChatKey, String, String)>) = self.read(|d| {
             let mut released = Vec::new();
@@ -656,27 +668,6 @@ impl Host {
     }
 }
 
-/// 開始前の検査（読取りのgitだけ）。Gitリポジトリで、HEADが解決できる（コミットが1つ以上ある）こと。満たさなければ利用者向けの案内文を返す。
-async fn precheck_repo_has_commit(git: &crate::gitops::Git, folder: &str) -> Result<(), String> {
-    use crate::gitops::worktree as gw;
-    let dir = std::path::Path::new(folder);
-    let top = match gw::repo_root_kind(git, dir).await {
-        Ok(gw::RepoRootKind::Root(r)) => r,
-        Ok(gw::RepoRootKind::NotRepo) => {
-            return Err("このフォルダはGitのリポジトリではありません。Workerが専用worktreeで作業するには、先に `git init` と最初のコミットが必要です".to_string())
-        }
-        Ok(gw::RepoRootKind::OwnerMismatch { .. }) => {
-            return Err("Gitがこのフォルダの所有者の違いを理由に拒否したため、リポジトリを確認できません。Gitの safe.directory を確認してください".to_string())
-        }
-        Err(e) => return Err(format!("Gitでリポジトリを確認できません: {e}")),
-    };
-    match gw::resolve_commit(git, std::path::Path::new(&top), "HEAD").await {
-        Ok(_) => Ok(()),
-        Err(e) if e.is_timeout() || e.is_unavailable() => Err(format!("Gitでコミットの有無を確認できません: {}", e.message())),
-        Err(_) => Err("このフォルダにはまだコミットがありません。Workerが専用worktreeで作業するには、先に1回コミットしてください（例: `git add -A` と `git commit`）".to_string()),
-    }
-}
-
 /// 組織実行中のワークフローの併記用の写し。終わっていないタスクが残るものだけ（完了・失敗・取消だけなら出さない）。
 pub fn running_notes_of(view: Option<&OrgSnapshot>) -> Vec<OrgRunningNote> {
     let Some(v) = view else { return Vec::new() };
@@ -759,23 +750,28 @@ mod tests {
         assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
     }
 
+    async fn ready_check(git: &crate::gitops::Git, folder: &str) -> Result<(), IpcError> {
+        crate::host::gitprep::repo_ready_error(crate::gitops::prep::repo_status(git, std::path::Path::new(folder)).await)
+    }
+
     #[tokio::test]
     async fn start_is_refused_for_a_repo_without_commits_and_allowed_with_one() {
         let dir = std::env::temp_dir().join(format!("agentdock-precheck-{}", now_ms().0));
         std::fs::create_dir_all(&dir).unwrap();
         let git = crate::gitops::Git::new(None);
         let folder = dir.to_string_lossy().into_owned();
-        // not a repository
-        assert!(precheck_repo_has_commit(&git, &folder).await.unwrap_err().contains("リポジトリではありません"));
+        // not a repository: the UI is pointed at the prep dialog
+        let e = ready_check(&git, &folder).await.unwrap_err();
+        assert!(e.message.contains("リポジトリではありません") && matches!(e.blocked, Some(BlockedReason::RepoNotPrepared { .. })), "{e:?}");
         // a repository with no commit
         git_cmd(&dir, &["init"]);
-        let m = precheck_repo_has_commit(&git, &folder).await.unwrap_err();
-        assert!(m.contains("まだコミットがありません") && m.contains("git commit"), "{m}");
+        let e = ready_check(&git, &folder).await.unwrap_err();
+        assert!(e.message.contains("まだコミットがありません") && matches!(e.blocked, Some(BlockedReason::RepoNotPrepared { .. })), "{e:?}");
         // one commit: the regular case still starts
         std::fs::write(dir.join("a.txt"), "x").unwrap();
         git_cmd(&dir, &["add", "-A"]);
         git_cmd(&dir, &["commit", "-m", "first"]);
-        assert!(precheck_repo_has_commit(&git, &folder).await.is_ok());
+        assert!(ready_check(&git, &folder).await.is_ok());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

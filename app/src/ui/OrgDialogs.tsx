@@ -2,10 +2,9 @@
 // 開始・有効化は、押したときだけホストの命令を呼ぶ。テンプレートを選ぶ・見積りを見る・定義ファイルを開くだけでは何も送らない。
 // 有効化は権限の指紋を添えて確認後に送る（ホストが今の権限と照合する）。
 import { Fragment, useCallback, useEffect, useState } from "react";
-import type { ChatKey, OrgDeleteOutcome, OrgDeletePreview, OrgGraphProblemView, OrgGraphTemplateView, OrgGraphsView, OrgRoleView, OrgRolesView, StartOrgArgs } from "../ipc/types";
+import type { ChatKey, OrgDeleteOutcome, OrgDeletePreview, OrgGraphProblemView, OrgGraphsView, OrgRoleView, OrgRolesView } from "../ipc/types";
 import * as host from "../ipc/client";
-import { FootActions, ConfirmBlock } from "./DialogParts";
-import { estimateLines } from "./org";
+import { ConfirmBlock } from "./DialogParts";
 import { showKnown } from "./format";
 import { fmtBytes } from "./ManageDialogs";
 
@@ -23,135 +22,6 @@ function GraphProblems({ problems, onOpen }: { problems: OrgGraphProblemView[]; 
         <ul>{pr.reasons.map((r, i) => <li key={i}>{r}</li>)}</ul>
         {onOpen && pr.file.endsWith(".json") ? <button type="button" className="btn sm" onClick={() => onOpen(pr.file)}>ファイルを開く</button> : null}</li>
     ))}</ul>
-  );
-}
-
-/** 開始。`start` は失敗の理由（成功は null。成功時に呼び出し側がダイアログを閉じる）。テンプレートを選ぶ・見積りを見るだけでは何も送らない。 */
-export function OrgStartBody({ start, browse, live, loadGraphs }: {
-  start: (a: StartOrgArgs) => Promise<string | null>;
-  browse: () => Promise<string | null>;
-  live: boolean;
-  loadGraphs: LoadGraphs;
-}) {
-  const [request, setRequest] = useState("");
-  const [repo, setRepo] = useState("");
-  const [writers, setWriters] = useState("");
-  const [total, setTotal] = useState("");
-  const [turns, setTurns] = useState("");
-  const [retries, setRetries] = useState("");
-  const [sel, setSel] = useState(STANDARD_ID);
-  const [graphs, setGraphs] = useState<OrgGraphsView | null>(null);
-  const [gErr, setGErr] = useState<string | null>(null);
-  const [gMsg, setGMsg] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const loadG = useCallback(async (reload: boolean) => {
-    setGErr(null);
-    try {
-      let v = await loadGraphs(reload);
-      if (!reload && !v.loaded) v = await loadGraphs(true); // 初回は読み込み（足りない組込みテンプレートを作る）
-      setGraphs(v);
-    } catch (e) { setGErr(host.asIpcError(e).message); }
-  }, [loadGraphs]);
-  useEffect(() => { void loadG(false); }, [loadG]);
-  const num = (s: string): number | null | undefined => (s.trim() === "" ? null : /^[1-4]$/.test(s.trim()) ? Number(s.trim()) : undefined);
-  const w = num(writers), t = num(total);
-  const bad = w === undefined || t === undefined ? "並列数は1〜4の整数で入れてください（空欄なら既定）" : null;
-  const turnLimit = graphs?.maxTurnsLimit ?? 200;
-  const turnDefault = graphs?.defaultMaxTurns ?? 30;
-  const mt = turns.trim() === "" ? null : /^\d+$/.test(turns.trim()) && Number(turns.trim()) >= 1 && Number(turns.trim()) <= turnLimit ? Number(turns.trim()) : undefined;
-  // 新しい試行での再送の上限（0〜10。空欄なら既定の3）。
-  const mr = retries.trim() === "" ? null : /^\d+$/.test(retries.trim()) && Number(retries.trim()) <= 10 ? Number(retries.trim()) : undefined;
-  const badRetries = mr === undefined ? "再送の上限は 0〜10 の整数で入れてください（空欄なら既定 3）" : null;
-  const badTurns = mt === undefined ? `turn 上限は 1〜${turnLimit} の整数で入れてください（空欄なら既定 ${turnDefault}）` : null;
-  const templates = graphs?.templates ?? [];
-  const std = templates.find((x) => x.id === STANDARD_ID) ?? null;
-  const others = templates.filter((x) => x.id !== STANDARD_ID);
-  const stdProblem = graphs?.problems.find((x) => x.file === `${STANDARD_ID}.json`) ?? null;
-  const otherProblems = (graphs?.problems ?? []).filter((x) => x.file !== `${STANDARD_ID}.json`);
-  const chosen: OrgGraphTemplateView | null = sel === STANDARD_ID ? std : others.find((x) => x.id === sel) ?? null;
-  // 選んでいたテンプレートが読み直しで選べなくなったら、標準に戻す（誤りのある定義では始めない）。
-  useEffect(() => { if (graphs && sel !== STANDARD_ID && !others.some((x) => x.id === sel && x.selectable)) setSel(STANDARD_ID); }, [graphs, sel, others]);
-  const effTurns = mt ?? turnDefault;
-  const est = graphs ? estimateLines(chosen?.estimate ?? null, graphs.tokensPerTurnHint, effTurns) : null;
-  const can = request.trim() !== "" && repo.trim() !== "" && !bad && !badTurns && !badRetries && !busy && (sel === STANDARD_ID || !!chosen?.selectable);
-  const go = async () => {
-    if (!can) return;
-    setBusy(true); setErr(null);
-    const e = await start({ request: request.trim(), repo: repo.trim(), maxWriters: w ?? null, maxTotal: t ?? null, graphId: sel === STANDARD_ID ? null : sel, maxTurns: mt ?? null, maxRetries: mr ?? null });
-    setBusy(false);
-    if (e) setErr(e);
-  };
-  const openFile = async (file: string) => {
-    try { await host.orgOpenGraphFile(file); setGMsg(`「${file}」を関連アプリで開きました。編集後は「再読み込み」を押してください。`); }
-    catch (e) { setGMsg(`開けませんでした: ${host.asIpcError(e).message}`); }
-  };
-  return (
-    <div className="content">
-      <div className="field"><span>依頼</span><textarea rows={5} style={{ width: "100%" }} value={request} onChange={(e) => setRequest(e.target.value)} aria-label="組織実行の依頼" placeholder="例: ○○機能を実装し、テストを足す" autoFocus /></div>
-      <div className="field"><span>作業フォルダ</span>
-        <div style={{ display: "flex", gap: 4 }}>
-          <input type="text" className="mono grow" value={repo} onChange={(e) => setRepo(e.target.value)} placeholder="git リポジトリのフルパス" aria-label="作業フォルダのパス" />
-          <button type="button" className="btn sm" onClick={() => void browse().then((p) => { if (p) setRepo(p); })}>参照…</button>
-        </div>
-        <span className="note">git リポジトリのフォルダです。Worker はこの中の専用 worktree で作業し、あなたのブランチ・作業ツリーには書き込みません。</span></div>
-      <fieldset className="field org-tpls"><legend>テンプレート（進め方）</legend>
-        <label className="org-tpl">
-          <input type="radio" name="org-tpl" checked={sel === STANDARD_ID} onChange={() => setSel(STANDARD_ID)} />
-          <span><b>{std?.name ?? "計画して実行（標準）"}</b> <span className="mono muted">{STANDARD_ID}</span>
-            <span className="note">{std?.description || "Planner が計画を作り、Worker と Reviewer が実行・検証します（従来の開始と同じ動きです）。"}</span></span>
-        </label>
-        {stdProblem ? <p className="small muted">standard.json に誤りがありますが、標準は定義ファイルを使わず従来の計画経路で始めるため、影響しません（誤り: {stdProblem.reasons.join("、")}）。</p> : null}
-        {others.map((x) => (
-          <label key={x.id} className={`org-tpl${x.selectable ? "" : " off"}`}>
-            <input type="radio" name="org-tpl" disabled={!x.selectable} checked={sel === x.id} onChange={() => setSel(x.id)} />
-            <span><b>{x.name}</b> <span className="mono muted">{x.id}</span>
-              <span className="note">{x.description || "（説明なし）"}</span>
-              <span className="note">置き場: {x.workspace === "git" ? "Git" : "フォルダ（Git なし）"}　使う役割: {x.roles.join("、") || "—"}{x.suggestedMaxTurns !== null ? `　提案の turn 上限: ${x.suggestedMaxTurns}` : ""}</span>
-              {!x.selectable ? <span className="note why err" role="status">選べません: {x.reasons.join("、")}</span> : null}</span>
-          </label>
-        ))}
-        {otherProblems.length > 0 ? (
-          <div className="banner warn" role="status"><div><b>使えない定義があります（選べません）。</b>
-            <GraphProblems problems={otherProblems} onOpen={live ? (f) => void openFile(f) : undefined} /></div></div>
-        ) : null}
-        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-          <button type="button" className="btn sm" disabled={!live || busy} onClick={() => void loadG(true)} title="定義ファイルを読み直します（何も送りません）">再読み込み</button>
-          {chosen && sel !== STANDARD_ID && live ? <button type="button" className="btn sm" onClick={() => void openFile(chosen.file)}>定義ファイルを開く</button> : null}
-          {!graphs && !gErr ? <span className="small muted">テンプレートを読み込んでいます…</span> : null}
-        </div>
-        {gErr ? <p className="small why err" role="alert">テンプレートを取得できませんでした（{gErr}）。標準（従来の計画経路）では始められます。</p> : null}
-        {gMsg ? <p className="small" role="status">{gMsg}</p> : null}
-      </fieldset>
-      <div className="field"><span>並列数（任意）</span>
-        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <label>Worker 同時 <input type="text" inputMode="numeric" size={3} value={writers} placeholder="2" onChange={(e) => setWriters(e.target.value)} aria-label="Worker の同時実行数（1〜4）" /></label>
-          <label>全体 <input type="text" inputMode="numeric" size={3} value={total} placeholder="3" onChange={(e) => setTotal(e.target.value)} aria-label="全体の同時実行数（1〜4）" /></label>
-        </div>
-        <span className="note">1〜4。空欄なら既定（Worker 同時2・全体3）です。</span></div>
-      <div className="field"><span>turn 上限（任意）</span>
-        <div><input type="text" inputMode="numeric" size={5} value={turns} placeholder={String(turnDefault)} onChange={(e) => setTurns(e.target.value)} aria-label="turn 上限" /></div>
-        <span className="note">ワークフロー全体で送れる turn の数です。上限に達すると、その場で止まります（あとから上げて続けられます）。空欄なら既定（{turnDefault}）です。</span></div>
-      <div className="field"><span>再送の上限（任意）</span>
-        <div><input type="text" inputMode="numeric" size={3} value={retries} placeholder="3" onChange={(e) => setRetries(e.target.value)} aria-label="新しい試行での再送の上限（0〜10）" /></div>
-        <span className="note">turn が失敗・中断で止まったタスクを、あなたが「新しい試行で再送」できる回数の上限です（タスクごと）。自動では再送しません。0なら再送できません。空欄なら既定（3）です。</span></div>
-      <div className="banner info" role="note"><div>
-        <b>見積り（{chosen?.name ?? (sel === STANDARD_ID ? "標準" : sel)}）</b>
-        {est ? est.lines.map((l, i) => <div key={i} className={i > 0 && est.over ? "why err" : undefined}>{l}</div>) : <div>読み込み中…</div>}
-        <div className="small muted">定義から計算した上限の目安です。実際の使用量ではありません。</div>
-      </div></div>
-      <div className="banner info" role="note"><div>
-        開始しても、すぐタスクが実行されるとは限りません。{sel === STANDARD_ID
-          ? <>Planner が計画を作り、確認が必要な内容（あなたの作業ツリーへの書込み・push・ネットワーク取得・削除など）が含まれる計画は、<b>計画承認カードで承認するまで</b>タスクを送りません。確認が不要な計画だけが自動で承認されます。</>
-          : <>テンプレートの流れに沿って、工程ごとに役割のチャットへ送ります。判断を求める工程（gate）は、あなたが選ぶまで進みません。周回が上限に達したときも、あなたの判断を待ちます。</>}
-        AgentDock は自動でマージしません。
-      </div></div>
-      {bad ? <p className="small why err" role="alert">{bad}</p> : null}
-      {badTurns ? <p className="small why err" role="alert">{badTurns}</p> : null}
-      {badRetries ? <p className="small why err" role="alert">{badRetries}</p> : null}
-      {err ? <div className="why err" role="alert">{err}</div> : null}
-      <FootActions main={<button className="btn primary" disabled={!can} onClick={() => void go()}>{busy ? "開始しています…" : "開始"}</button>} />
-    </div>
   );
 }
 

@@ -1924,6 +1924,7 @@ mod tests {
             purpose_delivered_rev: None,
             compacted_since_delivery: false,
             replaces: None,
+            intake: None,
         });
         let (ev, changed) = d.note_compaction(&ck("root"));
         assert!(changed && matches!(ev.as_slice(), [HostEvent::ChatLocalUpdated { .. }]));
