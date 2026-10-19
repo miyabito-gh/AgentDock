@@ -155,6 +155,8 @@ impl UnresolvedSends {
 pub(super) enum SendAuth<'a> {
     User,
     Org(org::grant::DispatchPermit<'a>),
+    /// 組織実行の実行中turnへの割り込み（`turn/steer`）。`SendMode::Steer` で宛先とturnが許可と一致するときだけ通る。
+    OrgInterject(org::grant::InterjectPermit),
 }
 
 /// 利用者の送信に付ける追加の指定（通常は何も付けない）。
@@ -1090,6 +1092,11 @@ impl Host {
                 .err()
                 .map(|e| e.message().to_string())
                 .or_else(|| (permit.chat() != &chat).then(|| "許可の宛先と違うチャットです".to_string())),
+            SendAuth::OrgInterject(permit) => permit
+                .still_valid(&self.org_rt.grants)
+                .err()
+                .map(|e| e.message().to_string())
+                .or_else(|| (!permit.allows(&chat, &request.mode)).then(|| "割り込みの宛先（チャットまたはturn）が許可と違います".to_string())),
         };
         if let Some(message) = refusal {
             attempt.state = SendState::Rejected { message };

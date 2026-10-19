@@ -12,8 +12,8 @@ use std::sync::Mutex;
 
 use org_engine::{TaskId, WorkflowId};
 
-use crate::backend::backend::UserConfirmed;
-use crate::backend::model::ChatKey;
+use crate::backend::backend::{SendMode, UserConfirmed};
+use crate::backend::model::{ChatKey, TurnKey};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GrantError {
@@ -154,6 +154,42 @@ impl DispatchPermit<'_> {
     }
 }
 
+/// 実行中の turn への割り込み（`turn/steer`）に1つ。`Clone` しない。値で消費される。
+/// 新しい turn を作らないので、ワークフローの送信権（`OrgGrant`）は要らない。宛先のチャットと turn は作るときに固定され、
+/// `SendMode::Steer` で宛先とturnが一致する送信だけを通す（新しい turn の開始は型で拒否）。
+pub struct InterjectPermit {
+    chat: ChatKey,
+    turn: TurnKey,
+}
+
+impl InterjectPermit {
+    /// 司令task（`driver.rs`）だけが作る。手動に切り替えたチャットには出さない。
+    pub(in crate::host::org) fn issue(reg: &GrantRegistry, chat: ChatKey, turn: TurnKey) -> Result<Self, GrantError> {
+        if reg.is_released(&chat) {
+            return Err(GrantError::ChatReleased);
+        }
+        Ok(Self { chat, turn })
+    }
+
+    pub fn chat(&self) -> &ChatKey {
+        &self.chat
+    }
+    pub fn turn(&self) -> &TurnKey {
+        &self.turn
+    }
+    /// 送る直前の再確認（手動に切り替えられていないか）。
+    pub fn still_valid(&self, reg: &GrantRegistry) -> Result<(), GrantError> {
+        if reg.is_released(&self.chat) {
+            return Err(GrantError::ChatReleased);
+        }
+        Ok(())
+    }
+    /// この許可で送ってよい要求か: 宛先のチャットが同じで、`Steer` の turn が許可の turn と一致するものだけ。
+    pub fn allows(&self, chat: &ChatKey, mode: &SendMode) -> bool {
+        &self.chat == chat && matches!(mode, SendMode::Steer { turn } if turn == &self.turn)
+    }
+}
+
 /// 役割チャットの作成に1つ。`Clone` しない。
 pub struct CreatePermit<'g> {
     _grant: &'g OrgGrant,
@@ -212,6 +248,24 @@ mod tests {
         let p = g.permit(&reg, &TaskId::new("t"), &chat("b")).unwrap();
         reg.release_chat(&chat("b"));
         assert_eq!(p.still_valid(&reg), Err(GrantError::ChatReleased));
+    }
+
+    fn turn(agent: &str, id: &str) -> TurnKey {
+        TurnKey { agent: crate::backend::model::AgentKey { backend: BackendKind::Codex, id: ExternalId(agent.into()) }, turn_id: ExternalId(id.into()) }
+    }
+
+    #[test]
+    fn an_interject_permit_passes_only_a_steer_into_its_own_turn_and_never_a_new_turn() {
+        let reg = GrantRegistry::default();
+        let p = InterjectPermit::issue(&reg, chat("a"), turn("a", "t1")).unwrap();
+        assert!(p.allows(&chat("a"), &SendMode::Steer { turn: turn("a", "t1") }));
+        assert!(!p.allows(&chat("a"), &SendMode::NewTurn), "a new turn is never allowed");
+        assert!(!p.allows(&chat("a"), &SendMode::Steer { turn: turn("a", "t2") }), "another turn");
+        assert!(!p.allows(&chat("b"), &SendMode::Steer { turn: turn("a", "t1") }), "another chat");
+        // needs no workflow grant, but a released chat gets none
+        reg.release_chat(&chat("a"));
+        assert!(p.still_valid(&reg).is_err());
+        assert_eq!(InterjectPermit::issue(&reg, chat("a"), turn("a", "t1")).err(), Some(GrantError::ChatReleased));
     }
 
     #[test]

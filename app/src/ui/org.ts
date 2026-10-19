@@ -158,7 +158,7 @@ export function waitCauseOf(snap: HostSnapshot, t: OrgTaskView): WaitCause | nul
   if (w.pending.length > 0 || w.unanswerable > 0) return "answer";
   if (t.status.phase !== "blocked") return null;
   switch (t.status.reason) {
-    case "usageLimit": case "limit": case "roundLimit": return "limit";
+    case "usageLimit": case "limit": case "roundLimit": case "reworkLimit": return "limit";
     case "turnFailed": case "needsAttention": case "manualStop": return "failed";
     case "manual": return "manual";
     case "awaitingApproval": return "judge";

@@ -78,6 +78,10 @@ impl AgentRuntime for Fake {
         self.log.lock().unwrap().push("create".into());
         CreateOutcome { result: CreateResult::Created(ChatRef::new(format!("codex:chat-{}", permit.task()))), trust: None }
     }
+    async fn steer(&self, _permit: crate::host::org::grant::InterjectPermit, req: crate::host::org::ports::OrgSteerSpec) -> OrgSendResult {
+        self.log.lock().unwrap().push("steer".into());
+        OrgSendResult::Dispatched(SendAttempt { attempt_id: req.attempt, client_message_id: req.client_message_id, at: UnixMillis(0), state: SendState::Sending })
+    }
     async fn send(&self, permit: DispatchPermit<'_>, req: OrgSendSpec) -> OrgSendResult {
         assert_eq!(permit.chat(), &req.chat);
         if !*self.live.lock().unwrap() {

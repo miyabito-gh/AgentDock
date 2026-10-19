@@ -163,6 +163,8 @@ export default function App() {
   const [org, setOrg] = useState<OrgSnapshotView | null>(null);
   const [orgErr, setOrgErr] = useState<string | null>(null);
   const [orgTick, setOrgTick] = useState(0);
+  // 進行タイムラインの合図（orgTimelineUpdated。1秒に1回まで）。経過の表示が差分を取り直す。
+  const [orgTlTick, setOrgTlTick] = useState(0);
   /** 中央にワークフロー画面を出しているか（役割チャットを選ぶと閉じる）。 */
   const [orgScreen, setOrgScreen] = useState(false);
   /** ワークフロー画面に出す過去のワークフローのID（null＝実行中の1件）。保存済みの記録を読み取り専用で開くだけ。 */
@@ -296,6 +298,7 @@ export default function App() {
     const effects = (e: HostEvent) => {
       if (e.kind === "turnUpdated" && e.end !== null && e.turn.agent.id === selRef.current) void loadChat(e.turn.agent.id);
       else if (e.kind === "orgUpdated") setOrgTick((n) => n + 1); // 組織実行の状態の合図。画面側が org_view を取り直す（読取りのみ）
+      else if (e.kind === "orgTimelineUpdated") setOrgTlTick((n) => n + 1); // 経過の合図。画面側が org_timeline で差分だけ取り直す（読取りのみ）
       else if (e.kind === "sendUpdated") noteAttempt(e.chat.id, e.attempt);
       else if (e.kind === "sendPhaseUpdated") setPendingSends((m) => { const cur = m[e.chat.id]; if (!cur) return m; const next = setPhase(cur, e.phase); return next === cur ? m : { ...m, [e.chat.id]: next }; }); // 送信中の段階（表示だけ）
       else if (e.kind === "changesUpdated") setChangesTick((n) => n + 1); // 開いている差分表示が取り直す（読取りのみ）
@@ -1718,7 +1721,7 @@ ${cur}` : p.text);
           </aside>
           <main className="center">
             {orgScreen ? (
-              <OrgPane snap={snap} org={orgShown} error={orgErr} live={live} leftShown={leftTemp ? lNarrow : leftOpen} rightShown={rightTemp ? rNarrow : rightOpen}
+              <OrgPane snap={snap} org={orgShown} error={orgErr} live={live} timelineTick={orgTlTick} leftShown={leftTemp ? lNarrow : leftOpen} rightShown={rightTemp ? rNarrow : rightOpen}
                 onAct={act} onOpenChat={(k) => selectChat(k.id)} onReload={() => setOrgTick((n) => n + 1)} run={orgRun} onDelete={(id) => setDialog({ type: "orgDelete", workflowId: id })}
                 renderRequest={(r, agentName) => <RequestCard r={r} onRespond={onRespond} agentName={agentName} />} />
             ) : quick.open || (!chat && live) ? (
@@ -1739,6 +1742,7 @@ ${cur}` : p.text);
                 notice={live ? noticeOf(attempts[chat.key.id], steerOf[chat.key.id] ? { attemptId: steerOf[chat.key.id].attemptId, queueInstead: () => { void onSend(steerOf[chat.key.id].text, false, steerOf[chat.key.id].attachments); } } : null) : null} onRetrySend={() => void onRetrySend()}
                 queue={snap.queues.find((q) => q.chat.id === chat.key.id)} local={snap.chatLocals.find((l) => l.chat.id === chat.key.id)}
                 qact={qact} onPermission={onPermission} wf={wf} sends={sends[chat.key.id] ?? NO_SENDS}
+                orgInterject={(() => { const o = snap.chatLocals.find((l) => l.chat.id === chat.key.id)?.org; const w = org?.workflow ?? null; return o && !o.released && w && w.workflowId === o.workflowId ? { workflowId: w.workflowId, task: w.tasks.find((t) => t.id === o.taskId) ?? null, interjects: w.interjects, run: orgRun } : null; })()}
                 cwdInfo={headCwd ? pathInfo(headCwd) : undefined}
                 leftShown={leftTemp ? lNarrow : leftOpen} rightShown={rightTemp ? rNarrow : rightOpen}
               />

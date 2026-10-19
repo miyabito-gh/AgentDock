@@ -1334,6 +1334,12 @@ pub enum HostEvent {
     SideUpdated { side: SideSessionMeta },
     /// 組織実行の状態が変わった合図（UIは状態を取り直す。型の詳細は P-ORG-7）。
     OrgUpdated { workflow_id: String },
+    /// 組織実行の進行タイムラインに新しい行がある合図（1秒に1回まで。UIは `org_timeline` で差分だけ取り直す）。
+    OrgTimelineUpdated {
+        workflow_id: String,
+        #[cfg_attr(test, ts(type = "number"))]
+        last_seq: u64,
+    },
     /// 通知を開いた操作（トレイ・通知クリック）。該当チャットを表示するだけで、回答・再実行はしない。
     NavigateToChat { chat: ChatKey },
     /// 完全終了の進行（確認・停止照合・保存・保存失敗）。閉じる操作（トレイ格納）では出ない。

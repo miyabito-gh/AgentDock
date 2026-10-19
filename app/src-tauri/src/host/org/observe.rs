@@ -6,7 +6,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use org_engine::{AttemptRef, OrgInput, ReconcileCause, SettleOutcome, TaskId, TurnEndKind, WorkflowId};
+use org_engine::{AttemptRef, InterjectOutcome, NoteId, OrgInput, ReconcileCause, SettleOutcome, TaskId, TurnEndKind, WorkflowId};
 
 use super::driver::{DriverMsg, UsageSample};
 use crate::backend::backend::{BackendEvent, FailureClass, GapScope};
@@ -22,6 +22,14 @@ pub struct OrgObserver {
     usage_limited: HashSet<TurnKey>,
     /// 活動を最後に知らせた時刻（間引き用）。
     last_activity_sent: HashMap<ChatKey, i64>,
+    /// 割り込みの試行（`int-N`）が宛先にした turn（この起動中だけ。再起動後の照合では、turn の違いの注記を付けない）。
+    interject_turns: HashMap<LocalId, ExternalId>,
+}
+
+/// 割り込み（`turn/steer`）の試行か。試行IDは割り込みのID（`int-N`）をそのまま使う。エンジンの通常の試行は `att-N`。
+/// 再起動をまたいで照合される試行も、IDだけで割り込みと分かる。
+pub fn is_interject_attempt(attempt: &LocalId) -> bool {
+    attempt.0.starts_with("int-")
 }
 
 /// 活動の通知の最小間隔（停滞は分単位なので十分）。
@@ -36,8 +44,14 @@ impl OrgObserver {
         self.bound.remove(chat);
     }
 
+    /// 割り込みを送る前に、宛先にした turn を控える（受理された turn が違えば注記する）。
+    pub fn note_interject(&mut self, attempt: LocalId, turn: ExternalId) {
+        self.interject_turns.insert(attempt, turn);
+    }
+
     pub fn clear(&mut self) {
         self.bound.clear();
+        self.interject_turns.clear();
         self.unknown_attempts.clear();
         self.usage_limited.clear();
         self.last_activity_sent.clear();
@@ -59,6 +73,11 @@ impl OrgObserver {
     /// 照合（読取りのみ）の結果も同じ口で届く。
     pub fn on_send(&mut self, chat: &ChatKey, attempt: &SendAttempt) -> Vec<DriverMsg> {
         let Some(task) = self.task_of(chat).cloned() else { return Vec::new() };
+        // 割り込み（turn/steer）の結果は、エンジンの通常の送信の試行とは別の表で決着する。混ぜると、同じチャットの
+        // 通常の送信の照合（`SendSettled`）が壊れる。
+        if is_interject_attempt(&attempt.attempt_id) {
+            return self.on_interject_send(attempt);
+        }
         let aref = AttemptRef::new(attempt.attempt_id.0.clone());
         let was_unknown = self.unknown_attempts.contains(&attempt.attempt_id);
         let outcome = match &attempt.state {
@@ -86,6 +105,42 @@ impl OrgObserver {
             }
         };
         vec![DriverMsg::Input(OrgInput::SendSettled { task, attempt: aref, outcome })]
+    }
+
+    /// 割り込みの送信状態を `InterjectSettled` にする（`SendSettled` にはしない）。受理不明のあとに受理・不在が確定したものは照合の結果。
+    fn on_interject_send(&mut self, attempt: &SendAttempt) -> Vec<DriverMsg> {
+        let id = NoteId::new(attempt.attempt_id.0.clone());
+        let was_unknown = self.unknown_attempts.contains(&attempt.attempt_id);
+        let expected = self.interject_turns.get(&attempt.attempt_id).cloned();
+        let outcome = match &attempt.state {
+            SendState::Sending => return Vec::new(),
+            SendState::Accepted { turn } => {
+                self.unknown_attempts.remove(&attempt.attempt_id);
+                self.interject_turns.remove(&attempt.attempt_id);
+                if was_unknown {
+                    InterjectOutcome::ReconciledDelivered
+                } else {
+                    // 受理された turn が宛先と違えば、別の turn に入ったことを注記する（届いたことに変わりはない）。
+                    let other = expected.is_some_and(|e| e != turn.turn_id);
+                    InterjectOutcome::Delivered { note: other.then(|| "指示は、宛先にしたturnとは別のturnに入りました".to_string()) }
+                }
+            }
+            SendState::Rejected { message } => {
+                self.unknown_attempts.remove(&attempt.attempt_id);
+                self.interject_turns.remove(&attempt.attempt_id);
+                InterjectOutcome::NotDelivered { reason: message.clone() }
+            }
+            SendState::AcceptanceUnknown { .. } => {
+                self.unknown_attempts.insert(attempt.attempt_id.clone());
+                InterjectOutcome::Unknown
+            }
+            SendState::NotFoundAfterReconcile => {
+                self.unknown_attempts.remove(&attempt.attempt_id);
+                self.interject_turns.remove(&attempt.attempt_id);
+                InterjectOutcome::ReconciledNotFound
+            }
+        };
+        vec![DriverMsg::Input(OrgInput::InterjectSettled { id, outcome })]
     }
 
     /// 出力（活動）を停滞の判断のために知らせる。同じチャットには `ACTIVITY_MIN_GAP_MS` に1回まで（逐次本文で溢れさせない）。
@@ -248,6 +303,46 @@ mod tests {
         assert!(matches!(input(&m[0]), OrgInput::SendSettled { outcome: SettleOutcome::Accepted { .. }, .. }));
         let m = o.on_send(&chat("c1"), &attempt(SendState::NotFoundAfterReconcile));
         assert!(matches!(input(&m[0]), OrgInput::SendSettled { outcome: SettleOutcome::ReconciledNotFound, .. }));
+    }
+
+    fn int_attempt(state: SendState) -> SendAttempt {
+        SendAttempt { attempt_id: LocalId("int-12".into()), client_message_id: "cm".into(), at: UnixMillis(0), state }
+    }
+
+    #[test]
+    fn an_interjection_result_never_becomes_an_ordinary_send_settled() {
+        let mut o = observer();
+        o.note_interject(LocalId("int-12".into()), ExternalId("t1".into()));
+        assert!(o.on_send(&chat("c1"), &int_attempt(SendState::Sending)).is_empty());
+        let m = o.on_send(&chat("c1"), &int_attempt(SendState::Accepted { turn: turn("c1", "t1") }));
+        assert_eq!(m.len(), 1);
+        assert!(matches!(input(&m[0]), OrgInput::InterjectSettled { id, outcome: InterjectOutcome::Delivered { note: None } } if id.0 == "int-12"));
+        // another turn took it: still delivered, with a remark
+        let mut o = observer();
+        o.note_interject(LocalId("int-12".into()), ExternalId("t1".into()));
+        let m = o.on_send(&chat("c1"), &int_attempt(SendState::Accepted { turn: turn("c1", "t2") }));
+        assert!(matches!(input(&m[0]), OrgInput::InterjectSettled { outcome: InterjectOutcome::Delivered { note: Some(_) }, .. }));
+        // a rejection is a certain "not delivered"
+        let m = o.on_send(&chat("c1"), &int_attempt(SendState::Rejected { message: "no".into() }));
+        assert!(matches!(input(&m[0]), OrgInput::InterjectSettled { outcome: InterjectOutcome::NotDelivered { reason }, .. } if reason == "no"));
+        // an ordinary attempt on the same chat still maps to SendSettled
+        let m = o.on_send(&chat("c1"), &attempt(SendState::Rejected { message: "x".into() }));
+        assert!(matches!(input(&m[0]), OrgInput::SendSettled { .. }));
+    }
+
+    #[test]
+    fn an_unknown_interjection_is_reconciled_later_and_never_resent() {
+        let mut o = observer();
+        let m = o.on_send(&chat("c1"), &int_attempt(SendState::AcceptanceUnknown { since: UnixMillis(1) }));
+        assert!(matches!(input(&m[0]), OrgInput::InterjectSettled { outcome: InterjectOutcome::Unknown, .. }));
+        let m = o.on_send(&chat("c1"), &int_attempt(SendState::Accepted { turn: turn("c1", "t9") }));
+        assert!(matches!(input(&m[0]), OrgInput::InterjectSettled { outcome: InterjectOutcome::ReconciledDelivered, .. }));
+        let mut o = observer();
+        o.on_send(&chat("c1"), &int_attempt(SendState::AcceptanceUnknown { since: UnixMillis(1) }));
+        let m = o.on_send(&chat("c1"), &int_attempt(SendState::NotFoundAfterReconcile));
+        assert!(matches!(input(&m[0]), OrgInput::InterjectSettled { outcome: InterjectOutcome::ReconciledNotFound, .. }));
+        // an interjection on a chat the organisation does not own is ignored
+        assert!(o.on_send(&chat("other"), &int_attempt(SendState::Rejected { message: "x".into() })).is_empty());
     }
 
     #[test]

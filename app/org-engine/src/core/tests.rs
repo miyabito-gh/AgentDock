@@ -527,7 +527,9 @@ fn rework_is_limited_to_two_sendbacks() {
     assert_eq!(sim.t("w").rework_count(), 2);
     sim.complete_turn("w", REPORT);
     sim.complete_turn("r", REWORK);
-    assert_eq!(sim.t("w").status(), TaskStatus::Failed(FailReason::LimitReached));
+    assert_eq!(sim.t("w").status(), TaskStatus::Blocked(BlockedReason::ReworkLimit));
+    assert_eq!(sim.t("w").last_findings(), ["fix the edge case"]);
+    assert_eq!(sim.t("r").status(), TaskStatus::Rework);
     assert_eq!(sim.sends("w"), 3, "attempts = 1 + 2 rework");
     // the rework prompt carries the findings as quoted material
     let rework_text = sim
@@ -678,14 +680,14 @@ fn guards_in_the_event_log() {
     let t = tid("t");
     s.record(OrgEventKind::TaskAdded { task: PlanTask { id: t.clone(), role: RoleId::new("worker"), deps: vec![], effects: vec![], title: String::new(), instructions: String::new() } }, 0).unwrap();
     assert!(matches!(
-        s.record(OrgEventKind::Dispatched { task: t.clone(), attempt: AttemptRef::new("a1"), client_message_id: "m".into(), kind: TurnKind::Task }, 0),
+        s.record(OrgEventKind::Dispatched { task: t.clone(), attempt: AttemptRef::new("a1"), client_message_id: "m".into(), kind: TurnKind::Task, notes_upto: None }, 0),
         Err(crate::ApplyError::ChatNotBound(_))
     ));
     s.record(OrgEventKind::ChatRequested { task: t.clone(), cwd: "x".into() }, 0).unwrap();
     assert!(s.record(OrgEventKind::ChatRequested { task: t.clone(), cwd: "y".into() }, 0).is_err());
     s.record(OrgEventKind::ChatBound { task: t.clone(), chat: ChatRef::new("c1") }, 0).unwrap();
     assert!(s.record(OrgEventKind::ChatBound { task: t.clone(), chat: ChatRef::new("c2") }, 0).is_err());
-    let d = |a: &str| OrgEventKind::Dispatched { task: t.clone(), attempt: AttemptRef::new(a), client_message_id: "m".into(), kind: TurnKind::Task };
+    let d = |a: &str| OrgEventKind::Dispatched { task: t.clone(), attempt: AttemptRef::new(a), client_message_id: "m".into(), kind: TurnKind::Task, notes_upto: None };
     s.record(d("a1"), 0).unwrap();
     assert!(matches!(s.record(d("a2"), 0), Err(crate::ApplyError::AttemptOpen(_))), "no new dispatch while unsettled");
     let settle = |o| OrgEventKind::DispatchSettled { task: t.clone(), attempt: AttemptRef::new("a1"), outcome: o };
@@ -732,6 +734,7 @@ fn engine_has_no_input_for_resend_and_no_codex_request_action() {
             OrgAction::CreateRoleChat { .. } => "create",
             OrgAction::CheckSandbox { .. } => "sandbox",
             OrgAction::Send { .. } => "send",
+            OrgAction::Steer { .. } => "steer",
             OrgAction::ReadFinalMessage { .. } => "read",
             OrgAction::Workspace(_) => "workspace",
             OrgAction::Notify(_) => "notify",
@@ -1341,4 +1344,337 @@ fn limits_without_max_retries_read_as_three() {
     assert_eq!(l.max_retries, 3);
     assert!(Limits::default().with_max_retries(10).is_ok());
     assert!(Limits::default().with_max_retries(11).is_err());
+}
+
+// ---------------------------------------------------------------- DESIGN_ORG_R2: interventions
+
+/// Plan w (worker) + r (reviewer), the reviewer rejecting three times: `w` is stopped at the limit.
+fn at_rework_limit() -> Sim {
+    let mut sim = Sim::new();
+    sim.with_plan(&plan_json(&[("w", "worker", &[], &[]), ("r", "reviewer", &["w"], &[])]));
+    sim.complete_turn("w", REPORT);
+    sim.complete_turn("r", REWORK);
+    sim.complete_turn("w", REPORT);
+    sim.complete_turn("r", REWORK);
+    sim.complete_turn("w", REPORT);
+    sim.complete_turn("r", REWORK);
+    assert_eq!(sim.t("w").status(), TaskStatus::Blocked(BlockedReason::ReworkLimit));
+    sim
+}
+
+fn sent_texts(sim: &Sim, id: &str) -> Vec<String> {
+    sim.log.iter().filter_map(|a| if let OrgAction::Send { task, text, .. } = a { (task.0 == id).then(|| text.clone()) } else { None }).collect()
+}
+
+fn refused(acts: &[OrgAction]) -> bool {
+    acts.iter().any(|a| matches!(a, OrgAction::Notify(OrgNotice::Refused { .. })))
+}
+
+/// Rebuild the state from the persisted events of the simulation (what a restart would read).
+fn replay(sim: &Sim) -> WorkflowState {
+    let evs: Vec<OrgEvent> = sim.log.iter().filter_map(|a| if let OrgAction::Persist(e) = a { Some(e.clone()) } else { None }).collect();
+    let OrgEventKind::Created { workflow_id, limits } = evs[0].kind.clone() else { panic!("no Created") };
+    let mut s = WorkflowState::new(workflow_id, limits);
+    s.last_seq = evs[0].seq;
+    for e in &evs[1..] {
+        s.apply(e).unwrap();
+    }
+    s
+}
+
+#[test]
+fn rework_limit_stops_for_the_user_and_the_user_can_fail_it() {
+    let mut sim = at_rework_limit();
+    assert_eq!(sim.t("w").rework_count(), 2);
+    assert!(sim.notices().iter().any(|n| matches!(n, OrgNotice::TaskBlocked { task, .. } if task.0 == "w")));
+    // a restart keeps the findings and the state
+    let restored = replay(&sim);
+    assert_eq!(restored.task(&tid("w")).unwrap().last_findings(), ["fix the edge case"]);
+    assert_eq!(restored.task(&tid("w")).unwrap().status(), TaskStatus::Blocked(BlockedReason::ReworkLimit));
+    sim.feed(OrgInput::UserFailTask { task: tid("w") });
+    assert_eq!(sim.t("w").status(), TaskStatus::Failed(FailReason::ExecutionFailed));
+}
+
+#[test]
+fn user_send_back_from_the_limit_does_not_count_as_automatic_and_carries_the_note() {
+    let mut sim = at_rework_limit();
+    sim.feed(OrgInput::UserSendBack { task: tid("w"), note: Some("handle the empty list too".into()) });
+    assert_eq!(sim.t("w").rework_count(), 2, "not an automatic send-back");
+    assert_eq!(sim.t("w").user_rework_count(), 1);
+    assert_eq!(sim.t("w").status(), TaskStatus::Running);
+    let texts = sent_texts(&sim, "w");
+    assert_eq!(texts.len(), 4);
+    assert!(texts[3].contains("handle the empty list too") && texts[3].contains("-----BEGIN USER NOTE-----"), "{}", texts[3]);
+    // the note is used up by the accepted send; the reviewer reviews again
+    assert!(crate::notes_for(sim.st(), &tid("w")).0.is_empty());
+    sim.complete_turn("w", REPORT);
+    assert_eq!(sim.t("r").status(), TaskStatus::Running);
+    sim.complete_turn("r", PASS);
+    assert_eq!(sim.t("w").status(), TaskStatus::Completed);
+}
+
+#[test]
+fn user_send_back_needs_a_note_while_waiting_for_review_and_refuses_a_completed_worker() {
+    let mut sim = Sim::new();
+    sim.with_plan(&plan_json(&[("w", "worker", &[], &[]), ("r", "reviewer", &["w"], &[])]));
+    sim.complete_turn("w", REPORT);
+    // the reviewer is running now
+    assert_eq!(sim.t("r").status(), TaskStatus::Running);
+    assert!(refused(&sim.feed(OrgInput::UserSendBack { task: tid("w"), note: None })));
+    assert!(refused(&sim.feed(OrgInput::UserSendBack { task: tid("w"), note: Some("x".into()) })), "the reviewer is running");
+    assert_eq!(sim.t("w").status(), TaskStatus::Reviewing);
+    let mut sim = Sim::new();
+    sim.with_plan(&plan_json(&[("w", "worker", &[], &[])]));
+    sim.complete_turn("w", REPORT);
+    assert_eq!(sim.t("w").status(), TaskStatus::Completed);
+    assert!(refused(&sim.feed(OrgInput::UserSendBack { task: tid("w"), note: Some("x".into()) })));
+}
+
+#[test]
+fn accept_as_is_completes_the_worker_and_skips_the_waiting_reviewer() {
+    let mut sim = at_rework_limit();
+    sim.feed(OrgInput::UserAcceptAsIs { task: tid("w") });
+    assert_eq!(sim.t("w").status(), TaskStatus::Completed);
+    assert_eq!(sim.t("r").status(), TaskStatus::Cancelled);
+    assert!(sim.t("r").skipped());
+    assert!(sim.notices().iter().any(|n| matches!(n, OrgNotice::WorkflowCompleted)));
+}
+
+#[test]
+fn skip_a_pending_worker_takes_its_reviewer_and_lets_the_followers_go() {
+    let mut sim = Sim::new();
+    sim.with_plan(&plan_json(&[("a", "worker", &[], &["networkOrInstall"]), ("r", "reviewer", &["a"], &[]), ("b", "worker", &["a"], &[])]));
+    assert_eq!(sim.st().halt(), Some(HaltReason::AwaitingPlanApproval));
+    sim.feed(OrgInput::UserSkipTask { task: tid("a") });
+    assert_eq!(sim.t("a").status(), TaskStatus::Cancelled);
+    assert!(sim.t("a").skipped() && sim.t("r").skipped());
+    assert_eq!(sim.t("r").status(), TaskStatus::Cancelled);
+    sim.feed(OrgInput::UserApprovePlan);
+    // b treats the skipped dependency as satisfied, and its prompt says so
+    assert_eq!(sim.t("b").status(), TaskStatus::Running);
+    assert!(sent_texts(&sim, "b")[0].contains("スキップしました"));
+    sim.complete_turn("b", REPORT);
+    assert!(sim.notices().iter().any(|n| matches!(n, OrgNotice::WorkflowCompleted)), "skipped tasks do not block completion");
+}
+
+#[test]
+fn skipping_the_only_reviewer_completes_the_reviewing_worker_unreviewed() {
+    let mut sim = Sim::new();
+    sim.with_plan(&plan_json(&[("w", "worker", &[], &[]), ("r", "reviewer", &["w"], &[])]));
+    sim.complete_turn("w", REPORT);
+    // the reviewer is blocked before it started (its worktree could not be made)
+    sim.core.state.as_mut().unwrap().tasks.iter_mut().find(|t| t.id.0 == "r").unwrap().status = TaskStatus::Blocked(BlockedReason::NeedsAttention);
+    sim.core.launching.clear();
+    sim.core.flows.clear();
+    sim.feed(OrgInput::UserSkipTask { task: tid("r") });
+    assert_eq!(sim.t("r").status(), TaskStatus::Cancelled);
+    assert_eq!(sim.t("w").status(), TaskStatus::Completed);
+}
+
+#[test]
+fn skip_refuses_running_and_unconfirmed_tasks() {
+    let mut sim = Sim::new();
+    sim.unknown_sends.insert(tid("u"));
+    sim.with_plan(&plan_json(&[("a", "worker", &[], &[]), ("u", "worker", &[], &[])]));
+    for id in ["a", "u"] {
+        let acts = sim.feed(OrgInput::UserSkipTask { task: tid(id) });
+        assert!(refused(&acts), "{id}");
+        assert_eq!(sim.t(id).status(), TaskStatus::Running);
+    }
+}
+
+#[test]
+fn a_worker_whose_reviewer_was_cancelled_completes_at_the_commit() {
+    let mut sim = Sim::new();
+    sim.with_plan(&plan_json(&[("a", "worker", &[], &["networkOrInstall"]), ("r", "reviewer", &["a"], &[])]));
+    sim.feed(OrgInput::UserCancelTask { task: tid("r") });
+    sim.feed(OrgInput::UserApprovePlan);
+    sim.complete_turn("a", REPORT);
+    assert_eq!(sim.t("a").status(), TaskStatus::Completed, "a cancelled reviewer is not counted");
+}
+
+#[test]
+fn a_held_task_is_not_sent_until_released() {
+    let mut sim = Sim::new();
+    sim.with_plan(&plan_json(&[("a", "worker", &[], &["networkOrInstall"]), ("b", "worker", &[], &["networkOrInstall"])]));
+    sim.feed(OrgInput::UserHoldTask { task: tid("b"), held: true });
+    assert!(sim.t("b").held());
+    sim.feed(OrgInput::UserApprovePlan);
+    assert_eq!(sim.sends("a"), 1);
+    assert_eq!(sim.sends("b"), 0);
+    sim.feed(OrgInput::UserHoldTask { task: tid("b"), held: false });
+    assert_eq!(sim.sends("b"), 1);
+    // a running task cannot be held
+    assert!(refused(&sim.feed(OrgInput::UserHoldTask { task: tid("a"), held: true })));
+}
+
+#[test]
+fn a_note_rides_along_once_and_only_an_accepted_send_uses_it_up() {
+    let mut sim = Sim::new();
+    sim.with_plan(&plan_json(&[("a", "worker", &[], &["networkOrInstall"]), ("b", "worker", &["a"], &[])]));
+    sim.feed(OrgInput::UserAddNote { text: "use tabs".into(), task: None });
+    sim.feed(OrgInput::UserAddNote { text: "only for b".into(), task: Some(tid("b")) });
+    // a withdrawn note never goes
+    sim.feed(OrgInput::UserAddNote { text: "never mind".into(), task: None });
+    let nid = sim.st().notes().last().unwrap().id.clone();
+    sim.feed(OrgInput::UserWithdrawNote { id: nid });
+    sim.unknown_sends.insert(tid("a"));
+    sim.feed(OrgInput::UserApprovePlan);
+    let a = sent_texts(&sim, "a");
+    assert!(a[0].contains("use tabs") && !a[0].contains("only for b") && !a[0].contains("never mind"));
+    assert!(a[0].contains("利用者からの追加指示"));
+    // unknown acceptance does not use the note up
+    assert_eq!(sim.t("a").notes_seen_seq(), 0);
+    assert_eq!(sim.t("a").notes_sent_upto(), Some(sim.st().notes()[0].seq));
+    let attempt = sim.t("a").last_attempt().unwrap().clone();
+    sim.feed(OrgInput::SendSettled { task: tid("a"), attempt, outcome: SettleOutcome::ReconciledAccepted { turn: TurnRef::new("tr") } });
+    assert_eq!(sim.t("a").notes_seen_seq(), sim.st().notes()[0].seq);
+    sim.unknown_sends.clear();
+    sim.complete_turn("a", REPORT);
+    let b = sent_texts(&sim, "b");
+    assert!(b[0].contains("use tabs") && b[0].contains("only for b") && !b[0].contains("never mind"));
+    assert_eq!(crate::notes_for(sim.st(), &tid("a")).0.len(), 0);
+}
+
+#[test]
+fn a_format_fix_turn_carries_no_note() {
+    let mut sim = Sim::new();
+    sim.with_plan(&plan_json(&[("a", "worker", &[], &["networkOrInstall"])]));
+    sim.feed(OrgInput::UserApprovePlan);
+    sim.feed(OrgInput::UserAddNote { text: "late wish".into(), task: Some(tid("a")) });
+    sim.complete_turn("a", "not json");
+    let texts = sent_texts(&sim, "a");
+    assert_eq!(texts.len(), 2);
+    assert!(!texts[1].contains("late wish"), "format fix: {}", texts[1]);
+    assert_eq!(sim.t("a").notes_sent_upto(), None);
+}
+
+#[test]
+fn note_limits_and_blank_text_are_refused() {
+    let mut sim = Sim::new();
+    sim.with_plan(&plan_json(&[("a", "worker", &[], &["networkOrInstall"])]));
+    assert!(refused(&sim.feed(OrgInput::UserAddNote { text: "   ".into(), task: None })));
+    assert!(refused(&sim.feed(OrgInput::UserAddNote { text: "x".repeat(4001), task: None })));
+    assert!(refused(&sim.feed(OrgInput::UserAddNote { text: "x".into(), task: Some(tid("zz")) })));
+    for _ in 0..crate::MAX_PENDING_NOTES {
+        assert!(!refused(&sim.feed(OrgInput::UserAddNote { text: "x".into(), task: None })));
+    }
+    assert!(refused(&sim.feed(OrgInput::UserAddNote { text: "x".into(), task: None })));
+    assert!(refused(&sim.feed(OrgInput::UserWithdrawNote { id: NoteId::new("nope") })));
+}
+
+fn interject_sim() -> (Sim, NoteId) {
+    let mut sim = Sim::new();
+    sim.with_plan(&plan_json(&[("a", "worker", &[], &[])]));
+    let turn = sim.t("a").accepted_turn().unwrap().clone();
+    let acts = sim.feed(OrgInput::UserInterject { task: tid("a"), text: "also update the README".into(), fallback: true, active_turn: Some(turn.clone()) });
+    let steer = acts
+        .iter()
+        .find_map(|a| if let OrgAction::Steer { id, turn: t, text, task, .. } = a { Some((id.clone(), t.clone(), text.clone(), task.clone())) } else { None })
+        .expect("steer");
+    assert_eq!((steer.1, steer.2.as_str(), steer.3), (turn, "also update the README", tid("a")));
+    (sim, steer.0)
+}
+
+#[test]
+fn interject_steers_into_the_accepted_turn_without_a_new_turn() {
+    let (sim, id) = interject_sim();
+    assert_eq!(sim.st().counters().turns_used, 2, "planner + worker only: a steer starts no turn");
+    assert!(sim.st().interject(&id).unwrap().outcome.is_none());
+    assert_eq!(sim.sends("a"), 1);
+}
+
+#[test]
+fn interject_is_refused_when_the_turn_is_not_the_running_accepted_one() {
+    let mut sim = Sim::new();
+    sim.with_plan(&plan_json(&[("a", "worker", &[], &[]), ("b", "worker", &["a"], &[])]));
+    let turn = sim.t("a").accepted_turn().unwrap().clone();
+    assert!(refused(&sim.feed(OrgInput::UserInterject { task: tid("a"), text: "x".into(), fallback: false, active_turn: Some(TurnRef::new("other")) })));
+    assert!(refused(&sim.feed(OrgInput::UserInterject { task: tid("a"), text: "x".into(), fallback: false, active_turn: None })));
+    assert!(refused(&sim.feed(OrgInput::UserInterject { task: tid("b"), text: "x".into(), fallback: false, active_turn: Some(turn.clone()) })));
+    assert!(refused(&sim.feed(OrgInput::UserInterject { task: tid("a"), text: "  ".into(), fallback: false, active_turn: Some(turn.clone()) })));
+    // the turn ended
+    let chat = sim.t("a").chat().unwrap().clone();
+    sim.feed(OrgInput::TurnEnded { chat, turn: turn.clone(), end: TurnEndKind::Completed });
+    assert!(refused(&sim.feed(OrgInput::UserInterject { task: tid("a"), text: "x".into(), fallback: false, active_turn: Some(turn) })));
+    assert!(sim.st().interjects().is_empty());
+}
+
+#[test]
+fn only_one_interject_is_open_per_task() {
+    let (mut sim, _) = interject_sim();
+    let turn = sim.t("a").accepted_turn().unwrap().clone();
+    let acts = sim.feed(OrgInput::UserInterject { task: tid("a"), text: "again".into(), fallback: false, active_turn: Some(turn) });
+    assert!(refused(&acts));
+    assert_eq!(sim.st().interjects().len(), 1);
+}
+
+#[test]
+fn a_certain_failure_falls_back_to_a_note_only_when_chosen() {
+    let (mut sim, id) = interject_sim();
+    sim.feed(OrgInput::InterjectSettled { id: id.clone(), outcome: InterjectOutcome::NotDelivered { reason: "rejected".into() } });
+    assert_eq!(sim.st().interject(&id).unwrap().outcome, Some(InterjectOutcome::FallbackNoted));
+    assert_eq!(sim.st().notes().len(), 1);
+    assert!(matches!(&sim.st().notes()[0].scope, NoteScope::Task { task } if task.0 == "a"));
+    assert_eq!(sim.st().notes()[0].text, "also update the README");
+    // without the fallback choice the failure stays a failure
+    let mut sim = Sim::new();
+    sim.with_plan(&plan_json(&[("a", "worker", &[], &[])]));
+    let turn = sim.t("a").accepted_turn().unwrap().clone();
+    let acts = sim.feed(OrgInput::UserInterject { task: tid("a"), text: "t".into(), fallback: false, active_turn: Some(turn) });
+    let id = acts.iter().find_map(|a| if let OrgAction::Steer { id, .. } = a { Some(id.clone()) } else { None }).unwrap();
+    sim.feed(OrgInput::InterjectSettled { id: id.clone(), outcome: InterjectOutcome::NotDelivered { reason: "r".into() } });
+    assert!(matches!(sim.st().interject(&id).unwrap().outcome, Some(InterjectOutcome::NotDelivered { .. })));
+    assert!(sim.st().notes().is_empty());
+}
+
+#[test]
+fn an_unknown_outcome_does_nothing_by_itself_and_the_user_decides() {
+    let (mut sim, id) = interject_sim();
+    sim.feed(OrgInput::InterjectSettled { id: id.clone(), outcome: InterjectOutcome::Unknown });
+    assert!(sim.st().notes().is_empty(), "no automatic note, no resend");
+    assert_eq!(sim.sends("a"), 1);
+    assert_eq!(sim.log.iter().filter(|a| matches!(a, OrgAction::Steer { .. })).count(), 1, "no second steer");
+    // the reconciliation may still settle it; a settled one is final
+    sim.feed(OrgInput::InterjectSettled { id: id.clone(), outcome: InterjectOutcome::ReconciledNotFound });
+    assert_eq!(sim.st().interject(&id).unwrap().outcome, Some(InterjectOutcome::ReconciledNotFound));
+    sim.feed(OrgInput::InterjectSettled { id: id.clone(), outcome: InterjectOutcome::ReconciledDelivered });
+    assert_eq!(sim.st().interject(&id).unwrap().outcome, Some(InterjectOutcome::ReconciledNotFound));
+    sim.feed(OrgInput::UserInterjectFallback { id: id.clone(), add: true });
+    assert_eq!(sim.st().interject(&id).unwrap().outcome, Some(InterjectOutcome::FallbackNoted));
+    assert_eq!(sim.st().notes().len(), 1);
+    // already decided: another choice is refused
+    assert!(refused(&sim.feed(OrgInput::UserInterjectFallback { id, add: false })));
+}
+
+#[test]
+fn discarding_an_unknown_interject_adds_no_note() {
+    let (mut sim, id) = interject_sim();
+    sim.feed(OrgInput::InterjectSettled { id: id.clone(), outcome: InterjectOutcome::Unknown });
+    sim.feed(OrgInput::UserInterjectFallback { id: id.clone(), add: false });
+    assert_eq!(sim.st().interject(&id).unwrap().outcome, Some(InterjectOutcome::Discarded));
+    assert!(sim.st().notes().is_empty());
+}
+
+#[test]
+fn a_restart_turns_an_open_interject_into_unknown_and_replays_the_new_state() {
+    let (sim, id) = interject_sim();
+    let mut state = replay(&sim);
+    assert_eq!(&state, sim.st());
+    let (events, _) = classify_after_restart(&mut state, 9).unwrap();
+    assert!(events.iter().any(|e| matches!(&e.kind, OrgEventKind::InterjectSettled { id: i, outcome: InterjectOutcome::Unknown } if *i == id)));
+    assert_eq!(state.interject(&id).unwrap().outcome, Some(InterjectOutcome::Unknown));
+    // JSON round trip of the snapshot keeps the new fields
+    let j = serde_json::to_string(&state).unwrap();
+    assert_eq!(serde_json::from_str::<WorkflowState>(&j).unwrap(), state);
+}
+
+#[test]
+fn old_task_records_without_the_new_fields_still_load() {
+    let mut v = serde_json::to_value(Task::from_plan(&PlanTask { id: tid("t"), role: RoleId::new("worker"), deps: vec![], effects: vec![], title: String::new(), instructions: String::new() })).unwrap();
+    for k in ["notes_sent_upto", "notes_seen_seq", "skipped", "held", "user_rework_count", "last_findings"] {
+        v.as_object_mut().unwrap().remove(k);
+    }
+    let t: Task = serde_json::from_value(v).unwrap();
+    assert!(!t.held() && !t.skipped() && t.notes_seen_seq() == 0 && t.last_findings().is_empty());
 }

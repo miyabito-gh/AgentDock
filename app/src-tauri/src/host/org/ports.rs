@@ -12,7 +12,7 @@ use async_trait::async_trait;
 use org_engine::{ApprovalPolicy, CreateResult, OrgNotice, RoleChatSpec, SandboxKind, TaskId, WorkflowId, WorkspaceAction, WorkspaceOutcome};
 
 use super::driver::OrgSink;
-use super::grant::{CreatePermit, DispatchPermit, GrantRegistry};
+use super::grant::{CreatePermit, DispatchPermit, GrantRegistry, InterjectPermit};
 use crate::backend::backend::*;
 use crate::backend::ipc::HostEvent;
 use crate::backend::local::SaveScope;
@@ -33,6 +33,15 @@ pub struct OrgSendSpec {
     pub client_message_id: String,
     pub text: String,
     pub output_schema: serde_json::Value,
+}
+
+/// 実行中のturnへの割り込み1件の指示。宛先のチャットとturnは許可（`InterjectPermit`）が持つ。
+#[derive(Debug, Clone)]
+pub struct OrgSteerSpec {
+    /// 割り込みのID（エンジンの `int-N`）。送信の試行IDにそのまま使い、結果を割り込みの決着として受け取る。
+    pub attempt: LocalId,
+    pub client_message_id: String,
+    pub text: String,
 }
 
 /// 送信の結果。`Dispatched` の送信状態（受理・拒否・受理不明）は、監視の受け口が別にエンジンへ知らせる。
@@ -58,6 +67,8 @@ pub trait AgentRuntime: Send + Sync {
     fn grants(&self) -> &GrantRegistry;
     async fn create_role_chat(&self, permit: CreatePermit<'_>, spec: RoleChatSpec) -> CreateOutcome;
     async fn send(&self, permit: DispatchPermit<'_>, req: OrgSendSpec) -> OrgSendResult;
+    /// 実行中のturnへの割り込み（`turn/steer`）。新しいturnは始めない。結果は監視の受け口が `InterjectSettled` で知らせる。
+    async fn steer(&self, permit: InterjectPermit, req: OrgSteerSpec) -> OrgSendResult;
 }
 
 #[async_trait]
@@ -163,6 +174,10 @@ impl AgentRuntime for Arc<Host> {
     async fn send(&self, permit: DispatchPermit<'_>, req: OrgSendSpec) -> OrgSendResult {
         self.org_send(permit, req).await
     }
+
+    async fn steer(&self, permit: InterjectPermit, req: OrgSteerSpec) -> OrgSendResult {
+        self.org_steer(permit, req).await
+    }
 }
 
 #[async_trait]
@@ -203,6 +218,22 @@ impl OrgSink for Host {
         let workflow_id = snapshot.workflow.0.clone();
         *self.org_rt.view.lock().unwrap() = Some(snapshot);
         self.mutate(|_| ((), vec![HostEvent::OrgUpdated { workflow_id }]));
+    }
+
+    fn persisted(&self, workflow: &org_engine::WorkflowId, event: &org_engine::OrgEvent) {
+        let mut g = self.org_rt.timeline.lock().unwrap();
+        // 別のワークフローの記録が来たら（新しく開始したとき）、作り直す。
+        if g.as_ref().is_none_or(|b| &b.workflow != workflow) {
+            *g = Some(super::timeline::TimelineBuf::new(workflow.clone()));
+        }
+        if let Some(b) = g.as_mut() {
+            b.push(event);
+        }
+    }
+
+    fn timeline_updated(&self, workflow: &org_engine::WorkflowId, last_seq: u64) {
+        let workflow_id = workflow.0.clone();
+        self.mutate(|_| ((), vec![HostEvent::OrgTimelineUpdated { workflow_id, last_seq }]));
     }
 
     fn notice(&self, workflow: &org_engine::WorkflowId, notice: OrgHostNotice) {
@@ -362,6 +393,47 @@ impl Host {
         };
         let attempt = SendAttempt { attempt_id: req.attempt, client_message_id: request.client_message_id.clone(), at: now_ms(), state: SendState::Sending };
         OrgSendResult::Dispatched(self.dispatch_send_as(request, attempt, SendAuth::Org(permit)).await)
+    }
+
+    /// 実行中のturnへの割り込み（`InterjectPermit` を消費する唯一の経路）。新しいturnは始めない。再送の分岐は持たない。
+    /// live でなければ送らない（resume しない）。実行中のturnが許可のturnと違えば送らない。停止未確認・受理不明などの条件は
+    /// 利用者の送信と同じものを通る（その場合は送っていないので、割り込みは「届かなかった」と確定する）。
+    pub(in crate::host) async fn org_steer(self: &Arc<Self>, permit: InterjectPermit, req: OrgSteerSpec) -> OrgSendResult {
+        let chat = permit.chat().clone();
+        if let Err(e) = permit.still_valid(&self.org_rt.grants) {
+            return OrgSendResult::Held(e.message().to_string());
+        }
+        let lock = self.queue_rt.send_lock(&chat);
+        let _send_guard = lock.lock().await;
+        if let Err(e) = self.check_sendable_core(&chat) {
+            return OrgSendResult::Held(e.message);
+        }
+        let root = agent_key_of(&chat);
+        let (live, running) = self.read(|d| (d.root_view(&chat).map(|v| v.freshness) == Some(Freshness::Live), d.running_turn.get(&root).cloned()));
+        if !live {
+            return OrgSendResult::NotLive;
+        }
+        if running.as_ref() != Some(&permit.turn().turn_id) {
+            return OrgSendResult::Held("実行中のturnが、割り込む対象のturnと違います".to_string());
+        }
+        let request = SendRequest {
+            chat: chat.clone(),
+            mode: SendMode::Steer { turn: permit.turn().clone() },
+            text: req.text,
+            attachments: Vec::new(),
+            speed_tier: None,
+            model: None,
+            permission: None,
+            cwd: None,
+            work_folders: None,
+            work_mode: None,
+            client_message_id: req.client_message_id,
+            output_schema: None,
+        };
+        // 結果の受け口が、これを通常の送信の結果ではなく割り込みの決着として扱えるように、送る前に控える。
+        self.org_rt.observer.lock().unwrap().note_interject(req.attempt.clone(), permit.turn().turn_id.clone());
+        let attempt = SendAttempt { attempt_id: req.attempt, client_message_id: request.client_message_id.clone(), at: now_ms(), state: SendState::Sending };
+        OrgSendResult::Dispatched(self.dispatch_send_as(request, attempt, SendAuth::OrgInterject(permit)).await)
     }
 
     /// 組織の所有記録にある作業場所の実在と未コミット変更を読む（`git status` だけ。書込みなし）。所有記録にない場所は調べない。

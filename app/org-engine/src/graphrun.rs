@@ -284,16 +284,7 @@ impl OrgCore {
                 feedback.push(slot_text(&slot, format!("工程 {} からの差し戻し（スロット {slot} の最新の内容）", l.source)));
             }
         }
-        let seen = t.last_output_seq().unwrap_or(0);
-        let notes: Vec<String> = s
-            .notes()
-            .iter()
-            .filter(|n| n.seq > seen && match &n.scope {
-                NoteScope::Node { node: nn } => nn == node,
-                NoteScope::AllFollowing => true,
-            })
-            .map(|n| n.text.clone())
-            .collect();
+        let notes: Vec<String> = crate::notes::notes_for(s, id).0.into_iter().map(|n| n.text.clone()).collect();
         let cfg = self.role_cfg.get(role);
         let text = prompt::node_prompt(&NodePrompt {
             role: &role.0,

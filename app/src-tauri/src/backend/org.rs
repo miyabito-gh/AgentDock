@@ -39,6 +39,8 @@ pub enum OrgReason {
     NeedsAttention,
     /// 差し戻しの辺の周回が上限に達し、利用者の判断（もう1周・取消し）を待っている。
     RoundLimit,
+    /// 検証で不合格が続き、差し戻しの上限に達した（利用者が「もう一度直させる」「このまま受け入れる」「失敗として確定」を選ぶ）。
+    ReworkLimit,
     /// 利用上限で turn が失敗した。利用者が「新しい試行で再送」「失敗として確定」などを選ぶ。
     UsageLimit,
     /// turn が失敗した（利用上限以外、または区分不明）。利用者が選ぶ。
@@ -349,6 +351,38 @@ pub struct OrgTaskView {
     pub can_adopt_manual: bool,
     /// 「止まっています（要対応）」の理由の1行（メモリ上の通知から。再起動で失われたときは、その旨）。要対応でなければ None。
     pub attention_note: Option<String>,
+    /// 今の業務状態に入った時刻（記録から辿れないときは None。経過時間は出さない）。
+    #[serde(default)]
+    pub since: Option<UnixMillis>,
+    /// 割り込み指示の経路（送れないときは理由）。過去の記録では常に `Refused`。
+    pub interject: OrgInterjectRouteView,
+    /// スキップできるときの確認の材料。
+    #[serde(default)]
+    pub skip: Option<OrgSkipView>,
+    /// スキップできないときの理由（計画の作業・検証タスクだけが対象。それ以外は None）。
+    #[serde(default)]
+    pub skip_refusal: Option<String>,
+    /// 差し戻せるか（検証待ち、または差し戻し上限で止まっている作業タスク）。
+    #[serde(default)]
+    pub can_send_back: bool,
+    /// 差し戻しの指摘が必須か（差し戻し上限で止まっているときは任意）。
+    #[serde(default)]
+    pub send_back_needs_note: bool,
+    /// 差し戻せない理由（差し戻しの対象のタスクでだけ）。
+    #[serde(default)]
+    pub send_back_refusal: Option<String>,
+    /// 「このまま受け入れる」を出せるか（差し戻し上限で止まっている作業タスク）。
+    #[serde(default)]
+    pub can_accept_as_is: bool,
+    /// 保留にできるか（まだ送っていない計画の作業・検証タスク）。
+    #[serde(default)]
+    pub can_hold: bool,
+    /// 保留中か（スケジューラは送らない）。
+    #[serde(default)]
+    pub held: bool,
+    /// このタスクにまだ届いていない追加指示の件数。
+    #[serde(default)]
+    pub notes_pending: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -418,6 +452,15 @@ pub struct OrgWorkflowView {
     /// 削除が途中のとき、その進み（済／失敗）。続きは「削除を続ける」から。
     #[serde(default)]
     pub deletion: Option<OrgDeletionView>,
+    /// 追加指示（古い順。取り消したものも含む）。
+    #[serde(default)]
+    pub notes: Vec<OrgNoteView>,
+    /// 割り込み指示（決着していないものと最新の20件）。
+    #[serde(default)]
+    pub interjects: Vec<OrgInterjectView>,
+    /// 計画の作成後に追加した追加指示の件数（計画には反映されていない。承認カードに出す）。
+    #[serde(default)]
+    pub notes_after_plan: u32,
 }
 
 /// 現在の組織実行（なければ `workflow=None`）。
@@ -736,6 +779,249 @@ pub struct OrgGraphsView {
     pub max_turns_limit: u32,
     /// 1 turn あたりの土台のトークン数（目安）。
     pub tokens_per_turn_hint: u32,
+}
+
+// ───────────────────────────── 介入・進行タイムライン（DESIGN_ORG_R2） ─────────────────────────────
+
+/// 割り込み指示の経路（入力欄の上の文言の元）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub enum OrgInterjectRoute {
+    /// 実行中の turn に今すぐ届ける（`turn/steer`）。
+    Steer,
+    /// 次にそのタスクへ送るとき（差し戻し・再送など）に添える。
+    NextTurn,
+    /// 今は送れない（理由は `label`）。
+    Refused,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgInterjectRouteView {
+    pub route: OrgInterjectRoute,
+    /// 画面に出す文（経路の説明、または送れない理由）。
+    pub label: String,
+}
+
+/// スキップの確認の材料（一緒に飛ばすタスクと、検証なしで完了にするタスク）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgSkipView {
+    /// 同時に飛ばすタスク（検証役）。
+    pub also: Vec<String>,
+    /// 検証なしで完了にするタスク（そのタスクの唯一の検証役を飛ばすとき）。
+    pub completes_unreviewed: Option<String>,
+}
+
+/// 追加指示1件。`delivered_to` は届いたタスク、`pending_for` はまだ届いていない（終わっていない）タスク。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgNoteView {
+    pub id: String,
+    pub text: String,
+    /// 宛先: 全体（これから送るすべて）／タスク。
+    pub task: Option<String>,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub seq: u64,
+    pub delivered_to: Vec<String>,
+    pub pending_for: Vec<String>,
+    pub withdrawn: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub enum OrgInterjectOutcomeKind {
+    /// まだ決着していない（送信中）。
+    Open,
+    Delivered,
+    NotDelivered,
+    /// 届いたか確認できない。「次の送信に添える」「破棄」を選べる。
+    Unknown,
+    ReconciledDelivered,
+    /// 照合で見つからなかった。「次の送信に添える」「破棄」を選べる。
+    ReconciledNotFound,
+    FallbackNoted,
+    Discarded,
+}
+
+/// 割り込み指示1件の写し。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgInterjectView {
+    pub id: String,
+    pub task: String,
+    /// 本文の先頭（長いものは切る）。
+    pub text_head: String,
+    pub outcome: OrgInterjectOutcomeKind,
+    /// 結果の文（届きました／届きませんでした（理由）／確認できません…）。
+    pub label: String,
+    /// 「次の送信に添える」「破棄」を選べるか。
+    pub can_decide: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub enum OrgActorKind {
+    User,
+    Role,
+    Engine,
+    Codex,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgActor {
+    pub kind: OrgActorKind,
+    pub label: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub enum OrgTone {
+    Info,
+    Good,
+    Warn,
+    Bad,
+    Wait,
+}
+
+/// 進行タイムラインの1行（記録を人間向けに整えたもの。会話の内容は入れない）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgTimelineEntry {
+    /// 記録の通し番号（行の識別。まとめた行は最初の番号）。
+    #[cfg_attr(test, ts(type = "number"))]
+    pub seq: u64,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub seq_to: u64,
+    pub at: UnixMillis,
+    pub task: Option<String>,
+    pub actor: OrgActor,
+    pub tone: OrgTone,
+    pub text: String,
+    /// まとめた記録の件数（1なら単独）。
+    pub count: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgTimelineView {
+    /// 古い順。`after_seq` より後に変わった行だけ（なければ全体の新しい側の `limit` 件）。
+    pub entries: Vec<OrgTimelineEntry>,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub last_seq: u64,
+    /// 古い行が保持の上限で落ちている、または件数の上限で切った。
+    pub truncated: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgTimelineArgs {
+    pub workflow_id: String,
+    #[serde(default)]
+    #[cfg_attr(test, ts(type = "number | null"))]
+    pub after_seq: Option<u64>,
+    pub limit: u32,
+}
+
+/// 割り込み指示。実行するコマンド（利用者の操作）。`fallback` は「届かなければ次の送信に添える」。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgInterjectArgs {
+    pub workflow_id: String,
+    pub task: String,
+    pub text: String,
+    pub fallback: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgInterjectAck {
+    /// 経路は送る前にホストが判定した結果。`NextTurn` のときは、すぐには届かない（次の送信に添える）。
+    pub route: OrgInterjectRoute,
+    pub label: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgInterjectFallbackArgs {
+    pub workflow_id: String,
+    pub id: String,
+    /// true=次の送信に添える／false=破棄。
+    pub add: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgAddNoteArgs {
+    pub workflow_id: String,
+    pub text: String,
+    /// 宛先のタスク（None=これからエンジンが送るすべて）。
+    #[serde(default)]
+    pub task: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgWithdrawNoteArgs {
+    pub workflow_id: String,
+    pub id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgSendBackArgs {
+    pub workflow_id: String,
+    pub task: String,
+    /// 利用者の指摘。検証待ちのタスクでは必須、差し戻し上限で止まっているタスクでは任意。
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgHoldArgs {
+    pub workflow_id: String,
+    pub task: String,
+    pub held: bool,
 }
 
 // ───────────────────────────── 引数 ─────────────────────────────

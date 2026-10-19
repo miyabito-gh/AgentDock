@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as host from "../ipc/client";
 import type { ChatKey, ChatLocalView, IntakeBeginMode, IntakeState, IntakeView, OrgGraphsView } from "../ipc/types";
 import { FootActions } from "./DialogParts";
+import { setNoteDraft } from "./orgNoteDraft";
 import { estimateLines } from "./org";
 import { formOf, formProblem, prefsOf, sameForm, summaryOf, type SummaryForm } from "./intakeForm";
 import { GitStatusRow, needsPrep } from "./GitDialogs";
@@ -98,6 +99,8 @@ export function IntakeSection({ chat, local, live }: { chat: ChatKey; local: Cha
   const [msg, setMsg] = useState<string | null>(null);
   const [manual, setManual] = useState(false);
   const [abandoning, setAbandoning] = useState(false);
+  const [noteOpen, setNoteOpen] = useState(false);
+  const [noteText, setNoteText] = useState("");
   if (!live || !state) return null;
   const run = async (f: () => Promise<IntakeView | void>) => {
     setBusy(true); setMsg(null);
@@ -133,6 +136,13 @@ export function IntakeSection({ chat, local, live }: { chat: ChatKey; local: Cha
         <div className="lockmsg" role="status">
           この依頼で組織実行を開始しました。このチャットは普通に続けられますが、<b>ワークフローへは何も伝わりません</b>。
           {" "}<button className="small" onClick={() => window.dispatchEvent(new Event("agentdock:open-org"))}>ワークフローを開く</button>
+          {" "}<button className="small" aria-expanded={noteOpen} onClick={() => setNoteOpen((o) => !o)} title="ワークフローへ追加指示を書きます（本文を組織画面の入力欄へ写すだけで、自動では送りません）">ワークフローへ追加指示…</button>
+          {noteOpen ? (
+            <div>
+              <textarea rows={2} style={{ width: "100%" }} value={noteText} aria-label="ワークフローへの追加指示の内容" onChange={(e) => setNoteText(e.target.value)} />
+              <button className="small" disabled={noteText.trim() === ""} onClick={() => { setNoteDraft(noteText.trim()); setNoteText(""); setNoteOpen(false); window.dispatchEvent(new Event("agentdock:open-org")); }}>組織画面の入力欄へ写す（送りません）</button>
+            </div>
+          ) : null}
         </div>
       ) : null}
       {abandoning ? (

@@ -17,7 +17,7 @@ use serde_json::Value;
 use crate::graph::{CompiledGraph, SlotId};
 use crate::limits::TurnKind;
 use crate::outschema::{builtin_schemas, OutSchema};
-use crate::persist::{HaltReason, OrgEvent, OrgEventKind, WorkflowState, SCHEMA_VERSION};
+use crate::persist::{HaltReason, InterjectOutcome, OrgEvent, OrgEventKind, WorkflowState, SCHEMA_VERSION};
 use crate::policy::{ConfirmReason, Decision};
 use crate::prompt;
 use crate::roledef::{ApprovalPolicy, LoadedRole};
@@ -202,6 +202,24 @@ pub enum OrgInput {
     /// During the user's resume: the task's chat cannot be resumed (Codex has no history for it). Only a task that
     /// was certainly never sent to gets a new role chat; anything else stays stopped (never sent again).
     ChatUnresumable { task: TaskId },
+    /// The user sends text into a running turn (`turn/steer`). `active_turn` = the chat's running turn as the host
+    /// sees it; the engine sends only when it is the task's accepted turn (DESIGN_ORG_R2 2.1). It does not start a turn.
+    UserInterject { task: TaskId, text: String, fallback: bool, active_turn: Option<TurnRef> },
+    /// The outcome of a steer (never an ordinary `SendSettled`).
+    InterjectSettled { id: NoteId, outcome: InterjectOutcome },
+    /// The user decides what to do with an interjection whose delivery is unknown / not found:
+    /// `add` = add it as a note of the task for the next send; otherwise discard it.
+    UserInterjectFallback { id: NoteId, add: bool },
+    /// A note for the next turns: of one task, or of every task sent from now on (`task: None`).
+    UserAddNote { text: String, task: Option<TaskId> },
+    UserWithdrawNote { id: NoteId },
+    /// Skip a task of the plan route (its reviewers go with it; DESIGN_ORG_R2 2.3).
+    UserSkipTask { task: TaskId },
+    /// Send a worker task back with the user's own findings (not counted as an automatic send-back).
+    UserSendBack { task: TaskId, note: Option<String> },
+    /// Accept a worker stopped at the send-back limit as it is.
+    UserAcceptAsIs { task: TaskId },
+    UserHoldTask { task: TaskId, held: bool },
     Tick { now_ms: i64 },
 }
 
@@ -217,6 +235,9 @@ pub enum OrgAction {
     CreateRoleChat { task: TaskId, spec: RoleChatSpec },
     CheckSandbox { cwd: String },
     Send { task: TaskId, chat: ChatRef, attempt: AttemptRef, client_message_id: String, text: String, output_schema: Value },
+    /// Steer text into the running turn `turn` of the task's chat (never starts a turn). The host answers with
+    /// `OrgInput::InterjectSettled`; the result is never reported as a `SendSettled`.
+    Steer { task: TaskId, id: NoteId, chat: ChatRef, turn: TurnRef, client_message_id: String, text: String },
     /// Read-only.
     ReadFinalMessage { task: TaskId, chat: ChatRef, turn: TurnRef },
     Workspace(WorkspaceAction),
@@ -411,7 +432,6 @@ pub struct OrgCore {
     pub(crate) open_requests: HashMap<ChatRef, u32>,
     /// Report summaries of this session (not persisted; prompts say "not obtained" when missing).
     pub(crate) artifacts: HashMap<TaskId, String>,
-    pub(crate) findings: HashMap<TaskId, Vec<String>>,
     pub(crate) replan_notes: HashMap<TaskId, String>,
     pub(crate) last_kind: HashMap<TaskId, TurnKind>,
     pub(crate) retry_ready: HashSet<TaskId>,
@@ -451,7 +471,6 @@ impl OrgCore {
             descendants: HashMap::new(),
             open_requests: HashMap::new(),
             artifacts: HashMap::new(),
-            findings: HashMap::new(),
             replan_notes: HashMap::new(),
             last_kind: HashMap::new(),
             retry_ready: HashSet::new(),
@@ -761,6 +780,15 @@ impl OrgCore {
                 }
             }
             OrgInput::ChatUnresumable { task } => self.chat_unresumable(&task),
+            OrgInput::UserInterject { task, text, fallback, active_turn } => self.user_interject(&task, text, fallback, active_turn),
+            OrgInput::InterjectSettled { id, outcome } => self.interject_settled(&id, outcome),
+            OrgInput::UserInterjectFallback { id, add } => self.user_interject_fallback(&id, add),
+            OrgInput::UserAddNote { text, task } => self.user_add_note(text, task),
+            OrgInput::UserWithdrawNote { id } => self.user_withdraw_note(&id),
+            OrgInput::UserSkipTask { task } => self.user_skip(&task),
+            OrgInput::UserSendBack { task, note } => self.user_send_back(&task, note),
+            OrgInput::UserAcceptAsIs { task } => self.user_accept_as_is(&task),
+            OrgInput::UserHoldTask { task, held } => self.user_hold(&task, held),
             OrgInput::InterruptRequested { chat } => {
                 if let Some(id) = self.task_of_chat(&chat) {
                     if self.task(&id).is_some_and(|t| t.status() == TaskStatus::Running && t.confirm() == ConfirmState::Confirmed) {
@@ -895,7 +923,13 @@ impl OrgCore {
             t.confirm() == ConfirmState::Confirmed
                 && matches!(
                     t.status(),
-                    TaskStatus::Blocked(BlockedReason::UsageLimit | BlockedReason::TurnFailed | BlockedReason::ManualStop | BlockedReason::NeedsAttention)
+                    TaskStatus::Blocked(
+                        BlockedReason::UsageLimit
+                            | BlockedReason::TurnFailed
+                            | BlockedReason::ManualStop
+                            | BlockedReason::NeedsAttention
+                            | BlockedReason::ReworkLimit
+                    )
                 )
         });
         if !ok {
@@ -1306,7 +1340,8 @@ impl OrgCore {
                     }
                 }
                 Flow::NeedFix { reason } => {
-                    match self.send_turn(&id, TurnKind::FormatFix, prompt::format_fix_prompt(&reason)) {
+                    // A format-fix turn carries no user note (the notes ride along with the next real turn).
+                    match self.send_turn(&id, TurnKind::FormatFix, prompt::format_fix_prompt(&reason), None) {
                         Sent::Yes => {
                             self.flow_del(&id);
                         }
@@ -1398,7 +1433,8 @@ impl OrgCore {
             return;
         };
         let text = self.with_instructions(id, text);
-        if let Sent::NoTurns = self.send_turn(id, kind, text) {
+        let (text, notes_upto) = self.with_notes(id, text);
+        if let Sent::NoTurns = self.send_turn(id, kind, text, notes_upto) {
             self.block(id, BlockedReason::Limit, "turn上限に達しました");
             self.limit_notice();
         }
@@ -1417,9 +1453,21 @@ impl OrgCore {
         }
     }
 
+    /// The user's notes that are due go after the work prompt (a graph node's own prompt already holds them, except
+    /// for a retry, which is a short continuation). Returns the text and the newest note seq it carries.
+    pub(crate) fn with_notes(&self, id: &TaskId, text: String) -> (String, Option<u64>) {
+        let (notes, upto) = crate::notes::notes_for(self.s(), id);
+        let in_node_prompt = self.is_graph_task(id) && !self.task(id).is_some_and(|t| t.retry_pending());
+        if notes.is_empty() || in_node_prompt {
+            return (text, upto);
+        }
+        let texts: Vec<String> = notes.iter().map(|n| n.text.clone()).collect();
+        (format!("{text}{}", prompt::notes_section(&texts)), upto)
+    }
+
     /// The only place that produces `Send`. Events first (turn counted, `SendUnknown`,
     /// `Dispatched`), then the action. Never called for a task with an open or unknown attempt.
-    pub(crate) fn send_turn(&mut self, id: &TaskId, kind: TurnKind, text: String) -> Sent {
+    pub(crate) fn send_turn(&mut self, id: &TaskId, kind: TurnKind, text: String, notes_upto: Option<u64>) -> Sent {
         if !self.can_act() {
             return Sent::NotAllowed;
         }
@@ -1449,7 +1497,7 @@ impl OrgCore {
             return Sent::NotAllowed;
         }
         self.set_confirm(id, ConfirmState::SendUnknown);
-        if !self.rec(OrgEventKind::Dispatched { task: id.clone(), attempt: attempt.clone(), client_message_id: client_message_id.clone(), kind }) {
+        if !self.rec(OrgEventKind::Dispatched { task: id.clone(), attempt: attempt.clone(), client_message_id: client_message_id.clone(), kind, notes_upto }) {
             // Stays SendUnknown and nothing is sent: a stuck-but-safe state.
             return Sent::NotAllowed;
         }
@@ -1468,8 +1516,11 @@ impl OrgCore {
             && if s.graph().is_some() {
                 self.graph_done()
             } else {
-                s.tasks().iter().any(|t| t.role.0 != ROLE_PLANNER)
-                    && s.tasks().iter().all(|t| t.status() == TaskStatus::Completed && t.confirm() == ConfirmState::Confirmed)
+                s.tasks().iter().any(|t| t.role.0 != ROLE_PLANNER && t.status() == TaskStatus::Completed)
+                    && s.tasks().iter().all(|t| {
+                        // A task the user skipped is not part of the result.
+                        (t.status() == TaskStatus::Completed && t.confirm() == ConfirmState::Confirmed) || (t.skipped() && t.status() == TaskStatus::Cancelled)
+                    })
             };
         if all_done {
             self.done_notified = true;

@@ -126,6 +126,7 @@ impl Host {
             _ => HashMap::new(),
         };
         let mut workflow = view::workflow_view(&ViewInput { snapshot: &snapshot, notices: &notices, usage_rows: &usage_rows, slots: &slots, dispatching });
+        self.org_fill_live_fields(&mut workflow, &snapshot);
         // 動いている（または直前まで動いていた）ワークフローのアーカイブの印・削除の進みも載せる。
         if let Some(dir) = root.as_deref().map(|r| workflow_dir(r, &snapshot.workflow.0)) {
             workflow.archived_at = crate::store::org::read_archived_at(&dir);
@@ -354,7 +355,7 @@ impl Host {
         let stopped = matches!(
             t.status,
             TaskStatus::Blocked(
-                org_engine::BlockedReason::UsageLimit | org_engine::BlockedReason::TurnFailed | org_engine::BlockedReason::ManualStop | org_engine::BlockedReason::NeedsAttention
+                org_engine::BlockedReason::UsageLimit | org_engine::BlockedReason::TurnFailed | org_engine::BlockedReason::ManualStop | org_engine::BlockedReason::NeedsAttention | org_engine::BlockedReason::ReworkLimit
             )
         );
         if !stopped || t.confirm != org_engine::ConfirmState::Confirmed {
@@ -558,6 +559,216 @@ impl Host {
     }
 }
 
+// ───────────── 介入・進行タイムライン（DESIGN_ORG_R2） ─────────────
+
+/// タイムラインで一度に返す行数の上限。
+const TIMELINE_LIMIT_MAX: u32 = 500;
+
+/// ワークフローIDとして使える文字だけか（保存フォルダ名に使うので、区切りや `..` を通さない）。
+fn is_plain_workflow_id(id: &str) -> bool {
+    !id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
+/// 割り込み・追加指示の本文を検査して整える。空・長すぎるものは拒否する（黙って切らない）。
+pub fn checked_text(text: &str) -> Result<String, IpcError> {
+    let t = text.trim();
+    if t.is_empty() {
+        return Err(err(IpcErrorCode::InvalidArgs, "指示の内容を書いてください"));
+    }
+    if t.chars().count() > org_engine::prompt::NOTE_MAX_CHARS {
+        return Err(err(IpcErrorCode::InvalidArgs, format!("指示は{}文字までにしてください", org_engine::prompt::NOTE_MAX_CHARS)));
+    }
+    Ok(t.to_string())
+}
+
+impl Host {
+    /// 割り込み指示の経路（読取りだけ）。実行中の turn・live・能力・前の割り込みの有無から、純粋関数で決める。
+    pub(in crate::host) fn org_interject_route(&self, t: &TaskSnapshot) -> crate::rules::org_interject::InterjectRoute {
+        use crate::rules::org_interject::{interject_route, RouteInput};
+        let chat = t.chat.as_ref().and_then(chat_key_of_ref);
+        let (live, active_turn) = match &chat {
+            Some(c) => self.read(|d| {
+                (
+                    d.root_view(c).map(|v| v.freshness) == Some(crate::backend::model::Freshness::Live),
+                    d.running_turn.get(&crate::host::state::agent_key_of(c)).map(crate::rules::org::turn_ref_of),
+                )
+            }),
+            None => (false, None),
+        };
+        let released = chat.as_ref().is_some_and(|c| self.org_rt.grants.is_released(c));
+        let ex = &t.extras;
+        interject_route(&RouteInput {
+            status: t.status,
+            confirm: t.confirm,
+            released,
+            adopting: t.adopting,
+            accepted_turn: ex.accepted_turn.clone(),
+            accepted_settled: ex.accepted_settled,
+            has_settle: ex.has_settle,
+            turn_ended: ex.turn_ended,
+            live,
+            active_turn,
+            steer_supported: crate::backend::backend::AiBackend::capabilities(self.backend.as_ref()).steer == crate::backend::model::Support::Supported,
+            open_interject: ex.open_interject,
+        })
+    }
+
+    /// 動いているワークフローの画面の写しに、時刻と割り込みの経路を載せる（記録とホストの観測が要る項目）。
+    pub(in crate::host) fn org_fill_live_fields(&self, workflow: &mut OrgWorkflowView, snapshot: &super::driver::OrgSnapshot) {
+        let tl = self.org_rt.timeline.lock().unwrap();
+        let buf = tl.as_ref().filter(|b| b.workflow == snapshot.workflow);
+        for (tv, ts) in workflow.tasks.iter_mut().zip(snapshot.tasks.iter()) {
+            tv.since = buf.and_then(|b| b.since_of(&ts.id));
+            let route = self.org_interject_route(ts);
+            tv.interject = OrgInterjectRouteView {
+                route: match &route {
+                    crate::rules::org_interject::InterjectRoute::Steer { .. } => OrgInterjectRoute::Steer,
+                    crate::rules::org_interject::InterjectRoute::NextTurn => OrgInterjectRoute::NextTurn,
+                    crate::rules::org_interject::InterjectRoute::Refuse(_) => OrgInterjectRoute::Refused,
+                },
+                label: crate::rules::org_interject::route_label(&route).to_string(),
+            };
+        }
+    }
+
+    /// 進行タイムライン（読取りだけ）。動いているワークフローは保持している行、過去のものは保存された記録を読んで整える。
+    pub fn org_timeline(&self, args: OrgTimelineArgs) -> Result<OrgTimelineView, IpcError> {
+        let limit = args.limit.clamp(1, TIMELINE_LIMIT_MAX) as usize;
+        if let Some(v) = self.org_rt.timeline.lock().unwrap().as_ref().filter(|b| b.workflow.0 == args.workflow_id).map(|b| b.view(args.after_seq, limit)) {
+            return Ok(v);
+        }
+        if !is_plain_workflow_id(&args.workflow_id) {
+            return Err(err(IpcErrorCode::InvalidArgs, "ワークフローの指定が正しくありません"));
+        }
+        let Some(root) = self.persist.store().map(|s| s.root().to_path_buf()) else {
+            return Err(err(IpcErrorCode::Io, "保存先が使えないため、経過を読めません"));
+        };
+        let dir = workflow_dir(&root, &args.workflow_id);
+        if !dir.is_dir() {
+            return Err(err(IpcErrorCode::NotFound, "そのワークフローの記録が見つかりません"));
+        }
+        let read = crate::store::org::ReadOnlyOrgStore::new(dir).read_events().map_err(|e| err(IpcErrorCode::Io, format!("記録を読めません: {e}")))?;
+        Ok(super::timeline::view_from_events(&read.events, args.after_seq, limit).0)
+    }
+
+    fn org_with_task(&self, workflow_id: &str, task: Option<&str>) -> Result<(UnboundedSender<DriverMsg>, Option<TaskSnapshot>), IpcError> {
+        let (_, tx) = self.org_check_workflow(workflow_id)?;
+        let t = task.map(|t| self.org_task_of_view(t)).transpose()?;
+        Ok((tx, t))
+    }
+
+    /// 割り込み指示。経路を送る前に決める: 実行中の turn に届けられるときだけ `turn/steer`（1回）、
+    /// そうでなければ「次の送信に添える」追加指示にする。送れないときは何もせず理由を返す。新しい turn は始めない。
+    pub fn org_interject(&self, args: OrgInterjectArgs, _confirmed: &UserConfirmed) -> Result<OrgInterjectAck, IpcError> {
+        use crate::rules::org_interject::{route_label, InterjectRoute};
+        let text = checked_text(&args.text)?;
+        let (tx, t) = self.org_with_task(&args.workflow_id, Some(&args.task))?;
+        let t = t.expect("task requested");
+        let route = self.org_interject_route(&t);
+        let label = route_label(&route).to_string();
+        match route {
+            InterjectRoute::Refuse(why) => Err(err(IpcErrorCode::InvalidArgs, why)),
+            InterjectRoute::NextTurn => {
+                let _ = tx.send(DriverMsg::Input(OrgInput::UserAddNote { text, task: Some(t.id) }));
+                Ok(OrgInterjectAck { route: OrgInterjectRoute::NextTurn, label })
+            }
+            InterjectRoute::Steer { turn } => {
+                let _ = tx.send(DriverMsg::Input(OrgInput::UserInterject { task: t.id, text, fallback: args.fallback, active_turn: Some(turn) }));
+                Ok(OrgInterjectAck { route: OrgInterjectRoute::Steer, label })
+            }
+        }
+    }
+
+    /// 届いたか確認できない（または照合で見つからなかった）割り込みを、次の送信に添えるか破棄するか。自動では何もしない。
+    pub fn org_interject_fallback(&self, args: OrgInterjectFallbackArgs, _confirmed: &UserConfirmed) -> Result<(), IpcError> {
+        let (_, tx) = self.org_check_workflow(&args.workflow_id)?;
+        let decidable = self.org_rt.view.lock().unwrap().as_ref().is_some_and(|v| {
+            v.interjects.iter().any(|i| i.id.0 == args.id && matches!(i.outcome, Some(org_engine::InterjectOutcome::Unknown | org_engine::InterjectOutcome::ReconciledNotFound)))
+        });
+        if !decidable {
+            return Err(err(IpcErrorCode::InvalidArgs, "この割り込みは、次の送信に添えるか破棄するかを選べる状態ではありません"));
+        }
+        let _ = tx.send(DriverMsg::Input(OrgInput::UserInterjectFallback { id: org_engine::NoteId::new(args.id), add: args.add }));
+        Ok(())
+    }
+
+    /// ワークフロー（またはタスク）への追加指示。実行中の turn には触らず、次にエンジンが送る turn に添える。
+    pub fn org_add_note(&self, args: OrgAddNoteArgs, _confirmed: &UserConfirmed) -> Result<(), IpcError> {
+        let text = checked_text(&args.text)?;
+        let (tx, t) = self.org_with_task(&args.workflow_id, args.task.as_deref())?;
+        let pending = self.org_rt.view.lock().unwrap().as_ref().map_or(0, |v| v.notes.iter().filter(|n| !n.note.withdrawn && !n.pending.is_empty()).count());
+        if pending >= org_engine::MAX_PENDING_NOTES {
+            return Err(err(IpcErrorCode::InvalidArgs, format!("届いていない追加指示が{}件あります。取り消してから追加してください", org_engine::MAX_PENDING_NOTES)));
+        }
+        let _ = tx.send(DriverMsg::Input(OrgInput::UserAddNote { text, task: t.map(|t| t.id) }));
+        Ok(())
+    }
+
+    /// 追加指示を取り消す（以後の turn には添えない。すでに届いた分は戻せない）。
+    pub fn org_withdraw_note(&self, args: OrgWithdrawNoteArgs, _confirmed: &UserConfirmed) -> Result<(), IpcError> {
+        let (_, tx) = self.org_check_workflow(&args.workflow_id)?;
+        let ok = self.org_rt.view.lock().unwrap().as_ref().is_some_and(|v| v.notes.iter().any(|n| n.note.id.0 == args.id && !n.note.withdrawn));
+        if !ok {
+            return Err(err(IpcErrorCode::NotFound, "取り消せる追加指示が見つかりません"));
+        }
+        let _ = tx.send(DriverMsg::Input(OrgInput::UserWithdrawNote { id: org_engine::NoteId::new(args.id) }));
+        Ok(())
+    }
+
+    /// スキップ（計画の作業・検証タスクだけ。確認画面を経た利用者の操作）。検証役も一緒に飛ばす。
+    pub fn org_skip_task(&self, args: OrgTaskArgs, _confirmed: &UserConfirmed) -> Result<(), IpcError> {
+        let (_, tx) = self.org_check_workflow(&args.workflow_id)?;
+        let t = self.org_task_of_view(&args.task)?;
+        match &t.extras.skip {
+            Some(Ok(_)) => {}
+            Some(Err(why)) => return Err(err(IpcErrorCode::InvalidArgs, why.clone())),
+            None => return Err(err(IpcErrorCode::InvalidArgs, "このタスクはスキップできません（計画の作業・検証タスクだけです）")),
+        }
+        let _ = tx.send(DriverMsg::Input(OrgInput::UserSkipTask { task: t.id }));
+        Ok(())
+    }
+
+    /// 差し戻し（利用者の指摘つき）。検証待ちでは指摘が必須、差し戻し上限で止まっているときは任意。
+    pub fn org_send_back(&self, args: OrgSendBackArgs, _confirmed: &UserConfirmed) -> Result<(), IpcError> {
+        let (_, tx) = self.org_check_workflow(&args.workflow_id)?;
+        let t = self.org_task_of_view(&args.task)?;
+        let note = checked_note(args.note)?;
+        match &t.extras.send_back {
+            Some(Ok(())) => {}
+            Some(Err(why)) => return Err(err(IpcErrorCode::InvalidArgs, why.clone())),
+            None => return Err(err(IpcErrorCode::InvalidArgs, "このタスクは差し戻せません（計画の作業タスクだけです）")),
+        }
+        if note.is_none() && t.status != TaskStatus::Blocked(org_engine::BlockedReason::ReworkLimit) {
+            return Err(err(IpcErrorCode::InvalidArgs, "差し戻しの指摘を書いてください"));
+        }
+        let _ = tx.send(DriverMsg::Input(OrgInput::UserSendBack { task: t.id, note }));
+        Ok(())
+    }
+
+    /// 差し戻し上限で止まった作業タスクを、このまま受け入れる（何も送らない。取込みは利用者が行う）。
+    pub fn org_accept_as_is(&self, args: OrgTaskArgs, _confirmed: &UserConfirmed) -> Result<(), IpcError> {
+        let (_, tx) = self.org_check_workflow(&args.workflow_id)?;
+        let t = self.org_task_of_view(&args.task)?;
+        if !t.extras.can_accept_as_is {
+            return Err(err(IpcErrorCode::InvalidArgs, "差し戻し上限で止まっている作業タスクだけ、このまま受け入れられます"));
+        }
+        let _ = tx.send(DriverMsg::Input(OrgInput::UserAcceptAsIs { task: t.id }));
+        Ok(())
+    }
+
+    /// 保留（まだ送っていないタスクをスケジューラが送らないようにする）／保留を解除。
+    pub fn org_hold_task(&self, args: OrgHoldArgs, _confirmed: &UserConfirmed) -> Result<(), IpcError> {
+        let (_, tx) = self.org_check_workflow(&args.workflow_id)?;
+        let t = self.org_task_of_view(&args.task)?;
+        let ok = if args.held { t.extras.can_hold } else { t.extras.held };
+        if !ok {
+            return Err(err(IpcErrorCode::InvalidArgs, if args.held { "まだ送っていない計画のタスクだけ保留にできます" } else { "保留中のタスクではありません" }));
+        }
+        let _ = tx.send(DriverMsg::Input(OrgInput::UserHoldTask { task: t.id, held: args.held }));
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -587,6 +798,7 @@ mod tests {
             adopting: false,
             manual_format: None,
             node: None,
+            extras: Default::default(),
         }
     }
 
@@ -605,6 +817,9 @@ mod tests {
             turns_used: 0,
             auto_replans_used: 0,
             graph: None,
+            notes: Vec::new(),
+            interjects: Vec::new(),
+            notes_after_plan: 0,
         });
         (host, rx)
     }

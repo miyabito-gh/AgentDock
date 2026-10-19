@@ -54,6 +54,9 @@ fn minimal_row(dir: &Path) -> OrgWorkflowView {
         limits: org_engine::Limits::default(),
         turns_used: 0,
         auto_replans_used: 0,
+        notes: Vec::new(),
+        interjects: Vec::new(),
+        notes_after_plan: 0,
         graph: None,
     };
     workflow_view(&ViewInput { snapshot: &empty, notices: &[], usage_rows: &[], slots: &Default::default(), dispatching: false })

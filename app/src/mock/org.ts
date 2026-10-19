@@ -6,7 +6,8 @@ const ok: OrgConfirmView = { state: "confirmed", cause: null, label: "確認済�
 
 const task = (id: string, role: string, title: string, over: Partial<OrgTaskView>): OrgTaskView => ({
   id, role, title, deps: [], waitingOn: [], status: st("pending", "待機中", "circle"), confirm: ok, attempts: 1, maxAttempts: 3, chat: null, commit: null,
-  effects: [], stallNotified: false, reconcile: null, canCancel: true, canAcceptManual: false, needsChatChoice: false, canRetry: false, retry: null, retryRefusal: null, canFail: false, canAdoptManual: false, attentionNote: null, ...over,
+  effects: [], stallNotified: false, reconcile: null, canCancel: true, canAcceptManual: false, needsChatChoice: false, canRetry: false, retry: null, retryRefusal: null, canFail: false, canAdoptManual: false, attentionNote: null,
+  since: null, interject: { route: "nextTurn", label: "次にこのタスクへ送るとき（差し戻し・再送など）に添えます。このタスクにもう送信がなければ届きません" }, skip: null, skipRefusal: null, canSendBack: false, sendBackNeedsNote: true, sendBackRefusal: null, canAcceptAsIs: false, canHold: false, held: false, notesPending: 0, ...over,
 });
 
 const base = (over: Partial<OrgWorkflowView>): OrgWorkflowView => ({
@@ -14,7 +15,7 @@ const base = (over: Partial<OrgWorkflowView>): OrgWorkflowView => ({
   repo: "C:\Users\wmasa\Documents\Rust\Sample", halt: null, graph: null,
   limits: { maxWriters: 2, maxTotal: 3, maxRework: 2, maxAutoReplans: 1, maxTurns: 30, maxTasks: 20, stagnationMinutes: 30, maxRetries: 3 },
   usage: { turnsUsed: 11, turnsRemaining: 19, autoReplansUsed: 0, knownTokens: 184_300, rows: 6, rowsWithoutTokens: 1 },
-  tasks: [], planApproval: null, sandboxNotice: null, trust: null, notices: [], dispatching: true, finished: false, readonly: false, archivedAt: null, deletion: null, ...over,
+  tasks: [], planApproval: null, sandboxNotice: null, trust: null, notices: [], dispatching: true, finished: false, readonly: false, archivedAt: null, deletion: null, notes: [], interjects: [], notesAfterPlan: 0, ...over,
 });
 
 const RUN_TASKS: OrgTaskView[] = [

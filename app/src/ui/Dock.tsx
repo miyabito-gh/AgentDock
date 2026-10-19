@@ -13,6 +13,7 @@ import { CHAT_DISPLAY_TEXT, isActiveState, HISTORY_OUTCOME_TEXT, historyBreakdow
 import { FRESH, SOURCE_LABEL, STATE, hms, keyStr, showKnown } from "./format";
 import { TitleBar } from "./Chrome";
 import { ModelBadge } from "./ModelBadge";
+import { useThrottled } from "./useThrottled";
 
 function waitText(a: AgentView): string | null {
   const w = a.status.wait;
@@ -36,22 +37,6 @@ const ACT_MAX = 60;
 function shortAct(s: string): string {
   const one = s.replace(/\s+/g, " ").trim();
   return one.length > ACT_MAX ? `${one.slice(0, ACT_MAX)}…` : one;
-}
-
-/** 表示更新の間引き（最小間隔 ms）。承認・質問の増減（bypass の変化）は即時に反映する。 */
-function useThrottled<T>(value: T, ms: number, bypass: string): T {
-  const [out, setOut] = useState(value);
-  const last = useRef(0);
-  const lastBypass = useRef(bypass);
-  useEffect(() => {
-    const wait = ms - (Date.now() - last.current);
-    if (bypass !== lastBypass.current || wait <= 0) {
-      lastBypass.current = bypass; last.current = Date.now(); setOut(value); return;
-    }
-    const t = window.setTimeout(() => { last.current = Date.now(); setOut(value); }, wait);
-    return () => window.clearTimeout(t);
-  }, [value, ms, bypass]);
-  return out;
 }
 
 /** 状態不明カードの「確認済みにして隠す」の署名（新しい活動・turnが届けば変わる）。 */

@@ -53,7 +53,8 @@ impl OrgCore {
             self.graph_committed(id);
             return;
         }
-        let has_reviewer = self.s().tasks().iter().any(|t| t.role.0 == ROLE_REVIEWER && t.deps.contains(id));
+        // A reviewer the user skipped or cancelled will never review: it does not hold the worker under review.
+        let has_reviewer = self.s().tasks().iter().any(|t| t.role.0 == ROLE_REVIEWER && t.deps.contains(id) && t.status() != TaskStatus::Cancelled);
         let to = if has_reviewer { TaskStatus::Reviewing } else { TaskStatus::Completed };
         if self.set_status(id, to, Cause::Engine) && to == TaskStatus::Completed {
             self.notify(OrgNotice::TaskCompleted { task: id.clone() });
@@ -198,13 +199,23 @@ impl OrgCore {
                     let limits = self.s().limits().clone();
                     self.task(&target).is_some_and(|t| t.rework_limit_reached(&limits))
                 };
-                if limit_reached {
-                    self.fail(&target, FailReason::LimitReached);
-                } else if self.task(&target).is_some_and(|t| t.status() == TaskStatus::Reviewing) {
-                    self.rec(OrgEventKind::ReworkCounted { task: target.clone() });
-                    self.set_status(&target, TaskStatus::Rework, Cause::Engine);
-                    self.set_status(&target, TaskStatus::Ready, Cause::Engine);
-                    self.findings.insert(target.clone(), v.findings.into_iter().filter(|f| !f.trim().is_empty()).collect());
+                if self.task(&target).is_some_and(|t| t.status() == TaskStatus::Reviewing) {
+                    // The findings are kept in the log (a restart must not lose them).
+                    let findings: Vec<String> = v.findings.into_iter().filter(|f| !f.trim().is_empty()).collect();
+                    self.rec(OrgEventKind::FindingsRecorded { task: target.clone(), findings });
+                    if limit_reached {
+                        // Not a failure: the user chooses (once more / accept as it is / settle as failed).
+                        let max = self.s().limits().max_rework;
+                        self.block(
+                            &target,
+                            BlockedReason::ReworkLimit,
+                            &format!("検証で不合格が続き、差し戻しの上限（{max}回）に達しました。もう一度直させる／このまま受け入れる／失敗として確定のどれかを選んでください"),
+                        );
+                    } else {
+                        self.rec(OrgEventKind::ReworkCounted { task: target.clone() });
+                        self.set_status(&target, TaskStatus::Rework, Cause::Engine);
+                        self.set_status(&target, TaskStatus::Ready, Cause::Engine);
+                    }
                 }
                 // The reviewer waits until the worker task is under review again.
                 self.set_status(id, TaskStatus::Rework, Cause::Engine);
@@ -213,6 +224,10 @@ impl OrgCore {
     }
 
     pub(crate) fn dep_ok(dep: &Task, dependent: &Task) -> bool {
+        if dependent.node.is_none() && dep.skipped() && dep.status() == TaskStatus::Cancelled {
+            // The user skipped it: it counts as satisfied (its result is simply absent; the prompt says so).
+            return true;
+        }
         if dependent.node.is_some() {
             // Graph node: the parent has produced (and fixed) its output, whether or not a loop still holds it open.
             dep.confirm() == ConfirmState::Confirmed && matches!(dep.status(), TaskStatus::Completed | TaskStatus::Reviewing)
@@ -300,22 +315,17 @@ impl OrgCore {
                     Some((TurnKind::Plan, prompt::planner_prompt(s.request(), s.repo())))
                 } else {
                     let prev = self.replan_notes.get(id).cloned().unwrap_or_else(|| "(前の計画は未取得)".into());
-                    let notes: Vec<String> = s
-                        .notes()
-                        .iter()
-                        .filter(|n| matches!(&n.scope, NoteScope::Node { node } if node.0 == id.0))
-                        .map(|n| n.text.clone())
-                        .collect();
-                    Some((TurnKind::Replan, prompt::replan_prompt(s.request(), s.repo(), &prev, &notes)))
+                    // The user's reason (a note of this Planner task) is added by the common note section.
+                    Some((TurnKind::Replan, prompt::replan_prompt(s.request(), s.repo(), &prev, &[])))
                 }
             }
             NodeKind::PlannedTasks(PlannedRole::Worker) => {
                 if t.accepted_turn().is_some() {
-                    let f = self.findings.get(id).map(Vec::as_slice);
-                    Some((TurnKind::Rework, prompt::worker_rework_prompt(t, f)))
+                    Some((TurnKind::Rework, prompt::worker_rework_prompt(t, Some(t.last_findings()))))
                 } else {
                     let deps: Vec<(TaskId, Option<String>)> = t.deps.iter().map(|d| (d.clone(), self.artifacts.get(d).cloned())).collect();
-                    Some((TurnKind::Task, prompt::worker_prompt(t, s.request(), &deps)))
+                    let skipped: Vec<TaskId> = t.deps.iter().filter(|d| self.task(d).is_some_and(|x| x.skipped())).cloned().collect();
+                    Some((TurnKind::Task, prompt::worker_prompt_with(t, s.request(), &deps, &skipped)))
                 }
             }
             NodeKind::PlannedTasks(PlannedRole::Reviewer) => {

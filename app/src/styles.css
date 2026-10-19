@@ -1078,3 +1078,31 @@ button.uchip:hover{background:var(--accent-weak)}
 .intake-card{border:1px solid var(--card-line);background:var(--surface);border-radius:var(--r2);padding:8px 10px;margin-bottom:6px;max-height:46vh;overflow:auto}
 .intake-card .field{margin:6px 0}
 .intake-card textarea,.intake-card select{font:inherit}
+
+/* 組織実行: いまの動き・経過・介入（DESIGN_ORG_R2） */
+.org-activity{margin:8px 0}
+.org-act-list{list-style:none;margin:4px 0;padding:0}
+.org-act{display:flex;align-items:center;gap:6px;margin:2px 0}
+.org-act-main{display:flex;align-items:center;gap:8px;flex:1;min-width:0;text-align:left;background:none;border:0;padding:3px 4px;color:inherit;font:inherit;cursor:pointer}
+.org-act-main:hover{background:var(--hover,rgba(127,127,127,.12))}
+.org-act-main > b{white-space:nowrap}
+.org-act-state{white-space:nowrap}
+.org-act-detail{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.org-act.wait .org-act-state{font-weight:600}
+.org-tabs{display:flex;gap:6px;margin:8px 0}
+.org-tl-box{max-height:360px;overflow:auto;border:1px solid var(--line,rgba(127,127,127,.3));border-radius:6px;padding:4px}
+.org-tl-list{list-style:none;margin:0;padding:0}
+.org-tl-row{display:flex;gap:8px;align-items:baseline;padding:2px 4px;border-bottom:1px solid rgba(127,127,127,.12)}
+.org-tl-actor{white-space:nowrap;font-size:.85em;padding:0 6px;border:1px solid rgba(127,127,127,.4);border-radius:8px}
+.org-tl-actor.user{font-weight:600}
+.org-tl-text{flex:1;min-width:0;overflow-wrap:anywhere}
+.org-tl-row.tone-warn .org-tl-text,.org-tl-row.tone-wait .org-tl-text{font-weight:600}
+.org-tl-row.tone-bad .org-tl-text{font-weight:700;text-decoration:underline dotted}
+.interject{display:flex;flex-direction:column;gap:6px}
+.interject-route.refused{font-weight:600}
+.interject-list{list-style:none;margin:4px 0 0;padding:0}
+.interject-card{margin:3px 0;padding:3px 6px;border:1px solid rgba(127,127,127,.3);border-radius:6px}
+.org-interject-box{padding:6px 10px;border-top:1px solid rgba(127,127,127,.3)}
+.org-note-list{list-style:none;margin:4px 0;padding:0}
+.org-note-list li{display:flex;gap:6px;align-items:baseline;flex-wrap:wrap;margin:3px 0}
+.org-note-text{overflow-wrap:anywhere}

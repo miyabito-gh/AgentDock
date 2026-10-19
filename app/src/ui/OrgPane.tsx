@@ -1,7 +1,7 @@
 // 組織実行のワークフロー画面・計画承認カード・左一覧の行・ドックのバッジ（P-ORG-7b。DESIGN_ORG §2）。
 // 選ぶ・開くだけでは何も送らない。再開・一時停止・承認・取消し・手動切替・上限変更は、明示的なボタンだけがホストの命令を呼ぶ（危険なものは確認ブロックを経る）。
 // 状態は文字＋アイコン名で示す（色だけにしない）。取得できない値は「—」「未取得」で、0や完了では代用しない。
-import { Fragment, useEffect, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AgentKey, Chat, ChatKey, ChatLocalView, HostSnapshot, OrgChatCandidate, OrgConfirmView, OrgGraphNodeView, OrgGraphView, OrgManualEnd, OrgManualResultView, OrgSnapshotView, OrgStatusView, OrgTaskView, OrgWorkflowView, PendingRequest } from "../ipc/types";
 import * as host from "../ipc/client";
 import { Icon, orgIcon } from "./Icon";
@@ -9,9 +9,15 @@ import { Popover } from "./Popover";
 import { ConfirmBlock } from "./DialogParts";
 import { tipWithKey } from "./shortcuts";
 import { roleLabel } from "./orgChat";
-import { CONFIRM_TONE, EFFECT_TEXT, NODE_KIND_TEXT, PHASE_TONE, artifactText, attemptText, edgeText, groupTasks, orgPendingRequests, requestWaitText, roleCounts, reworkLimitText, roundText, taskRequestWait, taskRowId, verdictText, waitBand, waitText, waitingDetail, workflowSummary, type OrgTone } from "./org";
+import { CONFIRM_TONE, EFFECT_TEXT, NODE_KIND_TEXT, PHASE_TONE, waitCauseOf, artifactText, attemptText, edgeText, groupTasks, orgPendingRequests, requestWaitText, roleCounts, reworkLimitText, roundText, taskRequestWait, taskRowId, verdictText, waitBand, waitText, waitingDetail, workflowSummary, type OrgTone } from "./org";
 import { RequestGapLine } from "./RequestGap";
 import { keyStr, showKnown } from "./format";
+import { InterjectComposer } from "./InterjectComposer";
+import { OrgTimeline } from "./OrgTimeline";
+import { activityLines, elapsedText, lineText, stabilize, type ActivityLine, type ChatActivity } from "./orgActivity";
+import { useThrottled } from "./useThrottled";
+import { takeNoteDraft } from "./orgNoteDraft";
+import { rootView } from "./derive";
 
 /** 状態の表示（アイコン＋文字。形・色は `.st.<tone>`）。 */
 function Chip({ tone, icon, label, title }: { tone: OrgTone; icon: string; label: string; title?: string }) {
@@ -91,7 +97,7 @@ export function OrgBadge({ local }: { local: ChatLocalView | undefined }) {
 }
 
 /** 組織実行のチャットへ手入力できない理由（送信欄の無効理由。ホストも同じ判定で拒否する）。 */
-export const ORG_SEND_LOCK = "組織実行のチャットです。選んで見るだけで、ここからは送信できません。ワークフロー画面で「手動に切り替え」ると、通常のチャットとして送信できます。";
+export const ORG_SEND_LOCK = "組織実行のチャットです。ここから通常の送信はできません（turn を始めるのは組織実行だけです）。中央の入力欄は「割り込み指示」で、実行中の turn に届けるか、次の送信に添えます。通常のチャットとして送るには、ワークフロー画面で「手動に切り替え」てください。";
 
 type Confirm =
   | { kind: "resume"; /** 上限で止まったタスクのうち、再開の後に新しい試行として送るもの（チェックしたものだけ） */ checked: Record<string, boolean> }
@@ -105,6 +111,11 @@ type Confirm =
   | { kind: "retry"; task: string }
   | { kind: "retryNew"; task: string }
   | { kind: "failTask"; task: string }
+  | { kind: "interject"; task: string }
+  | { kind: "skip"; task: string }
+  | { kind: "sendBack"; task: string; note: string }
+  | { kind: "acceptAsIs"; task: string }
+  | { kind: "stopTask"; task: string }
   | { kind: "adopt"; task: string; res: OrgManualResultView | null; error: string | null }
   | { kind: "stopRunning" }
   | { kind: "release"; task: string; chat: ChatKey }
@@ -125,6 +136,8 @@ export interface OrgPaneProps {
   run: (label: string, f: () => Promise<string | void>) => Promise<boolean>;
   /** 削除の確認ダイアログを開く（開くだけ。消すのはダイアログの「削除する」）。 */
   onDelete: (workflowId: string) => void;
+  /** 進行タイムラインの合図（orgTimelineUpdated）の回数。変わったら差分を取り直す。 */
+  timelineTick: number;
   /** 承認・質問のカード（回答は App の既存の経路。ここからも直接答えられる）。 */
   renderRequest: (r: PendingRequest, agentName?: (a: AgentKey) => string) => ReactNode;
 }
@@ -156,6 +169,28 @@ export function OrgPane(p: OrgPaneProps) {
     return () => document.removeEventListener("keydown", h);
   }, [confirm, busy]);
 
+  // 表の上の「いまの動き」（役割ごとの現在の活動を1タスク1行）。更新は1秒に1回まで（承認・質問の増減だけ即時）、活動文は最低3秒は替えず、
+  // 経過時間は30秒ごとに描き直す。鮮度は状態の文字とは別の印で示す。
+  const [tab, setTab] = useState<"tasks" | "timeline">("tasks");
+  const [tlTask, setTlTask] = useState<string | null>(null);
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => { const t = window.setInterval(() => setNowTick(Date.now()), 30_000); return () => window.clearInterval(t); }, []);
+  const rawAct = useMemo(() => {
+    if (!wf) return { lines: [] as ActivityLine[], done: 0 };
+    const activityOf = (chat: ChatKey): ChatActivity | null => {
+      const c = snap.chats.find((x) => x.key.id === chat.id);
+      const v = c ? rootView(snap, c) : undefined;
+      if (!v) return null;
+      const a = v.currentActivity;
+      return { live: v.freshness === "live", kind: a ? a.kind.kind : null, summary: a && a.summary.kind === "value" ? a.summary.value : null };
+    };
+    const waitOf = (t: OrgTaskView): string | null => (waitCauseOf(snap, t) === null ? null : requestWaitText(taskRequestWait(snap, t)) ?? t.attentionNote ?? t.status.label);
+    return activityLines(wf, { now: Date.now(), waitOf, activityOf, roleLabel });
+  }, [wf, snap]);
+  const reqSig = snap.requests.filter((r) => r.state.kind === "pending").map((r) => `${r.key.source}/${r.key.requestId}`).join("|");
+  const throttledAct = useThrottled(rawAct, 1000, reqSig);
+  const prevAct = useRef<ActivityLine[]>([]);
+  const actLines = useMemo(() => { const s = stabilize(prevAct.current, throttledAct.lines, Date.now()); prevAct.current = s; return s; }, [throttledAct]);
   /** 命令を実行する。成功したら確認ブロックを閉じ、失敗したら理由を通知して開いたままにする。 */
   const go = async (label: string, f: () => Promise<string | void>) => {
     setBusy(true);
@@ -303,6 +338,49 @@ export function OrgPane(p: OrgPaneProps) {
       case "failTask":
         return wrap(`タスク ${confirm.task} を失敗として確定する確認`, <p>タスク {confirm.task} を、あなたの判断で失敗として確定します。<b>元に戻せません</b>。依存するタスクは進めなくなります。Codex 側の状態を変えることはしません（再送・中断もしません）。</p>,
           <button className="btn danger" disabled={busy} onClick={() => void go("失敗として確定", async () => { await host.orgFailTask(wf.workflowId, confirm.task); return `タスク ${confirm.task} を失敗として確定しました。`; })}>{busy ? "処理しています…" : "失敗として確定する"}</button>);
+      case "interject": {
+        const t = wf.tasks.find((x) => x.id === confirm.task);
+        if (!t) return null;
+        return wrap(`${confirm.task} への指示`,
+          <InterjectComposer workflowId={wf.workflowId} task={t} interjects={wf.interjects} run={p.run} compact />,
+          null);
+      }
+      case "skip": {
+        const t = wf.tasks.find((x) => x.id === confirm.task);
+        const also = t?.skip?.also ?? [];
+        const unrev = t?.skip?.completesUnreviewed ?? null;
+        return wrap(`タスク ${confirm.task} のスキップの確認`,
+          <>
+            <p><b>{confirm.task}</b> をスキップします。{also.length > 0 ? <>あわせて <b>{also.join("、")}</b>（検証）も飛ばします。</> : null}{unrev ? <><b>{unrev}</b> は検証なしで完了にします。</> : null}成果は後続へ渡りません。<b>元に戻せません</b>。</p>
+            <p className="small">後続の作業タスクは、スキップしたタスクを「満たした」とみなして進みます（依頼文に「スキップ: 成果なし」と書きます）。</p>
+          </>,
+          <button className="btn danger" disabled={busy} onClick={() => void go("スキップ", async () => { await host.orgSkipTask(wf.workflowId, confirm.task); return `タスク ${confirm.task} をスキップしました。`; })}>{busy ? "処理しています…" : "スキップする"}</button>);
+      }
+      case "sendBack": {
+        const c = confirm;
+        const t = wf.tasks.find((x) => x.id === c.task);
+        const needNote = t?.sendBackNeedsNote ?? true;
+        const ready = !needNote || c.note.trim() !== "";
+        return wrap(`タスク ${c.task} の差し戻し`,
+          <>
+            <p><b>{c.task}</b> を、次の指摘で直させます。自動の差し戻し回数には数えません（turn を1つ使います）。</p>
+            {noteField(needNote ? "指摘（必須）" : "指摘（任意）", c.note, (note) => setConfirm({ ...c, note }), "次の turn に、利用者の指摘として渡ります（権限や出力の形式は変わりません）。")}
+          </>,
+          <button className="btn primary" disabled={busy || !ready} onClick={() => void go("差し戻し", async () => { await host.orgSendBack(wf.workflowId, c.task, c.note.trim() || null); return `タスク ${c.task} を差し戻しました。`; })}>{busy ? "処理しています…" : "差し戻す"}</button>);
+      }
+      case "acceptAsIs":
+        return wrap(`タスク ${confirm.task} をこのまま受け入れる確認`,
+          <p>検証で不合格のまま <b>{confirm.task}</b> を完了にします（表示は「検証不合格のまま受け入れ」）。待っている検証役はスキップします。取込みは利用者が行います（自動マージしません）。</p>,
+          <button className="btn danger" disabled={busy} onClick={() => void go("このまま受け入れる", async () => { await host.orgAcceptAsIs(wf.workflowId, confirm.task); return `タスク ${confirm.task} を受け入れました（検証不合格のまま）。`; })}>{busy ? "処理しています…" : "このまま受け入れる"}</button>);
+      case "stopTask": {
+        const t = wf.tasks.find((x) => x.id === confirm.task);
+        return wrap(`タスク ${confirm.task} だけ止める確認`,
+          <>
+            <p><b>{confirm.task}</b> のチャットへ<b>中断を要求</b>します。他のタスクとワークフローは続きます。</p>
+            <p className="small">中断の要求は停止の確認ではありません。停止は Codex 側で確認できるまで「停止未確認」と扱い、10秒で確認できなければ案内します。止まれば「新しい試行で再送」できます（自動では送りません）。</p>
+          </>,
+          <button className="btn danger" disabled={busy || !t?.chat} onClick={() => void go("このタスクだけ止める", async () => { await host.interruptChat(t!.chat!); return `タスク ${confirm.task} のチャットに中断を要求しました。停止は確認できるまで「停止未確認」です。`; })}>{busy ? "止めています…" : "このタスクだけ止める"}</button>);
+      }
       case "adopt": {
         const c = confirm;
         const res = c.res;
@@ -405,6 +483,20 @@ export function OrgPane(p: OrgPaneProps) {
       {t.canAdoptManual ? <button className="btn sm" onClick={() => void openAdopt(t.id)} title="手動に切り替えたチャットの最新の回答を、このタスクの結果として取り込みます（チャットへは何も送りません）">結果を取り込む…</button> : null}
       {t.canAcceptManual ? <button className="btn sm" onClick={() => setConfirm({ kind: "acceptManual", task: t.id })}>手動で完了にする…</button> : null}
       {t.canCancel ? <button className="btn sm danger-line" onClick={() => setConfirm({ kind: "cancelTask", task: t.id })}>取り消す…</button> : null}
+      <Popover role="menu" align="right" triggerClassName="btn sm subtle" label={`タスク ${t.id} の操作`} title="このタスクへの指示・スキップ・差し戻しなど" trigger={<span aria-hidden="true">…</span>}>
+        {(close) => (
+          <>
+            <div className="small muted" style={{ padding: "2px 8px" }}>このタスク（{t.id}）</div>
+            <button type="button" role="menuitem" aria-disabled={t.interject.route === "refused" ? true : undefined} title={t.interject.label} onClick={() => { if (t.interject.route === "refused") return; close(); setConfirm({ kind: "interject", task: t.id }); }}>指示を挟む…</button>
+            {t.skip || t.skipRefusal ? <button type="button" role="menuitem" aria-disabled={t.skip ? undefined : true} title={t.skip ? "このタスク（と、その検証役）を飛ばします" : t.skipRefusal ?? undefined} onClick={() => { if (!t.skip) return; close(); setConfirm({ kind: "skip", task: t.id }); }}>スキップ…</button> : null}
+            {t.canSendBack || t.sendBackRefusal ? <button type="button" role="menuitem" aria-disabled={t.canSendBack ? undefined : true} title={t.canSendBack ? "次の指摘で直させます（自動の差し戻し回数には数えません）" : t.sendBackRefusal ?? undefined} onClick={() => { if (!t.canSendBack) return; close(); setConfirm({ kind: "sendBack", task: t.id, note: "" }); }}>差し戻す…</button> : null}
+            {t.canAcceptAsIs ? <button type="button" role="menuitem" title="検証で不合格のまま完了にします" onClick={() => { close(); setConfirm({ kind: "acceptAsIs", task: t.id }); }}>このまま受け入れる…</button> : null}
+            {t.canHold || t.held ? <button type="button" role="menuitem" title={t.held ? "保留を解除すると、順番が来れば送られます" : "解除するまで、このタスクを送りません"} onClick={() => { close(); void p.run(t.held ? "保留の解除" : "保留", async () => { await host.orgHoldTask(wf.workflowId, t.id, !t.held); return t.held ? "保留を解除しました。" : "保留にしました（解除するまで送りません）。"; }); }}>{t.held ? "保留を解除" : "保留"}</button> : null}
+            <button type="button" role="menuitem" aria-disabled={t.status.phase === "running" && t.chat ? undefined : true} title={t.status.phase === "running" && t.chat ? "このタスクのチャットだけに中断を要求します" : "実行中のタスクだけ止められます"} onClick={() => { if (!(t.status.phase === "running" && t.chat)) return; close(); setConfirm({ kind: "stopTask", task: t.id }); }}>このタスクだけ止める…</button>
+            <button type="button" role="menuitem" onClick={() => { close(); setTlTask(t.id); setTab("timeline"); }}>このタスクの経過</button>
+          </>
+        )}
+      </Popover>
       </>}
     </div>
   );
@@ -522,6 +614,12 @@ export function OrgPane(p: OrgPaneProps) {
                 ))}
               </ul>
             </details>
+            {wf.notesAfterPlan > 0 ? (
+              <div className="banner info" role="status"><Icon name="help" /><div>
+                計画の作成後に追加した指示が {wf.notesAfterPlan}件あります（計画には反映されていません。各タスクには届きます）。
+                <button className="btn sm" style={{ marginLeft: 8 }} disabled={busy} title="追加指示の内容を理由にして、計画を作り直します" onClick={() => setConfirm({ kind: "replan", note: wf.notes.filter((n) => !n.withdrawn && n.pendingFor.length > 0).map((n) => n.text).join("\n\n").slice(0, 2000) })}>この指示を理由に計画を作り直す…</button>
+              </div></div>
+            ) : null}
             <div className="acts end org-card-acts">
               <button className="btn danger-line" disabled={busy} onClick={() => setConfirm({ kind: "cancelWorkflow" })}>取り消す…</button>
               <button className="btn" disabled={busy} onClick={() => setConfirm({ kind: "replan", note: "" })}>差し戻して再計画…</button>
@@ -559,7 +657,34 @@ export function OrgPane(p: OrgPaneProps) {
           })()}
         </section>
 
-        <section aria-label="タスク">
+        <section className="org-activity" aria-label="いまの動き">
+          <h4 className="org-h">いまの動き</h4>
+          {actLines.length === 0 ? <div className="small muted">動いているタスクはありません{throttledAct.done > 0 ? `（完了 ${throttledAct.done}件）` : ""}</div> : (
+            <ul className="org-act-list">
+              {actLines.map((l) => (
+                <li key={l.task} className={`org-act ${l.group}`} title={lineText(l, nowTick)}>
+                  <button type="button" className="org-act-main" onClick={() => jumpTo(l.task)}>
+                    <b>{l.roleLabel}・{l.task}『{l.title}』</b>
+                    <span className="org-act-state">{l.state}</span>
+                    <span className="org-act-detail">{l.detail}</span>
+                    {l.since !== null ? <span className="small muted">{elapsedText(nowTick - l.since)}</span> : null}
+                    {l.stale ? <span className="mark wait" title="接続が切れているなど、この活動は最新ではない可能性があります（状態の文字は変えていません）">最新ではありません（接続断等）</span> : null}
+                  </button>
+                  {l.chat && chatExists(l.chat) ? <button type="button" className="btn sm subtle" title="このタスクのチャットを開きます（見るだけ。何も送りません）" onClick={() => p.onOpenChat(l.chat!)}>チャット</button> : null}
+                </li>
+              ))}
+            </ul>
+          )}
+          {throttledAct.done > 0 && actLines.length > 0 ? <div className="small muted">完了 {throttledAct.done}件</div> : null}
+        </section>
+
+        <div className="org-tabs" role="tablist" aria-label="タスクと経過">
+          <button type="button" role="tab" aria-selected={tab === "tasks"} className={`btn sm${tab === "tasks" ? " primary" : ""}`} onClick={() => setTab("tasks")}>タスク</button>
+          <button type="button" role="tab" aria-selected={tab === "timeline"} className={`btn sm${tab === "timeline" ? " primary" : ""}`} onClick={() => setTab("timeline")}>経過</button>
+        </div>
+        {tab === "timeline" ? <OrgTimeline workflowId={wf.workflowId} tick={p.timelineTick} live={p.live} task={tlTask} onClearTask={() => setTlTask(null)} /> : null}
+
+        <section aria-label="タスク" hidden={tab !== "tasks"}>
           <h4 className="org-h">タスク</h4>
           {groups.length === 0 ? <div className="empty-note">タスクはまだありません</div> : groups.map((g) => (
             <div key={g.key} className="org-group">
@@ -614,6 +739,7 @@ export function OrgPane(p: OrgPaneProps) {
             </ul>
           </details>
         ) : null}
+        {ro ? null : <WorkflowNotes wf={wf} run={p.run} />}
       </div>
     </>
   );
@@ -708,5 +834,48 @@ function GraphSection({ graph, wf, ro, busy, chatExists, onOpenChat, onGate, onE
         ) : null}
       </section>
     </>
+  );
+}
+
+/** ワークフローへの追加指示（DESIGN_ORG_R2 2.2）。実行中の turn には届かず、次にエンジンが送る turn に、タスクごと1回だけ添える。 */
+function WorkflowNotes({ wf, run }: { wf: OrgWorkflowView; run: OrgPaneProps["run"] }) {
+  // 依頼整理のチャットから写された本文があれば入れておく（写すだけ。送るのは「追加する」）。
+  const [text, setText] = useState(() => takeNoteDraft());
+  const [busy, setBusy] = useState(false);
+  const live = wf.tasks.filter((t) => !["completed", "failed", "cancelled"].includes(t.status.phase));
+  const running = live.filter((t) => t.status.phase === "running");
+  const next = live.filter((t) => t.status.phase !== "running");
+  const notes = wf.notes.filter((n) => !n.withdrawn);
+  const open = notes.filter((n) => n.pendingFor.length > 0);
+  const blank = text.trim() === "";
+  const add = async () => {
+    if (blank || busy) return;
+    setBusy(true);
+    const ok = await run("追加指示", async () => { await host.orgAddNote(wf.workflowId, text.trim(), null); return "追加指示を追加しました。次に送るタスクへ添えます（実行中のタスクには届きません）。"; });
+    setBusy(false);
+    if (ok) setText("");
+  };
+  return (
+    <section className="org-notes" aria-label="ワークフローへの追加指示">
+      <h4 className="org-h">ワークフローへの追加指示</h4>
+      {open.length > 0 ? (
+        <ul className="org-note-list">
+          {open.map((n) => (
+            <li key={n.id}>
+              <span className="org-note-text">{n.text}</span>
+              <span className="small muted">　{n.task ? `${n.task} へ` : "全体へ"}。未達: {n.pendingFor.join(",")}{n.deliveredTo.length > 0 ? `　届いた: ${n.deliveredTo.join(",")}（届いた分は戻せません）` : ""}</span>
+              <button className="btn sm" onClick={() => void run("追加指示の取り消し", async () => { await host.orgWithdrawNote(wf.workflowId, n.id); return "取り消しました。以後は添えません（すでに届いた分は戻せません）。"; })}>取り消す</button>
+            </li>
+          ))}
+        </ul>
+      ) : <div className="small muted">まだ届いていない追加指示はありません。</div>}
+      <textarea rows={2} style={{ width: "100%" }} value={text} maxLength={4200} disabled={busy} aria-label="追加指示の内容" placeholder="例: コメントは日本語で書いてください" onChange={(e) => setText(e.target.value)} />
+      <div className="small muted">
+        {next.length > 0 ? <>次に送るタスクへ添えます: {next.map((t) => t.id).join(", ")}（これから計画されるタスクにも添えます）。</> : <>これから送るタスクがあれば添えます。</>}
+        {running.length > 0 ? <>実行中の {running.map((t) => t.id).join(", ")} には届きません（届けるなら、そのタスクの「指示を挟む」を使ってください）。</> : null}
+        {wf.halt?.kind === "awaitingPlanApproval" ? " 計画に反映するなら、Planner への割り込み指示か「計画を作り直す」を使ってください。" : ""}
+      </div>
+      <div className="acts"><span className="grow" /><button className="btn" disabled={blank || busy || text.trim().length > 4000} onClick={() => void add()}>{busy ? "追加しています…" : "追加する"}</button></div>
+    </section>
   );
 }

@@ -3,4 +3,4 @@
 /**
  * 止まった・失敗した理由の種類（`Blocked`／`Failed` のときだけ付く）。
  */
-export type OrgReason = "awaitingApproval" | "manual" | "manualStop" | "limit" | "needsAttention" | "roundLimit" | "usageLimit" | "turnFailed" | "executionFailed" | "invalidArtifact" | "limitReached";
+export type OrgReason = "awaitingApproval" | "manual" | "manualStop" | "limit" | "needsAttention" | "roundLimit" | "reworkLimit" | "usageLimit" | "turnFailed" | "executionFailed" | "invalidArtifact" | "limitReached";

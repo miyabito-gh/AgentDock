@@ -2,9 +2,12 @@
 import type { ChatKey } from "./ChatKey";
 import type { OrgConfirmView } from "./OrgConfirmView";
 import type { OrgEffect } from "./OrgEffect";
+import type { OrgInterjectRouteView } from "./OrgInterjectRouteView";
 import type { OrgReconcileView } from "./OrgReconcileView";
 import type { OrgRetryView } from "./OrgRetryView";
+import type { OrgSkipView } from "./OrgSkipView";
 import type { OrgStatusView } from "./OrgStatusView";
+import type { UnixMillis } from "./UnixMillis";
 
 export type OrgTaskView = { id: string, role: string, title: string, deps: Array<string>, 
 /**
@@ -59,4 +62,48 @@ canAdoptManual: boolean,
 /**
  * 「止まっています（要対応）」の理由の1行（メモリ上の通知から。再起動で失われたときは、その旨）。要対応でなければ None。
  */
-attentionNote: string | null, };
+attentionNote: string | null, 
+/**
+ * 今の業務状態に入った時刻（記録から辿れないときは None。経過時間は出さない）。
+ */
+since: UnixMillis | null, 
+/**
+ * 割り込み指示の経路（送れないときは理由）。過去の記録では常に `Refused`。
+ */
+interject: OrgInterjectRouteView, 
+/**
+ * スキップできるときの確認の材料。
+ */
+skip: OrgSkipView | null, 
+/**
+ * スキップできないときの理由（計画の作業・検証タスクだけが対象。それ以外は None）。
+ */
+skipRefusal: string | null, 
+/**
+ * 差し戻せるか（検証待ち、または差し戻し上限で止まっている作業タスク）。
+ */
+canSendBack: boolean, 
+/**
+ * 差し戻しの指摘が必須か（差し戻し上限で止まっているときは任意）。
+ */
+sendBackNeedsNote: boolean, 
+/**
+ * 差し戻せない理由（差し戻しの対象のタスクでだけ）。
+ */
+sendBackRefusal: string | null, 
+/**
+ * 「このまま受け入れる」を出せるか（差し戻し上限で止まっている作業タスク）。
+ */
+canAcceptAsIs: boolean, 
+/**
+ * 保留にできるか（まだ送っていない計画の作業・検証タスク）。
+ */
+canHold: boolean, 
+/**
+ * 保留中か（スケジューラは送らない）。
+ */
+held: boolean, 
+/**
+ * このタスクにまだ届いていない追加指示の件数。
+ */
+notesPending: number, };

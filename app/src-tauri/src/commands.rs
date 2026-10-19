@@ -1093,6 +1093,68 @@ pub async fn org_accept_round(host: Hs<'_>, args: crate::backend::org::OrgTaskAr
     host.org_accept_round(args, &confirmed)
 }
 
+/// 進行タイムライン（読取りのみ。何も送らない）。
+#[tauri::command]
+pub async fn org_timeline(host: Hs<'_>, args: crate::backend::org::OrgTimelineArgs) -> R<crate::backend::org::OrgTimelineView> {
+    host.org_timeline(args)
+}
+
+/// 割り込み指示（利用者の操作だけ。実行中の turn に届けられるときだけ turn/steer、そうでなければ次の送信に添える。新しい turn は始めない）。
+#[tauri::command]
+pub async fn org_interject(host: Hs<'_>, args: crate::backend::org::OrgInterjectArgs) -> R<crate::backend::org::OrgInterjectAck> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.org_interject(args, &confirmed)
+}
+
+/// 届いたか確認できない割り込みを、次の送信に添えるか破棄するか（利用者の操作だけ）。
+#[tauri::command]
+pub async fn org_interject_fallback(host: Hs<'_>, args: crate::backend::org::OrgInterjectFallbackArgs) -> R<()> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.org_interject_fallback(args, &confirmed)
+}
+
+/// ワークフロー（またはタスク）への追加指示（利用者の操作だけ。次にエンジンが送る turn に添える）。
+#[tauri::command]
+pub async fn org_add_note(host: Hs<'_>, args: crate::backend::org::OrgAddNoteArgs) -> R<()> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.org_add_note(args, &confirmed)
+}
+
+/// 追加指示の取り消し（利用者の操作だけ）。
+#[tauri::command]
+pub async fn org_withdraw_note(host: Hs<'_>, args: crate::backend::org::OrgWithdrawNoteArgs) -> R<()> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.org_withdraw_note(args, &confirmed)
+}
+
+/// タスクのスキップ（確認を経た利用者の操作だけ）。
+#[tauri::command]
+pub async fn org_skip_task(host: Hs<'_>, args: crate::backend::org::OrgTaskArgs) -> R<()> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.org_skip_task(args, &confirmed)
+}
+
+/// 利用者の差し戻し（指摘つき。利用者の操作だけ）。
+#[tauri::command]
+pub async fn org_send_back(host: Hs<'_>, args: crate::backend::org::OrgSendBackArgs) -> R<()> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.org_send_back(args, &confirmed)
+}
+
+/// 差し戻し上限で止まったタスクを、このまま受け入れる（利用者の操作だけ。何も送らない）。
+#[tauri::command]
+pub async fn org_accept_as_is(host: Hs<'_>, args: crate::backend::org::OrgTaskArgs) -> R<()> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.org_accept_as_is(args, &confirmed)
+}
+
+/// 保留／保留の解除（利用者の操作だけ）。
+#[tauri::command]
+pub async fn org_hold_task(host: Hs<'_>, args: crate::backend::org::OrgHoldArgs) -> R<()> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.org_hold_task(args, &confirmed)
+}
+
 /// 削除確認の内容（読取りのみ。何も消さない）。
 #[tauri::command]
 pub async fn org_preview_delete(host: Hs<'_>, args: crate::backend::org::OrgWorkflowArgs) -> R<crate::backend::org::OrgDeletePreview> {

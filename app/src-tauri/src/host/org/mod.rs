@@ -26,6 +26,7 @@ pub mod observe;
 pub mod ports;
 pub mod roles;
 pub mod stall;
+pub mod timeline;
 pub mod view;
 
 use std::collections::VecDeque;
@@ -74,6 +75,8 @@ pub struct OrgRuntime {
     pub(in crate::host) intake: intake::IntakeRuntime,
     /// 削除を実行中のワークフロー（二重実行の防止）。
     pub(in crate::host) deleting: Mutex<std::collections::HashSet<String>>,
+    /// 動いている（または直前まで動いていた）ワークフローの進行タイムライン（DESIGN_ORG_R2 1）。
+    pub(in crate::host) timeline: Mutex<Option<timeline::TimelineBuf>>,
 }
 
 /// 溜めた通知の1件（通知の重複排除と画面の並びに使う通し番号つき）。
@@ -574,6 +577,16 @@ impl Host {
         };
         let state = recovered.state;
         let workflow = state.workflow_id().clone();
+        // 進行タイムラインは、保存された記録の全体から作り直す（分類の追記も含む）。
+        {
+            let mut buf = timeline::TimelineBuf::new(workflow.clone());
+            if let Ok(read) = store.read_events() {
+                for e in &read.events {
+                    buf.push(e);
+                }
+            }
+            *self.org_rt.timeline.lock().unwrap() = Some(buf);
+        }
         let mut recoveries = Vec::new();
         {
             let mut obs = self.org_rt.observer.lock().unwrap();
@@ -710,6 +723,7 @@ mod tests {
             adopting: false,
             manual_format: None,
             node: None,
+            extras: Default::default(),
         }
     }
 
@@ -725,6 +739,9 @@ mod tests {
             turns_used: 0,
             auto_replans_used: 0,
             graph: None,
+            notes: Vec::new(),
+            interjects: Vec::new(),
+            notes_after_plan: 0,
         }
     }
 

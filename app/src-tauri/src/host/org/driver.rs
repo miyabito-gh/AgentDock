@@ -14,13 +14,13 @@ use std::time::Duration;
 
 use org_engine::persist::SCHEMA_VERSION;
 use org_engine::{
-    AttemptRef, ChatRef, ConfirmState, CreateResult, OrgAction, OrgCore, OrgInput, OrgStore, TaskId, TaskStatus,
+    AttemptRef, ChatRef, ConfirmState, CreateResult, InterjectOutcome, NoteId, OrgAction, OrgCore, OrgInput, OrgStore, TaskId, TaskStatus,
     TurnRef, UsageRow, WorkflowId, WorkspaceAction, WorkspaceOutcome,
 };
 use tokio::sync::mpsc::UnboundedReceiver;
 
-use super::grant::OrgGrant;
-use super::ports::{AgentRuntime, OrgHostNotice, OrgSendResult, OrgSendSpec, RuntimeRead, Workspace};
+use super::grant::{InterjectPermit, OrgGrant};
+use super::ports::{AgentRuntime, OrgHostNotice, OrgSendResult, OrgSendSpec, OrgSteerSpec, RuntimeRead, Workspace};
 use super::stall::{StallWatch, DEFAULT_STALL_MS};
 use crate::rules::org::{chat_key_of_ref, judge_sandbox, sandbox_notice, turn_key_of_ref, SandboxVerdict};
 
@@ -69,6 +69,41 @@ pub struct OrgSnapshot {
     pub auto_replans_used: u32,
     /// グラフで動くワークフローの流れの写し（従来の計画経路と、読めなかったときは None）。
     pub graph: Option<GraphSnapshot>,
+    /// 追加指示（古い順。取り消したものも含む）と、それぞれの届き具合。
+    pub notes: Vec<NoteSnapshot>,
+    /// 割り込み指示（古い順）。
+    pub interjects: Vec<org_engine::Interject>,
+    /// 計画の承認待ちのとき、計画の作成後に追加した追加指示の件数。
+    pub notes_after_plan: u32,
+}
+
+/// 追加指示1件と、届き具合（終わっていないタスクのうち未達・届いたタスク）。
+#[derive(Debug, Clone, PartialEq)]
+pub struct NoteSnapshot {
+    pub note: org_engine::UserNote,
+    pub pending: Vec<TaskId>,
+    pub delivered: Vec<TaskId>,
+}
+
+/// タスクごとの介入の可否（エンジンの純粋な判定を、状態の写しに添えたもの）。
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct TaskExtras {
+    pub held: bool,
+    /// 計画の作業・検証タスクだけ Some。スキップの見込み（一緒に飛ばすタスク・検証なしで完了にするタスク）か、できない理由。
+    pub skip: Option<Result<org_engine::SkipPlan, String>>,
+    /// 計画の作業タスクだけ Some。差し戻せるか（指摘の有無は問わない）か、できない理由。
+    pub send_back: Option<Result<(), String>>,
+    pub can_accept_as_is: bool,
+    pub can_hold: bool,
+    /// このタスクにまだ届いていない追加指示の件数。
+    pub notes_pending: u32,
+    /// 割り込みの経路の判定の材料（受理済みの turn・決着・終端の観測）。
+    pub accepted_turn: Option<TurnRef>,
+    pub accepted_settled: bool,
+    pub has_settle: bool,
+    pub turn_ended: bool,
+    /// 前の割り込みの結果がまだ決まっていない。
+    pub open_interject: bool,
 }
 
 /// グラフ定義と、画面に出すための進み具合（周回の回数・スロットの最新の版）。
@@ -115,6 +150,7 @@ pub struct TaskSnapshot {
     pub manual_format: Option<String>,
     /// このタスクが動かすグラフのノード（グラフで動くワークフローだけ）。
     pub node: Option<org_engine::graph::NodeId>,
+    pub extras: TaskExtras,
 }
 
 /// エンジンの状態から画面向けの写しを作る。`graph` はグラフで動くワークフローの定義（なければ None）。
@@ -150,6 +186,7 @@ pub fn snapshot_of(state: &org_engine::WorkflowState, graph: Option<&org_engine:
                 adopting: t.adopting(),
                 manual_format: None,
                 node: t.node().cloned(),
+                extras: extras_of(state, t),
             })
             .collect(),
         request: state.request().to_string(),
@@ -158,13 +195,64 @@ pub fn snapshot_of(state: &org_engine::WorkflowState, graph: Option<&org_engine:
         turns_used: state.counters().turns_used,
         auto_replans_used: state.counters().auto_replans_used,
         graph,
+        notes: state
+            .notes()
+            .iter()
+            .map(|n| {
+                let (pending, delivered) = org_engine::note_reach(state, n);
+                NoteSnapshot { note: n.clone(), pending, delivered }
+            })
+            .collect(),
+        interjects: state.interjects().to_vec(),
+        notes_after_plan: notes_after_plan(state),
     }
+}
+
+/// タスクごとの介入の可否（エンジンの純粋な判定。画面の表示と、操作の事前確認に使う）。
+fn extras_of(state: &org_engine::WorkflowState, t: &org_engine::Task) -> TaskExtras {
+    let plan = org_engine::is_worker(t) || org_engine::is_reviewer(t);
+    let worker = org_engine::is_worker(t);
+    let remaining = state.counters().turns_remaining(state.limits());
+    let (_, delivered_pending) = (0, state.notes().iter().filter(|n| !n.withdrawn && org_engine::note_reach(state, n).0.contains(&t.id)).count() as u32);
+    TaskExtras {
+        held: t.held(),
+        skip: plan.then(|| org_engine::skip_plan(state, &t.id)),
+        send_back: worker.then(|| org_engine::send_back_check(state, &t.id, remaining, Some("x")).map(|_| ())),
+        can_accept_as_is: worker && org_engine::accept_as_is_check(state, &t.id).is_ok(),
+        can_hold: plan
+            && matches!(t.status(), TaskStatus::Pending | TaskStatus::Ready)
+            && t.confirm() == ConfirmState::Confirmed
+            && !t.held(),
+        notes_pending: delivered_pending,
+        accepted_turn: t.accepted_turn().cloned(),
+        accepted_settled: matches!(t.last_settle(), Some(org_engine::SettleOutcome::Accepted { .. } | org_engine::SettleOutcome::ReconciledAccepted { .. })),
+        has_settle: t.last_settle().is_some(),
+        turn_ended: t.observed().is_some_and(|o| Some(&o.turn) == t.accepted_turn()),
+        open_interject: state.interjects().iter().any(|i| i.task == t.id && i.outcome.is_none()),
+    }
+}
+
+/// 計画の承認待ちのとき、計画の作成後（最新の Planner へ渡した後）に追加した、全体・タスク宛ての追加指示の件数。
+fn notes_after_plan(state: &org_engine::WorkflowState) -> u32 {
+    if state.halt() != Some(org_engine::HaltReason::AwaitingPlanApproval) {
+        return 0;
+    }
+    let seen = state.tasks().iter().filter(|t| t.role.0 == "planner").map(|t| t.notes_seen_seq()).max().unwrap_or(0);
+    state
+        .notes()
+        .iter()
+        .filter(|n| !n.withdrawn && n.seq > seen && matches!(n.scope, org_engine::NoteScope::AllFollowing | org_engine::NoteScope::Task { .. }))
+        .count() as u32
 }
 
 /// 状態の公開先（画面への合図・通知・状態の写し）。
 pub trait OrgSink: Send + Sync {
     fn publish(&self, snapshot: OrgSnapshot);
     fn notice(&self, workflow: &WorkflowId, notice: OrgHostNotice);
+    /// 記録（events.jsonl）への追記が成功した。進行タイムラインの材料（追記に失敗した記録は渡さない）。
+    fn persisted(&self, _workflow: &WorkflowId, _event: &org_engine::OrgEvent) {}
+    /// 進行タイムラインに新しい行がある（ドライバの1秒の刻みで、1秒に1回まで）。
+    fn timeline_updated(&self, _workflow: &WorkflowId, _last_seq: u64) {}
 }
 
 type DynStore = Arc<dyn OrgStore + Send + Sync>;
@@ -182,11 +270,13 @@ pub struct OrgDriver<P: AgentRuntime + RuntimeRead + Workspace> {
     /// 停滞の検出（通知だけ。自動で中断しない）。
     stall: StallWatch,
     now: Box<dyn Fn() -> i64 + Send>,
+    /// 追記したがタイムラインの合図をまだ出していない記録の最後の番号。
+    timeline_dirty: Option<u64>,
 }
 
 impl<P: AgentRuntime + RuntimeRead + Workspace + 'static> OrgDriver<P> {
     pub fn new(core: OrgCore, store: DynStore, ports: Arc<P>, sink: Arc<dyn OrgSink>, now: Box<dyn Fn() -> i64 + Send>) -> Self {
-        Self { core, store, ports, sink, grant: None, persist_failed: false, latest_usage: HashMap::new(), last_desc: HashMap::new(), stall: StallWatch::new(DEFAULT_STALL_MS), now }
+        Self { core, store, ports, sink, grant: None, persist_failed: false, latest_usage: HashMap::new(), last_desc: HashMap::new(), stall: StallWatch::new(DEFAULT_STALL_MS), now, timeline_dirty: None }
     }
 
     /// 停滞とみなす時間（既定30分）。設定の画面は P-ORG-7。
@@ -258,6 +348,9 @@ impl<P: AgentRuntime + RuntimeRead + Workspace + 'static> OrgDriver<P> {
             self.refresh_descendants().await;
         }
         self.check_stalls(now);
+        if let (Some(seq), Some(s)) = (self.timeline_dirty.take(), self.core.state()) {
+            self.sink.timeline_updated(s.workflow_id(), seq);
+        }
     }
 
     /// 確定していて `running` のままのタスクに、設定時間の間、新しい出力がなければ通知する。中断・再送・resume はしない。
@@ -386,6 +479,9 @@ impl<P: AgentRuntime + RuntimeRead + Workspace + 'static> OrgDriver<P> {
                     self.persist_failed = true;
                     *stop_effects = true;
                     self.notice(OrgHostNotice::PersistFailed);
+                } else if let Some(s) = self.core.state() {
+                    self.sink.persisted(s.workflow_id(), &ev);
+                    self.timeline_dirty = Some(ev.seq);
                 }
                 None
             }
@@ -436,6 +532,7 @@ impl<P: AgentRuntime + RuntimeRead + Workspace + 'static> OrgDriver<P> {
             OrgAction::Send { task, chat, attempt, client_message_id, text, output_schema } => {
                 Some(self.exec_send(task, chat, attempt, client_message_id, text, output_schema).await)
             }
+            OrgAction::Steer { id, chat, turn, client_message_id, text, .. } => Some(self.exec_steer(id, chat, turn, client_message_id, text).await),
             OrgAction::ReadFinalMessage { task, chat, turn } => {
                 let text = match chat_key_of_ref(&chat) {
                     Some(key) => self.ports.read_final_message(&key, &turn_key_of_ref(&key, &turn)).await.ok().flatten(),
@@ -478,6 +575,23 @@ impl<P: AgentRuntime + RuntimeRead + Workspace + 'static> OrgDriver<P> {
                 self.notice(OrgHostNotice::SendRefused { task: task.clone(), why });
                 not_sent(&task, &attempt)
             }
+        }
+    }
+
+    /// 実行中のturnへの割り込み。新しいturnは始めない。結果（届いた・届かなかった・不明）は監視の受け口が `InterjectSettled` で知らせる。
+    /// ここで返すのは、送っていないことが確かな場合の「届かなかった」だけ。受理不明を再送しない。
+    async fn exec_steer(&mut self, id: NoteId, chat: ChatRef, turn: TurnRef, client_message_id: String, text: String) -> Vec<OrgInput> {
+        let not_delivered = |reason: &str| vec![OrgInput::InterjectSettled { id: id.clone(), outcome: InterjectOutcome::NotDelivered { reason: reason.to_string() } }];
+        let Some(key) = chat_key_of_ref(&chat) else { return not_delivered("チャットを特定できません") };
+        let permit = match InterjectPermit::issue(self.ports.grants(), key.clone(), turn_key_of_ref(&key, &turn)) {
+            Ok(p) => p,
+            Err(e) => return not_delivered(e.message()),
+        };
+        let spec = OrgSteerSpec { attempt: crate::backend::model::LocalId(id.0.clone()), client_message_id, text: org_engine::prompt::interject_prompt(&text) };
+        match self.ports.steer(permit, spec).await {
+            OrgSendResult::Dispatched(_) => Vec::new(),
+            OrgSendResult::NotLive => not_delivered("チャットがliveでないため、送りませんでした"),
+            OrgSendResult::Held(why) => not_delivered(&why),
         }
     }
 

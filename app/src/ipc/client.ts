@@ -323,6 +323,7 @@ export const applyCloudTask = (taskId: string, folder: string): Promise<CloudApp
 // ── 組織実行（P-ORG-7a。薄い呼び出し口。画面は P-ORG-7b）。org_view 等の閲覧は何も送らない ──
 import type {
   OrgSnapshotView, OrgRolesView, OrgGraphsView, StartOrgArgs, StartOrgResult, OrgResumeResult, OrgCancelArgs, OrgChatCandidate, ChatKey as OrgChatKey, OrgDeletePreview, OrgDeleteOutcome, OrgManualResultView,
+  OrgTimelineView, OrgInterjectAck,
 } from "./types";
 export const orgView = (): Promise<OrgSnapshotView> => invokeCmd("org_view", {});
 export const orgRolesView = (): Promise<OrgRolesView> => invokeCmd("org_roles_view", {});
@@ -383,3 +384,18 @@ export const orgSetStallMinutes = (minutes: number): Promise<number> => invokeCm
 export const orgReloadRoles = (): Promise<OrgRolesView> => invokeCmd("org_reload_roles", {});
 export const orgEnableRole = (roleId: string, fingerprint: string): Promise<OrgRolesView> => invokeCmd("org_enable_role", { roleId, fingerprint });
 export const orgOpenRoleFile = (file: string): Promise<null> => invokeCmd("org_open_role_file", { file });
+
+// ── 組織実行の介入・進行タイムライン（DESIGN_ORG_R2）。タイムラインの取得は読取りのみ ──
+/** 進行タイムライン。afterSeq より後に変わった行だけ（null なら新しい側の limit 件）。 */
+export const orgTimeline = (workflowId: string, afterSeq: number | null, limit: number): Promise<OrgTimelineView> => invokeCmd("org_timeline", { workflowId, afterSeq, limit });
+/** 割り込み指示（実行中の turn に届けられるときだけ今すぐ。そうでなければ次の送信に添える）。fallback＝届かなければ次の送信に添える。 */
+export const orgInterject = (workflowId: string, task: string, text: string, fallback: boolean): Promise<OrgInterjectAck> => invokeCmd("org_interject", { workflowId, task, text, fallback });
+/** 届いたか確認できない割り込みを、次の送信に添える（add=true）か破棄する（false）。 */
+export const orgInterjectFallback = (workflowId: string, id: string, add: boolean): Promise<null> => invokeCmd("org_interject_fallback", { workflowId, id, add });
+/** 追加指示（task=null は、これからエンジンが送るすべてのタスクへ）。実行中の turn には届かない。 */
+export const orgAddNote = (workflowId: string, text: string, task: string | null): Promise<null> => invokeCmd("org_add_note", { workflowId, text, task });
+export const orgWithdrawNote = (workflowId: string, id: string): Promise<null> => invokeCmd("org_withdraw_note", { workflowId, id });
+export const orgSkipTask = (workflowId: string, task: string): Promise<null> => invokeCmd("org_skip_task", { workflowId, task });
+export const orgSendBack = (workflowId: string, task: string, note: string | null): Promise<null> => invokeCmd("org_send_back", { workflowId, task, note });
+export const orgAcceptAsIs = (workflowId: string, task: string): Promise<null> => invokeCmd("org_accept_as_is", { workflowId, task });
+export const orgHoldTask = (workflowId: string, task: string, held: boolean): Promise<null> => invokeCmd("org_hold_task", { workflowId, task, held });

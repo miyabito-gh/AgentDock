@@ -10,6 +10,7 @@
 //! - [`worktree`]: worktree一覧の解析・名前の組立て・削除可否の判定（段階③ P3-7）
 //! - [`work_folders`]: 作業フォルダ（複数）の正規化・拒否・強い確認の判定（項目39 WF-1）
 //! - [`org`]: 組織実行のsandbox健全性の判定とconfig.tomlのtrust追記の分類（P-ORG-4c）
+//! - [`org_interject`]・[`org_timeline`]: 組織実行の割り込み指示の経路の判定、進行タイムラインの整形（DESIGN_ORG_R2）
 //! - [`org_manage`]: 組織ワークフローの削除・アーカイブの可否と削除の手順（DESIGN_ORG_DELETE）
 //! - [`org_worktree`]: 組織実行のworktreeの所有確認・ブランチ名・コミット間差分の解析（P-ORG-5）
 //! - [`continuity`]: 継続チャットの資料の組立て・使用率の表示区分・引き継ぎの前提・起動時の照合（G-P、DESIGN_CONT）
@@ -27,8 +28,10 @@ pub mod git_push;
 pub mod manage;
 pub mod notify;
 pub mod org;
+pub mod org_interject;
 pub mod org_intake;
 pub mod org_manage;
+pub mod org_timeline;
 pub mod org_worktree;
 pub mod queue;
 pub mod side;

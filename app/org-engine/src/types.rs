@@ -76,6 +76,9 @@ pub enum BlockedReason {
     TurnFailed,
     /// A feedback edge ran out of rounds (`onExhausted: ask`); the user decides (DESIGN_ORG_GRAPH 7.3).
     RoundLimit,
+    /// A worker task used up its automatic send-backs after a failed review. The user decides
+    /// (send it back once more, accept it as it is, or settle it as failed; DESIGN_ORG_R2 2.3).
+    ReworkLimit,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -216,6 +219,24 @@ pub struct Task {
     /// The task the latest `EdgeTaken` led to (None = no edge applied, or it ended the path / ran out of rounds).
     #[serde(default)]
     pub(crate) edge_to: Option<TaskId>,
+    /// Newest note seq that rode along with the latest dispatch (becomes `notes_seen_seq` once the send is accepted).
+    #[serde(default)]
+    pub(crate) notes_sent_upto: Option<u64>,
+    /// Notes up to this seq reached the task by an accepted send.
+    #[serde(default)]
+    pub(crate) notes_seen_seq: u64,
+    /// Cancelled by the user's "skip" (not an ordinary cancel).
+    #[serde(default)]
+    pub(crate) skipped: bool,
+    /// The user holds the task: the scheduler does not send it.
+    #[serde(default)]
+    pub(crate) held: bool,
+    /// Send-backs the user asked for (not counted in `rework_count`).
+    #[serde(default)]
+    pub(crate) user_rework_count: u32,
+    /// The latest review findings for this task (kept so a restart does not lose them).
+    #[serde(default)]
+    pub(crate) last_findings: Vec<String>,
 }
 
 impl Task {
@@ -245,6 +266,12 @@ impl Task {
             last_output_seq: None,
             edge_seq: None,
             edge_to: None,
+            notes_sent_upto: None,
+            notes_seen_seq: 0,
+            skipped: false,
+            held: false,
+            user_rework_count: 0,
+            last_findings: Vec::new(),
         }
     }
     pub fn status(&self) -> TaskStatus {
@@ -305,6 +332,24 @@ impl Task {
     pub fn edge_to(&self) -> Option<&TaskId> {
         self.edge_to.as_ref()
     }
+    pub fn notes_sent_upto(&self) -> Option<u64> {
+        self.notes_sent_upto
+    }
+    pub fn notes_seen_seq(&self) -> u64 {
+        self.notes_seen_seq
+    }
+    pub fn skipped(&self) -> bool {
+        self.skipped
+    }
+    pub fn held(&self) -> bool {
+        self.held
+    }
+    pub fn user_rework_count(&self) -> u32 {
+        self.user_rework_count
+    }
+    pub fn last_findings(&self) -> &[String] {
+        &self.last_findings
+    }
     /// The latest event seq at which this task produced something (an output or an edge decision).
     pub(crate) fn seen_seq(&self) -> u64 {
         self.last_output_seq.unwrap_or(0).max(self.edge_seq.unwrap_or(0))
@@ -336,6 +381,8 @@ pub enum NoteScope {
     Node { node: NodeId },
     /// Every turn sent from now on.
     AllFollowing,
+    /// The next turn of this task (DESIGN_ORG_R2 2.2).
+    Task { task: TaskId },
 }
 
 /// Limits. Defaults follow DESIGN_ORG section 0.2 (Q4, Q5, Q11) and 4.3/4.7.

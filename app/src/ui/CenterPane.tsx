@@ -33,7 +33,8 @@ import { queueCounts } from "./sendStatus";
 import { HandoffNotice, PurposeLine, UsageChip, useHandoff, type HandoffUi } from "./HandoffNotice";
 import { IntakeSection } from "./OrgIntake";
 import { worktreeOf } from "./folderGroups";
-import type { HandoffPreview } from "../ipc/types";
+import type { HandoffPreview, OrgInterjectView, OrgTaskView } from "../ipc/types";
+import { InterjectComposer } from "./InterjectComposer";
 import { OrgInstructionBubble, OrgReportView } from "./OrgChatParts";
 import { isOrgInstruction, parseOrgReport } from "./orgChat";
 import { appearsInTurns, firstSendLockReason, type PendingSend } from "./pendingSend";
@@ -45,6 +46,8 @@ const NO_THREADS: ThreadSegmentView[] = [];
 const SCOPE_TEXT = { once: "1回だけ", session: "このセッション中", persistent: "以後ずっと（永続）", unknown: "効力範囲は不明" } as const;
 
 export interface CenterProps {
+  /** 組織実行が所有するチャットのとき、通常の入力欄の代わりに出す割り込み指示の材料（それ以外は null）。 */
+  orgInterject?: { workflowId: string; task: OrgTaskView | null; interjects: OrgInterjectView[]; run: (label: string, f: () => Promise<string | void>) => Promise<boolean> } | null;
   /** 左（チャット一覧）・右（ドック）が今見えているか（狭い画面では一時表示の開閉）。ヘッダーの開閉ボタンの見た目に使う。 */
   leftShown: boolean;
   rightShown: boolean;
@@ -1165,7 +1168,16 @@ export function CenterPane(p: CenterProps) {
         queue: queueCounts(snap.queues.find((q) => keyStr(q.chat) === keyStr(chat.key))?.entries),
       }} />
       <IntakeSection chat={chat.key} local={p.local} live />
+      {p.orgInterject ? (
+        <div className="org-interject-box">
+          {p.orgInterject.task
+            ? <InterjectComposer workflowId={p.orgInterject.workflowId} task={p.orgInterject.task} interjects={p.orgInterject.interjects} run={p.orgInterject.run} />
+            : <div className="small muted">このチャットのタスクを特定できないため、指示は送れません。</div>}
+          <div className="small muted">組織実行のチャットです。通常の送信・添付・キュー・モデル変更はできません。通常のチャットとして使うには、ワークフロー画面で「手動に切り替え」てください。</div>
+        </div>
+      ) : (
       <Composer key={`${chat.key.id}:${p.models.length}`} p={p} running={running} lock={lock} hu={hu} />
+      )}
     </>
   );
 }

@@ -46,6 +46,7 @@ pub fn status_view(s: TaskStatus) -> OrgStatusView {
                 EBlocked::RoundLimit => (OrgReason::RoundLimit, "止まっています（やり直しの上限）"),
                 EBlocked::UsageLimit => (OrgReason::UsageLimit, "止まっています（利用上限）"),
                 EBlocked::TurnFailed => (OrgReason::TurnFailed, "止まっています（turnが失敗）"),
+                EBlocked::ReworkLimit => (OrgReason::ReworkLimit, "止まっています（差し戻しの上限）"),
             };
             (P::Blocked, Some(reason), label, "pause")
         }
@@ -290,6 +291,15 @@ fn task_view(t: &TaskSnapshot, snap: &OrgSnapshot, notices: &[NoticeEntry]) -> O
     }
     let stall_notified = t.status == TaskStatus::Running && matches!(last_for_task, Some(OrgHostNotice::Stalled { .. }));
     let (retry, retry_refusal) = retry_views(t, snap.limits.max_retries);
+    let ex = &t.extras;
+    let (skip, skip_refusal) = match &ex.skip {
+        None => (None, None),
+        Some(Ok(p)) => (
+            Some(OrgSkipView { also: p.skip.iter().skip(1).map(|x| x.0.clone()).collect(), completes_unreviewed: p.complete_unreviewed.as_ref().map(|x| x.0.clone()) }),
+            None,
+        ),
+        Some(Err(e)) => (None, Some(e.clone())),
+    };
     OrgTaskView {
         id: t.id.0.clone(),
         role: t.role.clone(),
@@ -315,9 +325,23 @@ fn task_view(t: &TaskSnapshot, snap: &OrgSnapshot, notices: &[NoticeEntry]) -> O
         retry,
         retry_refusal,
         can_fail: t.confirm == ConfirmState::Confirmed
-            && matches!(t.status, TaskStatus::Blocked(EBlocked::UsageLimit | EBlocked::TurnFailed | EBlocked::ManualStop | EBlocked::NeedsAttention)),
+            && matches!(t.status, TaskStatus::Blocked(EBlocked::UsageLimit | EBlocked::TurnFailed | EBlocked::ManualStop | EBlocked::NeedsAttention | EBlocked::ReworkLimit)),
         can_adopt_manual: t.status == TaskStatus::Blocked(EBlocked::Manual) && t.confirm == ConfirmState::Confirmed && t.chat.is_some(),
         attention_note: attention_note(t, notices),
+        since: None,
+        interject: OrgInterjectRouteView { route: OrgInterjectRoute::Refused, label: "過去の記録は読み取り専用です".to_string() },
+        skip,
+        skip_refusal,
+        can_send_back: matches!(ex.send_back, Some(Ok(()))),
+        send_back_needs_note: t.status != TaskStatus::Blocked(EBlocked::ReworkLimit),
+        send_back_refusal: match &ex.send_back {
+            Some(Err(e)) if matches!(t.status, TaskStatus::Reviewing | TaskStatus::Blocked(EBlocked::ReworkLimit)) => Some(e.clone()),
+            _ => None,
+        },
+        can_accept_as_is: ex.can_accept_as_is,
+        can_hold: ex.can_hold,
+        held: ex.held,
+        notes_pending: ex.notes_pending,
     }
 }
 
@@ -491,7 +515,58 @@ pub fn workflow_view(input: &ViewInput<'_>) -> OrgWorkflowView {
         readonly: false,
         archived_at: None,
         deletion: None,
+        notes: snap.notes.iter().map(note_view).collect(),
+        interjects: interjects_view(&snap.interjects),
+        notes_after_plan: snap.notes_after_plan,
     }
+}
+
+/// 追加指示1件の写し。
+fn note_view(n: &super::driver::NoteSnapshot) -> OrgNoteView {
+    OrgNoteView {
+        id: n.note.id.0.clone(),
+        text: n.note.text.clone(),
+        task: match &n.note.scope {
+            org_engine::NoteScope::AllFollowing => None,
+            org_engine::NoteScope::Task { task } => Some(task.0.clone()),
+            org_engine::NoteScope::Node { node } => Some(node.0.clone()),
+        },
+        seq: n.note.seq,
+        delivered_to: n.delivered.iter().map(|t| t.0.clone()).collect(),
+        pending_for: n.pending.iter().map(|t| t.0.clone()).collect(),
+        withdrawn: n.note.withdrawn,
+    }
+}
+
+/// 割り込み指示の写し（決着していないものと、最新の20件）。
+fn interjects_view(all: &[org_engine::Interject]) -> Vec<OrgInterjectView> {
+    use org_engine::InterjectOutcome as O;
+    let keep_from = all.len().saturating_sub(20);
+    all.iter()
+        .enumerate()
+        .filter(|(i, x)| *i >= keep_from || x.outcome.is_none())
+        .map(|(_, x)| {
+            let (kind, label) = match &x.outcome {
+                None => (OrgInterjectOutcomeKind::Open, "送信中です".to_string()),
+                Some(O::Delivered { note: None }) => (OrgInterjectOutcomeKind::Delivered, "届きました".to_string()),
+                Some(O::Delivered { note: Some(n) }) => (OrgInterjectOutcomeKind::Delivered, format!("届きました（{n}）")),
+                Some(O::NotDelivered { reason }) => (OrgInterjectOutcomeKind::NotDelivered, format!("届きませんでした（{reason}）")),
+                Some(O::Unknown) => (OrgInterjectOutcomeKind::Unknown, "届いたか確認できません。自動では送り直しません".to_string()),
+                Some(O::ReconciledDelivered) => (OrgInterjectOutcomeKind::ReconciledDelivered, "照合: 届いていました".to_string()),
+                Some(O::ReconciledNotFound) => (OrgInterjectOutcomeKind::ReconciledNotFound, "照合: 届いていませんでした".to_string()),
+                Some(O::FallbackNoted) => (OrgInterjectOutcomeKind::FallbackNoted, "次の送信に添えます".to_string()),
+                Some(O::Discarded) => (OrgInterjectOutcomeKind::Discarded, "破棄しました".to_string()),
+            };
+            OrgInterjectView {
+                id: x.id.0.clone(),
+                task: x.task.0.clone(),
+                text_head: short(&x.text, 80),
+                can_decide: matches!(kind, OrgInterjectOutcomeKind::Unknown | OrgInterjectOutcomeKind::ReconciledNotFound),
+                outcome: kind,
+                label,
+            }
+        })
+        .collect()
 }
 
 // ───────────────────────────── グラフ（流れ）の表示 ─────────────────────────────
@@ -890,6 +965,9 @@ mod tests {
             turns_used: 4,
             auto_replans_used: 0,
             graph: None,
+            notes: Vec::new(),
+            interjects: Vec::new(),
+            notes_after_plan: 0,
         }
     }
 
@@ -913,6 +991,7 @@ mod tests {
             adopting: false,
             manual_format: None,
             node: None,
+            extras: Default::default(),
         }
     }
 

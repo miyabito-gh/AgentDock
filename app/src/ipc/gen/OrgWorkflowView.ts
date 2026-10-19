@@ -2,7 +2,9 @@
 import type { OrgDeletionView } from "./OrgDeletionView";
 import type { OrgGraphView } from "./OrgGraphView";
 import type { OrgHaltView } from "./OrgHaltView";
+import type { OrgInterjectView } from "./OrgInterjectView";
 import type { OrgLimitsView } from "./OrgLimitsView";
+import type { OrgNoteView } from "./OrgNoteView";
 import type { OrgNoticeView } from "./OrgNoticeView";
 import type { OrgPlanApprovalView } from "./OrgPlanApprovalView";
 import type { OrgTaskView } from "./OrgTaskView";
@@ -41,4 +43,16 @@ archivedAt: UnixMillis | null,
 /**
  * 削除が途中のとき、その進み（済／失敗）。続きは「削除を続ける」から。
  */
-deletion: OrgDeletionView | null, };
+deletion: OrgDeletionView | null, 
+/**
+ * 追加指示（古い順。取り消したものも含む）。
+ */
+notes: Array<OrgNoteView>, 
+/**
+ * 割り込み指示（決着していないものと最新の20件）。
+ */
+interjects: Array<OrgInterjectView>, 
+/**
+ * 計画の作成後に追加した追加指示の件数（計画には反映されていない。承認カードに出す）。
+ */
+notesAfterPlan: number, };

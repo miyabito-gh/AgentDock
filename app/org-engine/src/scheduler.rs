@@ -98,7 +98,8 @@ pub fn next_dispatch_with(
         if out.len() as u32 >= gate.turns_remaining || total >= limits.max_total {
             break;
         }
-        if held.contains(&t.id) || t.status != TaskStatus::Ready || t.confirm != ConfirmState::Confirmed || !deps_satisfied(&by_id, t, dep_ok) {
+        // A task the user holds is not sent (it still counts nothing toward the limits: it is not running).
+        if t.held || held.contains(&t.id) || t.status != TaskStatus::Ready || t.confirm != ConfirmState::Confirmed || !deps_satisfied(&by_id, t, dep_ok) {
             continue;
         }
         let Some(role) = role_of(&t.role) else { continue };

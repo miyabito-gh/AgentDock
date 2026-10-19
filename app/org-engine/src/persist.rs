@@ -33,6 +33,55 @@ pub struct UserNote {
     pub scope: NoteScope,
     /// Event seq at which the note was added.
     pub seq: u64,
+    /// The user took the note back: it is not added to any later turn.
+    #[serde(default)]
+    pub withdrawn: bool,
+}
+
+/// How an interjection (a `turn/steer` into a running turn) ended. Decided once; only the listed later
+/// steps may replace an earlier outcome (`interject_can_settle`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum InterjectOutcome {
+    /// Accepted into the turn. `note` = a remark (e.g. it went into another turn).
+    Delivered { note: Option<String> },
+    /// Certainly not delivered (rejected, not live).
+    NotDelivered { reason: String },
+    /// The outcome of the send is not known. Nothing is sent again.
+    Unknown,
+    ReconciledDelivered,
+    ReconciledNotFound,
+    /// The same text was added as a note of the task (the user's choice, or "fall back" at send time).
+    FallbackNoted,
+    Discarded,
+}
+
+/// Whether `new` may be recorded after `prev` (None = nothing decided yet).
+pub fn interject_can_settle(prev: Option<&InterjectOutcome>, new: &InterjectOutcome) -> bool {
+    use InterjectOutcome::*;
+    match prev {
+        None => !matches!(new, FallbackNoted | Discarded),
+        Some(Unknown) => matches!(new, ReconciledDelivered | ReconciledNotFound | FallbackNoted | Discarded),
+        Some(ReconciledNotFound) => matches!(new, FallbackNoted | Discarded),
+        Some(NotDelivered { .. }) => matches!(new, FallbackNoted),
+        Some(_) => false,
+    }
+}
+
+/// An interjection the user sent into a running turn (DESIGN_ORG_R2 2.1).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Interject {
+    pub id: NoteId,
+    pub task: TaskId,
+    /// The turn the text was addressed to (`expectedTurnId`).
+    pub turn: TurnRef,
+    pub text: String,
+    /// "If it does not arrive, add it to the next send": decided by the user when sending.
+    pub fallback: bool,
+    pub seq: u64,
+    /// None = not decided yet.
+    pub outcome: Option<InterjectOutcome>,
 }
 
 /// Graph id of a workflow that has no `GraphBound` record: the built-in template 1.
@@ -90,6 +139,8 @@ pub struct WorkflowState {
     pub(crate) slots: BTreeMap<SlotId, u32>,
     #[serde(default)]
     pub(crate) notes: Vec<UserNote>,
+    #[serde(default)]
+    pub(crate) interjects: Vec<Interject>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -116,6 +167,7 @@ impl WorkflowState {
             feedback: BTreeMap::new(),
             slots: BTreeMap::new(),
             notes: Vec::new(),
+            interjects: Vec::new(),
         }
     }
 
@@ -166,6 +218,12 @@ impl WorkflowState {
     }
     pub fn notes(&self) -> &[UserNote] {
         &self.notes
+    }
+    pub fn interjects(&self) -> &[Interject] {
+        &self.interjects
+    }
+    pub fn interject(&self, id: &NoteId) -> Option<&Interject> {
+        self.interjects.iter().find(|i| &i.id == id)
     }
 
     /// Structural check for a deserialized snapshot. Always run it before use:
@@ -236,7 +294,15 @@ pub enum OrgEventKind {
     /// nothing was ever dispatched to it: forget the request (and the binding) so a new chat can be made.
     ChatRequestAbandoned { task: TaskId },
     /// Recorded before sending (`TurnSpent` goes with it).
-    Dispatched { task: TaskId, attempt: AttemptRef, client_message_id: String, kind: TurnKind },
+    /// `notes_upto`: the newest user note that rides along with this send (None = no note).
+    Dispatched {
+        task: TaskId,
+        attempt: AttemptRef,
+        client_message_id: String,
+        kind: TurnKind,
+        #[serde(default)]
+        notes_upto: Option<u64>,
+    },
     DispatchSettled { task: TaskId, attempt: AttemptRef, outcome: SettleOutcome },
     /// A turn end observed live. State changes only when it is the accepted turn.
     TurnObserved { task: TaskId, turn: TurnRef, end: TurnEndKind },
@@ -262,6 +328,18 @@ pub enum OrgEventKind {
     RetryRequested { task: TaskId },
     /// The user adopts a turn they ran by hand as the task's result (the task was `Blocked(Manual)`).
     ManualTurnAdopted { task: TaskId, turn: TurnRef },
+    /// The user sends text into a running turn (`turn/steer` with `turn` as `expectedTurnId`). Recorded before the send.
+    InterjectRequested { id: NoteId, task: TaskId, turn: TurnRef, text: String, fallback: bool },
+    InterjectSettled { id: NoteId, outcome: InterjectOutcome },
+    /// The user took a note back; later turns do not carry it.
+    UserNoteWithdrawn { id: NoteId },
+    /// The user skipped a task (it is also `Cancelled` by a `StatusChanged` that follows).
+    TaskSkipped { task: TaskId },
+    /// The user sent a finished (or limit-stopped) task back. Not counted in `rework_count`.
+    UserReworkRequested { task: TaskId },
+    /// The review findings for a worker task (replaces the earlier ones).
+    FindingsRecorded { task: TaskId, findings: Vec<String> },
+    TaskHeld { task: TaskId, held: bool },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -288,6 +366,10 @@ pub enum ApplyError {
     DuplicateNote(NoteId),
     /// `ManualTurnAdopted` on a task that is not `Blocked(Manual)` and confirmed.
     NotAdoptable(TaskId),
+    UnknownNote(NoteId),
+    DuplicateInterject(NoteId),
+    /// The interjection already has an outcome that cannot be replaced by this one.
+    InterjectSettle(NoteId),
 }
 
 impl fmt::Display for ApplyError {
@@ -367,7 +449,7 @@ impl WorkflowState {
                 t.chat = None;
                 t.chat_cwd = None;
             }
-            OrgEventKind::Dispatched { task, attempt, kind, .. } => {
+            OrgEventKind::Dispatched { task, attempt, kind, notes_upto, .. } => {
                 let t = self.task_mut(task)?;
                 if t.chat.is_none() {
                     return Err(ApplyError::ChatNotBound(task.clone()));
@@ -383,6 +465,7 @@ impl WorkflowState {
                 }
                 t.retry_pending = false;
                 t.adopted_manual = false;
+                t.notes_sent_upto = *notes_upto;
             }
             OrgEventKind::DispatchSettled { task, attempt, outcome } => {
                 let t = self.task_mut(task)?;
@@ -398,6 +481,8 @@ impl WorkflowState {
                 if let SettleOutcome::Accepted { turn } | SettleOutcome::ReconciledAccepted { turn } = outcome {
                     t.accepted_turn = Some(turn.clone());
                     t.observed = None;
+                    // The notes that rode along arrived. A rejected or unknown send does not use them up.
+                    t.notes_seen_seq = t.notes_seen_seq.max(t.notes_sent_upto.unwrap_or(0));
                 }
                 t.last_settle = Some(outcome.clone());
             }
@@ -451,7 +536,37 @@ impl WorkflowState {
                 if self.notes.iter().any(|n| &n.id == id) {
                     return Err(ApplyError::DuplicateNote(id.clone()));
                 }
-                self.notes.push(UserNote { id: id.clone(), text: text.clone(), scope: scope.clone(), seq: ev.seq });
+                self.notes.push(UserNote { id: id.clone(), text: text.clone(), scope: scope.clone(), seq: ev.seq, withdrawn: false });
+            }
+            OrgEventKind::UserNoteWithdrawn { id } => {
+                let n = self.notes.iter_mut().find(|n| &n.id == id).ok_or_else(|| ApplyError::UnknownNote(id.clone()))?;
+                n.withdrawn = true;
+            }
+            OrgEventKind::InterjectRequested { id, task, turn, text, fallback } => {
+                if self.interjects.iter().any(|i| &i.id == id) {
+                    return Err(ApplyError::DuplicateInterject(id.clone()));
+                }
+                self.task_mut(task)?;
+                self.interjects.push(Interject { id: id.clone(), task: task.clone(), turn: turn.clone(), text: text.clone(), fallback: *fallback, seq: ev.seq, outcome: None });
+            }
+            OrgEventKind::InterjectSettled { id, outcome } => {
+                let i = self.interjects.iter_mut().find(|i| &i.id == id).ok_or_else(|| ApplyError::UnknownNote(id.clone()))?;
+                if !interject_can_settle(i.outcome.as_ref(), outcome) {
+                    return Err(ApplyError::InterjectSettle(id.clone()));
+                }
+                i.outcome = Some(outcome.clone());
+            }
+            OrgEventKind::TaskSkipped { task } => {
+                self.task_mut(task)?.skipped = true;
+            }
+            OrgEventKind::UserReworkRequested { task } => {
+                self.task_mut(task)?.user_rework_count += 1;
+            }
+            OrgEventKind::FindingsRecorded { task, findings } => {
+                self.task_mut(task)?.last_findings = findings.clone();
+            }
+            OrgEventKind::TaskHeld { task, held } => {
+                self.task_mut(task)?.held = *held;
             }
             OrgEventKind::RetryRequested { task } => {
                 let max = self.limits.max_retries;
@@ -706,6 +821,12 @@ pub fn classify_after_restart(state: &mut WorkflowState, at_ms: i64) -> Result<(
         let to = ConfirmState::NeedsReconcile(ReconcileCause::Restart);
         events.push(state.record(OrgEventKind::ConfirmChanged { task: id.clone(), to }, at_ms)?);
         changed.push(Reclassified { task: id, from: ConfirmState::Confirmed, to });
+    }
+    // An interjection that was sent but not settled before the stop: whether it arrived is not known.
+    // The host's read-only reconciliation may still settle it; nothing is sent again.
+    let open: Vec<NoteId> = state.interjects.iter().filter(|i| i.outcome.is_none()).map(|i| i.id.clone()).collect();
+    for id in open {
+        events.push(state.record(OrgEventKind::InterjectSettled { id, outcome: InterjectOutcome::Unknown }, at_ms)?);
     }
     // A plan waiting for the user's approval stays as it is: overwriting it would drop the approval
     // card and let "resume" start unapproved tasks (R-ORG H1).
