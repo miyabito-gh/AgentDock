@@ -117,6 +117,8 @@ pub enum BackendEvent {
 pub enum FailureClass {
     /// 利用上限に達した。
     UsageLimit,
+    /// 利用上限以外の失敗（原因の細目は運ばない）。
+    Other,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -479,6 +481,20 @@ pub enum RespondOutcome {
     AlreadyResolved,
     /// 送ったが受理が確認できない。要求状態は `AnswerUnconfirmed`。
     Unknown { message: String },
+    /// この要求への回答を相手に届けられない（保持していない）。回答は送っていない。解決済みとは違う（DESIGN_ORG_R1 2.1）。
+    NotDeliverable { cause: RespondGap },
+}
+
+/// 回答を届けられない理由（バックエンド中立）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub enum RespondGap {
+    /// 要求を受けた接続と今の接続が違う（接続の切替・App Server の再起動）。
+    ConnectionChanged,
+    /// 今の接続のはずだが保持していない（原因は特定できない）。
+    NotHeld,
 }
 
 /// 中断要求の受付結果。停止の確認ではない（§3.4）。

@@ -174,6 +174,11 @@ pub enum OrgInput {
     UserRaiseTurnLimit { to: u32 },
     /// The user asks to try a blocked task again (a new attempt; only when it is certain nothing was sent).
     UserRetryTask { task: TaskId },
+    /// The user settles a stopped task as failed (`Failed(ExecutionFailed)`; only this user action does it).
+    UserFailTask { task: TaskId },
+    /// The user adopts a turn they ran by hand (after "switch to manual") as the task's result. The host has
+    /// checked that `turn` is the latest, completed and fully readable; the engine reads its final message.
+    UserAdoptManual { task: TaskId, turn: TurnRef },
     ChatCreated { task: TaskId, result: CreateResult },
     SendSettled { task: TaskId, attempt: AttemptRef, outcome: SettleOutcome },
     TurnEnded { chat: ChatRef, turn: TurnRef, end: TurnEndKind },
@@ -235,6 +240,90 @@ pub fn retryable(t: &Task) -> bool {
         && t.accepted_turn().is_none()
         && !attempt_open
         && (t.chat().is_some() || t.chat_cwd().is_none())
+}
+
+/// Why a new attempt is offered (derived from how the accepted turn ended).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RetryReason {
+    UsageLimit,
+    TurnFailed,
+    Interrupted,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RetryKind {
+    /// It is certain nothing was sent: the task goes back to the start (`retryable`).
+    Unsent,
+    /// The accepted turn ended without a result: send a new attempt into the same chat.
+    NewAttempt { reason: RetryReason },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RetryRefusal {
+    /// The task or a send is not confirmed (unknown acceptance, reconciling, stop not confirmed).
+    SendUnknown,
+    /// The end of the accepted turn has not been confirmed.
+    NotEnded,
+    RetryLimit { used: u32, max: u32 },
+    NoTurns,
+    NotBlocked,
+}
+
+impl RetryRefusal {
+    pub fn text(&self) -> String {
+        match self {
+            RetryRefusal::SendUnknown => "送信または停止の結果を確認できていないため、再送できません".into(),
+            RetryRefusal::NotEnded => "前のturnが終わったことを確認できていないため、再送できません".into(),
+            RetryRefusal::RetryLimit { used, max } => format!("再送の回数の上限（{used}/{max}）に達しています"),
+            RetryRefusal::NoTurns => "turn上限に達しているため、再送できません".into(),
+            RetryRefusal::NotBlocked => "このタスクは再送できる状態ではありません".into(),
+        }
+    }
+}
+
+/// Whether the user may send a blocked task again, and how (pure; DESIGN_ORG_R1 1.3). The core adds the
+/// conditions that depend on its bookkeeping (no running flow, nothing launching).
+pub fn retry_kind(t: &Task, limits: &Limits, turns_remaining: u32) -> Result<RetryKind, RetryRefusal> {
+    if retryable(t) {
+        return Ok(RetryKind::Unsent);
+    }
+    let blocked = matches!(t.status(), TaskStatus::Blocked(_));
+    let attempt_open = t.last_attempt().is_some() && matches!(t.last_settle(), None | Some(SettleOutcome::Unknown));
+    if blocked && (t.confirm() != ConfirmState::Confirmed || attempt_open) {
+        return Err(RetryRefusal::SendUnknown);
+    }
+    if !matches!(t.status(), TaskStatus::Blocked(BlockedReason::UsageLimit | BlockedReason::TurnFailed | BlockedReason::ManualStop)) {
+        return Err(RetryRefusal::NotBlocked);
+    }
+    let Some(accepted) = t.accepted_turn() else { return Err(RetryRefusal::NotEnded) };
+    let reason = match t.observed() {
+        Some(o) if &o.turn == accepted => match o.end {
+            TurnEndKind::Completed => return Err(RetryRefusal::NotEnded),
+            TurnEndKind::Failed { usage_limit: true } => RetryReason::UsageLimit,
+            TurnEndKind::Failed { usage_limit: false } | TurnEndKind::FailedUnclassified => RetryReason::TurnFailed,
+            TurnEndKind::Interrupted => RetryReason::Interrupted,
+        },
+        _ => return Err(RetryRefusal::NotEnded),
+    };
+    if t.chat().is_none() {
+        return Err(RetryRefusal::NotBlocked);
+    }
+    if t.retry_count() >= limits.max_retries {
+        return Err(RetryRefusal::RetryLimit { used: t.retry_count(), max: limits.max_retries });
+    }
+    if turns_remaining == 0 {
+        return Err(RetryRefusal::NoTurns);
+    }
+    Ok(RetryKind::NewAttempt { reason })
+}
+
+/// The reason of a pending new attempt (from how the accepted turn ended).
+pub(crate) fn retry_reason_of(t: &Task) -> RetryReason {
+    match t.observed().map(|o| o.end) {
+        Some(TurnEndKind::Failed { usage_limit: true }) => RetryReason::UsageLimit,
+        Some(TurnEndKind::Interrupted) => RetryReason::Interrupted,
+        _ => RetryReason::TurnFailed,
+    }
 }
 
 /// The three standard roles (definition files: P-ORG-8).
@@ -638,6 +727,8 @@ impl OrgCore {
                 }
             }
             OrgInput::UserRetryTask { task } => self.user_retry(&task),
+            OrgInput::UserFailTask { task } => self.user_fail(&task),
+            OrgInput::UserAdoptManual { task, turn } => self.user_adopt_manual(&task, turn),
             OrgInput::ChatCreated { task, result } => self.chat_created(&task, result),
             OrgInput::SendSettled { task, attempt, outcome } => self.send_settled(&task, attempt, outcome),
             OrgInput::TurnEnded { chat, turn, end } => self.turn_ended_input(chat, turn, end),
@@ -747,17 +838,91 @@ impl OrgCore {
     /// creation refused). The task goes back to `Ready` and is sent as a new attempt by the usual path; an unknown
     /// outcome (`SendUnknown`) is never retried.
     pub(crate) fn user_retry(&mut self, id: &TaskId) {
-        if !self.is_retryable(id) {
-            self.notify(OrgNotice::Refused { reason: "このタスクは、送っていないことを確認できないため、やり直せません".into() });
+        match self.retry_kind_of(id) {
+            Ok(RetryKind::Unsent) => {
+                self.forget(id);
+                self.set_status(id, TaskStatus::Ready, Cause::User);
+            }
+            Ok(RetryKind::NewAttempt { .. }) => {
+                // One user action, one counted attempt: the task goes back to `Ready` and the usual dispatch sends it
+                // once (as `TurnKind::Retry`). Nothing is sent automatically afterwards.
+                self.forget(id);
+                if self.rec(OrgEventKind::RetryRequested { task: id.clone() }) {
+                    self.set_status(id, TaskStatus::Ready, Cause::User);
+                }
+            }
+            Err(r) => {
+                let new_attempt_state = self
+                    .task(id)
+                    .is_some_and(|t| matches!(t.status(), TaskStatus::Blocked(BlockedReason::UsageLimit | BlockedReason::TurnFailed | BlockedReason::ManualStop)));
+                let reason = if new_attempt_state { r.text() } else { "このタスクは、送っていないことを確認できないため、やり直せません".into() };
+                self.notify(OrgNotice::Refused { reason });
+            }
+        }
+    }
+
+    /// Whether `UserRetryTask` is accepted for the task (also used by the screen): how, or why not.
+    pub fn retry_kind_of(&self, id: &TaskId) -> Result<RetryKind, RetryRefusal> {
+        let Some(t) = self.task(id) else { return Err(RetryRefusal::NotBlocked) };
+        let kind = retry_kind(t, self.s().limits(), self.turns_remaining())?;
+        if self.flows.contains_key(id) || self.launching.contains_key(id) {
+            return Err(RetryRefusal::NotBlocked);
+        }
+        Ok(kind)
+    }
+
+    /// Whether `UserRetryTask` restarts a task that was certainly never sent to (the old "try again").
+    pub fn is_retryable(&self, id: &TaskId) -> bool {
+        matches!(self.retry_kind_of(id), Ok(RetryKind::Unsent))
+    }
+
+    /// The output format the task's turn is asked to follow (pretty JSON schema), for the user to hand-feed a chat.
+    /// None when the task has no format (not obtained is never replaced by an empty text).
+    pub fn output_format_of(&self, id: &TaskId) -> Option<String> {
+        self.task(id)?;
+        let schema = self.schema_for(id);
+        (!schema.is_null()).then(|| serde_json::to_string_pretty(&schema).unwrap_or_default()).filter(|s| !s.is_empty())
+    }
+
+    /// Open approvals / questions counted for a chat (the engine never answers them).
+    pub fn open_requests_of(&self, chat: &ChatRef) -> u32 {
+        self.open_requests.get(chat).copied().unwrap_or(0)
+    }
+
+    /// "Settle as failed": only the user's action turns a stopped task into `Failed`.
+    pub(crate) fn user_fail(&mut self, id: &TaskId) {
+        let ok = self.task(id).is_some_and(|t| {
+            t.confirm() == ConfirmState::Confirmed
+                && matches!(
+                    t.status(),
+                    TaskStatus::Blocked(BlockedReason::UsageLimit | BlockedReason::TurnFailed | BlockedReason::ManualStop | BlockedReason::NeedsAttention)
+                )
+        });
+        if !ok {
+            self.notify(OrgNotice::Refused { reason: "このタスクは失敗として確定できる状態ではありません".into() });
             return;
         }
         self.forget(id);
-        self.set_status(id, TaskStatus::Ready, Cause::User);
+        self.set_status(id, TaskStatus::Failed(FailReason::ExecutionFailed), Cause::User);
     }
 
-    /// Whether `UserRetryTask` is accepted for the task (also used by the screen).
-    pub fn is_retryable(&self, id: &TaskId) -> bool {
-        self.task(id).is_some_and(retryable)
+    /// Adopt the user's manual turn as the result: `Blocked(Manual)` -> `Running`, then the usual end-of-turn path
+    /// (read the final message, check the format and the children, commit for a worker). Nothing is sent to the chat.
+    pub(crate) fn user_adopt_manual(&mut self, id: &TaskId, turn: TurnRef) {
+        let ok = self.task(id).is_some_and(|t| {
+            t.status() == TaskStatus::Blocked(BlockedReason::Manual) && t.confirm() == ConfirmState::Confirmed && t.chat().is_some()
+        }) && !self.flows.contains_key(id)
+            && !self.launching.contains_key(id);
+        if !ok {
+            self.notify(OrgNotice::Refused { reason: "このタスクは結果を取り込める状態ではありません".into() });
+            return;
+        }
+        if !self.rec(OrgEventKind::ManualTurnAdopted { task: id.clone(), turn: turn.clone() }) {
+            return;
+        }
+        if self.set_status(id, TaskStatus::Running, Cause::User) {
+            self.turn_ended(id, turn, TurnEndKind::Completed);
+        }
     }
 
     // ---- chat creation
@@ -894,15 +1059,21 @@ impl OrgCore {
                 self.flow_set(id.clone(), Flow::ReadingFinal { turn: turn.clone() });
                 self.out.push(OrgAction::ReadFinalMessage { task: id.clone(), chat, turn });
             }
+            // A failed turn is never a terminal state by itself: the user decides (retry, settle as failed, ...).
             TurnEndKind::Failed { usage_limit } => {
                 self.set_confirm(id, ConfirmState::Confirmed);
                 if usage_limit {
-                    self.block(id, BlockedReason::NeedsAttention, "利用上限に達しました");
-                    self.halt_if_none(HaltReason::User);
-                    self.notify(OrgNotice::UsageLimit { task: id.clone() });
+                    if self.set_status(id, TaskStatus::Blocked(BlockedReason::UsageLimit), Cause::Engine) {
+                        self.halt_if_none(HaltReason::UsageLimit);
+                        self.notify(OrgNotice::UsageLimit { task: id.clone() });
+                    }
                 } else {
-                    self.fail(id, FailReason::ExecutionFailed);
+                    self.block(id, BlockedReason::TurnFailed, "turnが失敗しました");
                 }
+            }
+            TurnEndKind::FailedUnclassified => {
+                self.set_confirm(id, ConfirmState::Confirmed);
+                self.block(id, BlockedReason::TurnFailed, "turnは失敗で終わりました（原因の区分は取得できません）");
             }
             TurnEndKind::Interrupted => {
                 self.set_confirm(id, ConfirmState::Confirmed);
@@ -926,6 +1097,11 @@ impl OrgCore {
         }
         self.flow_del(id);
         let Some(text) = text else {
+            if self.task(id).is_some_and(Task::adopting) {
+                // The adopted turn's answer cannot be read: back to the user, who can adopt again.
+                self.block(id, BlockedReason::Manual, "取り込む回答を読めませんでした。手動のままです");
+                return;
+            }
             // Not obtained: do not decide anything from it.
             self.set_confirm(id, ConfirmState::NeedsReconcile(ReconcileCause::Disconnect));
             return;
@@ -944,6 +1120,11 @@ impl OrgCore {
     }
 
     pub(crate) fn parse_failed(&mut self, id: &TaskId, reason: String) {
+        if self.task(id).is_some_and(Task::adopting) {
+            // A format-fix turn is not sent for the user's manual result: back to manual with the reason.
+            self.block(id, BlockedReason::Manual, &format!("取り込む回答が指定の形式に合いません。手動のままです: {}", one_line(&reason)));
+            return;
+        }
         if self.task(id).is_some_and(|t| t.format_fix_used()) {
             self.fail(id, FailReason::InvalidArtifact);
         } else {

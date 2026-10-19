@@ -145,7 +145,15 @@ impl Host {
                 Pending::AwaitingAnswer { chat, .. } | Pending::Ended { chat, .. } => Some(chat),
                 Pending::OrgAttention { .. } | Pending::OrgEnded { .. } => None,
             };
-            (d.settings.notifications.clone(), chat.and_then(|chat| d.chat(chat)).and_then(|c| c.name.value().cloned()))
+            // 組織が所有するチャットの承認・質問は「組織・タスクID」で示す（会話の内容は入れない）。
+            let org_name = match p {
+                Pending::AwaitingAnswer { chat, .. } => {
+                    d.locals.get(chat).and_then(|l| l.org.as_ref()).filter(|o| o.released_at.is_none()).map(|o| format!("組織・{}", o.task_id))
+                }
+                _ => None,
+            };
+            let chat_name = chat.and_then(|chat| d.chat(chat)).and_then(|c| c.name.value().cloned());
+            (d.settings.notifications.clone(), org_name.or(chat_name))
         });
         let focus = {
             let inner = self.notifier.inner.lock().unwrap();

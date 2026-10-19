@@ -38,6 +38,7 @@ export function OrgStartBody({ start, browse, live, loadGraphs }: {
   const [writers, setWriters] = useState("");
   const [total, setTotal] = useState("");
   const [turns, setTurns] = useState("");
+  const [retries, setRetries] = useState("");
   const [sel, setSel] = useState(STANDARD_ID);
   const [graphs, setGraphs] = useState<OrgGraphsView | null>(null);
   const [gErr, setGErr] = useState<string | null>(null);
@@ -59,6 +60,9 @@ export function OrgStartBody({ start, browse, live, loadGraphs }: {
   const turnLimit = graphs?.maxTurnsLimit ?? 200;
   const turnDefault = graphs?.defaultMaxTurns ?? 30;
   const mt = turns.trim() === "" ? null : /^\d+$/.test(turns.trim()) && Number(turns.trim()) >= 1 && Number(turns.trim()) <= turnLimit ? Number(turns.trim()) : undefined;
+  // 新しい試行での再送の上限（0〜10。空欄なら既定の3）。
+  const mr = retries.trim() === "" ? null : /^\d+$/.test(retries.trim()) && Number(retries.trim()) <= 10 ? Number(retries.trim()) : undefined;
+  const badRetries = mr === undefined ? "再送の上限は 0〜10 の整数で入れてください（空欄なら既定 3）" : null;
   const badTurns = mt === undefined ? `turn 上限は 1〜${turnLimit} の整数で入れてください（空欄なら既定 ${turnDefault}）` : null;
   const templates = graphs?.templates ?? [];
   const std = templates.find((x) => x.id === STANDARD_ID) ?? null;
@@ -70,11 +74,11 @@ export function OrgStartBody({ start, browse, live, loadGraphs }: {
   useEffect(() => { if (graphs && sel !== STANDARD_ID && !others.some((x) => x.id === sel && x.selectable)) setSel(STANDARD_ID); }, [graphs, sel, others]);
   const effTurns = mt ?? turnDefault;
   const est = graphs ? estimateLines(chosen?.estimate ?? null, graphs.tokensPerTurnHint, effTurns) : null;
-  const can = request.trim() !== "" && repo.trim() !== "" && !bad && !badTurns && !busy && (sel === STANDARD_ID || !!chosen?.selectable);
+  const can = request.trim() !== "" && repo.trim() !== "" && !bad && !badTurns && !badRetries && !busy && (sel === STANDARD_ID || !!chosen?.selectable);
   const go = async () => {
     if (!can) return;
     setBusy(true); setErr(null);
-    const e = await start({ request: request.trim(), repo: repo.trim(), maxWriters: w ?? null, maxTotal: t ?? null, graphId: sel === STANDARD_ID ? null : sel, maxTurns: mt ?? null });
+    const e = await start({ request: request.trim(), repo: repo.trim(), maxWriters: w ?? null, maxTotal: t ?? null, graphId: sel === STANDARD_ID ? null : sel, maxTurns: mt ?? null, maxRetries: mr ?? null });
     setBusy(false);
     if (e) setErr(e);
   };
@@ -128,6 +132,9 @@ export function OrgStartBody({ start, browse, live, loadGraphs }: {
       <div className="field"><span>turn 上限（任意）</span>
         <div><input type="text" inputMode="numeric" size={5} value={turns} placeholder={String(turnDefault)} onChange={(e) => setTurns(e.target.value)} aria-label="turn 上限" /></div>
         <span className="note">ワークフロー全体で送れる turn の数です。上限に達すると、その場で止まります（あとから上げて続けられます）。空欄なら既定（{turnDefault}）です。</span></div>
+      <div className="field"><span>再送の上限（任意）</span>
+        <div><input type="text" inputMode="numeric" size={3} value={retries} placeholder="3" onChange={(e) => setRetries(e.target.value)} aria-label="新しい試行での再送の上限（0〜10）" /></div>
+        <span className="note">turn が失敗・中断で止まったタスクを、あなたが「新しい試行で再送」できる回数の上限です（タスクごと）。自動では再送しません。0なら再送できません。空欄なら既定（3）です。</span></div>
       <div className="banner info" role="note"><div>
         <b>見積り（{chosen?.name ?? (sel === STANDARD_ID ? "標準" : sel)}）</b>
         {est ? est.lines.map((l, i) => <div key={i} className={i > 0 && est.over ? "why err" : undefined}>{l}</div>) : <div>読み込み中…</div>}
@@ -141,6 +148,7 @@ export function OrgStartBody({ start, browse, live, loadGraphs }: {
       </div></div>
       {bad ? <p className="small why err" role="alert">{bad}</p> : null}
       {badTurns ? <p className="small why err" role="alert">{badTurns}</p> : null}
+      {badRetries ? <p className="small why err" role="alert">{badRetries}</p> : null}
       {err ? <div className="why err" role="alert">{err}</div> : null}
       <FootActions main={<button className="btn primary" disabled={!can} onClick={() => void go()}>{busy ? "開始しています…" : "開始"}</button>} />
     </div>

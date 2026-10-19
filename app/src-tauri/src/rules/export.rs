@@ -335,7 +335,7 @@ mod tests {
         TranscriptEntry { key: ikey("i"), kind, text, phase: ActivityPhase::Completed, message_phase: Default::default(), attachments: Vec::new() }
     }
     fn turn(entries: Vec<TranscriptEntry>, end: Option<TurnEnd>, complete: bool) -> TurnRecord {
-        TurnRecord { key: TurnKey { agent: ak("root"), turn_id: ExternalId("t1".into()) }, end, started_at: Known::NotFetched, completed_at: Known::NotFetched, entries, complete }
+        TurnRecord { key: TurnKey { agent: ak("root"), turn_id: ExternalId("t1".into()) }, end, started_at: Known::NotFetched, completed_at: Known::NotFetched, entries, complete, failure: Known::NotFetched }
     }
     fn att(name: &str, original: &str) -> AttachmentEntry {
         AttachmentEntry {

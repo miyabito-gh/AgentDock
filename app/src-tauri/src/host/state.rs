@@ -477,7 +477,7 @@ impl HostData {
     /// 要求の新しい状態（応答済み・受理未確認・別の場所で解決）を応答記録に積む。記録の対象でない状態は積まない。
     pub fn note_decision(&mut self, r: &PendingRequest) {
         let at = match &r.state {
-            RequestState::Answered { at, .. } | RequestState::AnswerUnconfirmed { at } | RequestState::ResolvedElsewhere { at } => at.0,
+            RequestState::Answered { at, .. } | RequestState::AnswerUnconfirmed { at } | RequestState::ResolvedElsewhere { at } | RequestState::Unanswerable { at, .. } => at.0,
             _ => return,
         };
         let name = self.agents.iter().find(|v| v.agent.key == r.agent).and_then(|v| v.agent.display_name.value().cloned());
@@ -1137,7 +1137,7 @@ impl HostData {
                 let mut resolved_chat = None;
                 let mut resolved_req = None;
                 if let Some(r) = self.requests.iter_mut().find(|r| &r.key == request) {
-                    if matches!(r.state, RequestState::Pending | RequestState::AnswerUnconfirmed { .. }) {
+                    if matches!(r.state, RequestState::Pending | RequestState::AnswerUnconfirmed { .. } | RequestState::Unanswerable { .. }) {
                         r.state = RequestState::ResolvedElsewhere { at: now };
                         out.push(HostEvent::RequestUpdated { request: r.clone() });
                         resolved_chat = Some(r.chat.clone());

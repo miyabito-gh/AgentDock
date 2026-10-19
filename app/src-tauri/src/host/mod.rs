@@ -895,7 +895,12 @@ impl Host {
     /// 組織実行が所有し、まだ手動に切り替えていないチャットへの利用者の操作を止める（所有は chat.json の org 記録だけで判定）。
     pub(super) fn check_not_org_owned(&self, chat: &ChatKey) -> Result<(), IpcError> {
         let binding = self.read(|d| d.locals.get(chat).and_then(|l| l.org.clone()));
-        crate::rules::org::org_guard(binding.as_ref(), crate::rules::org::OrgOp::Change).map_err(|m| blocked(BlockedReason::OrgOwned, m))
+        crate::rules::org::org_guard(binding.as_ref(), crate::rules::org::OrgOp::Change).map_err(|m| blocked(BlockedReason::OrgOwned, m))?;
+        // 手動に切り替え済みでも、結果の取り込み中（組織がそのturnの最終回答を検証している間）は通常の送信を断る。
+        if self.org_chat_adopting(chat) {
+            return Err(blocked(BlockedReason::OrgOwned, crate::rules::org::ORG_ADOPTING_MESSAGE));
+        }
+        Ok(())
     }
 
     /// 利用者の送信を止める条件。組織が所有するチャットへの送信と、`check_sendable_core` の条件。
@@ -1190,6 +1195,7 @@ impl Host {
                     RespondOutcome::Delivered => RequestState::Answered { option_id, at },
                     RespondOutcome::AlreadyResolved => RequestState::ResolvedElsewhere { at },
                     RespondOutcome::Unknown { .. } => RequestState::AnswerUnconfirmed { at },
+                    RespondOutcome::NotDeliverable { cause } => RequestState::Unanswerable { at, cause: *cause },
                 };
                 let request = r.clone();
                 d.note_decision(&request);

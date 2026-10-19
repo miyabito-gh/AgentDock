@@ -11,6 +11,8 @@ pub enum TurnKind {
     FormatFix,
     Rework,
     Replan,
+    /// A new attempt after a failed / interrupted turn (counts as a turn).
+    Retry,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -18,6 +20,7 @@ pub enum LimitError {
     TurnLimit { used: u32, max: u32 },
     ReworkLimit { used: u32, max: u32 },
     AutoReplanLimit { used: u32, max: u32 },
+    RetryLimit { used: u32, max: u32 },
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

@@ -1,5 +1,7 @@
 import { multiFolderMark } from "./workFolders";
 import { ORG_SEND_LOCK } from "./OrgPane";
+import { RequestGapLine } from "./RequestGap";
+import { chatGapRequests } from "./org";
 import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import type {
   AgentKey, AgentView, ArtifactEntry, AttachmentEntry, EntryAttachment, Chat, ChatKey, ChatLocalView, ChatModelSettings, ChatQueue, DecisionOption, FileRef, Goal, HostSnapshot, Known, ModelInfo, PendingRequest, PathInfo, SkillInfo, ThreadSegmentView,
@@ -534,10 +536,10 @@ function UserBubble({ text, forceOpen, open, onToggle }: { text: string; forceOp
   );
 }
 
-function Messages({ orgBound, headKey, threads, chatId, turns, reqs, running, onRespond, onAct, extra, find, resend, locals, files, sends, agentName, decisions, pending, onPendingRestore, onPendingDismiss }: {
+function Messages({ orgBound, headKey, threads, chatId, turns, reqs, gaps, running, onRespond, onAct, extra, find, resend, locals, files, sends, agentName, decisions, pending, onPendingRestore, onPendingDismiss }: {
   orgBound: boolean; headKey: ChatKey; threads: ThreadSegmentView[]; agentName?: (a: AgentKey) => string; decisions: DecisionItem[];
   pending: PendingSend[]; onPendingRestore: (p: PendingSend) => void; onPendingDismiss: (p: PendingSend) => void;
-  turns: TurnRecord[]; reqs: PendingRequest[]; running: boolean; onRespond: CenterProps["onRespond"]; onAct: (a: string) => void; extra?: ReactNode; find: FindState; resend: ResendView;
+  turns: TurnRecord[]; reqs: PendingRequest[]; /** 回答を届けられなかった要求（理由を常設表示する） */ gaps: PendingRequest[]; running: boolean; onRespond: CenterProps["onRespond"]; onAct: (a: string) => void; extra?: ReactNode; find: FindState; resend: ResendView;
   locals: AttachmentEntry[]; files: FileActions; sends: SentLocal[]; chatId: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -670,6 +672,7 @@ function Messages({ orgBound, headKey, threads, chatId, turns, reqs, running, on
       })}
       {pending.filter((x) => !appearsInTurns(x, turns)).map((x) => <PendingSendRow key={x.id} p={x} onRestore={onPendingRestore} onDismiss={onPendingDismiss} />)}
       {extra}
+      {gaps.map((r) => <RequestGapLine key={`gap:${r.key.source}/${r.key.requestId}`} r={r} guide={orgBound ? "org" : "plain"} />)}
       {reqs.map((r) => <RequestCard key={keyStr({ backend: r.key.backend, id: r.key.requestId })} r={r} onRespond={onRespond} agentName={agentName} />)}
       {running && reqs.length === 0 ? <div className="msg ai"><div className="who">Codex</div><div className="activity">作業中…</div></div> : null}
     </div>
@@ -1146,7 +1149,7 @@ export function CenterPane(p: CenterProps) {
       <Header snap={snap} chat={chat} onAct={p.onAct} commands={p.commands} local={p.local} onCwdToggle={() => setCwdOpenFor((id) => (id === chat.key.id ? null : chat.key.id))} wasLive={p.wasLive} externalLabel={p.externalLabel} cwdInfo={p.cwdInfo} leftShown={p.leftShown} rightShown={p.rightShown} />
       {cwdOpen ? <WorkFoldersPanel key={`wf-${chat.key.id}`} api={p.wf} lockReason={cwdLock} permissionText={PERMISSION_FULL[p.local?.permission ?? "workspaceWriteOnRequest"]} fallback={p.local?.nextFolders?.folders ?? [p.local?.nextCwd ?? knownValue(chat.cwd) ?? ""].filter(Boolean)} onClose={() => setCwdOpenFor(null)} /> : null}
       <Banners p={p} />
-      <Messages key={chat.key.id} orgBound={!!p.local?.org} headKey={chat.key} threads={p.local?.conversation?.threads ?? NO_THREADS} chatId={chat.key.id} agentName={nameOf} decisions={p.decisions} turns={p.turns} reqs={reqs} running={running} onRespond={p.onRespond} onAct={p.onAct} find={find}
+      <Messages key={chat.key.id} orgBound={!!p.local?.org} headKey={chat.key} threads={p.local?.conversation?.threads ?? NO_THREADS} chatId={chat.key.id} agentName={nameOf} decisions={p.decisions} turns={p.turns} reqs={reqs} gaps={chatGapRequests(snap, chat.key)} running={running} onRespond={p.onRespond} onAct={p.onAct} find={find}
         locals={snap.attachments.filter((a) => keyStr(a.chat) === keyStr(chat.key))} files={p.files} sends={p.sends}
         pending={p.pending} onPendingRestore={p.onPendingRestore} onPendingDismiss={p.onPendingDismiss}
         resend={{ ctx: resendCtxOf(snap, chat, snap.sources.some((x) => x.connection.kind === "connected"), p.turns), rootAgentId: rootView(snap, chat)?.agent.key.id }}

@@ -298,6 +298,16 @@ fn should_clear_conn(current: Option<&SourceId>, disconnected: &SourceId) -> boo
     current == Some(disconnected)
 }
 
+/// 保持していない要求への回答を届けられない理由。要求を受けた接続が今の接続と違えば「接続の切替」、同じなら「保持していない」。
+/// 今の接続が無いときも切替として扱う（要求を受けた接続はもう無い）。
+fn respond_gap(request_source: &SourceId, current: Option<&SourceId>) -> RespondGap {
+    if current == Some(request_source) {
+        RespondGap::NotHeld
+    } else {
+        RespondGap::ConnectionChanged
+    }
+}
+
 /// 指定した監視元の回答待ち要求だけを消す。
 fn retain_other_sources<V>(pending: &mut HashMap<RequestKey, V>, source: &SourceId) {
     pending.retain(|k, _| &k.source != source);
@@ -1039,8 +1049,10 @@ impl AiBackend for CodexBackend {
 
     async fn respond(&self, request: RequestKey, answer: RequestAnswer, _confirmed: &UserConfirmed) -> BackendResult<RespondOutcome> {
         let (client, _) = self.client()?;
+        let current = self.shared.conn.lock().unwrap().as_ref().map(|c| c.source.clone());
         let stored = self.shared.pending.lock().unwrap().get(&request).cloned();
-        let Some(stored) = stored else { return Ok(RespondOutcome::AlreadyResolved) };
+        // 保持していない: 解決済みとは言い切れない。何も送らず、接続が切り替わったのかどうかを区別して返す。
+        let Some(stored) = stored else { return Ok(RespondOutcome::NotDeliverable { cause: respond_gap(&request.source, current.as_ref()) }) };
         // 提示していない選択肢などはここで拒否（何も送らず、要求は保留のまま）。
         let reply = build_reply(&stored, &answer)?;
         let res = match reply {
@@ -1336,5 +1348,14 @@ mod tests {
         let ev = tokio::time::timeout(Duration::from_secs(5), rx.recv()).await.unwrap().unwrap();
         assert!(matches!(ev.event, BackendEvent::Connection { state: ConnectionState::LaunchFailed { .. } }));
         assert!(matches!(b.list_loaded().await, Err(BackendError::NotConnected)));
+    }
+
+    #[test]
+    fn an_unheld_request_is_told_apart_by_the_connection_it_came_from() {
+        let (old, now) = (SourceId("s1".into()), SourceId("s2".into()));
+        assert_eq!(respond_gap(&old, Some(&now)), RespondGap::ConnectionChanged);
+        assert_eq!(respond_gap(&now, Some(&now)), RespondGap::NotHeld);
+        // no connection at all: the one it came from is gone
+        assert_eq!(respond_gap(&now, None), RespondGap::ConnectionChanged);
     }
 }

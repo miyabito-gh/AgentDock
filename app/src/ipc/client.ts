@@ -322,7 +322,7 @@ export const applyCloudTask = (taskId: string, folder: string): Promise<CloudApp
 
 // ── 組織実行（P-ORG-7a。薄い呼び出し口。画面は P-ORG-7b）。org_view 等の閲覧は何も送らない ──
 import type {
-  OrgSnapshotView, OrgRolesView, OrgGraphsView, StartOrgArgs, StartOrgResult, OrgResumeResult, OrgCancelArgs, OrgChatCandidate, ChatKey as OrgChatKey, OrgDeletePreview, OrgDeleteOutcome,
+  OrgSnapshotView, OrgRolesView, OrgGraphsView, StartOrgArgs, StartOrgResult, OrgResumeResult, OrgCancelArgs, OrgChatCandidate, ChatKey as OrgChatKey, OrgDeletePreview, OrgDeleteOutcome, OrgManualResultView,
 } from "./types";
 export const orgView = (): Promise<OrgSnapshotView> => invokeCmd("org_view", {});
 export const orgRolesView = (): Promise<OrgRolesView> => invokeCmd("org_roles_view", {});
@@ -333,13 +333,18 @@ export const orgGateDecide = (workflowId: string, task: string, choice: string, 
 export const orgExtraRound = (workflowId: string, task: string, note: string | null): Promise<null> => invokeCmd("org_extra_round", { workflowId, task, note });
 export const orgAcceptRound = (workflowId: string, task: string): Promise<null> => invokeCmd("org_accept_round", { workflowId, task });
 export const orgStart = (args: StartOrgArgs): Promise<StartOrgResult> => invokeCmd("org_start", args);
-export const orgResume = (workflowId: string): Promise<OrgResumeResult> => invokeCmd("org_resume", { workflowId });
+/** 再開。retryTasks は、上限などで止まったタスクのうち、利用者がチェックしたもの（再開の後に1回だけ新しい試行として送る。自動では送らない）。 */
+export const orgResume = (workflowId: string, retryTasks: string[] = []): Promise<OrgResumeResult> => invokeCmd("org_resume", { workflowId, retryTasks });
 export const orgPause = (workflowId: string): Promise<null> => invokeCmd("org_pause", { workflowId });
 export const orgApprovePlan = (workflowId: string): Promise<null> => invokeCmd("org_approve_plan", { workflowId });
 export const orgReplan = (workflowId: string, note: string | null): Promise<null> => invokeCmd("org_replan", { workflowId, note });
 export const orgCancel = (args: OrgCancelArgs): Promise<string[]> => invokeCmd("org_cancel", args);
 export const orgAcceptManual = (workflowId: string, task: string): Promise<null> => invokeCmd("org_accept_manual", { workflowId, task });
 export const orgRetryTask = (workflowId: string, task: string): Promise<null> => invokeCmd("org_retry_task", { workflowId, task });
+export const orgFailTask = (workflowId: string, task: string): Promise<null> => invokeCmd("org_fail_task", { workflowId, task });
+/** 手動に切り替えたチャットの最新 turn の読取り（取込みの確認用。何も送らない）。 */
+export const orgManualResult = (workflowId: string, task: string): Promise<OrgManualResultView> => invokeCmd("org_manual_result", { workflowId, task });
+export const orgAdoptManual = (workflowId: string, task: string, turnId: string): Promise<null> => invokeCmd("org_adopt_manual", { workflowId, task, turnId });
 export const orgRaiseTurnLimit = (workflowId: string, to: number): Promise<null> => invokeCmd("org_raise_turn_limit", { workflowId, to });
 export const orgPreviewDelete = (workflowId: string): Promise<OrgDeletePreview> => invokeCmd("org_preview_delete", { workflowId });
 export const orgDeleteWorkflow = (workflowId: string, deleteChats: boolean, expectChats: OrgChatKey[]): Promise<OrgDeleteOutcome> => invokeCmd("org_delete_workflow", { workflowId, deleteChats, expectChats });

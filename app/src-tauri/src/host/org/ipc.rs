@@ -178,17 +178,34 @@ impl Host {
             }
         };
         let graph = args.graph_id.map(|g| g.trim().to_string()).filter(|g| !g.is_empty());
-        let wf = self.org_start(OrgStartArgs { request: args.request, repo: args.repo, parallelism, graph, max_turns: args.max_turns }, confirmed).await?;
+        let wf = self
+            .org_start(OrgStartArgs { request: args.request, repo: args.repo, parallelism, graph, max_turns: args.max_turns, max_retries: args.max_retries }, confirmed)
+            .await?;
         Ok(StartOrgResult { workflow_id: wf.0 })
     }
 
     /// 再開（必要なチャットだけを resume し、新しい送信権を作る）。画面が見ていたワークフローと同じときだけ。
-    pub async fn org_resume_checked(self: &Arc<Self>, args: OrgWorkflowArgs, confirmed: UserConfirmed) -> Result<OrgResumeResult, IpcError> {
-        self.org_check_workflow(&args.workflow_id)?;
+    /// `retry_tasks` は、利用者がチェックしたタスク（上限などで止まったもの）。再開の後に、それぞれ1回だけ新しい試行として送る
+    /// （自動では送らない。この操作が送信の指示）。送れないタスクが含まれていれば、何もせずに拒否する。
+    pub async fn org_resume_checked(self: &Arc<Self>, args: OrgResumeArgs, confirmed: UserConfirmed) -> Result<OrgResumeResult, IpcError> {
+        let (_, tx) = self.org_check_workflow(&args.workflow_id)?;
         if self.org_rt.view.lock().unwrap().as_ref().is_some_and(|v| v.halt == Some(org_engine::HaltReason::DefinitionUnavailable)) {
             return Err(err(IpcErrorCode::InvalidArgs, "開始時のグラフ定義の写しを使えないため、このワークフローは再開できません"));
         }
+        let mut retries = Vec::new();
+        for task in &args.retry_tasks {
+            let t = self.org_task_of_view(task)?;
+            if let Err(why) = &t.retry {
+                return Err(err(IpcErrorCode::InvalidArgs, format!("{task}: {}", why.text())));
+            }
+            if !retries.contains(&t.id) {
+                retries.push(t.id);
+            }
+        }
         let report: OrgResumeReport = self.org_resume(confirmed).await?;
+        for task in retries {
+            let _ = tx.send(DriverMsg::Input(OrgInput::UserRetryTask { task }));
+        }
         Ok(OrgResumeResult {
             resumed: report.resumed,
             failed: report.failed.into_iter().map(|(chat, message)| OrgResumeFailure { chat, message }).collect(),
@@ -309,10 +326,80 @@ impl Host {
     pub fn org_retry_task(&self, args: OrgTaskArgs, _confirmed: &UserConfirmed) -> Result<(), IpcError> {
         let (_, tx) = self.org_check_workflow(&args.workflow_id)?;
         let t = self.org_task_of_view(&args.task)?;
-        if !t.retryable {
-            return Err(err(IpcErrorCode::InvalidArgs, "このタスクは、送っていないことを確認できないため、やり直せません"));
+        if let Err(why) = &t.retry {
+            let message = match t.status {
+                TaskStatus::Blocked(org_engine::BlockedReason::UsageLimit | org_engine::BlockedReason::TurnFailed | org_engine::BlockedReason::ManualStop) => why.text(),
+                _ => "このタスクは、送っていないことを確認できないため、やり直せません".to_string(),
+            };
+            return Err(err(IpcErrorCode::InvalidArgs, message));
         }
         let _ = tx.send(DriverMsg::Input(OrgInput::UserRetryTask { task: t.id }));
+        Ok(())
+    }
+
+    /// 止まったタスクを、利用者の操作で失敗として確定する（これだけが止まったタスクを `Failed` にする）。確認状態が確定しているものだけ。
+    pub fn org_fail_task(&self, args: OrgTaskArgs, _confirmed: &UserConfirmed) -> Result<(), IpcError> {
+        let (_, tx) = self.org_check_workflow(&args.workflow_id)?;
+        let t = self.org_task_of_view(&args.task)?;
+        let stopped = matches!(
+            t.status,
+            TaskStatus::Blocked(
+                org_engine::BlockedReason::UsageLimit | org_engine::BlockedReason::TurnFailed | org_engine::BlockedReason::ManualStop | org_engine::BlockedReason::NeedsAttention
+            )
+        );
+        if !stopped || t.confirm != org_engine::ConfirmState::Confirmed {
+            return Err(err(IpcErrorCode::InvalidArgs, "止まっていて、状態を確認できているタスクだけを失敗として確定できます"));
+        }
+        let _ = tx.send(DriverMsg::Input(OrgInput::UserFailTask { task: t.id }));
+        Ok(())
+    }
+
+    /// 手動に切り替えたチャットの最新 turn を読む（取込みの確認用。履歴の読取りだけで、何も送らない）。
+    pub async fn org_manual_result(self: &Arc<Self>, args: OrgTaskArgs) -> Result<OrgManualResultView, IpcError> {
+        self.org_check_workflow(&args.workflow_id)?;
+        let t = self.org_task_of_view(&args.task)?;
+        let chat = self.org_adoptable_chat(&t)?;
+        let (turns, running) = self.org_read_manual_turns(&chat).await?;
+        Ok(view::manual_result_view(&turns, running, t.manual_format.clone()))
+    }
+
+    /// 取込みの対象にできるチャット（手動に切り替えたタスクで、状態が確定していて、チャットがあるもの）。
+    fn org_adoptable_chat(&self, t: &TaskSnapshot) -> Result<ChatKey, IpcError> {
+        if t.status != TaskStatus::Blocked(org_engine::BlockedReason::Manual) || t.confirm != org_engine::ConfirmState::Confirmed {
+            return Err(err(IpcErrorCode::InvalidArgs, "手動に切り替えたタスクだけが、結果を取り込めます"));
+        }
+        t.chat.as_ref().and_then(chat_key_of_ref).ok_or_else(|| err(IpcErrorCode::InvalidArgs, "このタスクにはチャットがありません"))
+    }
+
+    async fn org_read_manual_turns(&self, chat: &ChatKey) -> Result<(Vec<crate::backend::model::TurnRecord>, bool), IpcError> {
+        let agent = crate::host::state::agent_key_of(chat);
+        let history = self
+            .read_history(agent.clone(), crate::backend::backend::ReadOptions { include_turns: true })
+            .await
+            .map_err(IpcError::from)?;
+        let running = self.read(|d| d.running_turn.contains_key(&agent));
+        Ok((history.turns, running))
+    }
+
+    /// 手動に切り替えたチャットの、利用者が確認した turn の最終回答を、タスクの結果として取り込む（通常の完了判定に進む）。
+    /// 履歴を読み直し、その turn が最新で、完了で、全件読めて、最終回答があり、実行中の turn がないことを確かめる。
+    /// エンジンはこのチャットへ何も送らない（読取りだけ）。
+    pub async fn org_adopt_manual(self: &Arc<Self>, args: OrgAdoptManualArgs, _confirmed: &UserConfirmed) -> Result<(), IpcError> {
+        let (_, tx) = self.org_check_workflow(&args.workflow_id)?;
+        let t = self.org_task_of_view(&args.task)?;
+        let chat = self.org_adoptable_chat(&t)?;
+        let (turns, running) = self.org_read_manual_turns(&chat).await?;
+        let v = view::manual_result_view(&turns, running, None);
+        if let Some(problem) = v.problem {
+            return Err(err(IpcErrorCode::InvalidArgs, problem));
+        }
+        if v.turn_id.as_deref() != Some(args.turn_id.as_str()) {
+            return Err(err(IpcErrorCode::InvalidArgs, "最新のturnが、確認したときから変わりました。確認し直してください"));
+        }
+        // 取り込みの前に、回答待ちの承認・質問の今の件数を知らせる（完了の判定は、待ちがなくなってから）。
+        let open = self.read(|d| d.requests.iter().filter(|r| r.chat == chat && r.state == crate::backend::model::RequestState::Pending).count() as u32);
+        let _ = tx.send(DriverMsg::Input(OrgInput::RequestPending { chat: chat_ref_of(&chat), open }));
+        let _ = tx.send(DriverMsg::Input(OrgInput::UserAdoptManual { task: t.id, turn: crate::rules::org::turn_ref_of(&crate::backend::model::ExternalId(args.turn_id)) }));
         Ok(())
     }
 
@@ -485,6 +572,10 @@ mod tests {
             chat_cwd: None,
             retryable: false,
             never_sent: false,
+            retry: Err(org_engine::RetryRefusal::NotBlocked),
+            retry_count: 0,
+            adopting: false,
+            manual_format: None,
             node: None,
         }
     }
@@ -538,7 +629,7 @@ mod tests {
         let (host, mut rx) = host_with_workflow(Some(HaltReason::DefinitionUnavailable), vec![task("a", TaskStatus::Pending)]);
         let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         let c = UserConfirmed::from_user_command();
-        let e = rt.block_on(host.org_resume_checked(wf("wf-1"), c)).unwrap_err();
+        let e = rt.block_on(host.org_resume_checked(OrgResumeArgs { workflow_id: "wf-1".into(), retry_tasks: Vec::new() }, c)).unwrap_err();
         assert_eq!(e.code, IpcErrorCode::InvalidArgs);
         assert!(drain(&mut rx).is_empty());
     }
@@ -613,7 +704,7 @@ mod tests {
     fn retry_reaches_the_engine_only_for_a_task_known_not_to_have_been_sent() {
         let c = UserConfirmed::from_user_command();
         let mut sure = task("a", TaskStatus::Blocked(EBlocked::NeedsAttention));
-        sure.retryable = true;
+        sure.retry = Ok(org_engine::RetryKind::Unsent);
         let unsure = task("b", TaskStatus::Blocked(EBlocked::NeedsAttention));
         let (host, mut rx) = host_with_workflow(None, vec![sure, unsure]);
         let args = |t: &str| OrgTaskArgs { workflow_id: "wf-1".into(), task: t.into() };
@@ -626,6 +717,31 @@ mod tests {
         assert!(sent[0].contains("UserRetryTask"));
         // 送信権は作らない。
         assert!(!host.org_rt.grants.is_active(&WorkflowId::new("wf-1")));
+    }
+
+    #[test]
+    fn a_new_attempt_needs_a_retry_the_engine_would_accept_and_failing_is_only_for_stopped_confirmed_tasks() {
+        let c = UserConfirmed::from_user_command();
+        let mut limit = task("a", TaskStatus::Blocked(EBlocked::UsageLimit));
+        limit.retry = Ok(org_engine::RetryKind::NewAttempt { reason: org_engine::RetryReason::UsageLimit });
+        let mut spent = task("b", TaskStatus::Blocked(EBlocked::TurnFailed));
+        spent.retry = Err(org_engine::RetryRefusal::RetryLimit { used: 3, max: 3 });
+        let mut unsure = task("c", TaskStatus::Blocked(EBlocked::TurnFailed));
+        unsure.confirm = ConfirmState::StopUnconfirmed;
+        unsure.retry = Err(org_engine::RetryRefusal::SendUnknown);
+        let running = task("d", TaskStatus::Running);
+        let (host, mut rx) = host_with_workflow(None, vec![limit, spent, unsure, running]);
+        let args = |t: &str| OrgTaskArgs { workflow_id: "wf-1".into(), task: t.into() };
+        // refused retries say why (the limit), and send nothing
+        let e = host.org_retry_task(args("b"), &c).unwrap_err();
+        assert!(e.message.contains("3/3"), "{}", e.message);
+        assert!(host.org_fail_task(args("c"), &c).is_err() && host.org_fail_task(args("d"), &c).is_err());
+        assert!(drain(&mut rx).is_empty());
+        host.org_retry_task(args("a"), &c).unwrap();
+        host.org_fail_task(args("b"), &c).unwrap();
+        let sent = drain(&mut rx);
+        assert_eq!(sent.len(), 2);
+        assert!(sent[0].contains("UserRetryTask") && sent[1].contains("UserFailTask"));
     }
 
     #[test]

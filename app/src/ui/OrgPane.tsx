@@ -2,14 +2,16 @@
 // 選ぶ・開くだけでは何も送らない。再開・一時停止・承認・取消し・手動切替・上限変更は、明示的なボタンだけがホストの命令を呼ぶ（危険なものは確認ブロックを経る）。
 // 状態は文字＋アイコン名で示す（色だけにしない）。取得できない値は「—」「未取得」で、0や完了では代用しない。
 import { Fragment, useEffect, useState, type ReactNode } from "react";
-import type { Chat, ChatKey, ChatLocalView, HostSnapshot, OrgChatCandidate, OrgConfirmView, OrgGraphNodeView, OrgGraphView, OrgSnapshotView, OrgStatusView, OrgTaskView, OrgWorkflowView } from "../ipc/types";
+import type { AgentKey, Chat, ChatKey, ChatLocalView, HostSnapshot, OrgChatCandidate, OrgConfirmView, OrgGraphNodeView, OrgGraphView, OrgManualEnd, OrgManualResultView, OrgSnapshotView, OrgStatusView, OrgTaskView, OrgWorkflowView, PendingRequest } from "../ipc/types";
 import * as host from "../ipc/client";
 import { Icon, orgIcon } from "./Icon";
 import { Popover } from "./Popover";
 import { ConfirmBlock } from "./DialogParts";
 import { tipWithKey } from "./shortcuts";
 import { roleLabel } from "./orgChat";
-import { CONFIRM_TONE, EFFECT_TEXT, NODE_KIND_TEXT, PHASE_TONE, artifactText, attemptText, edgeText, groupTasks, orgPendingRequests, roleCounts, reworkLimitText, roundText, verdictText, waitText, workflowSummary, type OrgTone } from "./org";
+import { CONFIRM_TONE, EFFECT_TEXT, NODE_KIND_TEXT, PHASE_TONE, artifactText, attemptText, edgeText, groupTasks, orgPendingRequests, requestWaitText, roleCounts, reworkLimitText, roundText, taskRequestWait, taskRowId, verdictText, waitBand, waitText, waitingDetail, workflowSummary, type OrgTone } from "./org";
+import { RequestGapLine } from "./RequestGap";
+import { keyStr, showKnown } from "./format";
 
 /** 状態の表示（アイコン＋文字。形・色は `.st.<tone>`）。 */
 function Chip({ tone, icon, label, title }: { tone: OrgTone; icon: string; label: string; title?: string }) {
@@ -19,7 +21,7 @@ const StatusChip = ({ s }: { s: OrgStatusView }) => <Chip tone={PHASE_TONE[s.pha
 const ConfirmChip = ({ c }: { c: OrgConfirmView }) => <Chip tone={CONFIRM_TONE[c.state]} icon={c.icon} label={c.label} />;
 
 /** 左一覧のワークフロー行。選ぶと中央にワークフロー画面を開くだけ。 */
-export function OrgListRow({ wf, selected, onOpen, onStart }: { wf: OrgWorkflowView | null; selected: boolean; onOpen: () => void; onStart: () => void }) {
+export function OrgListRow({ wf, selected, onOpen, onStart, counts }: { wf: OrgWorkflowView | null; selected: boolean; onOpen: () => void; onStart: () => void; /** 承認・質問の回答待ちと、回答を届けられなかった要求の件数（スナップショットから導いた値） */ counts?: { wait: number; fail: number } }) {
   if (!wf) return null;
   const sum = workflowSummary(wf);
   const name = wf.title ?? wf.request.slice(0, 30);
@@ -31,6 +33,8 @@ export function OrgListRow({ wf, selected, onOpen, onStart }: { wf: OrgWorkflowV
           <span className="nm">{name}</span>
           <span className="marks">
             {sum.planWaiting ? <span className="mark wait" title="計画の承認待ち。ワークフロー画面で承認します">承認待ち</span> : null}
+            {counts && counts.wait > 0 ? <span className="mark wait" title={`承認・質問の回答待ち ${counts.wait}件。ワークフロー画面から回答できます`}>回答待ち {counts.wait}</span> : null}
+            {counts && counts.fail > 0 ? <span className="mark fail" title={`回答を届けられなかった要求 ${counts.fail}件。ワークフロー画面で理由と次の手を確認してください`}>回答不可 {counts.fail}</span> : null}
             {sum.attention > 0 ? <span className="mark fail" title={`止まっている・要確認のタスク ${sum.attention}件`}>要対応 {sum.attention}</span> : null}
           </span>
         </button>
@@ -90,7 +94,7 @@ export function OrgBadge({ local }: { local: ChatLocalView | undefined }) {
 export const ORG_SEND_LOCK = "組織実行のチャットです。選んで見るだけで、ここからは送信できません。ワークフロー画面で「手動に切り替え」ると、通常のチャットとして送信できます。";
 
 type Confirm =
-  | { kind: "resume" }
+  | { kind: "resume"; /** 上限で止まったタスクのうち、再開の後に新しい試行として送るもの（チェックしたものだけ） */ checked: Record<string, boolean> }
   | { kind: "cancelWorkflow" }
   | { kind: "replan"; note: string }
   | { kind: "gate"; task: string; node: string; choice: string; label: string; needsNote: boolean; note: string }
@@ -99,6 +103,10 @@ type Confirm =
   | { kind: "cancelTask"; task: string }
   | { kind: "acceptManual"; task: string }
   | { kind: "retry"; task: string }
+  | { kind: "retryNew"; task: string }
+  | { kind: "failTask"; task: string }
+  | { kind: "adopt"; task: string; res: OrgManualResultView | null; error: string | null }
+  | { kind: "stopRunning" }
   | { kind: "release"; task: string; chat: ChatKey }
   | { kind: "raise"; to: string }
   | { kind: "choose"; task: string; cands: OrgChatCandidate[] | null; error: string | null };
@@ -117,7 +125,11 @@ export interface OrgPaneProps {
   run: (label: string, f: () => Promise<string | void>) => Promise<boolean>;
   /** 削除の確認ダイアログを開く（開くだけ。消すのはダイアログの「削除する」）。 */
   onDelete: (workflowId: string) => void;
+  /** 承認・質問のカード（回答は App の既存の経路。ここからも直接答えられる）。 */
+  renderRequest: (r: PendingRequest, agentName?: (a: AgentKey) => string) => ReactNode;
 }
+
+const END_TEXT: Record<OrgManualEnd, string> = { completed: "完了", running: "実行中", failed: "失敗", interrupted: "中断", unknown: "終端を確認できません" };
 
 const chatName = (chats: Chat[], k: ChatKey | null | undefined): string => {
   const c = k ? chats.find((x) => x.key.id === k.id) : undefined;
@@ -193,12 +205,18 @@ export function OrgPane(p: OrgPaneProps) {
   const use = wf.usage;
   const chatExists = (k: ChatKey | null) => !!k && snap.chats.some((c) => c.key.id === k.id);
 
-  const resumeFn = async (): Promise<string> => {
-    const r = await host.orgResume(wf.workflowId);
+  const resumeFn = async (retryTasks: string[]): Promise<string> => {
+    const r = await host.orgResume(wf.workflowId, retryTasks);
+    const again = retryTasks.length > 0 ? `チェックした ${retryTasks.length} 件のタスクを新しい試行として送ります。` : "";
     return r.failed.length > 0
-      ? `再開しました。ただし ${r.failed.length} 件のチャットは再開できず、そのタスクは送らずに止まっています（${r.failed[0].message}）。`
-      : `再開しました（チャット ${r.resumed.length} 件）。`;
+      ? `再開しました。ただし ${r.failed.length} 件のチャットは再開できず、そのタスクは送らずに止まっています（${r.failed[0].message}）。${again}`
+      : `再開しました（チャット ${r.resumed.length} 件）。${again}`;
   };
+  /** 利用上限で止まっていて、新しい試行で再送できるタスク（再開の確認にチェック付きで並べる）。 */
+  const limitTasks = wf.tasks.filter((t) => t.status.reason === "usageLimit" && t.retry?.kind === "newAttempt");
+  const openResume = () => setConfirm({ kind: "resume", checked: Object.fromEntries(limitTasks.map((t) => [t.id, true])) });
+  const agentName = (a: AgentKey): string => { const v = snap.agents.find((x) => keyStr(x.agent.key) === keyStr(a)); return v ? showKnown(v.agent.displayName) : a.id; };
+  const jumpTo = (id: string | null) => { const el = id ? document.getElementById(taskRowId(id)) : null; el?.scrollIntoView({ block: "center" }); el?.focus({ preventScroll: true }); };
 
   const noteField = (label: string, value: string, onChange: (v: string) => void, hint: string) => (
     <div className="field"><span>{label}</span>
@@ -212,8 +230,21 @@ export function OrgPane(p: OrgPaneProps) {
     const wrap = (label: string, body: ReactNode, main: ReactNode) => <ConfirmBlock label={label} wide actions={<>{cancelBtn}{main}</>}>{body}</ConfirmBlock>;
     switch (confirm.kind) {
       case "resume":
-        return wrap("再開の確認", <p>ワークフローを再開します。必要なチャットを Codex で再開（resume）し、止めていたタスクの送信を始めます。実行中だったタスクのチャットも再開して、その状態を受け取ります（再開した後に、履歴の読取りで終端を確認し直します）。再起動や通信断で状態を確認できていないタスクは、確認できるまで送りません。</p>,
-          <button className="btn primary" disabled={busy} onClick={() => void go("再開", resumeFn)}>{busy ? "再開しています…" : "再開する"}</button>);
+        return wrap("再開の確認",
+          <>
+            <p>ワークフローを再開します。必要なチャットを Codex で再開（resume）し、止めていたタスクの送信を始めます。実行中だったタスクのチャットも再開して、その状態を受け取ります（再開した後に、履歴の読取りで終端を確認し直します）。再起動や通信断で状態を確認できていないタスクは、確認できるまで送りません。</p>
+            {limitTasks.length > 0 ? (
+              <>
+                <p>利用上限で止まっているタスクです。チェックしたタスクを新しい試行として送ります（自動では送りません。この操作が送信の指示です）。チェックを外したタスクは止まったままです。</p>
+                <ul className="org-resume-list">
+                  {limitTasks.map((t) => (
+                    <li key={t.id}><label><input type="checkbox" checked={!!confirm.checked[t.id]} onChange={(e) => setConfirm({ kind: "resume", checked: { ...confirm.checked, [t.id]: e.target.checked } })} /> <b className="mono">{t.id}</b> {t.title}<span className="small muted">　再送 {t.retry!.used}/{t.retry!.max}</span></label></li>
+                  ))}
+                </ul>
+              </>
+            ) : null}
+          </>,
+          <button className="btn primary" disabled={busy} onClick={() => void go("再開", () => resumeFn(limitTasks.filter((t) => confirm.checked[t.id]).map((t) => t.id)))}>{busy ? "再開しています…" : "再開する"}</button>);
       case "cancelWorkflow":
         return wrap("ワークフローの取消しの確認", <p>終わっていないタスクをすべて取り消します。実行中のタスクの停止は、Codex 側で確認できるまで「停止未確認」として扱います（取り消しただけで停止したとは表示しません）。取り消したものを元に戻すことはできません。</p>,
           <button className="btn danger" disabled={busy} onClick={() => void go("取り消し", async () => { const r = await host.orgCancel({ workflowId: wf.workflowId, scope: { kind: "workflow" } }); return `${r.length} 件のタスクを取り消しました。`; })}>{busy ? "取り消しています…" : "すべて取り消す"}</button>);
@@ -259,6 +290,57 @@ export function OrgPane(p: OrgPaneProps) {
       case "retry":
         return wrap(`タスク ${confirm.task} のやり直しの確認`, <p>タスク {confirm.task} を、もう一度送れる状態に戻します。このタスクは、まだ Codex に送られていないことを確認できています（受理されたか不明なものは、ここには出ません）。新しい試行として、通常の送信と同じ手順で送ります。送信が止まっているときは、先に「再開」が必要です。</p>,
           <button className="btn primary" disabled={busy} onClick={() => void go("やり直し", async () => { await host.orgRetryTask(wf.workflowId, confirm.task); return `タスク ${confirm.task} をやり直す状態に戻しました。`; })}>{busy ? "処理しています…" : "やり直す"}</button>);
+      case "retryNew": {
+        const t = wf.tasks.find((x) => x.id === confirm.task);
+        const r = t?.retry;
+        return wrap(`タスク ${confirm.task} の新しい試行の確認`,
+          <>
+            <p>タスク {confirm.task} の前の turn は{r?.reasonLabel ? `「${r.reasonLabel}」で` : ""}結果を出さずに終わりました。<b>同じチャットへ、続きを行う新しい turn を1回だけ送ります</b>（自動では送りません。この操作が送信の指示です）。作業フォルダの途中の変更はそのまま引き継がれます。</p>
+            <p className="small">再送の回数: {r ? `これまで ${r.used} 回、上限 ${r.max} 回` : "—"}。この送信は turn 数にも数えられます。送信が止まっているときは、先に「再開」が必要です。</p>
+          </>,
+          <button className="btn primary" disabled={busy} onClick={() => void go("新しい試行での再送", async () => { await host.orgRetryTask(wf.workflowId, confirm.task); return `タスク ${confirm.task} を新しい試行として送る状態に戻しました。`; })}>{busy ? "処理しています…" : "新しい試行で再送する"}</button>);
+      }
+      case "failTask":
+        return wrap(`タスク ${confirm.task} を失敗として確定する確認`, <p>タスク {confirm.task} を、あなたの判断で失敗として確定します。<b>元に戻せません</b>。依存するタスクは進めなくなります。Codex 側の状態を変えることはしません（再送・中断もしません）。</p>,
+          <button className="btn danger" disabled={busy} onClick={() => void go("失敗として確定", async () => { await host.orgFailTask(wf.workflowId, confirm.task); return `タスク ${confirm.task} を失敗として確定しました。`; })}>{busy ? "処理しています…" : "失敗として確定する"}</button>);
+      case "adopt": {
+        const c = confirm;
+        const res = c.res;
+        const copyFormat = () => { if (res?.formatHint) void navigator.clipboard?.writeText(res.formatHint).then(() => p.run("形式の説明のコピー", async () => "形式の説明をコピーしました（送信はしていません）。")); };
+        return wrap(`タスク ${c.task} の結果を取り込む確認`,
+          <>
+            <p>手動に切り替えたチャットの<b>最新の turn</b> の最終回答を、このタスクの結果として取り込みます。<b>チャットへは何も送りません</b>（読み取りだけ）。</p>
+            {c.error ? <p className="why err" role="alert">{c.error}</p> : null}
+            {res === null && !c.error ? <p className="small muted">最新の turn を読み込んでいます…</p> : null}
+            {res ? (
+              <>
+                <p className="small">最新の turn の終端: <b>{END_TEXT[res.end]}</b>　履歴: {res.complete ? "全件読めました" : "全件は読めていません"}</p>
+                {res.finalHead !== null ? <pre className="mono small org-pre org-pre-wrap">{res.finalHead}{res.finalHead.length >= 400 ? "\n…（先頭400字）" : ""}</pre> : <p className="small muted">最終回答を読めていません。</p>}
+                {res.problem ? <p className="why err" role="alert">取り込めません: {res.problem}</p> : null}
+              </>
+            ) : null}
+            <p>取り込むと、通常の完了判定（形式の検証・子孫の確認・Worker はコミット）に進めます。形式に合わなければ、手動のまま戻します。</p>
+            <p className="small muted">形式を整えた回答をチャットで作らせたいときは、形式の説明をコピーして、あなたがチャットに貼り付けて送ってください（AgentDock は送りません）。</p>
+          </>,
+          <>
+            <button className="btn" disabled={busy || !res?.formatHint} title={res?.formatHint ? "このタスクの結果の形式の説明をクリップボードへコピーします（送信はしません）" : "形式の説明を取得できていません"} onClick={copyFormat}>形式の説明をコピー</button>
+            <button className="btn primary" disabled={busy || !res || !!res.problem || res.turnId === null} onClick={() => void go("結果の取り込み", async () => { await host.orgAdoptManual(wf.workflowId, c.task, res!.turnId!); return `タスク ${c.task} の結果を取り込みました。完了の判定に進みます。`; })}>{busy ? "取り込んでいます…" : "この回答を取り込む"}</button>
+          </>);
+      }
+      case "stopRunning": {
+        const running = wf.tasks.filter((t) => ["running", "reviewing"].includes(t.status.phase) && t.chat);
+        return wrap("実行中も止める確認",
+          <>
+            <p>新しい送信を止め、実行中のタスク（{running.length}件{running.length ? `：${running.map((t) => t.id).join("、")}` : ""}）のチャットへ<b>中断を要求</b>します。</p>
+            <p className="small">中断の要求は停止の確認ではありません。停止は Codex 側で確認できるまで「停止未確認」と扱い、10秒で確認できなければ案内します。タスクは取消しにも失敗にもなりません。止まったタスクは「新しい試行で再送」できます（送信は自動では再開しません）。</p>
+          </>,
+          <button className="btn danger" disabled={busy} onClick={() => void go("実行中も止める", async () => {
+            await host.orgPause(wf.workflowId);
+            let failed = 0;
+            for (const t of running) { try { await host.interruptChat(t.chat!); } catch { failed += 1; } }
+            return failed > 0 ? `新しい送信を止めました。${failed} 件のチャットには中断を要求できませんでした。` : `新しい送信を止め、実行中の ${running.length} 件に中断を要求しました。停止は確認できるまで「停止未確認」です。`;
+          })}>{busy ? "止めています…" : "実行中も止める"}</button>);
+      }
       case "release":
         return wrap(`タスク ${confirm.task} を手動に切り替える確認`, <p>このタスクのチャット「{chatName(snap.chats, confirm.chat)}」を組織実行から切り離し、通常のチャットとして手入力で送れるようにします。以後、組織実行はこのチャットへ送りません。元に戻す操作はありません。</p>,
           <button className="btn danger" disabled={busy} onClick={() => void go("手動への切替", async () => { await host.orgReleaseChat(confirm.chat); return "手動に切り替えました。"; })}>{busy ? "切り替えています…" : "手動に切り替える"}</button>);
@@ -303,13 +385,24 @@ export function OrgPane(p: OrgPaneProps) {
     catch (e) { setConfirm({ kind: "choose", task, cands: [], error: `候補を取得できませんでした（${host.asIpcError(e).message}）` }); }
   };
 
+  const openAdopt = async (task: string) => {
+    setConfirm({ kind: "adopt", task, res: null, error: null });
+    if (!p.live) { setConfirm({ kind: "adopt", task, res: null, error: "モックでは動きません。" }); return; }
+    try { setConfirm({ kind: "adopt", task, res: await host.orgManualResult(wf.workflowId, task), error: null }); }
+    catch (e) { setConfirm({ kind: "adopt", task, res: null, error: `最新の turn を読めませんでした（${host.asIpcError(e).message}）` }); }
+  };
+
   const taskActions = (t: OrgTaskView) => (
     <div className="org-acts">
       {t.chat ? <button className="btn sm" disabled={!chatExists(t.chat)} title={chatExists(t.chat) ? "このタスクのチャットを開きます（見るだけ。何も送りません）" : "チャットがまだ一覧にありません"} onClick={() => p.onOpenChat(t.chat!)}>チャットを見る</button> : null}
       {ro ? null : <>
       {t.needsChatChoice ? <button className="btn sm" onClick={() => void openChoose(t.id)}>チャットを選ぶ…</button> : null}
       {t.chat ? <button className="btn sm" onClick={() => setConfirm({ kind: "release", task: t.id, chat: t.chat! })} title="組織実行から切り離し、手入力できる通常のチャットにします">手動に切り替え…</button> : null}
-      {t.canRetry ? <button className="btn sm" onClick={() => setConfirm({ kind: "retry", task: t.id })} title="まだ送られていないことを確認できているタスクを、もう一度送る状態に戻します">やり直す…</button> : null}
+      {t.retry?.kind === "unsent" ? <button className="btn sm" onClick={() => setConfirm({ kind: "retry", task: t.id })} title="まだ送られていないことを確認できているタスクを、もう一度送る状態に戻します">やり直す…</button> : null}
+      {t.retry?.kind === "newAttempt" ? <button className="btn sm" onClick={() => setConfirm({ kind: "retryNew", task: t.id })} title={`前の turn（${t.retry.reasonLabel}）の続きを、同じチャットへ新しい試行として1回送ります`}>新しい試行で再送…（再送 {t.retry.used}/{t.retry.max}）</button> : null}
+      {!t.retry && t.retryRefusal ? <button className="btn sm" disabled title={t.retryRefusal}>新しい試行で再送…</button> : null}
+      {t.canFail ? <button className="btn sm danger-line" onClick={() => setConfirm({ kind: "failTask", task: t.id })} title="あなたの判断で失敗として確定します（元に戻せません）">失敗として確定…</button> : null}
+      {t.canAdoptManual ? <button className="btn sm" onClick={() => void openAdopt(t.id)} title="手動に切り替えたチャットの最新の回答を、このタスクの結果として取り込みます（チャットへは何も送りません）">結果を取り込む…</button> : null}
       {t.canAcceptManual ? <button className="btn sm" onClick={() => setConfirm({ kind: "acceptManual", task: t.id })}>手動で完了にする…</button> : null}
       {t.canCancel ? <button className="btn sm danger-line" onClick={() => setConfirm({ kind: "cancelTask", task: t.id })}>取り消す…</button> : null}
       </>}
@@ -326,8 +419,21 @@ export function OrgPane(p: OrgPaneProps) {
       <div className="org-body">
         <div className="org-bar">
           {ro ? <span className="small muted">過去のワークフロー（読み取り専用）</span> : null}
-          {canResume && !ro ? <button className="btn primary" disabled={busy} title="必要なチャットを再開し、止めていたタスクの送信を始めます（確認があります）" onClick={() => setConfirm({ kind: "resume" })}>再開…</button> : null}
-          {wf.dispatching && !ro ? <button className="btn" disabled={busy} title="新しいタスクの送信を止めます。実行中のタスクは止めません" onClick={() => void go("一時停止", async () => { await host.orgPause(wf.workflowId); return "新しい送信を止めました。実行中のタスクは止めていません。"; })}>一時停止</button> : null}
+          {canResume && !ro ? <button className="btn primary" disabled={busy} title="必要なチャットを再開し、止めていたタスクの送信を始めます（確認があります）" onClick={openResume}>再開…</button> : null}
+          {!ro && !wf.finished ? (
+            <Popover role="menu" align="left" triggerClassName="btn" label="止める" title="止め方を選びます（範囲が違います）" trigger={<span>止める…</span>}>
+              {(close) => {
+                const manageOff = !wf.finished || wf.tasks.some((t) => t.confirm.state !== "confirmed");
+                return (
+                  <>
+                    <button type="button" role="menuitem" disabled={busy || !wf.dispatching} title={wf.dispatching ? "新しいタスクの送信だけを止めます。実行中のタスクは続きます（取消し・失敗にはなりません）" : "すでに新しい送信は止まっています"} onClick={() => { close(); void go("一時停止", async () => { await host.orgPause(wf.workflowId); return "新しい送信を止めました。実行中のタスクは止めていません。"; }); }}>新しい送信だけ止める（実行中は続ける）</button>
+                    <button type="button" role="menuitem" onClick={() => { close(); setConfirm({ kind: "stopRunning" }); }} title="新しい送信を止め、実行中のタスクに中断を要求します（取消し・失敗にはしません）">実行中も止める…</button>
+                    <button type="button" role="menuitem" disabled={manageOff || !!wf.deletion} title={manageOff ? "アーカイブできるのは、すべて終わって状態が確定したワークフローだけです（実行中のものを一覧から隠すことはできません）" : "一覧から隠します（作業には触れません）"} onClick={() => { close(); void p.run("アーカイブ", async () => { await host.orgArchiveWorkflow(wf.workflowId); return "ワークフローをアーカイブしました（アーカイブ一覧から戻せます）。"; }); }}>アーカイブ</button>
+                  </>
+                );
+              }}
+            </Popover>
+          ) : null}
           <span className="grow" />
           <Popover role="menu" align="right" triggerClassName="btn subtle icon" label="ワークフローの操作" title="ワークフローの操作" trigger={<Icon name="more" />}>
             {(close) => {
@@ -366,7 +472,8 @@ export function OrgPane(p: OrgPaneProps) {
               {wf.halt.kind === "restart" || wf.halt.kind === "needsResume"
                 ? <div>再起動前に実行中だったワークフローを照合しました。再開するには「再開」を押してください。再開するまで、新しい送信はしません。</div>
                 : wf.halt.kind === "shutdown" ? <div>終了の手順中のため、新しい送信を止めています。</div>
-                : wf.halt.kind === "user" ? <div>一時停止中です。「再開」を押すまで、新しい送信はしません。</div> : null}
+                : wf.halt.kind === "user" ? <div>一時停止中です。「再開」を押すまで、新しい送信はしません。</div>
+                : wf.halt.kind === "usageLimit" ? <div>利用上限に達して turn が止まりました。上限が解けてから「再開」し、再送するタスクをチェックしてください。チェックしたタスクだけを新しい試行として送ります（自動では送りません）。</div> : null}
               {wf.halt.resumable ? null : <div className="small muted">この停止は「再開」では解除できません。</div>}
             </div>
           </div>
@@ -437,6 +544,20 @@ export function OrgPane(p: OrgPaneProps) {
 
         {wf.graph ? <GraphSection graph={wf.graph} wf={wf} ro={ro} busy={busy} chatExists={chatExists} onOpenChat={p.onOpenChat} onGate={(n, c) => setConfirm({ kind: "gate", task: n.task!, node: n.label, choice: c.id, label: c.label, needsNote: c.needsNote, note: "" })} onExtra={(n) => setConfirm({ kind: "extraRound", task: n.task!, node: n.label, note: "" })} onAccept={(n) => setConfirm({ kind: "acceptRound", task: n.task!, node: n.label })} /> : null}
 
+        <section className="org-wait-band" aria-label="待ち・作業中・完了">
+          {(() => {
+            const b = waitBand(snap, wf);
+            const detail = waitingDetail(b.waiting);
+            return (
+              <>
+                <button type="button" className={`btn${b.waiting.total > 0 ? " attn" : ""}`} disabled={!b.waiting.firstId} title={b.waiting.firstId ? "対応が要る最初のタスクの行へ移動します" : "あなたの対応待ちのタスクはありません"} onClick={() => jumpTo(b.waiting.firstId)}>あなたの対応待ち {b.waiting.total}{detail ? `（${detail}）` : ""}</button>
+                <button type="button" className="btn" disabled={!b.working.firstId} title={b.working.firstId ? "作業中の最初のタスクの行へ移動します" : "作業中のタスクはありません"} onClick={() => jumpTo(b.working.firstId)}>作業中 {b.working.total}</button>
+                <button type="button" className="btn" disabled={b.done.done === 0} title={b.done.done > 0 ? "完了したタスクの行へ移動します" : "完了したタスクはまだありません"} onClick={() => jumpTo(wf.tasks.find((t) => t.status.phase === "completed")?.id ?? null)}>完了 {b.done.done}／全 {b.done.all}</button>
+              </>
+            );
+          })()}
+        </section>
+
         <section aria-label="タスク">
           <h4 className="org-h">タスク</h4>
           {groups.length === 0 ? <div className="empty-note">タスクはまだありません</div> : groups.map((g) => (
@@ -446,21 +567,26 @@ export function OrgPane(p: OrgPaneProps) {
                 <table className="org-tbl">
                   <thead><tr><th scope="col">ID</th><th scope="col">役割</th><th scope="col">タスク</th><th scope="col">業務状態</th><th scope="col">確認状態</th><th scope="col">待ち先</th><th scope="col">試行</th><th scope="col">成果物</th><th scope="col">操作</th></tr></thead>
                   <tbody>
-                    {g.tasks.map((t) => (
+                    {g.tasks.map((t) => {
+                      const w = taskRequestWait(snap, t);
+                      const waitMsg = requestWaitText(w);
+                      return (
                       <Fragment key={t.id}>
-                        <tr>
+                        <tr id={taskRowId(t.id)} tabIndex={-1}>
                           <th scope="row" className="mono">{t.id}</th>
                           <td>{t.role}</td>
                           <td className="org-title">{t.title}</td>
                           <td><StatusChip s={t.status} /></td>
                           <td><ConfirmChip c={t.confirm} /></td>
-                          <td>{waitText(t)}</td>
+                          <td>{waitMsg ? <b>{waitMsg}</b> : waitText(t)}</td>
                           <td>{attemptText(t)}</td>
                           <td>{artifactText(t)}</td>
                           <td>{taskActions(t)}</td>
                         </tr>
-                        {t.reconcile || t.stallNotified || t.needsChatChoice || t.attentionNote ? (
+                        {t.reconcile || t.stallNotified || t.needsChatChoice || t.attentionNote || w.pending.length > 0 || w.gaps.length > 0 ? (
                           <tr key={`${t.id}:n`} className="org-note-row"><td /><td colSpan={8} className="small">
+                            {w.pending.map((r) => <div key={`${r.key.source}/${r.key.requestId}`} className="org-req-card">{p.renderRequest(r, agentName)}</div>)}
+                            {w.gaps.map((r) => <RequestGapLine key={`gap:${r.key.source}/${r.key.requestId}`} r={r} guide="org" />)}
                             {t.attentionNote ? <div>止まった理由: {t.attentionNote}</div> : null}
                             {t.stallNotified ? <div>実行中のまま新しい出力がないと通知済みです（自動では止めません）。</div> : null}
                             {t.needsChatChoice ? <div>チャットの作成結果を確認できていません。「チャットを選ぶ」で結び付けるまで進めません。</div> : null}
@@ -468,7 +594,8 @@ export function OrgPane(p: OrgPaneProps) {
                           </td></tr>
                         ) : null}
                       </Fragment>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

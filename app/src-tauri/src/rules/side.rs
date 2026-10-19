@@ -100,6 +100,7 @@ mod tests {
             completed_at: Known::NotFetched,
             entries: Vec::new(),
             complete: true,
+            failure: Known::NotFetched,
         }
     }
 

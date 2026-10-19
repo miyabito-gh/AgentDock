@@ -14,7 +14,7 @@ import { BASIS_TEXT, groupByProject, type MatchBasis } from "./projectGroups";
 import { projectUpdateMessage } from "./listFetch";
 import { PROJECTS_ENABLED } from "./features";
 import { OrgHistoryRows, OrgListRow } from "./OrgPane";
-import { isOrgOwned } from "./org";
+import { isOrgOwned, workflowRequestCounts } from "./org";
 import { isHiddenPredecessor } from "./continuity";
 import type { OrgWorkflowView } from "../ipc/types";
 import { UNKNOWN_KEY, collapseAll, flattenGroups, groupChats, shortNames, worktreeOf, type FlatItem, type FolderGroup } from "./folderGroups";
@@ -473,7 +473,7 @@ export function LeftPane({ org, snap, sel, onSelect, onAct, onAcknowledge, onCha
         {projectsNote ? <div className={`small${projectsNote.bad ? " lt-fail" : ""}`} role="status">{projectsNote.text}</div> : null}
         {listStatus && !listStatus.ok ? <div className="small lt-fail" role="status">{listStatus.text}</div> : null}
       </div>
-      {org?.wf && org.wf.archivedAt === null ? <OrgListRow wf={org.wf} selected={org.selected} onOpen={org.onOpen} onStart={org.onStart} /> : null}
+      {org?.wf && org.wf.archivedAt === null ? <OrgListRow wf={org.wf} selected={org.selected} onOpen={org.onOpen} onStart={org.onStart} counts={workflowRequestCounts(snap, org.wf)} /> : null}
       {org && org.history.length > 0 ? <OrgHistoryRows history={org.history} selectedId={org.selectedHistory} onOpen={org.onOpenHistory} /> : null}
       <div className="left-scroll" ref={scrollerRef} onScroll={() => { if (menu) closeMenu(false); if (windowed) measure(); }}>
         {showArch ? (

@@ -6,7 +6,7 @@
 //! - 不明値は `Known` の NotFetched / Missing で表し、0や空文字で代用しない。
 
 use super::wire::{WireStatus, WireThread, WireTurn, WireTurnStatus};
-use crate::backend::backend::PermissionPreset;
+use crate::backend::backend::{FailureClass, PermissionPreset};
 use crate::backend::model::*;
 use serde_json::Value;
 
@@ -587,6 +587,20 @@ pub fn turn_to_record(thread_id: &str, t: &WireTurn) -> TurnRecord {
         completed_at: time(t.raw.completed_at),
         entries,
         complete: t.items_complete(),
+        failure: turn_failure_class(t),
+    }
+}
+
+/// 失敗で終わったturnの区分。`error.codexErrorInfo` が `usageLimitExceeded` なら利用上限、他の値は「その他」、
+/// error か codexErrorInfo が無い（null）ときは「欠落」。失敗以外は「未取得」（区分を持たない）。
+pub fn turn_failure_class(t: &WireTurn) -> Known<FailureClass> {
+    if !matches!(t.status, WireTurnStatus::Failed) {
+        return Known::NotFetched;
+    }
+    match t.raw.error.as_ref().and_then(|e| e.codex_error_info.as_ref()).filter(|v| !v.is_null()) {
+        Some(v) if v.as_str() == Some("usageLimitExceeded") => Known::direct(FailureClass::UsageLimit),
+        Some(_) => Known::direct(FailureClass::Other),
+        None => Known::Missing,
     }
 }
 
@@ -779,6 +793,22 @@ mod tests {
         assert!(s.raw.label.contains("somethingNew"));
         let t = thread(json!({"id": "a"}));
         assert_eq!(derive_status(&t.status, None, ev()).state, AgentState::Unknown);
+    }
+
+    #[test]
+    fn a_failed_turn_class_is_read_from_the_error_and_never_guessed() {
+        let rec = |v: serde_json::Value| turn_to_record("th", &WireTurn::from_value(&v).unwrap()).failure;
+        let failed = |err: serde_json::Value| json!({"id": "t", "status": "failed", "items": [], "error": err});
+        assert_eq!(rec(failed(json!({"message": "x", "codexErrorInfo": "usageLimitExceeded"}))), Known::direct(FailureClass::UsageLimit));
+        assert_eq!(rec(failed(json!({"message": "x", "codexErrorInfo": "other"}))), Known::direct(FailureClass::Other));
+        assert_eq!(rec(failed(json!({"message": "x", "codexErrorInfo": {"httpConnectionFailed": {"httpStatusCode": 500}}}))), Known::direct(FailureClass::Other));
+        // the class is missing: not guessed
+        assert_eq!(rec(failed(json!({"message": "x", "codexErrorInfo": null}))), Known::Missing);
+        assert_eq!(rec(json!({"id": "t", "status": "failed", "items": [], "error": null})), Known::Missing);
+        assert_eq!(rec(json!({"id": "t", "status": "failed", "items": []})), Known::Missing);
+        // not a failure: no class
+        assert_eq!(rec(json!({"id": "t", "status": "completed", "items": []})), Known::NotFetched);
+        assert_eq!(rec(json!({"id": "t", "status": "interrupted", "items": []})), Known::NotFetched);
     }
 
     #[test]

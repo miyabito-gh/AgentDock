@@ -65,6 +65,7 @@ struct Fake {
     clock: Arc<std::sync::atomic::AtomicI64>,
     reconcile: Mutex<Option<TurnEnd>>,
     reconcile_reads: Mutex<usize>,
+    reconcile_failure: Mutex<Known<crate::backend::backend::FailureClass>>,
 }
 
 #[async_trait]
@@ -101,7 +102,7 @@ impl RuntimeRead for Fake {
     }
     async fn read_reconcile(&self, _chat: &ChatKey, _turn: &TurnKey, _cwd: Option<&str>) -> ReconcileRead {
         *self.reconcile_reads.lock().unwrap() += 1;
-        ReconcileRead { turn_read: true, turn_end: *self.reconcile.lock().unwrap(), worktree: WorktreeFinding::NotOwned }
+        ReconcileRead { turn_read: true, turn_end: *self.reconcile.lock().unwrap(), turn_failure: self.reconcile_failure.lock().unwrap().clone(), worktree: WorktreeFinding::NotOwned }
     }
     async fn descendants(&self, _chat: &ChatKey) -> DescendantReport {
         DescendantReport { working: 0, unknown: 0, scan_complete: true }
@@ -139,7 +140,7 @@ fn rig(fail_after: Option<usize>) -> Rig {
 
 fn rig_full(fail_after: Option<usize>, fail_slots: bool) -> Rig {
     let log: Log = Arc::default();
-    let fake = Arc::new(Fake { reg: GrantRegistry::default(), log: log.clone(), live: Mutex::new(true), sandbox_exit: Mutex::new(0), sends: Mutex::new(0), creates: Mutex::new(0), clock: Arc::new(std::sync::atomic::AtomicI64::new(1000)), reconcile: Mutex::new(None), reconcile_reads: Mutex::new(0) });
+    let fake = Arc::new(Fake { reg: GrantRegistry::default(), log: log.clone(), live: Mutex::new(true), sandbox_exit: Mutex::new(0), sends: Mutex::new(0), creates: Mutex::new(0), clock: Arc::new(std::sync::atomic::AtomicI64::new(1000)), reconcile: Mutex::new(None), reconcile_reads: Mutex::new(0), reconcile_failure: Mutex::new(Known::NotFetched) });
     let sink = Arc::new(Sink::default());
     let store: DynStore = Arc::new(MemStore { log: log.clone(), events: Mutex::new(Vec::new()), fail_after, slots: Mutex::new(Vec::new()), fail_slots });
     let clock = fake.clock.clone();
@@ -442,4 +443,32 @@ async fn a_slot_value_that_cannot_be_written_stops_everything_after_it() {
     // a later write is not even tried
     assert!(r.driver.exec(put_slot(2), &mut stop).await.is_none());
     assert!(!r.log.lock().unwrap().iter().any(|l| l.starts_with("slot:")));
+}
+
+/// 照合（読取りだけ）で失敗の終端を確認したときの行き先。区分が読めたものだけ上限か否かを決め、読めないものは区分不明にする。
+/// どれも失敗（終端）にはならず、止まって利用者の選択を待つ。
+#[tokio::test]
+async fn a_failure_found_by_reconciliation_blocks_by_its_class_and_never_fails_the_task() {
+    use crate::backend::backend::FailureClass;
+    let cases: [(Known<FailureClass>, org_engine::BlockedReason); 4] = [
+        (Known::direct(FailureClass::UsageLimit), org_engine::BlockedReason::UsageLimit),
+        (Known::direct(FailureClass::Other), org_engine::BlockedReason::TurnFailed),
+        (Known::Missing, org_engine::BlockedReason::TurnFailed),
+        (Known::NotFetched, org_engine::BlockedReason::TurnFailed),
+    ];
+    for (class, reason) in cases {
+        let mut r = rig(None);
+        running_planner(&mut r).await;
+        r.driver.on_msg(DriverMsg::Input(OrgInput::Freshness { cause: org_engine::ReconcileCause::Restart })).await;
+        *r.fake.reconcile.lock().unwrap() = Some(TurnEnd::Failed);
+        *r.fake.reconcile_failure.lock().unwrap() = class.clone();
+        r.driver.on_msg(DriverMsg::Reconcile).await;
+        let state = r.driver.core().state().unwrap();
+        let t = state.task(&TaskId::new("planner-1")).unwrap();
+        assert_eq!(t.status(), TaskStatus::Blocked(reason), "{class:?}");
+        assert_eq!(t.confirm(), org_engine::ConfirmState::Confirmed);
+        // Freshness で付いた「再開待ち」の停止のまま（照合は新しい送信も再開もしない）。
+        assert_eq!(state.halt(), Some(org_engine::HaltReason::NeedsResume));
+        assert_eq!(sends(&r), 1, "nothing is sent again");
+    }
 }

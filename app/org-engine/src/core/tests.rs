@@ -583,8 +583,8 @@ fn failures_usage_limit_and_interrupts_are_not_cancellations() {
     let ca = sim.t("a").chat().unwrap().clone();
     let ta = sim.t("a").accepted_turn().unwrap().clone();
     sim.feed(OrgInput::TurnEnded { chat: ca, turn: ta, end: TurnEndKind::Failed { usage_limit: true } });
-    assert_eq!(sim.t("a").status(), TaskStatus::Blocked(BlockedReason::NeedsAttention));
-    assert_eq!(sim.st().halt(), Some(HaltReason::User));
+    assert_eq!(sim.t("a").status(), TaskStatus::Blocked(BlockedReason::UsageLimit));
+    assert_eq!(sim.st().halt(), Some(HaltReason::UsageLimit));
     assert!(sim.notices().iter().any(|n| matches!(n, OrgNotice::UsageLimit { .. })));
 
     let cb = sim.t("b").chat().unwrap().clone();
@@ -600,7 +600,9 @@ fn failures_usage_limit_and_interrupts_are_not_cancellations() {
     let ca = sim.t("a").chat().unwrap().clone();
     let ta = sim.t("a").accepted_turn().unwrap().clone();
     sim.feed(OrgInput::TurnEnded { chat: ca, turn: ta, end: TurnEndKind::Failed { usage_limit: false } });
-    assert_eq!(sim.t("a").status(), TaskStatus::Failed(FailReason::ExecutionFailed));
+    // a failed turn is not terminal by itself: the user decides
+    assert_eq!(sim.t("a").status(), TaskStatus::Blocked(BlockedReason::TurnFailed));
+    assert_eq!(sim.st().halt(), None);
 }
 
 #[test]
@@ -767,6 +769,9 @@ fn shutdown_of_a_finished_workflow_records_nothing() {
     let ca = sim.t("a").chat().unwrap().clone();
     let ta = sim.t("a").accepted_turn().unwrap().clone();
     sim.feed(OrgInput::TurnEnded { chat: ca, turn: ta, end: TurnEndKind::Failed { usage_limit: false } });
+    assert_eq!(sim.t("a").status(), TaskStatus::Blocked(BlockedReason::TurnFailed));
+    sim.feed(OrgInput::UserFailTask { task: tid("a") });
+    assert_eq!(sim.t("a").status(), TaskStatus::Failed(FailReason::ExecutionFailed));
     sim.feed(OrgInput::Shutdown);
     assert_ne!(sim.st().halt(), Some(HaltReason::Shutdown));
 }
@@ -1088,4 +1093,252 @@ second line".into());
     });
     let why = why.expect("a blocked notice with a reason");
     assert!(why.contains("not a valid object name") && !why.contains("second line"), "{why}");
+}
+
+// ---------------------------------------------------------------- R1 (DESIGN_ORG_R1): failures, retries, adoption
+
+fn end_turn(sim: &mut Sim, id: &str, end: TurnEndKind) {
+    let (chat, turn) = (sim.t(id).chat().unwrap().clone(), sim.t(id).accepted_turn().unwrap().clone());
+    sim.feed(OrgInput::TurnEnded { chat, turn, end });
+}
+
+fn dispatched_kinds(sim: &Sim, id: &str) -> Vec<TurnKind> {
+    sim.log
+        .iter()
+        .filter_map(|a| match a {
+            OrgAction::Persist(ev) => match &ev.kind {
+                OrgEventKind::Dispatched { task, kind, .. } if task.0 == id => Some(*kind),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn turn_failures_block_with_their_reason_and_only_the_usage_limit_halts() {
+    let cases = [
+        (TurnEndKind::Failed { usage_limit: true }, BlockedReason::UsageLimit, Some(HaltReason::UsageLimit)),
+        (TurnEndKind::Failed { usage_limit: false }, BlockedReason::TurnFailed, None),
+        (TurnEndKind::FailedUnclassified, BlockedReason::TurnFailed, None),
+        (TurnEndKind::Interrupted, BlockedReason::ManualStop, None),
+    ];
+    for (end, reason, halt) in cases {
+        let mut sim = Sim::new();
+        sim.with_plan(&plan_json(&[("a", "worker", &[], &[])]));
+        end_turn(&mut sim, "a", end);
+        assert_eq!(sim.t("a").status(), TaskStatus::Blocked(reason), "{end:?}");
+        assert_eq!(sim.t("a").confirm(), ConfirmState::Confirmed);
+        assert_eq!(sim.st().halt(), halt, "{end:?}");
+        assert!(!sim.notices().iter().any(|n| matches!(n, OrgNotice::TaskFailed { .. })));
+    }
+}
+
+#[test]
+fn retry_kind_covers_every_branch() {
+    let mut sim = Sim::new();
+    sim.with_plan(&plan_json(&[("a", "worker", &[], &[])]));
+    let limits = Limits::default();
+    // running: not blocked
+    assert_eq!(retry_kind(sim.t("a"), &limits, 5), Err(RetryRefusal::NotBlocked));
+    end_turn(&mut sim, "a", TurnEndKind::Failed { usage_limit: true });
+    assert_eq!(retry_kind(sim.t("a"), &limits, 5), Ok(RetryKind::NewAttempt { reason: RetryReason::UsageLimit }));
+    assert_eq!(retry_kind(sim.t("a"), &limits, 0), Err(RetryRefusal::NoTurns));
+    assert_eq!(retry_kind(sim.t("a"), &Limits { max_retries: 0, ..limits.clone() }, 5), Err(RetryRefusal::RetryLimit { used: 0, max: 0 }));
+    // unconfirmed
+    let mut t = sim.t("a").clone();
+    t.confirm = ConfirmState::NeedsReconcile(ReconcileCause::Wake);
+    assert_eq!(retry_kind(&t, &limits, 5), Err(RetryRefusal::SendUnknown));
+    // the end of the accepted turn is not confirmed
+    let mut t = sim.t("a").clone();
+    t.observed = None;
+    assert_eq!(retry_kind(&t, &limits, 5), Err(RetryRefusal::NotEnded));
+    let mut t = sim.t("a").clone();
+    t.observed = Some(TurnObservation { turn: TurnRef::new("other"), end: TurnEndKind::Interrupted });
+    assert_eq!(retry_kind(&t, &limits, 5), Err(RetryRefusal::NotEnded));
+    // the turn completed: nothing to retry
+    let mut t = sim.t("a").clone();
+    t.observed = Some(TurnObservation { turn: t.accepted_turn().unwrap().clone(), end: TurnEndKind::Completed });
+    assert_eq!(retry_kind(&t, &limits, 5), Err(RetryRefusal::NotEnded));
+    // an open attempt
+    let mut t = sim.t("a").clone();
+    t.last_settle = None;
+    assert_eq!(retry_kind(&t, &limits, 5), Err(RetryRefusal::SendUnknown));
+    // reasons by end
+    for (end, reason) in [(TurnEndKind::FailedUnclassified, RetryReason::TurnFailed), (TurnEndKind::Interrupted, RetryReason::Interrupted)] {
+        let mut t = sim.t("a").clone();
+        t.status = TaskStatus::Blocked(BlockedReason::ManualStop);
+        t.observed = Some(TurnObservation { turn: t.accepted_turn().unwrap().clone(), end });
+        assert_eq!(retry_kind(&t, &limits, 5), Ok(RetryKind::NewAttempt { reason }));
+    }
+    // a task nothing was sent for keeps the old "try again"
+    let mut t = sim.t("a").clone();
+    t.status = TaskStatus::Blocked(BlockedReason::NeedsAttention);
+    t.accepted_turn = None;
+    t.last_attempt = None;
+    t.observed = None;
+    assert_eq!(retry_kind(&t, &limits, 5), Ok(RetryKind::Unsent));
+}
+
+#[test]
+fn a_new_attempt_is_sent_once_per_user_action_and_counted() {
+    let mut sim = Sim::new();
+    sim.with_plan(&plan_json(&[("a", "worker", &[], &[])]));
+    end_turn(&mut sim, "a", TurnEndKind::Failed { usage_limit: false });
+    assert_eq!(sim.sends("a"), 1);
+    // nothing is sent by itself
+    for i in 0..3 {
+        assert!(!has_send(&sim.feed(OrgInput::Tick { now_ms: 5000 + i })));
+    }
+    let acts = sim.feed(OrgInput::UserRetryTask { task: tid("a") });
+    assert_eq!(acts.iter().filter(|a| matches!(a, OrgAction::Send { .. })).count(), 1);
+    assert_eq!(sim.sends("a"), 2);
+    assert_eq!(dispatched_kinds(&sim, "a"), vec![TurnKind::Task, TurnKind::Retry]);
+    assert_eq!(sim.t("a").retry_count(), 1);
+    assert!(!sim.t("a").retry_pending(), "Dispatched clears the pending flag");
+    assert_eq!(sim.t("a").status(), TaskStatus::Running);
+    let text = acts.iter().find_map(|a| if let OrgAction::Send { text, .. } = a { Some(text.clone()) } else { None }).unwrap();
+    assert!(text.contains("失敗") && text.contains("title a") && !text.contains("do a"), "{text}");
+    // the second press while it runs does nothing
+    let acts = sim.feed(OrgInput::UserRetryTask { task: tid("a") });
+    assert!(!has_send(&acts) && sim.t("a").retry_count() == 1);
+    // the new turn completes normally
+    sim.complete_turn("a", REPORT);
+    assert_eq!(sim.t("a").status(), TaskStatus::Completed);
+}
+
+#[test]
+fn the_retry_limit_stops_new_attempts_and_survives_a_replay() {
+    let mut sim = Sim::new();
+    sim.start(Limits { max_retries: 1, ..Limits::default() });
+    sim.complete_turn("planner-1", &plan_json(&[("a", "worker", &[], &[])]));
+    end_turn(&mut sim, "a", TurnEndKind::Failed { usage_limit: false });
+    sim.feed(OrgInput::UserRetryTask { task: tid("a") });
+    assert_eq!(sim.sends("a"), 2);
+    end_turn(&mut sim, "a", TurnEndKind::FailedUnclassified);
+    assert_eq!(sim.t("a").status(), TaskStatus::Blocked(BlockedReason::TurnFailed));
+    let acts = sim.feed(OrgInput::UserRetryTask { task: tid("a") });
+    assert!(acts.iter().any(|a| matches!(a, OrgAction::Notify(OrgNotice::Refused { .. }))));
+    assert_eq!(sim.sends("a"), 2);
+    assert_eq!(sim.t("a").retry_count(), 1);
+    // replay (as after a restart) keeps the count
+    let events: Vec<OrgEvent> = sim.log.iter().filter_map(|a| if let OrgAction::Persist(e) = a { Some(e.clone()) } else { None }).collect();
+    let OrgEventKind::Created { workflow_id, limits } = &events[0].kind else { panic!("first event is Created") };
+    let mut s = WorkflowState::new(workflow_id.clone(), limits.clone());
+    for e in &events[1..] {
+        s.apply(e).unwrap_or_else(|err| panic!("replay rejected {e:?}: {err}"));
+    }
+    assert_eq!(&s, sim.st());
+    assert!(matches!(
+        s.record(OrgEventKind::RetryRequested { task: tid("a") }, 0),
+        Err(crate::ApplyError::Limit(crate::LimitError::RetryLimit { used: 1, max: 1 }))
+    ));
+}
+
+#[test]
+fn a_usage_limit_stop_is_resumed_by_the_user_and_sends_only_what_the_user_retries() {
+    let mut sim = Sim::new();
+    sim.with_plan(&plan_json(&[("a", "worker", &[], &[]), ("b", "worker", &[], &[])]));
+    end_turn(&mut sim, "a", TurnEndKind::Failed { usage_limit: true });
+    assert_eq!(sim.st().halt(), Some(HaltReason::UsageLimit));
+    // the retry is accepted but nothing goes out while the workflow is halted
+    let acts = sim.feed(OrgInput::UserRetryTask { task: tid("a") });
+    assert!(!has_send(&acts));
+    assert_eq!(sim.t("a").status(), TaskStatus::Ready);
+    let acts = sim.feed(OrgInput::UserResume);
+    assert_eq!(acts.iter().filter(|a| matches!(a, OrgAction::Send { task, .. } if task.0 == "a")).count(), 1);
+    assert_eq!(sim.sends("a"), 2);
+    // b was running all along and is untouched
+    assert_eq!(sim.sends("b"), 1);
+}
+
+#[test]
+fn settling_as_failed_is_a_user_action_for_stopped_tasks_only() {
+    let mut sim = Sim::new();
+    sim.with_plan(&plan_json(&[("a", "worker", &[], &[])]));
+    let acts = sim.feed(OrgInput::UserFailTask { task: tid("a") });
+    assert!(acts.iter().any(|a| matches!(a, OrgAction::Notify(OrgNotice::Refused { .. }))));
+    assert_eq!(sim.t("a").status(), TaskStatus::Running);
+    end_turn(&mut sim, "a", TurnEndKind::Interrupted);
+    sim.feed(OrgInput::UserFailTask { task: tid("a") });
+    assert_eq!(sim.t("a").status(), TaskStatus::Failed(FailReason::ExecutionFailed));
+}
+
+#[test]
+fn an_unconfirmed_stopped_task_cannot_be_settled_or_retried() {
+    let mut sim = Sim::new();
+    sim.with_plan(&plan_json(&[("a", "worker", &[], &[])]));
+    end_turn(&mut sim, "a", TurnEndKind::Failed { usage_limit: false });
+    let idx = sim.st().tasks().iter().position(|t| t.id.0 == "a").unwrap();
+    sim.core.state.as_mut().unwrap().tasks[idx].confirm = ConfirmState::StopUnconfirmed;
+    sim.feed(OrgInput::UserFailTask { task: tid("a") });
+    sim.feed(OrgInput::UserRetryTask { task: tid("a") });
+    assert_eq!(sim.t("a").status(), TaskStatus::Blocked(BlockedReason::TurnFailed));
+    assert_eq!(sim.sends("a"), 1);
+}
+
+#[test]
+fn adopting_a_manual_result_runs_the_usual_completion_and_never_sends() {
+    let mut sim = Sim::new();
+    sim.with_plan(&plan_json(&[("a", "worker", &[], &[])]));
+    sim.feed(OrgInput::UserManual { task: tid("a") });
+    assert_eq!(sim.t("a").status(), TaskStatus::Blocked(BlockedReason::Manual));
+    let chat = sim.t("a").chat().unwrap().clone();
+    sim.feed(OrgInput::Descendants { chat, working: 0, unknown: 0, scan_complete: true });
+    let acts = sim.feed(OrgInput::UserAdoptManual { task: tid("a"), turn: TurnRef::new("manual-1") });
+    assert!(acts.iter().any(|a| matches!(a, OrgAction::ReadFinalMessage { turn, .. } if turn.0 == "manual-1")));
+    assert!(!has_send(&acts));
+    assert!(sim.t("a").adopting());
+    assert_eq!(sim.t("a").accepted_turn(), Some(&TurnRef::new("manual-1")));
+    let acts = sim.feed(OrgInput::FinalMessage { task: tid("a"), turn: TurnRef::new("manual-1"), text: Some(REPORT.into()) });
+    assert!(acts.iter().any(|a| matches!(a, OrgAction::Workspace(WorkspaceAction::Commit { .. }))), "a worker is committed as usual");
+    assert_eq!(sim.t("a").status(), TaskStatus::Completed);
+    assert_eq!(sim.sends("a"), 1);
+}
+
+#[test]
+fn an_adopted_result_in_the_wrong_format_goes_back_to_manual_without_a_fix_turn() {
+    let mut sim = Sim::new();
+    sim.with_plan(&plan_json(&[("a", "worker", &[], &[])]));
+    sim.feed(OrgInput::UserManual { task: tid("a") });
+    sim.feed(OrgInput::UserAdoptManual { task: tid("a"), turn: TurnRef::new("manual-1") });
+    let acts = sim.feed(OrgInput::FinalMessage { task: tid("a"), turn: TurnRef::new("manual-1"), text: Some("done, thanks".into()) });
+    assert!(!has_send(&acts));
+    assert_eq!(sim.t("a").status(), TaskStatus::Blocked(BlockedReason::Manual));
+    assert!(!sim.t("a").adopting());
+    assert!(acts.iter().any(|a| matches!(a, OrgAction::Notify(OrgNotice::TaskBlocked { .. }))));
+    // an unreadable answer also returns to manual
+    sim.feed(OrgInput::UserAdoptManual { task: tid("a"), turn: TurnRef::new("manual-2") });
+    sim.feed(OrgInput::FinalMessage { task: tid("a"), turn: TurnRef::new("manual-2"), text: None });
+    assert_eq!(sim.t("a").status(), TaskStatus::Blocked(BlockedReason::Manual));
+    assert_eq!(sim.sends("a"), 1, "nothing was ever sent into the chat");
+    // and it can be adopted again
+    let chat = sim.t("a").chat().unwrap().clone();
+    sim.feed(OrgInput::Descendants { chat, working: 0, unknown: 0, scan_complete: true });
+    sim.feed(OrgInput::UserAdoptManual { task: tid("a"), turn: TurnRef::new("manual-3") });
+    sim.feed(OrgInput::FinalMessage { task: tid("a"), turn: TurnRef::new("manual-3"), text: Some(REPORT.into()) });
+    assert_eq!(sim.t("a").status(), TaskStatus::Completed);
+}
+
+#[test]
+fn adoption_requires_a_confirmed_manual_task() {
+    let mut sim = Sim::new();
+    sim.with_plan(&plan_json(&[("a", "worker", &[], &[])]));
+    let acts = sim.feed(OrgInput::UserAdoptManual { task: tid("a"), turn: TurnRef::new("m") });
+    assert!(acts.iter().any(|a| matches!(a, OrgAction::Notify(OrgNotice::Refused { .. }))));
+    assert_eq!(sim.t("a").status(), TaskStatus::Running);
+    assert!(matches!(
+        sim.core.state.as_mut().unwrap().record(OrgEventKind::ManualTurnAdopted { task: tid("a"), turn: TurnRef::new("m") }, 0),
+        Err(crate::ApplyError::NotAdoptable(_))
+    ));
+}
+
+#[test]
+fn limits_without_max_retries_read_as_three() {
+    let mut v = serde_json::to_value(Limits::default()).unwrap();
+    v.as_object_mut().unwrap().remove("max_retries");
+    let l: Limits = serde_json::from_value(v).unwrap();
+    assert_eq!(l.max_retries, 3);
+    assert!(Limits::default().with_max_retries(10).is_ok());
+    assert!(Limits::default().with_max_retries(11).is_err());
 }

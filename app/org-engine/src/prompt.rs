@@ -74,6 +74,19 @@ pub fn worker_prompt(task: &Task, request: &str, deps: &[(TaskId, Option<String>
     s
 }
 
+/// A new attempt into the same chat after a turn that ended without a result. The original request is not repeated
+/// (the chat already has it); the output schema is attached by the usual send path.
+pub fn retry_prompt(reason: crate::core::RetryReason, title: &str) -> String {
+    let why = match reason {
+        crate::core::RetryReason::UsageLimit => "利用上限",
+        crate::core::RetryReason::TurnFailed => "失敗",
+        crate::core::RetryReason::Interrupted => "中断",
+    };
+    format!(
+        "前の turn は{why}で途中で終わりました。作業フォルダとこれまでの会話を確認し、未完了の作業を続けて完了させ、最後に指定の形式で結果を返してください。（タスク: {title}）"
+    )
+}
+
 pub fn worker_rework_prompt(task: &Task, findings: Option<&[String]>) -> String {
     let body = match findings {
         Some(f) if !f.is_empty() => f.iter().map(|x| format!("- {x}")).collect::<Vec<_>>().join("\n"),

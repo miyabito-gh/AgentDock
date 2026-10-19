@@ -39,6 +39,10 @@ pub enum OrgReason {
     NeedsAttention,
     /// 差し戻しの辺の周回が上限に達し、利用者の判断（もう1周・取消し）を待っている。
     RoundLimit,
+    /// 利用上限で turn が失敗した。利用者が「新しい試行で再送」「失敗として確定」などを選ぶ。
+    UsageLimit,
+    /// turn が失敗した（利用上限以外、または区分不明）。利用者が選ぶ。
+    TurnFailed,
     ExecutionFailed,
     InvalidArtifact,
     LimitReached,
@@ -106,6 +110,8 @@ pub enum OrgHaltKind {
     AwaitingPlanApproval,
     /// 開始時のグラフ定義の写しを使えない（「再開」では解除できない）。
     DefinitionUnavailable,
+    /// 利用上限で turn が失敗したため全体を止めている（「再開」で解除。送るのは利用者が選んだタスクだけ）。
+    UsageLimit,
 }
 
 /// ワークフロー全体の停止（新規ディスパッチが止まっている理由）。
@@ -158,6 +164,31 @@ pub struct OrgWorktreeView {
     /// `Uncommitted` のときの変更件数。
     pub entries: Option<u32>,
     pub label: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub enum OrgRetryKind {
+    /// 送っていないことが確かなので、最初からやり直す。
+    Unsent,
+    /// 前の turn が結果なしで終わったので、同じチャットへ新しい試行を送る。
+    NewAttempt,
+}
+
+/// 再送の見込み（利用者の操作1回で1回だけ送る。自動では送らない）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgRetryView {
+    pub kind: OrgRetryKind,
+    /// 前の turn の終わり方（例「利用上限」「失敗」「中断」）。`Unsent` のときは空。
+    pub reason_label: String,
+    /// これまでの再送回数と、その上限。
+    pub used: u32,
+    pub max: u32,
 }
 
 /// 再起動・wake後の照合（読取りだけ）の直近の結果。
@@ -302,7 +333,20 @@ pub struct OrgTaskView {
     /// 作成結果が不明で、利用者のチャット選択が要るか。
     pub needs_chat_choice: bool,
     /// 「やり直す」を出せるか（送っていないことが確かで、初回のturnが受理されていない）。受理不明のものは出さない。
+    /// 新しい試行の再送もできるときも真（`retry.is_some()` と同値）。
     pub can_retry: bool,
+    /// 再送の見込み（できないときは None。理由は `retry_refusal`）。
+    #[serde(default)]
+    pub retry: Option<OrgRetryView>,
+    /// 再送できない理由（利用上限・失敗・中断で止まっているときだけ。ボタンの title に出す）。
+    #[serde(default)]
+    pub retry_refusal: Option<String>,
+    /// 「失敗として確定」を出せるか（止まっていて確認状態が確定）。
+    #[serde(default)]
+    pub can_fail: bool,
+    /// 「結果を取り込む」を出せるか（手動に切り替え済みで確認状態が確定、チャットあり）。
+    #[serde(default)]
+    pub can_adopt_manual: bool,
     /// 「止まっています（要対応）」の理由の1行（メモリ上の通知から。再起動で失われたときは、その旨）。要対応でなければ None。
     pub attention_note: Option<String>,
 }
@@ -319,6 +363,8 @@ pub struct OrgLimitsView {
     pub max_turns: u32,
     pub max_tasks: u32,
     pub stagnation_minutes: u32,
+    /// タスクごとの「新しい試行での再送」の上限（0〜10）。
+    pub max_retries: u32,
 }
 
 /// 使用量。turn数は数えた値。トークンは取れた行の合計で、取れなかった行は件数で示す（0で代用しない）。
@@ -711,6 +757,9 @@ pub struct StartOrgArgs {
     /// turn 上限（None は既定の30。1〜200）。
     #[serde(default)]
     pub max_turns: Option<u32>,
+    /// 新しい試行での再送の上限（None は既定の3。0〜10）。
+    #[serde(default)]
+    pub max_retries: Option<u32>,
 }
 
 /// 差し戻して再計画する。理由は Planner に利用者の要望として渡る（任意）。
@@ -806,6 +855,60 @@ pub struct OrgRaiseTurnLimitArgs {
     pub workflow_id: String,
     /// 新しいturn上限（今の値より大きいこと）。
     pub to: u32,
+}
+
+/// 再開。上限で止まったタスクのうち、利用者がチェックしたものだけを新しい試行として送る（自動では送らない）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgResumeArgs {
+    pub workflow_id: String,
+    #[serde(default)]
+    pub retry_tasks: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub enum OrgManualEnd {
+    Completed,
+    Running,
+    Failed,
+    Interrupted,
+    /// 履歴で終端を確認できない。
+    Unknown,
+}
+
+/// 手動に切り替えたチャットの最新 turn の読取り（取込みの確認用。読取りだけで何も送らない）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgManualResultView {
+    /// 最新の turn（履歴に turn がなければ None）。
+    pub turn_id: Option<String>,
+    pub end: OrgManualEnd,
+    /// 全件読めたか。
+    pub complete: bool,
+    /// 最終回答の先頭400字（読めないときは None）。
+    pub final_head: Option<String>,
+    /// 取り込めない理由（取り込めるときは None）。
+    pub problem: Option<String>,
+    /// このタスクの結果の形式の説明（クリップボードへコピーする用。送信はしない）。取得できなければ None。
+    pub format_hint: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgAdoptManualArgs {
+    pub workflow_id: String,
+    pub task: String,
+    /// 確認画面で見せた turn。履歴の最新と違えば拒否（確認し直し）。
+    pub turn_id: String,
 }
 
 /// 作成結果が不明なタスクの、結び付け先の候補。**自動では結び付けない**（利用者が選ぶ）。

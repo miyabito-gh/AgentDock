@@ -1289,6 +1289,7 @@ mod tests {
             completed_at: Known::Missing,
             entries: vec![],
             complete: end.is_some(),
+            failure: Known::NotFetched,
         }
     }
 

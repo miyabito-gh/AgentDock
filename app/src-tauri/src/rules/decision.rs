@@ -67,7 +67,7 @@ pub fn build_record(r: &PendingRequest, new_state: &RequestState, id: LocalId, a
         RequestState::Answered { option_id, at } => (answered_outcome(r, option_id.as_deref()), *at),
         RequestState::AnswerUnconfirmed { at } => (DecisionOutcome::Unconfirmed, *at),
         RequestState::ResolvedElsewhere { at } => (DecisionOutcome::ResolvedElsewhere, *at),
-        RequestState::Pending | RequestState::Cancelled { .. } | RequestState::Expired { .. } => return None,
+        RequestState::Pending | RequestState::Cancelled { .. } | RequestState::Expired { .. } | RequestState::Unanswerable { .. } => return None,
     };
     Some(DecisionRecord {
         id,

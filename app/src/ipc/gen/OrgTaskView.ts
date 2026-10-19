@@ -3,6 +3,7 @@ import type { ChatKey } from "./ChatKey";
 import type { OrgConfirmView } from "./OrgConfirmView";
 import type { OrgEffect } from "./OrgEffect";
 import type { OrgReconcileView } from "./OrgReconcileView";
+import type { OrgRetryView } from "./OrgRetryView";
 import type { OrgStatusView } from "./OrgStatusView";
 
 export type OrgTaskView = { id: string, role: string, title: string, deps: Array<string>, 
@@ -36,8 +37,25 @@ canAcceptManual: boolean,
 needsChatChoice: boolean, 
 /**
  * 「やり直す」を出せるか（送っていないことが確かで、初回のturnが受理されていない）。受理不明のものは出さない。
+ * 新しい試行の再送もできるときも真（`retry.is_some()` と同値）。
  */
 canRetry: boolean, 
+/**
+ * 再送の見込み（できないときは None。理由は `retry_refusal`）。
+ */
+retry: OrgRetryView | null, 
+/**
+ * 再送できない理由（利用上限・失敗・中断で止まっているときだけ。ボタンの title に出す）。
+ */
+retryRefusal: string | null, 
+/**
+ * 「失敗として確定」を出せるか（止まっていて確認状態が確定）。
+ */
+canFail: boolean, 
+/**
+ * 「結果を取り込む」を出せるか（手動に切り替え済みで確認状態が確定、チャットあり）。
+ */
+canAdoptManual: boolean, 
 /**
  * 「止まっています（要対応）」の理由の1行（メモリ上の通知から。再起動で失われたときは、その旨）。要対応でなければ None。
  */

@@ -44,6 +44,8 @@ pub fn status_view(s: TaskStatus) -> OrgStatusView {
                 EBlocked::Limit => (OrgReason::Limit, "止まっています（上限）"),
                 EBlocked::NeedsAttention => (OrgReason::NeedsAttention, "止まっています（要対応）"),
                 EBlocked::RoundLimit => (OrgReason::RoundLimit, "止まっています（やり直しの上限）"),
+                EBlocked::UsageLimit => (OrgReason::UsageLimit, "止まっています（利用上限）"),
+                EBlocked::TurnFailed => (OrgReason::TurnFailed, "止まっています（turnが失敗）"),
             };
             (P::Blocked, Some(reason), label, "pause")
         }
@@ -94,6 +96,7 @@ pub fn halt_view(h: HaltReason) -> OrgHaltView {
         HaltReason::NeedsResume => (OrgHaltKind::NeedsResume, "送る先のチャットが live ではないため停止しています。「再開」で戻します", "pause", true),
         HaltReason::SandboxUnhealthy => (OrgHaltKind::SandboxUnhealthy, "Codex の sandbox を起動できないため停止しています", "alert-triangle", true),
         HaltReason::AwaitingPlanApproval => (OrgHaltKind::AwaitingPlanApproval, "計画の承認待ちです", "help-circle", false),
+        HaltReason::UsageLimit => (OrgHaltKind::UsageLimit, "利用上限で停止中です。上限が解けてから「再開」し、再送するタスクを選んでください", "alert-triangle", true),
         HaltReason::DefinitionUnavailable => (OrgHaltKind::DefinitionUnavailable, "開始時のグラフ定義の写しを使えないため、このワークフローは進められません（再開できません）", "alert-triangle", false),
     };
     OrgHaltView { kind, label: label.to_string(), icon: icon.to_string(), resumable }
@@ -286,6 +289,7 @@ fn task_view(t: &TaskSnapshot, snap: &OrgSnapshot, notices: &[NoticeEntry]) -> O
         }
     }
     let stall_notified = t.status == TaskStatus::Running && matches!(last_for_task, Some(OrgHostNotice::Stalled { .. }));
+    let (retry, retry_refusal) = retry_views(t, snap.limits.max_retries);
     OrgTaskView {
         id: t.id.0.clone(),
         role: t.role.clone(),
@@ -307,14 +311,89 @@ fn task_view(t: &TaskSnapshot, snap: &OrgSnapshot, notices: &[NoticeEntry]) -> O
             && t.chat_cwd.is_some()
             && t.status == TaskStatus::Blocked(EBlocked::NeedsAttention)
             && t.confirm == ConfirmState::SendUnknown,
-        can_retry: t.retryable,
+        can_retry: retry.is_some(),
+        retry,
+        retry_refusal,
+        can_fail: t.confirm == ConfirmState::Confirmed
+            && matches!(t.status, TaskStatus::Blocked(EBlocked::UsageLimit | EBlocked::TurnFailed | EBlocked::ManualStop | EBlocked::NeedsAttention)),
+        can_adopt_manual: t.status == TaskStatus::Blocked(EBlocked::Manual) && t.confirm == ConfirmState::Confirmed && t.chat.is_some(),
         attention_note: attention_note(t, notices),
+    }
+}
+
+/// 手動に切り替えたチャットの最新 turn を、取込みの確認用の形にする（純粋な変換）。
+/// `running` はそのチャットに実行中の turn があるか。取り込めない理由は `problem` に書く（取り込めるなら None）。
+pub fn manual_result_view(turns: &[crate::backend::model::TurnRecord], running: bool, format_hint: Option<String>) -> OrgManualResultView {
+    use crate::backend::model::TurnEnd as E;
+    let Some(last) = turns.last() else {
+        return OrgManualResultView {
+            turn_id: None,
+            end: OrgManualEnd::Unknown,
+            complete: false,
+            final_head: None,
+            problem: Some("履歴にturnがありません".to_string()),
+            format_hint,
+        };
+    };
+    let end = match last.end {
+        Some(E::Completed) => OrgManualEnd::Completed,
+        Some(E::Failed) => OrgManualEnd::Failed,
+        Some(E::Interrupted) => OrgManualEnd::Interrupted,
+        None if running => OrgManualEnd::Running,
+        None => OrgManualEnd::Unknown,
+    };
+    let final_text = crate::rules::org::final_message_of(turns, &last.key);
+    let problem = if running {
+        Some("チャットで turn が実行中です。終わってから取り込んでください".to_string())
+    } else if end != OrgManualEnd::Completed {
+        let what = match end {
+            OrgManualEnd::Failed => "失敗で終わっています",
+            OrgManualEnd::Interrupted => "中断で終わっています",
+            OrgManualEnd::Running => "実行中です",
+            _ => "終端を確認できません",
+        };
+        Some(format!("最新のturnは{what}。完了したturnだけを取り込めます"))
+    } else if !last.complete {
+        Some("履歴を全件読めていないため、取り込めません".to_string())
+    } else if final_text.is_none() {
+        Some("最終回答を読めません".to_string())
+    } else {
+        None
+    };
+    OrgManualResultView {
+        turn_id: Some(last.key.turn_id.0.clone()),
+        end,
+        complete: last.complete,
+        final_head: final_text.map(|t| t.chars().take(400).collect()),
+        problem,
+        format_hint,
+    }
+}
+
+/// 再送の見込みを画面の形にする。できないときは、止まっている理由のうち再送の対象になるものだけ、拒否の理由を添える。
+fn retry_views(t: &TaskSnapshot, max: u32) -> (Option<OrgRetryView>, Option<String>) {
+    match &t.retry {
+        Ok(org_engine::RetryKind::Unsent) => {
+            (Some(OrgRetryView { kind: OrgRetryKind::Unsent, reason_label: String::new(), used: t.retry_count, max }), None)
+        }
+        Ok(org_engine::RetryKind::NewAttempt { reason }) => {
+            let label = match reason {
+                org_engine::RetryReason::UsageLimit => "利用上限",
+                org_engine::RetryReason::TurnFailed => "失敗",
+                org_engine::RetryReason::Interrupted => "中断",
+            };
+            (Some(OrgRetryView { kind: OrgRetryKind::NewAttempt, reason_label: label.to_string(), used: t.retry_count, max }), None)
+        }
+        Err(why) => {
+            let eligible = matches!(t.status, TaskStatus::Blocked(EBlocked::UsageLimit | EBlocked::TurnFailed | EBlocked::ManualStop));
+            (None, eligible.then(|| why.text()))
+        }
     }
 }
 
 /// 「要対応」で止まったタスクの理由の1行。通知（メモリ上）に残っていなければ、失われたことを明示する（空にしない）。
 fn attention_note(t: &TaskSnapshot, notices: &[NoticeEntry]) -> Option<String> {
-    if t.status != TaskStatus::Blocked(EBlocked::NeedsAttention) {
+    if !matches!(t.status, TaskStatus::Blocked(EBlocked::NeedsAttention | EBlocked::TurnFailed)) {
         return None;
     }
     let why = notices.iter().rev().find_map(|e| match &e.notice {
@@ -398,6 +477,7 @@ pub fn workflow_view(input: &ViewInput<'_>) -> OrgWorkflowView {
             max_turns: snap.limits.max_turns,
             max_tasks: snap.limits.max_tasks,
             stagnation_minutes: snap.limits.stagnation_minutes,
+            max_retries: snap.limits.max_retries,
         },
         usage: usage_view(snap, input.usage_rows),
         finished: !tasks.is_empty() && snap.tasks.iter().all(|t| finished(t.status)),
@@ -828,6 +908,10 @@ mod tests {
             chat_cwd: None,
             retryable: false,
             never_sent: false,
+            retry: Err(org_engine::RetryRefusal::NotBlocked),
+            retry_count: 0,
+            adopting: false,
+            manual_format: None,
             node: None,
         }
     }
@@ -1272,5 +1356,94 @@ mod tests {
         let b = notice_view(&entry(2, OrgHostNotice::SlotWriteFailed { slot: "report".into() })).unwrap();
         assert_eq!((b.kind, b.severity), (OrgNoticeKind::SlotWriteFailed, OrgSeverity::Attention));
         assert_eq!(status_view(TaskStatus::Blocked(EBlocked::RoundLimit)).reason, Some(OrgReason::RoundLimit));
+    }
+
+    #[test]
+    fn usage_limit_and_failed_turns_have_their_own_labels_and_the_halt_says_so() {
+        let s = status_view(TaskStatus::Blocked(EBlocked::UsageLimit));
+        assert_eq!((s.reason, s.label.as_str()), (Some(OrgReason::UsageLimit), "止まっています（利用上限）"));
+        let s = status_view(TaskStatus::Blocked(EBlocked::TurnFailed));
+        assert_eq!((s.reason, s.label.as_str()), (Some(OrgReason::TurnFailed), "止まっています（turnが失敗）"));
+        let h = halt_view(HaltReason::UsageLimit);
+        assert_eq!(h.kind, OrgHaltKind::UsageLimit);
+        assert!(h.resumable && h.label.contains("利用上限"));
+    }
+
+    #[test]
+    fn retry_and_failing_are_offered_only_where_the_engine_would_accept_them() {
+        let mut a = task("a", &[], TaskStatus::Blocked(EBlocked::UsageLimit), ConfirmState::Confirmed);
+        a.retry = Ok(org_engine::RetryKind::NewAttempt { reason: org_engine::RetryReason::UsageLimit });
+        a.retry_count = 1;
+        let mut b = task("b", &[], TaskStatus::Blocked(EBlocked::TurnFailed), ConfirmState::Confirmed);
+        b.retry = Err(org_engine::RetryRefusal::RetryLimit { used: 3, max: 3 });
+        let mut c = task("c", &[], TaskStatus::Blocked(EBlocked::TurnFailed), ConfirmState::StopUnconfirmed);
+        c.retry = Err(org_engine::RetryRefusal::SendUnknown);
+        let d = task("d", &[], TaskStatus::Blocked(EBlocked::Manual), ConfirmState::Confirmed);
+        let mut e = task("e", &[], TaskStatus::Blocked(EBlocked::NeedsAttention), ConfirmState::Confirmed);
+        e.retryable = true;
+        e.retry = Ok(org_engine::RetryKind::Unsent);
+        let mut chatty = d.clone();
+        chatty.id = TaskId::new("f");
+        chatty.chat = Some(org_engine::ChatRef::new("codex:x"));
+        let s = snap(vec![a, b, c, d, e, chatty], None);
+        let v = view_of(&s, &[], &[]);
+        let t = |id: &str| v.tasks.iter().find(|t| t.id == id).unwrap();
+        let r = t("a").retry.as_ref().unwrap();
+        assert_eq!((r.kind, r.reason_label.as_str(), r.used, r.max), (OrgRetryKind::NewAttempt, "利用上限", 1, 3));
+        assert!(t("a").can_retry && t("a").retry_refusal.is_none() && t("a").can_fail);
+        // refused: no retry, and the reason is there for the button's title
+        assert!(!t("b").can_retry && t("b").retry.is_none());
+        assert!(t("b").retry_refusal.as_deref().unwrap().contains("3/3"));
+        // not confirmed: cannot be settled either
+        assert!(!t("c").can_fail && !t("c").can_retry);
+        // manual: adopting needs a chat
+        assert!(!t("d").can_adopt_manual && t("f").can_adopt_manual && t("d").retry_refusal.is_none());
+        // the old "try again" is still offered, as such
+        assert_eq!(t("e").retry.as_ref().unwrap().kind, OrgRetryKind::Unsent);
+        assert_eq!(v.limits.max_retries, 3);
+    }
+
+    fn turn_rec(end: Option<crate::backend::model::TurnEnd>, complete: bool, text: Option<&str>) -> crate::backend::model::TurnRecord {
+        use crate::backend::model::*;
+        let key = TurnKey { agent: AgentKey { backend: BackendKind::Codex, id: ExternalId("r".into()) }, turn_id: ExternalId("t9".into()) };
+        let entries = text
+            .map(|t| {
+                vec![TranscriptEntry {
+                    key: ItemKey { agent: key.agent.clone(), turn_id: Some(key.turn_id.clone()), item_id: ExternalId("i1".into()) },
+                    kind: ActivityKind::AgentMessage,
+                    text: Known::direct(t.to_string()),
+                    phase: ActivityPhase::Completed,
+                    message_phase: MessagePhase::Final,
+                    attachments: Vec::new(),
+                }]
+            })
+            .unwrap_or_default();
+        TurnRecord { key, end, started_at: Known::NotFetched, completed_at: Known::NotFetched, entries, complete, failure: Known::NotFetched }
+    }
+
+    #[test]
+    fn the_manual_result_is_adoptable_only_for_a_complete_finished_turn_with_an_answer() {
+        use crate::backend::model::TurnEnd as E;
+        let ok = manual_result_view(&[turn_rec(Some(E::Completed), true, Some("answer"))], false, Some("fmt".into()));
+        assert_eq!((ok.turn_id.as_deref(), ok.end, ok.complete, ok.problem.as_deref()), (Some("t9"), OrgManualEnd::Completed, true, None));
+        assert_eq!((ok.final_head.as_deref(), ok.format_hint.as_deref()), (Some("answer"), Some("fmt")));
+        // the head is capped
+        let long = "あ".repeat(900);
+        assert_eq!(manual_result_view(&[turn_rec(Some(E::Completed), true, Some(&long))], false, None).final_head.unwrap().chars().count(), 400);
+        // each reason to refuse names itself, and nothing is guessed
+        for (turns, running, end) in [
+            (vec![turn_rec(Some(E::Failed), true, Some("a"))], false, OrgManualEnd::Failed),
+            (vec![turn_rec(Some(E::Interrupted), true, Some("a"))], false, OrgManualEnd::Interrupted),
+            (vec![turn_rec(None, true, None)], true, OrgManualEnd::Running),
+            (vec![turn_rec(None, true, None)], false, OrgManualEnd::Unknown),
+        ] {
+            let v = manual_result_view(&turns, running, None);
+            assert_eq!(v.end, end);
+            assert!(v.problem.is_some(), "{end:?}");
+        }
+        assert!(manual_result_view(&[turn_rec(Some(E::Completed), false, Some("a"))], false, None).problem.unwrap().contains("全件"));
+        assert!(manual_result_view(&[turn_rec(Some(E::Completed), true, None)], false, None).problem.unwrap().contains("最終回答"));
+        let none = manual_result_view(&[], false, None);
+        assert!(none.turn_id.is_none() && none.problem.is_some());
     }
 }

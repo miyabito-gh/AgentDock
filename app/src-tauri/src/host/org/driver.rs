@@ -105,6 +105,14 @@ pub struct TaskSnapshot {
     pub retryable: bool,
     /// 送信の記録（Dispatched）も受理されたturnもない（チャットは一度も発話を受けていない）。
     pub never_sent: bool,
+    /// 再送の見込み（最初からやり直す／新しい試行で再送）か、できない理由。送信権・実行中の処理の有無はエンジンが送信時に確かめる。
+    pub retry: Result<org_engine::RetryKind, org_engine::RetryRefusal>,
+    /// これまでの新しい試行での再送回数。
+    pub retry_count: u32,
+    /// 手動の結果を取り込み中（`Running` の間、通常の送信を拒否する）。
+    pub adopting: bool,
+    /// 手動に切り替え中のタスクの結果の形式（JSONスキーマの文）。取得できなければ None。
+    pub manual_format: Option<String>,
     /// このタスクが動かすグラフのノード（グラフで動くワークフローだけ）。
     pub node: Option<org_engine::graph::NodeId>,
 }
@@ -137,6 +145,10 @@ pub fn snapshot_of(state: &org_engine::WorkflowState, graph: Option<&org_engine:
                 chat_cwd: t.chat_cwd().map(str::to_string),
                 retryable: org_engine::retryable(t),
                 never_sent: t.last_attempt().is_none() && t.accepted_turn().is_none(),
+                retry: org_engine::retry_kind(t, state.limits(), state.counters().turns_remaining(state.limits())),
+                retry_count: t.retry_count(),
+                adopting: t.adopting(),
+                manual_format: None,
                 node: t.node().cloned(),
             })
             .collect(),
@@ -255,6 +267,8 @@ impl<P: AgentRuntime + RuntimeRead + Workspace + 'static> OrgDriver<P> {
             .tasks()
             .iter()
             .filter(|t| t.status() == TaskStatus::Running && t.confirm() == ConfirmState::Confirmed)
+            // 承認・質問の回答待ち（利用者の対応待ち）は停滞ではない。
+            .filter(|t| t.chat().is_none_or(|c| self.core.open_requests_of(c) == 0))
             .map(|t| (t.id.clone(), t.chat().cloned()))
             .collect();
         for s in self.stall.check(now, &running) {
@@ -282,7 +296,7 @@ impl<P: AgentRuntime + RuntimeRead + Workspace + 'static> OrgDriver<P> {
             let read = self.ports.read_reconcile(&key, &turn_key_of_ref(&key, &turn), cwd.as_deref()).await;
             self.notice(OrgHostNotice::Reconciled { task, turn_read: read.turn_read, turn_end: read.turn_end, worktree: read.worktree });
             if let Some(end) = read.turn_end {
-                self.step(OrgInput::TurnEnded { chat, turn, end: crate::rules::org::turn_end_kind_of(end) }).await;
+                self.step(OrgInput::TurnEnded { chat, turn, end: crate::rules::org::turn_end_kind_of(end, &read.turn_failure) }).await;
             }
         }
     }
@@ -481,7 +495,11 @@ impl<P: AgentRuntime + RuntimeRead + Workspace + 'static> OrgDriver<P> {
                 crate::diag::log("org", &format!("snapshot failed: {e:?}"));
             }
         }
-        self.sink.publish(snapshot_of(state, self.core.graph()));
+        let mut snap = snapshot_of(state, self.core.graph());
+        for t in snap.tasks.iter_mut().filter(|t| t.status == TaskStatus::Blocked(org_engine::BlockedReason::Manual)) {
+            t.manual_format = self.core.output_format_of(&t.id);
+        }
+        self.sink.publish(snap);
     }
 
     /// turn の終端で、最後に届いた使用量の標本を1行にして記録する。種別が分からない（再起動後など）ときは書かない。

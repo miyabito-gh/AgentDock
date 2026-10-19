@@ -40,6 +40,8 @@ pub(crate) const ROLE_ROUTER: &str = "router";
 pub enum TurnEndKind {
     Completed,
     Failed { usage_limit: bool },
+    /// The history shows the turn failed, but the cause cannot be classified (never guessed as a usage limit or not).
+    FailedUnclassified,
     Interrupted,
 }
 
@@ -68,6 +70,10 @@ pub enum BlockedReason {
     ManualStop,
     Limit,
     NeedsAttention,
+    /// The turn failed because of a usage limit. The user decides (retry as a new attempt, fix as failed, ...).
+    UsageLimit,
+    /// The turn failed (not a usage limit, or the cause is unclassified). The user decides.
+    TurnFailed,
     /// A feedback edge ran out of rounds (`onExhausted: ask`); the user decides (DESIGN_ORG_GRAPH 7.3).
     RoundLimit,
 }
@@ -189,6 +195,15 @@ pub struct Task {
     /// A format-fix request was sent for the current work turn (only one is allowed).
     #[serde(default)]
     pub(crate) format_fix_used: bool,
+    /// Times the user asked for a new attempt after a failed / interrupted turn.
+    #[serde(default)]
+    pub(crate) retry_count: u32,
+    /// The next send is a new attempt (`TurnKind::Retry`). Cleared by `Dispatched`.
+    #[serde(default)]
+    pub(crate) retry_pending: bool,
+    /// The result of a turn the user ran by hand is being adopted (the task is `Running` meanwhile).
+    #[serde(default)]
+    pub(crate) adopted_manual: bool,
     /// The graph node this task runs (None = a plannedTasks item, or template-1 data without a graph).
     #[serde(default)]
     pub(crate) node: Option<NodeId>,
@@ -223,6 +238,9 @@ impl Task {
             observed: None,
             commit: None,
             format_fix_used: false,
+            retry_count: 0,
+            retry_pending: false,
+            adopted_manual: false,
             node: None,
             last_output_seq: None,
             edge_seq: None,
@@ -261,6 +279,19 @@ impl Task {
     }
     pub fn format_fix_used(&self) -> bool {
         self.format_fix_used
+    }
+    pub fn retry_count(&self) -> u32 {
+        self.retry_count
+    }
+    pub fn retry_pending(&self) -> bool {
+        self.retry_pending
+    }
+    pub fn adopted_manual(&self) -> bool {
+        self.adopted_manual
+    }
+    /// The user's manual result is being adopted: the task is `Running` and ordinary sends to its chat are refused.
+    pub fn adopting(&self) -> bool {
+        self.adopted_manual && self.status == TaskStatus::Running
     }
     pub fn node(&self) -> Option<&NodeId> {
         self.node.as_ref()
@@ -318,6 +349,16 @@ pub struct Limits {
     pub max_tasks: u32,
     /// Notification threshold only (never auto-interrupts).
     pub stagnation_minutes: u32,
+    /// Per task: how many times the user may ask for a new attempt after a failed turn (0..=10).
+    #[serde(default = "default_max_retries")]
+    pub max_retries: u32,
+}
+
+pub const DEFAULT_MAX_RETRIES: u32 = 3;
+pub const MAX_RETRIES_CEILING: u32 = 10;
+
+fn default_max_retries() -> u32 {
+    DEFAULT_MAX_RETRIES
 }
 
 impl Default for Limits {
@@ -330,11 +371,20 @@ impl Default for Limits {
             max_turns: 30,
             max_tasks: 20,
             stagnation_minutes: 30,
+            max_retries: DEFAULT_MAX_RETRIES,
         }
     }
 }
 
 impl Limits {
+    /// The retry limit is user-settable within 0..=10.
+    pub fn with_max_retries(mut self, n: u32) -> Result<Self, String> {
+        if n > MAX_RETRIES_CEILING {
+            return Err("max retries must be within 0..=10".into());
+        }
+        self.max_retries = n;
+        Ok(self)
+    }
     /// Parallelism is user-settable within 1..=4 (Q4).
     pub fn with_parallelism(mut self, writers: u32, total: u32) -> Result<Self, String> {
         if !(1..=4).contains(&writers) || !(1..=4).contains(&total) {

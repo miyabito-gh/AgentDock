@@ -1080,6 +1080,11 @@ pub struct TurnRecord {
     pub entries: Vec<TranscriptEntry>,
     /// 部分取得か（items未ロード等）。
     pub complete: bool,
+    /// 失敗で終わったturnの区分（履歴の `error` から読んだ値）。失敗以外・読んでいないときは未取得、失敗でも区分が欠けていれば欠落。
+    /// 組織実行の照合だけが使う（画面には出さない）。
+    #[serde(default = "Known::not_fetched")]
+    #[cfg_attr(test, ts(skip))]
+    pub failure: Known<super::backend::FailureClass>,
 }
 
 // ───────────────────────────── 要求（承認・質問、§3.3） ─────────────────────────────
@@ -1185,6 +1190,8 @@ pub enum RequestState {
     ResolvedElsewhere { at: UnixMillis },
     Cancelled { at: UnixMillis },
     Expired { at: UnixMillis },
+    /// 回答を届けられなかった（相手が要求を保持していない）。回答は送っていない。解決済みではない。
+    Unanswerable { at: UnixMillis, cause: super::backend::RespondGap },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

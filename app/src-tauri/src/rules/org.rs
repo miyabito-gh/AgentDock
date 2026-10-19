@@ -5,7 +5,7 @@
 
 use org_engine::{ChatRef, TurnRef};
 
-use crate::backend::backend::BackendError;
+use crate::backend::backend::{BackendError, FailureClass};
 use crate::backend::local::QueueHold;
 use crate::backend::model::{ActivityKind, AgentKey, AgentState, BackendKind, ChatKey, ExternalId, Known, MessagePhase, TurnEnd, TurnKey, TurnRecord};
 use crate::backend::parity::SandboxCheck;
@@ -79,6 +79,15 @@ pub fn org_guard(binding: Option<&OrgBinding>, op: OrgOp) -> Result<(), &'static
     }
 }
 
+/// 手動の結果の取り込み中の送信を断る文言。
+pub const ORG_ADOPTING_MESSAGE: &str = "結果の取り込み中です。終わるまで送信できません。";
+
+/// 取り込み中のタスクのチャットか。解放済み（手動に切り替え済み）のチャットでも、取り込みの間は通常の送信を断る。
+/// `tasks` は（タスクのチャット, 取り込み中か）の一覧。
+pub fn is_adopting(chat: &ChatKey, tasks: impl IntoIterator<Item = (Option<ChatKey>, bool)>) -> bool {
+    tasks.into_iter().any(|(c, adopting)| adopting && c.as_ref() == Some(chat))
+}
+
 // ───────────────────────────── 最終回答の取り出し ─────────────────────────────
 
 /// 履歴からそのturnの最終回答を取り出す。turn が見つからない・終端が完了と確認できない・履歴が部分取得・本文が読めないときは None
@@ -99,12 +108,22 @@ pub fn turn_end_of(turns: &[TurnRecord], turn: &TurnKey) -> Option<TurnEnd> {
     turns.iter().find(|t| &t.key == turn)?.end
 }
 
-/// 履歴で確認した終端をエンジンの入力にする。履歴には利用上限の分類がないので `usage_limit` は false（実行失敗として扱う）。
-pub fn turn_end_kind_of(end: TurnEnd) -> org_engine::TurnEndKind {
+/// 履歴からそのturnの失敗の区分を読む（読取りだけ）。turn が見つからないときは未取得。
+pub fn turn_failure_of(turns: &[TurnRecord], turn: &TurnKey) -> Known<FailureClass> {
+    turns.iter().find(|t| &t.key == turn).map_or(Known::NotFetched, |t| t.failure.clone())
+}
+
+/// 履歴で確認した終端をエンジンの入力にする。失敗は、区分が読めたときだけ利用上限か否かを決め、
+/// 区分が欠けている・読めていないときは「区分不明」にする（利用上限でも実行失敗でも推測で決めない）。
+pub fn turn_end_kind_of(end: TurnEnd, failure: &Known<FailureClass>) -> org_engine::TurnEndKind {
     match end {
         TurnEnd::Completed => org_engine::TurnEndKind::Completed,
-        TurnEnd::Failed => org_engine::TurnEndKind::Failed { usage_limit: false },
         TurnEnd::Interrupted => org_engine::TurnEndKind::Interrupted,
+        TurnEnd::Failed => match failure {
+            Known::Value { value: FailureClass::UsageLimit, .. } => org_engine::TurnEndKind::Failed { usage_limit: true },
+            Known::Value { value: FailureClass::Other, .. } => org_engine::TurnEndKind::Failed { usage_limit: false },
+            _ => org_engine::TurnEndKind::FailedUnclassified,
+        },
     }
 }
 
@@ -440,6 +459,7 @@ mod tests {
             completed_at: Known::NotFetched,
             entries,
             complete,
+            failure: Known::NotFetched,
         }
     }
 
@@ -471,7 +491,35 @@ mod tests {
         assert_eq!(turn_end_of(&[record(None, true, Vec::new())], &want), None);
         assert_eq!(turn_end_of(&[record(Some(TurnEnd::Completed), true, Vec::new())], &other), None);
         assert_eq!(turn_end_of(&[], &want), None);
-        assert_eq!(turn_end_kind_of(TurnEnd::Failed), org_engine::TurnEndKind::Failed { usage_limit: false });
+    }
+
+    #[test]
+    fn adoption_blocks_only_the_chat_of_the_adopting_task() {
+        let a = ChatKey { backend: BackendKind::Codex, id: ExternalId("a".into()) };
+        let b = ChatKey { backend: BackendKind::Codex, id: ExternalId("b".into()) };
+        let tasks = vec![(Some(a.clone()), true), (Some(b.clone()), false), (None, true)];
+        assert!(is_adopting(&a, tasks.clone()));
+        assert!(!is_adopting(&b, tasks.clone()));
+        assert!(!is_adopting(&a, vec![(Some(a.clone()), false)]));
+        assert!(!is_adopting(&a, Vec::new()));
+    }
+
+    #[test]
+    fn a_failed_turn_is_classified_only_from_a_read_class() {
+        use org_engine::TurnEndKind as K;
+        assert_eq!(turn_end_kind_of(TurnEnd::Failed, &Known::direct(FailureClass::UsageLimit)), K::Failed { usage_limit: true });
+        assert_eq!(turn_end_kind_of(TurnEnd::Failed, &Known::direct(FailureClass::Other)), K::Failed { usage_limit: false });
+        for unknown in [Known::Missing, Known::NotFetched, Known::Unsupported] {
+            assert_eq!(turn_end_kind_of(TurnEnd::Failed, &unknown), K::FailedUnclassified);
+        }
+        assert_eq!(turn_end_kind_of(TurnEnd::Completed, &Known::Missing), K::Completed);
+        assert_eq!(turn_end_kind_of(TurnEnd::Interrupted, &Known::direct(FailureClass::UsageLimit)), K::Interrupted);
+        // the class is read from the history record of that turn
+        let want = TurnKey { agent: root(), turn_id: ExternalId("t1".into()) };
+        let mut rec = record(Some(TurnEnd::Failed), true, Vec::new());
+        rec.failure = Known::direct(FailureClass::UsageLimit);
+        assert_eq!(turn_failure_of(&[rec], &want), Known::direct(FailureClass::UsageLimit));
+        assert_eq!(turn_failure_of(&[], &want), Known::NotFetched);
     }
 
     fn root() -> AgentKey {

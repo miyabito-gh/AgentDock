@@ -284,6 +284,10 @@ impl OrgCore {
 
     /// Turn kind and text for a ready task.
     pub(crate) fn ready_turn(&self, id: &TaskId) -> Option<(TurnKind, String)> {
+        // A new attempt after a failed / interrupted turn (graph and plan alike): a short continuation, no repeated request.
+        if let Some(t) = self.task(id).filter(|t| t.retry_pending()) {
+            return Some((TurnKind::Retry, prompt::retry_prompt(crate::core::retry_reason_of(t), &t.title)));
+        }
         if self.is_graph_task(id) {
             return self.graph_ready_turn(id);
         }

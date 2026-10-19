@@ -153,6 +153,8 @@ pub struct OrgStartArgs {
     pub graph: Option<String>,
     /// turn 上限。None は既定（30）。
     pub max_turns: Option<u32>,
+    /// 新しい試行での再送の上限（0〜10）。None は既定（3）。
+    pub max_retries: Option<u32>,
 }
 
 /// 開始ダイアログで指定できる turn 上限の最大（暴走防止の上限は静的上限と turn 上限の両方で効く）。
@@ -276,6 +278,9 @@ impl Host {
                 return Err(err(IpcErrorCode::InvalidArgs, format!("turn 上限は 1〜{START_MAX_TURNS} で指定してください")));
             }
             limits.max_turns = m;
+        }
+        if let Some(n) = args.max_retries {
+            limits = limits.with_max_retries(n).map_err(|_| err(IpcErrorCode::InvalidArgs, "再送の上限は 0〜10 で指定してください"))?;
         }
         // 役割定義を読む（初回は標準の役割を作る）。有効な役割だけがエンジンに渡る。
         let mut core = OrgCore::new(now_ms().0);
@@ -495,6 +500,12 @@ impl Host {
         Ok(())
     }
 
+    /// そのチャットのタスクが、手動の結果の取り込み中か（その間は通常の送信を断る）。
+    pub(in crate::host) fn org_chat_adopting(&self, chat: &ChatKey) -> bool {
+        let view = self.org_rt.view.lock().unwrap();
+        view.as_ref().is_some_and(|v| crate::rules::org::is_adopting(chat, v.tasks.iter().map(|t| (t.chat.as_ref().and_then(chat_key_of_ref), t.adopting))))
+    }
+
     /// 直近の状態の写し（P-ORG-7 が IPC の型にする）。
     pub fn org_snapshot(&self) -> Option<OrgSnapshot> {
         self.org_rt.view.lock().unwrap().clone()
@@ -703,6 +714,10 @@ mod tests {
             chat_cwd: None,
             retryable: false,
             never_sent: false,
+            retry: Err(org_engine::RetryRefusal::NotBlocked),
+            retry_count: 0,
+            adopting: false,
+            manual_format: None,
             node: None,
         }
     }

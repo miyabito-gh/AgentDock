@@ -22,7 +22,7 @@ use crate::host::state::agent_key_of;
 use crate::host::{now_ms, Host, SendAuth};
 use crate::gitops::GitOp;
 use crate::rules::diff::parse_status_v2;
-use crate::rules::org::{classify_trust_append, final_message_of, turn_end_of, DescendantReport, TrustCompare};
+use crate::rules::org::{classify_trust_append, final_message_of, turn_end_of, turn_failure_of, DescendantReport, TrustCompare};
 use crate::store::records::OrgBinding;
 
 /// 送信1件の指示（エンジンが決めた試行IDと照合用IDをそのまま使う）。
@@ -89,12 +89,14 @@ pub enum WorktreeFinding {
 }
 
 /// 照合の読取り結果。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ReconcileRead {
     /// 履歴を読めたか。
     pub turn_read: bool,
     /// 履歴で終端を確認できたときだけ Some。None は「確認できていない」。
     pub turn_end: Option<TurnEnd>,
+    /// 失敗で終わったときの区分（失敗以外・読めていないときは未取得、区分が欠けていれば欠落）。
+    pub turn_failure: Known<FailureClass>,
     pub worktree: WorktreeFinding,
 }
 
@@ -187,11 +189,11 @@ impl RuntimeRead for Arc<Host> {
     }
 
     async fn read_reconcile(&self, chat: &ChatKey, turn: &TurnKey, cwd: Option<&str>) -> ReconcileRead {
-        let (turn_read, turn_end) = match self.read_history(agent_key_of(chat), ReadOptions { include_turns: true }).await {
-            Ok(h) => (true, turn_end_of(&h.turns, turn)),
-            Err(_) => (false, None),
+        let (turn_read, turn_end, turn_failure) = match self.read_history(agent_key_of(chat), ReadOptions { include_turns: true }).await {
+            Ok(h) => (true, turn_end_of(&h.turns, turn), turn_failure_of(&h.turns, turn)),
+            Err(_) => (false, None, Known::NotFetched),
         };
-        ReconcileRead { turn_read, turn_end, worktree: self.org_worktree_finding(cwd).await }
+        ReconcileRead { turn_read, turn_end, turn_failure, worktree: self.org_worktree_finding(cwd).await }
     }
 }
 

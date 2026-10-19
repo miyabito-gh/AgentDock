@@ -12,7 +12,7 @@ import { MAX_FETCH_PAGES, countFetched, fetchAllPages, loadMoreMessage, projectF
 import { addDecision, mergeDecisions, type DecisionItem } from "./ui/decisions";
 import { ACCEPTED_HOLD_MS, hasInFlight, mergeAttempt, outcomeOfAttempt, rebindPending, reconcilePending, setPhase, type PendingOutcome, type PendingSend } from "./ui/pendingSend";
 import { withOrgTitles } from "./ui/orgChat";
-import { shownOrgIds } from "./ui/org";
+import { GAP_GUIDE, GAP_TEXT, shownOrgIds } from "./ui/org";
 import { applyHostEvent, createEventPipeline, emptyBundle, replaceSnapshot, seqAction, UNKNOWN_CAPS } from "./ipc/live";
 import type { Bundle } from "./mock/data";
 
@@ -23,7 +23,7 @@ const loadMock = async () => {
 };
 import { GlobalBanner, MenuBar, SaveBanner } from "./ui/Chrome";
 import { LeftPane, type ChatOp } from "./ui/LeftPane";
-import { CenterPane, EmptyCenter, type FileActions, type SendNotice } from "./ui/CenterPane";
+import { CenterPane, EmptyCenter, RequestCard, type FileActions, type SendNotice } from "./ui/CenterPane";
 import { fenceCode, insertBlock } from "./ui/attach";
 import { DockPane, MiniWindow, type DockActions, type DockFocus } from "./ui/Dock";
 import { commandViews } from "./ui/commandViews";
@@ -622,6 +622,7 @@ export default function App() {
       const out = await host.respondRequest(r.key, a);
       say(out.kind === "delivered" ? "回答を送りました。反映は Codex の通知で確認します。"
         : out.kind === "alreadyResolved" ? "すでに解決済みでした。回答は送っていません。"
+        : out.kind === "notDeliverable" ? `${GAP_TEXT[out.cause]} ${GAP_GUIDE}`
         : `回答の受理を確認できません（${out.message}）。再送はしません。`);
     } catch (e) { sayErr("回答を送れませんでした", e); }
   };
@@ -1700,7 +1701,8 @@ ${cur}` : p.text);
           <main className="center">
             {orgScreen ? (
               <OrgPane snap={snap} org={orgShown} error={orgErr} live={live} leftShown={leftTemp ? lNarrow : leftOpen} rightShown={rightTemp ? rNarrow : rightOpen}
-                onAct={act} onOpenChat={(k) => selectChat(k.id)} onReload={() => setOrgTick((n) => n + 1)} run={orgRun} onDelete={(id) => setDialog({ type: "orgDelete", workflowId: id })} />
+                onAct={act} onOpenChat={(k) => selectChat(k.id)} onReload={() => setOrgTick((n) => n + 1)} run={orgRun} onDelete={(id) => setDialog({ type: "orgDelete", workflowId: id })}
+                renderRequest={(r, agentName) => <RequestCard r={r} onRespond={onRespond} agentName={agentName} />} />
             ) : quick.open || (!chat && live) ? (
               <QuickNewPane models={models} model={quick.model ?? pickQuickModel(models, snap.settings.lastNewChat)} setModel={(id) => setQuick((q) => ({ ...q, model: id }))}
                 text={quick.text} setText={(v) => setQuick((q) => ({ ...q, text: v }))} enterMode={enterMode} busy={!!quick.busy} inputRef={quickRef}

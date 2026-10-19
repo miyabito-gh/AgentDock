@@ -4,6 +4,8 @@ import { RequestCard, chatChipClass } from "./CenterPane";
 import { DESCENDANT_LIMIT, branchOrder, cardDensity, chatSignature, descendantSummary, descendantSummaryText, mayRedirect, orderByRecency, selectTasks, stableMembership, stableOrder, trackRecency, type Recency } from "./dockTasks";
 import { Icon } from "./Icon";
 import { OrgBadge } from "./OrgPane";
+import { RequestGapLine } from "./RequestGap";
+import { chatGapRequests } from "./org";
 import { Popover } from "./Popover";
 import type { Known } from "../ipc/types";
 import { chatAgents, chatDisplay, chatRequests, chatStatusText, descendantStates, historyOutcomeOf, chatName, isDoneLike, isWorkingForDock, previewTitle, rootView } from "./derive";
@@ -333,6 +335,8 @@ function TaskCard({ snap, c, band, line, open, marked, mini, at, confirmed, acti
   const root = rootView(snap, c);
   const working = isWorkingForDock(snap, c);
   const reqs = chatRequests(snap, c);
+  // 組織実行のチャットだけ、回答を届けられなかった要求の理由を1行で残す（接続の切替などで答えられなくなったもの）。
+  const gaps = snap.chatLocals.find((l) => l.chat.id === c.key.id)?.org ? chatGapRequests(snap, c.key) : [];
   const body = !line || open;
   const sum = descendantSummary(snap, c, (v) => historyOutcomeOf(snap, v));
   const sumText = descendantSummaryText(sum);
@@ -377,6 +381,7 @@ function TaskCard({ snap, c, band, line, open, marked, mini, at, confirmed, acti
             : <div key={`${r.key.source}/${r.key.requestId}`} data-req-agent={keyStr(r.agent)}><RequestCard r={r} onRespond={(q, a) => actions.respond(q, a)} agentName={nameOf} /></div>))}
         </div>
       ) : null}
+      {gaps.length ? <div className="tc-reqs">{gaps.map((r) => <RequestGapLine key={`gap:${r.key.source}/${r.key.requestId}`} r={r} guide={false} />)}</div> : null}
       {body ? (
         <>
           {notLive ? <div className="tc-fresh">{FRESH[root.freshness].t}</div> : null}

@@ -952,7 +952,7 @@ pub async fn org_start(host: Hs<'_>, args: crate::backend::org::StartOrgArgs) ->
 
 /// 再開（必要なチャットだけ resume し、新しい送信権を作る）。利用者の「再開」の操作だけ。
 #[tauri::command]
-pub async fn org_resume(host: Hs<'_>, args: crate::backend::org::OrgWorkflowArgs) -> R<crate::backend::org::OrgResumeResult> {
+pub async fn org_resume(host: Hs<'_>, args: crate::backend::org::OrgResumeArgs) -> R<crate::backend::org::OrgResumeResult> {
     let confirmed = UserConfirmed::from_user_command();
     host.inner().clone().org_resume_checked(args, confirmed).await
 }
@@ -1039,6 +1039,26 @@ pub async fn org_accept_manual(host: Hs<'_>, args: crate::backend::org::OrgTaskA
 pub async fn org_retry_task(host: Hs<'_>, args: crate::backend::org::OrgTaskArgs) -> R<()> {
     let confirmed = UserConfirmed::from_user_command();
     host.org_retry_task(args, &confirmed)
+}
+
+/// 止まったタスクを失敗として確定する（利用者の操作だけ）。
+#[tauri::command]
+pub async fn org_fail_task(host: Hs<'_>, args: crate::backend::org::OrgTaskArgs) -> R<()> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.org_fail_task(args, &confirmed)
+}
+
+/// 手動に切り替えたチャットの最新 turn の読取り（取込みの確認用。何も送らない）。
+#[tauri::command]
+pub async fn org_manual_result(host: Hs<'_>, args: crate::backend::org::OrgTaskArgs) -> R<crate::backend::org::OrgManualResultView> {
+    host.inner().clone().org_manual_result(args).await
+}
+
+/// 手動に切り替えたチャットの、確認した turn の最終回答を結果として取り込む（利用者の操作だけ。チャットへは何も送らない）。
+#[tauri::command]
+pub async fn org_adopt_manual(host: Hs<'_>, args: crate::backend::org::OrgAdoptManualArgs) -> R<()> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().org_adopt_manual(args, &confirmed).await
 }
 
 #[tauri::command]

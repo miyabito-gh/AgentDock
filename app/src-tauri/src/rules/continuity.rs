@@ -730,6 +730,7 @@ mod tests {
                 entry(id, ActivityKind::AgentMessage, Known::direct(ai.into())),
             ],
             complete: true,
+            failure: Known::NotFetched,
         }
     }
     fn turns(n: usize) -> Vec<TurnRecord> {

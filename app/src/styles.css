@@ -994,6 +994,12 @@ button.uchip:hover{background:var(--accent-weak)}
 .org-tbl .st{margin-left:0}
 .org-tbl .st svg.i{width:12px;height:12px}
 .org-note-row td{white-space:normal;color:var(--ink2);padding-top:0}
+.req-gap{display:flex;gap:6px;align-items:baseline;flex-wrap:wrap;margin:4px 0;padding:4px 8px;border-left:3px solid var(--fail-ink);color:var(--ink)}
+.org-wait-band{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
+.org-wait-band .btn.attn{border-color:var(--wait-ink);color:var(--wait-ink)}
+.org-req-card{margin:6px 0}
+.org-resume-list{list-style:none;margin:6px 0;padding:0}
+.org-resume-list li{margin:2px 0}
 .org-acts{display:flex;gap:4px;flex-wrap:wrap}
 .org-notices{margin:4px 0;padding-left:0;list-style:none}
 .org-notices li{margin:3px 0}

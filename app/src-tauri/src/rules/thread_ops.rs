@@ -605,6 +605,7 @@ broken line without tab
             started_at: start,
             completed_at: Known::Missing,
             complete: settled,
+            failure: Known::NotFetched,
         }
     }
 

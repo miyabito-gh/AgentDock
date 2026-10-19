@@ -138,6 +138,7 @@ mod tests {
             completed_at: Known::NotFetched,
             entries,
             complete,
+            failure: Known::NotFetched,
         }
     }
 

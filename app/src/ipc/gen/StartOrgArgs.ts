@@ -15,4 +15,8 @@ graphId: string | null,
 /**
  * turn 上限（None は既定の30。1〜200）。
  */
-maxTurns: number | null, };
+maxTurns: number | null, 
+/**
+ * 新しい試行での再送の上限（None は既定の3。0〜10）。
+ */
+maxRetries: number | null, };

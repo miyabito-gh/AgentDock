@@ -56,6 +56,8 @@ pub enum HaltReason {
     /// The workflow runs a graph but its start-time copy cannot be used (missing, or the fingerprint differs).
     /// Set when the engine is restored; "resume" does not clear it while the definition is still unavailable.
     DefinitionUnavailable,
+    /// A turn failed because of a usage limit. Cleared only by the user's "resume".
+    UsageLimit,
 }
 
 /// Snapshot of one workflow (`workflow.json`). Fields are read-only outside the
@@ -256,6 +258,10 @@ pub enum OrgEventKind {
     /// The user decided a gate.
     GateDecided { task: TaskId, choice: String, note: Option<NoteId> },
     UserNoteAdded { id: NoteId, text: String, scope: NoteScope },
+    /// The user asked for a new attempt of a task whose turn failed / was interrupted (counted per task).
+    RetryRequested { task: TaskId },
+    /// The user adopts a turn they ran by hand as the task's result (the task was `Blocked(Manual)`).
+    ManualTurnAdopted { task: TaskId, turn: TurnRef },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -280,6 +286,8 @@ pub enum ApplyError {
     /// A slot version must be the previous one plus one.
     BadSlotVersion(SlotId),
     DuplicateNote(NoteId),
+    /// `ManualTurnAdopted` on a task that is not `Blocked(Manual)` and confirmed.
+    NotAdoptable(TaskId),
 }
 
 impl fmt::Display for ApplyError {
@@ -369,7 +377,12 @@ impl WorkflowState {
                 }
                 t.last_attempt = Some(attempt.clone());
                 t.last_settle = None;
-                t.format_fix_used = *kind == TurnKind::FormatFix;
+                // A new attempt keeps the flag: the one allowed format fix of this work turn is not given back.
+                if *kind != TurnKind::Retry {
+                    t.format_fix_used = *kind == TurnKind::FormatFix;
+                }
+                t.retry_pending = false;
+                t.adopted_manual = false;
             }
             OrgEventKind::DispatchSettled { task, attempt, outcome } => {
                 let t = self.task_mut(task)?;
@@ -439,6 +452,24 @@ impl WorkflowState {
                     return Err(ApplyError::DuplicateNote(id.clone()));
                 }
                 self.notes.push(UserNote { id: id.clone(), text: text.clone(), scope: scope.clone(), seq: ev.seq });
+            }
+            OrgEventKind::RetryRequested { task } => {
+                let max = self.limits.max_retries;
+                let t = self.task_mut(task)?;
+                if t.retry_count >= max {
+                    return Err(ApplyError::Limit(LimitError::RetryLimit { used: t.retry_count, max }));
+                }
+                t.retry_count += 1;
+                t.retry_pending = true;
+            }
+            OrgEventKind::ManualTurnAdopted { task, turn } => {
+                let t = self.task_mut(task)?;
+                if t.status != TaskStatus::Blocked(BlockedReason::Manual) || t.confirm != ConfirmState::Confirmed {
+                    return Err(ApplyError::NotAdoptable(task.clone()));
+                }
+                t.accepted_turn = Some(turn.clone());
+                t.observed = Some(TurnObservation { turn: turn.clone(), end: TurnEndKind::Completed });
+                t.adopted_manual = true;
             }
         }
         self.last_seq = ev.seq;
