@@ -273,6 +273,8 @@ pub enum RetryReason {
     UsageLimit,
     TurnFailed,
     Interrupted,
+    /// The turn ended well but the worker wrote no change (nothing to commit).
+    NothingWritten,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -317,12 +319,15 @@ pub fn retry_kind(t: &Task, limits: &Limits, turns_remaining: u32) -> Result<Ret
     if blocked && (t.confirm() != ConfirmState::Confirmed || attempt_open) {
         return Err(RetryRefusal::SendUnknown);
     }
-    if !matches!(t.status(), TaskStatus::Blocked(BlockedReason::UsageLimit | BlockedReason::TurnFailed | BlockedReason::ManualStop)) {
+    let nothing_written = t.status() == TaskStatus::Blocked(BlockedReason::NeedsAttention) && t.nothing_written();
+    if !nothing_written && !matches!(t.status(), TaskStatus::Blocked(BlockedReason::UsageLimit | BlockedReason::TurnFailed | BlockedReason::ManualStop)) {
         return Err(RetryRefusal::NotBlocked);
     }
     let Some(accepted) = t.accepted_turn() else { return Err(RetryRefusal::NotEnded) };
     let reason = match t.observed() {
         Some(o) if &o.turn == accepted => match o.end {
+            // A turn that completed is a reason only when it ended with nothing to commit.
+            TurnEndKind::Completed if nothing_written => RetryReason::NothingWritten,
             TurnEndKind::Completed => return Err(RetryRefusal::NotEnded),
             TurnEndKind::Failed { usage_limit: true } => RetryReason::UsageLimit,
             TurnEndKind::Failed { usage_limit: false } | TurnEndKind::FailedUnclassified => RetryReason::TurnFailed,
@@ -344,6 +349,9 @@ pub fn retry_kind(t: &Task, limits: &Limits, turns_remaining: u32) -> Result<Ret
 
 /// The reason of a pending new attempt (from how the accepted turn ended).
 pub(crate) fn retry_reason_of(t: &Task) -> RetryReason {
+    if t.nothing_written() {
+        return RetryReason::NothingWritten;
+    }
     match t.observed().map(|o| o.end) {
         Some(TurnEndKind::Failed { usage_limit: true }) => RetryReason::UsageLimit,
         Some(TurnEndKind::Interrupted) => RetryReason::Interrupted,
@@ -886,7 +894,7 @@ impl OrgCore {
             Err(r) => {
                 let new_attempt_state = self
                     .task(id)
-                    .is_some_and(|t| matches!(t.status(), TaskStatus::Blocked(BlockedReason::UsageLimit | BlockedReason::TurnFailed | BlockedReason::ManualStop)));
+                    .is_some_and(|t| matches!(t.status(), TaskStatus::Blocked(BlockedReason::UsageLimit | BlockedReason::TurnFailed | BlockedReason::ManualStop)) || (t.status() == TaskStatus::Blocked(BlockedReason::NeedsAttention) && t.nothing_written()));
                 let reason = if new_attempt_state { r.text() } else { "このタスクは、送っていないことを確認できないため、やり直せません".into() };
                 self.notify(OrgNotice::Refused { reason });
             }
@@ -1212,7 +1220,15 @@ impl OrgCore {
         self.flow_del(id);
         match result {
             WorkspaceOutcome::Committed { commit } => self.committed(id, commit),
-            WorkspaceOutcome::NothingToCommit => self.block(id, BlockedReason::NeedsAttention, "コミットする変更がありません"),
+            WorkspaceOutcome::NothingToCommit => {
+                self.rec(OrgEventKind::CommitEmpty { task: id.clone() });
+                let mut why = "Workerが変更を書きませんでした".to_string();
+                if let Some(head) = self.report_head(id) {
+                    why.push_str(&format!("（報告の要旨: {head}）"));
+                }
+                why.push_str("。必要なら先に「ワークフローへの追加指示」を添えてから、このタスクの「新しい試行で再送…」で送り直せます（押したときだけ1回送り、自動では再送しません）");
+                self.block(id, BlockedReason::NeedsAttention, &why)
+            }
             WorkspaceOutcome::Failed { detail } => self.block(id, BlockedReason::NeedsAttention, &format!("コミットできませんでした: {}", one_line(&detail))),
             _ => self.block(id, BlockedReason::NeedsAttention, "コミットできませんでした"),
         }

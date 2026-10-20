@@ -23,8 +23,8 @@ pub enum RepoStatusView {
     NoCommit { root: String },
     /// 前回のAgentDockの準備が途中で止まっている（印のある `.git` でコミットなし）。
     PrepInterrupted { root: String },
-    /// Gitが所有者の違いで拒否した。
-    OwnerMismatch,
+    /// Gitが所有者の違いで拒否した。`repo` はGitが示したリポジトリの場所（示されなければ作業フォルダ。許可の対象に使う）。
+    OwnerMismatch { repo: String },
     /// 確認できなかった（Gitを起動できない・時間切れなど）。
     Unavailable { message: String },
 }
@@ -37,6 +37,18 @@ pub type RepoStatus = RepoStatusView;
 #[serde(rename_all = "camelCase")]
 pub struct GitFolderArgs {
     pub folder: String,
+}
+
+/// 作業フォルダの未コミットの変更（読取りのみ）。組織実行の開始前の注意に使う。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct DirtySummaryView {
+    /// 未コミットの変更（追跡中の変更・未追跡）のファイル数。
+    pub total: u32,
+    /// 代表のパス（先頭の数件。リポジトリのルートからの相対）。
+    pub sample: Vec<String>,
 }
 
 // ───────────────────────────── Gitの準備 ─────────────────────────────

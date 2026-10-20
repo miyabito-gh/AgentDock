@@ -369,7 +369,7 @@ export const orgImportUndo = (workflowId: string, recordId: string, expectedHead
 // ── 依頼整理（DESIGN_ORG_INTAKE §1）。会話中は組織実行を始めない。org_intake_start だけが開始する ──
 import type {
   IntakeBeginMode, IntakeBeginResult, IntakeSaveArgs, IntakeView, ModelChoice as IntakeModel, SendAttempt as IntakeSend,
-  GitPrepArgs, GitPrepareArgs, GitPushArgs, GitPushVerifyArgs, PushPreview, PushResult, PushVerify, RepoPrepPreview, RepoPrepResult, RepoStatusView,
+  DirtySummaryView, GitPrepArgs, GitPrepareArgs, GitPushArgs, GitPushVerifyArgs, PushPreview, PushResult, PushVerify, RepoPrepPreview, RepoPrepResult, RepoStatusView,
 } from "./types";
 export const orgIntakeBegin = (folder: string, mode: IntakeBeginMode, model: IntakeModel | null = null): Promise<IntakeBeginResult> => invokeCmd("org_intake_begin", { folder, mode, model });
 export const orgIntakeAttach = (chat: ChatKey): Promise<IntakeView> => invokeCmd("org_intake_attach", { chat });
@@ -386,6 +386,7 @@ export const orgIntakeAbandon = (chat: ChatKey): Promise<IntakeView> => invokeCm
 
 // ── Gitの準備・プッシュ（DESIGN_ORG_INTAKE §2・§3）。プレビューは読取りだけ。実行は確認ダイアログの後だけ ──
 export const gitRepoStatus = (folder: string): Promise<RepoStatusView> => invokeCmd("git_repo_status", { folder });
+export const gitDirtySummary = (folder: string): Promise<DirtySummaryView> => invokeCmd("git_dirty_summary", { folder });
 export const gitPrepPreview = (a: GitPrepArgs): Promise<RepoPrepPreview> => invokeCmd("git_prep_preview", a);
 export const gitPrepareRepo = (a: GitPrepareArgs): Promise<RepoPrepResult> => invokeCmd("git_prepare_repo", a);
 export const gitPrepRemoveInterrupted = (folder: string): Promise<null> => invokeCmd("git_prep_remove_interrupted", { folder });

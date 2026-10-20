@@ -672,10 +672,11 @@ pub fn repo_git_allowed(prefs: &[RepoBaselinePref], repo: &str) -> bool {
     pref_for(prefs, repo).is_some_and(|p| p.allow_git && p.choice == RepoRecordChoice::Record)
 }
 
-/// 書込み系（worktree作成・クラウド取込み）が所有者違いで止まったときの文言。許可は読取りと記録にだけ効くので、許可済みなら別の説明にする。
+/// 書込み系（worktree作成・クラウド取込みなど）が所有者違いで止まったときの文言。AgentDockだけの許可はAgentDockが起動するgit全般に効くので、
+/// 許可済みでも止まったときは、許可の場所と合っていない可能性を示す。
 pub fn owner_mismatch_write_text(allowed: bool, action: &str) -> String {
     if allowed {
-        format!("AgentDockだけの許可は、差分の確認と変更の記録にだけ効きます。{action}には、gitの safe.directory 登録、または .git の所有者を自分に戻す必要があります（コピーできるコマンドは「変更」の「控え基準」の②③にあります）")
+        format!("AgentDockだけの許可はありますが、Gitが拒否しました（許可したリポジトリの場所と違う可能性があります）。{action}には、許可を付け直すか、gitの safe.directory 登録、または .git の所有者を自分に戻してください（コピーできるコマンドは「変更」の「控え基準」の②③にあります）")
     } else {
         format!("{OWNER_MISMATCH_TEXT}（{action}はできません）")
     }
@@ -714,7 +715,7 @@ mod tests {
         let denied = owner_mismatch_write_text(false, "worktreeの作成");
         let allowed = owner_mismatch_write_text(true, "worktreeの作成");
         assert!(denied.contains("控え基準") && denied.contains("できません") && !denied.contains("だけの許可"));
-        assert!(allowed.contains("だけの許可") && allowed.contains("safe.directory"));
+        assert!(allowed.contains("だけの許可はあります") && allowed.contains("safe.directory") && !allowed.contains("にだけ効きます"));
     }
 
     #[test]

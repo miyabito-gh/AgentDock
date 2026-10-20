@@ -332,7 +332,9 @@ export function OrgPane(p: OrgPaneProps) {
         const r = t?.retry;
         return wrap(`タスク ${confirm.task} の新しい試行の確認`,
           <>
-            <p>タスク {confirm.task} の前の turn は{r?.reasonLabel ? `「${r.reasonLabel}」で` : ""}結果を出さずに終わりました。<b>同じチャットへ、続きを行う新しい turn を1回だけ送ります</b>（自動では送りません。この操作が送信の指示です）。作業フォルダの途中の変更はそのまま引き継がれます。</p>
+            {r?.reasonLabel === "変更なし"
+              ? <p>タスク {confirm.task} の前の turn は終わりましたが、<b>Worker が変更を書きませんでした</b>。<b>同じチャットへ「依頼と spec の範囲を実装し、変更を残してください」という新しい turn を1回だけ送ります</b>（自動では送りません。この操作が送信の指示です）。先に下の「ワークフローへの追加指示」を足しておくと、この送信に添えられます。</p>
+              : <p>タスク {confirm.task} の前の turn は{r?.reasonLabel ? `「${r.reasonLabel}」で` : ""}結果を出さずに終わりました。<b>同じチャットへ、続きを行う新しい turn を1回だけ送ります</b>（自動では送りません。この操作が送信の指示です）。作業フォルダの途中の変更はそのまま引き継がれます。</p>}
             <p className="small">再送の回数: {r ? `これまで ${r.used} 回、上限 ${r.max} 回` : "—"}。この送信は turn 数にも数えられます。送信が止まっているときは、先に「再開」が必要です。</p>
           </>,
           <button className="btn primary" disabled={busy} onClick={() => void go("新しい試行での再送", async () => { await host.orgRetryTask(wf.workflowId, confirm.task); return `タスク ${confirm.task} を新しい試行として送る状態に戻しました。`; })}>{busy ? "処理しています…" : "新しい試行で再送する"}</button>);

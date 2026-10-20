@@ -58,7 +58,10 @@ pub async fn repo_status(git: &Git, folder: &Path) -> RepoStatus {
     let root = match repo_root_kind(git, folder).await {
         Ok(RepoRootKind::Root(r)) => r,
         Ok(RepoRootKind::NotRepo) => return RepoStatus::NotRepo,
-        Ok(RepoRootKind::OwnerMismatch { .. }) => return RepoStatus::OwnerMismatch,
+        Ok(RepoRootKind::OwnerMismatch { repo }) => {
+            let repo = if repo.is_empty() { folder.to_string_lossy().into_owned() } else { repo };
+            return RepoStatus::OwnerMismatch { repo };
+        }
         Err(e) => return RepoStatus::Unavailable { message: run_err(&e) },
     };
     match resolve_commit(git, Path::new(&root), "HEAD").await {
@@ -202,7 +205,7 @@ fn kind_of(status: &RepoStatus) -> Option<PrepKind> {
 fn not_preparable(status: &RepoStatus) -> String {
     match status {
         RepoStatus::Ready { .. } | RepoStatus::Nested { .. } => "このフォルダはすでにGitのリポジトリで、コミットがあります。準備は要りません".to_string(),
-        RepoStatus::OwnerMismatch => "Gitがこのフォルダの所有者の違いを理由に拒否しました。Gitの safe.directory を確認してください".to_string(),
+        RepoStatus::OwnerMismatch { .. } => "Gitがこのフォルダの所有者の違いを理由に拒否しました。Gitの safe.directory を確認するか、開始ダイアログの「AgentDockのGit操作だけに許可」を使ってください".to_string(),
         RepoStatus::Unavailable { message } => format!("Gitで確認できません: {message}"),
         _ => "このフォルダは準備できる状態ではありません".to_string(),
     }

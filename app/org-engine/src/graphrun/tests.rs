@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use super::*;
-use crate::core::{CreateResult, OrgInput, WorkspaceOutcome};
+use crate::core::{CreateResult, OrgInput, RetryKind, RetryReason, WorkspaceOutcome};
 use crate::graph::{parse_graph, template_json, validate, RoleInfo, TEMPLATE_QUALITY_LOOP};
 use crate::outschema::builtin_schemas;
 use crate::persist::HaltReason;
@@ -53,6 +53,7 @@ struct Sim {
     core: OrgCore,
     log: Vec<OrgAction>,
     unknown_sends: HashSet<TaskId>,
+    empty_commits: bool,
 }
 
 impl Sim {
@@ -60,7 +61,7 @@ impl Sim {
         let mut core = OrgCore::new(1000);
         core.roles = roles();
         core.set_graph(g).unwrap();
-        let mut s = Self { core, log: Vec::new(), unknown_sends: HashSet::new() };
+        let mut s = Self { core, log: Vec::new(), unknown_sends: HashSet::new(), empty_commits: false };
         s.feed(OrgInput::Grant { granted: true });
         s
     }
@@ -96,6 +97,9 @@ impl Sim {
             OrgAction::CreateRoleChat { task, .. } => Some(OrgInput::ChatCreated { task: task.clone(), result: CreateResult::Created(ChatRef::new(format!("chat-{task}"))) }),
             OrgAction::Workspace(WorkspaceAction::CreateWorktree { task, .. }) => {
                 Some(OrgInput::WorkspaceResult { task: task.clone(), result: WorkspaceOutcome::WorktreeCreated { path: format!("wt/{task}") } })
+            }
+            OrgAction::Workspace(WorkspaceAction::Commit { task, .. }) if self.empty_commits => {
+                Some(OrgInput::WorkspaceResult { task: task.clone(), result: WorkspaceOutcome::NothingToCommit })
             }
             OrgAction::Workspace(WorkspaceAction::Commit { task, .. }) => {
                 Some(OrgInput::WorkspaceResult { task: task.clone(), result: WorkspaceOutcome::Committed { commit: format!("c-{task}-{}", self.log.len()) } })
@@ -347,7 +351,7 @@ fn restore_sim(g: CompiledGraph, events: &[OrgEvent], slots: HashMap<(SlotId, u3
     crate::classify_after_restart(&mut state, 5).unwrap();
     let mut core = OrgCore::restored_with(state, Some(g), slots, 1000);
     core.roles = roles();
-    Sim { core, log: Vec::new(), unknown_sends: HashSet::new() }
+    Sim { core, log: Vec::new(), unknown_sends: HashSet::new(), empty_commits: false }
 }
 
 #[test]
@@ -763,7 +767,7 @@ fn m3_a_graph_workflow_without_its_copy_stays_stopped_and_is_not_failed_for_form
         core.roles = roles();
         assert!(core.definition_missing());
         assert_eq!(core.state().unwrap().halt(), Some(HaltReason::DefinitionUnavailable));
-        let mut r = Sim { core, log: Vec::new(), unknown_sends: HashSet::new() };
+        let mut r = Sim { core, log: Vec::new(), unknown_sends: HashSet::new(), empty_commits: false };
         r.feed(OrgInput::Grant { granted: true });
         // "resume" does not release it
         let acts = r.feed(OrgInput::UserResume);
@@ -814,4 +818,63 @@ fn m7_a_long_gate_reason_is_cut_in_the_slot_value() {
     assert_eq!(value["note"].as_str().unwrap().chars().count(), NOTE_MAX_CHARS);
     assert_eq!(value["choice"], "fix");
     assert_eq!(sim.status("draft-1"), TaskStatus::Running, "the workflow goes on");
+}
+
+#[test]
+fn nothing_to_commit_says_the_worker_wrote_nothing_and_quotes_the_report_head() {
+    let mut sim = Sim::new(quality(3, "ask"));
+    sim.empty_commits = true;
+    sim.start();
+    sim.complete("plan-1", SPEC);
+    sim.complete("build-1", r#"{"summary":"clean tree\n\nspec T number needed","changedFiles":["a.rs"],"tests":{"ran":true,"passed":true}}"#);
+    assert_eq!(sim.status("build-1"), TaskStatus::Blocked(BlockedReason::NeedsAttention));
+    let why = sim
+        .notices()
+        .into_iter()
+        .find_map(|n| match n {
+            OrgNotice::TaskBlocked { task, why } if task.0 == "build-1" => Some(why.clone()),
+            _ => None,
+        })
+        .unwrap();
+    assert!(why.starts_with("Workerが変更を書きませんでした"), "{why}");
+    assert!(why.contains("clean tree spec T number needed"), "{why}");
+    assert!(why.contains("自動では再送しません"), "{why}");
+    assert!(why.contains("新しい試行で再送"), "{why}");
+}
+
+#[test]
+fn nothing_written_is_a_counted_new_attempt_by_one_user_operation_with_the_note_and_no_auto_resend() {
+    let mut sim = Sim::new(quality(3, "ask"));
+    sim.empty_commits = true;
+    sim.start();
+    sim.complete("plan-1", SPEC);
+    sim.complete("build-1", REPORT);
+    assert_eq!(sim.status("build-1"), TaskStatus::Blocked(BlockedReason::NeedsAttention));
+    assert!(sim.t("build-1").nothing_written());
+    assert_eq!(sim.core.retry_kind_of(&tid("build-1")), Ok(RetryKind::NewAttempt { reason: RetryReason::NothingWritten }));
+    // nothing is sent by itself
+    let sends = |sim: &Sim| sim.log.iter().filter(|a| matches!(a, OrgAction::Send { task, .. } if task.0 == "build-1")).count();
+    let before = sends(&sim);
+    sim.feed(OrgInput::Tick { now_ms: 9000 });
+    assert_eq!(sends(&sim), before);
+    // the user adds a note and presses the retry once
+    sim.feed(OrgInput::UserAddNote { text: "T3 まで実装して".into(), task: None });
+    sim.empty_commits = false;
+    sim.feed(OrgInput::UserRetryTask { task: tid("build-1") });
+    assert_eq!(sends(&sim), before + 1);
+    assert_eq!(sim.t("build-1").retry_count(), 1);
+    assert!(!sim.t("build-1").nothing_written(), "cleared by the new dispatch");
+    let text = sim.log.iter().rev().find_map(|a| match a {
+        OrgAction::Send { task, text, .. } if task.0 == "build-1" => Some(text.clone()),
+        _ => None,
+    }).unwrap();
+    assert!(text.contains("前回は変更が書かれませんでした。依頼とspecの範囲を実装し、変更を残してください"), "{text}");
+    assert!(text.contains("T3 まで実装して"), "{text}");
+}
+
+#[test]
+fn head_lines_takes_non_empty_lines_and_cuts() {
+    assert_eq!(head_lines("a\n\n  b \nc\nd", 3, 100).as_deref(), Some("a b c"));
+    assert_eq!(head_lines("  \n", 3, 100), None);
+    assert_eq!(head_lines("abcdef", 3, 3).as_deref(), Some("abc…"));
 }

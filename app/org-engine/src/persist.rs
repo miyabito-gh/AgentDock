@@ -308,6 +308,8 @@ pub enum OrgEventKind {
     TurnObserved { task: TaskId, turn: TurnRef, end: TurnEndKind },
     /// A worker task's commit.
     Committed { task: TaskId, commit: String },
+    /// The worker's turn ended with nothing to commit (it wrote no change). Offers a counted new attempt.
+    CommitEmpty { task: TaskId },
     /// The graph the workflow started with (a copy's fingerprint). Without it the workflow runs as `standard`.
     GraphBound { graph_id: String, fingerprint: String, roles_fingerprint: String },
     /// A task was created for a node, through an edge (`via`) or as the entry.
@@ -464,6 +466,7 @@ impl WorkflowState {
                     t.format_fix_used = *kind == TurnKind::FormatFix;
                 }
                 t.retry_pending = false;
+                t.nothing_written = false;
                 t.adopted_manual = false;
                 t.notes_sent_upto = *notes_upto;
             }
@@ -495,7 +498,12 @@ impl WorkflowState {
                 }
             }
             OrgEventKind::Committed { task, commit } => {
-                self.task_mut(task)?.commit = Some(commit.clone());
+                let t = self.task_mut(task)?;
+                t.commit = Some(commit.clone());
+                t.nothing_written = false;
+            }
+            OrgEventKind::CommitEmpty { task } => {
+                self.task_mut(task)?.nothing_written = true;
             }
             OrgEventKind::GraphBound { graph_id, fingerprint, roles_fingerprint } => {
                 if self.graph.is_some() {

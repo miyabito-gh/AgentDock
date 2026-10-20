@@ -109,6 +109,15 @@ impl Host {
         repo_ready_error(status)
     }
 
+    /// 作業フォルダの未コミットの変更の件数と代表パス（読取りのみ。組織実行の開始前の注意に使う）。
+    pub async fn git_dirty_summary(&self, args: GitFolderArgs) -> Result<DirtySummaryView, IpcError> {
+        let folder = self.git_folder(&args.folder)?;
+        let paths = crate::gitops::import::dirty_paths(&self.git_for_worktree(), &folder)
+            .await
+            .map_err(|e| err(IpcErrorCode::InvalidArgs, format!("未コミットの変更を確認できませんでした: {}", e.message())))?;
+        Ok(dirty_summary_of(paths))
+    }
+
     /// 準備のプレビュー（読取りのみ。一時のgitdirはAgentDockの領域に作って消す）。
     pub async fn git_prep_preview(&self, args: GitPrepArgs) -> Result<RepoPrepPreview, IpcError> {
         let folder = self.git_folder(&args.folder)?;
@@ -200,17 +209,32 @@ pub fn repo_ready_error(status: RepoStatus) -> Result<(), IpcError> {
             BlockedReason::RepoNotPrepared { repo: s },
             "前回のGitの準備が途中で止まっています。「Gitを準備」から、続きを行うか取り除いてください",
         )),
-        RepoStatus::OwnerMismatch => Err(err(
-            IpcErrorCode::InvalidArgs,
-            "Gitがこのフォルダの所有者の違いを理由に拒否したため、リポジトリを確認できません。Gitの safe.directory を確認してください",
+        // UIが「AgentDockのGit操作だけに許可」を出せるよう、リポジトリの場所つきで返す。
+        s @ RepoStatus::OwnerMismatch { .. } => Err(blocked(
+            BlockedReason::RepoNotPrepared { repo: s },
+            "Gitがこのフォルダの所有者の違いを理由に拒否したため、リポジトリを確認できません。Gitの safe.directory を確認するか、AgentDockのGit操作だけに許可してください",
         )),
         RepoStatus::Unavailable { message } => Err(err(IpcErrorCode::InvalidArgs, format!("Gitでリポジトリを確認できません: {message}"))),
     }
 }
 
+/// 未コミットのパスを、重複を除いた件数と先頭の数件にする。
+pub fn dirty_summary_of(paths: Vec<String>) -> DirtySummaryView {
+    let mut seen = HashSet::new();
+    let uniq: Vec<String> = paths.into_iter().filter(|p| seen.insert(p.clone())).collect();
+    DirtySummaryView { total: uniq.len() as u32, sample: uniq.into_iter().take(5).collect() }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dirty_summary_dedupes_and_keeps_five_samples() {
+        let v = dirty_summary_of(["a", "b", "a", "c", "d", "e", "f", "g"].iter().map(|s| s.to_string()).collect());
+        assert_eq!(v.total, 7);
+        assert_eq!(v.sample, ["a", "b", "c", "d", "e"]);
+    }
 
     #[test]
     fn only_a_repository_with_a_commit_may_start_and_preparable_states_point_to_the_prep_dialog() {
@@ -221,7 +245,10 @@ mod tests {
             assert_eq!(e.code, IpcErrorCode::Blocked);
             assert_eq!(e.blocked, Some(BlockedReason::RepoNotPrepared { repo: s }));
         }
-        assert_eq!(repo_ready_error(RepoStatus::OwnerMismatch).unwrap_err().code, IpcErrorCode::InvalidArgs);
+        // 所有者違いは、許可の選択肢を出せるよう場所つきの Blocked で返す
+        let owner = RepoStatus::OwnerMismatch { repo: "C:/r".into() };
+        let e = repo_ready_error(owner.clone()).unwrap_err();
+        assert_eq!((e.code, e.blocked), (IpcErrorCode::Blocked, Some(BlockedReason::RepoNotPrepared { repo: owner })));
         assert!(repo_ready_error(RepoStatus::Unavailable { message: "x".into() }).unwrap_err().message.contains("x"));
     }
 

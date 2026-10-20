@@ -66,6 +66,16 @@ pub fn status_view(s: TaskStatus) -> OrgStatusView {
     OrgStatusView { phase, reason, label: label.to_string(), icon: icon.to_string() }
 }
 
+/// 画面のタスクの状態。グラフで動くワークフローの「レビュー中」は、周回の辺がまだ開いていて完了にならないだけなので、
+/// 「後続の結果待ち」と表示する（業務状態は変えない。phase・icon は同じ）。
+pub fn task_status_view(t: &TaskSnapshot, snap: &OrgSnapshot) -> OrgStatusView {
+    let mut v = status_view(t.status);
+    if t.status == TaskStatus::Reviewing && snap.graph.is_some() && t.node.is_some() {
+        v.label = "後続の結果待ち".to_string();
+    }
+    v
+}
+
 pub fn confirm_view(c: ConfirmState) -> OrgConfirmView {
     let cause = |c: ReconcileCause| match c {
         ReconcileCause::Disconnect => OrgReconcileCause::Disconnect,
@@ -306,7 +316,7 @@ fn task_view(t: &TaskSnapshot, snap: &OrgSnapshot, notices: &[NoticeEntry]) -> O
         title: t.title.clone(),
         deps: t.deps.iter().map(|d| d.0.clone()).collect(),
         waiting_on,
-        status: status_view(t.status),
+        status: task_status_view(t, snap),
         confirm: confirm_view(t.confirm),
         attempts: t.attempts,
         max_attempts: 1 + snap.limits.max_rework,
@@ -405,11 +415,14 @@ fn retry_views(t: &TaskSnapshot, max: u32) -> (Option<OrgRetryView>, Option<Stri
                 org_engine::RetryReason::UsageLimit => "利用上限",
                 org_engine::RetryReason::TurnFailed => "失敗",
                 org_engine::RetryReason::Interrupted => "中断",
+                org_engine::RetryReason::NothingWritten => "変更なし",
             };
             (Some(OrgRetryView { kind: OrgRetryKind::NewAttempt, reason_label: label.to_string(), used: t.retry_count, max }), None)
         }
         Err(why) => {
-            let eligible = matches!(t.status, TaskStatus::Blocked(EBlocked::UsageLimit | EBlocked::TurnFailed | EBlocked::ManualStop));
+            // 要対応の止まりで再送の上限に当たるのは、変更を書かなかったタスクの再送だけ
+            let eligible = matches!(t.status, TaskStatus::Blocked(EBlocked::UsageLimit | EBlocked::TurnFailed | EBlocked::ManualStop))
+                || (t.status == TaskStatus::Blocked(EBlocked::NeedsAttention) && matches!(why, org_engine::RetryRefusal::RetryLimit { .. }));
             (None, eligible.then(|| why.text()))
         }
     }
@@ -1287,6 +1300,18 @@ mod tests {
         folder.def.workspace = WorkspaceKind::Folder;
         let t = template_view(&folder);
         assert!(!t.selectable && t.reasons.len() == 1);
+    }
+
+    #[test]
+    fn a_graph_task_held_by_an_open_loop_reads_as_waiting_for_later_results() {
+        let tasks = vec![gtask("plan-1", "plan", None, TaskStatus::Reviewing, ConfirmState::Confirmed)];
+        let s = gsnap(quality(), &[], &[], tasks);
+        let v = task_status_view(&s.tasks[0], &s);
+        assert_eq!(v.label, "後続の結果待ち");
+        assert_eq!(v.phase, OrgTaskPhase::Reviewing);
+        // a plan-route task keeps the plain label
+        let plain = snap(vec![task("w", &[], TaskStatus::Reviewing, ConfirmState::Confirmed)], None);
+        assert_eq!(task_status_view(&plain.tasks[0], &plain).label, "レビュー中");
     }
 
     #[test]

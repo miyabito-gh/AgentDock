@@ -3,4 +3,4 @@
 /**
  * 作業フォルダのGitの状態（読取りのみで判定）。
  */
-export type RepoStatusView = { "kind": "ready", root: string, branch: string, } | { "kind": "nested", root: string, } | { "kind": "notRepo" } | { "kind": "noCommit", root: string, } | { "kind": "prepInterrupted", root: string, } | { "kind": "ownerMismatch" } | { "kind": "unavailable", message: string, };
+export type RepoStatusView = { "kind": "ready", root: string, branch: string, } | { "kind": "nested", root: string, } | { "kind": "notRepo" } | { "kind": "noCommit", root: string, } | { "kind": "prepInterrupted", root: string, } | { "kind": "ownerMismatch", repo: string, } | { "kind": "unavailable", message: string, };

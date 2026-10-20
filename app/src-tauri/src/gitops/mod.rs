@@ -561,6 +561,15 @@ mod tests {
     use super::*;
 
     #[test]
+    fn allowed_repositories_get_safe_directory_on_the_command_line_for_write_ops_too() {
+        let git = Git::new(None).with_safe_directories(vec!["C:/r/a".into(), "D:/b".into()]);
+        let args = git.full_args(GitOp::StageAll.args().unwrap());
+        assert_eq!(&args[..4], ["-c", "safe.directory=C:/r/a", "-c", "safe.directory=D:/b"]);
+        assert_eq!(&args[4..], &GitOp::StageAll.args().unwrap()[..]);
+        assert_eq!(Git::new(None).full_args(vec!["status".into()]), ["status"]);
+    }
+
+    #[test]
     fn read_ops_use_no_optional_locks_and_paths_follow_double_dash() {
         let a = GitOp::Diff { path: Some("src/a.rs".into()) }.args().unwrap();
         assert_eq!(&a[a.len() - 2..], ["--", "src/a.rs"]);

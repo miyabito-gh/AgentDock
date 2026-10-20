@@ -96,9 +96,10 @@ fn blocked_message(b: RemoveBlock, detail: Option<&str>) -> String {
 }
 
 impl Host {
+    /// AgentDockが起動するgit全般（開始前チェック・worktree・コミット・取り込みなど）。
+    /// 所有者違いを「AgentDockのgit操作だけに許可」したリポジトリには `-c safe.directory=` をコマンドラインで付ける（ユーザーのgit設定は変えない）。
     pub(super) fn git_for_worktree(&self) -> Git {
-        let tool = self.read(|d| d.settings.tools.git.clone());
-        Git::new(tool.as_deref())
+        self.git_for_baseline()
     }
 
     /// 書込み系の操作が所有者違いで止まったときの文言（そのリポジトリの許可の有無で出し分ける）。`repo` が空ならフォルダで判定する。

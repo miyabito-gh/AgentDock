@@ -274,7 +274,7 @@ impl Host {
         self.commit_intake(&chat, next, Some(prev.clone())).await?;
         let sent = self
             .send_message_with(
-                SendMessageArgs { chat: chat.clone(), text: SUMMARY_REQUEST_TEXT.to_string(), attachments: Vec::new(), intent: SendIntent::NewTurn, steer_entry: None },
+                SendMessageArgs { chat: chat.clone(), text: summary_request_message(), attachments: Vec::new(), intent: SendIntent::NewTurn, steer_entry: None },
                 confirmed,
                 SendExtras { output_schema: Some(summary_output_schema()), client_message_id: Some(cm) },
             )

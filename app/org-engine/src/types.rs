@@ -201,6 +201,9 @@ pub struct Task {
     /// Times the user asked for a new attempt after a failed / interrupted turn.
     #[serde(default)]
     pub(crate) retry_count: u32,
+    /// The last turn ended with nothing to commit (the worker wrote no change). Cleared by `Dispatched` / `Committed`.
+    #[serde(default)]
+    pub(crate) nothing_written: bool,
     /// The next send is a new attempt (`TurnKind::Retry`). Cleared by `Dispatched`.
     #[serde(default)]
     pub(crate) retry_pending: bool,
@@ -261,6 +264,7 @@ impl Task {
             format_fix_used: false,
             retry_count: 0,
             retry_pending: false,
+            nothing_written: false,
             adopted_manual: false,
             node: None,
             last_output_seq: None,
@@ -309,6 +313,9 @@ impl Task {
     }
     pub fn retry_count(&self) -> u32 {
         self.retry_count
+    }
+    pub fn nothing_written(&self) -> bool {
+        self.nothing_written
     }
     pub fn retry_pending(&self) -> bool {
         self.retry_pending

@@ -4,9 +4,12 @@
 //       AgentDock が作るのは `.git` フォルダだけ。除外ファイルへの追記は、選んだときだけ（内容を示し、追記のみ）。
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as host from "../ipc/client";
-import type { PrepOutcome, PushBlocker, PushPreview, PushRejectReason, PushResult, PushVerify, RepoPrepPreview, RepoStatusView } from "../ipc/types";
+import type { DirtySummaryView, PrepOutcome, PushBlocker, PushPreview, PushRejectReason, PushResult, PushVerify, RepoPrepPreview, RepoStatusView } from "../ipc/types";
 import { ConfirmBlock, FootActions } from "./DialogParts";
 import { fmtBytes } from "./ManageDialogs";
+import { OwnerAllowPanel } from "./OwnerAllowPanel";
+import { ownerRepoOf } from "./ownerAllow";
+import { dirtyCheckApplies, dirtyNoticeText } from "./dirtyNotice";
 
 const errText = (e: unknown) => host.asIpcError(e).message;
 
@@ -23,7 +26,7 @@ export function repoStatusText(s: RepoStatusView): string {
     case "notRepo": return "Git のリポジトリではありません。Worker が専用 worktree で作業するには、先に準備が要ります。";
     case "noCommit": return "Git のリポジトリですが、まだコミットがありません。Worker が作業するには、最初のコミットが要ります。";
     case "prepInterrupted": return "前回の Git の準備が途中で止まっています（コミットがありません）。";
-    case "ownerMismatch": return "Git がこのフォルダの所有者の違いを理由に拒否しています。Git の safe.directory を確認してください。";
+    case "ownerMismatch": return "Git がこのフォルダの所有者の違いを理由に拒否しています。";
     case "unavailable": return `Git の状態を確認できません（${s.message}）。`;
   }
 }
@@ -32,6 +35,9 @@ export function repoStatusText(s: RepoStatusView): string {
 export function GitStatusRow({ folder, tick, onPrepare, onStatus }: { folder: string; tick: number; onPrepare: () => void; onStatus?: (s: RepoStatusView | null) => void }) {
   const [st, setSt] = useState<RepoStatusView | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [again, setAgain] = useState(0);
+  const [dirty, setDirty] = useState<DirtySummaryView | null>(null);
+  const [dirtyErr, setDirtyErr] = useState<string | null>(null);
   const cb = useRef(onStatus);
   cb.current = onStatus;
   useEffect(() => {
@@ -43,12 +49,27 @@ export function GitStatusRow({ folder, tick, onPrepare, onStatus }: { folder: st
       host.gitRepoStatus(f).then((s) => { if (!stale) { setSt(s); cb.current?.(s); } }).catch((e) => { if (!stale) setErr(errText(e)); });
     }, 300);
     return () => { stale = true; clearTimeout(t); };
-  }, [folder, tick]);
+  }, [folder, tick, again]);
+  // 未コミットの変更の確認（読取りのみ）。コミットのあるリポジトリのときだけ調べる
+  useEffect(() => {
+    setDirty(null); setDirtyErr(null);
+    const f = folder.trim();
+    if (!f || !dirtyCheckApplies(st)) return;
+    let stale = false;
+    host.gitDirtySummary(f).then((d) => { if (!stale) setDirty(d); }).catch((e) => { if (!stale) setDirtyErr(errText(e)); });
+    return () => { stale = true; };
+  }, [folder, st, tick]);
   if (!folder.trim()) return null;
+  const owner = ownerRepoOf(st);
+  const dirtyText = dirtyNoticeText(dirty);
   return (
     <div className="small" role="status" style={{ marginTop: 4 }}>
       {err ? <span className="why err">Git の状態を確認できませんでした（{err}）。</span> : st ? <span>{repoStatusText(st)}</span> : <span className="muted">Git の状態を確認しています…</span>}
       {needsPrep(st) ? <> <button type="button" className="btn sm" onClick={onPrepare}>Gitを準備…</button></> : null}
+      {/* 許可したら状態を読み直す（開始前チェックのやり直し） */}
+      {owner ? <OwnerAllowPanel repo={owner} onAllowed={() => setAgain((n) => n + 1)} /> : null}
+      {dirtyText ? <div className="why warn" role="status" style={{ marginTop: 4, color: "var(--wait-ink)" }}>{dirtyText}</div> : null}
+      {dirtyErr ? <div className="muted" style={{ marginTop: 4 }}>未コミットの変更は確認できませんでした（{dirtyErr}）。</div> : null}
     </div>
   );
 }
@@ -72,10 +93,16 @@ export function GitPrepBody({ folder, onDone }: { folder: string; onDone: (prepa
   const [busy, setBusy] = useState(false);
   const [out, setOut] = useState<PrepOutcome | null>(null);
   const [removing, setRemoving] = useState(false);
+  const [owner, setOwner] = useState<string | null>(null);
   const load = useCallback(() => {
-    setPv(null); setErr(null);
+    setPv(null); setErr(null); setOwner(null);
     let stale = false;
-    host.gitPrepPreview({ folder, applyExcludes: apply }).then((p) => { if (!stale) setPv(p); }).catch((e) => { if (!stale) setErr(errText(e)); });
+    host.gitPrepPreview({ folder, applyExcludes: apply }).then((p) => { if (!stale) setPv(p); }).catch((e) => {
+      if (stale) return;
+      setErr(errText(e));
+      // 所有者違いで断られたときは、許可の選択肢を出す（読取りだけで確かめる）
+      host.gitRepoStatus(folder).then((s) => { if (!stale) setOwner(ownerRepoOf(s)); }).catch(() => {});
+    });
     return () => { stale = true; };
   }, [folder, apply]);
   useEffect(() => load(), [load]);
@@ -99,6 +126,7 @@ export function GitPrepBody({ folder, onDone }: { folder: string; onDone: (prepa
     <div className="content">
       <div className="field"><span>対象のフォルダ</span><div className="mono">{folder}</div></div>
       {err ? <div className="why err" role="alert">{err}</div> : null}
+      {owner ? <OwnerAllowPanel repo={owner} onAllowed={() => { load(); }} /> : null}
       {!pv && !err ? <p className="small muted">フォルダの中身を調べています（何も作りません）…</p> : null}
       {pv ? (
         <>

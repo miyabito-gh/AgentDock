@@ -35,6 +35,19 @@ fn pretty(v: &Value) -> String {
     serde_json::to_string_pretty(v).unwrap_or_default()
 }
 
+/// The first `lines` non-empty lines joined by a space, cut to `max` characters (None when there is no text).
+pub(crate) fn head_lines(text: &str, lines: usize, max: usize) -> Option<String> {
+    let joined = text.lines().map(str::trim).filter(|l| !l.is_empty()).take(lines).collect::<Vec<_>>().join(" ");
+    if joined.is_empty() {
+        return None;
+    }
+    let mut cut: String = joined.chars().take(max).collect();
+    if joined.chars().count() > max {
+        cut.push('…');
+    }
+    Some(cut)
+}
+
 impl OrgCore {
     // ------------------------------------------------------------ small helpers
 
@@ -69,6 +82,20 @@ impl OrgCore {
             GNode::Gate { .. } => Some(SlotId::new(node.0.clone())),
             _ => None,
         }
+    }
+
+    /// The first lines of the task's report (its output slot's `summary` text, else the whole value), for a short reason.
+    /// None = no graph task, or the value is not obtained.
+    pub(crate) fn report_head(&self, id: &TaskId) -> Option<String> {
+        let g = self.graph.as_ref()?;
+        let node = self.task(id)?.node.clone()?;
+        let slot = Self::output_slot_of(g, &node)?;
+        let v = self.slot_latest(&slot)?;
+        let text = match v.get("summary").and_then(Value::as_str) {
+            Some(s) => s.to_string(),
+            None => pretty(v),
+        };
+        head_lines(&text, 3, 300)
     }
 
     fn status_of(&self, id: &TaskId) -> Option<TaskStatus> {
@@ -265,7 +292,11 @@ impl OrgCore {
         let s = self.s();
         let rework = t.accepted_turn().is_some();
         let workplace = if capture.is_some() {
-            "専用の作業場所で作業します。変更はこの場所で行い、確定（コミット）はAgentDockが行うので、gitコミットはしません。".to_string()
+            let mut w = "専用の作業場所で作業します。変更はこの場所で行い、確定（コミット）はAgentDockが行うので、gitコミットはしません。".to_string();
+            if matches!(capture, Some(CaptureKind::Commit)) {
+                w.push_str(prompt::WORKER_SCOPE_NOTE);
+            }
+            w
         } else if let Some(tn) = target {
             let commit = self.task_of_node(tn).and_then(|tid| self.task(&tid)).and_then(|x| x.commit().map(str::to_string))?;
             format!("ファイルは変更せず、読むことだけをします。検証対象: 工程 {tn} のコミット {commit}（作業ツリーが古い場合は `git show {commit}` などで確認してください）。")

@@ -8,7 +8,7 @@ import { cleanRepoPath, currentOwnerProblem, ownerCardProblem, ownerCommands, ow
 
 export type SetRepoFn = (repo: string, choice: RepoRecordChoice | null, allowGit: boolean) => Promise<void>;
 
-function CopyLine({ text }: { text: string }) {
+export function CopyLine({ text }: { text: string }) {
   const { state, copy } = useCopy();
   return (
     <div className="acts" style={{ alignItems: "center" }}>

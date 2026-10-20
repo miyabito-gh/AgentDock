@@ -300,6 +300,7 @@ pub fn run() {
             commands::org_intake_start,
             commands::org_intake_abandon,
             commands::git_repo_status,
+            commands::git_dirty_summary,
             commands::git_prep_preview,
             commands::git_prepare_repo,
             commands::git_prep_remove_interrupted,

@@ -21,6 +21,14 @@ pub const MAX_REQUEST_BYTES: usize = 16 * 1024;
 /// 要約の turn で送る固定の本文（§1.6）。履歴から該当 turn を探す目印にも使う。
 pub const SUMMARY_REQUEST_TEXT: &str = "（AgentDock: 依頼要約の作成）ここまでの会話から、組織実行に渡す依頼を決められた形で出してください。分からない点は推測で埋めず openQuestions に入れてください。ファイルは変更しないでください。";
 
+/// 要約の turn に添える但し書き。目印（`SUMMARY_REQUEST_TEXT`）の後ろに付けるので、履歴の照合は従来どおり目印で行える。
+pub const SUMMARY_REQUEST_EXTRA: &str = "整理段階の制約（ファイルを変更しない・組織実行を開始しない・この段階では実装しない など、この会話の進め方に関する決まり）は、確定依頼の内容（goal・constraints など）に含めないでください。確定依頼は、後で実装を行う担当に渡す依頼です。";
+
+/// 要約の turn で実際に送る本文。
+pub fn summary_request_message() -> String {
+    format!("{SUMMARY_REQUEST_TEXT}{SUMMARY_REQUEST_EXTRA}")
+}
+
 /// 依頼整理チャットの目的メモに入れる「進め方」（固定文。既存の資料枠で届く）。
 pub const INTAKE_PURPOSE_TEXT: &str = "この会話は、組織実行（複数のエージェントに仕事を分担させる実行）に渡す依頼を整理するためのものです。まだ組織実行は始まっていません。\n利用者と話しながら、目的・成果物の形・入力ファイル・制約・完了条件を具体的にしてください。足りない点は質問し、推測で決めつけないでください。ファイルは変更せず、読むだけにしてください。内容が固まったら、利用者が要約を作ります。";
 
@@ -199,6 +207,9 @@ fn bullets(items: &[String]) -> String {
         .join("\n")
 }
 
+/// 確定依頼の先頭に付ける注記（整理段階の制約を Planner・Worker へ持ち込まない）。
+pub const PLANNER_REQUEST_NOTE: &str = "以下は依頼整理を終えた確定依頼である。依頼整理の段階の制約（ファイルを変更しない・組織実行を開始しない 等）はこの依頼には適用しない。";
+
 /// Planner への依頼文。同じ入力から必ず同じ文を作る。`checks` は入力パスごとの検査結果（なければ「検査できていません」）。
 /// 16KB を超えるときは作らず理由を返す。
 pub fn compose_planner_request(rev: u32, s: &IntakeSummary, checks: &[(String, InputCheck)]) -> Result<String, String> {
@@ -218,7 +229,7 @@ pub fn compose_planner_request(rev: u32, s: &IntakeSummary, checks: &[(String, I
             .join("\n")
     };
     let text = format!(
-        "# 依頼（依頼整理で確定・第{rev}版）\n\n## 目的\n{}\n\n## 成果物の形\n{}\n\n## 入力（作業フォルダからの相対パス。各行に検査結果）\n{}\n\n## 制約\n{}\n\n## 完了条件\n{}\n\n## 未解決の点（あれば。Planner は推測で埋めず計画に明記すること）\n{}\n",
+        "# 依頼（依頼整理で確定・第{rev}版）\n{PLANNER_REQUEST_NOTE}\n\n## 目的\n{}\n\n## 成果物の形\n{}\n\n## 入力（作業フォルダからの相対パス。各行に検査結果）\n{}\n\n## 制約\n{}\n\n## 完了条件\n{}\n\n## 未解決の点（あれば。Planner は推測で埋めず計画に明記すること）\n{}\n",
         section_text(&s.goal),
         section_text(&s.deliverable),
         inputs,
@@ -519,6 +530,15 @@ mod tests {
         s.constraints = vec!["う".repeat(MAX_TEXT_CHARS)];
         s.open_questions = vec!["え".repeat(MAX_TEXT_CHARS)];
         assert!(compose_planner_request(1, &s, &[]).unwrap_err().contains("16KB"));
+    }
+
+    #[test]
+    fn the_confirmed_request_says_intake_constraints_do_not_apply_and_the_summary_ask_keeps_its_marker() {
+        let t = compose_planner_request(1, &sum(), &[]).unwrap();
+        assert!(t.contains(PLANNER_REQUEST_NOTE), "{t}");
+        assert!(t.starts_with("# 依頼（依頼整理で確定・第1版）"), "{t}");
+        let m = summary_request_message();
+        assert!(m.starts_with(SUMMARY_REQUEST_TEXT) && m.contains("含めないでください"));
     }
 
     #[test]

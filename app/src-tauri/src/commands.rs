@@ -1001,6 +1001,12 @@ pub async fn git_repo_status(host: Hs<'_>, args: crate::backend::git_ops::GitFol
     host.git_repo_status(args).await
 }
 
+/// 作業フォルダの未コミットの変更の件数と代表パス（読取りのみ）。
+#[tauri::command]
+pub async fn git_dirty_summary(host: Hs<'_>, args: crate::backend::git_ops::GitFolderArgs) -> R<crate::backend::git_ops::DirtySummaryView> {
+    host.git_dirty_summary(args).await
+}
+
 /// Gitの準備のプレビュー（読取りのみ。何も作らない）。
 #[tauri::command]
 pub async fn git_prep_preview(host: Hs<'_>, args: crate::backend::git_ops::GitPrepArgs) -> R<crate::backend::git_ops::RepoPrepPreview> {

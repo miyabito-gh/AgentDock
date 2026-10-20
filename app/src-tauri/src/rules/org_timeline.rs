@@ -217,6 +217,7 @@ impl TimelineFold {
                 Some(Self::row(ev, Some(task), codex(), tone, text.into()))
             }
             K::Committed { task, commit } => Some(Self::row(ev, Some(task), engine(), OrgTone::Info, format!("コミット {}", commit.chars().take(7).collect::<String>()))),
+            K::CommitEmpty { task } => Some(Self::row(ev, Some(task), engine(), OrgTone::Warn, "Workerが変更を書きませんでした（コミットなし）".into())),
             K::SlotWritten { task, slot, version, .. } => {
                 Some(Self::row(ev, Some(task), self.role_actor(task), OrgTone::Info, format!("{} が {} を出力（第{version}版）", task.0, slot.0)))
             }

@@ -12,6 +12,8 @@ import { estimateLines } from "./org";
 import { formOf, formProblem, prefsOf, sameForm, summaryOf, type SummaryForm } from "./intakeForm";
 import { GitStatusRow, needsPrep } from "./GitDialogs";
 import type { RepoStatusView } from "../ipc/types";
+import { OwnerAllowPanel } from "./OwnerAllowPanel";
+import { blockedOwnerRepo } from "./ownerAllow";
 
 const errText = (e: unknown) => host.asIpcError(e).message;
 const STANDARD_ID = "standard";
@@ -242,6 +244,8 @@ export function IntakeStartBody({ chat, onStarted, onPrepare }: {
   const [view, setView] = useState<IntakeView | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [needPrep, setNeedPrep] = useState(false);
+  /** 開始前チェックが所有者違いで止まったときのリポジトリの場所（許可の選択肢を出す）。 */
+  const [ownerRepo, setOwnerRepo] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const loaded = useRef(false);
   const load = useCallback(() => { host.orgIntakeView(chat).then(setView).catch((e) => setErr(errText(e))); }, [chat]);
@@ -257,7 +261,9 @@ export function IntakeStartBody({ chat, onStarted, onPrepare }: {
     } catch (e) {
       const ie = host.asIpcError(e);
       setErr(ie.message);
-      setNeedPrep(ie.blocked?.kind === "repoNotPrepared");
+      const owner = blockedOwnerRepo(ie.blocked);
+      setOwnerRepo(owner);
+      setNeedPrep(ie.blocked?.kind === "repoNotPrepared" && !owner);
       load();
     }
     setBusy(false);
@@ -279,6 +285,7 @@ export function IntakeStartBody({ chat, onStarted, onPrepare }: {
           </div></div>
         </>
       ) : null}
+      {ownerRepo ? <OwnerAllowPanel repo={ownerRepo} onAllowed={() => { setOwnerRepo(null); setErr(null); load(); }} /> : null}
       {err ? <div className="why err" role="alert">{err}{needPrep && view ? <> <button type="button" className="btn sm" onClick={() => onPrepare(view.prefs.folder)}>Gitを準備…</button></> : null}</div> : null}
       <FootActions main={<button className="btn primary" disabled={!ok || busy} onClick={() => void go()}>{busy ? "開始しています…" : "開始"}</button>} />
     </div>
