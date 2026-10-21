@@ -36,6 +36,7 @@ import { Dialogs, type DialogState, type NewChatInput } from "./ui/Dialogs";
 import { OrgPane } from "./ui/OrgPane";
 import { QuickNewPane } from "./ui/QuickNewPane";
 import { pickQuickModel } from "./ui/quickNew";
+import { enterModeFromSetting, enterModeToSetting, type EnterMode } from "./ui/sendKeys";
 import { addCreating, creatingLabel, foundSince, removeCreating, resolveCreating, resultOfError, setCheckedNote, setCreatingPhase, type CreatingChat } from "./ui/creating";
 import type { SaveResult, WorkFoldersApi } from "./ui/WorkFoldersUi";
 import type { FolderTools } from "./ui/WorkFolderSetsUi";
@@ -614,8 +615,8 @@ export default function App() {
     return run;
   };
   // 送信キー（AppSettings.sendKey）。以前は画面内の状態で再起動すると戻っていたため、設定に保存する
-  const enterMode: "ctrl" | "enter" = snap.settings.sendKey === "enter" ? "enter" : "ctrl";
-  const setEnterMode = (m: "ctrl" | "enter") => { void updateSettings((st) => ({ ...st, sendKey: m === "enter" ? "enter" : "ctrlEnter" }), "送信キーの設定を保存できませんでした。次回の起動では保存されている値に戻ります"); };
+  const enterMode = enterModeFromSetting(snap.settings.sendKey);
+  const setEnterMode = (m: EnterMode) => { void updateSettings((st) => ({ ...st, sendKey: enterModeToSetting(m) }), "送信キーの設定を保存できませんでした。次回の起動では保存されている値に戻ります"); };
   // 表示設定（テーマ・文字サイズ）の反映。ホストの設定を受け取るまで（既定値のまま）は写しを上書きしない。
   const appearance = snap.settings.appearance;
   const appearanceReady = !live || snap.seq > 0;

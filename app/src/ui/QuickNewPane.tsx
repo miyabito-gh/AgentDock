@@ -1,12 +1,13 @@
 import { useLayoutEffect, type RefObject } from "react";
 import type { ModelInfo } from "../ipc/types";
 import { Icon } from "./Icon";
+import type { EnterMode } from "./sendKeys";
 import { canQuickSend, isNewChatSubmitKey } from "./quickNew";
 
 /** クイック新規の下書き画面（まだ会話を作っていない）。最初の送信で会話を作る。作業フォルダは一般チャット固定、権限は初期値。 */
 export function QuickNewPane(p: {
   models: ModelInfo[]; model: string; setModel: (id: string) => void;
-  text: string; setText: (v: string) => void; enterMode: "ctrl" | "enter"; busy: boolean;
+  text: string; setText: (v: string) => void; enterMode: EnterMode; busy: boolean;
   onSend: () => void; onDetail: () => void; inputRef: RefObject<HTMLTextAreaElement>;
 }) {
   const ok = canQuickSend(p.text, p.busy);

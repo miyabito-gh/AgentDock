@@ -17,6 +17,8 @@ export function canQuickSend(text: string, busy: boolean): boolean {
   return !busy && text.trim().length > 0;
 }
 
+import type { EnterMode } from "./sendKeys";
+
 export interface EnterKeyLike { key: string; ctrlKey: boolean; shiftKey: boolean; altKey?: boolean; metaKey?: boolean; isComposing?: boolean }
 
 /**
@@ -25,7 +27,7 @@ export interface EnterKeyLike { key: string; ctrlKey: boolean; shiftKey: boolean
  * - Ctrl＋Enter は設定に関わらず常に送る。
  * - Enter 方式では Enter（Shift なし）も送る。Shift＋Enter は改行のまま。Ctrl＋Enter 方式の Enter は改行。
  */
-export function isNewChatSubmitKey(e: EnterKeyLike, mode: "ctrl" | "enter"): boolean {
+export function isNewChatSubmitKey(e: EnterKeyLike, mode: EnterMode): boolean {
   if (e.key !== "Enter" || e.isComposing || e.altKey || e.metaKey) return false;
   if (e.ctrlKey) return true;
   return mode === "enter" && !e.shiftKey;

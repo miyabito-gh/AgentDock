@@ -4,8 +4,6 @@ import type { AgentView, Chat, HostSnapshot, PendingRequest } from "../ipc/types
 
 /** タスク列の最大件数（超えた分は「ほかのタスク」へ1行で出す）。 */
 export const TASK_LIMIT = 5;
-/** 状態不明（作業中・対応待ちでないもの）を直接見せる件数。通常の枠とは別に数え、残りは「ほかのタスク」へ。 */
-export const UNKNOWN_LIMIT = 5;
 /** 子孫を直接見せる件数（残りは「ほかN件」）。 */
 export const DESCENDANT_LIMIT = 3;
 /** 1行表示へ切り替える境界（調整項目）。 */
@@ -65,6 +63,12 @@ export function orderByRecency(chats: Chat[], recency: Recency): Chat[] {
   return [...chats].sort((a, b) => at(b) - at(a) || (chatId(a) < chatId(b) ? -1 : chatId(a) > chatId(b) ? 1 : 0));
 }
 
+/** 「全」タブの並び: 作業中・対応待ち（isWorking）を先、同じ区分の中は最近動かした順。 */
+export function orderWorkingFirst(chats: Chat[], recency: Recency, isWorking: (c: Chat) => boolean): Chat[] {
+  const by = orderByRecency(chats, recency);
+  return [...by.filter((c) => isWorking(c)), ...by.filter((c) => !isWorking(c))];
+}
+
 export type TaskSelection = {
   /** 保留中の要求があるチャット（要求を受けた古い順）。5件の上限に数えない。 */
   attention: Chat[];
@@ -72,8 +76,6 @@ export type TaskSelection = {
   tasks: Chat[];
   /** 6件目以降（1行で出す。消さない）。 */
   overflow: Chat[];
-  /** 状態不明（作業中・対応待ちでない）の最近動かした順の先頭 UNKNOWN_LIMIT 件。tasks の後ろに並べる専用枠。 */
-  unknownTasks: Chat[];
 };
 
 /**
@@ -81,8 +83,8 @@ export type TaskSelection = {
  * - 帯: 保留中の要求があるもの（アーカイブ済みでも）。
  * - タスク: アーカイブ済みでないもの（アーカイブ済みは isWorking のときだけ）。閉じたもの（署名が閉じた時のまま）は除く。
  * `isWorking` は呼び出し側の「親または子孫が作業中・対応待ち」判定（isWorkingForDock）。`closed` は chatId→閉じた時の署名。
- * 並びは「作業中が先、同じ区分の中は最近動かした順」。`isUnknown`（親の状態が不明）で作業中でも対応待ちでもないチャットは、
- * 通常の枠（limit）には数えず専用枠 unknownTasks（最近の UNKNOWN_LIMIT 件）に分け、残りは overflow（ほかのタスク）へ。回復・作業開始で通常枠に戻る。
+ * 並びは「作業中・対応待ち → 状態が分かるもの → 状態不明（`isUnknown`、作業中でないもの）」で、各区分の中は最近動かした順。
+ * 連結して先頭 limit 件（全体で最大5件）がタスク、残りが overflow（ほかのタスク）。状態不明は余り枠だけに入り、どのチャットも必ずどちらかに出る。
  */
 export function selectTasks(
   snap: HostSnapshot, recency: Recency, closed: ReadonlyMap<string, string>,
@@ -100,10 +102,9 @@ export function selectTasks(
     return cs === undefined || cs !== (recency.get(id)?.sig ?? chatSignature(snap, c));
   });
   const byRecency = orderByRecency(candidates, recency);
-  const unk = byRecency.filter((c) => !isWorking(c) && isUnknown(c));
-  const known = byRecency.filter((c) => isWorking(c) || !isUnknown(c));
-  const ordered = [...known.filter((c) => isWorking(c)), ...known.filter((c) => !isWorking(c))];
-  return { attention, tasks: ordered.slice(0, limit), overflow: [...ordered.slice(limit), ...unk.slice(UNKNOWN_LIMIT)], unknownTasks: unk.slice(0, UNKNOWN_LIMIT) };
+  const rank = (c: Chat): number => (isWorking(c) ? 0 : isUnknown(c) ? 2 : 1);
+  const ordered = [...byRecency.keys()].sort((i, j) => rank(byRecency[i]) - rank(byRecency[j]) || i - j).map((i) => byRecency[i]);
+  return { attention, tasks: ordered.slice(0, limit), overflow: ordered.slice(limit) };
 }
 
 /**

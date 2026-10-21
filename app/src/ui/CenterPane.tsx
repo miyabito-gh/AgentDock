@@ -23,7 +23,7 @@ import type { CommandView } from "./commands";
 import { HEADER_MORE, resolveEntries } from "./menuModel";
 import { MenuList } from "./MenuList";
 import { tipWithKey } from "./shortcuts";
-import { sendActionForKey, type RunningInputMode } from "./sendKeys";
+import { defaultRunningAction, otherRunningAction, enterHint as enterHintOf, sendActionForKey, sendKeyName as sendKeyNameOf, type EnterMode, type RunningInputMode } from "./sendKeys";
 import { GoalBar, UnverifiedTag, WORK_MODE_TEXT } from "./PrefsDialogs";
 import { resendCtxOf, resendTargetOf } from "./ResendDialog";
 import { SkillSuggest, type SkillPickApi } from "./SkillPicker";
@@ -69,7 +69,7 @@ export interface CenterProps {
   externalLabel: string | undefined;
   /** このアプリの起動中に、この会話が一度でも live 監視になったか。 */
   wasLive: boolean;
-  enterMode: "ctrl" | "enter";
+  enterMode: EnterMode;
   /** 実行中に送信キーを押したときの送り方（設定。Ctrl＋Shift＋Enter は常にもう一方）。 */
   runningInput: RunningInputMode;
   draft: string;
@@ -948,12 +948,12 @@ function Composer({ p, running, lock, hu }: { p: CenterProps; running: boolean; 
     window.requestAnimationFrame(() => { const el = p.inputRef.current; if (el) { el.focus(); el.setSelectionRange(r.cursor, r.cursor); } });
     p.skillPick.pick(s);
   };
-  const enterHint = p.enterMode === "ctrl" ? "Ctrl＋Enter で送信、Enter で改行" : "Enter で送信、Shift＋Enter で改行";
+  const enterHint = enterHintOf(p.enterMode);
   // 実行中の送り方: 送信キー（とボタン）は設定の側、Ctrl＋Shift＋Enter はもう一方
-  const defAct: "queue" | "steer" = p.runningInput === "steer" ? "steer" : "queue";
-  const altAct: "queue" | "steer" = defAct === "steer" ? "queue" : "steer";
+  const defAct = defaultRunningAction(p.runningInput);
+  const altAct = otherRunningAction(p.runningInput);
   const actLabel = (a: "queue" | "steer") => (a === "steer" ? "追加指示で送る" : "完了後に送信");
-  const sendKeyName = p.enterMode === "ctrl" ? "Ctrl＋Enter" : "Enter";
+  const sendKeyName = sendKeyNameOf(p.enterMode);
   const runHint = `${enterHint}／Ctrl＋Shift＋Enter で${actLabel(altAct)}`;
   // 受理の根拠。全文は title と「⋯」に常に置き、1行目には問題があるとき（未受理・受理未確認・不一致）だけ短く出す。
   const acceptLine = `${changed ? `選択: ${model}／${effort}${speed ? `／速度 ${speed}` : ""}（未受理。次のターンから適用）　` : ""}受理済み: ${settings ? (accepted ? `${accepted.model}／${accepted.effort ?? "既定"}${accepted.speedTier ? `／速度 ${accepted.speedTier}` : ""}` : showKnown(settings.accepted)) : "未確認"}${!accepted ? "（受け取るまで確認不可）" : ""}`;

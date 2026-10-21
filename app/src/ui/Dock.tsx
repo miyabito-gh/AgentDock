@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AgentKey, AgentView, Chat, ChatKey, HistoryOutcome, HostSnapshot, MonitorScope, PendingRequest, RequestAnswer } from "../ipc/types";
 import { RequestCard, chatChipClass } from "./CenterPane";
-import { DESCENDANT_LIMIT, TASK_LIMIT, UNKNOWN_LIMIT, branchOrder, cardDensity, chatSignature, descendantSummary, descendantSummaryText, mayRedirect, orderByRecency, selectTasks, stableMembership, stableOrder, trackRecency, type Recency } from "./dockTasks";
+import { DESCENDANT_LIMIT, branchOrder, cardDensity, chatSignature, descendantSummary, descendantSummaryText, mayRedirect, orderWorkingFirst, selectTasks, stableMembership, stableOrder, trackRecency, type Recency } from "./dockTasks";
 import { Icon } from "./Icon";
 import { OrgBadge } from "./OrgPane";
 import { RequestGapLine } from "./RequestGap";
@@ -450,7 +450,7 @@ export function DockPane({ snap: snapIn, scope, selId, mini, confirmed, onScope,
   // 「タスク」の選定・所属の凍結だけが見る不明フラグ（「全」「選択中」の並びには効かせない）
   const unkSig = snap.chats.map((c) => `${cid(c)}:${isUnknownForDock(snap, c) ? 1 : 0}`).join("|");
   const holdAll = typing || workSig === allSig.current;
-  const allIds = stableOrder(allOrder.current, orderByRecency(snap.chats, rec).map(cid), holdAll);
+  const allIds = stableOrder(allOrder.current, orderWorkingFirst(snap.chats, rec, (c) => isWorkingForDock(snap, c)).map(cid), holdAll);
   const allById = new Map(snap.chats.map((c) => [cid(c), c] as const));
   const chats = isSel ? snap.chats.filter((c) => c.key.id === selId) : allIds.flatMap((id) => allById.get(id) ?? []);
   const visibleOf = (c: Chat) => chatAgents(snap, c).filter((v) => {
@@ -475,18 +475,18 @@ export function DockPane({ snap: snapIn, scope, selId, mini, confirmed, onScope,
   };
   // 「タスク」: 帯（対応待ち）＋最近動かした順の最大5件＋ほか（1行）。完了しても消さない（閉じる・アーカイブ・削除だけ）。
   const sel = useMemo(
-    () => (isTask ? selectTasks(snap, rec, closed, (c) => isWorkingForDock(snap, c), undefined, (c) => isUnknownForDock(snap, c)) : { attention: [], tasks: [], overflow: [], unknownTasks: [] }),
+    () => (isTask ? selectTasks(snap, rec, closed, (c) => isWorkingForDock(snap, c), undefined, (c) => isUnknownForDock(snap, c)) : { attention: [], tasks: [], overflow: [] }),
     [isTask, snap, rec, closed],
   );
   // 入力中は、並びだけでなく所属（帯・タスク列）も保つ（カードを作り直さない＝フォーカス・変換を保つ）。
   // 作業状態・対応待ち・閉じたものが変わらない間は、所属と並びも前回のまま。
   const memberSig = `${workSig}#${unkSig}#${sel.attention.map(cid).join("|")}#${[...closed.keys()].join("|")}`;
-  const { band: bandIds, task: taskIds } = stableMembership(bandOrder.current, taskOrder.current, sel.attention.map(cid), [...sel.tasks, ...sel.unknownTasks].map(cid), typing || memberSig === taskSig.current, new Set(allById.keys()), TASK_LIMIT + UNKNOWN_LIMIT);
+  const { band: bandIds, task: taskIds } = stableMembership(bandOrder.current, taskOrder.current, sel.attention.map(cid), sel.tasks.map(cid), typing || memberSig === taskSig.current, new Set(allById.keys()));
   useEffect(() => { bandOrder.current = bandIds; taskOrder.current = taskIds; allOrder.current = allIds; allSig.current = workSig; taskSig.current = memberSig; });
   const inTask = new Set([...bandIds, ...taskIds]);
   const bandChats = bandIds.flatMap((id) => allById.get(id) ?? []);
   const taskChats = taskIds.flatMap((id) => allById.get(id) ?? []);
-  const overflow = [...sel.tasks, ...sel.unknownTasks, ...sel.overflow].filter((c) => !inTask.has(cid(c)));
+  const overflow = [...sel.tasks, ...sel.overflow].filter((c) => !inTask.has(cid(c)));
   // 入力中に新しい対応待ちが来たら、位置は動かさず印だけ付ける
   const seenBand = useRef<Set<string>>(new Set());
   useEffect(() => {

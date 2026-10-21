@@ -1,4 +1,5 @@
 import { isNewChatSubmitKey } from "./quickNew";
+import type { EnterMode, RunningInputMode } from "./sendKeys";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { IntakeBeginMode, OrgRunningNote } from "../ipc/types";
 import type { Chat, ChatKey, ChatLocalView, ChatPendingOp, ChatQueue, ChatModelSettings, ForceKillPreview, Goal, GoalUpdate, Known, ModelInfo, NotificationSettings, OrgDeleteOutcome, OrgDeletePreview, OpCapability, QuitDecision, QuitPhase, RevertResult, SaveStatus, SideSessionMeta, SourceInfo, StopRecord, StopSummary, TurnRecord, WorktreeRecord, CloudTaskRecord } from "../ipc/types";
@@ -167,7 +168,7 @@ function SettingsBody({ tab, enterMode, setEnterMode, runningInput, setRunningIn
   autostart: AutostartProps;
   appearance: AppearanceProps;
   notify: NotifyProps;
-  tab: string; enterMode: "ctrl" | "enter"; setEnterMode: (m: "ctrl" | "enter") => void; runningInput: "queue" | "steer"; setRunningInput: (m: "queue" | "steer") => void; top: { main: boolean; mini: boolean; setMain: (b: boolean) => void; setMini: (b: boolean) => void };
+  tab: string; enterMode: EnterMode; setEnterMode: (m: EnterMode) => void; runningInput: RunningInputMode; setRunningInput: (m: RunningInputMode) => void; top: { main: boolean; mini: boolean; setMain: (b: boolean) => void; setMini: (b: boolean) => void };
   source: SourceInfo | undefined; models: ModelInfo[]; exe: CodexExe;
 }) {
   switch (tab) {
@@ -210,7 +211,7 @@ function SettingsBody({ tab, enterMode, setEnterMode, runningInput, setRunningIn
       <>
         <div className="field"><span>送信キー</span><div>
           <label><input type="radio" name="ek" checked={enterMode === "ctrl"} onChange={() => setEnterMode("ctrl")} />Ctrl＋Enter で送信／Enter で改行</label><br />
-          <label><input type="radio" name="ek" checked={enterMode === "enter"} onChange={() => setEnterMode("enter")} />Enter で送信／Shift＋Enter で改行（新規チャットの最初の依頼では Ctrl＋Enter でも送信）</label></div></div>
+          <label><input type="radio" name="ek" checked={enterMode === "enter"} onChange={() => setEnterMode("enter")} />Enter または Ctrl＋Enter で送信／Shift＋Enter で改行</label></div></div>
         <div className="field"><span>実行中の入力</span><div>
           <label><input type="radio" name="ri" checked={runningInput === "queue"} onChange={() => setRunningInput("queue")} />送信キーは「完了後に送信」（Ctrl＋Shift＋Enter で追加指示）</label><br />
           <label><input type="radio" name="ri" checked={runningInput === "steer"} onChange={() => setRunningInput("steer")} />送信キーは「追加指示で送る」（Ctrl＋Shift＋Enter で完了後に送信）</label></div>
@@ -451,7 +452,7 @@ export function Dialogs({ cont, org, folderTools, workspaceRoots, d, onClose, ch
   notify: NotifyProps;
   d: DialogState; onClose: () => void; chats: Chat[]; source: SourceInfo | undefined; models: ModelInfo[];
   exe: CodexExe; onCreateChat: (i: NewChatInput) => Promise<void>;
-  enterMode: "ctrl" | "enter"; setEnterMode: (m: "ctrl" | "enter") => void; runningInput: "queue" | "steer"; setRunningInput: (m: "queue" | "steer") => void;
+  enterMode: EnterMode; setEnterMode: (m: EnterMode) => void; runningInput: RunningInputMode; setRunningInput: (m: RunningInputMode) => void;
   top: { main: boolean; mini: boolean; setMain: (b: boolean) => void; setMini: (b: boolean) => void };
   setTab: (t: string) => void; onAct: (a: string) => void;
 }) {

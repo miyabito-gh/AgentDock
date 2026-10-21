@@ -663,7 +663,7 @@ pub struct WindowPrefs {
     pub bounds: Option<WindowBounds>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
@@ -672,6 +672,7 @@ pub enum SendKey {
     Enter,
 }
 
+    #[default]
 /// 実行中に送信キーを押したときの既定の送り方。Ctrl＋Shift＋Enter は常にもう一方。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
@@ -708,6 +709,8 @@ pub struct AppSettings {
     pub default_model: Option<ModelChoice>,
     pub send_key: SendKey,
     /// 実行中の入力（送信キーの既定の送り方）。古い `settings.json` は「完了後に送信」で読む。
+    #[serde(default)]
+    /// 送信キー。古い `settings.json`（この項目なし）は Enter で読む。保存済みの値はそのまま尊重する。
     #[serde(default)]
     pub running_input: RunningInput,
     /// 確認済みにした起動時の保存データ警告（警告文＝領域のパスと警告の種類を含む）。同じ警告は以後出さない。
@@ -979,7 +982,7 @@ impl Default for AppSettings {
             monitor_window: WindowPrefs::default(),
             monitor_scope: MonitorWindowScope::default(),
             default_model: None,
-            send_key: SendKey::CtrlEnter,
+            send_key: SendKey::Enter,
             running_input: RunningInput::Queue,
             acknowledged_warnings: Vec::new(),
             tools: ToolSettings::default(),
@@ -1555,6 +1558,19 @@ mod settings_tests {
     #[test]
     fn settings_without_running_input_load_as_queue() {
         let mut v = serde_json::to_value(AppSettings::default()).unwrap();
+    #[test]
+    fn settings_without_send_key_load_as_enter_and_saved_value_is_kept() {
+        let mut v = serde_json::to_value(AppSettings::default()).unwrap();
+        v.as_object_mut().unwrap().remove("sendKey");
+        let s: AppSettings = serde_json::from_value(v).unwrap();
+        assert_eq!(s.send_key, SendKey::Enter);
+        let mut v = serde_json::to_value(AppSettings::default()).unwrap();
+        v["sendKey"] = serde_json::json!("ctrlEnter");
+        let s: AppSettings = serde_json::from_value(v).unwrap();
+        assert_eq!(s.send_key, SendKey::CtrlEnter);
+        assert_eq!(AppSettings::default().send_key, SendKey::Enter);
+    }
+
         v.as_object_mut().unwrap().remove("runningInput");
         let s: AppSettings = serde_json::from_value(v).unwrap();
         assert_eq!(s.running_input, RunningInput::Queue);

@@ -11,7 +11,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   executables: {}, autostart: false,
   notifications: { enabled: true, approvalAndQuestion: true, completed: true, failed: true, sound: true, showChatName: true, orgAttention: true, orgFinished: true },
   mainWindow: { alwaysOnTop: false, bounds: null }, monitorWindow: { alwaysOnTop: false, bounds: null },
-  monitorScope: "selectedChat", defaultModel: null, sendKey: "ctrlEnter", runningInput: "queue", acknowledgedWarnings: [], tools: { git: null }, cloudEnvByRepo: {}, baselines: { enabled: true, repos: [] }, layout: { leftWidth: null, dockWidth: null },
+  monitorScope: "selectedChat", defaultModel: null, sendKey: "enter", runningInput: "queue", acknowledgedWarnings: [], tools: { git: null }, cloudEnvByRepo: {}, baselines: { enabled: true, repos: [] }, layout: { leftWidth: null, dockWidth: null },
   chatList: { view: "Recent", pinnedFolders: [], collapsedFolders: [] }, appearance: { theme: "System", uiText: "Normal", bodyText: "Normal" },
   dismissedVersionNotice: null, recentSkills: [], workFolderSets: [], lastNewChat: null, sandboxWorkaround: false, orgStallMinutes: 30, continuation: { suggestAtPercent: 70, rounds: 3 },
 };

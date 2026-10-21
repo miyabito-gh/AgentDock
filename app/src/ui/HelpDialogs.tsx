@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import type { SourceInfo } from "../ipc/types";
 import { FRESH, STATE } from "./format";
-import { shortcutsFor, type RunningInputMode } from "./shortcuts";
+import { shortcutsFor } from "./shortcuts";
+import type { RunningInputMode } from "./sendKeys";
 
 /** 表は SHORTCUTS から作る（ハンドラーのあるキーだけが載っている）。 */
 export function ShortcutsBody({ runningInput = "queue" }: { runningInput?: RunningInputMode }) {

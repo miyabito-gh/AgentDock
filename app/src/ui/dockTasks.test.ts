@@ -1,7 +1,7 @@
 // 実行: node --test src/ui/dockTasks.test.ts （tscの対象外）
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { branchOrder, descendantSummary, descendantSummaryText, cardDensity, chatSignature, mayRedirect, orderByRecency, pickRecentDescendants, selectTasks, stableOrder, stableMembership, trackRecency } from "./dockTasks.ts";
+import { orderWorkingFirst, branchOrder, descendantSummary, descendantSummaryText, cardDensity, chatSignature, mayRedirect, orderByRecency, pickRecentDescendants, selectTasks, stableOrder, stableMembership, trackRecency } from "./dockTasks.ts";
 
 const chat = (id: string, o: any = {}): any => ({ key: { backend: "codex", id }, lastUsedAt: null, createdAt: { kind: "notFetched" }, archived: { kind: "value", value: false }, ...o });
 const agent = (cid: string, id: string, state: string, o: any = {}): any => ({
@@ -88,31 +88,32 @@ test("selectTasks: 作業中が古くても、完了より必ず上（最近動�
   assert.deepEqual(ids(r.tasks), ["c0", "c6", "c5", "c4", "c3"]);
   assert.deepEqual(ids(r.overflow), ["c2", "c1"]);
 });
-test("selectTasks: 状態不明は専用枠に最近の5件、残りはoverflow。通常5枠は作業中・既知だけで数える", () => {
-  const { cs, rec } = many(12); // c11が最新
-  const unk = new Set(["c11", "c10", "c9", "c8", "c7", "c6", "c0"]);
+test("selectTasks: 状態不明は全体5件の余り枠だけ。作業中・取得済みを押し出さず、溢れはoverflow、どれも落ちない", () => {
+  const { cs, rec } = many(8); // c7が最新
+  const unk = new Set(["c7", "c6", "c5", "c4", "c3", "c0"]);
   const r = selectTasks(snap(cs), rec as any, new Map(), (c) => c.key.id === "c0", 5, (c) => unk.has(c.key.id));
-  assert.deepEqual(ids(r.tasks), ["c0", "c5", "c4", "c3", "c2"]); // c0は不明でも作業中なので通常枠
-  assert.deepEqual(ids(r.unknownTasks), ["c11", "c10", "c9", "c8", "c7"]);
-  assert.deepEqual(ids(r.overflow), ["c1", "c6"]); // 既知の溢れ、続けて不明の6件目以降
+  assert.deepEqual(ids(r.tasks), ["c0", "c2", "c1", "c7", "c6"]);
+  assert.deepEqual(ids(r.overflow), ["c5", "c4", "c3"]);
+  assert.equal(r.tasks.length + r.overflow.length, 8);
 });
-test("selectTasks: 状態が回復すれば通常枠へ戻る", () => {
-  const { cs, rec } = many(8);
-  const unk = new Set(["c7", "c6"]);
-  const r = selectTasks(snap(cs), rec as any, new Map(), () => false, 5, (c) => unk.has(c.key.id));
-  assert.deepEqual(ids(r.tasks), ["c5", "c4", "c3", "c2", "c1"]);
-  assert.deepEqual(ids(r.unknownTasks), ["c7", "c6"]);
+test("selectTasks: 枠が余れば状態不明も出る。回復すれば最近順に戻る", () => {
+  const { cs, rec } = many(3);
+  const unk = new Set(["c2"]);
+  assert.deepEqual(ids(selectTasks(snap(cs), rec as any, new Map(), () => false, 5, (c) => unk.has(c.key.id)).tasks), ["c1", "c0", "c2"]);
   unk.clear();
-  const r2 = selectTasks(snap(cs), rec as any, new Map(), () => false, 5, (c) => unk.has(c.key.id));
-  assert.deepEqual(ids(r2.tasks), ["c7", "c6", "c5", "c4", "c3"]);
-  assert.deepEqual(r2.unknownTasks, []);
+  assert.deepEqual(ids(selectTasks(snap(cs), rec as any, new Map(), () => false, 5, (c) => unk.has(c.key.id)).tasks), ["c2", "c1", "c0"]);
 });
-test("selectTasks: 状態不明でも保留中の要求があれば帯に残り、専用枠とは独立", () => {
+test("selectTasks: 状態不明でも保留中の要求があれば帯に残る", () => {
   const { cs, rec } = many(3);
   const r = selectTasks(snap(cs, [], [req("c1", "q")]), rec as any, new Map(), () => false, 5, () => true);
   assert.deepEqual(ids(r.attention), ["c1"]);
-  assert.deepEqual(ids(r.tasks), []);
-  assert.deepEqual(ids(r.unknownTasks), ["c2", "c0"]);
+  assert.deepEqual(ids(r.tasks), ["c2", "c0"]);
+});
+
+test("orderWorkingFirst: 作業中が先、同区分は最近順", () => {
+  const rec = new Map([["codex:a", { sig: "", at: 1 }], ["codex:b", { sig: "", at: 9 }], ["codex:c", { sig: "", at: 5 }], ["codex:d", { sig: "", at: 3 }]]);
+  assert.deepEqual(ids(orderWorkingFirst([chat("a"), chat("b"), chat("c"), chat("d")], rec, (c) => c.key.id === "a" || c.key.id === "d")), ["d", "a", "b", "c"]);
+  assert.deepEqual(ids(orderWorkingFirst([chat("a"), chat("b")], rec, () => false)), ["b", "a"]);
 });
 
 test("pickRecentDescendants: 作業中を優先し、残り件数を返す", () => {

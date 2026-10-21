@@ -25,7 +25,7 @@ export const SHORTCUTS: Shortcut[] = [
   { id: "toggleRight", keys: "Ctrl+Alt+B", label: "エージェントのドックの表示切替", where: "通常画面", act: "toggleRight" },
   { id: "toggleMonitor", keys: "Ctrl+Shift+M", label: "監視窓を開く／閉じる", where: "通常画面", act: "toggleMonitor" },
   { id: "monitorClose", keys: "Ctrl+Shift+M", label: "監視窓を閉じる", where: "監視窓" },
-  { id: "send", keys: "Enter または Ctrl+Enter（設定による）", label: "送信（実行中は完了後に送信。設定で変更）", where: "入力欄" },
+  { id: "send", keys: "Enter／Ctrl+Enter（送信キーの設定による）", label: "送信（実行中は完了後に送信。設定で変更）", where: "入力欄" },
   { id: "sendQueue", keys: "Ctrl+Shift+Enter", label: "追加指示で送る（実行中。設定で変更）", where: "入力欄" },
   { id: "sendDialog", keys: "Ctrl+Enter", label: "送信（side相談・編集して再送）", where: "ダイアログ" },
   { id: "rowMenu", keys: "Shift+F10／アプリケーションキー", label: "行の操作メニュー", where: "一覧" },
@@ -48,7 +48,6 @@ export const tipWithKey = (text: string, id: string): string => {
 };
 
 import type { RunningInputMode } from "./sendKeys";
-export type { RunningInputMode };
 
 /** 設定「実行中の入力」に合わせた一覧。送信キーと Ctrl+Shift+Enter の役割だけが入れ替わる（ヘルプ表示用）。 */
 export function shortcutsFor(mode: RunningInputMode): Shortcut[] {
