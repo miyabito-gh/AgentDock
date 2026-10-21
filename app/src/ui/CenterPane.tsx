@@ -898,7 +898,7 @@ function Composer({ p, running, lock, hu }: { p: CenterProps; running: boolean; 
   const wmOptions: WorkModeInfo[] = p.workModes.length ? p.workModes : [{ mode: "plan", label: WORK_MODE_TEXT.plan }, { mode: "default", label: WORK_MODE_TEXT.default }];
   // コピー中・失敗・欠損の添付があるうちは送らない（ホストも同じ規則で止める。不完全なコピーは送れない）。
   const attachBlock = attachments.some((a) => a.state.kind !== "ready") ? "コピー中・コピー失敗・欠損の添付があります。取り外すか、もう一度添付してから送信してください。" : null;
-  // 追加指示は送るたびの1回限り（状態を持たない。次の送信は常に既定の「完了後に送信」）
+  // 追加指示は送るたびの1回限り（状態を持たない。次の送信は常に設定「実行中の入力」の既定の送り方）
   const empty = !p.draft.trim() && attachments.length === 0;
   const steerWhy = lock ? "いまは送信できません" : attachBlock ? "添付に問題があります" : empty ? "送る内容がありません" : steerBlockReason(running, changed, p.local);
   const send = async (asSteer = false) => {

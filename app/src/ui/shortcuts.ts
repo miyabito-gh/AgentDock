@@ -47,7 +47,8 @@ export const tipWithKey = (text: string, id: string): string => {
   return s ? `${text}（${s.kbd ?? s.keys}）` : text;
 };
 
-export type RunningInputMode = "queue" | "steer";
+import type { RunningInputMode } from "./sendKeys";
+export type { RunningInputMode };
 
 /** 設定「実行中の入力」に合わせた一覧。送信キーと Ctrl+Shift+Enter の役割だけが入れ替わる（ヘルプ表示用）。 */
 export function shortcutsFor(mode: RunningInputMode): Shortcut[] {

@@ -88,23 +88,31 @@ test("selectTasks: 作業中が古くても、完了より必ず上（最近動�
   assert.deepEqual(ids(r.tasks), ["c0", "c6", "c5", "c4", "c3"]);
   assert.deepEqual(ids(r.overflow), ["c2", "c1"]);
 });
-test("selectTasks: 状態不明は出さない（上のカードにもほかのタスクにも）。作業中の不明は残る。件数に含めない", () => {
-  const { cs, rec } = many(8); // c7が最新
-  const unk = new Set(["c7", "c6", "c5", "c4", "c3", "c0"]);
+test("selectTasks: 状態不明は専用枠に最近の5件、残りはoverflow。通常5枠は作業中・既知だけで数える", () => {
+  const { cs, rec } = many(12); // c11が最新
+  const unk = new Set(["c11", "c10", "c9", "c8", "c7", "c6", "c0"]);
   const r = selectTasks(snap(cs), rec as any, new Map(), (c) => c.key.id === "c0", 5, (c) => unk.has(c.key.id));
-  assert.deepEqual(ids(r.tasks), ["c0", "c2", "c1"]);
-  assert.deepEqual(ids(r.overflow), []);
-  assert.deepEqual(ids(r.hiddenUnknown).sort(), ["c3", "c4", "c5", "c6", "c7"]);
+  assert.deepEqual(ids(r.tasks), ["c0", "c5", "c4", "c3", "c2"]); // c0は不明でも作業中なので通常枠
+  assert.deepEqual(ids(r.unknownTasks), ["c11", "c10", "c9", "c8", "c7"]);
+  assert.deepEqual(ids(r.overflow), ["c1", "c6"]); // 既知の溢れ、続けて不明の6件目以降
+});
+test("selectTasks: 状態が回復すれば通常枠へ戻る", () => {
+  const { cs, rec } = many(8);
+  const unk = new Set(["c7", "c6"]);
+  const r = selectTasks(snap(cs), rec as any, new Map(), () => false, 5, (c) => unk.has(c.key.id));
+  assert.deepEqual(ids(r.tasks), ["c5", "c4", "c3", "c2", "c1"]);
+  assert.deepEqual(ids(r.unknownTasks), ["c7", "c6"]);
   unk.clear();
   const r2 = selectTasks(snap(cs), rec as any, new Map(), () => false, 5, (c) => unk.has(c.key.id));
   assert.deepEqual(ids(r2.tasks), ["c7", "c6", "c5", "c4", "c3"]);
-  assert.deepEqual(r2.hiddenUnknown, []);
+  assert.deepEqual(r2.unknownTasks, []);
 });
-test("selectTasks: 状態不明でも保留中の要求があれば帯に残る", () => {
-  const { cs, rec } = many(2);
+test("selectTasks: 状態不明でも保留中の要求があれば帯に残り、専用枠とは独立", () => {
+  const { cs, rec } = many(3);
   const r = selectTasks(snap(cs, [], [req("c1", "q")]), rec as any, new Map(), () => false, 5, () => true);
   assert.deepEqual(ids(r.attention), ["c1"]);
   assert.deepEqual(ids(r.tasks), []);
+  assert.deepEqual(ids(r.unknownTasks), ["c2", "c0"]);
 });
 
 test("pickRecentDescendants: 作業中を優先し、残り件数を返す", () => {

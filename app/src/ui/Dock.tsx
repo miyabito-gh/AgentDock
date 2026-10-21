@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AgentKey, AgentView, Chat, ChatKey, HistoryOutcome, HostSnapshot, MonitorScope, PendingRequest, RequestAnswer } from "../ipc/types";
 import { RequestCard, chatChipClass } from "./CenterPane";
-import { DESCENDANT_LIMIT, branchOrder, cardDensity, chatSignature, descendantSummary, descendantSummaryText, mayRedirect, orderByRecency, selectTasks, stableMembership, stableOrder, trackRecency, type Recency } from "./dockTasks";
+import { DESCENDANT_LIMIT, TASK_LIMIT, UNKNOWN_LIMIT, branchOrder, cardDensity, chatSignature, descendantSummary, descendantSummaryText, mayRedirect, orderByRecency, selectTasks, stableMembership, stableOrder, trackRecency, type Recency } from "./dockTasks";
 import { Icon } from "./Icon";
 import { OrgBadge } from "./OrgPane";
 import { RequestGapLine } from "./RequestGap";
@@ -475,18 +475,18 @@ export function DockPane({ snap: snapIn, scope, selId, mini, confirmed, onScope,
   };
   // 「タスク」: 帯（対応待ち）＋最近動かした順の最大5件＋ほか（1行）。完了しても消さない（閉じる・アーカイブ・削除だけ）。
   const sel = useMemo(
-    () => (isTask ? selectTasks(snap, rec, closed, (c) => isWorkingForDock(snap, c), undefined, (c) => isUnknownForDock(snap, c)) : { attention: [], tasks: [], overflow: [], hiddenUnknown: [] }),
+    () => (isTask ? selectTasks(snap, rec, closed, (c) => isWorkingForDock(snap, c), undefined, (c) => isUnknownForDock(snap, c)) : { attention: [], tasks: [], overflow: [], unknownTasks: [] }),
     [isTask, snap, rec, closed],
   );
   // 入力中は、並びだけでなく所属（帯・タスク列）も保つ（カードを作り直さない＝フォーカス・変換を保つ）。
   // 作業状態・対応待ち・閉じたものが変わらない間は、所属と並びも前回のまま。
   const memberSig = `${workSig}#${unkSig}#${sel.attention.map(cid).join("|")}#${[...closed.keys()].join("|")}`;
-  const { band: bandIds, task: taskIds } = stableMembership(bandOrder.current, taskOrder.current, sel.attention.map(cid), sel.tasks.map(cid), typing || memberSig === taskSig.current, new Set(allById.keys()));
+  const { band: bandIds, task: taskIds } = stableMembership(bandOrder.current, taskOrder.current, sel.attention.map(cid), [...sel.tasks, ...sel.unknownTasks].map(cid), typing || memberSig === taskSig.current, new Set(allById.keys()), TASK_LIMIT + UNKNOWN_LIMIT);
   useEffect(() => { bandOrder.current = bandIds; taskOrder.current = taskIds; allOrder.current = allIds; allSig.current = workSig; taskSig.current = memberSig; });
   const inTask = new Set([...bandIds, ...taskIds]);
   const bandChats = bandIds.flatMap((id) => allById.get(id) ?? []);
   const taskChats = taskIds.flatMap((id) => allById.get(id) ?? []);
-  const overflow = [...sel.tasks, ...sel.overflow].filter((c) => !inTask.has(cid(c)));
+  const overflow = [...sel.tasks, ...sel.unknownTasks, ...sel.overflow].filter((c) => !inTask.has(cid(c)));
   // 入力中に新しい対応待ちが来たら、位置は動かさず印だけ付ける
   const seenBand = useRef<Set<string>>(new Set());
   useEffect(() => {
@@ -577,7 +577,7 @@ export function DockPane({ snap: snapIn, scope, selId, mini, confirmed, onScope,
                 })}
               </div>
             ) : null}
-            {!bandChats.length && !taskChats.length && !overflow.length ? <div className="empty-note">{snap.chats.length ? `表示するタスクはありません（閉じたものは新しい活動で戻ります${sel.hiddenUnknown.length ? `。状態不明の${sel.hiddenUnknown.length}件は「選択中」「全」で見られます` : ""}）` : "チャットを始めると、ここにタスクが表示されます"}</div> : null}
+            {!bandChats.length && !taskChats.length && !overflow.length ? <div className="empty-note">{snap.chats.length ? "表示するタスクはありません（閉じたものは新しい活動で戻ります）" : "チャットを始めると、ここにタスクが表示されます"}</div> : null}
           </>
         ) : blocks.length ? blocks.map(({ c, views }) => (
           <RootBlock key={keyStr(c.key)} snap={snap} c={c} views={views} showHead={!isSel || !!mini} selected={c.key.id === selId} mini={!!mini} parentOnly={parentOnly || (view === "all" && allOpen.get(cid(c)) === false)} kidsToggle={parentOnly ? undefined : allToggle(c)}
