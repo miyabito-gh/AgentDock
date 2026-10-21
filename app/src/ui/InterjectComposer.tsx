@@ -3,6 +3,8 @@
 // 新しい turn は始めない。結果（届きました／届きませんでした／確認できません）は下のカードに残し、確認できないものは自動では送り直さない。
 import { useState } from "react";
 import * as host from "../ipc/client";
+import { enterHint, isSendKey } from "./sendKeys";
+import { useEnterMode } from "./SendKeyContext";
 import type { OrgInterjectView, OrgTaskView } from "../ipc/types";
 
 export interface InterjectComposerProps {
@@ -19,6 +21,7 @@ export interface InterjectComposerProps {
 const MAX = 4000;
 
 export function InterjectComposer({ workflowId, task, interjects, run, compact }: InterjectComposerProps) {
+  const enterMode = useEnterMode();
   const [text, setText] = useState("");
   // 既定は「届かなければ次の送信に添える」（確実に送っていないときだけ。受理不明では何もしない）。
   const [fallback, setFallback] = useState(true);
@@ -46,14 +49,14 @@ export function InterjectComposer({ workflowId, task, interjects, run, compact }
     <div className="interject" aria-label={`${task.id} への割り込み指示`}>
       {compact ? null : <div className="small muted">タスク {task.id}『{task.title}』の役割チャットへの指示です。通常の送信ではありません。</div>}
       <div className={`small interject-route ${route.route}`} role="status">{route.label}</div>
-      <textarea rows={3} style={{ width: "100%" }} value={text} maxLength={MAX + 200} disabled={refused || busy} aria-label="割り込み指示の内容" placeholder={refused ? "いまは送れません" : "例: READMEにも一言追記してください"}
+      <textarea rows={3} style={{ width: "100%" }} value={text} maxLength={MAX + 200} disabled={refused || busy} aria-label="割り込み指示の内容" placeholder={refused ? "いまは送れません" : `例: READMEにも一言追記してください（${enterHint(enterMode)}）`}
         onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); } }} />
+        onKeyDown={(e) => { if (isSendKey({ key: e.key, ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, metaKey: e.metaKey, isComposing: e.nativeEvent.isComposing }, enterMode)) { e.preventDefault(); void send(); } }} />
       <div className="acts">
         {route.route === "steer" ? <label className="small"><input type="checkbox" checked={fallback} onChange={(e) => setFallback(e.target.checked)} /> 届かなければ次の送信に添える</label> : null}
         <span className="grow" />
         {over ? <span className="small err">{MAX}文字までにしてください</span> : null}
-        <button className="btn primary" disabled={refused || blank || over || busy} title={refused ? route.label : "Ctrl+Enter でも送れます"} onClick={() => void send()}>{busy ? "送っています…" : route.route === "nextTurn" ? "次の送信に添える" : "指示を送る"}</button>
+        <button className="btn primary" disabled={refused || blank || over || busy} title={refused ? route.label : `${enterHint(enterMode)}`} onClick={() => void send()}>{busy ? "送っています…" : route.route === "nextTurn" ? "次の送信に添える" : "指示を送る"}</button>
       </div>
       {mine.length > 0 ? (
         <ul className="interject-list">

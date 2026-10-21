@@ -6,6 +6,8 @@ import { useEffect, useState } from "react";
 import * as host from "../ipc/client";
 import type { AgentKey, HostSnapshot, OpCapability, PendingRequest, RequestAnswer, SideEntry, SideSessionMeta } from "../ipc/types";
 import { RequestCard } from "./CenterPane";
+import { enterHint, isSendKey } from "./sendKeys";
+import { useEnterMode } from "./SendKeyContext";
 import { Icon } from "./Icon";
 import { UnverifiedTag } from "./PrefsDialogs";
 import { STATE, keyStr } from "./format";
@@ -25,6 +27,7 @@ export interface SidePanelProps {
 }
 
 export function SidePanel({ snap, side, live, cap, onClose, onRespond, onInsertMain, say }: SidePanelProps) {
+  const enterMode = useEnterMode();
   const [entries, setEntries] = useState<SideEntry[]>([]);
   const [running, setRunning] = useState(false);
   const [loadErr, setLoadErr] = useState<string | null>(null);
@@ -53,7 +56,7 @@ export function SidePanel({ snap, side, live, cap, onClose, onRespond, onInsertM
 
   const send = async () => {
     const text = draft.trim();
-    if (!text || busy || !open) return;
+    if (!text || busy || !open || running) return;
     setBusy(true); setNote(null);
     try {
       const ack = await host.sendSide(side.id, text);
@@ -117,8 +120,8 @@ export function SidePanel({ snap, side, live, cap, onClose, onRespond, onInsertM
       {open ? (
         <div className="sp-in">
           <textarea aria-label="sideへのメッセージ" rows={3} value={draft} disabled={busy} onChange={(e) => setDraft(e.target.value)} placeholder="この相談に質問する（主会話には送られません）"
-            onKeyDown={(e) => { if (e.key === "Enter" && e.ctrlKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); } }} />
-          <div className="sp-btn"><span className="small muted grow">Ctrl＋Enter で送信</span><button className="btn-main send" aria-label="sideへ送信" disabled={busy || !draft.trim() || running} title={running ? "実行中です。完了を待つか、閉じて中断してください" : undefined} onClick={() => void send()}><Icon name="send" /></button></div>
+            onKeyDown={(e) => { if (isSendKey({ key: e.key, ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, metaKey: e.metaKey, isComposing: e.nativeEvent.isComposing }, enterMode)) { e.preventDefault(); void send(); } }} />
+          <div className="sp-btn"><span className="small muted grow">{enterHint(enterMode)}</span><button className="btn-main send" aria-label="sideへ送信" disabled={busy || !draft.trim() || running} title={running ? "実行中です。完了を待つか、閉じて中断してください" : undefined} onClick={() => void send()}><Icon name="send" /></button></div>
         </div>
       ) : null}
       {note ? <div className="small sp-note why err">{note}</div> : null}

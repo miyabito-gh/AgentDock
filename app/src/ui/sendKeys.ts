@@ -30,3 +30,13 @@ export function sendActionForKey(e: SendKeyEvent, enterMode: EnterMode, running:
   if (!primary) return null;
   return running ? defaultRunningAction(mode) : "send";
 }
+
+/**
+ * 実行中の送り分けのない入力欄（side相談・編集して再送・組織の割り込み指示）で、このキーが送信か。
+ * ctrl 方式は Ctrl（または Meta）＋Enter のみ。enter 方式は Enter（Shift なし）または Ctrl（Meta）＋Enter。Shift＋Enter は改行。変換中は送らない。
+ */
+export function isSendKey(e: { key: string; ctrlKey: boolean; shiftKey: boolean; metaKey?: boolean; isComposing?: boolean }, enterMode: EnterMode): boolean {
+  if (e.key !== "Enter" || e.isComposing) return false;
+  if (e.ctrlKey || e.metaKey) return true;
+  return enterMode === "enter" && !e.shiftKey;
+}

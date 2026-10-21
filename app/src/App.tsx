@@ -51,6 +51,7 @@ import { displayWidths, loadSaved, paneModes, type PaneKind } from "./ui/paneWid
 import { chatName, isRunning, isWorkingForDock, stopOpen } from "./ui/derive";
 import { hms, keyStr, knownValue } from "./ui/format";
 import { pushRecent } from "./ui/skillPick";
+import { SendKeyContext } from "./ui/SendKeyContext";
 import { applyAppearance, watchSystemTheme } from "./ui/appearance";
 
 type Mode = "live" | "mock";
@@ -1698,6 +1699,7 @@ ${cur}` : p.text);
   };
 
   return (
+    <SendKeyContext.Provider value={enterMode}>
     <LinkContext.Provider value={linkActions}>
     <RefContext.Provider value={refActions}>
       <svg width="0" height="0" style={{ position: "absolute" }} aria-hidden="true">
@@ -1839,5 +1841,6 @@ ${cur}` : p.text);
       </div>
     </RefContext.Provider>
     </LinkContext.Provider>
+    </SendKeyContext.Provider>
   );
 }

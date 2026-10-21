@@ -3,6 +3,8 @@
 //       送信の受理不明は再送しない（分岐先の「履歴と照合」に委ねる）。元の会話は変えない。結果は「受け付けた」までしか書かない。
 import { useEffect, useRef, useState } from "react";
 import * as host from "../ipc/client";
+import { enterHint, isSendKey } from "./sendKeys";
+import { useEnterMode } from "./SendKeyContext";
 import type { AttachmentEntry, Chat, ChatKey, EntryAttachment, ForkPurpose, ForkReconcile, HostSnapshot, OpCapability, SendAttempt, TurnRecord } from "../ipc/types";
 import { availability } from "./commands";
 import { commandContext } from "./commandViews";
@@ -119,6 +121,7 @@ export function forkedLines(draftSaved: boolean, send: SendAttempt | null, sent:
 }
 
 export function ResendBody({ chat, live, cap, s, h, onClose, onRunning }: { chat: Chat | undefined; live: boolean; cap: OpCapability | undefined; s: ResendState; h: ResendHandlers; onClose: () => void; onRunning?: (b: boolean) => void }) {
+  const enterMode = useEnterMode();
   // 開いた時点の判定を保つ（結果の表示中に、状態の変化で画面が差し替わらないようにする。最終判定はホスト）。
   const [plan] = useState(s.plan);
   const [text, setText] = useState(s.requestText ?? "");
@@ -246,7 +249,8 @@ export function ResendBody({ chat, live, cap, s, h, onClose, onRunning }: { chat
           <span>依頼の文</span>
           <textarea className="resend-text" rows={6} value={text} disabled={running || finished} aria-label="依頼の文"
             onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => { if (e.ctrlKey && e.key === "Enter" && !e.nativeEvent.isComposing) { e.preventDefault(); primary(); } }} />
+            placeholder={`${enterHint(enterMode)}`}
+            onKeyDown={(e) => { if (isSendKey({ key: e.key, ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, metaKey: e.metaKey, isComposing: e.nativeEvent.isComposing }, enterMode)) { e.preventDefault(); if (!cannot) primary(); } }} />
         </label>
       ) : (
         <div className="resend-field">

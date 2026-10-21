@@ -27,7 +27,7 @@ export const SHORTCUTS: Shortcut[] = [
   { id: "monitorClose", keys: "Ctrl+Shift+M", label: "監視窓を閉じる", where: "監視窓" },
   { id: "send", keys: "Enter／Ctrl+Enter（送信キーの設定による）", label: "送信（実行中は完了後に送信。設定で変更）", where: "入力欄" },
   { id: "sendQueue", keys: "Ctrl+Shift+Enter", label: "追加指示で送る（実行中。設定で変更）", where: "入力欄" },
-  { id: "sendDialog", keys: "Ctrl+Enter", label: "送信（side相談・編集して再送）", where: "ダイアログ" },
+  { id: "sendDialog", keys: "Enter／Ctrl+Enter（送信キーの設定による）", label: "送信（side相談・編集して再送・組織の割り込み指示）", where: "ダイアログ" },
   { id: "rowMenu", keys: "Shift+F10／アプリケーションキー", label: "行の操作メニュー", where: "一覧" },
   { id: "paneWidth", keys: "←→／Home／End／Enter", label: "ペイン幅の調整／既定に戻す", where: "一覧" },
   { id: "close", keys: "Esc", label: "メニュー・検索・ダイアログを閉じる", where: "全体" },

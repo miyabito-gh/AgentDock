@@ -40,3 +40,18 @@ test("改行・IME変換中・Enter以外は送らない", () => {
   assert.equal(sendActionForKey(k({ ctrlKey: true, isComposing: true }), "ctrl", true, "steer"), null);
   assert.equal(sendActionForKey(k({ key: "a", ctrlKey: true }), "ctrl", true, "steer"), null);
 });
+
+import { isSendKey } from "./sendKeys.ts";
+test("isSendKey: ctrl方式は Ctrl+Enter のみ、enter方式は Enter と Ctrl+Enter、Shift+Enterは改行", () => {
+  assert.equal(isSendKey(k({ ctrlKey: true }), "ctrl"), true);
+  assert.equal(isSendKey(k(), "ctrl"), false);
+  assert.equal(isSendKey(k(), "enter"), true);
+  assert.equal(isSendKey(k({ ctrlKey: true }), "enter"), true);
+  assert.equal(isSendKey(k({ shiftKey: true }), "enter"), false);
+  assert.equal(isSendKey({ ...k(), metaKey: true }, "ctrl"), true);
+});
+test("isSendKey: IME変換中・Enter以外は送らない", () => {
+  assert.equal(isSendKey(k({ isComposing: true }), "enter"), false);
+  assert.equal(isSendKey(k({ ctrlKey: true, isComposing: true }), "ctrl"), false);
+  assert.equal(isSendKey(k({ key: "a", ctrlKey: true }), "enter"), false);
+});
