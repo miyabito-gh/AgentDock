@@ -64,6 +64,12 @@ export const isWorkingForDock = (s: HostSnapshot, c: Chat): boolean => {
   return isActiveState(st) || d === "childWorking";
 };
 
+/** 親の状態が不明（親の状態を取得できていない／unknown）。ドックの「タスク」では作業中・対応待ちでない限り出さない。 */
+export const isUnknownForDock = (s: HostSnapshot, c: Chat): boolean => {
+  const st = rootView(s, c)?.status.state;
+  return !st || st === "unknown";
+};
+
 export function chatStatusText(s: HostSnapshot, c: Chat): string {
   if (chatRequests(s, c).length) return "対応待ち";
   const root = rootView(s, c);

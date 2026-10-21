@@ -9,6 +9,7 @@ import type { MonitorWindowScope } from "./MonitorWindowScope";
 import type { NewChatDefaults } from "./NewChatDefaults";
 import type { NotificationSettings } from "./NotificationSettings";
 import type { RecentSkill } from "./RecentSkill";
+import type { RunningInput } from "./RunningInput";
 import type { SendKey } from "./SendKey";
 import type { ToolSettings } from "./ToolSettings";
 import type { WindowPrefs } from "./WindowPrefs";
@@ -30,6 +31,10 @@ autostart: boolean, notifications: NotificationSettings, mainWindow: WindowPrefs
  * 新しいチャットの既定モデル（既存チャットに波及させない）。
  */
 defaultModel: ModelChoice | null, sendKey: SendKey, 
+/**
+ * 実行中の入力（送信キーの既定の送り方）。古い `settings.json` は「完了後に送信」で読む。
+ */
+runningInput: RunningInput, 
 /**
  * 確認済みにした起動時の保存データ警告（警告文＝領域のパスと警告の種類を含む）。同じ警告は以後出さない。
  * 別の種類・別の領域の警告は文が変わるので、また出る。領域のファイルは消さず、作り直しもしない。

@@ -137,7 +137,6 @@ export default function App() {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   // 通知を押したチャットをドックのカードへ知らせる（スクロール・展開はドック側が入力中でないときだけ行う）
   const [dockFocus, setDockFocus] = useState<DockFocus | null>(null);
-  const [enterMode, setEnterMode] = useState<"ctrl" | "enter">("ctrl");
   const [mockOpen, setMockOpen] = useState(false);
   const [connectError, setConnectError] = useState<string | null>(null);
   const [exePath, setExePath] = useState<string>(readExe);
@@ -614,6 +613,9 @@ export default function App() {
     settingsQueue.current = run.then(() => undefined);
     return run;
   };
+  // 送信キー（AppSettings.sendKey）。以前は画面内の状態で再起動すると戻っていたため、設定に保存する
+  const enterMode: "ctrl" | "enter" = snap.settings.sendKey === "enter" ? "enter" : "ctrl";
+  const setEnterMode = (m: "ctrl" | "enter") => { void updateSettings((st) => ({ ...st, sendKey: m === "enter" ? "enter" : "ctrlEnter" }), "送信キーの設定を保存できませんでした。次回の起動では保存されている値に戻ります"); };
   // 表示設定（テーマ・文字サイズ）の反映。ホストの設定を受け取るまで（既定値のまま）は写しを上書きしない。
   const appearance = snap.settings.appearance;
   const appearanceReady = !live || snap.seq > 0;
@@ -1737,7 +1739,7 @@ ${cur}` : p.text);
                 attachments={draftAttachments} files={files} inputRef={composerRef}
                 skillPick={live ? { skills: skillLists[chat.key.id], load: () => loadSkills(chat.key), recent: snap.settings.recentSkills ?? [], pick: (sk) => { void pickSkill(chat.key, sk.name, sk.path); } } : null}
                 settings={bundle.modelSettings[chat.key.id]} models={models} save={chatSave}
-                externalLabel={bundle.externalLabel[chat.key.id]} wasLive={liveSeen.current.has(chat.key.id)} enterMode={enterMode}
+                externalLabel={bundle.externalLabel[chat.key.id]} wasLive={liveSeen.current.has(chat.key.id)} enterMode={enterMode} runningInput={snap.settings.runningInput ?? "queue"}
                 draft={curDraft} setDraft={(v) => onDraft(chat, v)}
                 onAct={act} commands={cmdViews} onRespond={(r, a) => void onRespond(r, a)}
                 onSend={onSend} loadHandoffPreview={loadHandoffPreview} onHandoffSend={onHandoffSend} onModel={onModel} onWorkMode={onWorkMode} workModes={workModes}
@@ -1789,6 +1791,7 @@ ${cur}` : p.text);
           threadOps={{ pendingOps: snap.pendingOps, queues: snap.queues, onOpenChat: (k) => { selectChat(k.id); } }}
           live={live} changesTick={changesTick} turnRecords={dialog.type === "changes" || dialog.type === "revert" ? bundle.turns[dialog.chatId] ?? [] : []} onRevertDone={(r) => { setChangesTick((n) => n + 1); if (r) say(r.failed.length > 0 ? `一部のみ戻しました（失敗 ${r.failed.length} 件）。` : `${r.reverted.length} 件のファイルを書き換えました。`); }}
           enterMode={enterMode} setEnterMode={setEnterMode}
+          runningInput={snap.settings.runningInput ?? "queue"} setRunningInput={(m) => { void updateSettings((st) => ({ ...st, runningInput: m }), "実行中の入力の設定を保存できませんでした。次回の起動では保存されている値に戻ります"); }}
           notify={{ value: snap.settings.notifications, set: onNotifySettings }}
           top={{ main: mainTop, mini: miniTop, setMain: (b) => setTop("main", b), setMini: (b) => setTop("monitor", b) }}
           autostart={{

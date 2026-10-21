@@ -82,6 +82,30 @@ test("selectTasks: 閉じたものは署名が変わるまで出ない", () => {
   const rec2 = new Map(rec); rec2.set("codex:c1", { sig: "s2", at: 9 });
   assert.deepEqual(ids(selectTasks(snap(cs), rec2 as any, closed, () => false).tasks), ["c1", "c0"]);
 });
+test("selectTasks: 作業中が古くても、完了より必ず上（最近動かした順は同区分の中だけ）", () => {
+  const { cs, rec } = many(7); // c6が最新、c0が最古
+  const r = selectTasks(snap(cs), rec as any, new Map(), (c) => c.key.id === "c0");
+  assert.deepEqual(ids(r.tasks), ["c0", "c6", "c5", "c4", "c3"]);
+  assert.deepEqual(ids(r.overflow), ["c2", "c1"]);
+});
+test("selectTasks: 状態不明は出さない（上のカードにもほかのタスクにも）。作業中の不明は残る。件数に含めない", () => {
+  const { cs, rec } = many(8); // c7が最新
+  const unk = new Set(["c7", "c6", "c5", "c4", "c3", "c0"]);
+  const r = selectTasks(snap(cs), rec as any, new Map(), (c) => c.key.id === "c0", 5, (c) => unk.has(c.key.id));
+  assert.deepEqual(ids(r.tasks), ["c0", "c2", "c1"]);
+  assert.deepEqual(ids(r.overflow), []);
+  assert.deepEqual(ids(r.hiddenUnknown).sort(), ["c3", "c4", "c5", "c6", "c7"]);
+  unk.clear();
+  const r2 = selectTasks(snap(cs), rec as any, new Map(), () => false, 5, (c) => unk.has(c.key.id));
+  assert.deepEqual(ids(r2.tasks), ["c7", "c6", "c5", "c4", "c3"]);
+  assert.deepEqual(r2.hiddenUnknown, []);
+});
+test("selectTasks: 状態不明でも保留中の要求があれば帯に残る", () => {
+  const { cs, rec } = many(2);
+  const r = selectTasks(snap(cs, [], [req("c1", "q")]), rec as any, new Map(), () => false, 5, () => true);
+  assert.deepEqual(ids(r.attention), ["c1"]);
+  assert.deepEqual(ids(r.tasks), []);
+});
 
 test("pickRecentDescendants: 作業中を優先し、残り件数を返す", () => {
   const c = chat("a");

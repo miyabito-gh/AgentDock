@@ -8,7 +8,7 @@ import { RequestGapLine } from "./RequestGap";
 import { chatGapRequests } from "./org";
 import { Popover } from "./Popover";
 import type { Known } from "../ipc/types";
-import { chatAgents, chatDisplay, chatRequests, chatStatusText, descendantStates, historyOutcomeOf, chatName, isDoneLike, isWorkingForDock, previewTitle, rootView } from "./derive";
+import { chatAgents, chatDisplay, chatRequests, chatStatusText, descendantStates, historyOutcomeOf, chatName, isDoneLike, isUnknownForDock, isWorkingForDock, previewTitle, rootView } from "./derive";
 import { CHAT_DISPLAY_TEXT, isActiveState, HISTORY_OUTCOME_TEXT, historyBreakdown, historyBreakdownText, parkGroup, rawStateText, sortByDockRank, unknownCount, unknownNote, unknownSignature } from "./chatState";
 import { FRESH, SOURCE_LABEL, STATE, hms, keyStr, showKnown } from "./format";
 import { TitleBar } from "./Chrome";
@@ -447,6 +447,8 @@ export function DockPane({ snap: snapIn, scope, selId, mini, confirmed, onScope,
   // 「選択中」「全」: 全の並びは最近動かした順（入力中は並べ替えを保留）
   // 並び（チャット）は、作業状態（working か否か）が変わったときだけ入れ替える。それ以外は前回の並びを保つ（入力中も保つ）。
   const workSig = snap.chats.map((c) => `${cid(c)}:${isWorkingForDock(snap, c) ? 1 : 0}`).join("|");
+  // 「タスク」の選定・所属の凍結だけが見る不明フラグ（「全」「選択中」の並びには効かせない）
+  const unkSig = snap.chats.map((c) => `${cid(c)}:${isUnknownForDock(snap, c) ? 1 : 0}`).join("|");
   const holdAll = typing || workSig === allSig.current;
   const allIds = stableOrder(allOrder.current, orderByRecency(snap.chats, rec).map(cid), holdAll);
   const allById = new Map(snap.chats.map((c) => [cid(c), c] as const));
@@ -473,12 +475,12 @@ export function DockPane({ snap: snapIn, scope, selId, mini, confirmed, onScope,
   };
   // 「タスク」: 帯（対応待ち）＋最近動かした順の最大5件＋ほか（1行）。完了しても消さない（閉じる・アーカイブ・削除だけ）。
   const sel = useMemo(
-    () => (isTask ? selectTasks(snap, rec, closed, (c) => isWorkingForDock(snap, c)) : { attention: [], tasks: [], overflow: [] }),
+    () => (isTask ? selectTasks(snap, rec, closed, (c) => isWorkingForDock(snap, c), undefined, (c) => isUnknownForDock(snap, c)) : { attention: [], tasks: [], overflow: [], hiddenUnknown: [] }),
     [isTask, snap, rec, closed],
   );
   // 入力中は、並びだけでなく所属（帯・タスク列）も保つ（カードを作り直さない＝フォーカス・変換を保つ）。
   // 作業状態・対応待ち・閉じたものが変わらない間は、所属と並びも前回のまま。
-  const memberSig = `${workSig}#${sel.attention.map(cid).join("|")}#${[...closed.keys()].join("|")}`;
+  const memberSig = `${workSig}#${unkSig}#${sel.attention.map(cid).join("|")}#${[...closed.keys()].join("|")}`;
   const { band: bandIds, task: taskIds } = stableMembership(bandOrder.current, taskOrder.current, sel.attention.map(cid), sel.tasks.map(cid), typing || memberSig === taskSig.current, new Set(allById.keys()));
   useEffect(() => { bandOrder.current = bandIds; taskOrder.current = taskIds; allOrder.current = allIds; allSig.current = workSig; taskSig.current = memberSig; });
   const inTask = new Set([...bandIds, ...taskIds]);
@@ -575,7 +577,7 @@ export function DockPane({ snap: snapIn, scope, selId, mini, confirmed, onScope,
                 })}
               </div>
             ) : null}
-            {!bandChats.length && !taskChats.length && !overflow.length ? <div className="empty-note">{snap.chats.length ? "表示するタスクはありません（閉じたものは新しい活動で戻ります）" : "チャットを始めると、ここにタスクが表示されます"}</div> : null}
+            {!bandChats.length && !taskChats.length && !overflow.length ? <div className="empty-note">{snap.chats.length ? `表示するタスクはありません（閉じたものは新しい活動で戻ります${sel.hiddenUnknown.length ? `。状態不明の${sel.hiddenUnknown.length}件は「選択中」「全」で見られます` : ""}）` : "チャットを始めると、ここにタスクが表示されます"}</div> : null}
           </>
         ) : blocks.length ? blocks.map(({ c, views }) => (
           <RootBlock key={keyStr(c.key)} snap={snap} c={c} views={views} showHead={!isSel || !!mini} selected={c.key.id === selId} mini={!!mini} parentOnly={parentOnly || (view === "all" && allOpen.get(cid(c)) === false)} kidsToggle={parentOnly ? undefined : allToggle(c)}

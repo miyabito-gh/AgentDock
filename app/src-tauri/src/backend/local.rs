@@ -672,6 +672,19 @@ pub enum SendKey {
     Enter,
 }
 
+/// 実行中に送信キーを押したときの既定の送り方。Ctrl＋Shift＋Enter は常にもう一方。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub enum RunningInput {
+    /// 完了後に送信（キュー）。
+    #[default]
+    Queue,
+    /// 追加指示で送る。
+    Steer,
+}
+
 /// アプリ設定。`%LOCALAPPDATA%` 配下の専用領域に保存する。`~/.codex` には書かない。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
@@ -694,6 +707,9 @@ pub struct AppSettings {
     /// 新しいチャットの既定モデル（既存チャットに波及させない）。
     pub default_model: Option<ModelChoice>,
     pub send_key: SendKey,
+    /// 実行中の入力（送信キーの既定の送り方）。古い `settings.json` は「完了後に送信」で読む。
+    #[serde(default)]
+    pub running_input: RunningInput,
     /// 確認済みにした起動時の保存データ警告（警告文＝領域のパスと警告の種類を含む）。同じ警告は以後出さない。
     /// 別の種類・別の領域の警告は文が変わるので、また出る。領域のファイルは消さず、作り直しもしない。
     #[serde(default)]
@@ -964,6 +980,7 @@ impl Default for AppSettings {
             monitor_scope: MonitorWindowScope::default(),
             default_model: None,
             send_key: SendKey::CtrlEnter,
+            running_input: RunningInput::Queue,
             acknowledged_warnings: Vec::new(),
             tools: ToolSettings::default(),
             cloud_env_by_repo: Default::default(),
@@ -1533,6 +1550,14 @@ mod settings_tests {
         let s: AppSettings = serde_json::from_value(v).unwrap();
         assert_eq!(s.layout, LayoutSettings::default());
         assert_eq!(s.layout.left_width, None);
+    }
+
+    #[test]
+    fn settings_without_running_input_load_as_queue() {
+        let mut v = serde_json::to_value(AppSettings::default()).unwrap();
+        v.as_object_mut().unwrap().remove("runningInput");
+        let s: AppSettings = serde_json::from_value(v).unwrap();
+        assert_eq!(s.running_input, RunningInput::Queue);
     }
 
     #[test]

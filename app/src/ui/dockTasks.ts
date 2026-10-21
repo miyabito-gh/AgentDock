@@ -70,6 +70,8 @@ export type TaskSelection = {
   tasks: Chat[];
   /** 6件目以降（1行で出す。消さない）。 */
   overflow: Chat[];
+  /** 状態不明のため出さないチャット（隠すだけで消さない）。 */
+  hiddenUnknown: Chat[];
 };
 
 /**
@@ -77,10 +79,12 @@ export type TaskSelection = {
  * - 帯: 保留中の要求があるもの（アーカイブ済みでも）。
  * - タスク: アーカイブ済みでないもの（アーカイブ済みは isWorking のときだけ）。閉じたもの（署名が閉じた時のまま）は除く。
  * `isWorking` は呼び出し側の「親または子孫が作業中・対応待ち」判定（isWorkingForDock）。`closed` は chatId→閉じた時の署名。
+ * 並びは「作業中が先、同じ区分の中は最近動かした順」。`isUnknown`（親の状態が不明）で作業中でも対応待ちでもないチャットは、タスクにもほかのタスクにも出さない
+ * （hiddenUnknown。状態は変えず隠すだけ。「選択中」「全」では出る。回復・作業開始で次の選定に戻る）。
  */
 export function selectTasks(
   snap: HostSnapshot, recency: Recency, closed: ReadonlyMap<string, string>,
-  isWorking: (c: Chat) => boolean, limit: number = TASK_LIMIT,
+  isWorking: (c: Chat) => boolean, limit: number = TASK_LIMIT, isUnknown: (c: Chat) => boolean = () => false,
 ): TaskSelection {
   const firstPending = (c: Chat): number => Math.min(...pendingOf(snap, c).map((r) => r.receivedAt));
   const attention = snap.chats.filter((c) => pendingOf(snap, c).length > 0)
@@ -93,8 +97,11 @@ export function selectTasks(
     const cs = closed.get(id);
     return cs === undefined || cs !== (recency.get(id)?.sig ?? chatSignature(snap, c));
   });
-  const ordered = orderByRecency(candidates, recency);
-  return { attention, tasks: ordered.slice(0, limit), overflow: ordered.slice(limit) };
+  const hiddenUnknown = candidates.filter((c) => !isWorking(c) && isUnknown(c));
+  const hidden = new Set(hiddenUnknown.map(chatId));
+  const byRecency = orderByRecency(candidates.filter((c) => !hidden.has(chatId(c))), recency);
+  const ordered = [...byRecency.filter((c) => isWorking(c)), ...byRecency.filter((c) => !isWorking(c))];
+  return { attention, tasks: ordered.slice(0, limit), overflow: ordered.slice(limit), hiddenUnknown };
 }
 
 /**

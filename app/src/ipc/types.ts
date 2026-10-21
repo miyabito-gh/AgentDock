@@ -474,6 +474,7 @@ export type { SaveStatus } from "./gen/SaveStatus";
 export type { SendAttempt } from "./gen/SendAttempt";
 export type { SendPhase } from "./gen/SendPhase";
 export type { SendIntent } from "./gen/SendIntent";
+export type { RunningInput } from "./gen/RunningInput";
 export type { SendKey } from "./gen/SendKey";
 export type { SendMessageArgs } from "./gen/SendMessageArgs";
 export type { SendState } from "./gen/SendState";

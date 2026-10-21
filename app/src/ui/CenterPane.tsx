@@ -22,7 +22,8 @@ import { assignSends, chipKey, chipModel, matchLocal, splitChips, type SentLocal
 import type { CommandView } from "./commands";
 import { HEADER_MORE, resolveEntries } from "./menuModel";
 import { MenuList } from "./MenuList";
-import { shortcutById, tipWithKey } from "./shortcuts";
+import { tipWithKey } from "./shortcuts";
+import { sendActionForKey, type RunningInputMode } from "./sendKeys";
 import { GoalBar, UnverifiedTag, WORK_MODE_TEXT } from "./PrefsDialogs";
 import { resendCtxOf, resendTargetOf } from "./ResendDialog";
 import { SkillSuggest, type SkillPickApi } from "./SkillPicker";
@@ -69,6 +70,8 @@ export interface CenterProps {
   /** このアプリの起動中に、この会話が一度でも live 監視になったか。 */
   wasLive: boolean;
   enterMode: "ctrl" | "enter";
+  /** 実行中に送信キーを押したときの送り方（設定。Ctrl＋Shift＋Enter は常にもう一方）。 */
+  runningInput: RunningInputMode;
   draft: string;
   setDraft: (v: string) => void;
   onAct: (a: string) => void;
@@ -946,6 +949,12 @@ function Composer({ p, running, lock, hu }: { p: CenterProps; running: boolean; 
     p.skillPick.pick(s);
   };
   const enterHint = p.enterMode === "ctrl" ? "Ctrl＋Enter で送信、Enter で改行" : "Enter で送信、Shift＋Enter で改行";
+  // 実行中の送り方: 送信キー（とボタン）は設定の側、Ctrl＋Shift＋Enter はもう一方
+  const defAct: "queue" | "steer" = p.runningInput === "steer" ? "steer" : "queue";
+  const altAct: "queue" | "steer" = defAct === "steer" ? "queue" : "steer";
+  const actLabel = (a: "queue" | "steer") => (a === "steer" ? "追加指示で送る" : "完了後に送信");
+  const sendKeyName = p.enterMode === "ctrl" ? "Ctrl＋Enter" : "Enter";
+  const runHint = `${enterHint}／Ctrl＋Shift＋Enter で${actLabel(altAct)}`;
   // 受理の根拠。全文は title と「⋯」に常に置き、1行目には問題があるとき（未受理・受理未確認・不一致）だけ短く出す。
   const acceptLine = `${changed ? `選択: ${model}／${effort}${speed ? `／速度 ${speed}` : ""}（未受理。次のターンから適用）　` : ""}受理済み: ${settings ? (accepted ? `${accepted.model}／${accepted.effort ?? "既定"}${accepted.speedTier ? `／速度 ${accepted.speedTier}` : ""}` : showKnown(settings.accepted)) : "未確認"}${!accepted ? "（受け取るまで確認不可）" : ""}`;
   const acceptTip = !accepted ? "会話の再開・開始の応答か Codex の設定通知でモデルを受け取るまで、受理は確認できません。受け取っていない間は、選択値が使われたとは言えません。" : undefined;
@@ -989,7 +998,7 @@ function Composer({ p, running, lock, hu }: { p: CenterProps; running: boolean; 
           onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
           onCompositionStart={() => setComposing(true)} onCompositionEnd={(e) => { setComposing(false); setCaret(e.currentTarget.selectionStart); }}
           aria-controls={sugOpen ? sugId : undefined} aria-expanded={sugOpen || undefined} aria-activedescendant={sugOpen ? `${sugId}-${sugCur}` : undefined}
-          placeholder={`${running ? "完了後に送る次の依頼" : "メッセージを入力"}（${enterHint}${running ? "／Ctrl＋Shift＋Enter で追加指示" : ""}）`}
+          placeholder={`${running ? (defAct === "steer" ? "実行中のturnへ追加指示する依頼" : "完了後に送る次の依頼") : "メッセージを入力"}（${running ? runHint : enterHint}）`}
           onPaste={(e) => {
             // クリップボードの画像は添付にする（生バイトでホストへ）。文章だけの貼り付けは通常どおり。
             const img = Array.from(e.clipboardData.files).find((f) => f.type.startsWith("image/"));
@@ -1005,9 +1014,13 @@ function Composer({ p, running, lock, hu }: { p: CenterProps; running: boolean; 
               if (e.key === "Escape") { e.preventDefault(); setSuppress(trig!.start); return; }
             }
             if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
-            // 追加指示で送る（実行中のみ。条件を満たさないときは何も送らない。理由は▾メニューの項目に出る）
-            if (e.ctrlKey && e.shiftKey) { e.preventDefault(); if (running) void send(true); return; }
-            if ((p.enterMode === "ctrl" && e.ctrlKey) || (p.enterMode === "enter" && !e.shiftKey)) { e.preventDefault(); void send(); }
+            // 実行中は、送信キー＝設定の送り方、Ctrl＋Shift＋Enter＝もう一方。追加指示は条件を満たさないとき何も送らない（理由は▾メニューの項目に出る）
+            const act = sendActionForKey(e, p.enterMode, running, hu.armed ? "queue" : p.runningInput);
+            // 引き継ぎの案内中（armed）は、ボタンと同じく設定の実行中の入力に関わらず従来どおり（送信キー＝完了後に送信／引き継いで送信）;
+            if (e.ctrlKey && e.shiftKey) e.preventDefault();
+            if (act === null) return;
+            e.preventDefault();
+            void send(act === "steer");
           }} />
         <div className="ctrl">
           <div className="ctrl-l">
@@ -1068,16 +1081,31 @@ function Composer({ p, running, lock, hu }: { p: CenterProps; running: boolean; 
           <div className="ctrl-r">
           {running ? <button className="btn-line" aria-label="中断" title="実行中の作業に中断を要求します（停止の確認は別に行います）" onClick={() => p.onAct("interrupt")}><Icon name="stop" /><span className="lbl">中断</span></button> : null}
           <span className="sendgrp">
-            <button className={`btn-main send${hu.armed ? " handoff" : ""}`} aria-label={hu.armed ? "引き継いで送信" : running ? "完了後に送る依頼として登録" : "送信"} title={hu.armed ? `新しい thread へ引き継いで送信します（目的メモ＋直近${hu.rounds}往復）。${enterHint}` : running ? `完了後に送信（親と子孫の作業が終わってから送ります）。${enterHint}` : enterHint} disabled={!!lock || !!attachBlock || empty} onClick={() => void send()}><Icon name="send" />{hu.armed ? <span className="lbl">引き継いで送信</span> : null}</button>
-            {/* 追加指示は送る前に決めず、送る時点で選ぶ（1回限り）。実行中のみ */}
+            {(() => {
+              const steerMain = running && !hu.armed && defAct === "steer";
+              const mainBlock = steerMain ? steerWhy : null;
+              return (
+                <button className={`btn-main send${hu.armed ? " handoff" : ""}`} aria-label={hu.armed ? "引き継いで送信" : running ? (steerMain ? "追加指示として送る" : "完了後に送る依頼として登録") : "送信"}
+                  title={hu.armed ? `新しい thread へ引き継いで送信します（目的メモ＋直近${hu.rounds}往復）。${enterHint}` : running ? (steerMain ? `${mainBlock ? `追加指示にできません（${mainBlock}）。` : "追加指示で送る（現在のturnへ割り込んで送ります）。"}${runHint}` : `完了後に送信（親と子孫の作業が終わってから送ります）。${runHint}`) : enterHint}
+                  disabled={!!lock || !!attachBlock || empty || !!mainBlock} onClick={() => void send(steerMain)}><Icon name="send" />{hu.armed ? <span className="lbl">引き継いで送信</span> : null}</button>
+              );
+            })()}
+            {/* 追加指示は送る前に決めず、送る時点で選ぶ（1回限り）。実行中のみ。「既定」は設定の実行中の入力 */}
             {running ? (
               <Popover role="menu" align="right" label="送信方法" title="この送信の送り方（完了後に送信／追加指示で送る）" triggerClassName="btn-main sendmore" trigger={<span aria-hidden="true">▾</span>}>
                 {(close) => (
                   <>
-                    <button role="menuitem" disabled={!!lock || !!attachBlock || empty} title="次の依頼として。親と子孫の作業が終わってから送ります（既定）" onClick={() => { close(); void send(false); }}><span>完了後に送信</span><span className="tag">既定</span></button>
-                    <button role="menuitem" aria-disabled={steerWhy ? true : undefined}
-                      title={steerWhy ?? "現在のturnへ割り込んで送ります。実行中のturnへ対象を照合して送ります。モデル・権限・フォルダの変更には使えません"}
-                      onClick={() => { if (steerWhy) return; close(); void send(true); }}><span>追加指示で送る</span><span className="kbd">{shortcutById("sendQueue")?.keys}</span></button>
+                    {[defAct, altAct].map((a) => {
+                      const isDef = a === defAct;
+                      const kbd = isDef ? sendKeyName : "Ctrl＋Shift＋Enter";
+                      return a === "queue" ? (
+                        <button key={a} role="menuitem" disabled={!!lock || !!attachBlock || empty} title="次の依頼として。親と子孫の作業が終わってから送ります" onClick={() => { close(); void send(false); }}><span>完了後に送信</span>{isDef ? <span className="tag">既定</span> : null}<span className="kbd">{kbd}</span></button>
+                      ) : (
+                        <button key={a} role="menuitem" aria-disabled={steerWhy ? true : undefined}
+                          title={steerWhy ?? "現在のturnへ割り込んで送ります。実行中のturnへ対象を照合して送ります。モデル・権限・フォルダの変更には使えません"}
+                          onClick={() => { if (steerWhy) return; close(); void send(true); }}><span>追加指示で送る</span>{isDef ? <span className="tag">既定</span> : null}<span className="kbd">{kbd}</span></button>
+                      );
+                    })}
                     {steerWhy ? <div className="small muted" style={{ padding: "2px 8px 4px" }}>追加指示にできない理由: {steerWhy}</div> : null}
                   </>
                 )}

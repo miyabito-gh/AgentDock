@@ -4,17 +4,17 @@ import { useEffect, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import type { SourceInfo } from "../ipc/types";
 import { FRESH, STATE } from "./format";
-import { SHORTCUTS } from "./shortcuts";
+import { shortcutsFor, type RunningInputMode } from "./shortcuts";
 
 /** 表は SHORTCUTS から作る（ハンドラーのあるキーだけが載っている）。 */
-export function ShortcutsBody() {
+export function ShortcutsBody({ runningInput = "queue" }: { runningInput?: RunningInputMode }) {
   return (
     <div className="content">
       <p className="small muted">日本語入力の変換中は、どのキーも反応しません。</p>
       <table className="tbl">
         <thead><tr><th>キー</th><th>動作</th><th>場面</th></tr></thead>
         <tbody>
-          {SHORTCUTS.map((s) => <tr key={s.id}><td><span className="kbd">{s.keys}</span></td><td>{s.label}</td><td className="small">{s.where}</td></tr>)}
+          {shortcutsFor(runningInput).map((s) => <tr key={s.id}><td><span className="kbd">{s.keys}</span></td><td>{s.label}</td><td className="small">{s.where}</td></tr>)}
         </tbody>
       </table>
     </div>
