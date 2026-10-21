@@ -117,6 +117,10 @@ const withCurrent = (list: number[], v: number | null): number[] => (v === null 
 export function ContinuationSettingsBody({ value, set }: { value: ContinuationSettings; set: (c: ContinuationSettings) => void }) {
   return (
     <>
+      <div className="field"><span>継続チャット</span>
+        <label><input type="checkbox" checked={value.enabled} onChange={(e) => set({ ...value, enabled: e.target.checked })} />継続チャットを使う</label>
+        <span className="note">初期値はオフです。オンにすると、使用量チップ・目的メモ・引き継ぎの案内（と「目的メモ」「新しい thread へ引き継ぐ」の操作）が使えるようになります。オフのあいだはこれらを出さず、使用量も取り込みません。保存済みの目的メモなどの記録は消しません。</span>
+      </div>
       <div className="field"><span>引き継ぎの案内</span>
         <select aria-label="文脈の使用率が何%以上で案内するか" value={value.suggestAtPercent ?? ""}
           onChange={(e) => set({ ...value, suggestAtPercent: e.target.value === "" ? null : Number(e.target.value) })}>

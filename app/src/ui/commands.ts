@@ -79,6 +79,8 @@ export interface CommandContext {
   folderCount: number;
   /** オン／オフ表示の状態（act 名をキーにする。例: toggleLeft）。呼び出し側が渡す。 */
   checked: Record<string, boolean>;
+  /** 設定「継続チャット」がオフ（目的メモ・引き継ぎは使えない）。 */
+  continuationOff?: boolean;
 }
 
 /** 上部メニューの5つ（Ctrl+K の所属表示にも使う）。 */
@@ -198,6 +200,7 @@ const app = (id: string, act: string, o: AppOpt): Command => {
   };
 };
 const notPending = (ctx: CommandContext) => (ctx.deletePending ? "削除保留中のため使えません" : null);
+const contOn = (ctx: CommandContext) => (ctx.continuationOff ? "設定「継続チャット」がオフです" : notPending(ctx));
 
 /** チャット管理・表示・ツール・ヘルプの台帳。act 名は既存の App の switch に合わせる（新規は find・cwdChange・toggleMonitor・shortcuts・howto・about）。 */
 export const APP_COMMANDS: Command[] = [
@@ -232,12 +235,12 @@ export const APP_COMMANDS: Command[] = [
   app("quit", "quit", { label: "AgentDock を終了…", group: "チャット", danger: true, keywords: ["終了", "閉じる"] }),
 
   // 継続チャット（DESIGN_CONT §7）。引き継げない理由（組織実行・worktree 等）は押したあとの案内行に出す。
-  app("purposeNote", "purpose", { label: "目的メモ…", group: "作業", needsChat: true, why: notPending, keywords: ["メモ", "目的", "継続"] }),
+  app("purposeNote", "purpose", { label: "目的メモ…", group: "作業", needsChat: true, why: contOn, keywords: ["メモ", "目的", "継続"] }),
   app("orgIntakeFromChat", "orgIntakeFromChat", {
     label: "この会話から組織実行の依頼を作る…", group: "作業", needsChat: true, keywords: ["組織実行", "依頼整理", "ワークフロー"],
     why: (ctx) => (ctx.isGeneral ? "作業フォルダのあるチャットだけで使えます" : notPending(ctx)),
   }),
-  app("handoffThread", "handoff", { label: "新しい thread へ引き継ぐ…", group: "作業", needsChat: true, why: notPending, keywords: ["引き継ぎ", "文脈", "継続", "新しいthread"] }),
+  app("handoffThread", "handoff", { label: "新しい thread へ引き継ぐ…", group: "作業", needsChat: true, why: contOn, keywords: ["引き継ぎ", "文脈", "継続", "新しいthread"] }),
 
   app("reloadHistory", "reloadHistory", {
     label: "状態を再照合", group: "作業", needsChat: true, keywords: ["再確認", "更新"],

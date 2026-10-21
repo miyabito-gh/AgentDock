@@ -5,6 +5,11 @@
  */
 export type ContinuationSettings = { 
 /**
+ * 継続チャット（使用量の表示・目的メモ・引き継ぎの案内と導線）を使う。既定はオフ。
+ * 保存済みの `continuation`（この項目なし）もオフで読む。保存済みの記録（chat.json）は消さない。
+ */
+enabled: boolean, 
+/**
  * この割合（%）以上の使用率を観測したら「次の送信で引き継ぐ」を案内する。None＝案内しない。既定 Some(70)。範囲 50〜95。
  */
 suggestAtPercent: number | null, 

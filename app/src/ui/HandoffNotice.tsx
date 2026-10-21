@@ -42,9 +42,11 @@ export function useHandoff(a: { chat: Chat; local: ChatLocalView | undefined; se
   const [pv, setPv] = useState<{ id: string; key: string; state: PreviewState }>({ id: "", key: "", state: LOADING });
   const usage = local?.contextUsage ?? { kind: "notFetched" as const };
   const ineligible = handoffIneligible({ orgOwned: !!local?.org && !local.org.released, supersededBy: !!local?.supersededBy, worktree });
-  const suggest = ineligible === null && shouldSuggest(usage, settings.suggestAtPercent, declined[id] ?? null);
+  // 設定「継続チャット」がオフのあいだは、案内・導線・資料の読み込みをすべて止める
+  const on = settings.enabled;
+  const suggest = on && ineligible === null && shouldSuggest(usage, settings.suggestAtPercent, declined[id] ?? null);
   // 手動の案内は、理由があっても出す（理由を見せる）。閾値の案内は、引き継げないチャットでは出さない
-  const mode: HandoffUi["mode"] = suggest ? "threshold" : manual[id] ? "manual" : null;
+  const mode: HandoffUi["mode"] = !on ? null : suggest ? "threshold" : manual[id] ? "manual" : null;
   const active = mode !== null && ineligible === null && !!load;
   // 「…」メニュー「新しい thread へ引き継ぐ…」（App が "agentdock:handoff-open" を送る）
   useEffect(() => {
@@ -71,7 +73,7 @@ export function useHandoff(a: { chat: Chat; local: ChatLocalView | undefined; se
   const armed = active && !running && preview.kind === "ok" && preview.p.blockers.length === 0;
   const percent = usage.kind === "known" ? usage.percent : null;
   return {
-    shown: mode !== null || (ineligible !== null && worktreeReasonOnly(usage, settings, ineligible, worktree)),
+    shown: on && (mode !== null || (ineligible !== null && worktreeReasonOnly(usage, settings, ineligible, worktree))),
     mode, ineligible, preview, armed, percent,
     rounds: preview.kind === "ok" ? preview.p.roundsIncluded : settings.rounds,
     keep: () => { setDeclined((d) => ({ ...d, [id]: percent ?? 0 })); setManual((m) => ({ ...m, [id]: false })); },
@@ -124,12 +126,14 @@ export function HandoffNotice({ ui, onPreview }: { ui: HandoffUi; onPreview: () 
 
 /** 補助行の「文脈 62%」チップ。ツールチップに使用量と観測時刻。 */
 export function UsageChip({ local, settings }: { local: ChatLocalView | undefined; settings: ContinuationSettings }) {
+  if (!settings.enabled) return null;
   const c = usageChip(local?.contextUsage ?? { kind: "notFetched" }, settings.suggestAtPercent);
   return <span className={`small ctxchip ${c.tone}`} title={c.tip} aria-label={`${c.text}。${c.tip}`}>{c.text}</span>;
 }
 
 /** 入力欄の下の目的メモの行（設定済みのときだけ）。押すと編集。 */
-export function PurposeLine({ local, onEdit }: { local: ChatLocalView | undefined; onEdit: () => void }) {
+export function PurposeLine({ local, onEdit, enabled }: { local: ChatLocalView | undefined; onEdit: () => void; enabled: boolean }) {
+  if (!enabled) return null;
   const note = local?.conversation?.purpose;
   if (!note) return null;
   const first = purposeFirstLine(note.text);

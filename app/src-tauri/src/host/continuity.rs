@@ -190,12 +190,18 @@ impl Host {
 
     /// 手動送信の本文を組み立てる（届けるべきなら目的メモの資料を先頭に付ける。利用者の文の見出しは無害化）。
     pub(super) fn compose_manual_text(&self, chat: &ChatKey, user_text: &str) -> String {
-        let envelope = self.read(|d| d.locals.get(chat).and_then(|f| cont::envelope_for_manual_send(f.conversation.as_ref(), true, false)));
+        // 継続チャットを使わない設定のときは、目的メモの資料を添えない。
+        let on = self.read(|d| d.settings.continuation.enabled);
+        let envelope = if on { self.read(|d| d.locals.get(chat).and_then(|f| cont::envelope_for_manual_send(f.conversation.as_ref(), true, false))) } else { None };
         cont::compose_send_text(envelope.as_deref(), user_text)
     }
 
     /// ルートの使用量を取り込む。メモリの値を即時に通知し、chat.json へは2秒まとめで書く。
     pub(super) fn note_context_usage(self: &Arc<Self>, chat: &ChatKey, sample: ContextUsageSample) {
+        // 継続チャットを使わない設定のときは、使用量を取り込まない（保存済みの記録は消さない）。
+        if !self.read(|d| d.settings.continuation.enabled) {
+            return;
+        }
         let dir_id = self.persist.dir_id_for(chat);
         self.mutate(|d| ((), d.note_context_usage(chat, sample, dir_id)));
         self.schedule_save(SaveScope::ChatLocal { chat: chat.clone() }, SAVE_DELAY);

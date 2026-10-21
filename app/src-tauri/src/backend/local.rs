@@ -279,6 +279,9 @@ pub enum ContextUsageView {
 #[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase", default)]
 pub struct ContinuationSettings {
+    /// 継続チャット（使用量の表示・目的メモ・引き継ぎの案内と導線）を使う。既定はオフ。
+    /// 保存済みの `continuation`（この項目なし）もオフで読む。保存済みの記録（chat.json）は消さない。
+    pub enabled: bool,
     /// この割合（%）以上の使用率を観測したら「次の送信で引き継ぐ」を案内する。None＝案内しない。既定 Some(70)。範囲 50〜95。
     pub suggest_at_percent: Option<u8>,
     /// 引き継ぎ資料に入れる直近の往復数。既定 3。範囲 1〜10。
@@ -287,14 +290,14 @@ pub struct ContinuationSettings {
 
 impl Default for ContinuationSettings {
     fn default() -> Self {
-        ContinuationSettings { suggest_at_percent: Some(70), rounds: 3 }
+        ContinuationSettings { enabled: false, suggest_at_percent: Some(70), rounds: 3 }
     }
 }
 
 impl ContinuationSettings {
     /// 範囲外の値を範囲内へ寄せる（案内の割合 50〜95、往復数 1〜10）。
     pub fn normalized(&self) -> Self {
-        ContinuationSettings { suggest_at_percent: self.suggest_at_percent.map(|p| p.clamp(50, 95)), rounds: self.rounds.clamp(1, 10) }
+        ContinuationSettings { enabled: self.enabled, suggest_at_percent: self.suggest_at_percent.map(|p| p.clamp(50, 95)), rounds: self.rounds.clamp(1, 10) }
     }
 }
 
@@ -669,10 +672,10 @@ pub struct WindowPrefs {
 #[serde(rename_all = "camelCase")]
 pub enum SendKey {
     CtrlEnter,
+    #[default]
     Enter,
 }
 
-    #[default]
 /// 実行中に送信キーを押したときの既定の送り方。Ctrl＋Shift＋Enter は常にもう一方。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
@@ -707,10 +710,10 @@ pub struct AppSettings {
     pub monitor_scope: MonitorWindowScope,
     /// 新しいチャットの既定モデル（既存チャットに波及させない）。
     pub default_model: Option<ModelChoice>,
+    /// 送信キー。古い `settings.json`（この項目なし）は Enter で読む。保存済みの値はそのまま尊重する。
+    #[serde(default)]
     pub send_key: SendKey,
     /// 実行中の入力（送信キーの既定の送り方）。古い `settings.json` は「完了後に送信」で読む。
-    #[serde(default)]
-    /// 送信キー。古い `settings.json`（この項目なし）は Enter で読む。保存済みの値はそのまま尊重する。
     #[serde(default)]
     pub running_input: RunningInput,
     /// 確認済みにした起動時の保存データ警告（警告文＝領域のパスと警告の種類を含む）。同じ警告は以後出さない。
@@ -1556,9 +1559,6 @@ mod settings_tests {
     }
 
     #[test]
-    fn settings_without_running_input_load_as_queue() {
-        let mut v = serde_json::to_value(AppSettings::default()).unwrap();
-    #[test]
     fn settings_without_send_key_load_as_enter_and_saved_value_is_kept() {
         let mut v = serde_json::to_value(AppSettings::default()).unwrap();
         v.as_object_mut().unwrap().remove("sendKey");
@@ -1571,6 +1571,9 @@ mod settings_tests {
         assert_eq!(AppSettings::default().send_key, SendKey::Enter);
     }
 
+    #[test]
+    fn settings_without_running_input_load_as_queue() {
+        let mut v = serde_json::to_value(AppSettings::default()).unwrap();
         v.as_object_mut().unwrap().remove("runningInput");
         let s: AppSettings = serde_json::from_value(v).unwrap();
         assert_eq!(s.running_input, RunningInput::Queue);

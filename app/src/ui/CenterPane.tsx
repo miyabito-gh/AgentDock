@@ -1115,7 +1115,7 @@ function Composer({ p, running, lock, hu }: { p: CenterProps; running: boolean; 
           </div>
         </div>
       </div>
-      <PurposeLine local={p.local} onEdit={() => p.onAct("purpose")} />
+      <PurposeLine local={p.local} enabled={p.snap.settings.continuation.enabled} onEdit={() => p.onAct("purpose")} />
     </div>
   );
 }

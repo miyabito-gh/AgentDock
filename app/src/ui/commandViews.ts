@@ -31,6 +31,7 @@ export function commandContext(snap: HostSnapshot, chat: Chat | null, connected:
     cwdWhy: extra.cwdWhy ?? null,
     folderCount: extra.folderCount ?? 0,
     checked: extra.checked ?? {},
+    continuationOff: !snap.settings.continuation.enabled,
   };
 }
 
