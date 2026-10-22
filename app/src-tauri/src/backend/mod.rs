@@ -13,6 +13,8 @@ pub mod baseline;
 pub mod changes;
 /// 項目51: 応答した承認・質問・MCP許可のローカル記録の型。
 pub mod decision;
+/// 目的メモの下書き支援（`app/DESIGN_CONT_DRAFT.md`）のデータ型とIPC型。
+pub mod draft;
 pub mod ipc;
 /// 組織実行（DESIGN_ORG・P-ORG-7a）のIPC型。
 pub mod org;

@@ -60,6 +60,9 @@ pub const SIDE_DIR: &str = "side";
 pub const ATTACHMENTS_DIR: &str = "attachments";
 pub const WORKSPACE_DIR: &str = "workspace";
 pub const LEDGER_FILE: &str = "会話台帳.md";
+/// 目的メモの下書き用の領域（`chats\<dirId>\purpose_draft`）。台帳の複製と最後の結果を置く。
+pub const PURPOSE_DRAFT_DIR: &str = "purpose_draft";
+pub const DRAFT_LAST_FILE: &str = "last.json";
 pub const PARTIAL_SUFFIX: &str = ".partial";
 
 pub fn chat_dir(root: &Path, dir_id: &LocalId) -> PathBuf {
@@ -70,6 +73,16 @@ pub fn chat_dir(root: &Path, dir_id: &LocalId) -> PathBuf {
 /// 会話台帳のパス（`chats\<dirId>\会話台帳.md`）。
 pub fn ledger_path(chat_dir: &Path) -> PathBuf {
     chat_dir.join(LEDGER_FILE)
+}
+
+/// 目的メモの下書き用の会話台帳のパス（引き継ぎ用の台帳とは別）。
+pub fn draft_ledger_path(chat_dir: &Path) -> PathBuf {
+    chat_dir.join(PURPOSE_DRAFT_DIR).join(LEDGER_FILE)
+}
+
+/// 目的メモの下書きの最後の結果のパス。
+pub fn draft_last_path(chat_dir: &Path) -> PathBuf {
+    chat_dir.join(PURPOSE_DRAFT_DIR).join(DRAFT_LAST_FILE)
 }
 
 pub fn workspace_dir(chat_dir: &Path) -> PathBuf {

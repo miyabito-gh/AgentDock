@@ -560,6 +560,44 @@ impl Store {
         layout::ledger_path(&layout::chat_dir(&self.root, &self.ensure_dir_id(chat)))
     }
 
+    /// 目的メモの下書き用の台帳の予定パス（書込み・存在確認はしない）。
+    pub fn draft_ledger_path(&self, chat: &ChatKey) -> PathBuf {
+        layout::draft_ledger_path(&layout::chat_dir(&self.root, &self.ensure_dir_id(chat)))
+    }
+
+    /// 目的メモの下書き用の台帳を書く（空き確認つき・原子的書込み。引き継ぎ用の台帳には触れない）。
+    pub fn write_draft_ledger(&self, chat: &ChatKey, text: &str) -> Result<PathBuf, StoreError> {
+        self.check_space(text.len() as u64 + 64 * 1024)?;
+        let path = self.draft_ledger_path(chat);
+        atomic::write_atomic(&path, text.as_bytes())?;
+        Ok(path)
+    }
+
+    /// 目的メモの下書きの最後の結果を書く（空き確認つき・原子的書込み）。
+    pub fn write_draft_last(&self, chat: &ChatKey, bytes: &[u8]) -> Result<(), StoreError> {
+        self.check_space(bytes.len() as u64 + 16 * 1024)?;
+        atomic::write_atomic(&layout::draft_last_path(&layout::chat_dir(&self.root, &self.ensure_dir_id(chat))), bytes)?;
+        Ok(())
+    }
+
+    /// 目的メモの下書きの最後の結果を読む（なければ None）。
+    pub fn read_draft_last(&self, chat: &ChatKey) -> Result<Option<Vec<u8>>, StoreError> {
+        match std::fs::read(layout::draft_last_path(&layout::chat_dir(&self.root, &self.ensure_dir_id(chat)))) {
+            Ok(b) => Ok(Some(b)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(StoreError::Io(e)),
+        }
+    }
+
+    /// 目的メモの下書きの最後の結果を消す（なければ何もしない）。
+    pub fn remove_draft_last(&self, chat: &ChatKey) -> Result<(), StoreError> {
+        match std::fs::remove_file(layout::draft_last_path(&layout::chat_dir(&self.root, &self.ensure_dir_id(chat)))) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(StoreError::Io(e)),
+        }
+    }
+
     /// 書込み前の空き確認。`needed` に [`FREE_SPACE_MARGIN_BYTES`] を足して比べる。
     /// 空きを取得できないときは止めない（書込み自体が失敗すればその結果を報告する）。
     pub fn check_space(&self, needed: u64) -> Result<(), StoreError> {

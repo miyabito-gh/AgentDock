@@ -1059,6 +1059,16 @@ button.uchip:hover{background:var(--accent-weak)}
 .purposeline .linkish:hover{text-decoration:underline}
 .field .note.over{color:var(--fail-ink)}
 .cont-env{max-height:40vh;overflow:auto;background:var(--surface2);border:1px solid var(--line2);border-radius:var(--r1);padding:8px 10px}
+.pd-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.pd-item .small{margin-left:24px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.pd-item .linkish{border:0;background:none;padding:0;color:var(--accent-text);cursor:pointer}
+.pd-item .linkish:hover{text-decoration:underline}
+.pd-issue{color:var(--ink2)}
+.pd-issue.review{color:var(--fail-ink);font-weight:600}
+.pd-glance{background:var(--surface2);border:1px solid var(--line2);border-radius:var(--r1);padding:8px 10px;font-size:var(--fs-s);overflow-wrap:anywhere}
+.pd-diff div{white-space:pre-wrap;overflow-wrap:anywhere}
+.pd-add{font-weight:600}
+.pd-del{color:var(--fail-ink);text-decoration:line-through}
 
 /* 継続チャット: 以前の会話（読取り専用）と資料の折りたたみ（DESIGN_CONT §7.4） */
 .prevthreads{max-width:760px;margin:0 auto 8px}

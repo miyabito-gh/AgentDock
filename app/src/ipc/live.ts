@@ -172,6 +172,7 @@ export function applyHostEvent(b: Bundle, e: HostEvent): Bundle {
     case "toolServersChanged": // 開いているMCP・Pluginsの表示が画面側で取り直す（状態は変えない）
     case "toolServerLoginUpdated":
     case "extensionOpUpdated":
+    case "purposeDraftUpdated": // 目的メモの更新案の合図（開いている画面が read_purpose_draft で取り直す。状態は変えない）
     case "intakeUpdated": // 依頼整理の更新の合図（画面側が org_intake_view で取り直す。状態は変えない）
     case "orgTimelineUpdated": // 進行タイムラインの合図（画面側が org_timeline で差分を取り直す。状態は変えない）
     case "orgUpdated": // 組織実行の状態の合図（画面側が取り直す。P-ORG-7。状態は変えない）

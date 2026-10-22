@@ -91,7 +91,7 @@ fn list_field(v: &Value, key: &str) -> Result<Vec<String>, String> {
 }
 
 /// コードフェンスで囲まれていたら中身だけを取り出す（出力形式を付けても、まれに囲まれて返るため）。
-fn strip_fence(text: &str) -> &str {
+pub(crate) fn strip_fence(text: &str) -> &str {
     let t = text.trim();
     let Some(rest) = t.strip_prefix("```") else { return t };
     let Some(body) = rest.strip_suffix("```") else { return t };

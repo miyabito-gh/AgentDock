@@ -306,7 +306,7 @@ impl Host {
         // 承認方針はエンジンが渡す（開始時の写しの役割定義の値。今の役割ファイルは見ない）。
         let permission = role_permission(spec.sandbox, spec.approval);
         let model = spec.model.clone().map(|m| ModelChoice { model: m, effort: spec.effort.clone(), speed_tier: None });
-        let params = StartChatParams { kind: ChatKind::Development, cwd: spec.cwd.clone(), model: model.clone(), permission, extra_folders: Vec::new() };
+        let params = StartChatParams { kind: ChatKind::Development, cwd: spec.cwd.clone(), model: model.clone(), permission, extra_folders: Vec::new(), ephemeral: false };
 
         let (started, before, after) = {
             let _serial = self.ext_lock().await;

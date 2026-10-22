@@ -56,6 +56,18 @@ const MANAGE_TICK: Duration = Duration::from_secs(2);
 const STOP_WAIT_MS: u64 = stop::STOP_CONFIRM_DEADLINE_MS as u64 + 1_500;
 
 impl HostData {
+    /// 一時の会話（side相談・目的メモの下書き）の状態を消す（一覧には元から出ていない）。停止記録・承認要求・エージェントの状態も外す。
+    pub(super) fn forget_side_thread(&mut self, t: &ChatKey) {
+        self.side_threads.remove(t);
+        self.stops.retain(|r| &r.chat != t);
+        self.requests.retain(|r| &r.chat != t);
+        for a in self.agents.iter().filter(|v| &v.agent.chat == t).map(|v| v.agent.key.clone()).collect::<Vec<_>>() {
+            self.running_turn.remove(&a);
+            self.last_end.remove(&a);
+        }
+        self.agents.retain(|v| &v.agent.chat != t);
+    }
+
     /// 削除が完了したチャットのアプリ側の状態をすべて消す。
     pub(super) fn forget_deleted_chat(&mut self, chat: &ChatKey) -> Vec<HostEvent> {
         let agents: Vec<AgentKey> = self.agents.iter().filter(|v| &v.agent.chat == chat).map(|v| v.agent.key.clone()).collect();
@@ -67,14 +79,7 @@ impl HostData {
         // 主会話に属するside相談の会話（一時の分岐）の状態も消す（記録ファイルはチャット領域ごと消える）。
         let sides: Vec<ChatKey> = self.side_threads.iter().filter(|(_, m)| *m == chat).map(|(t, _)| t.clone()).collect();
         for t in &sides {
-            self.side_threads.remove(t);
-            self.stops.retain(|r| &r.chat != t);
-            self.requests.retain(|r| &r.chat != t);
-            for a in self.agents.iter().filter(|v| &v.agent.chat == t).map(|v| v.agent.key.clone()).collect::<Vec<_>>() {
-                self.running_turn.remove(&a);
-                self.last_end.remove(&a);
-            }
-            self.agents.retain(|v| &v.agent.chat != t);
+            self.forget_side_thread(t);
         }
         self.pinned.remove(chat);
         self.hosted.remove(chat);

@@ -184,6 +184,8 @@ pub enum PermissionPreset {
     /// 組織の役割チャット用（承認方針 untrusted。確認を増やす側）。画面の選択肢には出さない。
     WorkspaceWriteUntrusted,
     ReadOnlyUntrusted,
+    /// 目的メモの下書き用の一時会話（読取り専用＋承認を求めない）。画面の選択肢には出さない。
+    ReadOnlyNoPrompt,
     /// ユーザーの明示操作でのみ選ぶ。
     FullAccess,
 }
@@ -199,6 +201,9 @@ pub struct StartChatParams {
     /// 追加の作業フォルダ（プライマリ `cwd` を除く）。空なら指定しない（バックエンド側の既定のまま）。
     #[serde(default)]
     pub extra_folders: Vec<String>,
+    /// 保存されない一時の会話として開始する（目的メモの下書き用。一覧に出さない）。
+    #[serde(default)]
+    pub ephemeral: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

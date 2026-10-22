@@ -799,6 +799,9 @@ impl AiBackend for CodexBackend {
         if let Some(m) = &params.model {
             p["model"] = json!(m.model);
         }
+        if params.ephemeral {
+            p["ephemeral"] = json!(true);
+        }
         if !params.extra_folders.is_empty() {
             // 追加フォルダはexperimental。使えない接続では、外さず、何も作らずに拒否する。
             if self.shared.caps.lock().unwrap().workspace_roots != Support::Supported {

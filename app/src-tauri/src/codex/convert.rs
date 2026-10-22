@@ -710,6 +710,7 @@ pub fn permission_params(p: PermissionPreset) -> (&'static str, &'static str) {
         PermissionPreset::ReadOnly => ("on-request", "read-only"),
         PermissionPreset::WorkspaceWriteUntrusted => ("untrusted", "workspace-write"),
         PermissionPreset::ReadOnlyUntrusted => ("untrusted", "read-only"),
+        PermissionPreset::ReadOnlyNoPrompt => ("never", "read-only"),
         PermissionPreset::FullAccess => ("never", "danger-full-access"),
     }
 }
@@ -721,7 +722,7 @@ pub fn sandbox_policy_json(p: PermissionPreset) -> serde_json::Value {
         PermissionPreset::WorkspaceWriteOnRequest | PermissionPreset::WorkspaceWriteUntrusted => serde_json::json!({
             "type": "workspaceWrite", "writableRoots": [], "networkAccess": false, "excludeTmpdirEnvVar": false, "excludeSlashTmp": false
         }),
-        PermissionPreset::ReadOnly | PermissionPreset::ReadOnlyUntrusted => serde_json::json!({"type": "readOnly", "networkAccess": false}),
+        PermissionPreset::ReadOnly | PermissionPreset::ReadOnlyUntrusted | PermissionPreset::ReadOnlyNoPrompt => serde_json::json!({"type": "readOnly", "networkAccess": false}),
         PermissionPreset::FullAccess => serde_json::json!({"type": "dangerFullAccess"}),
     }
 }
@@ -1115,6 +1116,7 @@ mod tests {
         assert_eq!(permission_params(PermissionPreset::ReadOnly).1, "read-only");
         assert_eq!(permission_params(PermissionPreset::WorkspaceWriteUntrusted), ("untrusted", "workspace-write"));
         assert_eq!(permission_params(PermissionPreset::ReadOnlyUntrusted), ("untrusted", "read-only"));
+        assert_eq!(permission_params(PermissionPreset::ReadOnlyNoPrompt), ("never", "read-only"));
     }
 
     #[test]

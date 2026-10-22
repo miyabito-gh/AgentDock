@@ -834,6 +834,38 @@ pub async fn list_extension_ops(host: Hs<'_>) -> R<Vec<ExtensionOpRecord>> {
     host.inner().clone().list_extension_ops().await
 }
 
+/// 目的メモの更新案の作成前の見積り（読取りのみ。何も作らず・送らない）。
+#[tauri::command]
+pub async fn preview_purpose_draft(host: Hs<'_>, args: crate::backend::draft::StartPurposeDraftArgs) -> R<crate::backend::draft::PurposeDraftEstimate> {
+    host.inner().clone().preview_purpose_draft(args).await
+}
+
+/// 目的メモの更新案を作る。ユーザーが押したときの1回だけ（一時 thread を新しく開始する。自動で呼ばない・再送しない）。
+#[tauri::command]
+pub async fn start_purpose_draft(host: Hs<'_>, args: crate::backend::draft::StartPurposeDraftArgs) -> R<crate::backend::draft::PurposeDraftView> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().start_purpose_draft(args, &confirmed).await
+}
+
+/// 目的メモの更新案の最後の結果（なければ null）。
+#[tauri::command]
+pub async fn read_purpose_draft(host: Hs<'_>, args: ChatArgs) -> R<Option<crate::backend::draft::PurposeDraftView>> {
+    host.inner().clone().read_purpose_draft(args).await
+}
+
+/// 更新案の作成を中止する（一時 thread の中断）。
+#[tauri::command]
+pub async fn cancel_purpose_draft(host: Hs<'_>, args: ChatArgs) -> R<crate::backend::draft::PurposeDraftView> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().cancel_purpose_draft(args, &confirmed).await
+}
+
+/// 更新案の結果を破棄する（目的メモは変わらない）。
+#[tauri::command]
+pub async fn discard_purpose_draft(host: Hs<'_>, args: ChatArgs) -> R<()> {
+    host.inner().clone().discard_purpose_draft(args).await
+}
+
 /// side相談を開く（読取り専用の一時の分岐）。ユーザー操作だけが呼ぶ。
 #[tauri::command]
 pub async fn open_side(host: Hs<'_>, args: ChatArgs) -> R<OpenSideResult> {

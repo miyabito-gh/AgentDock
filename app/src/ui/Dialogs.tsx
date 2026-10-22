@@ -697,7 +697,7 @@ export function Dialogs({ cont, org, folderTools, workspaceRoots, d, onClose, ch
       const lc = cont.locals.find((l) => l.chat.id === d.chatId);
       return (
         <Shell title="目的メモ" onClose={onClose} close="キャンセル">
-          <PurposeBody key={d.chatId} chatName={ch ? chatName(ch) : "（不明）"} current={lc?.conversation?.purpose ?? null} live={live} orgOwned={!!lc?.org && !lc.org.released}
+          <PurposeBody key={d.chatId} chat={ch?.key ?? null} chatName={ch ? chatName(ch) : "（不明）"} current={lc?.conversation?.purpose ?? null} live={live} orgOwned={!!lc?.org && !lc.org.released}
             save={(text, rev) => cont.savePurpose(d.chatId, text, rev)} onDone={onClose} />
         </Shell>);
     }

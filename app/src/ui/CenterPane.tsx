@@ -177,6 +177,7 @@ const PERMISSION_LABEL: Record<PermissionPreset, string> = {
   readOnly: "読み取りのみ",
   workspaceWriteUntrusted: "作業領域＋都度確認（組織）",
   readOnlyUntrusted: "読み取りのみ＋都度確認（組織）",
+  readOnlyNoPrompt: "読み取りのみ（確認なし・更新案用）",
   fullAccess: "フルアクセス",
 };
 /** 短い表示名の全文（title とポップアップの項目 title に使う）。 */
@@ -185,6 +186,7 @@ const PERMISSION_FULL: Record<PermissionPreset, string> = {
   readOnly: "読み取りのみ",
   workspaceWriteUntrusted: "作業領域内の書込み＋信頼できない操作は確認（組織の役割チャット）",
   readOnlyUntrusted: "読み取りのみ＋信頼できない操作は確認（組織の役割チャット）",
+  readOnlyNoPrompt: "読み取りのみ・承認を求めない（目的メモの更新案用の一時会話）",
   fullAccess: "フルアクセス（確認なしで実行）",
 };
 

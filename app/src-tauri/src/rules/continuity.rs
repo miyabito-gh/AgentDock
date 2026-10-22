@@ -440,6 +440,26 @@ fn build_material_within(turns: &[TurnRecord], rounds: usize, utc_offset_min: i3
     Material { text, rounds_included: list.len() as u32, rounds_available: rounds_available as u32, truncated, toc_rounds: if matches!(note, LedgerNote::None) { None } else { Some(toc_rounds) }, ledger: rounds_available > 0 && matches!(note, LedgerNote::Path(_)) }
 }
 
+/// 出典チップで開く往復の抜粋の応答側の最大文字数。
+const GLANCE_AI_CHARS: usize = 200;
+
+/// 出典チップ用の往復の抜粋。番号は [`build_material_with`] と同じ体系（`global`＝連鎖の通し番号、そうでなければ直近 `rounds` 往復の資料内連番）。
+pub fn round_glances(turns: &[TurnRecord], rounds: usize, utc_offset_min: i32, global: bool) -> Vec<crate::backend::draft::RoundGlance> {
+    let eligible = eligible_turns(turns);
+    let skip = if global { 0 } else { eligible.len().saturating_sub(rounds) };
+    eligible
+        .iter()
+        .enumerate()
+        .skip(skip)
+        .map(|(idx, t)| crate::backend::draft::RoundGlance {
+            number: (if global { idx + 1 } else { idx - skip + 1 }).min(u32::MAX as usize) as u32,
+            time: t.started_at.value().map(|ms| format_time(ms.0, utc_offset_min)),
+            user_head: toc_title(&join_messages(t, &ActivityKind::UserMessage)),
+            ai_head: head_chars(&join_messages(t, &ActivityKind::AgentMessage), GLANCE_AI_CHARS),
+        })
+        .collect()
+}
+
 // ───────────────────────────── 資料ブロック（§6.1） ─────────────────────────────
 
 fn purpose_text(p: &PurposeNote) -> Option<String> {

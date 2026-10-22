@@ -21,7 +21,7 @@ import {
   type CloudApplyResult, type CloudCommandOutput, type CloudEnvHint, type CloudTaskList, type CloudTaskRecord,
   type CompactChatResult, type CompactionSnapshot, type ForkPurpose, type ForkReconcile, type ForkResult, type RecheckAgentsResult, type ResendAsForkResult, type OpReconcile, type ParityOp, type ReviewChoices, type ReviewDelivery, type ReviewOutcome, type ReviewTarget,
 } from "./types";
-import type { HandoffPreview, HandoffResult } from "./types";
+import type { HandoffPreview, HandoffResult, PurposeDraftEstimate, PurposeDraftView } from "./types";
 
 /** 型付きinvoke。引数は `args` 1個で渡す（types.ts CommandMap の規約）。 */
 export function invokeCmd<K extends CommandName>(name: K, args: CommandMap[K]["args"]): Promise<CommandMap[K]["result"]> {
@@ -205,6 +205,12 @@ export const setRepoBaseline = (repo: string, choice: RepoRecordChoice | null, a
 // ── 計画／実行・Goal・状態・memories（段階③ P3-3） ──
 /** 計画／実行の選択（次のturnから適用）。null＝選択を外す。受理されたかは、設定の更新通知を受けたときだけ「受理済み」に出る。 */
 export const setPurposeNote = (chat: ChatKey, text: string, expectedRevision: number | null): Promise<ConversationView> => invokeCmd("set_purpose_note", { chat, text, expectedRevision });
+/** 目的メモの更新案（DESIGN_CONT_DRAFT）。作成は利用者が押したときの1回だけ。保存はしない（保存は setPurposeNote）。 */
+export const previewPurposeDraft = (chat: ChatKey, expectedRevision: number | null, headOnly: boolean): Promise<PurposeDraftEstimate> => invokeCmd("preview_purpose_draft", { chat, expectedRevision, headOnly });
+export const startPurposeDraft = (chat: ChatKey, expectedRevision: number | null, headOnly: boolean): Promise<PurposeDraftView> => invokeCmd("start_purpose_draft", { chat, expectedRevision, headOnly });
+export const readPurposeDraft = (chat: ChatKey): Promise<PurposeDraftView | null> => invokeCmd("read_purpose_draft", { chat });
+export const cancelPurposeDraft = (chat: ChatKey): Promise<PurposeDraftView> => invokeCmd("cancel_purpose_draft", { chat });
+export const discardPurposeDraft = (chat: ChatKey): Promise<null> => invokeCmd("discard_purpose_draft", { chat });
 export const setWorkMode = (chat: ChatKey, mode: WorkMode | null): Promise<SettingsImpact> => invokeCmd("set_work_mode", { chat, mode });
 export const listWorkModes = (): Promise<WorkModeInfo[]> => invokeCmd("list_work_modes", {});
 /** 目標の取得（読取りのみ。resumeしない）。値なし＝目標は設定されていない、未取得＝読めなかった。 */

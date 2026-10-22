@@ -119,6 +119,11 @@ pub mod command_names {
     pub const CHECK_WORK_FOLDER: &str = "check_work_folder";
     pub const SET_NEXT_WORK_FOLDERS: &str = "set_next_work_folders";
     pub const SET_PURPOSE_NOTE: &str = "set_purpose_note";
+    pub const PREVIEW_PURPOSE_DRAFT: &str = "preview_purpose_draft";
+    pub const START_PURPOSE_DRAFT: &str = "start_purpose_draft";
+    pub const READ_PURPOSE_DRAFT: &str = "read_purpose_draft";
+    pub const CANCEL_PURPOSE_DRAFT: &str = "cancel_purpose_draft";
+    pub const DISCARD_PURPOSE_DRAFT: &str = "discard_purpose_draft";
 }
 
 // ───────────────────────────── エラー ─────────────────────────────
@@ -1344,6 +1349,8 @@ pub enum HostEvent {
     ArtifactUpdated { entry: ArtifactEntry },
     /// side相談の記録の更新（開いた・閉じた・終了。1件分で置き換える）。
     SideUpdated { side: SideSessionMeta },
+    /// 目的メモの下書きの更新の合図（作成の進行・結果・破棄）。画面は `read_purpose_draft` で読み直す。
+    PurposeDraftUpdated { chat: ChatKey },
     /// 組織実行の状態が変わった合図（UIは状態を取り直す。型の詳細は P-ORG-7）。
     OrgUpdated { workflow_id: String },
     /// 組織実行の進行タイムラインに新しい行がある合図（1秒に1回まで。UIは `org_timeline` で差分だけ取り直す）。

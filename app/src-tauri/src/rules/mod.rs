@@ -15,6 +15,7 @@
 //! - [`org_worktree`]: 組織実行のworktreeの所有確認・ブランチ名・コミット間差分の解析（P-ORG-5）
 //! - [`org_artifacts`]: 組織実行の成果物パネルと確認つきの取り込みの判定・解析・台帳（DESIGN_ORG_R3）
 //! - [`continuity`]: 継続チャットの資料の組立て・使用率の表示区分・引き継ぎの前提・起動時の照合（G-P、DESIGN_CONT）
+//! - [`purpose_draft`]: 目的メモの下書き支援の指示文・出力の検査（DESIGN_CONT_DRAFT）
 //! - [`org_intake`]・[`git_prep`]・[`git_push`]: 依頼整理の要約・依頼文・状態遷移、Gitの準備、アプリからのプッシュ（DESIGN_ORG_INTAKE）
 //! - [`compose`]・[`side`]: 参考ブロックの組立て、side相談の停止範囲・引渡し（段階③ P3-4）
 
@@ -35,6 +36,7 @@ pub mod org_intake;
 pub mod org_manage;
 pub mod org_timeline;
 pub mod org_worktree;
+pub mod purpose_draft;
 pub mod queue;
 pub mod side;
 pub mod thread_ops;

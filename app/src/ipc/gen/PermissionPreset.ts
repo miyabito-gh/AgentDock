@@ -3,4 +3,4 @@
 /**
  * 権限の初期値（§3.3）。無断でフルアクセスへ変更しない。
  */
-export type PermissionPreset = "workspaceWriteOnRequest" | "readOnly" | "workspaceWriteUntrusted" | "readOnlyUntrusted" | "fullAccess";
+export type PermissionPreset = "workspaceWriteOnRequest" | "readOnly" | "workspaceWriteUntrusted" | "readOnlyUntrusted" | "readOnlyNoPrompt" | "fullAccess";
