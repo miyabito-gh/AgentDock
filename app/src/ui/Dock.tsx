@@ -475,7 +475,7 @@ export function DockPane({ snap: snapIn, scope, selId, mini, confirmed, onScope,
   };
   // 「タスク」: 帯（対応待ち）＋最近動かした順の最大5件＋ほか（1行）。完了しても消さない（閉じる・アーカイブ・削除だけ）。
   const sel = useMemo(
-    () => (isTask ? selectTasks(snap, rec, closed, (c) => isWorkingForDock(snap, c), undefined, (c) => isUnknownForDock(snap, c)) : { attention: [], tasks: [], overflow: [] }),
+    () => (isTask ? selectTasks(snap, rec, closed, (c) => isWorkingForDock(snap, c), undefined, (c) => isUnknownForDock(snap, c)) : { attention: [], tasks: [], overflow: [], hiddenUnknown: [] }),
     [isTask, snap, rec, closed],
   );
   // 入力中は、並びだけでなく所属（帯・タスク列）も保つ（カードを作り直さない＝フォーカス・変換を保つ）。
@@ -578,6 +578,7 @@ export function DockPane({ snap: snapIn, scope, selId, mini, confirmed, onScope,
               </div>
             ) : null}
             {!bandChats.length && !taskChats.length && !overflow.length ? <div className="empty-note">{snap.chats.length ? "表示するタスクはありません（閉じたものは新しい活動で戻ります）" : "チャットを始めると、ここにタスクが表示されます"}</div> : null}
+            {sel.hiddenUnknown.length ? <div className="empty-note">状態不明の{sel.hiddenUnknown.length}件は「選択中」「全」で見られます</div> : null}
           </>
         ) : blocks.length ? blocks.map(({ c, views }) => (
           <RootBlock key={keyStr(c.key)} snap={snap} c={c} views={views} showHead={!isSel || !!mini} selected={c.key.id === selId} mini={!!mini} parentOnly={parentOnly || (view === "all" && allOpen.get(cid(c)) === false)} kidsToggle={parentOnly ? undefined : allToggle(c)}

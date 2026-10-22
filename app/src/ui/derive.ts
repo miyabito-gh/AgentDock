@@ -64,7 +64,7 @@ export const isWorkingForDock = (s: HostSnapshot, c: Chat): boolean => {
   return isActiveState(st) || d === "childWorking";
 };
 
-/** 親の状態が不明（親の状態を取得できていない／unknown）。ドックの「タスク」では作業中・対応待ちでない限り出さない。 */
+/** 親の状態が不明（親の状態を取得できていない／unknown）。ドックの「タスク」では作業中・対応待ちを押し出さず、余り枠にだけ入る。5件に入らなかった分は「ほかのタスク」にも出さず隠す（「選択中」「全」では見える）。 */
 export const isUnknownForDock = (s: HostSnapshot, c: Chat): boolean => {
   const st = rootView(s, c)?.status.state;
   return !st || st === "unknown";

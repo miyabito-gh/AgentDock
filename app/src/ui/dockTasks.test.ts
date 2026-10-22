@@ -88,13 +88,13 @@ test("selectTasks: 作業中が古くても、完了より必ず上（最近動�
   assert.deepEqual(ids(r.tasks), ["c0", "c6", "c5", "c4", "c3"]);
   assert.deepEqual(ids(r.overflow), ["c2", "c1"]);
 });
-test("selectTasks: 状態不明は全体5件の余り枠だけ。作業中・取得済みを押し出さず、溢れはoverflow、どれも落ちない", () => {
+test("selectTasks: 状態不明は全体5件の余り枠だけ。作業中・取得済みを押し出さず、溢れはoverflowに出さず隠す（件数に含めない）", () => {
   const { cs, rec } = many(8); // c7が最新
   const unk = new Set(["c7", "c6", "c5", "c4", "c3", "c0"]);
   const r = selectTasks(snap(cs), rec as any, new Map(), (c) => c.key.id === "c0", 5, (c) => unk.has(c.key.id));
   assert.deepEqual(ids(r.tasks), ["c0", "c2", "c1", "c7", "c6"]);
-  assert.deepEqual(ids(r.overflow), ["c5", "c4", "c3"]);
-  assert.equal(r.tasks.length + r.overflow.length, 8);
+  assert.deepEqual(ids(r.overflow), []);
+  assert.deepEqual(ids(r.hiddenUnknown), ["c5", "c4", "c3"]);
 });
 test("selectTasks: 枠が余れば状態不明も出る。回復すれば最近順に戻る", () => {
   const { cs, rec } = many(3);
@@ -189,4 +189,12 @@ test("branchOrder: 親が一覧に無い子は根に出し、入力中は stable
   const s = snap([c], [kid("a", "r", "done", null), kid("a", "o", "done", "missing", { obs: 1 }), kid("a", "k", "done", "r", { obs: 9 })]);
   assert.deepEqual(branchOrder(s, c), ["codex:k", "codex:o"]);
   assert.deepEqual(stableOrder(["codex:o", "codex:k"], branchOrder(s, c), true), ["codex:o", "codex:k"]);
+});
+test("selectTasks: 取得済みの溢れはoverflow、状態不明の溢れは隠す。作業中の状態不明は隠さない", () => {
+  const { cs, rec } = many(8);
+  const unk = new Set(["c7", "c6", "c0"]);
+  const r = selectTasks(snap(cs), rec as any, new Map(), (c) => c.key.id === "c0", 5, (c) => unk.has(c.key.id));
+  assert.deepEqual(ids(r.tasks), ["c0", "c5", "c4", "c3", "c2"]);
+  assert.deepEqual(ids(r.overflow), ["c1"]);
+  assert.deepEqual(ids(r.hiddenUnknown), ["c7", "c6"]);
 });

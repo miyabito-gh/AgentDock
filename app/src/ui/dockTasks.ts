@@ -74,8 +74,10 @@ export type TaskSelection = {
   attention: Chat[];
   /** 最近動かした順の先頭 limit 件（attention と重ならない）。 */
   tasks: Chat[];
-  /** 6件目以降（1行で出す。消さない）。 */
+  /** 6件目以降（1行で出す）。状態不明（作業中でないもの）の溢れは含めない。 */
   overflow: Chat[];
+  /** 5件に入らなかった状態不明（作業中でないもの）。「ほかのタスク」には出さず隠す。状態は変えない（「選択中」「全」では見える）。 */
+  hiddenUnknown: Chat[];
 };
 
 /**
@@ -84,7 +86,7 @@ export type TaskSelection = {
  * - タスク: アーカイブ済みでないもの（アーカイブ済みは isWorking のときだけ）。閉じたもの（署名が閉じた時のまま）は除く。
  * `isWorking` は呼び出し側の「親または子孫が作業中・対応待ち」判定（isWorkingForDock）。`closed` は chatId→閉じた時の署名。
  * 並びは「作業中・対応待ち → 状態が分かるもの → 状態不明（`isUnknown`、作業中でないもの）」で、各区分の中は最近動かした順。
- * 連結して先頭 limit 件（全体で最大5件）がタスク、残りが overflow（ほかのタスク）。状態不明は余り枠だけに入り、どのチャットも必ずどちらかに出る。
+ * 連結して先頭 limit 件（全体で最大5件）がタスク、残りが overflow（ほかのタスク）。状態不明（作業中でないもの）は余り枠だけに入り、溢れは overflow にも出さず hiddenUnknown へ（隠すだけで状態は変えない）。
  */
 export function selectTasks(
   snap: HostSnapshot, recency: Recency, closed: ReadonlyMap<string, string>,
@@ -104,7 +106,9 @@ export function selectTasks(
   const byRecency = orderByRecency(candidates, recency);
   const rank = (c: Chat): number => (isWorking(c) ? 0 : isUnknown(c) ? 2 : 1);
   const ordered = [...byRecency.keys()].sort((i, j) => rank(byRecency[i]) - rank(byRecency[j]) || i - j).map((i) => byRecency[i]);
-  return { attention, tasks: ordered.slice(0, limit), overflow: ordered.slice(limit) };
+  const rest = ordered.slice(limit);
+  const hid = (c: Chat): boolean => !isWorking(c) && isUnknown(c);
+  return { attention, tasks: ordered.slice(0, limit), overflow: rest.filter((c) => !hid(c)), hiddenUnknown: rest.filter(hid) };
 }
 
 /**
