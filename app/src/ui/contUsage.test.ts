@@ -1,7 +1,7 @@
 // 実行: node --test src/ui/contUsage.test.ts （tscの対象外）
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { charCount, handoffIneligible, noticeText, observedText, purposeFirstLine, purposeSaveBlock, shouldSuggest, usageChip } from "./contUsage.ts";
+import { charCount, handoffIneligible, ledgerText, noticeText, observedText, purposeFirstLine, purposeSaveBlock, shouldSuggest, usageChip } from "./contUsage.ts";
 
 const known = (percent: number, live = true) => ({ kind: "known", used: 1234, window: 200000, percent, observedAt: new Date(2026, 9, 18, 14, 2).getTime(), live }) as never;
 const NOW = new Date(2026, 9, 18, 15, 0).getTime();
@@ -69,4 +69,13 @@ test("noticeText and observedText", () => {
   assert.equal(noticeText("manual", null, 3), "次の送信で新しい thread へ引き継ぎます（目的メモ＋直近3往復）");
   assert.equal(observedText(new Date(2026, 9, 17, 9, 5).getTime(), NOW), "10/17 09:05");
   assert.equal(observedText(0, NOW), null);
+});
+
+test("ledgerText: プレビューは台帳を書かない旨と、有無・書込み予定・書けない場合を区別する", () => {
+  const base = { tocRounds: 12, ledgerPath: "C:/x/会話台帳.md", ledgerExists: false, ledgerWillWrite: true };
+  assert.match(ledgerText(base), /目次 12 往復.*押すと.*書き出します.*まだありません/);
+  assert.match(ledgerText({ ...base, ledgerExists: true }), /更新します/);
+  assert.match(ledgerText({ ...base, ledgerWillWrite: false, ledgerExists: true }), /あります。書き直しません/);
+  assert.match(ledgerText({ ...base, ledgerWillWrite: false }), /見つかりません/);
+  assert.match(ledgerText({ ...base, ledgerPath: null }), /付きません/);
 });

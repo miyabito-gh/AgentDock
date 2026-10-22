@@ -12,4 +12,20 @@ notes: Array<string>,
 /**
  * 送る資料ブロック（目的メモ込み。利用者の文は含めない）。
  */
-envelope: string, chars: number, roundsIncluded: number, roundsAvailable: number, truncated: boolean, };
+envelope: string, chars: number, roundsIncluded: number, roundsAvailable: number, truncated: boolean, 
+/**
+ * 資料に入れた目次の往復数（目次のない資料は 0）。
+ */
+tocRounds: number, 
+/**
+ * 会話台帳の保存先（引き継ぎ元のチャット領域。書けない・往復がないときは None）。
+ */
+ledgerPath: string | null, 
+/**
+ * 台帳のファイルが今あるか（プレビューは台帳を書かない）。
+ */
+ledgerExists: boolean, 
+/**
+ * 「引き継いで送信」を押したときに台帳を書き出すか（false＝今ある台帳をそのまま使う）。
+ */
+ledgerWillWrite: boolean, };

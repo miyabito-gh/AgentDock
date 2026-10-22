@@ -341,8 +341,19 @@ impl Host {
                     Err(e) => return stop(format!("引き継ぎ元の履歴を読めないため、引き継げません（{e}）。何も作っていません")),
                 };
                 let rounds = self.read(|d| d.settings.continuation.normalized().rounds) as usize;
-                let m = cont::build_material(&history.turns, rounds, crate::win::clock::local_utc_offset_min());
-                HandoffSeed { from: p.clone(), material: m.text, rounds_included: m.rounds_included, truncated: m.truncated, created_at: now, state: SeedState::Pending }
+                let earlier = src.conversation.as_ref().map(|r| r.threads.clone()).unwrap_or_default();
+                let mut chain = self.chain_material(&p, &earlier, history.turns).await;
+                // 会話台帳は新しい thread を作る前・送信より前に書く。書けなくても引き継ぎは止めず、資料に書けなかった旨を明記する。
+                let mut ledger_path = None;
+                if let Some((_, ledger)) = chain.ledger.take() {
+                    match self.write_ledger_file(&p, ledger.text).await {
+                        Ok(path) => ledger_path = Some(path),
+                        Err(why) => chain.note = cont::LedgerNote::WriteFailed(why),
+                    }
+                }
+                let m = cont::build_material_with(&chain.turns, rounds, crate::win::clock::local_utc_offset_min(), &chain.note);
+                let ledger = if m.ledger { ledger_path } else { None };
+                HandoffSeed { from: p.clone(), material: m.text, rounds_included: m.rounds_included, truncated: m.truncated, created_at: now, state: SeedState::Pending, toc_rounds: m.toc_rounds, ledger }
             }
         };
         // C3 新しい thread を開始する（P と同じ作業場所・モデル・権限）。失敗・受理不明は何も変えずに止める。
@@ -460,6 +471,22 @@ impl Host {
         Ok(HandoffResult::Sent { chat: n_chat(self), send, notes })
     }
 
+    /// 会話台帳を引き継ぎ元のチャット領域へ書く（空き確認・原子的書込み。領域の書込みの直列化ロックの中で）。書けたらパス、書けなければ理由。
+    async fn write_ledger_file(self: &Arc<Self>, chat: &ChatKey, text: String) -> Result<String, String> {
+        let Some(store) = self.persist.store().cloned() else {
+            return Err("保存先を使えません".into());
+        };
+        let host = self.clone();
+        let chat = chat.clone();
+        let saved = tokio::task::spawn_blocking(move || {
+            let _g = host.persist.io_guard();
+            store.write_ledger(&chat, &text)
+        })
+        .await
+        .map_err(|e| format!("書込みに失敗しました: {e}"))?;
+        saved.map(|p| p.to_string_lossy().into_owned()).map_err(|e| crate::host::persist::save_failure_message(&e))
+    }
+
     /// チャット別の保存を書き終えるまで待ち、保存できたか返す（保存先が使えない場合は保存できていないものとして扱う）。
     async fn saved_now(self: &Arc<Self>, chat: &ChatKey) -> bool {
         matches!(self.save_now(SaveScope::ChatLocal { chat: chat.clone() }).await, Some(SaveStatus { state: SaveState::Saved { .. }, .. }))
@@ -477,7 +504,7 @@ mod tests {
         ChatKey { backend: BackendKind::Codex, id: ExternalId(id.into()) }
     }
     fn seed(state: SeedState) -> HandoffSeed {
-        HandoffSeed { from: key("p"), material: "■ 以前の会話からの引き継ぎ\n本文".into(), rounds_included: 2, truncated: false, created_at: UnixMillis(1), state }
+        HandoffSeed { from: key("p"), material: "■ 以前の会話からの引き継ぎ\n本文".into(), rounds_included: 2, truncated: false, created_at: UnixMillis(1), state, toc_rounds: None, ledger: None }
     }
     fn purpose(text: &str, rev: u32) -> PurposeNote {
         PurposeNote { text: text.into(), revision: rev, updated_at: UnixMillis(1), source: crate::store::records::PurposeSource::Chat }

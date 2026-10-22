@@ -546,6 +546,20 @@ impl Store {
         parse_versioned::<SideFile>(&bytes).map_err(|e| StoreError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("side相談の記録を読めません: {e:?}"))))
     }
 
+    /// 会話台帳を書く（`chats/<dirId>/会話台帳.md`）。空き確認つき・原子的書込み。同じファイルがあれば最新の内容で置き換える。
+    /// 書くのは AgentDock の専用領域だけ（`~/.codex` には書かない）。
+    pub fn write_ledger(&self, chat: &ChatKey, text: &str) -> Result<PathBuf, StoreError> {
+        self.check_space(text.len() as u64 + 64 * 1024)?;
+        let path = self.ledger_path(chat);
+        atomic::write_atomic(&path, text.as_bytes())?;
+        Ok(path)
+    }
+
+    /// 会話台帳の予定パス（書込み・存在確認はしない）。
+    pub fn ledger_path(&self, chat: &ChatKey) -> PathBuf {
+        layout::ledger_path(&layout::chat_dir(&self.root, &self.ensure_dir_id(chat)))
+    }
+
     /// 書込み前の空き確認。`needed` に [`FREE_SPACE_MARGIN_BYTES`] を足して比べる。
     /// 空きを取得できないときは止めない（書込み自体が失敗すればその結果を報告する）。
     pub fn check_space(&self, needed: u64) -> Result<(), StoreError> {

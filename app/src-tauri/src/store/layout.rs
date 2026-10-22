@@ -24,6 +24,7 @@
 //!     side\<id>.json              side相談の確定した発言の記録（AgentDock保存・表示専用。主会話の削除まで残す。DESIGN_P3 #10）
 //!     attachments\<attId>\<name>  添付のコピー（添付ごとに別フォルダ。同名・再添付でも衝突しない）
 //!     attachments\<attId>\<name>.partial   コピー途中（完了まで利用不可）
+//!     会話台帳.md                  引き継ぎ時に書き出す会話の全往復の原文（AgentDock保存。自動では削除しない）
 //!     workspace\                  一般チャットの作業フォルダ（開発チャットは使わない）
 //! ```
 //!
@@ -58,11 +59,17 @@ pub const COMPACTIONS_DIR: &str = "compactions";
 pub const SIDE_DIR: &str = "side";
 pub const ATTACHMENTS_DIR: &str = "attachments";
 pub const WORKSPACE_DIR: &str = "workspace";
+pub const LEDGER_FILE: &str = "会話台帳.md";
 pub const PARTIAL_SUFFIX: &str = ".partial";
 
 pub fn chat_dir(root: &Path, dir_id: &LocalId) -> PathBuf {
     // 保存ファイルから読んだIDでも、パス区切りや `..` で領域の外へ出ないようファイル名として安全化する。
     root.join(CHATS_DIR).join(sanitize_file_name(&dir_id.0))
+}
+
+/// 会話台帳のパス（`chats\<dirId>\会話台帳.md`）。
+pub fn ledger_path(chat_dir: &Path) -> PathBuf {
+    chat_dir.join(LEDGER_FILE)
 }
 
 pub fn workspace_dir(chat_dir: &Path) -> PathBuf {

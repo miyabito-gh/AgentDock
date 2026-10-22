@@ -96,3 +96,11 @@ export function noticeText(mode: "threshold" | "manual", percent: number | null,
 export function statsText(p: { chars: number; roundsIncluded: number; roundsAvailable: number; truncated: boolean }): string {
   return `${num(p.chars)} 字・直近 ${p.roundsIncluded} 往復（会話全体で ${p.roundsAvailable} 往復）${p.truncated ? "・長いため一部を省略しています" : ""}`;
 }
+
+/** 会話台帳・目次の行（確認ダイアログ）。プレビューは台帳を書かない。書き出すのは「引き継いで送信」のときだけ。 */
+export function ledgerText(p: { tocRounds: number; ledgerPath: string | null; ledgerExists: boolean; ledgerWillWrite: boolean }): string {
+  if (p.ledgerPath === null) return "会話台帳は付きません（往復がない、または書き出せません）。";
+  const head = `目次 ${p.tocRounds} 往復。`;
+  if (p.ledgerWillWrite) return `${head}「引き継いで送信」を押すと、全往復の原文を会話台帳 ${p.ledgerPath} に書き出します（${p.ledgerExists ? "すでにあるファイルは更新します" : "まだありません"}）。`;
+  return `${head}会話台帳: ${p.ledgerPath}（${p.ledgerExists ? "あります。書き直しません" : "見つかりません"}）。`;
+}

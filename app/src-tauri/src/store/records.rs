@@ -196,6 +196,12 @@ pub struct HandoffSeed {
     pub truncated: bool,
     pub created_at: UnixMillis,
     pub state: SeedState,
+    /// 資料に入れた目次の往復数。None＝目次のない資料（台帳導入前に作った資料）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub toc_rounds: Option<u32>,
+    /// 書き出せた会話台帳のパス。None＝台帳なし（書けなかった・導入前の資料）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ledger: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -478,6 +484,8 @@ mod tests {
                 truncated: true,
                 created_at: UnixMillis(6),
                 state: SeedState::Pending,
+                toc_rounds: Some(4),
+                ledger: Some("x/会話台帳.md".into()),
             }),
             purpose_delivered_rev: Some(2),
             compacted_since_delivery: true,

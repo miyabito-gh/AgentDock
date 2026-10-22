@@ -442,6 +442,18 @@ pub struct HandoffPreview {
     pub rounds_included: u32,
     pub rounds_available: u32,
     pub truncated: bool,
+    /// 資料に入れた目次の往復数（目次のない資料は 0）。
+    #[serde(default)]
+    pub toc_rounds: u32,
+    /// 会話台帳の保存先（引き継ぎ元のチャット領域。書けない・往復がないときは None）。
+    #[serde(default)]
+    pub ledger_path: Option<String>,
+    /// 台帳のファイルが今あるか（プレビューは台帳を書かない）。
+    #[serde(default)]
+    pub ledger_exists: bool,
+    /// 「引き継いで送信」を押したときに台帳を書き出すか（false＝今ある台帳をそのまま使う）。
+    #[serde(default)]
+    pub ledger_will_write: bool,
 }
 
 /// 「引き継いで送信」の結果（C3 が実装する）。

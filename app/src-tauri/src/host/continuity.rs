@@ -15,7 +15,7 @@ use crate::backend::local::ChatArgs;
 use crate::backend::local::{HandoffBlock, SaveScope};
 use crate::backend::model::*;
 use crate::rules::continuity as cont;
-use crate::store::records::{ChatLocalFile, ContextUsageSample, ConversationRecord, HandoffSeed, PurposeNote, PurposeSource, SeedState, Superseded};
+use crate::store::records::{ChatLocalFile, ContextUsageSample, ConversationRecord, HandoffSeed, PurposeNote, PurposeSource, SeedState, Superseded, ThreadSegment};
 use crate::store::{Restored, RestoredChat, Store, StoreError};
 
 /// 使用率・届けた記録の書込みをまとめる時間（turn 中に何度も来るため）。
@@ -54,6 +54,17 @@ pub fn segment_readable(rec: Option<&ConversationRecord>, segment: &ChatKey) -> 
     rec.is_some_and(|c| c.threads.iter().any(|t| &t.chat == segment))
 }
 
+/// 事前表示に出す会話台帳の状況（プレビューは台帳を書かない）。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PreviewLedger {
+    /// 台帳の保存先（書く予定の、または今ある台帳）。なければ None。
+    pub path: Option<String>,
+    /// 台帳のファイルが今あるか。
+    pub exists: bool,
+    /// 「引き継いで送信」で台帳を書き出すか（false＝今ある台帳をそのまま使う）。
+    pub will_write: bool,
+}
+
 /// 事前表示を組み立てる（純粋）。`material` が None（読めなかった）でも、目的メモだけの資料と理由は返す。
 pub fn assemble_preview(
     purpose: Option<&PurposeNote>,
@@ -62,8 +73,11 @@ pub fn assemble_preview(
     blockers: Vec<HandoffBlock>,
     notes: Vec<String>,
     now: UnixMillis,
+    ledger: PreviewLedger,
 ) -> HandoffPreview {
     let (rounds_included, rounds_available, truncated) = material.as_ref().map(|m| (m.rounds_included, m.rounds_available, m.truncated)).unwrap_or((0, 0, false));
+    let toc_rounds = material.as_ref().and_then(|m| m.toc_rounds);
+    let has_ledger = material.as_ref().is_some_and(|m| m.ledger);
     let seed = material.map(|m| HandoffSeed {
         from: from.clone(),
         material: m.text,
@@ -71,9 +85,68 @@ pub fn assemble_preview(
         truncated: m.truncated,
         created_at: now,
         state: SeedState::Pending,
+        toc_rounds: m.toc_rounds,
+        ledger: if m.ledger { ledger.path.clone() } else { None },
     });
-    let envelope = cont::build_envelope(purpose, seed.as_ref()).unwrap_or_default();
-    HandoffPreview { blockers, notes, chars: envelope.chars().count().min(u32::MAX as usize) as u32, envelope, rounds_included, rounds_available, truncated }
+    let envelope = cont::build_envelope(purpose, seed.as_ref(), None).unwrap_or_default();
+    HandoffPreview {
+        blockers,
+        notes,
+        chars: envelope.chars().count().min(u32::MAX as usize) as u32,
+        envelope,
+        rounds_included,
+        rounds_available,
+        truncated,
+        toc_rounds: toc_rounds.unwrap_or(0),
+        ledger_path: if has_ledger { ledger.path } else { None },
+        ledger_exists: has_ledger && ledger.exists,
+        ledger_will_write: has_ledger && ledger.will_write,
+    }
+}
+
+/// 連鎖の以前の thread の turn を古い順に連結して読む（読取りのみ。resume・保存をしない）。
+/// 1つでも読めなければ Err（理由）。往復番号がずれるので、読めた分だけで台帳を作らない。
+async fn read_earlier_turns(host: &Arc<Host>, threads: &[ThreadSegment]) -> Result<Vec<TurnRecord>, String> {
+    let mut out = Vec::new();
+    for t in threads {
+        let h = host
+            .read_limit
+            .run(host.backend.read(agent_key_of(&t.chat), ReadOptions { include_turns: true }))
+            .await
+            .map_err(|e| format!("以前の thread「{}」の履歴を読めませんでした: {e}", t.title.as_deref().unwrap_or(&t.chat.id.0)))?;
+        out.extend(h.turns);
+    }
+    Ok(out)
+}
+
+/// 引き継ぎ資料の材料: 連鎖全体の turn と、台帳の扱い（読み取り専用）。`p_turns` は引き継ぎ元自身の履歴。
+/// 以前の thread を読めない・保存先がないときは台帳を作らない（`Incomplete`・`WriteFailed`）。台帳のパスは引き継ぎ元のチャット領域。
+pub(super) struct ChainMaterial {
+    pub turns: Vec<TurnRecord>,
+    pub note: cont::LedgerNote,
+    /// 書き出す台帳（書けるときだけ）。
+    pub ledger: Option<(ChatKey, cont::Ledger)>,
+    pub planned_path: Option<String>,
+}
+
+impl Host {
+    pub(super) async fn chain_material(self: &Arc<Self>, chat: &ChatKey, earlier: &[ThreadSegment], p_turns: Vec<TurnRecord>) -> ChainMaterial {
+        let offset = crate::win::clock::local_utc_offset_min();
+        let all = match read_earlier_turns(self, earlier).await {
+            Ok(mut prev) => {
+                prev.extend(p_turns);
+                prev
+            }
+            Err(why) => return ChainMaterial { turns: p_turns, note: cont::LedgerNote::Incomplete(why), ledger: None, planned_path: None },
+        };
+        let Some(store) = self.persist.store() else {
+            return ChainMaterial { turns: all, note: cont::LedgerNote::WriteFailed("保存先を使えません".into()), ledger: None, planned_path: None };
+        };
+        let path = store.ledger_path(chat).to_string_lossy().into_owned();
+        let ledger = cont::build_ledger(&all, offset);
+        let ledger = if ledger.rounds > 0 { Some((chat.clone(), ledger)) } else { None };
+        ChainMaterial { turns: all, note: cont::LedgerNote::Path(path.clone()), ledger, planned_path: Some(path) }
+    }
 }
 
 /// 起動時の鎖の照合の結果（適用済みの分）。
@@ -152,17 +225,32 @@ impl Host {
             Ok(notes) => (Vec::new(), super::continuity_handoff::with_scan_note(notes, scan_incomplete)),
             Err(b) => (vec![b], Vec::new()),
         };
-        let (purpose, rounds, seed) = self.read(|d| {
+        let (purpose, rounds, seed, earlier) = self.read(|d| {
             let rec = d.locals.get(&chat).and_then(|f| f.conversation.as_ref());
-            (rec.and_then(|c| c.purpose.clone()), d.settings.continuation.rounds, rec.and_then(|c| c.seed.clone()))
+            (rec.and_then(|c| c.purpose.clone()), d.settings.continuation.rounds, rec.and_then(|c| c.seed.clone()), rec.map(|c| c.threads.clone()).unwrap_or_default())
         });
         let rounds = rounds.clamp(1, 10) as usize;
+        let mut ledger = PreviewLedger::default();
         let material = if let (true, Some(s)) = (redo, seed) {
-            // 空の先頭のやり直し: 送る資料は先頭の資料そのまま（履歴を読み直さない）。
-            Some(cont::Material { text: s.material, rounds_included: s.rounds_included, rounds_available: s.rounds_included, truncated: s.truncated })
+            // 空の先頭のやり直し: 送る資料は先頭の資料そのまま（履歴を読み直さない。台帳も書き直さない）。
+            ledger = PreviewLedger { exists: s.ledger.as_deref().is_some_and(|p| std::path::Path::new(p).is_file()), path: s.ledger.clone(), will_write: false };
+            Some(cont::Material { text: s.material, rounds_included: s.rounds_included, rounds_available: s.rounds_included, truncated: s.truncated, toc_rounds: s.toc_rounds, ledger: s.ledger.is_some() })
         } else if ctx.connected {
             match self.read_limit.run(self.backend.read(agent_key_of(&chat), ReadOptions { include_turns: true })).await {
-                Ok(h) => Some(cont::build_material(&h.turns, rounds, crate::win::clock::local_utc_offset_min())),
+                Ok(h) => {
+                    let chain = self.chain_material(&chat, &earlier, h.turns).await;
+                    if let cont::LedgerNote::Incomplete(why) | cont::LedgerNote::WriteFailed(why) = &chain.note {
+                        notes.push(format!("会話台帳は書き出せません（{why}）。"));
+                        if matches!(chain.note, cont::LedgerNote::Incomplete(_)) {
+                            notes.push("目次は入れず、資料内の「往復N」は連鎖の通し番号ではなく、この資料内の連番になります。".to_string());
+                        }
+                    }
+                    if let Some(path) = &chain.planned_path {
+                        let exists = std::path::Path::new(path).is_file();
+                        ledger = PreviewLedger { path: chain.ledger.as_ref().map(|_| path.clone()), exists, will_write: chain.ledger.is_some() };
+                    }
+                    Some(cont::build_material_with(&chain.turns, rounds, crate::win::clock::local_utc_offset_min(), &chain.note))
+                }
                 // 読めない理由が他にあるなら理由だけを返し、なければエラーにする（空の資料にしない）。
                 Err(e) if blockers.is_empty() => return Err(err(IpcErrorCode::Io, format!("履歴を取得できませんでした（未取得）: {e}"))),
                 Err(_) => {
@@ -174,7 +262,7 @@ impl Host {
             notes.push("接続していないため、履歴を読めません。".to_string());
             None
         };
-        Ok(assemble_preview(purpose.as_ref(), &chat, material, blockers, notes, now_ms()))
+        Ok(assemble_preview(purpose.as_ref(), &chat, material, blockers, notes, now_ms(), ledger))
     }
 
     /// 以前の thread の履歴を読む（読取りのみ。resume・状態への反映・保存をしない）。`segment` は `head` の記録にある thread だけ。
@@ -192,7 +280,16 @@ impl Host {
     pub(super) fn compose_manual_text(&self, chat: &ChatKey, user_text: &str) -> String {
         // 継続チャットを使わない設定のときは、目的メモの資料を添えない。
         let on = self.read(|d| d.settings.continuation.enabled);
-        let envelope = if on { self.read(|d| d.locals.get(chat).and_then(|f| cont::envelope_for_manual_send(f.conversation.as_ref(), true, false))) } else { None };
+        // 圧縮後の再添付に台帳の場所を足すのは、台帳のファイルが今もあるときだけ。
+        let envelope = if on {
+            self.read(|d| {
+                let rec = d.locals.get(chat).and_then(|f| f.conversation.as_ref());
+                let ledger_exists = rec.and_then(|c| c.seed.as_ref()).and_then(|s| s.ledger.as_deref()).is_some_and(|p| std::path::Path::new(p).is_file());
+                cont::envelope_for_manual_send(rec, true, false, ledger_exists)
+            })
+        } else {
+            None
+        };
         cont::compose_send_text(envelope.as_deref(), user_text)
     }
 
@@ -357,20 +454,36 @@ mod tests {
     fn preview_without_history_still_returns_the_purpose_and_the_reasons() {
         let purpose = PurposeNote { text: "目的".into(), revision: 2, updated_at: UnixMillis(1), source: PurposeSource::Chat };
         let block = HandoffBlock { kind: crate::backend::local::HandoffBlockKind::Busy, message: "実行中".into() };
-        let p = assemble_preview(Some(&purpose), &ck("p"), None, vec![block.clone()], vec!["注記".into()], NOW);
+        let p = assemble_preview(Some(&purpose), &ck("p"), None, vec![block.clone()], vec!["注記".into()], NOW, PreviewLedger::default());
         assert_eq!(p.blockers, vec![block]);
         assert_eq!((p.rounds_included, p.rounds_available, p.truncated), (0, 0, false));
         assert!(p.envelope.contains("目的メモ 版2") && p.envelope.contains("目的"));
         assert!(!p.envelope.contains("引き継ぎ"));
         assert_eq!(p.chars as usize, p.envelope.chars().count());
         // 目的メモも履歴もなければ空（資料なし）。
-        assert_eq!(assemble_preview(None, &ck("p"), None, vec![], vec![], NOW).envelope, "");
+        assert_eq!(assemble_preview(None, &ck("p"), None, vec![], vec![], NOW, PreviewLedger::default()).envelope, "");
+    }
+
+    #[test]
+    fn preview_reports_toc_and_planned_ledger_without_writing_it() {
+        let m = cont::Material { text: "■ 以前の会話からの引き継ぎ\n本文".into(), rounds_included: 3, rounds_available: 12, truncated: false, toc_rounds: Some(12), ledger: true };
+        let ledger = PreviewLedger { path: Some(r"C:\ad\chats\d\会話台帳.md".into()), exists: false, will_write: true };
+        let p = assemble_preview(None, &ck("p"), Some(m), vec![], vec![], NOW, ledger);
+        assert_eq!((p.toc_rounds, p.ledger_exists, p.ledger_will_write), (12, false, true));
+        assert_eq!(p.ledger_path.as_deref(), Some(r"C:\ad\chats\d\会話台帳.md"));
+        assert!(p.envelope.starts_with("［AgentDock資料 v1｜引き継ぎ 3往復｜目次 12往復｜台帳あり］"), "{}", p.envelope);
+        // 台帳を案内しない資料（書けない・往復なし）は、パスを出さない。
+        let m = cont::Material { text: "■ 以前の会話からの引き継ぎ\n本文".into(), rounds_included: 3, rounds_available: 12, truncated: false, toc_rounds: Some(12), ledger: false };
+        let ledger = PreviewLedger { path: Some("x".into()), exists: true, will_write: true };
+        let p = assemble_preview(None, &ck("p"), Some(m), vec![], vec![], NOW, ledger);
+        assert_eq!((p.ledger_path, p.ledger_exists, p.ledger_will_write), (None, false, false));
+        assert!(p.envelope.contains("台帳なし"));
     }
 
     #[test]
     fn preview_with_zero_rounds_is_still_a_valid_handoff() {
         let m = cont::build_material(&[], 3, 0);
-        let p = assemble_preview(None, &ck("p"), Some(m), vec![], vec![], NOW);
+        let p = assemble_preview(None, &ck("p"), Some(m), vec![], vec![], NOW, PreviewLedger::default());
         assert!(p.envelope.contains("以前の会話に依頼はありません"));
         assert_eq!((p.rounds_included, p.rounds_available), (0, 0));
     }

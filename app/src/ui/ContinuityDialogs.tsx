@@ -7,7 +7,7 @@ import type { ChatLocalView, ContinuationSettings, PurposeNoteView } from "../ip
 import type { HandoffPreview } from "../ipc/types";
 import { FootActions } from "./DialogParts";
 import { copyText } from "./markdown/parts";
-import { PURPOSE_MAX, charCount, observedText, purposeSaveBlock, statsText } from "./contUsage";
+import { PURPOSE_MAX, charCount, ledgerText, observedText, purposeSaveBlock, statsText } from "./contUsage";
 
 const errText = (e: unknown) => host.asIpcError(e).message;
 
@@ -92,6 +92,7 @@ export function HandoffPreviewBody({ chatName, load, live }: { chatName: string;
           ) : null}
           {state.p.notes.length > 0 ? <ul className="small muted">{state.p.notes.map((t, i) => <li key={i}>{t}</li>)}</ul> : null}
           <p className="small">{statsText(state.p)}</p>
+          <p className="small muted" style={{ overflowWrap: "anywhere" }}>{ledgerText(state.p)}</p>
           {state.p.envelope ? (
             <>
               <pre className="mono cont-env" aria-label="引き継ぎ資料の本文">{state.p.envelope}</pre>
