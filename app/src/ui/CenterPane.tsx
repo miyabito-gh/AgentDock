@@ -990,7 +990,7 @@ function Composer({ p, running, lock, hu }: { p: CenterProps; running: boolean; 
           </div>
         ) : null}
         {lock ? <div className="lockmsg">{lock}</div> : null}
-        <HandoffNotice ui={hu} onPreview={() => p.onAct("handoffPreview")} />
+        <HandoffNotice ui={hu} onPreview={() => p.onAct("handoffPreview")} onDraft={() => p.onAct("purposeDraft")} />
         {attachBlock ? <div className="lockmsg">{attachBlock}</div> : null}
         {wmSelected && !wmUsable ? (
           <div className="lockmsg">計画／実行（{WORK_MODE_TEXT[wmSelected]}）を選んだままですが、この Codex 接続では使えないため、送信は止まります。<button className="small" onClick={() => p.onWorkMode(null)}>選択を外す</button></div>

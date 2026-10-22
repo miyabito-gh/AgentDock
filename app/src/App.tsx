@@ -1579,6 +1579,7 @@ ${cur}` : p.text);
       case "parity": setDialog({ type: "parity" }); break;
       case "goal": if (chat) setDialog({ type: "goal", chatId: chat.key.id }); else say("チャットを選んでください。"); break;
       case "purpose": if (chat) setDialog({ type: "purpose", chatId: chat.key.id }); else say("チャットを選んでください。"); break;
+      case "purposeDraft": if (chat) setDialog({ type: "purposeDraft", chatId: chat.key.id }); else say("チャットを選んでください。"); break;
       case "handoffPreview": if (chat) setDialog({ type: "handoffPreview", chatId: chat.key.id }); break;
       case "handoff": if (chat && !dialog) window.dispatchEvent(new Event("agentdock:handoff-open")); break;
       case "review": if (chat) setDialog({ type: "review", chatId: chat.key.id }); else say("チャットを選んでください。"); break;

@@ -1,7 +1,7 @@
 // 実行: node --test src/ui/contUsage.test.ts （tscの対象外）
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { charCount, handoffIneligible, ledgerText, noticeText, observedText, purposeFirstLine, purposeSaveBlock, shouldSuggest, usageChip } from "./contUsage.ts";
+import { charCount, draftIneligible, handoffIneligible, ledgerText, noticeText, observedText, purposeFirstLine, purposeSaveBlock, shouldSuggest, usageChip } from "./contUsage.ts";
 
 const known = (percent: number, live = true) => ({ kind: "known", used: 1234, window: 200000, percent, observedAt: new Date(2026, 9, 18, 14, 2).getTime(), live }) as never;
 const NOW = new Date(2026, 9, 18, 15, 0).getTime();
@@ -78,4 +78,14 @@ test("ledgerText: プレビューは台帳を書かない旨と、有無・書�
   assert.match(ledgerText({ ...base, ledgerWillWrite: false, ledgerExists: true }), /あります。書き直しません/);
   assert.match(ledgerText({ ...base, ledgerWillWrite: false }), /見つかりません/);
   assert.match(ledgerText({ ...base, ledgerPath: null }), /付きません/);
+});
+
+test("draftIneligible: 画面で分かる理由だけ返す（作業中・不明は止めない）", () => {
+  const ok = { orgOwned: false, supersededBy: false, structuredOutput: "supported" as const };
+  assert.equal(draftIneligible(ok), null);
+  assert.equal(draftIneligible({ ...ok, structuredOutput: "unknown" }), null);
+  assert.equal(draftIneligible({ ...ok, structuredOutput: undefined }), null);
+  assert.match(draftIneligible({ ...ok, orgOwned: true })!, /組織実行/);
+  assert.match(draftIneligible({ ...ok, supersededBy: true })!, /以前の thread/);
+  assert.match(draftIneligible({ ...ok, structuredOutput: "unsupported" })!, /構造化出力/);
 });

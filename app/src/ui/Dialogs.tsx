@@ -23,7 +23,7 @@ import { ExtensionsBody } from "./ExtensionsDialogs";
 import { InstructionBody, ReferenceBody, SkillsBody, type ComposeProps } from "./ComposeDialogs";
 import { WorkspaceChoice, WorktreesBody } from "./WorktreeDialogs";
 import { CloudBody } from "./CloudDialogs";
-import { ContinuationSettingsBody, HandoffPreviewBody, PurposeBody, type ContinuityDialogProps } from "./ContinuityDialogs";
+import { ContinuationSettingsBody, HandoffPreviewBody, PurposeBody, PurposeDraftBody, type ContinuityDialogProps } from "./ContinuityDialogs";
 import { OrgDeleteDialog, OrgSettingsBody, type OrgSettingsProps } from "./OrgDialogs";
 import { OrgArtifactsBody, OrgImportBody } from "./OrgArtifacts";
 import { IntakeStartBody, OrgIntakeBeginBody } from "./OrgIntake";
@@ -62,6 +62,7 @@ export type DialogState =
   | { type: "resend"; chatId: string; purpose: "editResend" | "regenerate"; turnId: string; itemId: string | null }
   | { type: "goal"; chatId: string }
   | { type: "purpose"; chatId: string }
+  | { type: "purposeDraft"; chatId: string }
   | { type: "handoffPreview"; chatId: string }
   | { type: "status"; chatId: string | null }
   | { type: "usage" }
@@ -699,6 +700,17 @@ export function Dialogs({ cont, org, folderTools, workspaceRoots, d, onClose, ch
         <Shell title="目的メモ" onClose={onClose} close="キャンセル">
           <PurposeBody key={d.chatId} chat={ch?.key ?? null} chatName={ch ? chatName(ch) : "（不明）"} current={lc?.conversation?.purpose ?? null} live={live} orgOwned={!!lc?.org && !lc.org.released}
             save={(text, rev) => cont.savePurpose(d.chatId, text, rev)} onDone={onClose} />
+        </Shell>);
+    }
+    case "purposeDraft": {
+      // 目的メモ編集を開かずに更新案のダイアログを開く入口。開くだけでは何も作らない（「作成する」を押したときだけ）。
+      const ch = chats.find((x) => x.key.id === d.chatId);
+      const lc = cont.locals.find((l) => l.chat.id === d.chatId);
+      return (
+        <Shell title="目的メモの更新案" onClose={onClose} close="閉じる">
+          {ch ? <PurposeDraftBody key={d.chatId} chat={ch.key} chatName={chatName(ch)} current={lc?.conversation?.purpose ?? null} live={live}
+            save={(text, rev) => cont.savePurpose(d.chatId, text, rev)} onDone={onClose} />
+            : <div className="content"><p>対象のチャットを読み込めていません。</p></div>}
         </Shell>);
     }
     case "handoffPreview": {

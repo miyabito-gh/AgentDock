@@ -2,6 +2,7 @@
 // 表示のために接続・再開・読取りを増やさない。
 import type { Chat, HostSnapshot, ParityOp } from "../ipc/types";
 import { ALL_COMMANDS, type CommandContext, type CommandView } from "./commands";
+import { draftIneligible } from "./contUsage";
 import { chatStops, isRunning, rootView, stopOpen } from "./derive";
 
 /** snapshot から導けない、呼び出し側が渡す材料（省略時は「理由なし／すべてオフ」）。 */
@@ -32,6 +33,7 @@ export function commandContext(snap: HostSnapshot, chat: Chat | null, connected:
     folderCount: extra.folderCount ?? 0,
     checked: extra.checked ?? {},
     continuationOff: !snap.settings.continuation.enabled,
+    draftBlock: draftIneligible({ orgOwned: !!local?.org && !local.org.released, supersededBy: !!local?.supersededBy, structuredOutput: snap.sources[0]?.capabilities.structuredOutput }),
   };
 }
 

@@ -81,6 +81,8 @@ export interface CommandContext {
   checked: Record<string, boolean>;
   /** 設定「継続チャット」がオフ（目的メモ・引き継ぎは使えない）。 */
   continuationOff?: boolean;
+  /** 目的メモの更新案を作れない理由（画面で分かる分。作れるなら null／省略）。 */
+  draftBlock?: string | null;
 }
 
 /** 上部メニューの5つ（Ctrl+K の所属表示にも使う）。 */
@@ -236,6 +238,11 @@ export const APP_COMMANDS: Command[] = [
 
   // 継続チャット（DESIGN_CONT §7）。引き継げない理由（組織実行・worktree 等）は押したあとの案内行に出す。
   app("purposeNote", "purpose", { label: "目的メモ…", group: "作業", needsChat: true, why: contOn, keywords: ["メモ", "目的", "継続"] }),
+  // 下書きダイアログを開くだけ（モデルは呼ばない。作成はダイアログの「作成する」を押したとき）。作業中でも開ける。
+  app("purposeDraft", "purposeDraft", {
+    label: "目的メモの更新案を作る…", group: "作業", needsChat: true, keywords: ["メモ", "目的", "更新案", "下書き", "継続"],
+    why: (ctx) => contOn(ctx) ?? (!ctx.connected ? "接続されていません" : (ctx.draftBlock ?? null)),
+  }),
   app("orgIntakeFromChat", "orgIntakeFromChat", {
     label: "この会話から組織実行の依頼を作る…", group: "作業", needsChat: true, keywords: ["組織実行", "依頼整理", "ワークフロー"],
     why: (ctx) => (ctx.isGeneral ? "作業フォルダのあるチャットだけで使えます" : notPending(ctx)),

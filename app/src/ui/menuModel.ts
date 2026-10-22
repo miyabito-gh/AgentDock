@@ -23,7 +23,7 @@ export const MENUBAR: MenuSpec[] = [
     title: "作業",
     entries: [
       h("変更"), id("changeList"), id("revertChanges"), id("codeReview"), id("reviewToNewChat"),
-      "-", h("会話"), id("fork"), id("compact"), id("purposeNote"), id("handoffThread"), id("orgIntakeFromChat"), id("reloadHistory"),
+      "-", h("会話"), id("fork"), id("compact"), id("purposeNote"), id("purposeDraft"), id("handoffThread"), id("orgIntakeFromChat"), id("reloadHistory"),
       "-", h("依頼の補助"), id("goal"), id("workMode"), id("referenceChat"), id("skills"), id("instructionFiles"), id("sideChat"),
       "-", h("実行"), id("interrupt"),
     ],
@@ -54,7 +54,7 @@ export const MENUBAR: MenuSpec[] = [
 /** ヘッダー「…」（このチャットでよく使う操作の近道。上部メニューの部分集合）。 */
 export const HEADER_MORE: MenuEntry[] = [
   h("変更"), id("changeList"), id("revertChanges"), id("codeReview"),
-  "-", h("会話"), id("fork"), id("purposeNote"), id("handoffThread"), id("goal"), id("reloadHistory"),
+  "-", h("会話"), id("fork"), id("purposeNote"), id("purposeDraft"), id("handoffThread"), id("goal"), id("reloadHistory"),
   "-", h("このチャット"), id("cwdChange"), id("newChatSameFolder"), id("renameChat"), id("togglePin"),
   "-", id("palette"),
 ];

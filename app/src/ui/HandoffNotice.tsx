@@ -88,7 +88,7 @@ function worktreeReasonOnly(usage: ChatLocalView["contextUsage"], settings: Cont
 }
 
 /** 入力欄の上の案内行。 */
-export function HandoffNotice({ ui, onPreview }: { ui: HandoffUi; onPreview: () => void }) {
+export function HandoffNotice({ ui, onPreview, onDraft }: { ui: HandoffUi; onPreview: () => void; onDraft?: () => void }) {
   if (!ui.shown) return null;
   if (ui.ineligible !== null) {
     return <div className="handoff-note muted" role="status">{ui.mode === null ? `文脈が ${ui.percent}% です。` : ""}{ui.ineligible}。{ui.mode === "manual" ? <button className="small" aria-label="案内を閉じる" onClick={ui.close}>×</button> : null}</div>;
@@ -102,6 +102,7 @@ export function HandoffNotice({ ui, onPreview }: { ui: HandoffUi; onPreview: () 
         <span className="hn-text">{noticeText(mode, ui.percent, ui.rounds)}</span>
         <span className="hn-acts">
           <button className="small" onClick={onPreview}>資料を見る</button>
+          {mode === "threshold" && onDraft ? <button className="small" title="更新案のダイアログを開きます（作成は、ダイアログの「作成する」を押したときだけ）" onClick={onDraft}>目的メモを更新</button> : null}
           {mode === "threshold" ? <button className="small" onClick={ui.keep}>このthreadで続ける</button> : <button className="small" aria-label="案内を閉じる" title="案内を閉じる" onClick={ui.close}>×</button>}
         </span>
       </div>

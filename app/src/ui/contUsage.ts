@@ -69,6 +69,17 @@ export function handoffIneligible(a: { orgOwned: boolean; supersededBy: boolean;
   return null;
 }
 
+/**
+ * 目的メモの更新案を作れない理由（画面で分かる分だけ。作れるときは null）。
+ * 接続・保存先・作成中などはホストが決める（ダイアログの見積りに出る）。作業中は止めない（DESIGN_CONT_DRAFT §5）。
+ */
+export function draftIneligible(a: { orgOwned: boolean; supersededBy: boolean; structuredOutput: "supported" | "experimental" | "unsupported" | "unknown" | undefined }): string | null {
+  if (a.orgOwned) return "組織実行が所有するチャットでは、目的メモを更新できません";
+  if (a.supersededBy) return "引き継がれた側（以前の thread）では作れません。引き継ぎ先のチャットで作ってください";
+  if (a.structuredOutput === "unsupported") return "このAIは構造化出力に対応していないため、更新案を作れません";
+  return null;
+}
+
 /** 目的メモの先頭1行（空行は飛ばす）。無ければ null。長いものは切り詰める。 */
 export function purposeFirstLine(text: string, max = 80): string | null {
   const line = text.split(/\r?\n/).map((l) => l.trim()).find((l) => l.length > 0);

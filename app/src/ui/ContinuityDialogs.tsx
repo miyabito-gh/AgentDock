@@ -109,7 +109,8 @@ export function PurposeDraftBody({ chat, chatName, current, live, save, onBack, 
   current: PurposeNoteView | null;
   live: boolean;
   save: (text: string, expectedRevision: number | null) => Promise<string | null>;
-  onBack: () => void;
+  /** 目的メモ編集から開いたときだけ渡す（直接開いたときは「編集に戻る」を出さない）。 */
+  onBack?: () => void;
   onDone: () => void;
 }) {
   const [view, setView] = useState<PurposeDraftView | null | undefined>(undefined);
@@ -206,7 +207,7 @@ export function PurposeDraftBody({ chat, chatName, current, live, save, onBack, 
 
   return (
     <div className="content">
-      <FootActions left={<button className="btn" disabled={busy} onClick={onBack}>編集に戻る</button>} main={main} />
+      <FootActions left={onBack ? <button className="btn" disabled={busy} onClick={onBack}>編集に戻る</button> : undefined} main={main} />
       <p className="small muted">対象: {chatName}。会話とは別の一時 thread で、読み取り専用（承認を求めない）で作ります。会話本体には何も送りません。目的メモは、あなたが保存するまで変わりません。</p>
       {head ? <div className={head.tone === "ok" || head.tone === "run" ? "" : "why"} role="status"><b>{head.text}</b>{state?.kind === "running" ? `（経過 ${elapsedText(state.startedAt, now)}）` : ""}</div> : null}
       {view && state?.kind !== "preparing" ? (
