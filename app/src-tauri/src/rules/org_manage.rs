@@ -169,6 +169,13 @@ pub fn step_label(s: &Step) -> String {
     }
 }
 
+/// 削除の進み（済んだ段数、全体の段数）。全体は「記録された役割チャット＋フォルダ」。失敗した段は済みに数えない。
+pub fn delete_progress_counts(rec: &DeleteRecord) -> (u32, u32) {
+    let total = rec.chats.len() as u32 + 1;
+    let done = rec.chats.iter().filter(|c| rec.done.contains(&step_label(&Step::Chat((*c).clone())))).count() as u32 + u32::from(rec.done.iter().any(|d| d == FILES_LABEL));
+    (done, total)
+}
+
 /// これから実行する段。済み（`done`）は飛ばし、チャットが全部済むまでフォルダの段は出さない。
 pub fn next_steps(rec: &DeleteRecord) -> Vec<Step> {
     let pending: Vec<Step> = rec.chats.iter().map(|c| Step::Chat(c.clone())).filter(|s| !rec.done.contains(&step_label(s))).collect();
@@ -323,5 +330,15 @@ mod tests {
         let mut odd = rec(&["a"], &[]);
         odd.done.push(FILES_LABEL.into());
         assert_eq!(next_steps(&odd), vec![Step::Chat(chat("a"))]);
+    }
+
+    #[test]
+    fn progress_counts_chats_and_files() {
+        assert_eq!(delete_progress_counts(&rec(&["a", "b"], &[])), (0, 3));
+        assert_eq!(delete_progress_counts(&rec(&["a", "b"], &["a"])), (1, 3));
+        let mut all = rec(&["a", "b"], &["a", "b"]);
+        all.done.push(FILES_LABEL.into());
+        assert_eq!(delete_progress_counts(&all), (3, 3));
+        assert_eq!(delete_progress_counts(&rec(&[], &[])), (0, 1));
     }
 }

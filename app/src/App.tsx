@@ -166,6 +166,8 @@ export default function App() {
   const [orgTick, setOrgTick] = useState(0);
   // 進行タイムラインの合図（orgTimelineUpdated。1秒に1回まで）。経過の表示が差分を取り直す。
   const [orgTlTick, setOrgTlTick] = useState(0);
+  // 組織ワークフローの削除の進行（orgDeleteProgress。表示だけ）。
+  const [orgDelProg, setOrgDelProg] = useState<{ workflowId: string; done: number; total: number } | null>(null);
   /** 中央にワークフロー画面を出しているか（役割チャットを選ぶと閉じる）。 */
   const [orgScreen, setOrgScreen] = useState(false);
   /** ワークフロー画面に出す過去のワークフローのID（null＝実行中の1件）。保存済みの記録を読み取り専用で開くだけ。 */
@@ -299,6 +301,7 @@ export default function App() {
     const effects = (e: HostEvent) => {
       if (e.kind === "turnUpdated" && e.end !== null && e.turn.agent.id === selRef.current) void loadChat(e.turn.agent.id);
       else if (e.kind === "orgUpdated") setOrgTick((n) => n + 1); // 組織実行の状態の合図。画面側が org_view を取り直す（読取りのみ）
+      else if (e.kind === "orgDeleteProgress") setOrgDelProg({ workflowId: e.workflowId, done: e.done, total: e.total }); // 削除の進行（表示だけ）
       else if (e.kind === "orgTimelineUpdated") setOrgTlTick((n) => n + 1); // 経過の合図。画面側が org_timeline で差分だけ取り直す（読取りのみ）
       else if (e.kind === "sendUpdated") noteAttempt(e.chat.id, e.attempt);
       else if (e.kind === "sendPhaseUpdated") setPendingSends((m) => { const cur = m[e.chat.id]; if (!cur) return m; const next = setPhase(cur, e.phase); return next === cur ? m : { ...m, [e.chat.id]: next }; }); // 送信中の段階（表示だけ）
@@ -1778,7 +1781,8 @@ ${cur}` : p.text);
           begin: intakeBegin, browse: folderTools.browse, onIntakeStarted: intakeStarted, go: setDialog,
           previewDelete: (id) => (live ? host.orgPreviewDelete(id) : Promise.reject(new Error("モックでは動きません。"))),
           deleteWorkflow: (id, del, expect) => host.orgDeleteWorkflow(id, del, expect),
-          onDeleted: (id) => { setDialog(null); if (orgSel === id) setOrgSel(null); setOrgTick((n) => n + 1); say("ワークフローを削除しました。worktree とブランチは残しています。", 6000); },
+          deleteProgress: orgDelProg, onDeleteIssue: (m) => say(m, 8000),
+          onDeleted: (id) => { setDialog((d) => (d?.type === "orgDelete" && d.workflowId === id ? null : d)); if (orgSel === id) setOrgSel(null); setOrgTick((n) => n + 1); say("ワークフローを削除しました。worktree とブランチは残しています。", 6000); },
         }} folderTools={folderTools} workspaceRoots={snap.workspaceRoots} onClose={closeDialog} opCaps={snap.opCapabilities} resend={{ state: resendState, handlers: resendHandlers }} chats={snap.chats} source={src} models={models}
           prefs={{ goal: dialog.type === "goal" ? goals[dialog.chatId] : undefined, saveGoal,
             settings: dialog.type === "status" && dialog.chatId ? bundle.modelSettings[dialog.chatId] : undefined,

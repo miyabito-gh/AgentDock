@@ -1155,3 +1155,4 @@ button.uchip:hover{background:var(--accent-weak)}
 .org-imp-files .chg-rowbtn{cursor:default}
 .org-consent{display:block;margin:6px 0}
 .linkish{height:auto;padding:0;border:0;background:transparent;color:var(--accent-text);text-decoration:underline;cursor:pointer;font:inherit}
+.menu-note{padding:2px 12px 6px;max-width:260px;white-space:normal}

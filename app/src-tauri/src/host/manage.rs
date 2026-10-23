@@ -11,7 +11,8 @@
 //!   送るための証票（`UserConfirmed`）はユーザーのアーカイブ操作のもので、アプリを再起動すると失われる（自動では送らない）。
 
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex};
+use std::hash::Hash;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use super::lifecycle::work_of;
@@ -37,8 +38,56 @@ pub struct ManageRuntime {
 
 impl ManageRuntime {
     pub fn is_deleting(&self, chat: &ChatKey) -> bool {
-        self.deleting.lock().unwrap().contains(chat)
+        self.deleting.lock().unwrap_or_else(PoisonError::into_inner).contains(chat)
     }
+}
+
+/// 「実行中」の印（集合への登録）を、Drop で必ず外す守り。panic・早期 return・future の破棄でも残らない。
+pub(in crate::host) struct SetGuard<'a, K: Eq + Hash + Clone> {
+    set: &'a Mutex<HashSet<K>>,
+    key: K,
+}
+
+impl<'a, K: Eq + Hash + Clone> SetGuard<'a, K> {
+    /// 登録できれば守りを返す。すでに実行中なら None。
+    pub(in crate::host) fn try_acquire(set: &'a Mutex<HashSet<K>>, key: K) -> Option<Self> {
+        let inserted = set.lock().unwrap_or_else(PoisonError::into_inner).insert(key.clone());
+        inserted.then_some(Self { set, key })
+    }
+}
+
+impl<K: Eq + Hash + Clone> Drop for SetGuard<'_, K> {
+    fn drop(&mut self) {
+        self.set.lock().unwrap_or_else(PoisonError::into_inner).remove(&self.key);
+    }
+}
+
+/// 作業キューの待ちの上限。超えたら削除を断る（控えの取得が終わるまで待ってから再試行）。
+pub(in crate::host) const QUEUE_LOCK_WAIT: Duration = Duration::from_secs(15);
+/// 状態不明の終端確認（履歴の読取り）の全体の時間上限。超えた分は「未確認」のまま判断に進む（完了扱いにしない）。
+pub(in crate::host) const CONFIRM_TOTAL_BUDGET: Duration = Duration::from_secs(20);
+
+/// 上限つきでロックを取る。取れなければ None。
+pub(in crate::host) async fn lock_within<'a>(m: &'a tokio::sync::Mutex<()>, within: Duration) -> Option<tokio::sync::MutexGuard<'a, ()>> {
+    tokio::time::timeout(within, m.lock()).await.ok()
+}
+
+/// 項目を順に処理し、全体の時間上限（`budget`）を超えたら打ち切る。処理が済んだ件数を返す（打ち切られた項目は未処理）。
+pub(in crate::host) async fn for_each_within<T, F, Fut>(items: Vec<T>, budget: Duration, mut f: F) -> usize
+where
+    F: FnMut(T) -> Fut,
+    Fut: std::future::Future<Output = ()>,
+{
+    let deadline = Instant::now() + budget;
+    let mut done = 0;
+    for it in items {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() || tokio::time::timeout(remaining, f(it)).await.is_err() {
+            break;
+        }
+        done += 1;
+    }
+    done
 }
 
 /// 削除の呼出し元。組織ワークフローの削除は、停止の確認が要る場面で中断も削除保留の記録もせず断る。
@@ -136,6 +185,11 @@ impl Host {
     /// 終端（またはturnなし）を確認できたものは、終了・削除・アーカイブの判断で未完了と数えない（`work_of`）。
     /// 読めなかったものは何も記録せず、未完了のまま。`only` 指定はそのチャットだけ、`force` は確認済みも読み直す。
     pub(super) async fn confirm_unknown_terminals(self: &Arc<Self>, only: Option<&ChatKey>, force: bool) {
+        self.confirm_unknown_terminals_within(only, force, CONFIRM_TOTAL_BUDGET).await;
+    }
+
+    /// `confirm_unknown_terminals` の本体。全体で `budget` を超えたら打ち切り、残りは未確認のまま（完了扱いにしない）。
+    pub(super) async fn confirm_unknown_terminals_within(self: &Arc<Self>, only: Option<&ChatKey>, force: bool, budget: Duration) {
         if !self.is_connected() {
             return;
         }
@@ -159,13 +213,22 @@ impl Host {
                 .take(limit)
                 .collect()
         });
-        for agent in cands {
-            let Ok(h) = self.read_history(agent.clone(), ReadOptions { include_turns: true }).await else { continue };
-            let tail = super::state::history_tail_of(&h.turns);
-            self.mutate(|d| {
-                let ev = d.note_history_tail(&agent, tail, now_ms());
-                ((), ev)
-            });
+        let total = cands.len();
+        let host = self.clone();
+        let handled = for_each_within(cands, budget, |agent| {
+            let host = host.clone();
+            async move {
+                let Ok(h) = host.read_history(agent.clone(), ReadOptions { include_turns: true }).await else { return };
+                let tail = super::state::history_tail_of(&h.turns);
+                host.mutate(|d| {
+                    let ev = d.note_history_tail(&agent, tail, now_ms());
+                    ((), ev)
+                });
+            }
+        })
+        .await;
+        if handled < total {
+            crate::diag::log("manage", &format!("confirm_unknown_terminals: time budget exceeded, {} of {total} left unconfirmed", total - handled));
         }
     }
 
@@ -377,15 +440,16 @@ impl Host {
         if let Some(m) = self.workspace_in_use_message(&chat) {
             return Err(err(IpcErrorCode::Blocked, m));
         }
-        if !self.manage_rt.deleting.lock().unwrap().insert(chat.clone()) {
+        let Some(_deleting) = SetGuard::try_acquire(&self.manage_rt.deleting, chat.clone()) else {
             return Err(err(IpcErrorCode::Rejected, "このチャットの削除を実行中です"));
-        }
-        // 控えの取得（B・E）と同じ作業キューで排他し、削除後に控えの領域が再作成されないようにする。
+        };
+        // 控えの取得（B・E）と同じ作業キューで排他し、削除後に控えの領域が再作成されないようにする。待ちには上限がある。
         let queue = self.baseline_rt.queue_lock(&chat);
-        let _baseline_q = queue.lock().await;
-        let res = self.delete_inner(&chat, confirmed, &mode).await;
-        self.manage_rt.deleting.lock().unwrap().remove(&chat);
-        res
+        let Some(_baseline_q) = lock_within(&queue, QUEUE_LOCK_WAIT).await else {
+            crate::diag::log("manage", &format!("delete refused: baseline queue busy chat={}", chat.id.0));
+            return Err(blocked(BlockedReason::ChatBusy, "このチャットは作業中のため削除できません（控えの取得が終わるまで待ってから再試行してください）"));
+        };
+        self.delete_inner(&chat, confirmed, &mode).await
     }
 
     async fn delete_inner(self: &Arc<Self>, chat: &ChatKey, confirmed: &UserConfirmed, mode: &DeleteMode) -> Result<DeleteOutcome, IpcError> {
@@ -694,5 +758,71 @@ fn set_codex_archived(d: &mut HostData, chat: &ChatKey, archived: bool) -> Vec<H
             vec![HostEvent::ChatUpdated { chat: c.clone() }]
         }
         None => Vec::new(),
+    }
+}
+
+#[cfg(test)]
+mod guard_tests {
+    use super::*;
+
+    #[test]
+    fn set_guard_releases_on_drop_and_on_panic() {
+        let set: Mutex<HashSet<String>> = Mutex::new(HashSet::new());
+        {
+            let g = SetGuard::try_acquire(&set, "a".to_string());
+            assert!(g.is_some());
+            assert!(SetGuard::try_acquire(&set, "a".to_string()).is_none(), "second acquire is refused while held");
+            assert!(SetGuard::try_acquire(&set, "b".to_string()).is_some(), "other keys are independent");
+        }
+        assert!(set.lock().unwrap().is_empty());
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _g = SetGuard::try_acquire(&set, "a".to_string()).unwrap();
+            panic!("boom");
+        }));
+        assert!(r.is_err());
+        assert!(SetGuard::try_acquire(&set, "a".to_string()).is_some(), "released after panic");
+    }
+
+    #[test]
+    fn set_guard_recovers_from_a_poisoned_set() {
+        let set: Mutex<HashSet<String>> = Mutex::new(HashSet::new());
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _l = set.lock().unwrap();
+            panic!("poison");
+        }));
+        assert!(set.is_poisoned());
+        let g = SetGuard::try_acquire(&set, "a".to_string());
+        assert!(g.is_some());
+        drop(g);
+        assert!(set.lock().unwrap_or_else(PoisonError::into_inner).is_empty());
+    }
+
+    #[tokio::test]
+    async fn lock_within_gives_up_when_the_lock_is_held() {
+        let m = tokio::sync::Mutex::new(());
+        let held = m.lock().await;
+        assert!(lock_within(&m, Duration::from_millis(30)).await.is_none(), "timeout means refusal");
+        drop(held);
+        assert!(lock_within(&m, Duration::from_millis(30)).await.is_some());
+    }
+
+    #[tokio::test]
+    async fn for_each_within_stops_at_the_budget_and_leaves_the_rest_unprocessed() {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let s = seen.clone();
+        // each item takes 40ms; the budget fits two and a half items
+        let handled = for_each_within(vec![1, 2, 3, 4, 5], Duration::from_millis(100), move |i| {
+            let s = s.clone();
+            async move {
+                tokio::time::sleep(Duration::from_millis(40)).await;
+                s.lock().unwrap().push(i);
+            }
+        })
+        .await;
+        assert_eq!(handled, 2);
+        assert_eq!(*seen.lock().unwrap(), vec![1, 2], "the item cut off mid-way is not recorded");
+        let all = for_each_within(vec![1, 2], Duration::from_secs(5), |_| async {}).await;
+        assert_eq!(all, 2);
+        assert_eq!(for_each_within(vec![1], Duration::ZERO, |_| async {}).await, 0);
     }
 }

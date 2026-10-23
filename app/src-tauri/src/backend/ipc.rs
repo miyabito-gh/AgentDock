@@ -1353,6 +1353,8 @@ pub enum HostEvent {
     PurposeDraftUpdated { chat: ChatKey },
     /// 組織実行の状態が変わった合図（UIは状態を取り直す。型の詳細は P-ORG-7）。
     OrgUpdated { workflow_id: String },
+    /// 組織ワークフローの削除の進行（`done`／`total` 段。表示だけ。結果は `org_delete_workflow` の応答）。
+    OrgDeleteProgress { workflow_id: String, done: u32, total: u32, step: String },
     /// 組織実行の進行タイムラインに新しい行がある合図（1秒に1回まで。UIは `org_timeline` で差分だけ取り直す）。
     OrgTimelineUpdated {
         workflow_id: String,

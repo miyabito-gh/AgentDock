@@ -474,7 +474,7 @@ export function LeftPane({ org, snap, sel, onSelect, onAct, onAcknowledge, onCha
         {listStatus && !listStatus.ok ? <div className="small lt-fail" role="status">{listStatus.text}</div> : null}
       </div>
       {org?.wf && org.wf.archivedAt === null ? <OrgListRow wf={org.wf} selected={org.selected} onOpen={org.onOpen} onStart={org.onStart} counts={workflowRequestCounts(snap, org.wf)} /> : null}
-      {org && org.history.length > 0 ? <OrgHistoryRows history={org.history} selectedId={org.selectedHistory} onOpen={org.onOpenHistory} /> : null}
+      {org && org.history.length > 0 ? <OrgHistoryRows history={org.history} selectedId={org.selectedHistory} onOpen={org.onOpenHistory} onDelete={org.onDelete} /> : null}
       <div className="left-scroll" ref={scrollerRef} onScroll={() => { if (menu) closeMenu(false); if (windowed) measure(); }}>
         {showArch ? (
           <>

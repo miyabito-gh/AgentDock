@@ -14,16 +14,16 @@ use org_engine::{restore, HaltReason};
 
 use super::driver::{snapshot_of, OrgSnapshot};
 use crate::backend::backend::UserConfirmed;
-use crate::backend::ipc::{BlockedReason, IpcError, IpcErrorCode};
+use crate::backend::ipc::{BlockedReason, HostEvent, IpcError, IpcErrorCode};
 use crate::backend::local::DeleteOutcome;
 use crate::backend::model::{Basis, ChatKey, Known};
 use crate::backend::org::*;
 use crate::gitops::worktree as gw;
-use crate::host::manage::DeleteMode;
+use crate::host::manage::{DeleteMode, SetGuard};
 use crate::host::{blocked, err, now_ms, Host};
 use crate::rules::manage::save_blocks_chat;
 use crate::rules::org::chat_key_of_ref;
-use crate::rules::org_manage::{chat_block_reason, delete_targets, next_steps, step_label, verdict, Binding, ChatFact, DeleteRecord, ManageKind, Step, TaskFact, VerdictInput, FILES_LABEL};
+use crate::rules::org_manage::{chat_block_reason, delete_progress_counts, delete_targets, next_steps, step_label, verdict, Binding, ChatFact, DeleteRecord, ManageKind, Step, TaskFact, VerdictInput, FILES_LABEL};
 use crate::store::org::{
     dir_bytes, read_archived_at, read_delete_record, remove_archived, remove_workflow_files, workflow_dir, write_archived, write_delete_record, ReadOnlyOrgStore,
 };
@@ -223,12 +223,24 @@ impl Host {
     /// 削除を実行する（利用者が確認画面で選んだ後だけ）。結果は `Deleted` か `Partial`（続きは同じ操作で）。
     pub async fn org_delete_workflow(self: &Arc<Self>, args: OrgDeleteArgs, confirmed: &UserConfirmed) -> Result<OrgDeleteOutcome, IpcError> {
         let wf = args.workflow_id.clone();
-        if !self.org_rt.deleting.lock().unwrap().insert(wf.clone()) {
+        // 実行中の印は守り（Drop）で外す。panic・早期 return・future の破棄でも残らない。
+        let Some(_deleting) = SetGuard::try_acquire(&self.org_rt.deleting, wf.clone()) else {
             return Err(err(IpcErrorCode::Rejected, "このワークフローの削除を実行中です"));
-        }
+        };
         let res = self.org_delete_inner(args, confirmed).await;
-        self.org_rt.deleting.lock().unwrap().remove(&wf);
+        match &res {
+            Ok(OrgDeleteOutcome::Deleted) => crate::diag::log("org_delete", &format!("deleted wf={wf}")),
+            Ok(OrgDeleteOutcome::Partial { done, failed }) => crate::diag::log("org_delete", &format!("partial wf={wf} done={} failed={}", done.len(), failed.join(" / "))),
+            Err(e) => crate::diag::log("org_delete", &format!("refused/failed wf={wf} code={:?}: {}", e.code, e.message.replace('\n', " / "))),
+        }
         res
+    }
+
+    /// 削除の進行を画面へ知らせる（表示だけ）。
+    fn org_delete_progress(&self, workflow_id: &str, rec: &DeleteRecord, step: &str) {
+        let (done, total) = delete_progress_counts(rec);
+        let ev = HostEvent::OrgDeleteProgress { workflow_id: workflow_id.to_string(), done, total, step: step.to_string() };
+        self.mutate(|_| ((), vec![ev]));
     }
 
     async fn org_delete_inner(self: &Arc<Self>, args: OrgDeleteArgs, confirmed: &UserConfirmed) -> Result<OrgDeleteOutcome, IpcError> {
@@ -255,6 +267,7 @@ impl Host {
         };
         rec.failed.clear();
         let workflow_id = facts.workflow_id.clone();
+        self.org_delete_progress(&workflow_id, &rec, "開始");
         // 失敗した段はこの実行では繰り返さない（続きは同じ操作でもう一度）。チャットが全部済んだら、次の周でフォルダの段が出る。
         let mut attempted: Vec<String> = Vec::new();
         loop {
@@ -277,9 +290,10 @@ impl Host {
                 };
                 let ok = result.is_ok();
                 match result {
-                    Ok(()) => rec.done.push(label),
+                    Ok(()) => rec.done.push(label.clone()),
                     Err(m) => rec.failed.push(format!("{label}: {m}")),
                 }
+                self.org_delete_progress(&workflow_id, &rec, &label);
                 if ok && matches!(step, Step::Files) {
                     continue; // フォルダごと消えたので、記録は書き直さない
                 }

@@ -1,12 +1,13 @@
 // 組織実行の開始ダイアログの本文と、設定の「組織実行」タブ（停滞時間・役割定義・グラフ定義）。P-ORG-7b、G-A5。
 // 開始・有効化は、押したときだけホストの命令を呼ぶ。テンプレートを選ぶ・見積りを見る・定義ファイルを開くだけでは何も送らない。
 // 有効化は権限の指紋を添えて確認後に送る（ホストが今の権限と照合する）。
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import type { ChatKey, OrgDeleteOutcome, OrgDeletePreview, OrgGraphProblemView, OrgGraphsView, OrgRoleView, OrgRolesView } from "../ipc/types";
 import * as host from "../ipc/client";
 import { ConfirmBlock } from "./DialogParts";
 import { showKnown } from "./format";
 import { fmtBytes } from "./ManageDialogs";
+import { elapsedLabel, isSlow, progressText, SLOW_NOTICE, type DeleteProgress } from "./orgDeleteUi";
 
 /** 標準（従来の計画経路）。ホストの定義ファイルに依存せず、いつでも選べる。送るときは graphId を付けない（今までの開始と同じ）。 */
 export const STANDARD_ID = "standard";
@@ -206,12 +207,17 @@ export function OrgSettingsBody({ live, stallMinutes, setStall }: OrgSettingsPro
 }
 
 /** ワークフローの削除（DESIGN_ORG_DELETE §6）。確認の内容は読取りで取得し、押したときだけ削除を実行する。worktree とブランチは削除しない。 */
-export function OrgDeleteDialog({ workflowId, live, preview, remove, onDone }: {
+export function OrgDeleteDialog({ workflowId, live, preview, remove, onDone, progress, onIssue, onClose }: {
   workflowId: string;
   live: boolean;
   preview: (id: string) => Promise<OrgDeletePreview>;
   remove: (id: string, deleteChats: boolean, expect: ChatKey[]) => Promise<OrgDeleteOutcome>;
   onDone: () => void;
+  /** ホストの削除の進行（この workflow の分だけ。表示だけ）。 */
+  progress: DeleteProgress | null;
+  /** 拒否・失敗・途中終了をトーストへも出す。 */
+  onIssue: (message: string) => void;
+  onClose: () => void;
 }) {
   const [pv, setPv] = useState<OrgDeletePreview | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
@@ -230,18 +236,32 @@ export function OrgDeleteDialog({ workflowId, live, preview, remove, onDone }: {
   const effective = delChats ? reasons : reasons.filter((r) => !chatSpecific(r));
   const resuming = !!pv?.deletion;
   const can = !!pv && live && !busy && effective.length === 0;
+  // 経過時間（1秒ごとに更新）。90秒を超えたら案内し、閉じてよいと伝える（ホストの処理は続く）。
+  const startedAt = useRef(0);
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!busy) return;
+    const t = setInterval(() => setElapsed(Date.now() - startedAt.current), 1000);
+    return () => clearInterval(t);
+  }, [busy]);
   const run = async () => {
     if (!pv || !can) return;
+    startedAt.current = Date.now(); setElapsed(0);
     setBusy(true); setErr(null);
     try {
       const o = await remove(workflowId, delChats, pv.chats.map((c) => c.chat));
       if (o.kind === "deleted") { onDone(); return; }
       setPartial({ done: o.done, failed: o.failed });
+      onIssue(`削除を最後まで終えられませんでした（失敗 ${o.failed.length} 件）。「削除を続ける…」で再開できます。`);
       await load();
-    } catch (e) { setErr(host.asIpcError(e).message); }
-    setBusy(false);
+    } catch (e) {
+      const m = host.asIpcError(e).message;
+      setErr(m);
+      onIssue(`削除できませんでした: ${m.split("\n")[0]}`);
+    } finally { setBusy(false); }
   };
-  const label = busy ? "削除しています…" : resuming || partial ? "削除を続ける" : "削除する";
+  const pt = progressText(progress);
+  const label = busy ? `削除しています…${pt ? ` ${pt}` : ""}（${elapsedLabel(elapsed)}）` : resuming || partial ? "削除を続ける" : "削除する";
   const nm = (c: OrgDeletePreview["chats"][number]) => c.name ?? c.chat.id;
   return (
     <div className="content">
@@ -274,6 +294,7 @@ export function OrgDeleteDialog({ workflowId, live, preview, remove, onDone }: {
           <p className="small muted">worktree とブランチは削除しません。不要なら worktree の管理から個別に削除してください。記録の容量: {showKnown(pv.recordBytes, fmtBytes)}</p>
           {effective.length > 0 ? <div className="banner warn" role="status"><div><b>まだ削除できません。</b><ul>{effective.map((r, i) => <li key={i}>{r}</li>)}</ul></div></div> : null}
           {err ? <p className="why err" role="alert">{err}</p> : null}
+          {busy && isSlow(elapsed) ? <div className="banner warn" role="status"><div>{SLOW_NOTICE}<div><button type="button" className="btn sm" onClick={onClose}>閉じる</button></div></div></div> : null}
         </ConfirmBlock>
       ) : null}
     </div>

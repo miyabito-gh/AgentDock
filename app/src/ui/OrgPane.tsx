@@ -19,6 +19,7 @@ import { useThrottled } from "./useThrottled";
 import { takeNoteDraft } from "./orgNoteDraft";
 import { rootView } from "./derive";
 import { ArtifactsSection } from "./OrgArtifacts";
+import { manageOffReason } from "./orgDeleteUi";
 
 /** 状態の表示（アイコン＋文字。形・色は `.st.<tone>`）。 */
 function Chip({ tone, icon, label, title }: { tone: OrgTone; icon: string; label: string; title?: string }) {
@@ -62,7 +63,7 @@ export function OrgListRow({ wf, selected, onOpen, onStart, counts }: { wf: OrgW
 
 /** 左一覧の過去のワークフロー（保存済み。読み取り専用）。完了／失敗／取消しの印つき。多いときは折りたたむ。選ぶと中央に開くだけ。 */
 const HISTORY_FOLDED = 3;
-export function OrgHistoryRows({ history, selectedId, onOpen }: { history: OrgWorkflowView[]; selectedId: string | null; onOpen: (id: string) => void }) {
+export function OrgHistoryRows({ history, selectedId, onOpen, onDelete }: { history: OrgWorkflowView[]; selectedId: string | null; onOpen: (id: string) => void; /** 削除の途中のものに「削除を続ける…」の入口を出す。 */ onDelete?: (id: string) => void }) {
   const [all, setAll] = useState(false);
   const shown = all || history.length <= HISTORY_FOLDED + 1 ? history : history.slice(0, HISTORY_FOLDED);
   return (
@@ -79,6 +80,7 @@ export function OrgHistoryRows({ history, selectedId, onOpen }: { history: OrgWo
               <span className="nm">{name}</span>
               <span className="marks"><Chip tone={sum.tone} icon={sum.icon} label={sum.label} />{wf.artifactHint && wf.artifactHint.ready > 0 ? <span className="mark wait" title="あなたの確認と取り込みを待っている成果">レビュー待ち {wf.artifactHint.ready}</span> : null}</span>
             </button>
+            {wf.deletion && onDelete ? <button type="button" className="small" title="途中で止まった削除を続けます（確認があります）" onClick={() => onDelete(wf.workflowId)}>削除を続ける…</button> : null}
           </div>
         );
       })}
@@ -522,11 +524,13 @@ export function OrgPane(p: OrgPaneProps) {
             <Popover role="menu" align="left" triggerClassName="btn" label="止める" title="止め方を選びます（範囲が違います）" trigger={<span>止める…</span>}>
               {(close) => {
                 const manageOff = !wf.finished || wf.tasks.some((t) => t.confirm.state !== "confirmed");
+                const archiveReason = manageOffReason({ connected: p.live, finished: wf.finished, allConfirmed: !wf.tasks.some((t) => t.confirm.state !== "confirmed") });
                 return (
                   <>
                     <button type="button" role="menuitem" disabled={busy || !wf.dispatching} title={wf.dispatching ? "新しいタスクの送信だけを止めます。実行中のタスクは続きます（取消し・失敗にはなりません）" : "すでに新しい送信は止まっています"} onClick={() => { close(); void go("一時停止", async () => { await host.orgPause(wf.workflowId); return "新しい送信を止めました。実行中のタスクは止めていません。"; }); }}>新しい送信だけ止める（実行中は続ける）</button>
                     <button type="button" role="menuitem" onClick={() => { close(); setConfirm({ kind: "stopRunning" }); }} title="新しい送信を止め、実行中のタスクに中断を要求します（取消し・失敗にはしません）">実行中も止める…</button>
                     <button type="button" role="menuitem" disabled={manageOff || !!wf.deletion} title={manageOff ? "アーカイブできるのは、すべて終わって状態が確定したワークフローだけです（実行中のものを一覧から隠すことはできません）" : "一覧から隠します（作業には触れません）"} onClick={() => { close(); void p.run("アーカイブ", async () => { await host.orgArchiveWorkflow(wf.workflowId); return "ワークフローをアーカイブしました（アーカイブ一覧から戻せます）。"; }); }}>アーカイブ</button>
+                    {archiveReason && !wf.deletion ? <div className="small muted menu-note" role="note">{archiveReason}</div> : null}
                   </>
                 );
               }}
@@ -537,6 +541,7 @@ export function OrgPane(p: OrgPaneProps) {
             {(close) => {
               const manageOff = !wf.finished || wf.tasks.some((t) => t.confirm.state !== "confirmed");
               const offTip = "実行中・停止未確認・通信断のタスクがあるため、まだ削除できません";
+              const offReason = manageOffReason({ connected: p.live, finished: wf.finished, allConfirmed: !wf.tasks.some((t) => t.confirm.state !== "confirmed") });
               return (
                 <>
                   {ro ? null : <>
@@ -552,6 +557,7 @@ export function OrgPane(p: OrgPaneProps) {
                     ? <button type="button" role="menuitem" disabled={manageOff || !!wf.deletion} title={manageOff ? offTip : undefined} onClick={() => { close(); void p.run("アーカイブ", async () => { await host.orgArchiveWorkflow(wf.workflowId); return "ワークフローをアーカイブしました（アーカイブ一覧から戻せます）。"; }); }}>アーカイブ</button>
                     : <button type="button" role="menuitem" onClick={() => { close(); void p.run("アーカイブの解除", async () => { await host.orgUnarchiveWorkflow(wf.workflowId); return "アーカイブを解除しました。"; }); }}>アーカイブを解除</button>}
                   <button type="button" role="menuitem" className="danger" disabled={manageOff && !wf.deletion} title={manageOff && !wf.deletion ? offTip : undefined} onClick={() => { close(); p.onDelete(wf.workflowId); }}>{wf.deletion ? "削除を続ける…" : "削除…"}</button>
+                  {offReason && !wf.deletion ? <div className="small muted menu-note" role="note">{offReason}</div> : null}
                 </>
               );
             }}

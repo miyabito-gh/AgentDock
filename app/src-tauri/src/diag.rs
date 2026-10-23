@@ -26,7 +26,22 @@ pub fn init(app_data_dir: &std::path::Path) {
     let dir = app_data_dir.join("diag");
     if std::fs::create_dir_all(&dir).is_ok() {
         let _ = SINK.set(Sink { path: dir.join("diag.log"), lock: Mutex::new(()) });
+        install_panic_hook();
     }
+}
+
+/// panic の場所（ファイル:行）だけを診断ログへ追記する（メッセージ本文は会話・パスを含みうるので記録しない）。既定の出力も続ける。
+fn install_panic_hook() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let prev = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            let at = info.location().map(|l| format!("{}:{}", l.file(), l.line())).unwrap_or_else(|| "unknown".into());
+            let thread = std::thread::current().name().unwrap_or("unnamed").to_string();
+            log("panic", &format!("at {at} thread={thread}"));
+            prev(info);
+        }));
+    });
 }
 
 pub fn log_path() -> Option<PathBuf> {
@@ -39,7 +54,7 @@ pub fn rotate_needed(current_len: u64, incoming: u64) -> bool {
 
 pub fn log(category: &str, message: &str) {
     let Some(s) = SINK.get() else { return };
-    let _g = s.lock.lock().unwrap();
+    let _g = s.lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let ms = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
     let line = format!("{ms} [{category}] {message}\n");
     let len = std::fs::metadata(&s.path).map(|m| m.len()).unwrap_or(0);
