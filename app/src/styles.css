@@ -1136,6 +1136,11 @@ button.uchip:hover{background:var(--accent-weak)}
 .org-art-detail>p,.org-art-detail>.org-art-meta,.org-art-detail>.org-art-find,.org-art-detail>details,.org-art-detail>.org-art-file{margin:0 12px}
 .org-art-meta{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
 .org-art-find{border:1px solid var(--line2);border-radius:var(--r2);padding:6px 10px;background:var(--surface2)}
+.org-invs{margin:0 0 8px}
+.org-inv-wrap{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.org-inv{border:1px solid var(--line2);border-radius:var(--r2);padding:6px 10px;background:var(--surface2)}
+.org-inv-list{margin:4px 0 4px 1.2em;padding:0}
+.org-checks{margin:2px 0}
 .org-art-files{border:1px solid var(--line);border-radius:var(--r2);margin:0 12px;max-height:12em;overflow:auto}
 .org-art-file{border:1px solid var(--line);border-radius:var(--r2);overflow:hidden}
 .org-art-file .chg-fh .seg{margin-left:auto}

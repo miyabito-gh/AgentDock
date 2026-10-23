@@ -89,6 +89,7 @@ fn blocked_label(r: BlockedReason) -> &'static str {
         BlockedReason::TurnFailed => "turnが失敗",
         BlockedReason::RoundLimit => "やり直しの上限",
         BlockedReason::ReworkLimit => "差し戻しの上限",
+        BlockedReason::CheckFailed => "検証のコマンドが失敗",
     }
 }
 
@@ -269,6 +270,10 @@ impl TimelineFold {
             }
             K::TaskHeld { task, held } => Some(Self::row(ev, Some(task), user(), OrgTone::Info, if *held { "保留".into() } else { "保留を解除".into() })),
             K::ManualTurnAdopted { task, .. } => Some(Self::row(ev, Some(task), user(), OrgTone::Info, "手動の結果を取り込み".into())),
+            K::ReportRecorded { task, .. } => Some(Self::row(ev, Some(task), self.role_actor(task), OrgTone::Info, format!("{} が調査報告を出力", task.0))),
+            K::VerdictDemoted { task, target, .. } => {
+                Some(Self::row(ev, Some(task), self.role_actor(task), OrgTone::Warn, format!("{} の検証のコマンドが失敗したため、合格を保留（対象 {}）", task.0, target.0)))
+            }
             // 内部だけの記録（出さない）。
             K::TurnSpent { .. }
             | K::AutoReplanSpent
@@ -389,7 +394,7 @@ mod tests {
         OrgEvent { schema_version: 2, seq, at_ms: 1_000 + seq as i64, kind }
     }
     fn plan(id: &str, role: &str, title: &str) -> PlanTask {
-        PlanTask { id: TaskId::new(id), role: RoleId::new(role), deps: vec![], effects: vec![], title: title.into(), instructions: String::new() }
+        PlanTask { id: TaskId::new(id), role: RoleId::new(role), deps: vec![], effects: vec![], title: title.into(), instructions: String::new(), kind: org_engine::TaskKind::Change }
     }
     fn tid(s: &str) -> TaskId {
         TaskId::new(s)
@@ -407,6 +412,24 @@ mod tests {
             }
         }
         out.into_iter().map(|(_, t)| t).collect()
+    }
+
+    #[test]
+    fn a_recorded_report_and_a_held_back_pass_get_their_own_rows() {
+        let mut f = TimelineFold::new();
+        let t = texts(
+            &mut f,
+            vec![
+                OrgEventKind::TaskAdded { task: plan("i", "worker", "調べる") },
+                OrgEventKind::TaskAdded { task: plan("r", "reviewer", "検証") },
+                OrgEventKind::ReportRecorded { task: tid("i"), attempt: 0, bytes: 10 },
+                OrgEventKind::VerdictDemoted { task: tid("r"), target: tid("w"), failed: vec!["pytest".into()] },
+                OrgEventKind::StatusChanged { task: tid("w"), to: TaskStatus::Blocked(BlockedReason::CheckFailed), cause: Cause::Engine },
+            ],
+        );
+        assert!(t.contains(&"i が調査報告を出力".to_string()), "{t:?}");
+        assert!(t.iter().any(|x| x.contains("検証のコマンドが失敗したため、合格を保留") && x.contains("w")), "{t:?}");
+        assert!(t.iter().any(|x| x.contains("検証のコマンドが失敗")), "{t:?}");
     }
 
     #[test]

@@ -133,7 +133,7 @@ mod tests {
         d
     }
     fn pt(id: &str) -> PlanTask {
-        PlanTask { id: TaskId::new(id), role: RoleId::new("worker"), deps: vec![], effects: vec![], title: String::new(), instructions: String::new() }
+        PlanTask { id: TaskId::new(id), role: RoleId::new("worker"), deps: vec![], effects: vec![], title: String::new(), instructions: String::new(), kind: org_engine::TaskKind::Change }
     }
 
     /// 保存済みのワークフローを作る。`last` はタスクの最終状態。

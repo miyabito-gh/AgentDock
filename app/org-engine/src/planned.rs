@@ -7,16 +7,18 @@ use std::collections::HashSet;
 use serde_json::Value;
 
 use crate::core::{OrgAction, OrgCore, OrgNotice, SandboxKind, WorkspaceAction, WorktreeBase};
-use crate::core::{Flow, Launch, Output};
+use crate::core::{Flow, Launch, Output, ReportRecovery};
 use crate::graph::NodeId;
 use crate::limits::TurnKind;
 use crate::persist::{HaltReason, OrgEventKind};
 use crate::policy::{evaluate_plan, Decision, PlanKind, PolicyInput};
-use crate::prompt;
+use crate::prompt::{self, PromptDep};
 use crate::scheduler::default_dep_ok;
-use crate::schemas::{self, ReviewerVerdict, VerdictKind, ROLE_PLANNER, ROLE_REVIEWER, ROLE_WORKER};
+use crate::schemas::{self, CheckOutcome, ReviewerVerdict, VerdictJudgement, VerdictKind, ROLE_PLANNER, ROLE_REVIEWER, ROLE_WORKER};
 use crate::state::Cause;
 use crate::types::*;
+
+use crate::prompt::REPORT_PROMPT_CHARS as INVESTIGATION_PROMPT_CHARS;
 
 /// The task of a plannedTasks node: what the plan's tasks do.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -114,6 +116,7 @@ impl OrgCore {
                 effects: vec![],
                 title: "再計画".into(),
                 instructions: String::new(),
+                kind: TaskKind::Change,
             },
         });
     }
@@ -143,6 +146,9 @@ impl OrgCore {
                 })
                 .map_err(|errs| format!("計画の検証に失敗しました: {errs:?}"))?;
                 Ok(Output::Plan { tasks, decision })
+            }
+            Some(NodeKind::PlannedTasks(PlannedRole::Worker)) if self.task(id).is_some_and(Task::is_investigation) => {
+                Ok(Output::Investigation(schemas::parse_investigation_report(text)?))
             }
             Some(NodeKind::PlannedTasks(PlannedRole::Worker)) => Ok(Output::Report(schemas::parse_worker_report(text)?)),
             Some(NodeKind::PlannedTasks(PlannedRole::Reviewer)) => Ok(Output::Verdict(schemas::parse_verdict(text)?)),
@@ -176,8 +182,25 @@ impl OrgCore {
                     "tests": { "ran": r.tests.ran, "passed": r.tests.passed },
                 });
                 self.out.push(OrgAction::PutOutput { task: id.clone(), attempt, value });
+                self.test_claims.insert(id.clone(), (r.tests.ran, r.tests.passed));
                 self.artifacts.insert(id.clone(), r.summary);
                 self.flow_set(id.clone(), Flow::WantCommit);
+            }
+            Output::Investigation(r) => {
+                // No commit: the report is the result. It is written (and the write must succeed) before it is recorded.
+                let attempt = self.task(id).map_or(0, |t| t.rework_count());
+                let value = serde_json::json!({
+                    "summary": r.summary,
+                    "findings": r.findings.iter().map(|f| serde_json::json!({ "point": f.point, "basis": f.basis, "refs": f.refs })).collect::<Vec<_>>(),
+                    "references": r.references,
+                    "openQuestions": r.open_questions,
+                });
+                let bytes = u32::try_from(value.to_string().len()).unwrap_or(u32::MAX);
+                self.out.push(OrgAction::PutReport { task: id.clone(), attempt, value });
+                self.artifacts.insert(id.clone(), schemas::render_investigation(&r, INVESTIGATION_PROMPT_CHARS));
+                if self.rec(OrgEventKind::ReportRecorded { task: id.clone(), attempt, bytes }) && self.set_status(id, TaskStatus::Completed, Cause::Engine) {
+                    self.notify(OrgNotice::TaskCompleted { task: id.clone() });
+                }
             }
             Output::Verdict(v) => {
                 // The verdict belongs to the reviewed worker's current attempt (read before a send-back counts it).
@@ -188,6 +211,22 @@ impl OrgCore {
                         VerdictKind::Rework => "rework",
                     },
                     "findings": v.findings,
+                    "checks": v.checks.as_ref().map(|cs| {
+                        cs.iter()
+                            .map(|c| {
+                                serde_json::json!({
+                                    "command": c.command,
+                                    "outcome": match c.outcome {
+                                        CheckOutcome::Passed => "passed",
+                                        CheckOutcome::Failed => "failed",
+                                        CheckOutcome::NotRun => "notRun",
+                                    },
+                                    "summary": c.summary,
+                                })
+                            })
+                            .collect::<Vec<_>>()
+                    }),
+                    "noCheckReason": v.no_check_reason,
                 });
                 self.out.push(OrgAction::PutOutput { task: id.clone(), attempt, value });
                 self.complete_verdict(id, v)
@@ -202,8 +241,8 @@ impl OrgCore {
             self.block(id, BlockedReason::NeedsAttention, "検証対象がありません");
             return;
         };
-        match v.verdict {
-            VerdictKind::Pass => {
+        match schemas::judge_verdict(&v) {
+            VerdictJudgement::Pass { .. } => {
                 // The reviewed task completes only now; then the reviewer itself.
                 if self.task(&target).is_some_and(|t| t.status() == TaskStatus::Reviewing) {
                     self.set_status(&target, TaskStatus::Completed, Cause::Engine);
@@ -213,7 +252,22 @@ impl OrgCore {
                     self.notify(OrgNotice::TaskCompleted { task: id.clone() });
                 }
             }
-            VerdictKind::Rework => {
+            VerdictJudgement::PassContradicted { failed } => {
+                // The reviewer said pass but a check it ran failed: the pass is held back and the user decides
+                // (not an automatic send-back, not counted as one; DESIGN_ORG_R4 2.2).
+                if self.task(&target).is_some_and(|t| t.status() == TaskStatus::Reviewing) {
+                    self.rec(OrgEventKind::FindingsRecorded { task: target.clone(), findings: schemas::failed_check_findings(&v) });
+                    self.rec(OrgEventKind::VerdictDemoted { task: id.clone(), target: target.clone(), failed });
+                    self.block(
+                        &target,
+                        BlockedReason::CheckFailed,
+                        "検証のコマンドが失敗したため、合格を保留しました。もう一度直させる／このまま受け入れる／失敗として確定のどれかを選んでください",
+                    );
+                }
+                // The reviewer waits until the worker task is under review again.
+                self.set_status(id, TaskStatus::Rework, Cause::Engine);
+            }
+            VerdictJudgement::Rework => {
                 let limit_reached = {
                     let limits = self.s().limits().clone();
                     self.task(&target).is_some_and(|t| t.rework_limit_reached(&limits))
@@ -267,6 +321,13 @@ impl OrgCore {
         let Some(t) = self.task(id) else { return };
         let Some(kind) = node_kind(&t.role) else { return };
         let (has_chat, has_cwd) = (t.chat().is_some(), t.chat_cwd().is_some());
+        let investigation = t.is_investigation();
+        let first_turn_worker = kind == NodeKind::PlannedTasks(PlannedRole::Worker) && t.accepted_turn().is_none() && !t.retry_pending();
+        // A task that uses an investigation report is not sent without it (DESIGN_ORG_R4 1.6).
+        if first_turn_worker && !self.ensure_dep_reports(id) {
+            return;
+        }
+        let Some(t) = self.task(id) else { return };
         let target_commit = t.deps.first().and_then(|d| self.task(d)).and_then(|d| d.commit().map(str::to_string));
         if has_chat {
             let rereview = kind == NodeKind::PlannedTasks(PlannedRole::Reviewer) && self.task(id).is_some_and(|t| t.accepted_turn().is_some());
@@ -299,7 +360,10 @@ impl OrgCore {
             NodeKind::Planner => self.begin_chat(id, repo),
             NodeKind::PlannedTasks(PlannedRole::Worker) => {
                 self.launching.insert(id.clone(), Launch::Worktree);
-                self.out.push(OrgAction::Workspace(WorkspaceAction::CreateWorktree { task: id.clone(), repo, base: WorktreeBase::Head }));
+                // An investigation reads the same HEAD a change task starts from, but on a detached read-only worktree
+                // (no branch, nothing to commit).
+                let base = if investigation { WorktreeBase::DetachedAt("HEAD".into()) } else { WorktreeBase::Head };
+                self.out.push(OrgAction::Workspace(WorkspaceAction::CreateWorktree { task: id.clone(), repo, base }));
             }
             NodeKind::PlannedTasks(PlannedRole::Reviewer) => {
                 let Some(commit) = target_commit else {
@@ -339,19 +403,35 @@ impl OrgCore {
                 }
             }
             NodeKind::PlannedTasks(PlannedRole::Worker) => {
-                if t.accepted_turn().is_some() {
+                if t.accepted_turn().is_some() && !t.is_investigation() {
                     Some((TurnKind::Rework, prompt::worker_rework_prompt(t, Some(t.last_findings()))))
                 } else {
-                    let deps: Vec<(TaskId, Option<String>)> = t.deps.iter().map(|d| (d.clone(), self.artifacts.get(d).cloned())).collect();
+                    let deps: Vec<PromptDep> = t
+                        .deps
+                        .iter()
+                        .map(|d| PromptDep { id: d.clone(), text: self.artifacts.get(d).cloned(), investigation: self.task(d).is_some_and(Task::is_investigation) })
+                        .collect();
                     let skipped: Vec<TaskId> = t.deps.iter().filter(|d| self.task(d).is_some_and(|x| x.skipped())).cloned().collect();
-                    Some((TurnKind::Task, prompt::worker_prompt_with(t, s.request(), &deps, &skipped)))
+                    if t.is_investigation() {
+                        return Some((TurnKind::Task, prompt::investigate_prompt(t, s.request(), &deps, &skipped)));
+                    }
+                    // The changes of earlier change tasks are not in this task's working folder.
+                    let unincluded: Vec<TaskId> = t
+                        .deps
+                        .iter()
+                        .filter(|d| !skipped.contains(d))
+                        .filter(|d| self.task(d).is_some_and(|x| x.role.0 == ROLE_WORKER && x.node().is_none() && !x.is_investigation()))
+                        .cloned()
+                        .collect();
+                    Some((TurnKind::Task, prompt::worker_prompt_ext(t, s.request(), &deps, &skipped, &unincluded)))
                 }
             }
             NodeKind::PlannedTasks(PlannedRole::Reviewer) => {
                 let target = self.task(t.deps.first()?)?;
                 let commit = target.commit()?;
                 let summary = self.artifacts.get(&target.id).map(String::as_str);
-                Some((TurnKind::Review, prompt::reviewer_prompt(t, s.request(), (&target.id, summary, commit), target.rework_count() + 1)))
+                let claim = self.test_claims.get(&target.id).copied();
+                Some((TurnKind::Review, prompt::reviewer_prompt(t, s.request(), (&target.id, summary, commit), target.rework_count() + 1, claim)))
             }
         }
     }
@@ -361,9 +441,78 @@ impl OrgCore {
             return self.graph_schema_for(id);
         }
         match self.kind_of(id) {
-            Some(NodeKind::Planner) => schemas::planner_plan_schema(),
-            Some(NodeKind::PlannedTasks(PlannedRole::Reviewer)) => schemas::reviewer_verdict_schema(),
+            Some(NodeKind::Planner) => schemas::planner_plan_schema_with_kind(),
+            Some(NodeKind::PlannedTasks(PlannedRole::Reviewer)) => schemas::reviewer_verdict_schema_checked(),
+            _ if self.task(id).is_some_and(Task::is_investigation) => schemas::investigation_report_schema(),
             _ => schemas::worker_report_schema(),
+        }
+    }
+
+    /// Before a worker task is sent: every investigation it depends on has its report in hand. A missing one is
+    /// read once from the final message of the investigation's accepted turn (read only; nothing is resumed).
+    /// Returns true when the task may go on; otherwise it waits (`Launch::Report`) or is blocked.
+    pub(crate) fn ensure_dep_reports(&mut self, id: &TaskId) -> bool {
+        let Some(t) = self.task(id) else { return false };
+        let missing: Vec<TaskId> = t
+            .deps
+            .iter()
+            .filter(|d| self.task(d).is_some_and(|x| x.is_investigation() && !x.skipped()))
+            .filter(|d| !self.artifacts.contains_key(*d))
+            .cloned()
+            .collect();
+        let Some(dep) = missing.first().cloned() else { return true };
+        let why = format!("調査 {dep} の報告を読めません。調査タスクの結果を確かめてから、やり直してください");
+        match self.report_recovery.get(&dep) {
+            Some(ReportRecovery::Failed) => self.block(id, BlockedReason::NeedsAttention, &why),
+            Some(ReportRecovery::Reading { .. }) => {
+                self.launching.insert(id.clone(), Launch::Report);
+            }
+            None => {
+                let found = self.task(&dep).and_then(|d| Some((d.chat().cloned()?, d.accepted_turn().cloned()?)));
+                match found {
+                    Some((chat, turn)) => {
+                        self.report_recovery.insert(dep.clone(), ReportRecovery::Reading { turn: turn.clone() });
+                        self.launching.insert(id.clone(), Launch::Report);
+                        self.out.push(OrgAction::ReadFinalMessage { task: dep, chat, turn });
+                    }
+                    None => {
+                        self.report_recovery.insert(dep, ReportRecovery::Failed);
+                        self.block(id, BlockedReason::NeedsAttention, &why);
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    /// The final message of an investigation (for a later task that lacked its report) arrived, or could not be read.
+    pub(crate) fn report_recovered(&mut self, dep: &TaskId, text: Option<String>) {
+        let waiting: Vec<TaskId> = self
+            .launching
+            .iter()
+            .filter(|(_, l)| **l == Launch::Report)
+            .map(|(t, _)| t.clone())
+            .filter(|t| self.task(t).is_some_and(|x| x.deps.contains(dep)))
+            .collect();
+        let report = text.as_deref().and_then(|t| schemas::parse_investigation_report(t).ok());
+        match report {
+            Some(r) => {
+                self.artifacts.insert(dep.clone(), schemas::render_investigation(&r, INVESTIGATION_PROMPT_CHARS));
+                self.report_recovery.remove(dep);
+                for w in waiting {
+                    self.launching.remove(&w);
+                    if self.task(&w).is_some_and(|t| t.status() == TaskStatus::Ready) {
+                        self.launch(&w);
+                    }
+                }
+            }
+            None => {
+                self.report_recovery.insert(dep.clone(), ReportRecovery::Failed);
+                for w in waiting {
+                    self.launching.remove(&w);
+                    self.block(&w, BlockedReason::NeedsAttention, &format!("調査 {dep} の報告を読めません。調査タスクの結果を確かめてから、やり直してください"));
+                }
+            }
         }
     }
 }

@@ -18,4 +18,8 @@ dirtyOther: number,
 /**
  * 合格していない成果のタスク（同意チェックが要る）。
  */
-notPassed: Array<string>, blockers: Array<string>, message: string, };
+notPassed: Array<string>, 
+/**
+ * 取り込み前に知らせておく注意（テスト未実行の合格など。タスクIDつき）。
+ */
+cautions: Array<string>, blockers: Array<string>, message: string, };

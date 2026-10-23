@@ -1,7 +1,7 @@
 // 実行: node --test src/ui/orgArtifactsView.test.ts （tscの対象外）
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { actionableRecords, defaultTab, parseTable, tableDelimiter, headingText, importResultText, isCandidate, latestReview, orderSelection, reviewLine, reworkCount, sha7, tabsOf, totalsText, undoResultText } from "./orgArtifactsView.ts";
+import { actionableRecords, checkOutcomeLabel, checksSummary, investigationText, reviewVerdictLabel, defaultTab, parseTable, tableDelimiter, headingText, importResultText, isCandidate, latestReview, orderSelection, reviewLine, reworkCount, sha7, tabsOf, totalsText, undoResultText } from "./orgArtifactsView.ts";
 
 const known = (value: any) => ({ kind: "value", value, basis: "direct" }) as any;
 const NF = { kind: "notFetched" } as any;
@@ -87,4 +87,23 @@ test("表のプレビュー: 引用符・改行・空欄を読み、区切りは
   assert.deepEqual(parseTable("only", ","), [["only"]]);
   assert.equal(tableDelimiter("a/b.TSV"), "\t");
   assert.equal(tableDelimiter("a.csv"), ",");
+});
+
+test("確認の記録: 記録なしと「実行していない」を区別し、保留した合格は合格と書かない", () => {
+  const r = (checks: any, reason: string | null = null, extra: any = {}) => ({ ...review(1, "pass"), checks, noCheckReason: reason, heldBack: false, ...extra }) as any;
+  assert.equal(checksSummary(r(null)), "確認: 記録なし");
+  assert.equal(checksSummary(r([], "文書だけの変更")), "確認: 実行していない（理由: 文書だけの変更）");
+  assert.equal(checksSummary(r([], "  ")), "確認: 実行していない（理由の記録なし）");
+  const cs = [{ command: "pytest", outcome: "passed", summary: "" }, { command: "ruff", outcome: "failed", summary: "" }, { command: "tsc", outcome: "notRun", summary: "" }];
+  assert.equal(checksSummary(r(cs)), "確認: 成功 1・失敗 1・実行せず 1");
+  assert.equal(reviewVerdictLabel(r(cs, null, { heldBack: true })), "合格を保留（確認のコマンドが失敗）");
+  assert.equal(reviewVerdictLabel(r([])), "合格");
+  assert.equal(reviewLine({ reviews: known([r(cs, null, { heldBack: true })]) }), "Reviewer: 合格を保留（確認のコマンドが失敗）");
+  assert.equal(checkOutcomeLabel("notRun"), "実行せず");
+});
+
+test("調査報告のコピー文: 結論ごとの根拠と参照・分からなかったこと", () => {
+  const t = investigationText({ summary: "s", findings: [{ point: "p", basis: "b", refs: ["a.py:3", "c1"] }], references: ["a.py"], openQuestions: ["q"] });
+  assert.equal(t, "要約: s\n\n結論1: p\n  根拠: b\n  参照: a.py:3 / c1\n\n調べた対象: a.py\n\n分からなかったこと:\n- q");
+  assert.equal(investigationText({ summary: "s", findings: [], references: [], openQuestions: [] }), "要約: s");
 });

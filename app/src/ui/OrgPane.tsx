@@ -372,10 +372,12 @@ export function OrgPane(p: OrgPaneProps) {
           </>,
           <button className="btn primary" disabled={busy || !ready} onClick={() => void go("差し戻し", async () => { await host.orgSendBack(wf.workflowId, c.task, c.note.trim() || null); return `タスク ${c.task} を差し戻しました。`; })}>{busy ? "処理しています…" : "差し戻す"}</button>);
       }
-      case "acceptAsIs":
+      case "acceptAsIs": {
+        const checkFailed = wf.tasks.find((x) => x.id === confirm.task)?.status.reason === "checkFailed";
         return wrap(`タスク ${confirm.task} をこのまま受け入れる確認`,
-          <p>検証で不合格のまま <b>{confirm.task}</b> を完了にします（表示は「検証不合格のまま受け入れ」）。待っている検証役はスキップします。取込みは利用者が行います（自動マージしません）。</p>,
+          <p>{checkFailed ? <>検証のコマンドが失敗したまま</> : <>検証で不合格のまま</>} <b>{confirm.task}</b> を完了にします（表示は「検証不合格のまま受け入れ」）。待っている検証役はスキップします。取込みは利用者が行います（自動マージしません）。</p>,
           <button className="btn danger" disabled={busy} onClick={() => void go("このまま受け入れる", async () => { await host.orgAcceptAsIs(wf.workflowId, confirm.task); return `タスク ${confirm.task} を受け入れました（検証不合格のまま）。`; })}>{busy ? "処理しています…" : "このまま受け入れる"}</button>);
+      }
       case "stopTask": {
         const t = wf.tasks.find((x) => x.id === confirm.task);
         return wrap(`タスク ${confirm.task} だけ止める確認`,
@@ -613,7 +615,7 @@ export function OrgPane(p: OrgPaneProps) {
               <summary>計画の内容（{wf.tasks.length}件）</summary>
               <ul className="org-plan">
                 {wf.tasks.map((t) => (
-                  <li key={t.id}><b className="mono">{t.id}</b> <span className="muted">[{t.role}]</span> {t.title}
+                  <li key={t.id}><b className="mono">{t.id}</b> <span className="muted">[{t.role}]</span>{t.kind === "investigate" ? <> <span className="tag">調査</span></> : null} {t.title}
                     {t.deps.length ? <span className="small muted">　依存: {t.deps.join(",")}</span> : null}
                     {t.effects.length ? <div className="small">効果の申告（AIの自己申告）: {t.effects.map((e) => EFFECT_TEXT[e]).join("、")}</div> : null}</li>
                 ))}
@@ -705,7 +707,7 @@ export function OrgPane(p: OrgPaneProps) {
                       <Fragment key={t.id}>
                         <tr id={taskRowId(t.id)} tabIndex={-1}>
                           <th scope="row" className="mono">{t.id}</th>
-                          <td>{t.role}</td>
+                          <td>{t.role}{t.kind === "investigate" ? <> <span className="tag" title="ファイルを変えない調査のタスク。結果は報告（成果物の「調査報告」）に出ます">調査</span></> : null}</td>
                           <td className="org-title">{t.title}</td>
                           <td><StatusChip s={t.status} /></td>
                           <td><ConfirmChip c={t.confirm} /></td>

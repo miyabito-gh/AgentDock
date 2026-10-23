@@ -304,5 +304,36 @@ pub fn read_slots(store: &dyn OrgStore, state: &WorkflowState) -> (HashMap<(Slot
     (values, unreadable)
 }
 
+/// 復元時に、保存した報告を読み戻す（DESIGN_ORG_R4 1.6）。調査タスクは `report_attempt` の版（後続の素材になる唯一の成果）、
+/// 変更を行う Worker は最新の試行の要旨（読めるときだけ。読めなくても「未取得」のまま進む）。
+/// 返す文面は、エンジンが後続へ渡すものと同じ描画。読めない調査報告のタスクIDも返す。
+pub fn read_reports(store: &dyn OrgStore, state: &WorkflowState) -> (HashMap<org_engine::TaskId, String>, Vec<String>) {
+    let mut reports = HashMap::new();
+    let mut unreadable = Vec::new();
+    for t in state.tasks() {
+        if t.is_investigation() {
+            let Some(attempt) = t.report_attempt() else { continue };
+            let rendered = store
+                .read_output(&t.id, attempt)
+                .ok()
+                .flatten()
+                .and_then(|v| org_engine::schemas::parse_investigation_report(&v.to_string()).ok())
+                .map(|r| org_engine::schemas::render_investigation(&r, org_engine::prompt::REPORT_PROMPT_CHARS));
+            match rendered {
+                Some(text) => {
+                    reports.insert(t.id.clone(), text);
+                }
+                None => unreadable.push(t.id.0.clone()),
+            }
+        } else if t.node().is_none() && t.role.0 == org_engine::schemas::ROLE_WORKER && t.commit().is_some() {
+            let summary = store.read_output(&t.id, t.rework_count()).ok().flatten().and_then(|v| v.get("summary").and_then(|s| s.as_str()).map(str::to_string));
+            if let Some(s) = summary.filter(|s| !s.trim().is_empty()) {
+                reports.insert(t.id.clone(), s);
+            }
+        }
+    }
+    (reports, unreadable)
+}
+
 #[cfg(test)]
 mod tests;

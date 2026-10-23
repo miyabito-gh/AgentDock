@@ -3,9 +3,14 @@ import type { Known } from "./Known";
 import type { OrgArtifactItem } from "./OrgArtifactItem";
 import type { OrgImportRecordView } from "./OrgImportRecordView";
 import type { OrgImportTargetView } from "./OrgImportTargetView";
+import type { OrgInvestigationItem } from "./OrgInvestigationItem";
 import type { UnixMillis } from "./UnixMillis";
 
-export type OrgArtifactsView = { workflowId: string, target: OrgImportTargetView, items: Array<OrgArtifactItem>, fetched: Known<UnixMillis>, gitSupportsImport: Known<boolean>, 
+export type OrgArtifactsView = { workflowId: string, target: OrgImportTargetView, items: Array<OrgArtifactItem>, 
+/**
+ * 調査タスクの報告（取り込み対象の `items` とは別）。
+ */
+investigations: Array<OrgInvestigationItem>, fetched: Known<UnixMillis>, gitSupportsImport: Known<boolean>, 
 /**
  * 取り込み記録のうち、まだ決着していない（確認できない・戻せる）もの。
  */

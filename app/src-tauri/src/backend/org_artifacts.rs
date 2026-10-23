@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use super::changes::ChangeKind;
 use super::model::{Known, UnixMillis};
+use super::org::OrgTaskPhase;
 
 // ───────────────────────────── 状態 ─────────────────────────────
 
@@ -104,6 +105,27 @@ pub enum OrgReviewVerdict {
     Unknown,
 }
 
+/// 検証役が実行した確認のコマンドの結果。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub enum OrgCheckOutcome {
+    Passed,
+    Failed,
+    NotRun,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgCheckView {
+    pub command: String,
+    pub outcome: OrgCheckOutcome,
+    pub summary: String,
+}
+
 /// 検証役の判定1回分。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
@@ -113,6 +135,12 @@ pub struct OrgReviewView {
     pub reviewer_task: String,
     pub verdict: OrgReviewVerdict,
     pub findings: Vec<String>,
+    /// 実行した確認のコマンド。None = 記録なし（この版より前の出力、または取得できなかった）。空の配列は「確認を実行しなかった」。
+    pub checks: Option<Vec<OrgCheckView>>,
+    /// 成功した確認が1件もないときの理由（検証役の申告）。
+    pub no_check_reason: Option<String>,
+    /// 検証役は合格としたが、確認のコマンドが失敗したため、合格を保留した判定。
+    pub held_back: bool,
     /// 何回目の判定か（1から）。
     pub round: u32,
     /// 判定の対象になったコミット（分かるときだけ）。
@@ -182,6 +210,8 @@ pub struct OrgArtifactItem {
     pub totals: Known<OrgArtifactTotals>,
     pub report: Known<OrgWorkerReportView>,
     pub reviews: Known<Vec<OrgReviewView>>,
+    /// 検証・申告についての注意（テスト未実行の合格、申告と判定の食い違い）。
+    pub review_notes: Vec<String>,
     /// Worker の申告と差分の違い（申告にあって差分にない／差分にあって申告にないパス）。
     pub report_mismatch: Vec<String>,
     /// コミットされていない変更の件数（成果に含まれない）。
@@ -189,6 +219,45 @@ pub struct OrgArtifactItem {
     pub importable: bool,
     pub import_refusal: Option<String>,
     pub imports: Vec<OrgImportRecordView>,
+}
+
+/// 調査の結論1件（根拠と参照つき）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgInvestigationFindingView {
+    pub point: String,
+    pub basis: String,
+    pub refs: Vec<String>,
+}
+
+/// 調査タスクの報告（ファイルを変えない調査の成果）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgInvestigationView {
+    pub summary: String,
+    pub findings: Vec<OrgInvestigationFindingView>,
+    pub references: Vec<String>,
+    pub open_questions: Vec<String>,
+}
+
+/// 成果物パネルの「調査報告」の1件。ファイルがないので、取り込み・差分の対象ではない。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgInvestigationItem {
+    pub task: String,
+    pub title: String,
+    pub phase: OrgTaskPhase,
+    pub status_label: String,
+    /// 保存した報告 → 履歴の最終回答の順に読む。読めなければ「未取得」（推定しない）。
+    pub report: Known<OrgInvestigationView>,
+    /// 報告の試行（保存先の版）。
+    pub attempt: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -199,6 +268,8 @@ pub struct OrgArtifactsView {
     pub workflow_id: String,
     pub target: OrgImportTargetView,
     pub items: Vec<OrgArtifactItem>,
+    /// 調査タスクの報告（取り込み対象の `items` とは別）。
+    pub investigations: Vec<OrgInvestigationItem>,
     pub fetched: Known<UnixMillis>,
     pub git_supports_import: Known<bool>,
     /// 取り込み記録のうち、まだ決着していない（確認できない・戻せる）もの。
@@ -317,6 +388,8 @@ pub struct OrgImportPreview {
     pub dirty_other: u32,
     /// 合格していない成果のタスク（同意チェックが要る）。
     pub not_passed: Vec<String>,
+    /// 取り込み前に知らせておく注意（テスト未実行の合格など。タスクIDつき）。
+    pub cautions: Vec<String>,
     pub blockers: Vec<String>,
     pub message: String,
 }

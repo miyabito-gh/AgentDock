@@ -7,9 +7,14 @@ import type { OrgReconcileView } from "./OrgReconcileView";
 import type { OrgRetryView } from "./OrgRetryView";
 import type { OrgSkipView } from "./OrgSkipView";
 import type { OrgStatusView } from "./OrgStatusView";
+import type { OrgTaskKind } from "./OrgTaskKind";
 import type { UnixMillis } from "./UnixMillis";
 
-export type OrgTaskView = { id: string, role: string, title: string, deps: Array<string>, 
+export type OrgTaskView = { id: string, role: string, 
+/**
+ * 種類（調査か、変更か）。
+ */
+kind: OrgTaskKind, title: string, deps: Array<string>, 
 /**
  * 終わっていない依存（「T2,T3待ち」の元）。
  */

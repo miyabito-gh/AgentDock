@@ -21,6 +21,7 @@ pub mod state;
 pub mod types;
 
 pub use core::{
+    RestoredExtras,
     retry_kind, retryable, standard_roles, RetryKind, RetryReason, RetryRefusal, CreateResult, NoticeUrgency, OrgAction, OrgCore, OrgInput, OrgNotice, RoleChatSpec, SandboxKind, WorkspaceAction,
     WorkspaceOutcome, WorktreeBase,
 };

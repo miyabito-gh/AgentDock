@@ -3,15 +3,15 @@
 //       成功と書くのは、ホストが読み戻しで確かめた結果のときだけ。不明のときは再実行せず、読取りだけの「状態を確認」を出す。
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as host from "../ipc/client";
-import type { OrgArtifactFile, OrgArtifactItem, OrgArtifactPreview, OrgArtifactsView, OrgImportRecordView, OrgImportResult, OrgImportPreview, OrgUndoPreview, OrgUndoOutcome, OrgWorkflowView } from "../ipc/types";
+import type { OrgArtifactFile, OrgArtifactItem, OrgArtifactPreview, OrgArtifactsView, OrgInvestigationItem, OrgImportRecordView, OrgImportResult, OrgImportPreview, OrgUndoPreview, OrgUndoOutcome, OrgWorkflowView } from "../ipc/types";
 import { Icon, orgIcon } from "./Icon";
 import { ConfirmBlock, FootActions } from "./DialogParts";
 import { CopyButton, Markdown } from "./Markdown";
 import { Counts, DiffText, kindIcon, pathText } from "./DiffParts";
 import { splitPath } from "./changesView";
 import {
-  STATUS_CHIP, actionableRecords, defaultTab, fileKey, headingText, importResultText, importable, isCandidate, latestReview, orderSelection, parseTable, recordStateText, reviewLine, reworkCount, sha7,
-  tableDelimiter, tabsOf, totalsText, undoResultText, verdictLabel, type FileTab,
+  STATUS_CHIP, actionableRecords, checkOutcomeLabel, checksSummary, defaultTab, fileKey, headingText, importResultText, importable, investigationText, isCandidate, latestReview, orderSelection, parseTable, recordStateText, reviewLine, reviewVerdictLabel, reworkCount, sha7,
+  tableDelimiter, tabsOf, totalsText, undoResultText, type FileTab,
 } from "./orgArtifactsView";
 
 const errText = (e: unknown) => host.asIpcError(e).message;
@@ -39,9 +39,10 @@ export function useArtifacts(workflowId: string | null, sig: string, live: boole
 
 export function ArtifactsSection({ wf, live, onAct }: { wf: OrgWorkflowView; live: boolean; onAct: (a: string) => void }) {
   const hasCommit = wf.tasks.some((t) => t.commit);
+  const hasInvestigation = wf.tasks.some((t) => t.kind === "investigate");
   const sig = `${wf.finished}|${wf.tasks.map((t) => `${t.id}:${t.status.phase}:${t.commit ?? ""}`).join(",")}|${wf.artifactHint?.imported ?? 0}`;
-  const { view, error } = useArtifacts(hasCommit ? wf.workflowId : null, sig, live);
-  if (!hasCommit) return null;
+  const { view, error } = useArtifacts(hasCommit || hasInvestigation ? wf.workflowId : null, sig, live);
+  if (!hasCommit && !hasInvestigation) return null;
   if (!live) return <section className="org-artifacts" aria-label="成果物"><h4 className="org-h">成果物</h4><div className="small muted">モックでは動きません（実接続で使えます）。</div></section>;
   if (error) return <section className="org-artifacts" aria-label="成果物"><h4 className="org-h">成果物</h4><div className="banner warn" role="alert"><Icon name="alert" /><div>成果物を取得できませんでした（{error}）。取得できていないだけで、成果物が無いとは限りません。</div></div></section>;
   if (!view) return <section className="org-artifacts" aria-label="成果物"><h4 className="org-h">成果物</h4><div className="small muted">成果物を確認しています…</div></section>;
@@ -51,7 +52,8 @@ export function ArtifactsSection({ wf, live, onAct }: { wf: OrgWorkflowView; liv
   return (
     <section className="org-artifacts" aria-label="成果物">
       <h4 className="org-h" title="レビュー待ち＝AIの確認は終わり、あなたの確認と取り込みを待っている成果です（AIのレビュー中とは別）">{headingText(view.items)}</h4>
-      {view.items.length === 0 ? <div className="small muted">表示できる成果物はありません。</div> : (
+      <InvestigationsBlock items={view.investigations} />
+      {view.items.length === 0 ? (view.investigations.length === 0 ? <div className="small muted">表示できる成果物はありません。</div> : null) : (
         <ul className="org-art-list">
           {view.items.map((i) => (
             <li key={i.task} className="org-art-row">
@@ -76,6 +78,42 @@ export function ArtifactsSection({ wf, live, onAct }: { wf: OrgWorkflowView; liv
       {view.target.blockers.length > 0 && cands.length === 0 && view.items.some((i) => isCandidate(i.status)) ? <div className="small muted">{view.target.blockers.join(" / ")}</div> : null}
       <div className="small muted">取り込み後も作業場所とブランチは残ります（削除はワークフローの「削除…」から）。AgentDock は自動で取り込みません。</div>
     </section>
+  );
+}
+
+// ───────────────────────────── 調査報告（ファイルを変えない調査タスクの成果。取り込み・差分の対象ではない） ─────────────────────────────
+
+function InvestigationReport({ item }: { item: OrgInvestigationItem }) {
+  const r = item.report.kind === "value" ? item.report.value : null;
+  return (
+    <li className="org-inv">
+      <div className="org-inv-head"><span className="mono org-art-id">{item.task}</span> <span className="org-art-title" title={item.title}>{item.title}</span> <span className="tag" title="ファイルを変えない調査のタスク">調査</span> <span className="small muted">{item.statusLabel}</span></div>
+      {r === null ? <div className="small muted">{item.phase === "completed" ? "報告を取得できませんでした（未取得）。保存された報告も、履歴の最終回答も読めませんでした。" : "報告はまだありません。"}</div> : (
+        <div className="small">
+          <div><b>要約</b>　{r.summary}</div>
+          {r.findings.length > 0 ? (
+            <ol className="org-inv-list">
+              {r.findings.map((f, i) => (
+                <li key={i}><b>{f.point}</b>
+                  <div className="muted">根拠: {f.basis}</div>
+                  {f.refs.length > 0 ? <div className="muted">参照: {f.refs.map((x, j) => <span key={j} className="mono">{j > 0 ? " / " : ""}{x}</span>)}</div> : null}
+                </li>))}
+            </ol>) : null}
+          {r.references.length > 0 ? <div className="muted">調べた対象: {r.references.join(" / ")}</div> : null}
+          {r.openQuestions.length > 0 ? <div><b>分からなかったこと</b><ul className="check-list">{r.openQuestions.map((q, i) => <li key={i}>{q}</li>)}</ul></div> : null}
+          <CopyButton className="btn sm subtle" text={investigationText(r)} label="報告をコピー" />
+        </div>)}
+    </li>
+  );
+}
+
+function InvestigationsBlock({ items }: { items: OrgInvestigationItem[] }) {
+  if (items.length === 0) return null;
+  return (
+    <div className="org-invs">
+      <h5 className="org-h" title="調査のタスクの報告です。ファイルがないので、取り込み・差分の対象にはなりません">調査報告（{items.length}）</h5>
+      <ul className="org-inv-wrap">{items.map((i) => <InvestigationReport key={i.task} item={i} />)}</ul>
+    </div>
   );
 }
 
@@ -196,13 +234,17 @@ function Findings({ item }: { item: OrgArtifactItem }) {
         <div className="small"><b>報告と差分の違い</b>（判定には使っていません）<ul className="check-list">{item.reportMismatch.map((m) => <li key={m}>{m}</li>)}</ul></div>
       ) : null}
       <div className="small"><b>Reviewer の判定</b>　{reviewLine(item)}</div>
+      {item.reviewNotes.length > 0 ? <div className="banner warn" role="status"><Icon name="alert" /><div>{item.reviewNotes.map((n, i) => <div key={i}>{n}</div>)}</div></div> : null}
       {rs === null ? <div className="small muted">未取得</div> : last ? (
         <div className="small">
+          <div className="muted">{checksSummary(last)}</div>
+          {last.checks && last.checks.length > 0 ? (
+            <ul className="check-list org-checks">{last.checks.map((c, i) => <li key={i}><b className={c.outcome === "failed" ? "why err" : undefined}>{checkOutcomeLabel(c.outcome)}</b>　<span className="mono">{c.command}</span>{c.summary.trim() !== "" ? <span className="muted">　{c.summary}</span> : null}</li>)}</ul>) : null}
           {last.findings.length > 0 ? <ul className="check-list">{last.findings.map((f, i) => <li key={i}>{f}</li>)}</ul> : <div className="muted">所見はありません。</div>}
           {last.fromHistory ? <div className="muted">この判定は、保存された出力ではなく履歴から読んだものです。</div> : null}
           {past.length > 0 ? (
             <details className="about"><summary>これまでの判定（差し戻し {reworkCount(rs)} 回）</summary>
-              {past.map((r) => <div key={`${r.reviewerTask}:${r.round}`}><b>{r.round}回目: {verdictLabel(r.verdict)}</b>{r.findings.length > 0 ? <ul className="check-list">{r.findings.map((f, i) => <li key={i}>{f}</li>)}</ul> : null}</div>)}
+              {past.map((r) => <div key={`${r.reviewerTask}:${r.round}`}><b>{r.round}回目: {reviewVerdictLabel(r)}</b>{r.findings.length > 0 ? <ul className="check-list">{r.findings.map((f, i) => <li key={i}>{f}</li>)}</ul> : null}</div>)}
             </details>) : null}
         </div>
       ) : <div className="small muted">検証の判定はありません。</div>}
@@ -252,7 +294,8 @@ export function OrgArtifactsBody({ workflowId, initialTask, live, onImport, onPu
         </div>
         {view.target.blockers.length > 0 && view.items.some((i) => isCandidate(i.status)) ? <div className="banner warn" role="status"><Icon name="alert" /><div>いまは取り込めません: {view.target.blockers.join(" / ")}</div></div> : null}
         {records.length > 0 ? <div className="org-recs">{records.map((r) => <RecordActions key={r.id} workflowId={workflowId} rec={r} onChanged={reload} onPush={onPush} />)}</div> : null}
-        {view.items.length === 0 ? <div className="chg-empty small muted" role="status">表示できる成果物はありません</div> : (
+        <InvestigationsBlock items={view.investigations} />
+        {view.items.length === 0 ? (view.investigations.length === 0 ? <div className="chg-empty small muted" role="status">表示できる成果物はありません</div> : null) : (
           <div className="chg-split" data-pane={pane}>
             <div className="chg-left">
               <ul className="chg-list" aria-label="成果物">
@@ -380,6 +423,7 @@ export function OrgImportBody({ workflowId, initialTasks, live, onBack, onPush, 
       {notPassed.length > 0 ? (
         <label className="small why err org-consent"><input type="checkbox" checked={consent} disabled={busy || !!res} onChange={(e) => setConsent(e.target.checked)} /> 合格していない成果（{notPassed.join("、")}）を、承知のうえで取り込みます</label>
       ) : null}
+      {pv && pv.cautions.length > 0 ? <div className="banner warn" role="status"><Icon name="alert" /><div>{pv.cautions.map((c, i) => <div key={i}>{c}</div>)}</div></div> : null}
       {pvErr ? <div className="why err" role="alert">確認の材料を取得できませんでした（{pvErr}）。</div> : null}
       {!pv && !pvErr && order.length > 0 ? <p className="small muted">取り込んだ結果を計算しています（作業フォルダには何も書きません）…</p> : null}
       {pv && pv.blockers.length > 0 ? (

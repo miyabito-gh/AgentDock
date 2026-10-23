@@ -208,6 +208,10 @@ impl Host {
         }
         let mut ws: Vec<W> = Vec::new();
         for t in wf.state.tasks() {
+            // 調査タスクは書込みの成果を持たない（読取り専用の作業場所の記録を成果に出さない）。報告は「調査報告」に出す。
+            if !t.kind.is_change() {
+                continue;
+            }
             let rec = recs.iter().find(|r| r.org.as_ref().is_some_and(|o| o.task_id == t.id.0));
             if rec.is_none() && t.commit().is_none() {
                 continue;
@@ -283,6 +287,10 @@ impl Host {
             };
             let report = self.org_report_of(wf, &store, w.task).await;
             let reviews = self.org_reviews_of(wf, &store, w.task).await;
+            let review_notes = match &reviews {
+                Known::Value { value, .. } => review_notes(value, report.value()),
+                _ => Vec::new(),
+            };
             let mismatch = match (&report, &files) {
                 (Known::Value { value: r, .. }, Known::Value { value: f, .. }) => {
                     let diff_paths: Vec<String> = f.iter().map(|x| new_path(x).to_string()).collect();
@@ -319,6 +327,7 @@ impl Host {
                 totals,
                 report,
                 reviews,
+                review_notes,
                 report_mismatch: mismatch,
                 uncommitted,
                 importable,
@@ -328,7 +337,20 @@ impl Host {
         }
         let mut records: Vec<OrgImportRecordView> = states.iter().map(|(r, s)| record_view(r, *s)).collect();
         records.reverse();
-        OrgArtifactsView { workflow_id: wf.id.clone(), target, items, fetched: Known::direct(now_ms()), git_supports_import: facts.git_supported.map_or(Known::NotFetched, Known::direct), records }
+        let mut investigations = Vec::new();
+        for t in wf.state.tasks().iter().filter(|t| t.is_investigation()) {
+            let view = status_view(t.status());
+            let attempt = t.report_attempt().unwrap_or_else(|| t.attempts().saturating_sub(1));
+            investigations.push(OrgInvestigationItem {
+                task: t.id.0.clone(),
+                title: t.title.clone(),
+                phase: view.phase,
+                status_label: view.label,
+                report: self.org_investigation_of(&store, t, attempt).await,
+                attempt,
+            });
+        }
+        OrgArtifactsView { workflow_id: wf.id.clone(), target, items, investigations, fetched: Known::direct(now_ms()), git_supports_import: facts.git_supported.map_or(Known::NotFetched, Known::direct), records }
     }
 
     /// Worker の報告。保存した出力 → 履歴の最終回答の順（どちらも取れなければ「未取得」）。グラフの書込み工程はスロットの値（形が合うときだけ）。
@@ -356,6 +378,21 @@ impl Host {
             tests_ran: r.tests.ran,
             tests_passed: r.tests.passed,
         }))
+    }
+
+    /// 調査報告。保存した出力 → 履歴の最終回答の順（どちらも取れなければ「未取得」。推定しない）。
+    async fn org_investigation_of(self: &Arc<Self>, store: &ReadOnlyOrgStore, t: &Task, attempt: u32) -> Known<OrgInvestigationView> {
+        if let Some(v) = store.read_output(&t.id, attempt).ok().flatten().and_then(|v| parse_investigation_value(&v)) {
+            return Known::direct(v);
+        }
+        // 完了していない（まだ報告がない）ものは履歴を読みに行かない。
+        if t.status() != org_engine::TaskStatus::Completed {
+            return Known::NotFetched;
+        }
+        let text = self.org_final_message_of(t).await;
+        text.and_then(|x| serde_json::from_str::<serde_json::Value>(&x).ok())
+            .and_then(|v| parse_investigation_value(&v))
+            .map_or(Known::NotFetched, Known::direct)
     }
 
     async fn org_final_message_of(self: &Arc<Self>, t: &Task) -> Option<String> {
@@ -391,9 +428,12 @@ impl Host {
                     continue;
                 };
                 for rr in review_rounds(&wf.events.events, &t.id, &r.id, &slot) {
-                    let parsed = store.read_slot(&slot, rr.version).ok().flatten().and_then(|v| parse_review_value(&v));
+                    let raw = store.read_slot(&slot, rr.version).ok().flatten();
+                    let parsed = raw.as_ref().and_then(parse_review_value);
                     let (verdict, findings) = parsed.unwrap_or((OrgReviewVerdict::Unknown, Vec::new()));
-                    out.push(OrgReviewView { reviewer_task: r.id.0.clone(), verdict, findings, round: rr.round, commit: rr.commit, from_history: false });
+                    let (checks, no_check_reason) = raw.as_ref().map_or((None, None), parse_review_checks);
+                    let held_back = is_held_back(verdict, checks.as_deref());
+                    out.push(OrgReviewView { reviewer_task: r.id.0.clone(), verdict, findings, checks, no_check_reason, held_back, round: rr.round, commit: rr.commit, from_history: false });
                 }
             }
             return Known::direct(out);
@@ -404,7 +444,9 @@ impl Host {
         let attempts = t.attempts();
         for r in reviewers {
             for k in 0..attempts {
-                let stored = store.read_output(&r.id, k).ok().flatten().and_then(|v| parse_review_value(&v));
+                let raw = store.read_output(&r.id, k).ok().flatten();
+                let stored = raw.as_ref().and_then(parse_review_value);
+                let mut checks_of = raw.as_ref().map_or((None, None), parse_review_checks);
                 let (verdict, findings, from_history) = match stored {
                     Some((v, f)) => (v, f, false),
                     None if k + 1 < attempts => match findings_log.get(k as usize) {
@@ -412,21 +454,21 @@ impl Host {
                         None => (OrgReviewVerdict::Unknown, Vec::new(), true),
                     },
                     None => {
+                        // 最新の回で、保存された出力がない: 履歴の最終回答を読む（確認の記録がなければ「記録なし」）。
                         let text = self.org_final_message_of(r).await;
-                        match text.and_then(|x| org_engine::schemas::parse_verdict(&x).ok()) {
-                            Some(v) => (
-                                match v.verdict {
-                                    org_engine::schemas::VerdictKind::Pass => OrgReviewVerdict::Pass,
-                                    org_engine::schemas::VerdictKind::Rework => OrgReviewVerdict::Rework,
-                                },
-                                v.findings,
-                                true,
-                            ),
+                        let value = text.and_then(|x| serde_json::from_str::<serde_json::Value>(&x).ok());
+                        match value.as_ref().and_then(parse_review_value) {
+                            Some((v, f)) => {
+                                checks_of = parse_review_checks(value.as_ref().unwrap());
+                                (v, f, true)
+                            }
                             None => (OrgReviewVerdict::Unknown, Vec::new(), true),
                         }
                     }
                 };
-                out.push(OrgReviewView { reviewer_task: r.id.0.clone(), verdict, findings, round: k + 1, commit: None, from_history });
+                let (checks, no_check_reason) = checks_of;
+                let held_back = is_held_back(verdict, checks.as_deref());
+                out.push(OrgReviewView { reviewer_task: r.id.0.clone(), verdict, findings, checks, no_check_reason, held_back, round: k + 1, commit: None, from_history });
             }
         }
         Known::direct(out)
@@ -566,6 +608,7 @@ impl Host {
             locked_files: Vec::new(),
             dirty_other: 0,
             not_passed: Vec::new(),
+            cautions: Vec::new(),
             blockers: Vec::new(),
             message: IMPORT_MESSAGE.to_string(),
         };
@@ -585,6 +628,7 @@ impl Host {
             if item.status == OrgArtifactStatus::NotPassed {
                 base.not_passed.push(task.clone());
             }
+            base.cautions.extend(item.review_notes.iter().map(|n| format!("{task}: {n}")));
         }
         base.blockers.extend(import_blockers(&ImportFacts {
             branch: facts.branch.as_deref(),

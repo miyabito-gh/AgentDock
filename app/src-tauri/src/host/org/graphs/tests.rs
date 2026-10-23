@@ -171,7 +171,7 @@ fn a_copy_that_does_not_match_the_record_is_not_used_and_nothing_stands_in_for_i
 
 fn state_with_slots(slots: &[(&str, u32)]) -> WorkflowState {
     let mut s = WorkflowState::new(WorkflowId::new("wf-s"), Limits::default());
-    let task = PlanTask { id: TaskId::new("plan-1"), role: RoleId::new("planner"), deps: vec![], effects: vec![], title: String::new(), instructions: String::new() };
+    let task = PlanTask { id: TaskId::new("plan-1"), role: RoleId::new("planner"), deps: vec![], effects: vec![], title: String::new(), instructions: String::new(), kind: org_engine::TaskKind::Change };
     s.record(OrgEventKind::ActivationAdded { task, node: NodeId::new("plan"), via: None::<EdgeId> }, 1).unwrap();
     for (slot, version) in slots {
         for v in 1..=*version {
@@ -216,5 +216,33 @@ fn slot_values_are_written_and_read_back_and_an_unreadable_one_is_reported_not_g
     assert!(!dir.join("slots").join("spec.3.json").exists());
     let ro = crate::store::org::ReadOnlyOrgStore::new(dir.clone());
     assert!(ro.put_slot(&SlotId::new("spec"), 3, &value).is_err());
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn stored_reports_are_read_back_and_an_unreadable_investigation_is_named() {
+    let root = temp_root("reports");
+    let dir = root.join("wf");
+    std::fs::create_dir_all(&dir).unwrap();
+    let store = FileOrgStore::new(dir.clone());
+    let mut state = WorkflowState::new(WorkflowId::new("wf"), Limits::default());
+    let add = |state: &mut WorkflowState, id: &str, kind: org_engine::TaskKind| {
+        let task = PlanTask { id: TaskId::new(id), role: RoleId::new("worker"), deps: vec![], effects: vec![], title: String::new(), instructions: String::new(), kind };
+        state.record(OrgEventKind::TaskAdded { task }, 0).unwrap();
+    };
+    add(&mut state, "i1", org_engine::TaskKind::Investigate);
+    add(&mut state, "i2", org_engine::TaskKind::Investigate);
+    add(&mut state, "c", org_engine::TaskKind::Change);
+    state.record(OrgEventKind::ReportRecorded { task: TaskId::new("i1"), attempt: 0, bytes: 1 }, 0).unwrap();
+    state.record(OrgEventKind::ReportRecorded { task: TaskId::new("i2"), attempt: 0, bytes: 1 }, 0).unwrap();
+    state.record(OrgEventKind::Committed { task: TaskId::new("c"), commit: "abc".into() }, 0).unwrap();
+    // i1 has its file, i2 does not (not obtained), c has its worker report
+    store.put_output(&TaskId::new("i1"), 0, &serde_json::json!({"summary":"s1","findings":[{"point":"p","basis":"b","refs":["f:1"]}],"references":[],"openQuestions":[]})).unwrap();
+    store.put_output(&TaskId::new("c"), 0, &serde_json::json!({"summary":"did it","changedFiles":[],"tests":{"ran":true,"passed":true}})).unwrap();
+    let (reports, unreadable) = read_reports(&store, &state);
+    assert!(reports[&TaskId::new("i1")].contains("要約: s1") && reports[&TaskId::new("i1")].contains("根拠: b"));
+    assert_eq!(unreadable, vec!["i2".to_string()]);
+    assert!(!reports.contains_key(&TaskId::new("i2")), "not guessed");
+    assert_eq!(reports[&TaskId::new("c")], "did it");
     let _ = std::fs::remove_dir_all(&root);
 }

@@ -1,6 +1,6 @@
 // 組織実行の成果物パネル・取り込みの表示用の純粋関数（DESIGN_ORG_R3）。React に依存しない（`node --test src/ui/orgArtifactsView.test.ts`）。
 // 規則: 取れていない値は「未確認」「未取得」と書き、0や空で代用しない。取り込み・戻すの成功は、読み戻しで確かめられた結果のときだけ書く。
-import type { Known, OrgArtifactFile, OrgArtifactItem, OrgArtifactStatus, OrgArtifactsView, OrgImportOutcome, OrgImportRecordView, OrgImportResult, OrgReviewView, OrgUndoOutcome } from "../ipc/types";
+import type { Known, OrgArtifactFile, OrgArtifactItem, OrgArtifactStatus, OrgArtifactsView, OrgCheckOutcome, OrgImportOutcome, OrgImportRecordView, OrgImportResult, OrgInvestigationView, OrgReviewView, OrgUndoOutcome } from "../ipc/types";
 
 export type ChipTone = "run" | "wait" | "fail" | "int" | "done" | "idle" | "unk";
 
@@ -50,6 +50,32 @@ export function totalsText(item: Pick<OrgArtifactItem, "totals">): string {
 const VERDICT_TEXT: Record<OrgReviewView["verdict"], string> = { pass: "合格", rework: "差し戻し", replan: "計画の作り直しを要望", unknown: "未取得" };
 export const verdictLabel = (v: OrgReviewView["verdict"]): string => VERDICT_TEXT[v];
 
+const CHECK_OUTCOME_TEXT: Record<OrgCheckOutcome, string> = { passed: "成功", failed: "失敗", notRun: "実行せず" };
+export const checkOutcomeLabel = (o: OrgCheckOutcome): string => CHECK_OUTCOME_TEXT[o];
+
+/** 判定の表示名。合格としたが確認のコマンドが失敗したものは、合格とは書かない（エンジンは合格を保留している）。 */
+export const reviewVerdictLabel = (r: Pick<OrgReviewView, "verdict" | "heldBack">): string => (r.heldBack ? "合格を保留（確認のコマンドが失敗）" : VERDICT_TEXT[r.verdict]);
+
+/** 実行した確認の要約1行。記録がなければ「記録なし」（0件とは書かない）。 */
+export function checksSummary(r: Pick<OrgReviewView, "checks" | "noCheckReason">): string {
+  if (r.checks === null) return "確認: 記録なし";
+  if (r.checks.length === 0) return `確認: 実行していない${r.noCheckReason && r.noCheckReason.trim() !== "" ? `（理由: ${r.noCheckReason.trim()}）` : "（理由の記録なし）"}`;
+  const n = (o: OrgCheckOutcome) => r.checks!.filter((c) => c.outcome === o).length;
+  return `確認: 成功 ${n("passed")}・失敗 ${n("failed")}・実行せず ${n("notRun")}`;
+}
+
+/** 調査報告をコピー用の文にする（参照は文字のまま。リンクにしない）。 */
+export function investigationText(v: OrgInvestigationView): string {
+  const out = [`要約: ${v.summary}`];
+  v.findings.forEach((f, i) => {
+    out.push(`\n結論${i + 1}: ${f.point}`, `  根拠: ${f.basis}`);
+    if (f.refs.length > 0) out.push(`  参照: ${f.refs.join(" / ")}`);
+  });
+  if (v.references.length > 0) out.push(`\n調べた対象: ${v.references.join(" / ")}`);
+  if (v.openQuestions.length > 0) out.push("\n分からなかったこと:", ...v.openQuestions.map((q) => `- ${q}`));
+  return out.join("\n");
+}
+
 /** 差し戻しの回数（判定が「差し戻し」だった回の数）。 */
 export const reworkCount = (reviews: OrgReviewView[]): number => reviews.filter((r) => r.verdict === "rework").length;
 
@@ -70,7 +96,7 @@ export function reviewLine(item: Pick<OrgArtifactItem, "reviews">): string {
   if (last.verdict !== "unknown" && last.findings.length > 0) extra.push(`所見${last.findings.length}件`);
   const rw = reworkCount(rs);
   if (rw > 0) extra.push(`差し戻し${rw}回`);
-  return `Reviewer: ${verdictLabel(last.verdict)}${extra.length > 0 ? `（${extra.join("・")}）` : ""}`;
+  return `Reviewer: ${reviewVerdictLabel(last)}${extra.length > 0 ? `（${extra.join("・")}）` : ""}`;
 }
 
 const DOC_EXT = new Set(["md", "markdown", "txt", "csv", "tsv"]);

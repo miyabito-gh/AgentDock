@@ -349,7 +349,7 @@ fn slot_files(log: &[OrgAction]) -> HashMap<(SlotId, u32), Value> {
 fn restore_sim(g: CompiledGraph, events: &[OrgEvent], slots: HashMap<(SlotId, u32), Value>) -> Sim {
     let mut state = rebuild(events);
     crate::classify_after_restart(&mut state, 5).unwrap();
-    let mut core = OrgCore::restored_with(state, Some(g), slots, 1000);
+    let mut core = OrgCore::restored_with(state, Some(g), crate::core::RestoredExtras { slots, ..Default::default() }, 1000);
     core.roles = roles();
     Sim { core, log: Vec::new(), unknown_sends: HashSet::new(), empty_commits: false }
 }
@@ -367,7 +367,7 @@ fn legacy_v1_events_restore_as_standard() {
     let state = rebuild(&read.events);
     assert!(state.graph().is_none());
     assert_eq!(state.graph_id(), "standard");
-    let core = OrgCore::restored_with(state, None, HashMap::new(), 0);
+    let core = OrgCore::restored_with(state, None, crate::core::RestoredExtras::default(), 0);
     assert!(!core.is_graph_mode());
     assert_eq!(core.state().unwrap().graph_id(), crate::LEGACY_GRAPH_ID);
     // a snapshot written before graphs existed has none of the new fields
@@ -763,7 +763,7 @@ fn m3_a_graph_workflow_without_its_copy_stays_stopped_and_is_not_failed_for_form
         let events = sim.events();
         let mut state = rebuild(&events);
         crate::classify_after_restart(&mut state, 5).unwrap();
-        let mut core = OrgCore::restored_with(state, broken, HashMap::new(), 1000);
+        let mut core = OrgCore::restored_with(state, broken, crate::core::RestoredExtras::default(), 1000);
         core.roles = roles();
         assert!(core.definition_missing());
         assert_eq!(core.state().unwrap().halt(), Some(HaltReason::DefinitionUnavailable));

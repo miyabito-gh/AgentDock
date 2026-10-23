@@ -121,6 +121,7 @@ pub(crate) mod tests {
             effects: vec![],
             title: String::new(),
             instructions: String::new(),
+            kind: TaskKind::Change,
         }
     }
     pub fn roles() -> Vec<Role> {

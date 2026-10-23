@@ -22,7 +22,7 @@ use crate::policy::{ConfirmReason, Decision};
 use crate::prompt;
 use crate::roledef::{ApprovalPolicy, LoadedRole};
 use crate::scheduler::{next_dispatch_with, promote_ready_with, DispatchGate};
-use crate::schemas::{ReviewerVerdict, WorkerReport, ROLE_PLANNER, ROLE_REVIEWER, ROLE_WORKER};
+use crate::schemas::{InvestigationReport, ReviewerVerdict, WorkerReport, ROLE_PLANNER, ROLE_REVIEWER, ROLE_WORKER};
 use crate::state::Cause;
 use crate::types::*;
 use crate::Counters;
@@ -236,6 +236,10 @@ pub enum OrgAction {
     /// reviewed worker's rework count at that time). Not an outside effect and never read back by the engine: if the host
     /// cannot write it, later actions are not held up (unlike `PutSlot`).
     PutOutput { task: TaskId, attempt: u32, value: Value },
+    /// Keep an investigation task's report (`outputs\<task>.<attempt>.json`, the same place as `PutOutput`).
+    /// Unlike `PutOutput` the report is the task's only result: if the host cannot write it, it stops the later actions
+    /// (like `PutSlot`). Followed by `Persist(ReportRecorded)`.
+    PutReport { task: TaskId, attempt: u32, value: Value },
     CreateRoleChat { task: TaskId, spec: RoleChatSpec },
     CheckSandbox { cwd: String },
     Send { task: TaskId, chat: ChatRef, attempt: AttemptRef, client_message_id: String, text: String, output_schema: Value },
@@ -387,6 +391,8 @@ pub(crate) enum Launch {
     Refresh,
     Chat,
     Sandbox,
+    /// An investigation report a dependency needs could not be found; its final message is being read (once).
+    Report,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -400,6 +406,8 @@ pub(crate) enum SandboxState {
 pub(crate) enum Output {
     Plan { tasks: Vec<PlanTask>, decision: Decision },
     Report(WorkerReport),
+    /// A plan-route investigation task's report (no commit).
+    Investigation(InvestigationReport),
     Verdict(ReviewerVerdict),
     /// A graph node's output, already checked against its slot's schema.
     Slot { slot: SlotId, value: Value },
@@ -412,6 +420,24 @@ pub(crate) enum Flow {
     WantCommit,
     Committing,
     NeedFix { reason: String },
+}
+
+/// The one recovery attempt of a missing investigation report (DESIGN_ORG_R4 1.6).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum ReportRecovery {
+    /// Reading the final message of this accepted turn.
+    Reading { turn: TurnRef },
+    /// Tried and failed: the later task stops (no second read).
+    Failed,
+}
+
+/// What the host could read back for a restored workflow.
+#[derive(Clone, Debug, Default)]
+pub struct RestoredExtras {
+    /// Slot values by (slot, version).
+    pub slots: HashMap<(SlotId, u32), Value>,
+    /// Rendered report text of tasks (investigation reports; a change worker's summary when readable).
+    pub reports: HashMap<TaskId, String>,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -444,6 +470,10 @@ pub struct OrgCore {
     pub(crate) open_requests: HashMap<ChatRef, u32>,
     /// Report summaries of this session (not persisted; prompts say "not obtained" when missing).
     pub(crate) artifacts: HashMap<TaskId, String>,
+    /// The worker's own claim about its tests `(ran, passed)` of this session (shown to the reviewer as a claim only).
+    pub(crate) test_claims: HashMap<TaskId, (bool, bool)>,
+    /// Per investigation task whose report a later task needs but was not found: the single read of its final message.
+    pub(crate) report_recovery: HashMap<TaskId, ReportRecovery>,
     pub(crate) replan_notes: HashMap<TaskId, String>,
     pub(crate) last_kind: HashMap<TaskId, TurnKind>,
     pub(crate) retry_ready: HashSet<TaskId>,
@@ -483,6 +513,8 @@ impl OrgCore {
             descendants: HashMap::new(),
             open_requests: HashMap::new(),
             artifacts: HashMap::new(),
+            test_claims: HashMap::new(),
+            report_recovery: HashMap::new(),
             replan_notes: HashMap::new(),
             last_kind: HashMap::new(),
             retry_ready: HashSet::new(),
@@ -509,12 +541,13 @@ impl OrgCore {
 
     /// Like `restored`, with the graph copy and the slot values the host could read. A graph whose fingerprint
     /// differs from the recorded one is not used (nothing is interpreted with a different definition).
-    pub fn restored_with(state: WorkflowState, graph: Option<CompiledGraph>, slots: HashMap<(SlotId, u32), Value>, now_ms: i64) -> Self {
+    pub fn restored_with(state: WorkflowState, graph: Option<CompiledGraph>, extras: RestoredExtras, now_ms: i64) -> Self {
         let mut c = Self::restored(state, now_ms);
         if let Some(g) = graph {
             let _ = c.set_graph(g);
         }
-        c.slot_values = slots;
+        c.slot_values = extras.slots;
+        c.artifacts = extras.reports;
         c.audit_pending = c.graph.is_some() && c.is_graph_mode();
         // A graph workflow without a usable copy is not run as if it had no graph: it stays stopped (R-G M3).
         // The halt is derived here on every restore (it is not an event), so it never outlives the cause.
@@ -831,6 +864,7 @@ impl OrgCore {
             effects: vec![],
             title: "計画".into(),
             instructions: String::new(),
+            kind: TaskKind::Change,
         };
         self.rec(OrgEventKind::TaskAdded { task: planner });
     }
@@ -941,6 +975,7 @@ impl OrgCore {
                             | BlockedReason::ManualStop
                             | BlockedReason::NeedsAttention
                             | BlockedReason::ReworkLimit
+                            | BlockedReason::CheckFailed
                     )
                 )
         });
@@ -1137,6 +1172,10 @@ impl OrgCore {
     // ---- final message -> artifact
 
     pub(crate) fn final_message(&mut self, id: &TaskId, turn: TurnRef, text: Option<String>) {
+        if matches!(self.report_recovery.get(id), Some(ReportRecovery::Reading { turn: t }) if *t == turn) && !self.flows.contains_key(id) {
+            self.report_recovered(id, text);
+            return;
+        }
         match self.flows.get(id) {
             Some(Flow::ReadingFinal { turn: t }) if *t == turn => {}
             _ => return,
@@ -1418,10 +1457,14 @@ impl OrgCore {
         let Some(t) = self.task(id) else { return };
         let role = t.role.clone();
         let default_sandbox = Self::default_sandbox(&role);
-        let (sandbox, model, effort, approval) = match self.role_cfg.get(&role) {
+        let (mut sandbox, model, effort, approval) = match self.role_cfg.get(&role) {
             Some(c) => (c.sandbox, c.model.clone(), c.effort.clone(), c.approval),
             None => (default_sandbox, None, None, ApprovalPolicy::OnRequest),
         };
+        // An investigation reads only: its sandbox is narrowed to read-only whatever the role says (never widened).
+        if self.task(id).is_some_and(Task::is_investigation) {
+            sandbox = SandboxKind::ReadOnly;
+        }
         if !self.rec(OrgEventKind::ChatRequested { task: id.clone(), cwd: cwd.clone() }) {
             return;
         }

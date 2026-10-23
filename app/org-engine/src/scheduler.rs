@@ -88,7 +88,8 @@ pub fn next_dispatch_with(
     for t in tasks.iter().filter(|t| occupies(t) || held.contains(&t.id)) {
         total += 1;
         *per_role.entry(&t.role).or_default() += 1;
-        if role_of(&t.role).is_some_and(|r| r.writes) {
+        // An investigation only reads: it counts toward the total, not toward the writers.
+        if role_of(&t.role).is_some_and(|r| r.writes) && t.kind.is_change() {
             writers += 1;
         }
     }
@@ -106,14 +107,15 @@ pub fn next_dispatch_with(
         if !role.enabled {
             continue;
         }
-        if role.writes && writers >= limits.max_writers {
+        let writes = role.writes && t.kind.is_change();
+        if writes && writers >= limits.max_writers {
             continue;
         }
         if role.max_concurrent.is_some_and(|m| per_role.get(&t.role).copied().unwrap_or(0) >= m) {
             continue;
         }
         total += 1;
-        if role.writes {
+        if writes {
             writers += 1;
         }
         *per_role.entry(&t.role).or_default() += 1;
@@ -134,6 +136,7 @@ mod tests {
             effects: vec![],
             title: String::new(),
             instructions: String::new(),
+            kind: TaskKind::Change,
         });
         t.status = status;
         t
@@ -203,6 +206,29 @@ mod tests {
         ];
         // writers 2, total 3: w1 running; w2 ok (writers 2), w3 blocked by writers, v1 ok (total 3), v2 total full
         assert_eq!(ids(next_dispatch(&ts, &roles(), &Limits::default(), &DispatchGate::open(10))), ["w2", "v1"]);
+    }
+
+    #[test]
+    fn an_investigation_counts_toward_the_total_but_not_the_writers() {
+        let mut i1 = task("i1", "worker", &[], TaskStatus::Running);
+        i1.kind = TaskKind::Investigate;
+        let mut i2 = task("i2", "worker", &[], TaskStatus::Ready);
+        i2.kind = TaskKind::Investigate;
+        let ts = [
+            task("w1", "worker", &[], TaskStatus::Running),
+            task("w2", "worker", &[], TaskStatus::Ready),
+            i1,
+            i2,
+        ];
+        // writers 2: w1 runs, the running investigation is not a writer, so w2 may start; total 3 leaves room for one
+        let limits = Limits::default().with_parallelism(2, 4).unwrap();
+        assert_eq!(ids(next_dispatch(&ts, &roles(), &limits, &DispatchGate::open(10))), ["w2", "i2"]);
+        // with one writer allowed an investigation still starts beside the running writer
+        let limits = Limits::default().with_parallelism(1, 4).unwrap();
+        assert_eq!(ids(next_dispatch(&ts, &roles(), &limits, &DispatchGate::open(10))), ["i2"]);
+        // the total limit still counts it
+        let limits = Limits::default().with_parallelism(2, 3).unwrap();
+        assert_eq!(ids(next_dispatch(&ts, &roles(), &limits, &DispatchGate::open(10))), ["w2"]);
     }
 
     #[test]

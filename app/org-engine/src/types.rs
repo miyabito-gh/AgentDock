@@ -79,6 +79,9 @@ pub enum BlockedReason {
     /// A worker task used up its automatic send-backs after a failed review. The user decides
     /// (send it back once more, accept it as it is, or settle it as failed; DESIGN_ORG_R2 2.3).
     ReworkLimit,
+    /// The reviewer said pass, but a check it ran failed. The user decides
+    /// (send it back once more, accept it as it is, or settle it as failed; DESIGN_ORG_R4 2.2).
+    CheckFailed,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -147,6 +150,24 @@ pub struct Dependency {
     pub task: TaskId,
 }
 
+/// What a plannedTasks worker task produces. Absent in older data = `Change`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TaskKind {
+    /// Changes files; the result is a commit.
+    #[default]
+    Change,
+    /// Reads only; the result is the structured report (no commit, no worktree branch).
+    Investigate,
+}
+
+impl TaskKind {
+    /// `Change` is not written (older lines stay byte-identical).
+    pub fn is_change(&self) -> bool {
+        *self == TaskKind::Change
+    }
+}
+
 /// A task as proposed by a plan.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlanTask {
@@ -158,6 +179,8 @@ pub struct PlanTask {
     pub title: String,
     #[serde(default)]
     pub instructions: String,
+    #[serde(default, skip_serializing_if = "TaskKind::is_change")]
+    pub kind: TaskKind,
 }
 
 /// Fields marked `pub(crate)` change only through `WorkflowState::record`
@@ -172,6 +195,8 @@ pub struct Task {
     pub title: String,
     #[serde(default)]
     pub instructions: String,
+    #[serde(default, skip_serializing_if = "TaskKind::is_change")]
+    pub kind: TaskKind,
     pub(crate) status: TaskStatus,
     pub(crate) confirm: ConfirmState,
     /// Rework (send-back) count so far. Attempts = 1 + rework_count.
@@ -240,6 +265,9 @@ pub struct Task {
     /// The latest review findings for this task (kept so a restart does not lose them).
     #[serde(default)]
     pub(crate) last_findings: Vec<String>,
+    /// Attempt whose investigation report was recorded (`ReportRecorded`); the file is `outputs\<task>.<attempt>.json`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) report_attempt: Option<u32>,
 }
 
 impl Task {
@@ -251,6 +279,7 @@ impl Task {
             effects: p.effects.clone(),
             title: p.title.clone(),
             instructions: p.instructions.clone(),
+            kind: p.kind,
             status: TaskStatus::Pending,
             confirm: ConfirmState::Confirmed,
             rework_count: 0,
@@ -276,6 +305,7 @@ impl Task {
             held: false,
             user_rework_count: 0,
             last_findings: Vec::new(),
+            report_attempt: None,
         }
     }
     pub fn status(&self) -> TaskStatus {
@@ -356,6 +386,13 @@ impl Task {
     }
     pub fn last_findings(&self) -> &[String] {
         &self.last_findings
+    }
+    pub fn report_attempt(&self) -> Option<u32> {
+        self.report_attempt
+    }
+    /// An investigation task: reads only, its result is a report.
+    pub fn is_investigation(&self) -> bool {
+        self.kind == TaskKind::Investigate
     }
     /// The latest event seq at which this task produced something (an output or an edge decision).
     pub(crate) fn seen_seq(&self) -> u64 {

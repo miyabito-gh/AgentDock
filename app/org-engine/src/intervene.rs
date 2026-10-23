@@ -99,12 +99,12 @@ pub fn send_back_check(state: &WorkflowState, task: &TaskId, turns_remaining: u3
     if !is_worker(t) {
         return Err("このタスクは差し戻せません（計画の作業タスクだけです）".into());
     }
-    let at_limit = t.status() == TaskStatus::Blocked(BlockedReason::ReworkLimit);
+    let at_limit = matches!(t.status(), TaskStatus::Blocked(BlockedReason::ReworkLimit | BlockedReason::CheckFailed));
     if !(t.status() == TaskStatus::Reviewing || at_limit) {
         return Err(if t.status() == TaskStatus::Completed {
             "完了したタスクは差し戻せません。後続のタスクへは追加指示で伝えてください".to_string()
         } else {
-            "このタスクは差し戻せる状態ではありません（検証待ち、または差し戻し上限で止まっている間だけです）".to_string()
+            "このタスクは差し戻せる状態ではありません（検証待ち、または差し戻し上限・検証コマンドの失敗で止まっている間だけです）".to_string()
         });
     }
     if t.confirm() != ConfirmState::Confirmed {
@@ -134,8 +134,8 @@ pub fn send_back_check(state: &WorkflowState, task: &TaskId, turns_remaining: u3
 /// "Accept as it is" for a worker stopped at the send-back limit: the reviewers that are still waiting are skipped.
 pub fn accept_as_is_check(state: &WorkflowState, task: &TaskId) -> Result<Vec<TaskId>, String> {
     let t = state.task(task).ok_or_else(|| "タスクが見つかりません".to_string())?;
-    if !is_worker(t) || t.status() != TaskStatus::Blocked(BlockedReason::ReworkLimit) {
-        return Err("差し戻し上限で止まっている作業タスクだけ、このまま受け入れられます".into());
+    if !is_worker(t) || !matches!(t.status(), TaskStatus::Blocked(BlockedReason::ReworkLimit | BlockedReason::CheckFailed)) {
+        return Err("差し戻し上限、または検証のコマンドの失敗で止まっている作業タスクだけ、このまま受け入れられます".into());
     }
     if t.confirm() != ConfirmState::Confirmed {
         return Err("確認状態が確定していないため受け入れられません".into());
@@ -166,6 +166,7 @@ mod tests {
                         effects: vec![],
                         title: String::new(),
                         instructions: String::new(),
+                        kind: TaskKind::Change,
                     },
                 },
                 0,

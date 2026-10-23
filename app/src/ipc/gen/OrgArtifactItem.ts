@@ -13,6 +13,10 @@ export type OrgArtifactItem = { task: string, title: string, role: string, branc
  */
 statusNote: string | null, files: Known<Array<OrgArtifactFile>>, totals: Known<OrgArtifactTotals>, report: Known<OrgWorkerReportView>, reviews: Known<Array<OrgReviewView>>, 
 /**
+ * 検証・申告についての注意（テスト未実行の合格、申告と判定の食い違い）。
+ */
+reviewNotes: Array<string>, 
+/**
  * Worker の申告と差分の違い（申告にあって差分にない／差分にあって申告にないパス）。
  */
 reportMismatch: Array<string>, 

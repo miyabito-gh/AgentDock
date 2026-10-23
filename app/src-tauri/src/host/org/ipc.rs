@@ -356,7 +356,7 @@ impl Host {
         let stopped = matches!(
             t.status,
             TaskStatus::Blocked(
-                org_engine::BlockedReason::UsageLimit | org_engine::BlockedReason::TurnFailed | org_engine::BlockedReason::ManualStop | org_engine::BlockedReason::NeedsAttention | org_engine::BlockedReason::ReworkLimit
+                org_engine::BlockedReason::UsageLimit | org_engine::BlockedReason::TurnFailed | org_engine::BlockedReason::ManualStop | org_engine::BlockedReason::NeedsAttention | org_engine::BlockedReason::ReworkLimit | org_engine::BlockedReason::CheckFailed
             )
         );
         if !stopped || t.confirm != org_engine::ConfirmState::Confirmed {
@@ -739,7 +739,7 @@ impl Host {
             Some(Err(why)) => return Err(err(IpcErrorCode::InvalidArgs, why.clone())),
             None => return Err(err(IpcErrorCode::InvalidArgs, "このタスクは差し戻せません（計画の作業タスクだけです）")),
         }
-        if note.is_none() && t.status != TaskStatus::Blocked(org_engine::BlockedReason::ReworkLimit) {
+        if note.is_none() && !matches!(t.status, TaskStatus::Blocked(org_engine::BlockedReason::ReworkLimit | org_engine::BlockedReason::CheckFailed)) {
             return Err(err(IpcErrorCode::InvalidArgs, "差し戻しの指摘を書いてください"));
         }
         let _ = tx.send(DriverMsg::Input(OrgInput::UserSendBack { task: t.id, note }));
@@ -751,7 +751,7 @@ impl Host {
         let (_, tx) = self.org_check_workflow(&args.workflow_id)?;
         let t = self.org_task_of_view(&args.task)?;
         if !t.extras.can_accept_as_is {
-            return Err(err(IpcErrorCode::InvalidArgs, "差し戻し上限で止まっている作業タスクだけ、このまま受け入れられます"));
+            return Err(err(IpcErrorCode::InvalidArgs, "差し戻し上限、または検証のコマンドの失敗で止まっている作業タスクだけ、このまま受け入れられます"));
         }
         let _ = tx.send(DriverMsg::Input(OrgInput::UserAcceptAsIs { task: t.id }));
         Ok(())

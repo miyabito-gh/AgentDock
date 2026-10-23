@@ -203,6 +203,7 @@ impl OrgCore {
             effects: vec![],
             title: def.label.clone().unwrap_or_else(|| node.0.clone()),
             instructions,
+            kind: TaskKind::Change,
         };
         self.rec(OrgEventKind::ActivationAdded { task, node: node.clone(), via }).then_some(id)
     }

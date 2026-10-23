@@ -47,6 +47,7 @@ pub fn status_view(s: TaskStatus) -> OrgStatusView {
                 EBlocked::UsageLimit => (OrgReason::UsageLimit, "止まっています（利用上限）"),
                 EBlocked::TurnFailed => (OrgReason::TurnFailed, "止まっています（turnが失敗）"),
                 EBlocked::ReworkLimit => (OrgReason::ReworkLimit, "止まっています（差し戻しの上限）"),
+                EBlocked::CheckFailed => (OrgReason::CheckFailed, "止まっています（検証のコマンドが失敗）"),
             };
             (P::Blocked, Some(reason), label, "pause")
         }
@@ -313,6 +314,7 @@ fn task_view(t: &TaskSnapshot, snap: &OrgSnapshot, notices: &[NoticeEntry]) -> O
     OrgTaskView {
         id: t.id.0.clone(),
         role: t.role.clone(),
+        kind: if ex.investigation { OrgTaskKind::Investigate } else { OrgTaskKind::Change },
         title: t.title.clone(),
         deps: t.deps.iter().map(|d| d.0.clone()).collect(),
         waiting_on,
@@ -335,7 +337,7 @@ fn task_view(t: &TaskSnapshot, snap: &OrgSnapshot, notices: &[NoticeEntry]) -> O
         retry,
         retry_refusal,
         can_fail: t.confirm == ConfirmState::Confirmed
-            && matches!(t.status, TaskStatus::Blocked(EBlocked::UsageLimit | EBlocked::TurnFailed | EBlocked::ManualStop | EBlocked::NeedsAttention | EBlocked::ReworkLimit)),
+            && matches!(t.status, TaskStatus::Blocked(EBlocked::UsageLimit | EBlocked::TurnFailed | EBlocked::ManualStop | EBlocked::NeedsAttention | EBlocked::ReworkLimit | EBlocked::CheckFailed)),
         can_adopt_manual: t.status == TaskStatus::Blocked(EBlocked::Manual) && t.confirm == ConfirmState::Confirmed && t.chat.is_some(),
         attention_note: attention_note(t, notices),
         since: None,
@@ -343,9 +345,9 @@ fn task_view(t: &TaskSnapshot, snap: &OrgSnapshot, notices: &[NoticeEntry]) -> O
         skip,
         skip_refusal,
         can_send_back: matches!(ex.send_back, Some(Ok(()))),
-        send_back_needs_note: t.status != TaskStatus::Blocked(EBlocked::ReworkLimit),
+        send_back_needs_note: !matches!(t.status, TaskStatus::Blocked(EBlocked::ReworkLimit | EBlocked::CheckFailed)),
         send_back_refusal: match &ex.send_back {
-            Some(Err(e)) if matches!(t.status, TaskStatus::Reviewing | TaskStatus::Blocked(EBlocked::ReworkLimit)) => Some(e.clone()),
+            Some(Err(e)) if matches!(t.status, TaskStatus::Reviewing | TaskStatus::Blocked(EBlocked::ReworkLimit | EBlocked::CheckFailed)) => Some(e.clone()),
             _ => None,
         },
         can_accept_as_is: ex.can_accept_as_is,

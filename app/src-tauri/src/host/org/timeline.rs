@@ -96,7 +96,7 @@ mod tests {
         OrgEvent { schema_version: 2, seq, at_ms: 1000 + seq as i64, kind }
     }
     fn added(seq: u64, id: &str) -> OrgEvent {
-        ev(seq, OrgEventKind::TaskAdded { task: PlanTask { id: TaskId::new(id), role: RoleId::new("worker"), deps: vec![], effects: vec![], title: String::new(), instructions: String::new() } })
+        ev(seq, OrgEventKind::TaskAdded { task: PlanTask { id: TaskId::new(id), role: RoleId::new("worker"), deps: vec![], effects: vec![], title: String::new(), instructions: String::new(), kind: org_engine::TaskKind::Change } })
     }
 
     #[test]

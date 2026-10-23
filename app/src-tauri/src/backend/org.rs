@@ -41,6 +41,8 @@ pub enum OrgReason {
     RoundLimit,
     /// 検証で不合格が続き、差し戻しの上限に達した（利用者が「もう一度直させる」「このまま受け入れる」「失敗として確定」を選ぶ）。
     ReworkLimit,
+    /// Reviewer は合格としたが、実行した確認のコマンドが失敗した。利用者が「もう一度直させる」「このまま受け入れる」「失敗として確定」を選ぶ。
+    CheckFailed,
     /// 利用上限で turn が失敗した。利用者が「新しい試行で再送」「失敗として確定」などを選ぶ。
     UsageLimit,
     /// turn が失敗した（利用上限以外、または区分不明）。利用者が選ぶ。
@@ -48,6 +50,17 @@ pub enum OrgReason {
     ExecutionFailed,
     InvalidArtifact,
     LimitReached,
+}
+
+/// 計画のタスクの種類（調査は、ファイルを変えず結果を報告に書く）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub enum OrgTaskKind {
+    #[default]
+    Change,
+    Investigate,
 }
 
 /// 業務状態（軸1）。
@@ -312,6 +325,9 @@ pub struct OrgPlanApprovalView {
 pub struct OrgTaskView {
     pub id: String,
     pub role: String,
+    /// 種類（調査か、変更か）。
+    #[serde(default)]
+    pub kind: OrgTaskKind,
     pub title: String,
     pub deps: Vec<String>,
     /// 終わっていない依存（「T2,T3待ち」の元）。

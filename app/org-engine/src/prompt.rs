@@ -29,8 +29,11 @@ pub fn planner_prompt(request: &str, repo: &str) -> String {
         "あなたは計画担当(Planner)です。コードは変更せず、調べて計画だけを作ります。\n\
          リポジトリ: {repo}\n\
          依頼を、worker（実装）と reviewer（検証）のタスクに分解してください。\n\
-         - 各タスクは id（短い英数字）、role（worker か reviewer）、deps（先に終わるべきタスクのid）、effects（下記）、title、instructions を持つ。\n\
-         - reviewer は、検証する worker タスク1件だけに deps で依存する。テスト実行の確認は reviewer の検証項目に含める。\n\
+         - 各タスクは id（短い英数字）、role（worker か reviewer）、kind（change か investigate）、deps（先に終わるべきタスクのid）、effects（下記）、title、instructions を持つ。\n\
+         - 調べるだけで済む作業（コード・文書・履歴の調査、比較、要約）は kind=investigate の worker にする。investigate はファイルを変更せず、結果を報告に書く。\n\
+         - ファイルを変更する作業は kind=change。調査結果を使って文書・コードを作る作業は、調査タスクに deps で依存する change タスクにする。\n\
+         - 実装とそのテストは同じ change タスクに含める（後続タスクの作業場所には、先行タスクの変更が含まれない場合がある）。\n\
+         - reviewer は、検証する change の worker タスク1件だけに deps で依存する。investigate には reviewer を付けない。テスト実行の確認は reviewer の検証項目に含める。\n\
          - effects は、そのタスクが次のことをする場合だけ宣言する: userTreeWrite（利用者の作業ツリー・ブランチへ書く）、pushMergeTag（push・マージ・タグ）、outsideWorkdir（作業フォルダ外）、networkOrInstall（ネットワーク取得・パッケージ導入）、secretsOrAuth（秘密情報・認証）、deletionPrimary（削除が主目的）。\n\
          - 回答は指定のJSONスキーマに従う。\n\
          {MATERIAL_NOTE}\n{}",
@@ -62,6 +65,28 @@ pub fn worker_prompt(task: &Task, request: &str, deps: &[(TaskId, Option<String>
 
 /// Like `worker_prompt`; `skipped` are dependencies the user skipped (they produced no result).
 pub fn worker_prompt_with(task: &Task, request: &str, deps: &[(TaskId, Option<String>)], skipped: &[TaskId]) -> String {
+    let deps: Vec<PromptDep> = deps.iter().map(|(id, text)| PromptDep { id: id.clone(), text: text.clone(), investigation: false }).collect();
+    worker_prompt_ext(task, request, &deps, skipped, &[])
+}
+
+/// A dependency handed to a later task as material.
+pub struct PromptDep {
+    pub id: TaskId,
+    /// The report text (None = not obtained in this session).
+    pub text: Option<String>,
+    /// An investigation report (carries evidence; always present when the task is sent).
+    pub investigation: bool,
+}
+
+/// One investigation report handed to a later task is cut at this many characters.
+pub const REPORT_PROMPT_CHARS: usize = 16_000;
+
+/// The investigation reports of all dependencies together are cut at this many characters.
+pub const REPORTS_TOTAL_CHARS: usize = 48_000;
+
+/// `deps` with the kind of each; `unincluded` = dependencies that changed files: their changes are not in this
+/// task's working folder (it starts from the repository's HEAD).
+pub fn worker_prompt_ext(task: &Task, request: &str, deps: &[PromptDep], skipped: &[TaskId], unincluded: &[TaskId]) -> String {
     let mut s = format!(
         "あなたは実装担当(Worker)です。このフォルダ（専用のworktree）で、次のタスクだけを行います。\n\
          タスク {}: {}\n\
@@ -74,17 +99,57 @@ pub fn worker_prompt_with(task: &Task, request: &str, deps: &[(TaskId, Option<St
     s.push_str(&quote("タスクの指示", &task.instructions));
     s.push('\n');
     s.push_str(&quote("利用者の元の依頼", request));
-    for (id, summary) in deps {
+    s.push_str(&deps_section(deps, skipped, "（以下省略。全文は成果物パネルにあります）"));
+    if !unincluded.is_empty() {
+        let ids: Vec<String> = unincluded.iter().map(|i| i.0.clone()).collect();
+        s.push_str(&format!(
+            "\n\n注意: 先行タスク {} の変更は、この作業場所には含まれていません（リポジトリのHEADから始まっています）。それらのファイルが必要なら、報告を手がかりに、このタスクの範囲で必要な分を自分で用意してください。",
+            ids.join("・")
+        ));
+    }
+    s
+}
+
+/// The dependencies as material. Investigation reports share `REPORTS_TOTAL_CHARS`; the rest is cut with `cut_note`.
+fn deps_section(deps: &[PromptDep], skipped: &[TaskId], cut_note: &str) -> String {
+    let mut s = String::new();
+    let mut used = 0usize;
+    for d in deps {
+        let id = &d.id;
         s.push('\n');
         if skipped.contains(id) {
             s.push_str(&format!("(先行タスク {id} は利用者がスキップしました: 成果なし)"));
             continue;
         }
-        match summary {
-            Some(t) => s.push_str(&quote(&format!("先行タスク {id} の報告"), t)),
-            None => s.push_str(&format!("(先行タスク {id} の報告は、このセッションでは未取得です。必要なら現在のコードで確認してください)")),
+        match (&d.text, d.investigation) {
+            (Some(t), true) => {
+                let room = REPORTS_TOTAL_CHARS.saturating_sub(used);
+                let n = t.chars().count();
+                used += n.min(room);
+                let body = if n <= room { t.clone() } else { format!("{}\n{cut_note}", t.chars().take(room).collect::<String>()) };
+                s.push_str(&quote(&format!("先行タスク {id} の調査報告"), &body));
+            }
+            (Some(t), false) => s.push_str(&quote(&format!("先行タスク {id} の報告"), t)),
+            (None, _) => s.push_str(&format!("(先行タスク {id} の報告は、このセッションでは未取得です。必要なら現在のコードで確認してください)")),
         }
     }
+    s
+}
+
+/// The prompt of an investigation task: read only, report with evidence. No scope note for implementation.
+pub fn investigate_prompt(task: &Task, request: &str, deps: &[PromptDep], skipped: &[TaskId]) -> String {
+    let mut s = format!(
+        "あなたは調査担当です。このフォルダ（読み取り専用の作業場所）で、次のタスクだけを行います。ファイルは変更しません。\n\
+         タスク {}: {}\n\
+         調べた結果を、根拠と参照箇所（ファイル:行、コミット）付きで報告に書いてください。推測は推測と書き、分からないことは openQuestions に書いてください。\n\
+         回答は指定のJSONスキーマ（summary、findings、references、openQuestions）に従う。\n\
+         {MATERIAL_NOTE}\n",
+        task.id, task.title
+    );
+    s.push_str(&quote("タスクの指示", &task.instructions));
+    s.push('\n');
+    s.push_str(&quote("利用者の元の依頼", request));
+    s.push_str(&deps_section(deps, skipped, "（以下省略）"));
     s
 }
 
@@ -120,14 +185,19 @@ pub fn worker_rework_prompt(task: &Task, findings: Option<&[String]>) -> String 
 }
 
 /// `target`: (worker task id, its report summary if known, commit id).
-pub fn reviewer_prompt(task: &Task, request: &str, target: (&TaskId, Option<&str>, &str), round: u32) -> String {
+/// `claim`: the worker's own claim `(tests ran, tests passed)` when known; shown as a claim, never as a result.
+pub fn reviewer_prompt(task: &Task, request: &str, target: (&TaskId, Option<&str>, &str), round: u32, claim: Option<(bool, bool)>) -> String {
     let (wid, summary, commit) = target;
     let mut s = format!(
         "あなたは検証担当(Reviewer)です。ファイルは変更せず、読むことだけをします。\n\
          タスク {}: {}\n\
          検証対象: worker タスク {wid} のコミット {commit}（第{round}回）。作業ツリーが古い場合があるので、`git show {commit}` や `git diff` で内容を確認してください。\n\
          検証項目: 依頼どおりか、不具合や抜けがないか、テストが実行・成功しているか。\n\
-         回答は指定のJSONスキーマ（verdict は pass か rework、findings に指摘）に従う。rework のときは findings に直すべき点を書く。\n\
+         - テストがあれば実行する。失敗・エラー（収集エラー・ImportError を含む）が1件でもあれば pass にしない。\n\
+         - 実行したコマンドごとに checks に command・outcome（passed / failed / notRun）・結果の要約（終了コードや件数）を書く。実行していないコマンドを passed と書かない。\n\
+         - この sandbox は読み取り専用。書込みが要るためテストを実行できない場合は outcome=notRun とし、理由を summary に書く（-p no:cacheprovider 等のキャッシュ無効化は使ってよい）。権限の変更・承認の要求で回避しない。\n\
+         - テストが存在しない・文書だけの変更などで実行するものが無いときは checks を空にし、noCheckReason に理由を書く。確認が成功したものがあるときの noCheckReason は空文字にする。\n\
+         回答は指定のJSONスキーマ（verdict は pass か rework、findings に指摘、checks、noCheckReason）に従う。rework のときは findings に直すべき点を書く。\n\
          {MATERIAL_NOTE}\n",
         task.id, task.title
     );
@@ -138,6 +208,14 @@ pub fn reviewer_prompt(task: &Task, request: &str, target: (&TaskId, Option<&str
     match summary {
         Some(t) => s.push_str(&quote(&format!("worker {wid} の報告"), t)),
         None => s.push_str(&format!("(worker {wid} の報告は、このセッションでは未取得です。コミットの内容から確認してください)")),
+    }
+    if let Some((ran, passed)) = claim {
+        let yn = |b: bool| if b { "はい" } else { "いいえ" };
+        s.push_str(&format!(
+            "\nWorker の申告（自己申告です。必ず自分で実行して確かめてください）: テストを実行=「{}」／成功=「{}」",
+            yn(ran),
+            yn(passed)
+        ));
     }
     s
 }

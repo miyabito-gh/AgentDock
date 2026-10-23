@@ -94,6 +94,8 @@ pub struct TaskExtras {
     /// 計画の作業タスクだけ Some。差し戻せるか（指摘の有無は問わない）か、できない理由。
     pub send_back: Option<Result<(), String>>,
     pub can_accept_as_is: bool,
+    /// 調査タスク（ファイルを変えず、結果は報告）。
+    pub investigation: bool,
     pub can_hold: bool,
     /// このタスクにまだ届いていない追加指示の件数。
     pub notes_pending: u32,
@@ -219,6 +221,7 @@ fn extras_of(state: &org_engine::WorkflowState, t: &org_engine::Task) -> TaskExt
         skip: plan.then(|| org_engine::skip_plan(state, &t.id)),
         send_back: worker.then(|| org_engine::send_back_check(state, &t.id, remaining, Some("x")).map(|_| ())),
         can_accept_as_is: worker && org_engine::accept_as_is_check(state, &t.id).is_ok(),
+        investigation: t.is_investigation(),
         can_hold: plan
             && matches!(t.status(), TaskStatus::Pending | TaskStatus::Ready)
             && t.confirm() == ConfirmState::Confirmed
@@ -497,6 +500,21 @@ impl<P: AgentRuntime + RuntimeRead + Workspace + 'static> OrgDriver<P> {
                     self.persist_failed = true;
                     *stop_effects = true;
                     self.notice(OrgHostNotice::SlotWriteFailed { slot: slot.0.clone() });
+                }
+                None
+            }
+            // 調査報告（調査タスクの唯一の成果）。書けないまま完了を記録すると、後続へ渡す報告のない完了ができる。
+            // 書けなければ以後の副作用を止める（追記の失敗と同じ扱い）。
+            OrgAction::PutReport { task, attempt, value } => {
+                if self.persist_failed {
+                    *stop_effects = true;
+                    return None;
+                }
+                if let Err(e) = self.store.put_output(&task, attempt, &value) {
+                    crate::diag::log("org", &format!("report write failed task={} attempt={attempt}: {e:?}", task.0));
+                    self.persist_failed = true;
+                    *stop_effects = true;
+                    self.notice(OrgHostNotice::SlotWriteFailed { slot: format!("調査報告 {}", task.0) });
                 }
                 None
             }

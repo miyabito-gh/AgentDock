@@ -342,6 +342,12 @@ pub enum OrgEventKind {
     /// The review findings for a worker task (replaces the earlier ones).
     FindingsRecorded { task: TaskId, findings: Vec<String> },
     TaskHeld { task: TaskId, held: bool },
+    /// An investigation task's report was written (`outputs\<task>.<attempt>.json`; the host writes it just before).
+    /// Changes nothing but `report_attempt`.
+    ReportRecorded { task: TaskId, attempt: u32, bytes: u32 },
+    /// The reviewer `task` said pass, but the checks `failed` (commands) failed for `target`: the pass was held back
+    /// (the status change follows as `StatusChanged`). For the timeline; changes no state by itself.
+    VerdictDemoted { task: TaskId, target: TaskId, failed: Vec<String> },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -576,6 +582,13 @@ impl WorkflowState {
             OrgEventKind::TaskHeld { task, held } => {
                 self.task_mut(task)?.held = *held;
             }
+            OrgEventKind::ReportRecorded { task, attempt, .. } => {
+                self.task_mut(task)?.report_attempt = Some(*attempt);
+            }
+            OrgEventKind::VerdictDemoted { task, target, .. } => {
+                self.task_mut(task)?;
+                self.task_mut(target)?;
+            }
             OrgEventKind::RetryRequested { task } => {
                 let max = self.limits.max_retries;
                 let t = self.task_mut(task)?;
@@ -717,8 +730,9 @@ pub trait OrgStore {
     fn put_slot(&self, _slot: &SlotId, _version: u32, _value: &serde_json::Value) -> Result<(), StoreError> {
         Err(StoreError::Io("この保存口はスロットの値を保存できません".into()))
     }
-    /// Write a displayed plannedTasks output (`outputs\<task>.<attempt>.json`, atomically). Display only; the engine never
-    /// reads it, so a store that cannot keep it does not hold anything up.
+    /// Write a plannedTasks output (`outputs\<task>.<attempt>.json`, atomically). A worker report / verdict is for display
+    /// only, so a store that cannot keep it does not hold anything up; an investigation report (`PutReport`) is the
+    /// task's only result, so the host stops the later actions when this fails.
     fn put_output(&self, _task: &TaskId, _attempt: u32, _value: &serde_json::Value) -> Result<(), StoreError> {
         Err(StoreError::Io("この保存口は出力を保存できません".into()))
     }
@@ -919,7 +933,7 @@ mod tests {
     }
 
     fn pt(id: &str, deps: &[&str]) -> PlanTask {
-        PlanTask { id: TaskId::new(id), role: RoleId::new("worker"), deps: deps.iter().map(|d| TaskId::new(*d)).collect(), effects: vec![], title: String::new(), instructions: String::new() }
+        PlanTask { id: TaskId::new(id), role: RoleId::new("worker"), deps: deps.iter().map(|d| TaskId::new(*d)).collect(), effects: vec![], title: String::new(), instructions: String::new(), kind: TaskKind::Change }
     }
 
     /// Writes a small history: t1 completed, t2 running, t3 pending. Returns the live state.

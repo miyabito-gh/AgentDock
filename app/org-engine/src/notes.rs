@@ -69,7 +69,7 @@ mod tests {
         for id in ["a", "b"] {
             s.record(
                 OrgEventKind::TaskAdded {
-                    task: PlanTask { id: TaskId::new(id), role: RoleId::new("worker"), deps: vec![], effects: vec![], title: String::new(), instructions: String::new() },
+                    task: PlanTask { id: TaskId::new(id), role: RoleId::new("worker"), deps: vec![], effects: vec![], title: String::new(), instructions: String::new(), kind: TaskKind::Change },
                 },
                 0,
             )

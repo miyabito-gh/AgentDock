@@ -644,11 +644,19 @@ impl Host {
                 attention: true,
             });
         }
+        // 報告を読み戻す。読めない調査報告は「未取得」のまま（それを使う次のタスクは、最終回答から1回だけ読み直し、だめなら止まる）。
+        let (reports, unreadable_reports) = graphs::read_reports(store.as_ref(), &state);
+        for task in unreadable_reports {
+            notes.push(OrgHostNotice::DefinitionNote {
+                message: format!("調査 {task} の保存済みの報告を読めませんでした（これを使う次のタスクは、最終回答から1回だけ読み直します。読めなければ止まります）"),
+                attention: false,
+            });
+        }
         let (graph, copied_roles) = match copy {
             Some((g, r)) => (Some(g), Some(r)),
             None => (None, None),
         };
-        let mut core = OrgCore::restored_with(state, graph, slots, now_ms().0);
+        let mut core = OrgCore::restored_with(state, graph, org_engine::RestoredExtras { slots, reports }, now_ms().0);
         // 写しの役割で動かす。写しがない（従来の計画経路のワークフロー）ときは今の役割定義（読めなければ標準の既定のまま。権限を広げない側）。
         if let Err(e) = core.set_roles(copied_roles.as_deref().unwrap_or(&report.roles)) {
             crate::diag::log("org", &format!("roles on restore: {e}"));

@@ -100,6 +100,7 @@ mod tests {
             effects: effects.to_vec(),
             title: String::new(),
             instructions: String::new(),
+            kind: TaskKind::Change,
         }
     }
     fn eval(tasks: &[PlanTask], kind: PlanKind, par: Option<u32>, turns: u32) -> Decision {

@@ -53,6 +53,13 @@ impl OrgStore for MemStore {
         self.slots.lock().unwrap().push(format!("{}.{version}", slot.0));
         Ok(())
     }
+    fn put_output(&self, task: &TaskId, attempt: u32, _value: &serde_json::Value) -> Result<(), StoreError> {
+        if self.fail_slots {
+            return Err(StoreError::Io("disk full".into()));
+        }
+        self.log.lock().unwrap().push(format!("report:{}.{attempt}", task.0));
+        Ok(())
+    }
 }
 
 struct Fake {
@@ -447,6 +454,45 @@ async fn a_slot_value_that_cannot_be_written_stops_everything_after_it() {
     // a later write is not even tried
     assert!(r.driver.exec(put_slot(2), &mut stop).await.is_none());
     assert!(!r.log.lock().unwrap().iter().any(|l| l.starts_with("slot:")));
+}
+
+fn report_recorded() -> OrgAction {
+    OrgAction::Persist(OrgEvent {
+        schema_version: SCHEMA_VERSION,
+        seq: 9,
+        at_ms: 0,
+        kind: org_engine::OrgEventKind::ReportRecorded { task: TaskId::new("plan-1"), attempt: 0, bytes: 1 },
+    })
+}
+
+fn put_report() -> OrgAction {
+    OrgAction::PutReport { task: TaskId::new("plan-1"), attempt: 0, value: serde_json::json!({"summary": "s"}) }
+}
+
+#[tokio::test]
+async fn an_investigation_report_is_written_before_it_is_recorded() {
+    let mut r = rig(None);
+    let mut stop = false;
+    assert!(r.driver.exec(put_report(), &mut stop).await.is_none());
+    assert!(r.driver.exec(report_recorded(), &mut stop).await.is_none());
+    assert!(!stop && !r.driver.persist_failed);
+    let log = r.log.lock().unwrap().clone();
+    let put = log.iter().position(|l| l == "report:plan-1.0").unwrap();
+    let rec = log.iter().position(|l| l.contains("ReportRecorded")).unwrap();
+    assert!(put < rec, "{log:?}");
+}
+
+#[tokio::test]
+async fn an_investigation_report_that_cannot_be_written_stops_everything_after_it() {
+    let mut r = rig_full(None, true);
+    start(&mut r).await;
+    let mut stop = false;
+    assert!(r.driver.exec(put_report(), &mut stop).await.is_none());
+    assert!(stop && r.driver.persist_failed);
+    assert!(r.sink.notices.lock().unwrap().iter().any(|n| matches!(n, OrgHostNotice::SlotWriteFailed { slot } if slot.contains("plan-1"))));
+    // the completion is not recorded without its report
+    assert!(r.driver.exec(report_recorded(), &mut stop).await.is_none());
+    assert!(!r.log.lock().unwrap().iter().any(|l| l.contains("ReportRecorded")));
 }
 
 /// 照合（読取りだけ）で失敗の終端を確認したときの行き先。区分が読めたものだけ上限か否かを決め、読めないものは区分不明にする。

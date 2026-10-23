@@ -784,6 +784,77 @@ pub fn parse_review_value(v: &serde_json::Value) -> Option<(OrgReviewVerdict, Ve
     Some((verdict, string_list(v.get("findings")?)?))
 }
 
+/// 検証役の出力の確認の記録（`checks`・`noCheckReason`）。どちらも無い（この版より前の出力）ときは (None, None)＝「記録なし」。
+/// 形が合わない項目は None にする（推定しない）。
+pub fn parse_review_checks(v: &serde_json::Value) -> (Option<Vec<OrgCheckView>>, Option<String>) {
+    let checks = v.get("checks").and_then(|c| c.as_array()).and_then(|a| {
+        a.iter()
+            .map(|c| {
+                let outcome = match c.get("outcome")?.as_str()? {
+                    "passed" => OrgCheckOutcome::Passed,
+                    "failed" => OrgCheckOutcome::Failed,
+                    "notRun" => OrgCheckOutcome::NotRun,
+                    _ => return None,
+                };
+                Some(OrgCheckView { command: c.get("command")?.as_str()?.to_string(), outcome, summary: c.get("summary")?.as_str()?.to_string() })
+            })
+            .collect::<Option<Vec<_>>>()
+    });
+    let reason = v.get("noCheckReason").and_then(|r| r.as_str()).map(str::to_string);
+    (checks, reason)
+}
+
+/// 合格としたが、確認のコマンドが失敗した判定（エンジンは合格を保留する）。
+pub fn is_held_back(verdict: OrgReviewVerdict, checks: Option<&[OrgCheckView]>) -> bool {
+    verdict == OrgReviewVerdict::Pass && checks.is_some_and(|c| c.iter().any(|x| x.outcome == OrgCheckOutcome::Failed))
+}
+
+/// 検証・申告についての注意。最新の判定が合格のときだけ見る。
+/// - 成功した確認が1件もない合格: 「テスト未実行の合格（理由…）」。
+/// - Worker が「テストを実行したが成功していない」と申告したのに、確認の失敗なしで合格: 「申告と判定が食い違います」（申告は判定に使わない）。
+pub fn review_notes(reviews: &[OrgReviewView], report: Option<&OrgWorkerReportView>) -> Vec<String> {
+    let Some(last) = reviews.last() else { return Vec::new() };
+    if last.verdict != OrgReviewVerdict::Pass || last.held_back {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    if let Some(checks) = &last.checks {
+        if !checks.iter().any(|c| c.outcome == OrgCheckOutcome::Passed) {
+            let reason = last.no_check_reason.as_deref().map(str::trim).filter(|r| !r.is_empty());
+            out.push(match reason {
+                Some(r) => format!("テスト未実行の合格です（検証役の理由: {r}）"),
+                None => "テスト未実行の合格です（理由の記録なし）".to_string(),
+            });
+        }
+    }
+    if report.is_some_and(|r| r.tests_ran && !r.tests_passed) {
+        out.push("申告と判定が食い違います（Worker は「テストが成功していない」と申告していますが、検証は合格としています）".to_string());
+    }
+    out
+}
+
+/// 調査報告（`{summary, findings[{point, basis, refs}], references, openQuestions}`）。形が違えば None。
+pub fn parse_investigation_value(v: &serde_json::Value) -> Option<OrgInvestigationView> {
+    let findings = v
+        .get("findings")?
+        .as_array()?
+        .iter()
+        .map(|f| {
+            Some(OrgInvestigationFindingView {
+                point: f.get("point")?.as_str()?.to_string(),
+                basis: f.get("basis")?.as_str()?.to_string(),
+                refs: string_list(f.get("refs")?)?,
+            })
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some(OrgInvestigationView {
+        summary: v.get("summary")?.as_str()?.to_string(),
+        findings,
+        references: string_list(v.get("references")?)?,
+        open_questions: string_list(v.get("openQuestions")?)?,
+    })
+}
+
 /// Worker の報告（`{summary, changedFiles, tests{ran, passed}}`）。形が違えば None。
 pub fn parse_report_value(v: &serde_json::Value) -> Option<OrgWorkerReportView> {
     let tests = v.get("tests")?;
@@ -819,6 +890,55 @@ mod tests {
     use super::*;
     use OrgArtifactStatus as S;
     use OrgTaskPhase as P;
+
+    fn review(verdict: OrgReviewVerdict, checks: Option<Vec<OrgCheckView>>, reason: Option<&str>) -> OrgReviewView {
+        let held_back = is_held_back(verdict, checks.as_deref());
+        OrgReviewView { reviewer_task: "r".into(), verdict, findings: vec![], checks, no_check_reason: reason.map(str::to_string), held_back, round: 1, commit: None, from_history: false }
+    }
+    fn check(outcome: OrgCheckOutcome) -> OrgCheckView {
+        OrgCheckView { command: "pytest".into(), outcome, summary: "s".into() }
+    }
+
+    #[test]
+    fn checks_are_read_leniently_and_old_outputs_show_no_record() {
+        let v = serde_json::json!({"verdict":"pass","findings":[],"checks":[{"command":"pytest","outcome":"notRun","summary":"read-only"}],"noCheckReason":"cannot write"});
+        let (checks, reason) = parse_review_checks(&v);
+        assert_eq!(checks.unwrap()[0].outcome, OrgCheckOutcome::NotRun);
+        assert_eq!(reason.as_deref(), Some("cannot write"));
+        // an older output has no such fields: "no record", not an empty list
+        assert_eq!(parse_review_checks(&serde_json::json!({"verdict":"pass","findings":[]})), (None, None));
+        // a malformed check list is not guessed
+        assert_eq!(parse_review_checks(&serde_json::json!({"checks":[{"command":"c","outcome":"maybe","summary":"s"}]})).0, None);
+        assert!(is_held_back(OrgReviewVerdict::Pass, Some(&[check(OrgCheckOutcome::Failed)])));
+        assert!(!is_held_back(OrgReviewVerdict::Rework, Some(&[check(OrgCheckOutcome::Failed)])));
+        assert!(!is_held_back(OrgReviewVerdict::Pass, None));
+    }
+
+    #[test]
+    fn review_notes_flag_an_unverified_pass_and_a_claim_that_disagrees() {
+        let unverified = review(OrgReviewVerdict::Pass, Some(vec![]), Some("docs only"));
+        assert_eq!(review_notes(&[unverified], None), ["テスト未実行の合格です（検証役の理由: docs only）"]);
+        let ok = review(OrgReviewVerdict::Pass, Some(vec![check(OrgCheckOutcome::Passed)]), Some(""));
+        assert!(review_notes(&[ok.clone()], None).is_empty());
+        // no record (older data): no note about the checks
+        assert!(review_notes(&[review(OrgReviewVerdict::Pass, None, None)], None).is_empty());
+        // the worker claims failing tests but the review passed with no failed check
+        let claim = OrgWorkerReportView { summary: "s".into(), changed_files: vec![], tests_ran: true, tests_passed: false };
+        let notes = review_notes(&[ok], Some(&claim));
+        assert_eq!(notes.len(), 1);
+        assert!(notes[0].contains("申告と判定が食い違います"));
+        // a held-back pass or a rework adds no note
+        assert!(review_notes(&[review(OrgReviewVerdict::Pass, Some(vec![check(OrgCheckOutcome::Failed)]), None)], Some(&claim)).is_empty());
+        assert!(review_notes(&[review(OrgReviewVerdict::Rework, Some(vec![]), None)], None).is_empty());
+    }
+
+    #[test]
+    fn an_investigation_report_is_read_when_it_has_the_right_shape() {
+        let v = serde_json::json!({"summary":"s","findings":[{"point":"p","basis":"b","refs":["f:1"]}],"references":["f"],"openQuestions":["q"]});
+        let r = parse_investigation_value(&v).unwrap();
+        assert_eq!((r.summary.as_str(), r.findings[0].basis.as_str(), r.findings[0].refs.clone(), r.open_questions.clone()), ("s", "b", vec!["f:1".to_string()], vec!["q".to_string()]));
+        assert_eq!(parse_investigation_value(&serde_json::json!({"summary":"s"})), None, "not guessed");
+    }
 
     fn facts(phase: P) -> StatusFacts {
         StatusFacts { phase, has_commit: true, in_head: Some(false), superseded: false, ledger_applied: false, git_ok: true }
