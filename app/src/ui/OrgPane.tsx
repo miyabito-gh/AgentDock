@@ -9,7 +9,7 @@ import { Popover } from "./Popover";
 import { ConfirmBlock } from "./DialogParts";
 import { tipWithKey } from "./shortcuts";
 import { roleLabel } from "./orgChat";
-import { CONFIRM_TONE, EFFECT_TEXT, NODE_KIND_TEXT, PHASE_TONE, waitCauseOf, artifactText, attemptText, retryText, edgeText, REWORK_COLUMN_TIP, noReportHeadNote, finishedBannerText, groupTasks, orgPendingRequests, requestWaitText, roleCounts, reworkLimitText, roundText, taskRequestWait, taskRowId, verdictText, waitBand, waitText, waitingDetail, workflowSummary, type OrgTone } from "./org";
+import { CONFIRM_TONE, EFFECT_TEXT, NODE_KIND_TEXT, PHASE_TONE, waitCauseOf, artifactText, attemptText, retryText, edgeText, REWORK_COLUMN_TIP, noReportHeadNote, finishedBannerText, completedNoticeText, groupTasks, orgPendingRequests, requestWaitText, roleCounts, reworkLimitText, roundText, taskRequestWait, taskRowId, verdictText, waitBand, waitText, waitingDetail, workflowSummary, type OrgTone } from "./org";
 import { RequestGapLine } from "./RequestGap";
 import { keyStr, showKnown } from "./format";
 import { InterjectComposer, NEXT_TURN_NOTE } from "./InterjectComposer";
@@ -778,7 +778,7 @@ export function OrgPane(p: OrgPaneProps) {
             <summary>経過（直近 {shownNotices.length} 件）</summary>
             <ul className="org-notices">
               {shownNotices.map((n) => (
-                <li key={n.serial}><span className={`mark ${n.severity === "attention" ? "wait" : "pend"}`}>{n.severity === "attention" ? "要確認" : "情報"}</span> {n.task ? <b>{n.task}: </b> : null}{n.text}</li>
+                <li key={n.serial}><span className={`mark ${n.severity === "attention" ? "wait" : "pend"}`}>{n.severity === "attention" ? "要確認" : "情報"}</span> {n.task ? <b>{n.task}: </b> : null}{n.kind === "workflowCompleted" ? completedNoticeText(wf.tasks) : n.text}</li>
               ))}
             </ul>
           </details>

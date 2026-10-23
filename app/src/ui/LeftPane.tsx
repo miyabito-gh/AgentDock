@@ -522,7 +522,8 @@ export function LeftPane({ org, snap, sel, onSelect, onAct, onAcknowledge, onCha
       ) : null}
       <div className="left-foot">
         <button className="small" style={{ height: 22 }} onClick={() => setShowArch(true)}><Icon name="archive" />アーカイブ（{snap.chats.filter((c) => !removed(c) && !isOrgOwned(localOf(c), org?.shown ?? null) && archived(c)).length + (org?.archived.length ?? 0)}）</button>
-        {org && !org.wf ? <button className="small" style={{ height: 22 }} onClick={org.onStart} title="複数の役割のチャットで進める組織実行を開始します（開始のダイアログが開くだけです）">組織実行を開始…</button> : null}
+        {/* 完了・取り消し済み・アーカイブ済みのワークフローがあっても出す。実行中（finished でない）の間だけ、理由つきで無効にする（行のメニュー・OrgPane と同じ条件）。 */}
+        {org ? (() => { const busy = !!org.wf && org.wf.archivedAt === null && !org.wf.finished; return <button className="small" style={{ height: 22 }} disabled={busy} onClick={org.onStart} title={busy ? "実行中のワークフローがあります（終わってから新しく開始できます）" : "複数の役割のチャットで進める組織実行を開始します（開始のダイアログが開くだけです）"}>組織実行を開始…</button>; })() : null}
         <span className="only-narrow-l"><button className="small" style={{ height: 22 }} onClick={() => onAct("toggleLeft")}>閉じる</button></span>
       </div>
     </>

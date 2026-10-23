@@ -10,7 +10,7 @@ import { CopyButton, Markdown } from "./Markdown";
 import { Counts, DiffText, kindIcon, pathText } from "./DiffParts";
 import { splitPath } from "./changesView";
 import {
-  STATUS_CHIP, actionableRecords, checkOutcomeLabel, checksSummary, defaultTab, fileKey, headingText, importResultText, importable, investigationText, isCandidate, latestReview, orderSelection, parseTable, recordStateText, reviewLine, reviewVerdictLabel, reworkCount, sha7,
+  STATUS_CHIP, actionableRecords, checkOutcomeLabel, checksSummary, defaultTab, fileKey, headingText, importResultText, importable, investigationText, isCandidate, latestReview, orderSelection, parseTable, recordStateText, reviewLine, reviewVerdictLabel, reviewRoundCount, REVIEW_ROUNDS_TIP, sha7,
   tableDelimiter, tabsOf, totalsText, undoResultText, type FileTab,
 } from "./orgArtifactsView";
 
@@ -61,7 +61,7 @@ export function ArtifactsSection({ wf, live, onAct }: { wf: OrgWorkflowView; liv
               <span className="org-art-title" title={i.title}>{i.title}</span>
               <StatusChip item={i} />
               <span className="small org-art-num">{totalsText(i)}</span>
-              <span className="small muted org-art-rev">{reviewLine(i)}</span>
+              <span className="small muted org-art-rev" title={REVIEW_ROUNDS_TIP}>{reviewLine(i)}</span>
               <span className="org-art-acts">
                 <button type="button" className="btn sm" onClick={() => open(i.task)}>中身を見る</button>
                 {isCandidate(i.status) ? <button type="button" className="btn sm primary" disabled={!i.importable} title={i.importRefusal ?? "確認画面で内容を確かめてから取り込みます"} onClick={() => imp([i.task])}>取り込む…</button> : null}
@@ -243,7 +243,7 @@ function Findings({ item }: { item: OrgArtifactItem }) {
           {last.findings.length > 0 ? <ul className="check-list">{last.findings.map((f, i) => <li key={i}>{f}</li>)}</ul> : <div className="muted">所見はありません。</div>}
           {last.fromHistory ? <div className="muted">この判定は、保存された出力ではなく履歴から読んだものです。</div> : null}
           {past.length > 0 ? (
-            <details className="about"><summary>これまでの判定（差し戻し {reworkCount(rs)} 回）</summary>
+            <details className="about"><summary title={REVIEW_ROUNDS_TIP}>これまでの判定（レビュー {reviewRoundCount(rs)} 周のうち前の分）</summary>
               {past.map((r) => <div key={`${r.reviewerTask}:${r.round}`}><b>{r.round}回目: {reviewVerdictLabel(r)}</b>{r.findings.length > 0 ? <ul className="check-list">{r.findings.map((f, i) => <li key={i}>{f}</li>)}</ul> : null}</div>)}
             </details>) : null}
         </div>

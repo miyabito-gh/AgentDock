@@ -1,7 +1,7 @@
 // 実行: node --test src/ui/orgText.test.ts （tscの対象外）
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { finishedBannerText, isInvestigationOnly, noReportHeadNote, reworkCellText, edgeText, reworkLimitText, verdictJa, verdictText } from "./orgText.ts";
+import { completedNoticeText, finishedBannerText, isInvestigationOnly, noReportHeadNote, reworkCellText, edgeText, reworkLimitText, verdictJa, verdictText } from "./orgText.ts";
 
 test("周回の文言: 実行回数＝やり直し＋1。単位を分けて同じ数え方", () => {
   assert.equal(reworkLimitText(1, 3), "実行 2回目／最大 4回（やり直しは最大3回、残り2回）");
@@ -42,8 +42,16 @@ test("停止理由: 変更なしで要旨が無いときだけ補足", () => {
 
 test("調査のみ: 変更タスクが無いときだけ取り込みの案内を出さない", () => {
   assert.equal(isInvestigationOnly([{ kind: "investigate" }, { kind: "investigate" }]), true);
-  assert.equal(isInvestigationOnly([{ kind: "investigate" }, { kind: "change" }]), false);
+  // 役割のタスク（Reviewer 等）が変更種別でも、コミットが無ければ調査のみ
+  assert.equal(isInvestigationOnly([{ kind: "investigate" }, { kind: "change" }]), true);
+  assert.equal(isInvestigationOnly([{ kind: "investigate", commit: null }, { kind: "change", commit: "abc" }]), false);
+  assert.equal(isInvestigationOnly([{ kind: "change", commit: null }]), false, "調査報告が無ければ従来文言");
   assert.equal(isInvestigationOnly([]), false);
   assert.ok(finishedBannerText([{ kind: "investigate" }]).includes("調査報告"));
   assert.ok(finishedBannerText([{ kind: "change" }]).includes("取り込んで"));
+});
+
+test("完了通知の文も調査のみで切り替わる", () => {
+  assert.ok(completedNoticeText([{ kind: "investigate" }]).includes("取り込む変更はありません"));
+  assert.ok(completedNoticeText([{ kind: "change", commit: "a" }]).includes("取り込んでください"));
 });

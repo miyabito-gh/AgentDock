@@ -1,7 +1,7 @@
 // 実行: node --test src/ui/orgArtifactsView.test.ts （tscの対象外）
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { actionableRecords, checkOutcomeLabel, checksSummary, investigationText, reviewVerdictLabel, defaultTab, parseTable, tableDelimiter, headingText, importResultText, isCandidate, latestReview, orderSelection, reviewLine, reworkCount, sha7, tabsOf, totalsText, undoResultText } from "./orgArtifactsView.ts";
+import { actionableRecords, checkOutcomeLabel, checksSummary, investigationText, reviewVerdictLabel, defaultTab, parseTable, tableDelimiter, headingText, importResultText, isCandidate, latestReview, orderSelection, reviewLine, reviewRoundCount, sha7, tabsOf, totalsText, undoResultText } from "./orgArtifactsView.ts";
 
 const known = (value: any) => ({ kind: "value", value, basis: "direct" }) as any;
 const NF = { kind: "notFetched" } as any;
@@ -27,9 +27,9 @@ test("所見の1行: 最新の判定・所見の件数・差し戻しの回数�
   assert.equal(reviewLine({ reviews: NF }), "Reviewer: 未取得");
   assert.equal(reviewLine({ reviews: known([]) }), "Reviewer: なし");
   assert.equal(reviewLine({ reviews: known([review(1, "pass", ["a", "b"])]) }), "Reviewer: 合格（所見2件）");
-  assert.equal(reviewLine({ reviews: known([review(1, "rework", ["x"]), review(2, "pass")]) }), "Reviewer: 合格（差し戻し1回）");
-  assert.equal(reviewLine({ reviews: known([review(2, "unknown"), review(1, "rework", ["x"])]) }), "Reviewer: 未取得（差し戻し1回）");
-  assert.equal(reworkCount([review(1, "rework"), review(2, "rework"), review(3, "pass")]), 2);
+  assert.equal(reviewLine({ reviews: known([review(1, "rework", ["x"]), review(2, "pass")]) }), "Reviewer: 合格（レビュー2周）");
+  assert.equal(reviewLine({ reviews: known([review(2, "unknown"), review(1, "rework", ["x"])]) }), "Reviewer: 未取得（レビュー2周）");
+  assert.equal(reviewRoundCount([review(1, "rework"), review(2, "rework"), review(3, "pass")]), 3);
   assert.equal(latestReview([review(2, "pass"), review(1, "rework")])!.round, 2);
   assert.equal(latestReview([]), null);
 });

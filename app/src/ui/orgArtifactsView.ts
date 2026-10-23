@@ -76,8 +76,12 @@ export function investigationText(v: OrgInvestigationView): string {
   return out.join("\n");
 }
 
-/** 差し戻しの回数（判定が「差し戻し」だった回の数）。 */
-export const reworkCount = (reviews: OrgReviewView[]): number => reviews.filter((r) => r.verdict === "rework").length;
+/**
+ * Reviewer の判定の周回数（初回を含む）。タスク表の「差し戻し n/m」（初回を数えない）とは別の数なので、
+ * ここでは「差し戻しN回」と書かず「レビューN周」と書く（2周＝差し戻し1回に相当しうるが、判定の記録の数であり推定しない）。
+ */
+export const reviewRoundCount = (reviews: OrgReviewView[]): number => reviews.length;
+export const REVIEW_ROUNDS_TIP = "Reviewer が判定を出した回数です（最初の判定を含む）。タスク表の「差し戻し n/m」は初回を数えないため、数が1つ違うことがあります";
 
 /** 最新の判定（ワークフローの最後の回）。 */
 export function latestReview(reviews: OrgReviewView[]): OrgReviewView | null {
@@ -94,8 +98,8 @@ export function reviewLine(item: Pick<OrgArtifactItem, "reviews">): string {
   const last = latestReview(rs)!;
   const extra: string[] = [];
   if (last.verdict !== "unknown" && last.findings.length > 0) extra.push(`所見${last.findings.length}件`);
-  const rw = reworkCount(rs);
-  if (rw > 0) extra.push(`差し戻し${rw}回`);
+  const rounds = reviewRoundCount(rs);
+  if (rounds > 1) extra.push(`レビュー${rounds}周`);
   return `Reviewer: ${reviewVerdictLabel(last)}${extra.length > 0 ? `（${extra.join("・")}）` : ""}`;
 }
 

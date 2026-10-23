@@ -42,9 +42,20 @@ export function noReportHeadNote(attentionNote: string | null | undefined): stri
   return attentionNote.includes("報告の要旨") ? null : "報告の要旨は記録されていません";
 }
 
-/** 調査だけのワークフロー（変更を書くタスクが1つも無い）。取り込むものが無いので、取り込みの案内は出さない。 */
-export const isInvestigationOnly = (tasks: ReadonlyArray<{ kind: string }>): boolean => tasks.length > 0 && tasks.every((t) => t.kind === "investigate");
+/**
+ * 調査だけのワークフロー。調査タスクがあり、コミット（取り込める変更）が1つも無い。
+ * 役割（Reviewer 等）のタスクの kind は調査と限らないので、全タスクが調査かどうかでは判定しない。
+ * 変更タスクがあってもコミット無しで終わったときも、取り込むものは無い（調査報告があるときだけ案内を切り替える）。
+ */
+export const isInvestigationOnly = (tasks: ReadonlyArray<{ kind: string; commit?: string | null }>): boolean =>
+  tasks.some((t) => t.kind === "investigate") && !tasks.some((t) => t.commit);
+
+const INVESTIGATION_DONE = "調査報告を確認してください。取り込む変更はありません（AgentDock は何もマージしません）。";
 
 /** 完了後の帯の文。 */
-export const finishedBannerText = (tasks: ReadonlyArray<{ kind: string }>): string =>
-  isInvestigationOnly(tasks) ? "調査報告を確認してください。取り込む変更はありません（AgentDock は何もマージしません）。" : "成果物を確認して取り込んでください。AgentDock は自動でマージしません。";
+export const finishedBannerText = (tasks: ReadonlyArray<{ kind: string; commit?: string | null }>): string =>
+  isInvestigationOnly(tasks) ? INVESTIGATION_DONE : "成果物を確認して取り込んでください。AgentDock は自動でマージしません。";
+
+/** 完了通知（お知らせ一覧）の文。ホストの文言（view.rs）と同じ前半。 */
+export const completedNoticeText = (tasks: ReadonlyArray<{ kind: string; commit?: string | null }>): string =>
+  isInvestigationOnly(tasks) ? `ワークフローが完了しました。${INVESTIGATION_DONE}` : "ワークフローが完了しました。成果物を確認して取り込んでください（AgentDock は自動でマージしません）";

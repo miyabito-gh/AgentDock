@@ -218,7 +218,7 @@ export const taskRowId = (id: string): string => `org-task-${id}`;
 export const NODE_KIND_TEXT: Record<OrgNodeKind, string> = { agent: "役割", gate: "あなたの判断", router: "分岐", plannedTasks: "計画のタスク" };
 
 import { reworkCellText } from "./orgText";
-export { verdictJa, verdictText, reworkLimitText, roundText, edgeText, REWORK_COLUMN_TIP, noReportHeadNote, finishedBannerText, isInvestigationOnly } from "./orgText";
+export { verdictJa, verdictText, reworkLimitText, roundText, edgeText, REWORK_COLUMN_TIP, noReportHeadNote, finishedBannerText, completedNoticeText, isInvestigationOnly } from "./orgText";
 
 const man = (tokens: number): string => String(Math.round(tokens / 1000) / 10);
 
