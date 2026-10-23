@@ -29,3 +29,22 @@ export function edgeText(e: OrgGraphEdgeView, nameOf: (id: string) => string = (
   }
   return { head: `→ ${nameOf(e.to)}`, detail: e.label, untaken: e.used === 0, title };
 }
+
+/** 「差し戻し n/m」の列: 差し戻しの回数／上限。ホストの試行数・上限は初回を含む（1 + 差し戻し）ので、1を引いて出す。 */
+export function reworkCellText(attempts: number, maxAttempts: number): string {
+  return `${Math.max(0, attempts - 1)}/${Math.max(0, maxAttempts - 1)}`;
+}
+export const REWORK_COLUMN_TIP = "Reviewer の差し戻しの回数／上限です（初回の実行は数えません。0/2 は差し戻しなし）";
+
+/** 「Workerが変更を書きませんでした」の停止理由に報告の要旨が付いていないとき、その旨の1行。付いている・別の理由なら null。 */
+export function noReportHeadNote(attentionNote: string | null | undefined): string | null {
+  if (!attentionNote || !attentionNote.includes("変更を書きませんでした")) return null;
+  return attentionNote.includes("報告の要旨") ? null : "報告の要旨は記録されていません";
+}
+
+/** 調査だけのワークフロー（変更を書くタスクが1つも無い）。取り込むものが無いので、取り込みの案内は出さない。 */
+export const isInvestigationOnly = (tasks: ReadonlyArray<{ kind: string }>): boolean => tasks.length > 0 && tasks.every((t) => t.kind === "investigate");
+
+/** 完了後の帯の文。 */
+export const finishedBannerText = (tasks: ReadonlyArray<{ kind: string }>): string =>
+  isInvestigationOnly(tasks) ? "調査報告を確認してください。取り込む変更はありません（AgentDock は何もマージしません）。" : "成果物を確認して取り込んでください。AgentDock は自動でマージしません。";

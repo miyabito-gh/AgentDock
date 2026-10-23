@@ -35,6 +35,9 @@ pub const INTAKE_PURPOSE_TEXT: &str = "この会話は、組織実行（複数�
 /// 依頼整理の間、手動送信のたびに本文の先頭（資料ブロック）へ添える固定の決まり。継続チャットの設定・目的メモの有無に関わらない。
 pub const INTAKE_SEND_NOTICE: &str = "これは依頼整理の会話です。ファイルの変更・コマンド実行・実装は行わず、質問と確認と要約だけを行ってください。依頼を受けても実行せず、目的・成果物の形・入力ファイル・制約・完了条件を確認してください。";
 
+/// 依頼整理チャットの開始時（thread/start）に渡す追加指示。毎回添える `INTAKE_SEND_NOTICE` は補助として残す。
+pub const INTAKE_DEVELOPER_INSTRUCTIONS: &str = "これは依頼整理の会話です。サブエージェントの作成・委任・コマンド実行・ファイル変更は行わない。質問・確認・要約だけを行う。";
+
 /// 依頼整理チャットの権限。承認を出さず、書込みは sandbox（read-only）で拒否される。
 pub const INTAKE_PERMISSION: crate::backend::backend::PermissionPreset = crate::backend::backend::PermissionPreset::ReadOnlyNoPrompt;
 

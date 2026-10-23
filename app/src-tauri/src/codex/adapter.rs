@@ -802,6 +802,7 @@ impl AiBackend for CodexBackend {
         if params.ephemeral {
             p["ephemeral"] = json!(true);
         }
+        super::thread_config::apply_overrides(&mut p, params.config.as_ref(), params.developer_instructions.as_deref());
         if !params.extra_folders.is_empty() {
             // 追加フォルダはexperimental。使えない接続では、外さず、何も作らずに拒否する。
             if self.shared.caps.lock().unwrap().workspace_roots != Support::Supported {
@@ -869,8 +870,12 @@ impl AiBackend for CodexBackend {
         Ok(self.history_from_thread(&t, options.include_turns, EvidenceSource::HistoryRead, "thread/read"))
     }
 
-    async fn resume(&self, chat: ChatKey, _confirmed: &UserConfirmed) -> BackendResult<ResumeOutcome> {
-        match self.call("thread/resume", json!({"threadId": chat.id.0, "excludeTurns": true}), WRITE_TIMEOUT).await {
+    async fn resume(&self, chat: ChatKey, _confirmed: &UserConfirmed, overrides: Option<&ThreadOverrides>) -> BackendResult<ResumeOutcome> {
+        let mut p = json!({"threadId": chat.id.0, "excludeTurns": true});
+        if let Some(o) = overrides {
+            super::thread_config::apply_overrides(&mut p, o.config.as_ref(), o.developer_instructions.as_deref());
+        }
+        match self.call("thread/resume", p, WRITE_TIMEOUT).await {
             Ok(r) => {
                 log_source("thread/resume", &r);
                 crate::diag::log("resume-model", &format!("model={} effort={}", r.get("model").map_or("absent", |v| if v.is_string() { "str" } else { "other" }), r.get("reasoningEffort").map_or("absent", |v| if v.is_string() { "str" } else if v.is_null() { "null" } else { "other" })));

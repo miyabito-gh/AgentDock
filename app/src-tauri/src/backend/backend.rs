@@ -204,6 +204,19 @@ pub struct StartChatParams {
     /// 保存されない一時の会話として開始する（目的メモの下書き用。一覧に出さない）。
     #[serde(default)]
     pub ephemeral: bool,
+    /// thread単位の設定上書き（この会話だけ。ユーザーの設定ファイルは書き換えない）。通常のチャットは None。
+    #[serde(default)]
+    pub config: Option<serde_json::Value>,
+    /// thread単位の追加指示（この会話だけ）。通常のチャットは None。
+    #[serde(default)]
+    pub developer_instructions: Option<String>,
+}
+
+/// 再開（resume）のときに、開始時と同じく毎回送る thread 単位の上書き。通常のチャットは渡さない。
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ThreadOverrides {
+    pub config: Option<serde_json::Value>,
+    pub developer_instructions: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -551,7 +564,8 @@ pub trait AiBackend: Send + Sync {
     /// 保存履歴の読み取り。resumeしない（§3.6）。
     async fn read(&self, agent: AgentKey, options: ReadOptions) -> BackendResult<AgentHistory>;
     /// ユーザーの明示操作でのみ呼ぶ再開（M11・M24）。
-    async fn resume(&self, chat: ChatKey, confirmed: &UserConfirmed) -> BackendResult<ResumeOutcome>;
+    /// `overrides` は依頼整理など、開始時に上書きを渡した会話を再開するときに同じものを渡す。
+    async fn resume(&self, chat: ChatKey, confirmed: &UserConfirmed, overrides: Option<&ThreadOverrides>) -> BackendResult<ResumeOutcome>;
     async fn manage_chat(&self, chat: ChatKey, op: ManageOp, confirmed: &UserConfirmed) -> BackendResult<ManageOutcome>;
 
     // ── 監視 ──

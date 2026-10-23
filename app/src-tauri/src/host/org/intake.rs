@@ -11,11 +11,11 @@ use std::collections::HashSet;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use crate::backend::backend::{AiBackend, BackendEvent, ReadOptions, UserConfirmed};
+use crate::backend::backend::{AiBackend, BackendEvent, ReadOptions, ThreadOverrides, UserConfirmed};
 use crate::backend::intake::*;
 use crate::backend::ipc::{BlockedReason, HostEvent, IpcError, IpcErrorCode, SendIntent, SendMessageArgs, StartChatArgs};
 use crate::backend::local::SaveScope;
-use crate::backend::model::{BackendKind, Chat, ChatKey, ChatKind, LocalId, SaveState, SendState, Support, UnixMillis};
+use crate::backend::model::{BackendKind, Chat, ChatKey, ChatKind, LocalId, ParentLink, SaveState, SendState, Support, UnixMillis};
 use crate::backend::org::{StartOrgArgs, StartOrgResult};
 use crate::gitops::prep::repo_status;
 use crate::host::state::agent_key_of;
@@ -38,6 +38,18 @@ pub struct IntakeRuntime {
     resolving: Mutex<HashSet<ChatKey>>,
     /// 履歴を読んだが要約の turn が見つからなかったチャット（「確認できません」を出す根拠）。
     not_found: Mutex<HashSet<ChatKey>>,
+    /// 依頼整理の間に子エージェントの作成を観測したチャット（警告を出す根拠。再起動で消えてよい）。
+    subagent_seen: Mutex<HashSet<ChatKey>>,
+}
+
+/// 依頼整理チャットの thread 単位の上書き（子エージェントを使わせない設定＋追加指示）。開始と再開（resume）で毎回同じものを渡す。
+pub fn intake_overrides() -> ThreadOverrides {
+    ThreadOverrides { config: Some(crate::codex::thread_config::no_subagents_config()), developer_instructions: Some(INTAKE_DEVELOPER_INSTRUCTIONS.to_string()) }
+}
+
+/// 子エージェントの作成を警告する条件: 依頼整理の間のチャットで、子孫（ルート以外）が現れたときだけ。
+pub fn subagent_warning_applies(intake_active: bool, parent: &ParentLink) -> bool {
+    intake_active && !matches!(parent, ParentLink::Root)
 }
 
 struct ResolveGuard<'a> {
@@ -78,6 +90,15 @@ fn io_summary_error(message: impl Into<String>) -> IpcError {
 }
 
 impl Host {
+    /// 再開（resume）のときに毎回渡す上書き。依頼整理の間のチャットだけ（通常のチャットは None）。
+    pub(in crate::host) fn resume_overrides(&self, chat: &ChatKey) -> Option<ThreadOverrides> {
+        self.intake_active(chat).then(intake_overrides)
+    }
+
+    fn intake_active(&self, chat: &ChatKey) -> bool {
+        intake_guard_active(self.intake_record(chat).as_ref().map(|r| &r.state))
+    }
+
     fn intake_record(&self, chat: &ChatKey) -> Option<IntakeRecord> {
         self.read(|d| d.locals.get(chat).and_then(|l| l.conversation.as_ref()).and_then(|c| c.intake.clone()))
     }
@@ -124,7 +145,7 @@ impl Host {
             return Err(io_summary_error(format!("作業フォルダが見つかりません: {}", args.folder)));
         }
         let started = self
-            .start_chat(
+            .start_chat_with_overrides(
                 StartChatArgs {
                     backend: BackendKind::Codex,
                     cwd: Some(folder.clone()),
@@ -136,6 +157,7 @@ impl Host {
                     confirmed_strong: Vec::new(),
                 },
                 confirmed,
+                intake_overrides(),
             )
             .await?;
         let chat = started.chat.key.clone();
@@ -202,6 +224,7 @@ impl Host {
         }
         let summary_unconfirmed = matches!(rec.state, IntakeState::Summarizing { .. })
             && (!self.is_connected() || self.unknown_attempt_for_intake(&chat) || self.org_rt.intake.not_found.lock().unwrap().contains(&chat));
+        let subagent_warning = self.org_rt.intake.subagent_seen.lock().unwrap().contains(&chat);
         Ok(IntakeView {
             chat,
             state: rec.state,
@@ -216,6 +239,7 @@ impl Host {
             structured_output,
             summary_unconfirmed,
             write_only: rec.write_only,
+            subagent_warning,
         })
     }
 
@@ -315,6 +339,16 @@ impl Host {
 
     /// turn の終端を観測したときに呼ぶ（待たない）。要約を待っているチャットなら、履歴を読んで結果を取り込む。
     pub(in crate::host) fn intake_observe_event(self: &Arc<Self>, event: &BackendEvent) {
+        if let BackendEvent::AgentDiscovered { agent } = event {
+            if subagent_warning_applies(self.intake_active(&agent.chat), &agent.parent) {
+                let first = self.org_rt.intake.subagent_seen.lock().unwrap().insert(agent.chat.clone());
+                if first {
+                    crate::diag::log("org-intake", &format!("subagent created in an intake chat: chat={} agent={}", agent.chat.id.0, agent.key.id.0));
+                    self.emit_intake_updated(&agent.chat);
+                }
+            }
+            return;
+        }
         let BackendEvent::TurnEnded { turn, .. } = event else { return };
         let chat = ChatKey { backend: turn.agent.backend, id: turn.agent.id.clone() };
         let waiting = self.intake_record(&chat).is_some_and(|r| matches!(r.state, IntakeState::Summarizing { .. }));
@@ -472,6 +506,22 @@ fn new_conversation(id: LocalId, purpose: Option<PurposeNote>, _now: UnixMillis,
 mod tests {
     use super::*;
     use crate::backend::model::{ChatKey, ExternalId};
+
+    #[test]
+    fn intake_overrides_disable_subagents_and_carry_instructions() {
+        let o = intake_overrides();
+        assert_eq!(o.config, Some(crate::codex::thread_config::no_subagents_config()));
+        assert!(o.developer_instructions.as_deref().is_some_and(|t| t.contains("サブエージェント")));
+    }
+
+    #[test]
+    fn subagent_warning_only_for_descendants_in_an_active_intake() {
+        let child = ParentLink::Explicit { parent: crate::backend::model::AgentKey { backend: BackendKind::Codex, id: ExternalId("p".into()) } };
+        assert!(subagent_warning_applies(true, &child));
+        assert!(subagent_warning_applies(true, &ParentLink::Unknown));
+        assert!(!subagent_warning_applies(true, &ParentLink::Root));
+        assert!(!subagent_warning_applies(false, &child));
+    }
 
     fn origin() -> IntakeOrigin {
         IntakeOrigin {

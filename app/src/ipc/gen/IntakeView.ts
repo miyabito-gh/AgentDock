@@ -23,4 +23,8 @@ summaryUnconfirmed: boolean,
 /**
  * 会話せず要約を手で書く入口で作った。画面は要約を直接開き、相談用の案内を出さない。
  */
-writeOnly: boolean, };
+writeOnly: boolean, 
+/**
+ * 依頼整理の間に子エージェントの作成を観測した（相談専用のはずなので警告する。自動では止めない）。
+ */
+subagentWarning: boolean, };

@@ -557,6 +557,7 @@ function HistoryNotice({ view, onReload }: { view: HistView; onReload: () => voi
       <div className="acts"><button className="btn-line" onClick={onReload}>履歴を取り直す</button></div>
     </div>
   );
+  if (view.kind === "empty") return <div className="cbanner" role="status">{view.text}</div>;
   return null;
 }
 

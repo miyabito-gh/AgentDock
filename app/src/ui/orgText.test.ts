@@ -1,7 +1,7 @@
 // 実行: node --test src/ui/orgText.test.ts （tscの対象外）
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { edgeText, reworkLimitText, verdictJa, verdictText } from "./orgText.ts";
+import { finishedBannerText, isInvestigationOnly, noReportHeadNote, reworkCellText, edgeText, reworkLimitText, verdictJa, verdictText } from "./orgText.ts";
 
 test("周回の文言: 実行回数＝やり直し＋1。単位を分けて同じ数え方", () => {
   assert.equal(reworkLimitText(1, 3), "実行 2回目／最大 4回（やり直しは最大3回、残り2回）");
@@ -24,4 +24,26 @@ test("辺: 表示名で出し、IDは title へ", () => {
   assert.equal(x.head, "↺ 実装");
   assert.equal(x.title, "verify->build");
   assert.match(x.detail, /やり直し 最大3回・使用1回・残り2回/);
+});
+
+test("差し戻し列: 初回を数えず、差し戻し回数／上限", () => {
+  assert.equal(reworkCellText(1, 3), "0/2");
+  assert.equal(reworkCellText(2, 3), "1/2");
+  assert.equal(reworkCellText(3, 3), "2/2");
+  assert.equal(reworkCellText(0, 3), "0/2");
+});
+
+test("停止理由: 変更なしで要旨が無いときだけ補足", () => {
+  assert.equal(noReportHeadNote("Workerが変更を書きませんでした。必要なら"), "報告の要旨は記録されていません");
+  assert.equal(noReportHeadNote("Workerが変更を書きませんでした（報告の要旨: 調べた）。"), null);
+  assert.equal(noReportHeadNote("コミットできませんでした"), null);
+  assert.equal(noReportHeadNote(null), null);
+});
+
+test("調査のみ: 変更タスクが無いときだけ取り込みの案内を出さない", () => {
+  assert.equal(isInvestigationOnly([{ kind: "investigate" }, { kind: "investigate" }]), true);
+  assert.equal(isInvestigationOnly([{ kind: "investigate" }, { kind: "change" }]), false);
+  assert.equal(isInvestigationOnly([]), false);
+  assert.ok(finishedBannerText([{ kind: "investigate" }]).includes("調査報告"));
+  assert.ok(finishedBannerText([{ kind: "change" }]).includes("取り込んで"));
 });

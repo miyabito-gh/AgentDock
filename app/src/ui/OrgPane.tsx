@@ -9,7 +9,7 @@ import { Popover } from "./Popover";
 import { ConfirmBlock } from "./DialogParts";
 import { tipWithKey } from "./shortcuts";
 import { roleLabel } from "./orgChat";
-import { CONFIRM_TONE, EFFECT_TEXT, NODE_KIND_TEXT, PHASE_TONE, waitCauseOf, artifactText, attemptText, retryText, edgeText, groupTasks, orgPendingRequests, requestWaitText, roleCounts, reworkLimitText, roundText, taskRequestWait, taskRowId, verdictText, waitBand, waitText, waitingDetail, workflowSummary, type OrgTone } from "./org";
+import { CONFIRM_TONE, EFFECT_TEXT, NODE_KIND_TEXT, PHASE_TONE, waitCauseOf, artifactText, attemptText, retryText, edgeText, REWORK_COLUMN_TIP, noReportHeadNote, finishedBannerText, groupTasks, orgPendingRequests, requestWaitText, roleCounts, reworkLimitText, roundText, taskRequestWait, taskRowId, verdictText, waitBand, waitText, waitingDetail, workflowSummary, type OrgTone } from "./org";
 import { RequestGapLine } from "./RequestGap";
 import { keyStr, showKnown } from "./format";
 import { InterjectComposer, NEXT_TURN_NOTE } from "./InterjectComposer";
@@ -28,8 +28,24 @@ function Chip({ tone, icon, label, title }: { tone: OrgTone; icon: string; label
 const StatusChip = ({ s }: { s: OrgStatusView }) => <Chip tone={PHASE_TONE[s.phase]} icon={s.icon} label={s.label} />;
 const ConfirmChip = ({ c }: { c: OrgConfirmView }) => <Chip tone={CONFIRM_TONE[c.state]} icon={c.icon} label={c.label} />;
 
+/** 左一覧の行メニュー用: アーカイブ／削除…（ワークフロー画面と同じ判定。無効のときは理由を添える）。 */
+function RowManageItems({ wf, live, close, onArchive, onDelete }: { wf: OrgWorkflowView; live: boolean; close: () => void; onArchive: (id: string) => void; onDelete: (id: string) => void }) {
+  const allConfirmed = !wf.tasks.some((t) => t.confirm.state !== "confirmed");
+  const off = !wf.finished || !allConfirmed;
+  const reason = manageOffReason({ connected: live, finished: wf.finished, allConfirmed });
+  const offTip = "実行中・停止未確認・通信断のタスクがあるため、まだ削除できません";
+  return (
+    <>
+      <hr />
+      <button type="button" role="menuitem" disabled={off || !!wf.deletion} title={off ? offTip : "一覧から隠します（作業には触れません）"} onClick={() => { close(); onArchive(wf.workflowId); }}>アーカイブ</button>
+      <button type="button" role="menuitem" className="danger" disabled={off && !wf.deletion} title={off && !wf.deletion ? offTip : undefined} onClick={() => { close(); onDelete(wf.workflowId); }}>{wf.deletion ? "削除を続ける…" : "削除…"}</button>
+      {reason && !wf.deletion ? <div className="small muted menu-note" role="note">{reason}</div> : null}
+    </>
+  );
+}
+
 /** 左一覧のワークフロー行。選ぶと中央にワークフロー画面を開くだけ。 */
-export function OrgListRow({ wf, selected, onOpen, onStart, counts }: { wf: OrgWorkflowView | null; selected: boolean; onOpen: () => void; onStart: () => void; /** 承認・質問の回答待ちと、回答を届けられなかった要求の件数（スナップショットから導いた値） */ counts?: { wait: number; fail: number } }) {
+export function OrgListRow({ wf, selected, onOpen, onStart, counts, live = false, onArchive, onDelete }: { wf: OrgWorkflowView | null; selected: boolean; onOpen: () => void; onStart: () => void; live?: boolean; onArchive?: (id: string) => void; onDelete?: (id: string) => void; /** 承認・質問の回答待ちと、回答を届けられなかった要求の件数（スナップショットから導いた値） */ counts?: { wait: number; fail: number } }) {
   if (!wf) return null;
   const sum = workflowSummary(wf);
   const name = wf.title ?? wf.request.slice(0, 30);
@@ -52,6 +68,7 @@ export function OrgListRow({ wf, selected, onOpen, onStart, counts }: { wf: OrgW
             <>
               <button type="button" role="menuitem" onClick={() => { close(); onOpen(); }}>ワークフローを開く</button>
               <button type="button" role="menuitem" disabled={!wf.finished} title={wf.finished ? undefined : "実行中のワークフローがあります"} onClick={() => { close(); onStart(); }}>新しいワークフローを開始…</button>
+              {onArchive && onDelete ? <RowManageItems wf={wf} live={live} close={close} onArchive={onArchive} onDelete={onDelete} /> : null}
             </>
           )}
         </Popover>
@@ -63,7 +80,7 @@ export function OrgListRow({ wf, selected, onOpen, onStart, counts }: { wf: OrgW
 
 /** 左一覧の過去のワークフロー（保存済み。読み取り専用）。完了／失敗／取消しの印つき。多いときは折りたたむ。選ぶと中央に開くだけ。 */
 const HISTORY_FOLDED = 3;
-export function OrgHistoryRows({ history, selectedId, onOpen, onDelete, deletionOverflow = 0 }: { history: OrgWorkflowView[]; /** 別枠に収まらず出さなかった削除途中の件数。 */ deletionOverflow?: number; selectedId: string | null; onOpen: (id: string) => void; /** 削除の途中のものに「削除を続ける…」の入口を出す。 */ onDelete?: (id: string) => void }) {
+export function OrgHistoryRows({ history, selectedId, onOpen, onDelete, onArchive, live = false, deletionOverflow = 0 }: { live?: boolean; onArchive?: (id: string) => void; history: OrgWorkflowView[]; /** 別枠に収まらず出さなかった削除途中の件数。 */ deletionOverflow?: number; selectedId: string | null; onOpen: (id: string) => void; /** 削除の途中のものに「削除を続ける…」の入口を出す。 */ onDelete?: (id: string) => void }) {
   const [all, setAll] = useState(false);
   const shown = all || history.length <= HISTORY_FOLDED + 1 ? history : history.slice(0, HISTORY_FOLDED);
   return (
@@ -81,6 +98,16 @@ export function OrgHistoryRows({ history, selectedId, onOpen, onDelete, deletion
               <span className="marks"><Chip tone={sum.tone} icon={sum.icon} label={sum.label} />{wf.artifactHint && wf.artifactHint.ready > 0 ? <span className="mark wait" title="あなたの確認と取り込みを待っている成果">レビュー待ち {wf.artifactHint.ready}</span> : null}</span>
             </button>
             {wf.deletion && onDelete ? <button type="button" className="small" title="途中で止まった削除を続けます（確認があります）" onClick={() => onDelete(wf.workflowId)}>削除を続ける…</button> : null}
+            {onArchive && onDelete ? (
+              <Popover role="menu" align="right" triggerClassName="row-more" label={`過去の組織実行「${name}」の操作`} trigger={<span aria-hidden="true">…</span>}>
+                {(close) => (
+                  <>
+                    <button type="button" role="menuitem" onClick={() => { close(); onOpen(wf.workflowId); }}>ワークフローを開く</button>
+                    <RowManageItems wf={wf} live={live} close={close} onArchive={onArchive} onDelete={onDelete} />
+                  </>
+                )}
+              </Popover>
+            ) : null}
           </div>
         );
       })}
@@ -596,7 +623,7 @@ export function OrgPane(p: OrgPaneProps) {
           </div>
         ) : null}
         {wf.finished ? (
-          <div className="banner info" role="status"><Icon name="branch" /><div>成果物を確認して取り込んでください。AgentDock は自動でマージしません。
+          <div className="banner info" role="status"><Icon name="branch" /><div>{finishedBannerText(wf.tasks)}
             {wf.tasks.some((t) => t.commit) ? <button type="button" className="btn sm" style={{ marginLeft: 8 }} onClick={() => p.onAct(`orgArtifacts:${wf.workflowId}`)}>成果物を見る</button> : null}</div></div>
         ) : null}
         {approvals.count > 0 && approvals.first && !ro ? (
@@ -705,7 +732,7 @@ export function OrgPane(p: OrgPaneProps) {
               <div className="org-gh">{g.title}（{g.tasks.length}）</div>
               <div className="org-scroll">
                 <table className="org-tbl">
-                  <thead><tr><th scope="col">ID</th><th scope="col">役割</th><th scope="col">タスク</th><th scope="col">業務状態</th><th scope="col">確認状態</th><th scope="col">待ち先</th><th scope="col" title="Reviewer の差し戻しによる試行の回数（1 + 差し戻し回数）と上限">差し戻し</th><th scope="col" title="あなたが押した「新しい試行で再送」の回数と上限">再送</th><th scope="col">成果物</th><th scope="col">操作</th></tr></thead>
+                  <thead><tr><th scope="col">ID</th><th scope="col">役割</th><th scope="col">タスク</th><th scope="col">業務状態</th><th scope="col">確認状態</th><th scope="col">待ち先</th><th scope="col" title={REWORK_COLUMN_TIP}>差し戻し</th><th scope="col" title="あなたが押した「新しい試行で再送」の回数と上限">再送</th><th scope="col">成果物</th><th scope="col">操作</th></tr></thead>
                   <tbody>
                     {g.tasks.map((t) => {
                       const w = taskRequestWait(snap, t);
@@ -728,7 +755,7 @@ export function OrgPane(p: OrgPaneProps) {
                           <tr key={`${t.id}:n`} className="org-note-row"><td /><td colSpan={9} className="small">
                             {w.pending.map((r) => <div key={`${r.key.source}/${r.key.requestId}`} className="org-req-card">{p.renderRequest(r, agentName)}</div>)}
                             {w.gaps.map((r) => <RequestGapLine key={`gap:${r.key.source}/${r.key.requestId}`} r={r} guide="org" />)}
-                            {t.attentionNote ? <div>止まった理由: {t.attentionNote}</div> : null}
+                            {t.attentionNote ? <div>止まった理由: {t.attentionNote}{noReportHeadNote(t.attentionNote) ? <span className="muted">　（{noReportHeadNote(t.attentionNote)}）</span> : null}</div> : null}
                             {t.stallNotified ? <div>実行中のまま新しい出力がないと通知済みです（自動では止めません）。</div> : null}
                             {t.needsChatChoice ? <div>チャットの作成結果を確認できていません。「チャットを選ぶ」で結び付けるまで進めません。</div> : null}
                             {t.reconcile ? <div>照合（読取りのみ）: {t.reconcile.text}{t.reconcile.worktree.label ? `　作業場所: ${t.reconcile.worktree.label}` : ""}</div> : null}

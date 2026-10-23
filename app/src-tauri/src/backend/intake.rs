@@ -159,6 +159,8 @@ pub struct IntakeView {
     pub summary_unconfirmed: bool,
     /// 会話せず要約を手で書く入口で作った。画面は要約を直接開き、相談用の案内を出さない。
     pub write_only: bool,
+    /// 依頼整理の間に子エージェントの作成を観測した（相談専用のはずなので警告する。自動では止めない）。
+    pub subagent_warning: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

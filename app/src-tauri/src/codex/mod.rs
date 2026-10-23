@@ -17,6 +17,7 @@ pub mod parity;
 pub mod parity_table;
 pub mod process;
 pub mod rpc;
+pub mod thread_config;
 pub mod tree;
 pub mod wire;
 

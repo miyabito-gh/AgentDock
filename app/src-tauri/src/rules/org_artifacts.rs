@@ -89,6 +89,14 @@ pub fn status_label(s: OrgArtifactStatus) -> &'static str {
     }
 }
 
+/// 画面に出す状態名。タスクが停止（要対応）で止まっているときは「作業中」と書かない。
+pub fn status_label_for(s: OrgArtifactStatus, phase: OrgTaskPhase) -> &'static str {
+    if s == OrgArtifactStatus::Working && phase == OrgTaskPhase::Blocked {
+        return "停止中（要対応）";
+    }
+    status_label(s)
+}
+
 pub const APPLIED_BUT_MISSING_NOTE: &str = "取り込みの記録はありますが、今のブランチには含まれていません";
 
 /// 取り込みの対象にできる状態。
@@ -890,6 +898,13 @@ mod tests {
     use super::*;
     use OrgArtifactStatus as S;
     use OrgTaskPhase as P;
+
+    #[test]
+    fn blocked_working_task_is_labeled_stopped() {
+        assert_eq!(status_label_for(S::Working, P::Blocked), "停止中（要対応）");
+        assert_eq!(status_label_for(S::Working, P::Running), "作業中");
+        assert_eq!(status_label_for(S::Unknown, P::Blocked), "未確認");
+    }
 
     fn review(verdict: OrgReviewVerdict, checks: Option<Vec<OrgCheckView>>, reason: Option<&str>) -> OrgReviewView {
         let held_back = is_held_back(verdict, checks.as_deref());

@@ -129,6 +129,12 @@ export function IntakeSection({ chat, local, live }: { chat: ChatKey; local: Cha
           {" "}<button className="small" disabled={busy} onClick={() => setAbandoning(true)}>やめる…</button>
         </div>
       ) : null}
+      {view && state.kind !== "started" && view.subagentWarning ? (
+        <div className="lockmsg why err" role="alert">
+          相談専用のはずですが、子エージェントが作成されました。実行を止めますか？{" "}
+          <button className="small danger" disabled={busy} title="押したときだけ中断を要求します（自動では止めません。停止は確認できるまで「停止未確認」です）" onClick={() => void run(async () => { await host.interruptChat(chat); setMsg("中断を要求しました。停止はまだ確認できていません。"); })}>中断</button>
+        </div>
+      ) : null}
       {view && kind === "summarizing" ? (
         <div className="lockmsg" role="status">
           {view.summaryUnconfirmed

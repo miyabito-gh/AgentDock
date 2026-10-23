@@ -305,7 +305,7 @@ impl Host {
             };
             let importable = is_candidate(status) && blockers.is_empty();
             let import_refusal = if !is_candidate(status) {
-                Some(format!("「{}」のため、取り込めません", status_label(status)))
+                Some(format!("「{}」のため、取り込めません", status_label_for(status, w.phase)))
             } else if !blockers.is_empty() {
                 Some(blockers.join(" / "))
             } else {
@@ -321,7 +321,7 @@ impl Host {
                 base: w.base.clone(),
                 commit: w.commit.clone(),
                 status,
-                status_label: status_label(status).to_string(),
+                status_label: status_label_for(status, w.phase).to_string(),
                 status_note,
                 files,
                 totals,

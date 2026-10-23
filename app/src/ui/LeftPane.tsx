@@ -39,7 +39,7 @@ type OpenMenu = { kind: "chat"; id: string } | { kind: "group"; key: string };
 
 export function LeftPane({ org, snap, sel, onSelect, onAct, onAcknowledge, onChatAct, chatList, onChatList, projects = null, onNotice, listStatus, uiSize = "Normal", onNewChatIn, onReclassify, onFetchProjectChats, onLoadMore, creating = [], onCreatingAct }: {
   /** 組織実行（P-ORG-7b）。ワークフロー1件＝1行。役割チャットは通常の一覧から隠し、ワークフロー画面から辿る。wf が null なら開始の入口だけ（足元）。 */
-  org?: { wf: OrgWorkflowView | null; selected: boolean; onOpen: () => void; onStart: () => void; history: OrgWorkflowView[]; deletionOverflow?: number; archived: OrgWorkflowView[]; onUnarchive: (id: string) => void; onDelete: (id: string) => void; selectedHistory: string | null; onOpenHistory: (id: string) => void; shown: ReadonlySet<string> | null };
+  org?: { wf: OrgWorkflowView | null; selected: boolean; onOpen: () => void; onStart: () => void; history: OrgWorkflowView[]; deletionOverflow?: number; archived: OrgWorkflowView[]; onUnarchive: (id: string) => void; onArchive: (id: string) => void; live: boolean; onDelete: (id: string) => void; selectedHistory: string | null; onOpenHistory: (id: string) => void; shown: ReadonlySet<string> | null };
   /** 作成中の仮行（先頭。ピンより上）と、その操作。 */
   creating?: CreatingChat[]; onCreatingAct?: (id: string, op: "retry" | "dismiss" | "refresh") => void;
   /** プロジェクト見出しの「このプロジェクトのチャットを取得」。roots を cwd 条件に読む（読み取りのみ）。結果の通知は呼び出し側が出す。 */
@@ -473,8 +473,8 @@ export function LeftPane({ org, snap, sel, onSelect, onAct, onAcknowledge, onCha
         {projectsNote ? <div className={`small${projectsNote.bad ? " lt-fail" : ""}`} role="status">{projectsNote.text}</div> : null}
         {listStatus && !listStatus.ok ? <div className="small lt-fail" role="status">{listStatus.text}</div> : null}
       </div>
-      {org?.wf && org.wf.archivedAt === null ? <OrgListRow wf={org.wf} selected={org.selected} onOpen={org.onOpen} onStart={org.onStart} counts={workflowRequestCounts(snap, org.wf)} /> : null}
-      {org && org.history.length > 0 ? <OrgHistoryRows history={org.history} deletionOverflow={org.deletionOverflow} selectedId={org.selectedHistory} onOpen={org.onOpenHistory} onDelete={org.onDelete} /> : null}
+      {org?.wf && org.wf.archivedAt === null ? <OrgListRow wf={org.wf} selected={org.selected} onOpen={org.onOpen} onStart={org.onStart} counts={workflowRequestCounts(snap, org.wf)} live={org.live} onArchive={org.onArchive} onDelete={org.onDelete} /> : null}
+      {org && org.history.length > 0 ? <OrgHistoryRows history={org.history} deletionOverflow={org.deletionOverflow} selectedId={org.selectedHistory} onOpen={org.onOpenHistory} onDelete={org.onDelete} onArchive={org.onArchive} live={org.live} /> : null}
       <div className="left-scroll" ref={scrollerRef} onScroll={() => { if (menu) closeMenu(false); if (windowed) measure(); }}>
         {showArch ? (
           <>

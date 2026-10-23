@@ -663,9 +663,18 @@ impl Host {
         self.start_chat_in(args, None, confirmed).await
     }
 
+    /// 依頼整理など、thread 単位の上書きを付けて開始する（通常のチャットは `start_chat`）。
+    pub(super) async fn start_chat_with_overrides(self: &Arc<Self>, args: StartChatArgs, confirmed: &UserConfirmed, overrides: ThreadOverrides) -> Result<StartChatResult, IpcError> {
+        self.start_chat_core(args, None, confirmed, Some(overrides)).await
+    }
+
     /// `start_chat` の本体。`reuse_workspace` は一般チャットが使う既存の作業領域のパス（引き継ぎ: 引き継ぎ元と同じ領域を使う）。
     /// 指定したときは新しい作業領域を作らず、開始に失敗しても既存の領域には触れない（`area` が None のため）。
-    pub(super) async fn start_chat_in(self: &Arc<Self>, args: StartChatArgs, reuse_workspace: Option<String>, _confirmed: &UserConfirmed) -> Result<StartChatResult, IpcError> {
+    pub(super) async fn start_chat_in(self: &Arc<Self>, args: StartChatArgs, reuse_workspace: Option<String>, confirmed: &UserConfirmed) -> Result<StartChatResult, IpcError> {
+        self.start_chat_core(args, reuse_workspace, confirmed, None).await
+    }
+
+    async fn start_chat_core(self: &Arc<Self>, args: StartChatArgs, reuse_workspace: Option<String>, _confirmed: &UserConfirmed, overrides: Option<ThreadOverrides>) -> Result<StartChatResult, IpcError> {
         let mut area: Option<LocalId> = None;
         self.check_worktree_binding(&args.worktree, args.cwd.as_deref().map(str::trim))?;
         let (kind, cwd) = match args.cwd.as_deref().map(str::trim).filter(|c| !c.is_empty()) {
@@ -722,6 +731,8 @@ impl Host {
             permission: args.permission.unwrap_or(PermissionPreset::WorkspaceWriteOnRequest),
             extra_folders,
             ephemeral: false,
+            config: overrides.as_ref().and_then(|o| o.config.clone()),
+            developer_instructions: overrides.and_then(|o| o.developer_instructions),
         };
         let started = match self.backend.start_chat(params).await {
             Ok(s) => s,
@@ -855,7 +866,8 @@ impl Host {
             _ => {}
         }
         self.emit_send_phase(chat, SendPhase::Resuming);
-        match self.backend.resume(chat.clone(), confirmed).await? {
+        let overrides = self.resume_overrides(chat);
+        match self.backend.resume(chat.clone(), confirmed, overrides.as_ref()).await? {
             ResumeOutcome::Resumed { history, accepted_model } => {
                 self.apply_resumed(chat, history, accepted_model);
                 Ok(())
@@ -929,7 +941,8 @@ impl Host {
     }
 
     pub async fn resume_chat(self: &Arc<Self>, args: ResumeChatArgs, confirmed: &UserConfirmed) -> Result<ResumeOutcome, IpcError> {
-        let out = self.backend.resume(args.chat.clone(), confirmed).await?;
+        let overrides = self.resume_overrides(&args.chat);
+        let out = self.backend.resume(args.chat.clone(), confirmed, overrides.as_ref()).await?;
         if let ResumeOutcome::Resumed { history, accepted_model } = &out {
             self.apply_resumed(&args.chat, history.clone(), accepted_model.clone());
             let host = self.clone();

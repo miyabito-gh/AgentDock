@@ -379,7 +379,7 @@ impl Host {
         });
         // 一時 thread を開始する（会話と同じ作業フォルダ・モデル。読取り専用・承認なし・保存されない）。
         let model = self.read(|d| d.model_settings.get(&chat).and_then(|s| s.accepted.value().cloned()));
-        let params = StartChatParams { kind, cwd, model: model.clone(), permission: PermissionPreset::ReadOnlyNoPrompt, extra_folders: Vec::new(), ephemeral: true };
+        let params = StartChatParams { kind, cwd, model: model.clone(), permission: PermissionPreset::ReadOnlyNoPrompt, extra_folders: Vec::new(), ephemeral: true, config: Some(crate::codex::thread_config::no_subagents_config()), developer_instructions: None };
         let started = match self.backend.start_chat(params).await {
             Ok(s) => s,
             Err(e) => {

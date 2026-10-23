@@ -38,7 +38,7 @@ export function groupTasks(tasks: OrgTaskView[]): Array<{ key: string; title: st
 }
 
 export const waitText = (t: OrgTaskView): string => (t.waitingOn.length ? `${t.waitingOn.join(",")}待ち` : "—");
-export const attemptText = (t: OrgTaskView): string => `${t.attempts}/${t.maxAttempts}`;
+export const attemptText = (t: OrgTaskView): string => reworkCellText(t.attempts, t.maxAttempts);
 /** 利用者が押した再送（新しい試行）の回数。差し戻し（上の数）とは別。1回以上、または再送できるときだけ出す。 */
 export const retryText = (t: OrgTaskView, max: number): string => (t.retriesUsed > 0 || t.retry ? `${t.retriesUsed}/${t.retry?.max ?? max}` : "—");
 /** 成果物＝タスクのコミット。記録がなければ「なし」（取得できなかったのではなく、記録がない）。 */
@@ -217,7 +217,8 @@ export const taskRowId = (id: string): string => `org-task-${id}`;
 
 export const NODE_KIND_TEXT: Record<OrgNodeKind, string> = { agent: "役割", gate: "あなたの判断", router: "分岐", plannedTasks: "計画のタスク" };
 
-export { verdictJa, verdictText, reworkLimitText, roundText, edgeText } from "./orgText";
+import { reworkCellText } from "./orgText";
+export { verdictJa, verdictText, reworkLimitText, roundText, edgeText, REWORK_COLUMN_TIP, noReportHeadNote, finishedBannerText, isInvestigationOnly } from "./orgText";
 
 const man = (tokens: number): string => String(Math.round(tokens / 1000) / 10);
 
