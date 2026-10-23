@@ -280,15 +280,18 @@ impl Host {
     pub(super) fn compose_manual_text(&self, chat: &ChatKey, user_text: &str) -> String {
         // 継続チャットを使わない設定のときは、目的メモの資料を添えない。
         let on = self.read(|d| d.settings.continuation.enabled);
+        // 依頼整理の間は、継続チャットの設定・目的メモの有無に関わらず、毎回の手動送信に進め方の決まりを添える。
+        let notice = self.read(|d| crate::rules::org_intake::intake_guard_active(d.locals.get(chat).and_then(|f| f.conversation.as_ref()).and_then(|c| c.intake.as_ref()).map(|i| &i.state)));
+        let notice = notice.then_some(crate::rules::org_intake::INTAKE_SEND_NOTICE);
         // 圧縮後の再添付に台帳の場所を足すのは、台帳のファイルが今もあるときだけ。
         let envelope = if on {
             self.read(|d| {
                 let rec = d.locals.get(chat).and_then(|f| f.conversation.as_ref());
                 let ledger_exists = rec.and_then(|c| c.seed.as_ref()).and_then(|s| s.ledger.as_deref()).is_some_and(|p| std::path::Path::new(p).is_file());
-                cont::envelope_for_manual_send(rec, true, false, ledger_exists)
+                cont::envelope_for_manual_send_ex(rec, true, false, ledger_exists, notice)
             })
         } else {
-            None
+            cont::envelope_for_manual_send_ex(None, true, false, false, notice)
         };
         cont::compose_send_text(envelope.as_deref(), user_text)
     }

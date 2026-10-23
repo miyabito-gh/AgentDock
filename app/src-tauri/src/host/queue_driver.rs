@@ -1243,6 +1243,11 @@ impl Host {
         if self.read(|d| d.chat(&args.chat).is_none()) {
             return Err(err(IpcErrorCode::NotFound, "チャットが見つかりません"));
         }
+        // 依頼整理の間は、権限を変えない（承認を出さず書込みもさせない設定を保つ）。
+        let guarded = self.read(|d| crate::rules::org_intake::intake_guard_active(d.locals.get(&args.chat).and_then(|f| f.conversation.as_ref()).and_then(|c| c.intake.as_ref()).map(|i| &i.state)));
+        if guarded {
+            return Err(err(IpcErrorCode::InvalidArgs, "依頼整理の間は、権限を変えられません（読み取り専用で確認だけを行います）。依頼整理をやめるか、組織実行を開始してから変えてください"));
+        }
         self.precheck_space()?;
         self.update_local(&args.chat, true, Duration::ZERO, |f| f.permission = Some(args.permission));
         Ok(self.settings_impact(&args.chat))

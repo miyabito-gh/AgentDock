@@ -30,7 +30,18 @@ pub fn summary_request_message() -> String {
 }
 
 /// 依頼整理チャットの目的メモに入れる「進め方」（固定文。既存の資料枠で届く）。
-pub const INTAKE_PURPOSE_TEXT: &str = "この会話は、組織実行（複数のエージェントに仕事を分担させる実行）に渡す依頼を整理するためのものです。まだ組織実行は始まっていません。\n利用者と話しながら、目的・成果物の形・入力ファイル・制約・完了条件を具体的にしてください。足りない点は質問し、推測で決めつけないでください。ファイルは変更せず、読むだけにしてください。内容が固まったら、利用者が要約を作ります。";
+pub const INTAKE_PURPOSE_TEXT: &str = "この会話は、組織実行（複数のエージェントに仕事を分担させる実行）に渡す依頼を整理するためのものです。まだ組織実行は始まっていません。\nこの会話では、ファイルの変更・コマンドの実行・実装を行わず、質問と確認と要約だけを行ってください。依頼を受けても実行せず、目的・成果物の形・入力ファイル・制約・完了条件を利用者に確認してください。足りない点は質問し、推測で決めつけないでください。ファイルは読むだけにしてください。内容が固まったら、利用者が要約を作ります。";
+
+/// 依頼整理の間、手動送信のたびに本文の先頭（資料ブロック）へ添える固定の決まり。継続チャットの設定・目的メモの有無に関わらない。
+pub const INTAKE_SEND_NOTICE: &str = "これは依頼整理の会話です。ファイルの変更・コマンド実行・実装は行わず、質問と確認と要約だけを行ってください。依頼を受けても実行せず、目的・成果物の形・入力ファイル・制約・完了条件を確認してください。";
+
+/// 依頼整理チャットの権限。承認を出さず、書込みは sandbox（read-only）で拒否される。
+pub const INTAKE_PERMISSION: crate::backend::backend::PermissionPreset = crate::backend::backend::PermissionPreset::ReadOnlyNoPrompt;
+
+/// 依頼整理の「間」か（会話・要約中・要約あり）。やめた・開始済みは含めない。この間は権限を変えられず、送信のたびに進め方を添える。
+pub fn intake_guard_active(state: Option<&IntakeState>) -> bool {
+    matches!(state, Some(IntakeState::Drafting | IntakeState::Summarizing { .. } | IntakeState::Ready))
+}
 
 /// 要約の turn に付ける出力形式（`IntakeSummary` と同形。すべて必須・追加項目なし）。
 pub fn summary_output_schema() -> Value {
@@ -457,7 +468,20 @@ mod tests {
     }
 
     fn rec(state: IntakeState) -> IntakeRecord {
-        IntakeRecord { id: LocalId("i1".into()), state, summary: None, rev: 0, prefs: IntakeStartPrefs::default(), last_error: None, started: vec![] }
+        IntakeRecord { id: LocalId("i1".into()), state, summary: None, rev: 0, prefs: IntakeStartPrefs::default(), last_error: None, started: vec![], write_only: false }
+    }
+
+    #[test]
+    fn intake_guard_and_permission() {
+        use crate::backend::backend::PermissionPreset;
+        assert_eq!(INTAKE_PERMISSION, PermissionPreset::ReadOnlyNoPrompt);
+        assert!(intake_guard_active(Some(&IntakeState::Drafting)));
+        assert!(intake_guard_active(Some(&IntakeState::Ready)));
+        assert!(intake_guard_active(Some(&IntakeState::Summarizing { client_message_id: "m".into(), sent_at: UnixMillis(1) })));
+        assert!(!intake_guard_active(Some(&IntakeState::Abandoned)));
+        assert!(!intake_guard_active(Some(&IntakeState::Started { workflow_id: "w".into(), rev: 1, at: UnixMillis(1) })));
+        assert!(!intake_guard_active(None));
+        assert!(INTAKE_SEND_NOTICE.contains("実行") && INTAKE_PURPOSE_TEXT.contains("質問と確認と要約だけ"));
     }
 
     #[test]

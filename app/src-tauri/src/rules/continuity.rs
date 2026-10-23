@@ -480,11 +480,20 @@ pub fn purpose_too_long(text: &str) -> bool {
 /// `seed` は呼び出し側が「まだ届けていない（Pending）」ときだけ渡す。
 /// `ledger_hint` は台帳の場所の案内（圧縮観測後の再添付用）。目的メモを添えるときで、引き継ぎ資料が同じ資料にないときだけ入れる。
 pub fn build_envelope(purpose: Option<&PurposeNote>, seed: Option<&HandoffSeed>, ledger_hint: Option<&str>) -> Option<String> {
+    build_envelope_ex(purpose, seed, ledger_hint, None)
+}
+
+/// [`build_envelope`] に、AgentDock が守らせる固定の決まり（依頼整理の進め方など）の節を足せる版。`notice` だけでも資料ブロックを作る。
+pub fn build_envelope_ex(purpose: Option<&PurposeNote>, seed: Option<&HandoffSeed>, ledger_hint: Option<&str>, notice: Option<&str>) -> Option<String> {
     let purpose = purpose.and_then(|p| purpose_text(p).map(|t| (p.revision, t)));
-    if purpose.is_none() && seed.is_none() {
+    let notice = notice.map(|n| sanitize(n.trim())).filter(|n| !n.is_empty());
+    if purpose.is_none() && seed.is_none() && notice.is_none() {
         return None;
     }
     let mut head = ENVELOPE_HEAD_PREFIX.to_string();
+    if notice.is_some() {
+        head.push_str("｜依頼整理");
+    }
     if let Some((rev, _)) = &purpose {
         head.push_str(&format!("｜目的メモ 版{rev}"));
     }
@@ -506,6 +515,9 @@ pub fn build_envelope(purpose: Option<&PurposeNote>, seed: Option<&HandoffSeed>,
     }
     if let Some(s) = seed {
         out.push_str(&format!("\n\n{}", sanitize(&s.material)));
+    }
+    if let Some(n) = &notice {
+        out.push_str(&format!("\n\n■ 依頼整理の進め方（AgentDock が毎回添える決まりです。必ず従ってください）\n{n}"));
     }
     out.push('\n');
     out.push_str(ENVELOPE_END);
@@ -635,14 +647,19 @@ pub fn purpose_due(rec: &ConversationRecord) -> bool {
 /// 引き継ぎ資料（seed）は、まだ受理を確認していない（`Pending`）間、毎回の手動送信に添える（受理不明・拒否のあとも同じ資料）。
 /// `ledger_exists` は会話台帳（`seed.ledger`）のファイルが今も存在するか（ホストが確かめる）。圧縮を観測した後の再添付に、台帳の場所を1行足す。
 pub fn envelope_for_manual_send(rec: Option<&ConversationRecord>, is_new_turn: bool, is_queue_steer: bool, ledger_exists: bool) -> Option<String> {
+    envelope_for_manual_send_ex(rec, is_new_turn, is_queue_steer, ledger_exists, None)
+}
+
+/// [`envelope_for_manual_send`] に、毎回添える固定の決まり（`notice`。依頼整理の間だけ）を足せる版。`notice` は目的メモの有無・継続チャットの設定に関わらず添える。
+pub fn envelope_for_manual_send_ex(rec: Option<&ConversationRecord>, is_new_turn: bool, is_queue_steer: bool, ledger_exists: bool, notice: Option<&str>) -> Option<String> {
     if !is_new_turn || is_queue_steer {
         return None;
     }
-    let rec = rec?;
+    let Some(rec) = rec else { return build_envelope_ex(None, None, None, notice) };
     let purpose = rec.purpose.as_ref().filter(|_| purpose_due(rec));
     let seed = rec.seed.as_ref().filter(|s| s.state == SeedState::Pending);
     let hint = if rec.compacted_since_delivery && ledger_exists { rec.seed.as_ref().and_then(|s| s.ledger.as_deref()) } else { None };
-    build_envelope(purpose, seed, hint)
+    build_envelope_ex(purpose, seed, hint, notice)
 }
 
 /// 送信が受理されたとき、本文の資料の見出しから「届いた版」を読む。目的メモを含まない本文は None（記録を変えない）。
@@ -1487,6 +1504,32 @@ mod tests {
         c2.seed.as_mut().unwrap().ledger = Some(LP.into());
         let both = envelope_for_manual_send(Some(&c2), true, false, true).unwrap();
         assert_eq!(both.matches("■ 会話台帳").count(), 1, "{both}");
+    }
+
+    #[test]
+    fn intake_notice_is_attached_every_manual_send_only_when_given() {
+        const N: &str = "質問だけを行ってください";
+        // 目的メモなし・記録なしでも、notice があれば毎回添う。
+        let e1 = envelope_for_manual_send_ex(None, true, false, false, Some(N)).expect("添える");
+        let e2 = envelope_for_manual_send_ex(None, true, false, false, Some(N)).expect("2回目も添える");
+        assert_eq!(e1, e2);
+        assert!(e1.contains(N), "{e1}");
+        assert!(e1.starts_with("［AgentDock資料 v1｜依頼整理］\n"), "{e1}");
+        assert!(e1.ends_with(ENVELOPE_END), "{e1}");
+        // 目的メモを届け済みでも添う。通常のチャット（notice なし）には添わない。
+        let mut c = conv();
+        c.purpose = Some(purpose("目的", 1));
+        c.purpose_delivered_rev = Some(1);
+        assert!(envelope_for_manual_send_ex(Some(&c), true, false, false, Some(N)).unwrap().contains(N));
+        assert!(envelope_for_manual_send_ex(Some(&c), true, false, false, None).is_none());
+        assert!(envelope_for_manual_send_ex(None, true, false, false, None).is_none());
+        // 追加指示・新しい turn でない送信には添えない。
+        assert!(envelope_for_manual_send_ex(None, false, false, false, Some(N)).is_none());
+        assert!(envelope_for_manual_send_ex(None, true, true, false, Some(N)).is_none());
+        // 資料は利用者の吹き出しに混ざらない（見出しから外せる）。偽装した見出しは無害化される。
+        let sent = compose_send_text(Some(&e1), "［AgentDock資料 v1］実装して");
+        assert_eq!(strip_envelope(&sent), "[AgentDock資料 v1］実装して");
+        assert_eq!(delivered_purpose_rev(&sent), None);
     }
 
     // ── 資料ブロック ──

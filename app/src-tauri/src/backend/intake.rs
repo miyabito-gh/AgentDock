@@ -92,6 +92,9 @@ pub struct IntakeRecord {
     pub last_error: Option<String>,
     #[serde(default)]
     pub started: Vec<IntakeStarted>,
+    /// 「依頼が決まっているので書く」で作った（会話せず、要約を手で書く）。
+    #[serde(default)]
+    pub write_only: bool,
 }
 
 // ───────────────────────────── 画面向け ─────────────────────────────
@@ -154,6 +157,8 @@ pub struct IntakeView {
     pub structured_output: bool,
     /// 要約の結果を確認できていない（切断・受理不明など）。「履歴から読み直す」「もう一度要約を作る」だけを出す。
     pub summary_unconfirmed: bool,
+    /// 会話せず要約を手で書く入口で作った。画面は要約を直接開き、相談用の案内を出さない。
+    pub write_only: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

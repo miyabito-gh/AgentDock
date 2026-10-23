@@ -111,16 +111,21 @@ export function IntakeSection({ chat, local, live }: { chat: ChatKey; local: Cha
     setBusy(false);
   };
   const kind = view?.state.kind ?? state.kind;
-  const showCard = view && (kind === "ready" || kind === "started" || (kind === "drafting" && (manual || view.summary !== null)));
+  const showCard = view && (kind === "ready" || kind === "started" || (kind === "drafting" && (manual || view.writeOnly || view.summary !== null)));
   return (
     <div className="intake" role="region" aria-label="組織実行の依頼整理">
       {err ? <div className="why err" role="alert">依頼整理の状態を取得できませんでした（{err}）。</div> : null}
       {view && kind === "drafting" ? (
         <div className="lockmsg">
-          依頼を整理しています（組織実行はまだ始まっていません）。{view.lastError ? <span className="why err"> {view.lastError}</span> : null}
+          {view.writeOnly
+            ? <>依頼を書いています。ここは書く専用で、実行は始まりません（組織実行はまだ始まっていません）。</>
+            : <>依頼を整理しています。ここは相談専用です。実行は始まりません（組織実行はまだ始まっていません）。</>}
+          {view.lastError ? <span className="why err"> {view.lastError}</span> : null}
           {" "}
-          {view.structuredOutput ? <button className="small" disabled={busy} onClick={() => void run(async () => { await host.orgIntakeSummarize(chat); })}>要約を作る</button> : <span className="muted">（このAIは構造化出力に対応していないため、要約は手で書きます）</span>}
-          {" "}<button className="small" disabled={busy} onClick={() => setManual(true)}>手で書く</button>
+          {view.writeOnly ? null : <>
+            {view.structuredOutput ? <button className="small" disabled={busy} onClick={() => void run(async () => { await host.orgIntakeSummarize(chat); })}>要約を作る</button> : <span className="muted">（このAIは構造化出力に対応していないため、要約は手で書きます）</span>}
+            {" "}<button className="small" disabled={busy} onClick={() => setManual(true)}>手で書く</button>
+          </>}
           {" "}<button className="small" disabled={busy} onClick={() => setAbandoning(true)}>やめる…</button>
         </div>
       ) : null}

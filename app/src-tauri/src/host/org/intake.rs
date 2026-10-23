@@ -11,7 +11,7 @@ use std::collections::HashSet;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use crate::backend::backend::{AiBackend, BackendEvent, PermissionPreset, ReadOptions, UserConfirmed};
+use crate::backend::backend::{AiBackend, BackendEvent, ReadOptions, UserConfirmed};
 use crate::backend::intake::*;
 use crate::backend::ipc::{BlockedReason, HostEvent, IpcError, IpcErrorCode, SendIntent, SendMessageArgs, StartChatArgs};
 use crate::backend::local::SaveScope;
@@ -129,7 +129,7 @@ impl Host {
                     backend: BackendKind::Codex,
                     cwd: Some(folder.clone()),
                     model: args.model,
-                    permission: Some(PermissionPreset::ReadOnly),
+                    permission: Some(INTAKE_PERMISSION),
                     first_message: None,
                     worktree: None,
                     extra_folders: Vec::new(),
@@ -139,7 +139,8 @@ impl Host {
             )
             .await?;
         let chat = started.chat.key.clone();
-        let rec = new_record(self.local_id("intake"), folder);
+        let mut rec = new_record(self.local_id("intake"), folder);
+        rec.write_only = matches!(args.mode, IntakeBeginMode::Write);
         let purpose = PurposeNote { text: INTAKE_PURPOSE_TEXT.to_string(), revision: 1, updated_at: now_ms(), source: PurposeSource::Chat };
         let conv_id = self.local_id("conv");
         let now = now_ms();
@@ -176,6 +177,8 @@ impl Host {
         let prev = self.intake_record(&chat);
         let rec = new_record(self.local_id("intake"), folder);
         self.commit_intake(&chat, rec, prev).await?;
+        // 承認を出さず書込みもさせない権限にする（保存できなくても、次の送信から効く設定として記録する）。
+        self.update_local(&chat, true, std::time::Duration::ZERO, |f| f.permission = Some(INTAKE_PERMISSION));
         self.org_intake_view(IntakeChatArgs { chat }).await
     }
 
@@ -212,6 +215,7 @@ impl Host {
             composed_preview,
             structured_output,
             summary_unconfirmed,
+            write_only: rec.write_only,
         })
     }
 
@@ -457,7 +461,7 @@ impl Host {
 }
 
 fn new_record(id: LocalId, folder: String) -> IntakeRecord {
-    IntakeRecord { id, state: IntakeState::Drafting, summary: None, rev: 0, prefs: IntakeStartPrefs { folder, ..Default::default() }, last_error: None, started: Vec::new() }
+    IntakeRecord { id, state: IntakeState::Drafting, summary: None, rev: 0, prefs: IntakeStartPrefs { folder, ..Default::default() }, last_error: None, started: Vec::new(), write_only: false }
 }
 
 fn new_conversation(id: LocalId, purpose: Option<PurposeNote>, _now: UnixMillis, intake: Option<IntakeRecord>) -> ConversationRecord {

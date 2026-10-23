@@ -546,7 +546,7 @@ mod tests {
     #[test]
     fn handoff_and_redo_carry_the_intake_record_to_the_new_head_but_a_fork_does_not() {
         use crate::backend::intake::{IntakeRecord, IntakeStartPrefs, IntakeState};
-        let intake = IntakeRecord { id: LocalId("i1".into()), state: IntakeState::Ready, summary: None, rev: 3, prefs: IntakeStartPrefs::default(), last_error: None, started: vec![] };
+        let intake = IntakeRecord { id: LocalId("i1".into()), state: IntakeState::Ready, summary: None, rev: 3, prefs: IntakeStartPrefs::default(), last_error: None, started: vec![], write_only: false };
         let mut src = record(Some(purpose("目的", 1)), vec![]);
         src.intake = Some(intake.clone());
         let rec = handoff_conversation(&key("p"), Some(&src), None, seed(SeedState::Pending), LocalId("new".into()), UnixMillis(9));

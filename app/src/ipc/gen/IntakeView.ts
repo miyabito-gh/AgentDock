@@ -19,4 +19,8 @@ structuredOutput: boolean,
 /**
  * 要約の結果を確認できていない（切断・受理不明など）。「履歴から読み直す」「もう一度要約を作る」だけを出す。
  */
-summaryUnconfirmed: boolean, };
+summaryUnconfirmed: boolean, 
+/**
+ * 会話せず要約を手で書く入口で作った。画面は要約を直接開き、相談用の案内を出さない。
+ */
+writeOnly: boolean, };

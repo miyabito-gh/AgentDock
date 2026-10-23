@@ -20,7 +20,7 @@ use super::graphs;
 use super::ports::RuntimeRead;
 use super::view::status_view;
 use crate::backend::backend::UserConfirmed;
-use crate::backend::ipc::{BlockedReason, IpcError, IpcErrorCode};
+use crate::backend::ipc::{BlockedReason, HostEvent, IpcError, IpcErrorCode};
 use crate::backend::model::{Known, OrgWorktreeAccess, WorktreeRecord};
 use crate::backend::org::OrgTaskPhase;
 use crate::backend::org_artifacts::*;
@@ -700,6 +700,9 @@ impl Host {
                     "tasks": p.tasks,
                     "outcome": &outcome,
                 }));
+                if import_changes_ledger(&outcome) {
+                    self.mutate(|_| ((), vec![HostEvent::OrgUpdated { workflow_id: wf.id.clone() }]));
+                }
                 let files = matches!(outcome, OrgImportOutcome::Applied { .. }).then_some(p.files.len() as u32);
                 Ok(OrgImportResult { record_id, outcome, files, folder: p.folder, branch: p.branch })
             }
@@ -775,15 +778,29 @@ impl Host {
                     crate::diag::log("org", &format!("undo ledger end failed: {m}"));
                 }
                 self.log_git_op(serde_json::json!({ "kind": "orgImportUndo", "folder": rec.folder, "record": rec.id, "before": rec.before, "outcome": &outcome }));
+                self.mutate(|_| ((), vec![HostEvent::OrgUpdated { workflow_id: wf.id.clone() }]));
                 Ok(OrgUndoResult { outcome })
             }
         }
     }
 }
 
+/// 取り込みの結果が台帳（レビュー待ちの件数など）を変えたか。変えたときだけ画面へ再取得の合図を出す。
+fn import_changes_ledger(o: &OrgImportOutcome) -> bool {
+    matches!(o, OrgImportOutcome::Applied { .. } | OrgImportOutcome::Partial { .. })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_applied_or_partial_imports_signal_a_refresh() {
+        assert!(import_changes_ledger(&OrgImportOutcome::Applied { head: "h".into() }));
+        assert!(import_changes_ledger(&OrgImportOutcome::Partial { files: Vec::new() }));
+        assert!(!import_changes_ledger(&OrgImportOutcome::NotApplied { reason: "x".into() }));
+        assert!(!import_changes_ledger(&OrgImportOutcome::Unknown { head_now: Known::NotFetched }));
+    }
     use crate::backend::model::UnixMillis;
     use std::io::Write;
 
