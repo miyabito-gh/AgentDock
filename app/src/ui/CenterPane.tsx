@@ -41,6 +41,7 @@ import { isOrgInstruction, parseOrgReport } from "./orgChat";
 import { appearsInTurns, firstSendLockReason, type PendingSend } from "./pendingSend";
 import { EnvelopeFold, PreviousThreads, usePrevThreads } from "./PreviousThreads";
 import { splitEnvelope } from "./continuity";
+import { histView, type HistLoad, type HistView } from "./historyLoad";
 import { PURPOSE_TAG, resendAvailability, type ResendCtx } from "./resend";
 
 const NO_THREADS: ThreadSegmentView[] = [];
@@ -55,6 +56,9 @@ export interface CenterProps {
   snap: HostSnapshot;
   chat: Chat;
   turns: TurnRecord[];
+  /** 会話ログの取得状態（表示だけ）。失敗は常時表示し、取り直しは利用者の操作。 */
+  history?: HistLoad;
+  onReloadHistory: () => void;
   /** 送信前の添付（下書きに付いているもの）。 */
   attachments: AttachmentEntry[];
   /** 添付・成果物の操作（ホストが判断・保存する。UIは意図を伝えるだけ）。 */
@@ -543,6 +547,17 @@ function UserBubble({ text, forceOpen, open, onToggle }: { text: string; forceOp
       {long ? <button type="button" className="foldmsg" aria-expanded={shown} aria-controls={id} onClick={onToggle}>{shown ? "折りたたむ" : "展開"}</button> : null}
     </>
   );
+}
+
+function HistoryNotice({ view, onReload }: { view: HistView; onReload: () => void }) {
+  if (view.kind === "loading") return <div className="cbanner" role="status">履歴を読み込んでいます…</div>;
+  if (view.kind === "failed") return (
+    <div className="cbanner" role="alert">
+      {view.text}
+      <div className="acts"><button className="btn-line" onClick={onReload}>履歴を取り直す</button></div>
+    </div>
+  );
+  return null;
 }
 
 function Messages({ orgBound, headKey, threads, chatId, turns, reqs, gaps, running, onRespond, onAct, extra, find, resend, locals, files, sends, agentName, decisions, pending, onPendingRestore, onPendingDismiss }: {
@@ -1183,6 +1198,7 @@ export function CenterPane(p: CenterProps) {
       <Header snap={snap} chat={chat} onAct={p.onAct} commands={p.commands} local={p.local} onCwdToggle={() => setCwdOpenFor((id) => (id === chat.key.id ? null : chat.key.id))} wasLive={p.wasLive} externalLabel={p.externalLabel} cwdInfo={p.cwdInfo} leftShown={p.leftShown} rightShown={p.rightShown} />
       {cwdOpen ? <WorkFoldersPanel key={`wf-${chat.key.id}`} api={p.wf} lockReason={cwdLock} permissionText={PERMISSION_FULL[p.local?.permission ?? "workspaceWriteOnRequest"]} fallback={p.local?.nextFolders?.folders ?? [p.local?.nextCwd ?? knownValue(chat.cwd) ?? ""].filter(Boolean)} onClose={() => setCwdOpenFor(null)} /> : null}
       <Banners p={p} />
+      <HistoryNotice view={histView(p.history, p.turns.length > 0)} onReload={p.onReloadHistory} />
       <Messages key={chat.key.id} orgBound={!!p.local?.org} headKey={chat.key} threads={p.local?.conversation?.threads ?? NO_THREADS} chatId={chat.key.id} agentName={nameOf} decisions={p.decisions} turns={p.turns} reqs={reqs} gaps={chatGapRequests(snap, chat.key)} running={running} onRespond={p.onRespond} onAct={p.onAct} find={find}
         locals={snap.attachments.filter((a) => keyStr(a.chat) === keyStr(chat.key))} files={p.files} sends={p.sends}
         pending={p.pending} onPendingRestore={p.onPendingRestore} onPendingDismiss={p.onPendingDismiss}

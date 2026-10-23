@@ -23,6 +23,7 @@ const loadMock = async () => {
 };
 import { GlobalBanner, MenuBar, SaveBanner } from "./ui/Chrome";
 import { LeftPane, type ChatOp } from "./ui/LeftPane";
+import { histStart, histOk, histFail, type HistLoad } from "./ui/historyLoad";
 import { CenterPane, EmptyCenter, RequestCard, type FileActions, type SendNotice } from "./ui/CenterPane";
 import { fenceCode, insertBlock } from "./ui/attach";
 import { DockPane, MiniWindow, type DockActions, type DockFocus } from "./ui/Dock";
@@ -216,11 +217,18 @@ export default function App() {
     catch (e) { setProjects({ kind: "failed", reason: host.asIpcError(e).message }); }
   }, []);
 
+  const [histLoads, setHistLoads] = useState<Record<string, HistLoad>>({});
   const loadChat = useCallback(async (id: string) => {
+    setHistLoads((m) => ({ ...m, [id]: histStart(m[id]) }));
     try {
       const h = await host.openChat({ backend: "codex", id });
       setBundle((b) => ({ ...b, turns: { ...b.turns, [id]: h.turns } }));
-    } catch (e) { sayErr("履歴を取得できませんでした", e); }
+      setHistLoads((m) => ({ ...m, [id]: histOk() }));
+    } catch (e) {
+      // 取得失敗では既存の表示（turns）を消さない。失敗は中央ペインに常時表示する。
+      setHistLoads((m) => ({ ...m, [id]: histFail(host.asIpcError(e).message) }));
+      sayErr("履歴を取得できませんでした", e);
+    }
   }, [sayErr]);
 
   const noteAttempt = useCallback((chatId: string, a: SendAttempt) => {
@@ -1742,7 +1750,7 @@ ${cur}` : p.text);
                 onSend={quickSend} onDetail={() => { setDialog({ type: "newChat", prefill: { model: quick.model ?? pickQuickModel(models, snap.settings.lastNewChat), first: quick.text, isolate: false, worktree: null } }); setQuick({ open: false, text: "", model: null }); }} />
             ) : chat ? (
               <CenterPane
-                snap={snap} chat={chat} turns={bundle.turns[chat.key.id] ?? []}
+                snap={snap} chat={chat} turns={bundle.turns[chat.key.id] ?? []} history={histLoads[chat.key.id]} onReloadHistory={() => void loadChat(chat.key.id)}
                 attachments={draftAttachments} files={files} inputRef={composerRef}
                 skillPick={live ? { skills: skillLists[chat.key.id], load: () => loadSkills(chat.key), recent: snap.settings.recentSkills ?? [], pick: (sk) => { void pickSkill(chat.key, sk.name, sk.path); } } : null}
                 settings={bundle.modelSettings[chat.key.id]} models={models} save={chatSave}

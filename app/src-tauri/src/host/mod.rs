@@ -313,7 +313,32 @@ impl Host {
 
     /// 履歴の読取り。同時実行数を上限（4）に抑える。許可はこの1回のあいだだけ持つ。
     async fn read_history(&self, agent: AgentKey, options: ReadOptions) -> BackendResult<AgentHistory> {
-        let h = self.read_limit.run(self.backend.read(agent, options)).await?;
+        let t0 = std::time::Instant::now();
+        let chat_id = agent.id.0.clone();
+        let started = std::sync::Arc::new(std::sync::Mutex::new(None::<std::time::Duration>));
+        let mark = started.clone();
+        let fut = self.backend.read(agent, options);
+        let res = self
+            .read_limit
+            .run(async move {
+                *mark.lock().unwrap() = Some(t0.elapsed());
+                fut.await
+            })
+            .await;
+        let h = match res {
+            Ok(h) => h,
+            Err(e) => {
+                // 内容・パスは書かない。待ち時間（読取り制限）と実行時間を分けて残す。
+                let waited = *started.lock().unwrap();
+                let total = t0.elapsed();
+                let phase = match waited {
+                    None => "waiting-limit".to_string(),
+                    Some(w) => format!("read waited_ms={} run_ms={}", w.as_millis(), total.saturating_sub(w).as_millis()),
+                };
+                crate::diag::log("read-history", &format!("failed chat={} kind={} {} total_ms={}", chat_id, crate::diag::error_kind(&e), phase, total.as_millis()));
+                return Err(e);
+            }
+        };
         // 親の履歴に spawn の記録があれば、子の「起動時の指定」として保持（追加の通信なし）。
         if !h.spawns.is_empty() {
             self.mutate(|d| ((), d.record_spawn_specs(&h.spawns)));
