@@ -443,7 +443,12 @@ impl Host {
         let findings_log = recorded_findings(&wf.events.events, &t.id);
         let attempts = t.attempts();
         for r in reviewers {
-            for k in 0..attempts {
+            // 差し戻し後に Worker が再対応しただけで Reviewer がまだ判定していない最新の試行は、判定として数えない
+            // （履歴の最終回答は前の試行のもので、同じ判定を二重に数えてしまう）。
+            let latest_has_output = attempts > 0 && store.read_output(&r.id, attempts - 1).ok().flatten().is_some();
+            let reviewer_may_have_run = !matches!(r.status(), TaskStatus::Pending | TaskStatus::Ready | TaskStatus::Running | TaskStatus::Rework);
+            let shown = plan_review_count(attempts, latest_has_output, reviewer_may_have_run);
+            for k in 0..shown {
                 let raw = store.read_output(&r.id, k).ok().flatten();
                 let stored = raw.as_ref().and_then(parse_review_value);
                 let mut checks_of = raw.as_ref().map_or((None, None), parse_review_checks);

@@ -81,7 +81,7 @@ export function investigationText(v: OrgInvestigationView): string {
  * ここでは「差し戻しN回」と書かず「レビューN周」と書く（2周＝差し戻し1回に相当しうるが、判定の記録の数であり推定しない）。
  */
 export const reviewRoundCount = (reviews: OrgReviewView[]): number => reviews.length;
-export const REVIEW_ROUNDS_TIP = "Reviewer が判定を出した回数です（最初の判定を含む）。タスク表の「差し戻し n/m」は初回を数えないため、数が1つ違うことがあります";
+export const REVIEW_ROUNDS_TIP = "実際に実行された Reviewer の判定の回数です。差し戻し後に Worker が再対応しただけで、まだ判定されていない回は数えません。タスク表の「差し戻し n/m」は判定が差し戻しだった回数なので、最後の判定が合格なら周回数は差し戻し＋1です";
 
 /** 最新の判定（ワークフローの最後の回）。 */
 export function latestReview(reviews: OrgReviewView[]): OrgReviewView | null {

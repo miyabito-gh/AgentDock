@@ -753,6 +753,19 @@ pub fn review_rounds(events: &[OrgEvent], writer: &TaskId, reviewer: &TaskId, sl
     out
 }
 
+/// 計画経路で、判定として数える試行の数（`0..返り値` の試行 k が1判定）。試行は 1＋差し戻し回数 だが、差し戻しの後に Worker が
+/// 再対応しただけで Reviewer がまだ走っていない最新の試行は、判定ではない（保存された出力が無く、Reviewer の最終回答は
+/// 前の試行のものなので、履歴から読むと同じ判定を二重に数える）。
+/// `latest_has_output`＝最新の試行の出力が保存されている。`reviewer_may_have_run`＝Reviewer が最新の試行で判定を出しうる状態
+/// （待機・実行待ち・実行中でない）。どちらでもなければ最新の試行は数えない。
+pub fn plan_review_count(attempts: u32, latest_has_output: bool, reviewer_may_have_run: bool) -> u32 {
+    if attempts > 1 && !latest_has_output && !reviewer_may_have_run {
+        attempts - 1
+    } else {
+        attempts
+    }
+}
+
 /// 計画経路で差し戻した回ごとの所見（`FindingsRecorded`）。n番目＝n回目の差し戻し。
 pub fn recorded_findings(events: &[OrgEvent], writer: &TaskId) -> Vec<Vec<String>> {
     events
@@ -1038,6 +1051,18 @@ mod tests {
 
     fn ev(seq: u64, kind: OrgEventKind) -> OrgEvent {
         OrgEvent { schema_version: 1, seq, at_ms: 0, kind }
+    }
+
+    #[test]
+    fn plan_review_count_does_not_double_count_a_worker_retry_the_reviewer_has_not_judged() {
+        // 実機: Reviewer 1回(rework)→差し戻し1→Worker 再対応して停止。試行は2だが判定は1（Reviewer は待機）。
+        assert_eq!(plan_review_count(2, false, false), 1);
+        // 再対応後に Reviewer が走って判定が保存された／走りうる状態なら2判定。
+        assert_eq!(plan_review_count(2, true, false), 2);
+        assert_eq!(plan_review_count(2, false, true), 2);
+        // 最初の試行は常にそのまま。
+        assert_eq!(plan_review_count(1, false, false), 1);
+        assert_eq!(plan_review_count(3, false, false), 2);
     }
 
     #[test]
