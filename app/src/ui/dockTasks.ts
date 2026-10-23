@@ -64,9 +64,18 @@ export function orderByRecency(chats: Chat[], recency: Recency): Chat[] {
 }
 
 /** 「全」タブの並び: 作業中・対応待ち（isWorking）を先、同じ区分の中は最近動かした順。 */
-export function orderWorkingFirst(chats: Chat[], recency: Recency, isWorking: (c: Chat) => boolean): Chat[] {
+export function orderWorkingFirst(chats: Chat[], recency: Recency, isWorking: (c: Chat) => boolean, isRootActive: (c: Chat) => boolean = () => false): Chat[] {
   const by = orderByRecency(chats, recency);
-  return [...by.filter((c) => isWorking(c)), ...by.filter((c) => !isWorking(c))];
+  const w = by.filter((c) => isWorking(c));
+  return [...w.filter((c) => isRootActive(c)), ...w.filter((c) => !isRootActive(c)), ...by.filter((c) => !isWorking(c))];
+}
+
+/**
+ * 並び・所属の凍結が見る「作業状態」の署名。作業中か否かに加え、親自身が作業中か（子孫だけの作業中と区別）を含める。
+ * 子孫が作業中で既に作業中扱いのチャットに、親の実行が始まっても署名が変わらず、最上位へ上がらない欠けを防ぐ。
+ */
+export function workSignature(chats: Chat[], idOf: (c: Chat) => string, isWorking: (c: Chat) => boolean, isRootActive: (c: Chat) => boolean): string {
+  return chats.map((c) => `${idOf(c)}:${isWorking(c) ? 1 : 0}${isRootActive(c) ? 1 : 0}`).join("|");
 }
 
 export type TaskSelection = {
@@ -85,12 +94,13 @@ export type TaskSelection = {
  * - 帯: 保留中の要求があるもの（アーカイブ済みでも）。
  * - タスク: アーカイブ済みでないもの（アーカイブ済みは isWorking のときだけ）。閉じたもの（署名が閉じた時のまま）は除く。
  * `isWorking` は呼び出し側の「親または子孫が作業中・対応待ち」判定（isWorkingForDock）。`closed` は chatId→閉じた時の署名。
- * 並びは「作業中・対応待ち → 状態が分かるもの → 状態不明（`isUnknown`、作業中でないもの）」で、各区分の中は最近動かした順。
+ * 並びは「親が作業中 → 子孫だけ作業中 → 状態が分かるもの → 状態不明（`isUnknown`、作業中でないもの）」で、各区分の中は最近動かした順。
  * 連結して先頭 limit 件（全体で最大5件）がタスク、残りが overflow（ほかのタスク）。状態不明（作業中でないもの）は余り枠だけに入り、溢れは overflow にも出さず hiddenUnknown へ（隠すだけで状態は変えない）。
  */
 export function selectTasks(
   snap: HostSnapshot, recency: Recency, closed: ReadonlyMap<string, string>,
   isWorking: (c: Chat) => boolean, limit: number = TASK_LIMIT, isUnknown: (c: Chat) => boolean = () => false,
+  isRootActive: (c: Chat) => boolean = () => false,
 ): TaskSelection {
   const firstPending = (c: Chat): number => Math.min(...pendingOf(snap, c).map((r) => r.receivedAt));
   const attention = snap.chats.filter((c) => pendingOf(snap, c).length > 0)
@@ -104,7 +114,8 @@ export function selectTasks(
     return cs === undefined || cs !== (recency.get(id)?.sig ?? chatSignature(snap, c));
   });
   const byRecency = orderByRecency(candidates, recency);
-  const rank = (c: Chat): number => (isWorking(c) ? 0 : isUnknown(c) ? 2 : 1);
+  // 親自身が作業中（実行中・応答待ち）のものを、子孫だけが作業中のものより上にする（親が状態不明でも、画面の「実行中」と同じ根拠）
+  const rank = (c: Chat): number => (isWorking(c) ? (isRootActive(c) ? 0 : 1) : isUnknown(c) ? 3 : 2);
   const ordered = [...byRecency.keys()].sort((i, j) => rank(byRecency[i]) - rank(byRecency[j]) || i - j).map((i) => byRecency[i]);
   const rest = ordered.slice(limit);
   const hid = (c: Chat): boolean => !isWorking(c) && isUnknown(c);

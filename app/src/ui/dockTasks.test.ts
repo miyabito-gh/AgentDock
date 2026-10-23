@@ -1,7 +1,7 @@
 // 実行: node --test src/ui/dockTasks.test.ts （tscの対象外）
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { orderWorkingFirst, branchOrder, descendantSummary, descendantSummaryText, cardDensity, chatSignature, mayRedirect, holdByTyping, nextHeldSig, orderByRecency, pickRecentDescendants, selectTasks, stableOrder, stableMembership, trackRecency } from "./dockTasks.ts";
+import { orderWorkingFirst, branchOrder, descendantSummary, descendantSummaryText, cardDensity, chatSignature, mayRedirect, holdByTyping, nextHeldSig, orderByRecency, pickRecentDescendants, selectTasks, stableOrder, stableMembership, trackRecency, workSignature } from "./dockTasks.ts";
 
 const chat = (id: string, o: any = {}): any => ({ key: { backend: "codex", id }, lastUsedAt: null, createdAt: { kind: "notFetched" }, archived: { kind: "value", value: false }, ...o });
 const agent = (cid: string, id: string, state: string, o: any = {}): any => ({
@@ -224,4 +224,23 @@ test("凍結: 入力中は署名を更新せず、入力が終わると変化を
   last = nextHeldSig(false, "B", last);
   assert.equal(last, "B");
   assert.equal(holdByTyping(false, "B", last), true); // 変化なしは保持
+});
+test("親が作業中になった遷移: 子孫が作業中で既に作業中扱いでも署名が変わり、親が作業中のものが最上位(rank 0)", () => {
+  const { cs, rec } = many(8);
+  const working = new Set(["c0", "c3"]); // c0=子孫だけ作業中(履歴の古い子)、c3=別の作業中
+  const rootActive = new Set<string>();
+  const w = (c: any) => working.has(c.key.id);
+  const ra = (c: any) => rootActive.has(c.key.id);
+  const id = (c: any) => c.key.id;
+  const before = workSignature(cs, id, w, ra);
+  rootActive.add("c0"); // 状態不明だった親に初回送信が受理され、親が実行中になる（作業中であることは変わらない）
+  assert.notEqual(workSignature(cs, id, w, ra), before);
+  const r = selectTasks(snap(cs), rec as any, new Map(), w, 5, () => false, ra);
+  assert.equal(ids(r.tasks)[0], "c0");
+  assert.deepEqual(ids(orderWorkingFirst(cs, rec as any, w, ra)).slice(0, 2), ["c0", "c3"]);
+});
+test("親の作業中判定を渡さない従来の呼び出しは、既存の順位のまま", () => {
+  const { cs, rec } = many(8);
+  const r = selectTasks(snap(cs), rec as any, new Map(), (c) => c.key.id === "c0", 5, (c) => c.key.id === "c1");
+  assert.equal(ids(r.tasks)[0], "c0");
 });
