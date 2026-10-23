@@ -1,7 +1,7 @@
 // 実行: node --test src/ui/dockTasks.test.ts （tscの対象外）
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { orderWorkingFirst, branchOrder, descendantSummary, descendantSummaryText, cardDensity, chatSignature, mayRedirect, orderByRecency, pickRecentDescendants, selectTasks, stableOrder, stableMembership, trackRecency } from "./dockTasks.ts";
+import { orderWorkingFirst, branchOrder, descendantSummary, descendantSummaryText, cardDensity, chatSignature, mayRedirect, holdByTyping, nextHeldSig, orderByRecency, pickRecentDescendants, selectTasks, stableOrder, stableMembership, trackRecency } from "./dockTasks.ts";
 
 const chat = (id: string, o: any = {}): any => ({ key: { backend: "codex", id }, lastUsedAt: null, createdAt: { kind: "notFetched" }, archived: { kind: "value", value: false }, ...o });
 const agent = (cid: string, id: string, state: string, o: any = {}): any => ({
@@ -197,4 +197,31 @@ test("selectTasks: 取得済みの溢れはoverflow、状態不明の溢れは�
   assert.deepEqual(ids(r.tasks), ["c0", "c5", "c4", "c3", "c2"]);
   assert.deepEqual(ids(r.overflow), ["c1"]);
   assert.deepEqual(ids(r.hiddenUnknown), ["c7", "c6"]);
+});
+
+test("selectTasks: 作業中6件以上は上位5件が作業中、作業中でないものは押し出さない", () => {
+  const { cs, rec } = many(9); // c0..c8、新しいほど大きい
+  const working = new Set(["c0", "c1", "c2", "c3", "c4", "c5"]);
+  const r = selectTasks(snap(cs), rec as any, new Map(), (c) => working.has(c.key.id));
+  assert.deepEqual(ids(r.tasks), ["c5", "c4", "c3", "c2", "c1"]);
+  assert.deepEqual(ids(r.overflow), ["c0", "c8", "c7", "c6"]); // 6件目の作業中が先
+});
+test("selectTasks: 親unknownで子が作業中(isWorking真)はrank 0、子孫が作業中でない不明は従来どおり隠す", () => {
+  const { cs, rec } = many(8);
+  const isW = (c: any) => c.key.id === "c0";
+  const isU = (c: any) => ["c0", "c1", "c2"].includes(c.key.id);
+  const r = selectTasks(snap(cs), rec as any, new Map(), isW, 5, isU);
+  assert.equal(ids(r.tasks)[0], "c0");
+  assert.ok(!ids(r.overflow).some((i) => i === "c1" || i === "c2"));
+  assert.deepEqual(ids(r.hiddenUnknown).sort(), ["c1", "c2"].filter((i) => ids(r.tasks).indexOf(i) < 0).sort());
+});
+test("凍結: 入力中は署名を更新せず、入力が終わると変化を検出して再計算する", () => {
+  let last = "A";
+  assert.equal(holdByTyping(true, "B", last), true);
+  last = nextHeldSig(true, "B", last);
+  assert.equal(last, "A");
+  assert.equal(holdByTyping(false, "B", last), false); // 入力終了: 再計算
+  last = nextHeldSig(false, "B", last);
+  assert.equal(last, "B");
+  assert.equal(holdByTyping(false, "B", last), true); // 変化なしは保持
 });

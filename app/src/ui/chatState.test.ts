@@ -1,7 +1,7 @@
 // 実行: node --test src/ui/chatState.test.ts （tscの対象外）
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chatDisplayKind, dockRank, sortByDockRank, unknownCount, unknownSignature, validOutcome, parkGroup, historyBreakdown, historyBreakdownText, rawStateText, recheckSummary } from "./chatState.ts";
+import { chatDisplayKind, dockRank, sortByDockRank, unknownCount, unknownParentWithActiveChild, unknownSignature, validOutcome, parkGroup, historyBreakdown, historyBreakdownText, rawStateText, recheckSummary } from "./chatState.ts";
 
 test("再確認の結果文: 確認・終端なし・読めない・読まなかったを分け、確認できた数だけ成功に数える", () => {
   const k = (...ks: string[]) => ks.map((kind) => ({ kind })) as any;
@@ -68,4 +68,10 @@ test("履歴確認の内訳と注意表示", () => {
   assert.equal(historyBreakdownText(b), "完了2／失敗1／中断0／turnなし1");
   assert.equal(b.attention, true);
   assert.equal(historyBreakdown(["completed"]).attention, false);
+});
+
+test("親unknownで子孫が作業中は作業中扱い、子孫が作業中でなければ対象外", () => {
+  assert.equal(unknownParentWithActiveChild("unknown", ["done", "running"]), true);
+  assert.equal(unknownParentWithActiveChild("unknown", ["unknown", "done"]), false);
+  assert.equal(unknownParentWithActiveChild("done", ["running"]), false);
 });

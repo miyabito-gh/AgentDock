@@ -1,7 +1,7 @@
 // スナップショットからの表示用導出。状態判定そのものはホストの責務で、ここは並べ替えと文言だけ。
 import type { AgentView, Chat, HistoryOutcome, HostSnapshot, PendingRequest, StopRecord } from "../ipc/types";
 import { STATE, keyStr, knownValue } from "./format";
-import { CHAT_DISPLAY_TEXT, chatDisplayKind, isActiveState, unknownCount, unknownNote, validOutcome, type ChatDisplayKind } from "./chatState";
+import { CHAT_DISPLAY_TEXT, chatDisplayKind, isActiveState, unknownCount, unknownNote, unknownParentWithActiveChild, validOutcome, type ChatDisplayKind } from "./chatState";
 
 /** 最初の依頼の先頭30字（仮表示用）。 */
 export const previewTitle = (c: Chat): string | null => {
@@ -61,7 +61,7 @@ export const isWorkingForDock = (s: HostSnapshot, c: Chat): boolean => {
   const st = rootView(s, c)?.status.state;
   if (!st) return false;
   const d = chatDisplay(s, c);
-  return isActiveState(st) || d === "childWorking";
+  return isActiveState(st) || d === "childWorking" || unknownParentWithActiveChild(st, descendantStates(s, c));
 };
 
 /** 親の状態が不明（親の状態を取得できていない／unknown）。ドックの「タスク」では作業中・対応待ちを押し出さず、余り枠にだけ入る。5件に入らなかった分は「ほかのタスク」にも出さず隠す（「選択中」「全」では見える）。 */

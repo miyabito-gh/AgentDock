@@ -18,6 +18,9 @@ export function chatDisplayKind(root: AgentState, descendants: AgentState[]): Ch
   return "root";
 }
 
+/** 親の状態が unknown で、子孫に作業中がある（画面では実行中に見えうる）。ドックでは作業中として扱う。 */
+export const unknownParentWithActiveChild = (root: AgentState, descendants: AgentState[]): boolean => root === "unknown" && descendants.some(isActiveState);
+
 export const CHAT_DISPLAY_TEXT: Record<Exclude<ChatDisplayKind, "root">, string> = {
   childFail: "作業中・子の失敗あり",
   childWorking: "作業中（子が作業中）",

@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AgentKey, AgentView, Chat, ChatKey, HistoryOutcome, HostSnapshot, MonitorScope, PendingRequest, RequestAnswer } from "../ipc/types";
 import { RequestCard, chatChipClass } from "./CenterPane";
-import { DESCENDANT_LIMIT, branchOrder, cardDensity, chatSignature, descendantSummary, descendantSummaryText, mayRedirect, orderWorkingFirst, selectTasks, stableMembership, stableOrder, trackRecency, type Recency } from "./dockTasks";
+import { DESCENDANT_LIMIT, branchOrder, cardDensity, chatSignature, descendantSummary, descendantSummaryText, holdByTyping, mayRedirect, nextHeldSig, orderWorkingFirst, selectTasks, stableMembership, stableOrder, trackRecency, type Recency } from "./dockTasks";
 import { Icon } from "./Icon";
 import { OrgBadge } from "./OrgPane";
 import { RequestGapLine } from "./RequestGap";
@@ -449,7 +449,7 @@ export function DockPane({ snap: snapIn, scope, selId, mini, confirmed, onScope,
   const workSig = snap.chats.map((c) => `${cid(c)}:${isWorkingForDock(snap, c) ? 1 : 0}`).join("|");
   // 「タスク」の選定・所属の凍結だけが見る不明フラグ（「全」「選択中」の並びには効かせない）
   const unkSig = snap.chats.map((c) => `${cid(c)}:${isUnknownForDock(snap, c) ? 1 : 0}`).join("|");
-  const holdAll = typing || workSig === allSig.current;
+  const holdAll = holdByTyping(typing, workSig, allSig.current);
   const allIds = stableOrder(allOrder.current, orderWorkingFirst(snap.chats, rec, (c) => isWorkingForDock(snap, c)).map(cid), holdAll);
   const allById = new Map(snap.chats.map((c) => [cid(c), c] as const));
   const chats = isSel ? snap.chats.filter((c) => c.key.id === selId) : allIds.flatMap((id) => allById.get(id) ?? []);
@@ -481,8 +481,8 @@ export function DockPane({ snap: snapIn, scope, selId, mini, confirmed, onScope,
   // 入力中は、並びだけでなく所属（帯・タスク列）も保つ（カードを作り直さない＝フォーカス・変換を保つ）。
   // 作業状態・対応待ち・閉じたものが変わらない間は、所属と並びも前回のまま。
   const memberSig = `${workSig}#${unkSig}#${sel.attention.map(cid).join("|")}#${[...closed.keys()].join("|")}`;
-  const { band: bandIds, task: taskIds } = stableMembership(bandOrder.current, taskOrder.current, sel.attention.map(cid), sel.tasks.map(cid), typing || memberSig === taskSig.current, new Set(allById.keys()));
-  useEffect(() => { bandOrder.current = bandIds; taskOrder.current = taskIds; allOrder.current = allIds; allSig.current = workSig; taskSig.current = memberSig; });
+  const { band: bandIds, task: taskIds } = stableMembership(bandOrder.current, taskOrder.current, sel.attention.map(cid), sel.tasks.map(cid), holdByTyping(typing, memberSig, taskSig.current), new Set(allById.keys()));
+  useEffect(() => { bandOrder.current = bandIds; taskOrder.current = taskIds; allOrder.current = allIds; allSig.current = nextHeldSig(typing, workSig, allSig.current); taskSig.current = nextHeldSig(typing, memberSig, taskSig.current); });
   const inTask = new Set([...bandIds, ...taskIds]);
   const bandChats = bandIds.flatMap((id) => allById.get(id) ?? []);
   const taskChats = taskIds.flatMap((id) => allById.get(id) ?? []);

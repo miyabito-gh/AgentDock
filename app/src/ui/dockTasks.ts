@@ -156,6 +156,19 @@ export function stableMembership(
 }
 
 /**
+ * 署名の記録。凍結（入力中）の間は更新しない（更新すると、入力が終わっても署名が一致したままになり、凍結が次の変化まで解けない）。
+ * 凍結していないときだけ今の署名を返す。
+ */
+export function nextHeldSig(typing: boolean, current: string, last: string): string {
+  return typing ? last : current;
+}
+
+/** 所属・並びを前回のまま保つか。入力中、または署名が前回記録と同じ間。 */
+export function holdByTyping(typing: boolean, current: string, last: string): boolean {
+  return typing || current === last;
+}
+
+/**
  * 並びの凍結。frozen の間は前回の並び（今も有る ID）を保ち、新しい ID は末尾に足す。frozen でなければ next。
  */
 export function stableOrder(prev: string[], next: string[], frozen: boolean): string[] {
