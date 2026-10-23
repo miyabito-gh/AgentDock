@@ -16,4 +16,8 @@ history: Array<OrgWorkflowView>,
 /**
  * アーカイブしたワークフロー（新しい順に最大50件。読み取り専用）。
  */
-archived: Array<OrgWorkflowView>, };
+archived: Array<OrgWorkflowView>, 
+/**
+ * 履歴の別枠（削除途中）に収まらず一覧に出さなかった、削除途中のワークフローの件数。
+ */
+deletionOverflow: number, };

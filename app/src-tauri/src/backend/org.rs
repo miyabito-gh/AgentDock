@@ -500,6 +500,9 @@ pub struct OrgSnapshotView {
     /// アーカイブしたワークフロー（新しい順に最大50件。読み取り専用）。
     #[serde(default)]
     pub archived: Vec<OrgWorkflowView>,
+    /// 履歴の別枠（削除途中）に収まらず一覧に出さなかった、削除途中のワークフローの件数。
+    #[serde(default)]
+    pub deletion_overflow: u32,
 }
 
 // ───────────────────────────── 役割定義 ─────────────────────────────

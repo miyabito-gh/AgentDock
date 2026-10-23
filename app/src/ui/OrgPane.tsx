@@ -63,7 +63,7 @@ export function OrgListRow({ wf, selected, onOpen, onStart, counts }: { wf: OrgW
 
 /** 左一覧の過去のワークフロー（保存済み。読み取り専用）。完了／失敗／取消しの印つき。多いときは折りたたむ。選ぶと中央に開くだけ。 */
 const HISTORY_FOLDED = 3;
-export function OrgHistoryRows({ history, selectedId, onOpen, onDelete }: { history: OrgWorkflowView[]; selectedId: string | null; onOpen: (id: string) => void; /** 削除の途中のものに「削除を続ける…」の入口を出す。 */ onDelete?: (id: string) => void }) {
+export function OrgHistoryRows({ history, selectedId, onOpen, onDelete, deletionOverflow = 0 }: { history: OrgWorkflowView[]; /** 別枠に収まらず出さなかった削除途中の件数。 */ deletionOverflow?: number; selectedId: string | null; onOpen: (id: string) => void; /** 削除の途中のものに「削除を続ける…」の入口を出す。 */ onDelete?: (id: string) => void }) {
   const [all, setAll] = useState(false);
   const shown = all || history.length <= HISTORY_FOLDED + 1 ? history : history.slice(0, HISTORY_FOLDED);
   return (
@@ -84,6 +84,7 @@ export function OrgHistoryRows({ history, selectedId, onOpen, onDelete }: { hist
           </div>
         );
       })}
+      {deletionOverflow > 0 ? <div className="muted" role="note">ほか {deletionOverflow} 件の削除途中のワークフローがあります（新しいものから表示しています）</div> : null}
       {shown.length < history.length ? <button type="button" className="small" onClick={() => setAll(true)}>過去のワークフローをすべて表示（あと {history.length - shown.length} 件）</button> : null}
     </div>
   );

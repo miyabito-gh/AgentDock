@@ -96,7 +96,7 @@ impl Host {
         let root = self.persist.store().map(|s| s.root().to_path_buf());
         let snapshot = self.org_snapshot();
         // 過去のワークフロー・アーカイブしたワークフロー（保存データの読取りだけ。何も書かず、司令taskへも何も渡さない）。
-        let (history, mut archived) = root
+        let (history, mut archived, deletion_overflow) = root
             .as_deref()
             .map(|r| {
                 super::history::read_lists(
@@ -108,7 +108,7 @@ impl Host {
                 )
             })
             .unwrap_or_default();
-        let Some(snapshot) = snapshot else { return OrgSnapshotView { workflow: None, stall_minutes, history, archived } };
+        let Some(snapshot) = snapshot else { return OrgSnapshotView { workflow: None, stall_minutes, history, archived, deletion_overflow: deletion_overflow as u32 } };
         let notices = self.org_rt.notice_entries();
         let usage_rows = self
             .persist
@@ -136,7 +136,7 @@ impl Host {
         if workflow.archived_at.is_some() {
             archived.insert(0, workflow.clone());
         }
-        OrgSnapshotView { workflow: Some(workflow), stall_minutes, history, archived }
+        OrgSnapshotView { workflow: Some(workflow), stall_minutes, history, archived, deletion_overflow: deletion_overflow as u32 }
     }
 
     /// 直近に読んだ役割定義（読込み前は `loaded=false`）。

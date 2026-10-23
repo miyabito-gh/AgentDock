@@ -20,6 +20,8 @@ use crate::store::org::{
 
 /// 画面に出す過去のワークフローの件数（新しい順の先頭から。動いている1件を含む。アーカイブは数えない）。
 pub const HISTORY_KEEP: usize = 10;
+/// 削除途中（`delete.json` が残る）のフォルダを別枠で出す上限（新しい順）。超えた分は件数だけ画面に出す。
+pub const DELETING_KEEP: usize = 20;
 /// アーカイブ一覧の件数（新しい順）。
 pub const ARCHIVED_KEEP: usize = 50;
 
@@ -28,7 +30,11 @@ type Stamp = [(Option<SystemTime>, u64); 6];
 
 /// フォルダごとの読込み結果の控え。`None`＝読めなかった（次も同じ目印なら再度読まない）。
 #[derive(Default)]
-pub struct HistoryCache(HashMap<PathBuf, (Stamp, Option<OrgWorkflowView>)>);
+pub struct HistoryCache {
+    entries: HashMap<PathBuf, (Stamp, Option<OrgWorkflowView>)>,
+    /// 直前に診断ログへ出した削除途中の ID（変わったときだけ出す）。
+    logged_deleting: Option<Vec<String>>,
+}
 
 fn stamp_of(dir: &Path) -> Stamp {
     let one = |name: &str| std::fs::metadata(dir.join(name)).map(|m| (m.modified().ok(), m.len())).unwrap_or((None, 0));
@@ -84,11 +90,11 @@ fn read_one(dir: &Path) -> Option<OrgWorkflowView> {
 
 fn read_cached(dir: &Path, cache: &mut HistoryCache) -> Option<OrgWorkflowView> {
     let stamp = stamp_of(dir);
-    match cache.0.get(dir) {
+    match cache.entries.get(dir) {
         Some((s, v)) if *s == stamp => v.clone(),
         _ => {
             let v = read_one(dir);
-            cache.0.insert(dir.to_path_buf(), (stamp, v.clone()));
+            cache.entries.insert(dir.to_path_buf(), (stamp, v.clone()));
             v
         }
     }
@@ -98,20 +104,46 @@ fn is_archived(dir: &Path) -> bool {
     dir.join(LISTING_FILE).exists() && read_archived_at(dir).is_some()
 }
 
-/// 保存済みの過去のワークフロー（アーカイブを除いた新しい順の先頭 `keep` 件のうち `active` 以外の読めるもの）と、
-/// アーカイブしたワークフロー（新しい順に先頭 `archived_keep` 件のうち `active` 以外の読めるもの）。
-pub fn read_lists(root: &Path, active: Option<&WorkflowId>, keep: usize, archived_keep: usize, cache: &mut HistoryCache) -> (Vec<OrgWorkflowView>, Vec<OrgWorkflowView>) {
+/// 窓の選別（純粋）。削除途中は履歴の窓（`keep`）に数えず別枠（`deleting_keep`）。
+/// 戻り値は（別枠に出す削除途中, 履歴の窓, 別枠から溢れた削除途中の件数）。どちらも入力の順（新しい順）のまま。
+pub fn select_window<T>(items: Vec<(T, bool)>, keep: usize, deleting_keep: usize) -> (Vec<T>, Vec<T>, usize) {
+    let (mut deleting, mut normal) = (Vec::new(), Vec::new());
+    for (t, is_deleting) in items {
+        if is_deleting {
+            deleting.push(t);
+        } else {
+            normal.push(t);
+        }
+    }
+    let overflow = deleting.len().saturating_sub(deleting_keep);
+    deleting.truncate(deleting_keep);
+    normal.truncate(keep);
+    (deleting, normal, overflow)
+}
+
+/// 保存済みの過去のワークフロー（アーカイブを除き、削除途中を別枠で先頭に、続けて新しい順の先頭 `keep` 件。`active` 以外の読めるもの）、
+/// アーカイブしたワークフロー（新しい順に先頭 `archived_keep` 件のうち `active` 以外の読めるもの）、別枠から溢れた削除途中の件数。
+pub fn read_lists(root: &Path, active: Option<&WorkflowId>, keep: usize, archived_keep: usize, cache: &mut HistoryCache) -> (Vec<OrgWorkflowView>, Vec<OrgWorkflowView>, usize) {
     let active_dir = active.map(|w| workflow_dir(root, &w.0));
     let (archived_all, normal_all): (Vec<PathBuf>, Vec<PathBuf>) = list_workflow_dirs_newest(root).into_iter().partition(|d| is_archived(d));
-    let normal: Vec<PathBuf> = normal_all.into_iter().take(keep).collect();
+    let items: Vec<(PathBuf, bool)> = normal_all.into_iter().map(|d| { let del = d.join(DELETE_FILE).exists(); (d, del) }).collect();
+    let all_deleting: Vec<String> = items.iter().filter(|(_, d)| *d).filter_map(|(p, _)| p.file_name().map(|n| n.to_string_lossy().into_owned())).collect();
+    if cache.logged_deleting.as_ref() != Some(&all_deleting) {
+        if !all_deleting.is_empty() {
+            crate::diag::log("org", &format!("history: {} workflow(s) with an unfinished deletion: {}", all_deleting.len(), all_deleting.join(", ")));
+        }
+        cache.logged_deleting = Some(all_deleting);
+    }
+    let (deleting, normal, overflow) = select_window(items, keep, DELETING_KEEP);
+    let normal: Vec<PathBuf> = deleting.into_iter().chain(normal).collect();
     let archived: Vec<PathBuf> = archived_all.into_iter().take(archived_keep).collect();
-    cache.0.retain(|k, _| normal.contains(k) || archived.contains(k));
+    cache.entries.retain(|k, _| normal.contains(k) || archived.contains(k));
     let mut read = |dirs: &[PathBuf]| -> Vec<OrgWorkflowView> {
         dirs.iter().filter(|d| active_dir.as_ref() != Some(*d)).filter_map(|d| read_cached(d, cache)).collect()
     };
     let history = read(&normal);
     let archived = read(&archived);
-    (history, archived)
+    (history, archived, overflow)
 }
 
 /// 保存済みの過去のワークフロー（新しい順に先頭 `keep` 件のうち、`active` 以外の読めるもの。アーカイブは除く）。
@@ -222,14 +254,14 @@ mod tests {
             crate::store::org::write_archived(&workflow_dir(&root, id), crate::backend::model::UnixMillis(7)).unwrap();
         }
         let mut cache = HistoryCache::default();
-        let (history, archived) = read_lists(&root, None, 3, ARCHIVED_KEEP, &mut cache);
+        let (history, archived, _) = read_lists(&root, None, 3, ARCHIVED_KEEP, &mut cache);
         let ids = |v: &[OrgWorkflowView]| v.iter().map(|w| w.workflow_id.clone()).collect::<Vec<_>>();
         assert_eq!(ids(&history), vec!["wf-103", "wf-102", "wf-101"]);
         assert_eq!(ids(&archived), vec!["wf-105", "wf-104"]);
         assert!(archived.iter().all(|w| w.archived_at.is_some()) && history.iter().all(|w| w.archived_at.is_none()));
         // un-archiving puts it back at its place
         crate::store::org::remove_archived(&workflow_dir(&root, "wf-105")).unwrap();
-        let (history, archived) = read_lists(&root, None, 3, ARCHIVED_KEEP, &mut cache);
+        let (history, archived, _) = read_lists(&root, None, 3, ARCHIVED_KEEP, &mut cache);
         assert_eq!(ids(&history), vec!["wf-105", "wf-103", "wf-102"]);
         assert_eq!(ids(&archived), vec!["wf-104"]);
         let _ = std::fs::remove_dir_all(&root);
@@ -256,6 +288,46 @@ mod tests {
         assert!(h[0].readonly && !h[0].finished);
         let d = h[0].deletion.as_ref().expect("progress shown");
         assert_eq!((d.done.len(), d.failed.len()), (1, 1));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn select_window_keeps_deleting_out_of_the_history_window_and_caps_them() {
+        // newest first: d = deleting
+        let items: Vec<(u32, bool)> = vec![(9, true), (8, false), (7, true), (6, false), (5, false), (4, true), (3, false)];
+        let (deleting, normal, overflow) = select_window(items.clone(), 2, 2);
+        assert_eq!(deleting, vec![9, 7]);
+        assert_eq!(normal, vec![8, 6]);
+        assert_eq!(overflow, 1);
+        // many deleting rows never push normal history out
+        let many: Vec<(u32, bool)> = (0..30).map(|i| (100 - i, true)).chain((0..12).map(|i| (50 - i, false))).collect();
+        let (deleting, normal, overflow) = select_window(many, HISTORY_KEEP, DELETING_KEEP);
+        assert_eq!((deleting.len(), normal.len(), overflow), (DELETING_KEEP, HISTORY_KEEP, 10));
+        assert_eq!(normal[0], 50);
+        assert_eq!(deleting[0], 100);
+    }
+
+    #[test]
+    fn stuck_deletions_do_not_hide_older_history_and_are_listed_first_with_overflow_count() {
+        let root = temp_root();
+        for i in 1..=4 {
+            seed(&root, &format!("wf-{}", 100 + i), TaskStatus::Completed);
+        }
+        for i in 5..=7 {
+            let dir = seed(&root, &format!("wf-{}", 100 + i), TaskStatus::Completed);
+            let rec = crate::rules::org_manage::DeleteRecord { requested_at: crate::backend::model::UnixMillis(3), delete_chats: false, chats: vec![], done: vec![], failed: vec![] };
+            crate::store::org::write_delete_record(&dir, &rec).unwrap();
+        }
+        let mut cache = HistoryCache::default();
+        let (h, _, overflow) = read_lists(&root, None, 2, 0, &mut cache);
+        let ids: Vec<String> = h.iter().map(|v| v.workflow_id.clone()).collect();
+        assert_eq!(ids, vec!["wf-107", "wf-106", "wf-105", "wf-104", "wf-103"]);
+        assert_eq!(overflow, 0);
+        // removing delete.json updates the list (the stamp includes it)
+        std::fs::remove_file(workflow_dir(&root, "wf-107").join(DELETE_FILE)).unwrap();
+        let (h, _, _) = read_lists(&root, None, 2, 0, &mut cache);
+        let ids: Vec<String> = h.iter().map(|v| v.workflow_id.clone()).collect();
+        assert_eq!(ids, vec!["wf-106", "wf-105", "wf-107", "wf-104"]);
         let _ = std::fs::remove_dir_all(&root);
     }
 
