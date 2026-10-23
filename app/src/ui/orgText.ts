@@ -59,3 +59,65 @@ export const finishedBannerText = (tasks: ReadonlyArray<{ kind: string; commit?:
 /** 完了通知（お知らせ一覧）の文。ホストの文言（view.rs）と同じ前半。 */
 export const completedNoticeText = (tasks: ReadonlyArray<{ kind: string; commit?: string | null }>): string =>
   isInvestigationOnly(tasks) ? `ワークフローが完了しました。${INVESTIGATION_DONE}` : "ワークフローが完了しました。成果物を確認して取り込んでください（AgentDock は自動でマージしません）";
+
+// ── 画面の整形（表示時だけ。保存名・Plannerへ送る本文は変えない） ──
+
+/** ワークフロー名の表示。先頭の Markdown の見出し記号（`# `）だけを除く。名前が無ければ null。 */
+export function displayWorkflowTitle(title: string | null | undefined): string | null {
+  if (title === null || title === undefined) return null;
+  const s = title.replace(/^\s*#{1,6}\s+/, "").trim();
+  return s === "" ? null : s;
+}
+
+/** Planner への依頼文の前置き（rules/org_intake.rs の PLANNER_REQUEST_NOTE と同じ文）。画面には出さない。 */
+export const PLANNER_REQUEST_NOTE = "以下は依頼整理を終えた確定依頼である。依頼整理の段階の制約（ファイルを変更しない・組織実行を開始しない 等）はこの依頼には適用しない。";
+const NOTE_HEAD = "以下は依頼整理を終えた確定依頼である。";
+
+/** 概要に出す依頼文。前置きの行（定数との一致、または先頭一致）と、先頭の見出し記号を除く。残りが空なら元の文のまま（隠さない）。 */
+export function displayRequest(request: string): string {
+  const lines = request.split(/\r?\n/).filter((l) => { const t = l.trim(); return t !== PLANNER_REQUEST_NOTE && !t.startsWith(NOTE_HEAD); });
+  const s = lines.join("\n").replace(/^\s*#{1,6}\s+/, "").replace(/\n{3,}/g, "\n\n").trim();
+  return s === "" ? request : s;
+}
+
+/** 状態に応じた出し分け。終了済み（完了・取り消し済み・失敗）では、動きの節・0件のチップ・設定値の表を前面に出さず、行ごとの「手動に切り替え」も出さない。 */
+export function sectionVisibility(finished: boolean): { activity: boolean; waitBand: boolean; settingsFolded: boolean; releaseButton: boolean } {
+  return { activity: !finished, waitBand: !finished, settingsFolded: finished, releaseButton: !finished };
+}
+
+/** タスク行の「成果物」の補足。コミットがあれば変更あり、調査の報告があれば「報告あり」。取れていないものは「なし」と書かない（null＝出さない／未取得は文字で）。 */
+export function taskArtifactNote(t: { kind: string; commit?: string | null; phase: string }, report: "value" | "notObtained" | "none" | "unknown"): string | null {
+  if (t.commit) return `変更あり（${t.commit.slice(0, 8)}）`;
+  if (t.kind !== "investigate") return null;
+  if (report === "value") return "報告あり";
+  if (report === "notObtained") return t.phase === "completed" ? "報告 未取得" : null;
+  return null;
+}
+
+/** タスク行の状態の下の補足（値があるものだけ）。差し戻しは0回なら出さない。 */
+export function taskSubparts(x: { reworkUsed: number; reworkMax: number; retriesUsed: number; retryMax: number | null; hasRetry: boolean; waitingOn: string[]; artifact: string | null }): string[] {
+  const out: string[] = [];
+  if (x.reworkUsed > 0) out.push(`差し戻し ${x.reworkUsed}/${x.reworkMax}`);
+  if (x.retriesUsed > 0 || x.hasRetry) out.push(`再送 ${x.retriesUsed}/${x.retryMax ?? "—"}`);
+  if (x.waitingOn.length > 0) out.push(`待ち: ${x.waitingOn.join(",")}`);
+  if (x.artifact) out.push(x.artifact);
+  return out;
+}
+
+/**
+ * 結果として先頭に出す報告のタスク。調査タスクのうち、他の調査タスクの依存先になっていない末端（統合報告）の最後のもの。
+ * 報告を読めたもの（`withReport` に含まれるもの）だけが対象。無ければ null。
+ */
+export function finalReportTask(tasks: ReadonlyArray<{ id: string; kind: string; deps: string[] }>, withReport: ReadonlySet<string>): string | null {
+  const depended = new Set(tasks.filter((t) => t.kind === "investigate").flatMap((t) => t.deps));
+  let best: string | null = null;
+  for (const t of tasks) if (t.kind === "investigate" && !depended.has(t.id) && withReport.has(t.id)) best = t.id;
+  return best;
+}
+
+/** 完了後の帯の文（過去の記録では取り込み操作を促さない。調査のみは調査用の文）。 */
+export function finishedBannerFor(tasks: ReadonlyArray<{ kind: string; commit?: string | null }>, readonly: boolean): string {
+  if (isInvestigationOnly(tasks)) return "調査が終わりました。結果は下で読めます。取り込む変更はありません。";
+  if (readonly) return "終了した記録です。成果物と取り込みの記録は下で確認できます。";
+  return "成果物を確認して取り込んでください。AgentDock は自動でマージしません。";
+}

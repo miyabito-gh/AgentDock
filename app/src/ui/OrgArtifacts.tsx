@@ -9,8 +9,9 @@ import { ConfirmBlock, FootActions } from "./DialogParts";
 import { CopyButton, Markdown } from "./Markdown";
 import { Counts, DiffText, kindIcon, pathText } from "./DiffParts";
 import { splitPath } from "./changesView";
+import { finalReportTask } from "./orgText";
 import {
-  STATUS_CHIP, actionableRecords, checkOutcomeLabel, checksSummary, defaultTab, fileKey, headingText, importResultText, importable, investigationText, isCandidate, latestReview, orderSelection, parseTable, recordStateText, reviewLine, reviewVerdictLabel, reviewRoundCount, REVIEW_ROUNDS_TIP, sha7,
+  STATUS_CHIP, viewOf, actionableRecords, checkOutcomeLabel, checksSummary, defaultTab, fileKey, headingText, importResultText, importable, investigationText, isCandidate, latestReview, orderSelection, parseTable, recordStateText, reviewLine, reviewVerdictLabel, reviewRoundCount, REVIEW_ROUNDS_TIP, sha7,
   tableDelimiter, tabsOf, totalsText, undoResultText, type FileTab,
 } from "./orgArtifactsView";
 
@@ -32,27 +33,61 @@ export function useArtifacts(workflowId: string | null, sig: string, live: boole
     host.orgArtifacts(workflowId).then((v) => { if (alive) { setView(v); setError(null); } }).catch((e) => { if (alive) { setView(null); setError(errText(e)); } });
     return () => { alive = false; };
   }, [workflowId, sig, live, nonce]);
-  return { view, error, reload: useCallback(() => setNonce((n) => n + 1), []) };
+  return { view: viewOf(view, workflowId), error, reload: useCallback(() => setNonce((n) => n + 1), []) };
 }
 
 // ───────────────────────────── ワークフロー画面の「成果物」節 ─────────────────────────────
 
-export function ArtifactsSection({ wf, live, onAct }: { wf: OrgWorkflowView; live: boolean; onAct: (a: string) => void }) {
-  const hasCommit = wf.tasks.some((t) => t.commit);
-  const hasInvestigation = wf.tasks.some((t) => t.kind === "investigate");
-  const sig = `${wf.finished}|${wf.tasks.map((t) => `${t.id}:${t.status.phase}:${t.commit ?? ""}`).join(",")}|${wf.artifactHint?.imported ?? 0}`;
-  const { view, error } = useArtifacts(hasCommit || hasInvestigation ? wf.workflowId : null, sig, live);
-  if (!hasCommit && !hasInvestigation) return null;
+/** 成果物節を取るか（コミットか調査タスクがあるとき）と、取り直しの署名。 */
+export const hasArtifactTasks = (wf: OrgWorkflowView): boolean => wf.tasks.some((t) => t.commit || t.kind === "investigate");
+export const artifactsSig = (wf: OrgWorkflowView): string => `${wf.finished}|${wf.tasks.map((t) => `${t.id}:${t.status.phase}:${t.commit ?? ""}`).join(",")}|${wf.artifactHint?.imported ?? 0}`;
+
+export type ArtState = { view: OrgArtifactsView | null; error: string | null };
+
+/** 終了済みで統合報告を読めるときの、結果として先頭に出す調査項目（読めなければ null）。 */
+export function resultItem(wf: OrgWorkflowView, view: OrgArtifactsView | null): OrgInvestigationItem | null {
+  view = viewOf(view, wf.workflowId);
+  if (!wf.finished || !view) return null;
+  const withReport = new Set(view.investigations.filter((i) => i.report.kind === "value").map((i) => i.task));
+  const id = finalReportTask(wf.tasks, withReport);
+  return id ? view.investigations.find((i) => i.task === id) ?? null : null;
+}
+
+export const reportAnchorId = (task: string): string => `org-inv-${task}`;
+/** タスク表の「報告あり」から、その調査の報告へ移る（畳んであれば開く）。 */
+export function jumpToReport(task: string): void {
+  const el = document.getElementById(reportAnchorId(task));
+  if (!el) return;
+  for (let d = el.closest("details"); d; d = d.parentElement?.closest("details") ?? null) d.open = true;
+  el.scrollIntoView({ block: "center" });
+}
+
+/** 終了済みの調査の結果（統合報告）。帯の直下に開いた状態で出す。 */
+export function ResultSection({ item }: { item: OrgInvestigationItem }) {
+  return (
+    <section className="org-result" aria-label="結果">
+      <h4 className="org-h">結果</h4>
+      <ul className="org-inv-wrap"><InvestigationReport item={item} /></ul>
+    </section>
+  );
+}
+
+export function ArtifactsSection({ wf, live, onAct, state, resultTask }: { wf: OrgWorkflowView; live: boolean; onAct: (a: string) => void; state: ArtState; resultTask: string | null }) {
+  const { view, error } = state;
+  if (!hasArtifactTasks(wf)) return null;
   if (!live) return <section className="org-artifacts" aria-label="成果物"><h4 className="org-h">成果物</h4><div className="small muted">モックでは動きません（実接続で使えます）。</div></section>;
   if (error) return <section className="org-artifacts" aria-label="成果物"><h4 className="org-h">成果物</h4><div className="banner warn" role="alert"><Icon name="alert" /><div>成果物を取得できませんでした（{error}）。取得できていないだけで、成果物が無いとは限りません。</div></div></section>;
   if (!view) return <section className="org-artifacts" aria-label="成果物"><h4 className="org-h">成果物</h4><div className="small muted">成果物を確認しています…</div></section>;
   const cands = importable(view);
   const open = (task: string | null) => onAct(`orgArtifacts:${wf.workflowId}${task ? `:${task}` : ""}`);
   const imp = (tasks: string[]) => onAct(`orgImport:${wf.workflowId}:${tasks.join(",")}`);
+  const invs = resultTask ? view.investigations.filter((i) => i.task !== resultTask) : view.investigations;
+  // 取り込める成果が無い（調査だけ）ときは、0件の数を並べた見出しも取り込みの注記も出さない。
+  const changesOnly = view.items.length > 0;
   return (
-    <section className="org-artifacts" aria-label="成果物">
-      <h4 className="org-h" title="レビュー待ち＝AIの確認は終わり、あなたの確認と取り込みを待っている成果です（AIのレビュー中とは別）">{headingText(view.items)}</h4>
-      <InvestigationsBlock items={view.investigations} />
+    <section className="org-artifacts" aria-label={changesOnly ? "成果物" : "調査報告"}>
+      {changesOnly ? <h4 className="org-h" title="レビュー待ち＝AIの確認は終わり、あなたの確認と取り込みを待っている成果です（AIのレビュー中とは別）">{headingText(view.items)}</h4> : null}
+      <InvestigationsBlock items={invs} folded={resultTask !== null} />
       {view.items.length === 0 ? (view.investigations.length === 0 ? <div className="small muted">表示できる成果物はありません。</div> : null) : (
         <ul className="org-art-list">
           {view.items.map((i) => (
@@ -71,12 +106,16 @@ export function ArtifactsSection({ wf, live, onAct }: { wf: OrgWorkflowView; liv
           ))}
         </ul>
       )}
-      <div className="org-art-foot">
-        {cands.length > 1 ? <button type="button" className="btn sm" onClick={() => imp(cands.map((c) => c.task))}>{cands.length} 件をまとめて取り込む…</button> : null}
-        <button type="button" className="btn sm" onClick={() => open(null)}>成果物を開く</button>
-      </div>
-      {view.target.blockers.length > 0 && cands.length === 0 && view.items.some((i) => isCandidate(i.status)) ? <div className="small muted">{view.target.blockers.join(" / ")}</div> : null}
-      <div className="small muted">取り込み後も作業場所とブランチは残ります（削除はワークフローの「削除…」から）。AgentDock は自動で取り込みません。</div>
+      {changesOnly ? (
+        <>
+          <div className="org-art-foot">
+            {cands.length > 1 ? <button type="button" className="btn sm" onClick={() => imp(cands.map((c) => c.task))}>{cands.length} 件をまとめて取り込む…</button> : null}
+            <button type="button" className="btn sm" onClick={() => open(null)}>成果物を開く</button>
+          </div>
+          {view.target.blockers.length > 0 && cands.length === 0 && view.items.some((i) => isCandidate(i.status)) ? <div className="small muted">{view.target.blockers.join(" / ")}</div> : null}
+          <div className="small muted">取り込み後も作業場所とブランチは残ります（削除はワークフローの「削除…」から）。AgentDock は自動で取り込みません。</div>
+        </>
+      ) : null}
     </section>
   );
 }
@@ -86,7 +125,7 @@ export function ArtifactsSection({ wf, live, onAct }: { wf: OrgWorkflowView; liv
 function InvestigationReport({ item }: { item: OrgInvestigationItem }) {
   const r = item.report.kind === "value" ? item.report.value : null;
   return (
-    <li className="org-inv">
+    <li className="org-inv" id={reportAnchorId(item.task)}>
       <div className="org-inv-head"><span className="mono org-art-id">{item.task}</span> <span className="org-art-title" title={item.title}>{item.title}</span> <span className="tag" title="ファイルを変えない調査のタスク">調査</span> <span className="small muted">{item.statusLabel}</span></div>
       {r === null ? <div className="small muted">{item.phase === "completed" ? "報告を取得できませんでした（未取得）。保存された報告も、履歴の最終回答も読めませんでした。" : "報告はまだありません。"}</div> : (
         <div className="small">
@@ -107,12 +146,15 @@ function InvestigationReport({ item }: { item: OrgInvestigationItem }) {
   );
 }
 
-function InvestigationsBlock({ items }: { items: OrgInvestigationItem[] }) {
+function InvestigationsBlock({ items, folded = false }: { items: OrgInvestigationItem[]; /** 結果を別に出しているとき、個別の調査として畳む。 */ folded?: boolean }) {
   if (items.length === 0) return null;
+  const title = "調査のタスクの報告です。ファイルがないので、取り込み・差分の対象にはなりません";
+  const list = <ul className="org-inv-wrap">{items.map((i) => <InvestigationReport key={i.task} item={i} />)}</ul>;
   return (
     <div className="org-invs">
-      <h5 className="org-h" title="調査のタスクの報告です。ファイルがないので、取り込み・差分の対象にはなりません">調査報告（{items.length}）</h5>
-      <ul className="org-inv-wrap">{items.map((i) => <InvestigationReport key={i.task} item={i} />)}</ul>
+      {folded
+        ? <details className="about"><summary title={title}>個別の調査（{items.length}）</summary>{list}</details>
+        : <><h5 className="org-h" title={title}>調査報告（{items.length}）</h5>{list}</>}
     </div>
   );
 }

@@ -75,7 +75,7 @@ export function DeleteBody({ chat, d }: { chat: Chat | undefined; d: DeleteProps
             <li>添付の元のファイル、別の場所に保存したファイル</li>
             <li>作業フォルダ内のファイル</li>
             <li>他のチャットのファイル</li>
-            {pv.previousThreads > 0 ? <li>以前の thread {pv.previousThreads} 本（削除するのは今の thread だけで、直前の thread が一覧に戻ります）</li> : null}
+            {pv.previousThreads > 0 ? <li>以前の会話 {pv.previousThreads} 件（削除するのは今の会話だけで、直前の会話が一覧に戻ります）</li> : null}
             {pv.worktreeRemoved ? <li>このチャットが使っていた worktree は既に削除されています（ブランチは残ります）</li> : null}
             {pv.worktreePath ? <li>このチャットが使っている worktree（<span className="mono">{pv.worktreePath}</span>）とそのブランチ（worktree は残ります。メニュー「作業 → worktree を管理」から削除できます）</li> : null}
           </ul>
@@ -181,8 +181,8 @@ export function StorageBody({ u, chats, selected, acked, bl }: { u: UsageProps; 
         {!r ? <span className="muted">未集計</span> : mine ? <div><b className="nw">{fmtBytes(breakdownTotal(mine.breakdown))}</b><UsageBar b={mine.breakdown} /></div> : <span className="muted">専用領域はまだありません（保存したものがありません）</span>}
       </div>
       <div className="field"><span>変更の控え</span>
-        <label><input type="checkbox" checked={bl.enabled} onChange={(e) => bl.setEnabled(e.target.checked)} />turnの開始時に変更の控えを取る（Gitリポジトリのみ）</label>
-        <span className="note">オフにすると以後のturnは控えを取らず、「変更を戻す」の対象になりません。すでに取った控えは消えません（自動では削除しません）。</span></div>
+        <label><input type="checkbox" checked={bl.enabled} onChange={(e) => bl.setEnabled(e.target.checked)} />依頼を送るときに変更の控えを取る（Gitリポジトリのみ）</label>
+        <span className="note">オフにすると以後のやりとりは控えを取らず、「変更を戻す」の対象になりません。すでに取った控えは消えません（自動では削除しません）。</span></div>
       {bl.repos.length > 0 ? (
         <div className="field"><span>リポジトリ別の記録</span>
           <div>
@@ -203,7 +203,7 @@ export function StorageBody({ u, chats, selected, acked, bl }: { u: UsageProps; 
           <span>変更の控え <span className="nw">{fmtBytes(mine.breakdown.baselines)}</span>／戻す前の控え <span className="nw">{fmtBytes(mine.breakdown.revertBackups)}</span></span>)}
         {confirmDel ? (
           <div className="gbanner warn" role="alertdialog" aria-label="控えを削除する確認" style={{ gridColumn: 2 }}>
-            <span className="grow">このチャットのturnは、以後「変更を戻す」の対象になりません（{mine ? fmtBytes(mine.breakdown.baselines) : "容量未確認"}を削除します）。削除した控えは元に戻せません。「戻す前の控え」とチャット本体は削除しません。</span>
+            <span className="grow">このチャットのやりとりは、以後「変更を戻す」の対象になりません（{mine ? fmtBytes(mine.breakdown.baselines) : "容量未確認"}を削除します）。削除した控えは元に戻せません。「戻す前の控え」とチャット本体は削除しません。</span>
             <button className="btn-danger" disabled={deleting} onClick={() => { setDeleting(true); bl.deleteForSelected().finally(() => { setDeleting(false); setConfirmDel(false); }); }}>{deleting ? "削除しています…" : "控えを削除"}</button>
             <button className="btn-line" disabled={deleting} onClick={() => setConfirmDel(false)}>やめる</button>
           </div>

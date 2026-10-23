@@ -181,3 +181,6 @@ export function parseTable(text: string, delimiter: "," | "\t"): string[][] {
 
 /** 表の区切り文字（拡張子から。`.tsv` だけタブ）。 */
 export const tableDelimiter = (path: string): "," | "\t" => (extOf(path) === "tsv" ? "\t" : ",");
+
+/** 別のワークフローの取得結果が残っていても使わない（切り替え直後の取り違え防止）。 */
+export const viewOf = <V extends { workflowId: string }>(v: V | null, workflowId: string | null): V | null => (v && workflowId !== null && v.workflowId === workflowId ? v : null);

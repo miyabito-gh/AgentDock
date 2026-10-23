@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AgentKey, AgentView, Chat, ChatKey, HistoryOutcome, HostSnapshot, MonitorScope, PendingRequest, RequestAnswer } from "../ipc/types";
 import { RequestCard, chatChipClass } from "./CenterPane";
-import { DESCENDANT_LIMIT, branchOrder, cardDensity, chatSignature, descendantSummary, descendantSummaryText, holdByTyping, mayRedirect, nextHeldSig, orderWorkingFirst, selectTasks, stableMembership, stableOrder, trackRecency, workSignature, type Recency } from "./dockTasks";
+import { DESCENDANT_LIMIT, branchOrder, cardDensity, chatSignature, descendantSummary, descendantSummaryText, holdByTyping, isCompletedCard, mayRedirect, nextHeldSig, orderWorkingFirst, selectTasks, stableMembership, stableOrder, trackRecency, workSignature, type Recency } from "./dockTasks";
 import { Icon } from "./Icon";
 import { OrgBadge } from "./OrgPane";
 import { RequestGapLine } from "./RequestGap";
@@ -63,7 +63,7 @@ function Berth({ a, depth, orphan, mini, confirmed, onConfirmFail, rootName, chi
       </div>
       {childNote || (a.agent.parent.kind !== "root" && a.agent.agentPath.kind === "value") || (!mini && a.agent.parent.kind !== "root") ? (
         <div className="c2">
-          {childNote ? <span className="kvp" title="親のみ表示のため、子孫を含めたチャットの状態を示します">{childNote}</span> : null}
+          {childNote ? <span className="kvp" title="親のみ表示のため、サブエージェントを含めたチャットの状態を示します">{childNote}</span> : null}
           {a.agent.parent.kind !== "root" && a.agent.agentPath.kind === "value" ? <span className="path mono" title="Codexが返したエージェントの経路（呼び名とは別）">{a.agent.agentPath.value}</span> : null}
           {mini || a.agent.parent.kind === "root" ? null : (
             <>
@@ -322,8 +322,9 @@ function TaskCard({ snap, c, band, line, open, marked, mini, at, confirmed, acti
   const reqs = chatRequests(snap, c);
   // 組織実行のチャットだけ、回答を届けられなかった要求の理由を1行で残す（接続の切替などで答えられなくなったもの）。
   const gaps = snap.chatLocals.find((l) => l.chat.id === c.key.id)?.org ? chatGapRequests(snap, c.key) : [];
-  const body = !line || open;
   const sum = descendantSummary(snap, c, (v) => historyOutcomeOf(snap, v));
+  const completed = isCompletedCard(root?.status.state ?? null, working, reqs.length, sum);
+  const body = !completed && (!line || open);
   const sumText = descendantSummaryText(sum);
   const reqsRef = useRef<HTMLDivElement>(null);
   const reqLabel = (k: string): string | null => { const r = reqs.find((x) => keyStr(x.agent) === k); return r ? (r.kind.kind === "userInput" ? "質問待ち" : "承認待ち") : null; };
@@ -339,7 +340,7 @@ function TaskCard({ snap, c, band, line, open, marked, mini, at, confirmed, acti
   return (
     <section className={`tcard ${chip} ${band ? "band" : ""} ${working ? "working" : "ended"} ${line ? "line" : ""} ${kidsOpen && body ? "kopen" : ""}`} data-chat={cid(c)} aria-label={`${chatName(c)}のカード`}>
       <div className="tc-h">
-        {line ? (
+        {line && !completed ? (
           <button className="tc-line" aria-expanded={open} title={`${stateText}。押すとこのカードだけ展開します`} onClick={onToggle}>
             <span className={`st ${chip}`}><i aria-hidden="true" />{stateText}</span>
             <span className="tc-name">{chatName(c)}</span>

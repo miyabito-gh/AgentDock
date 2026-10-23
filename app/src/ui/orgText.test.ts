@@ -1,7 +1,7 @@
 // 実行: node --test src/ui/orgText.test.ts （tscの対象外）
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { completedNoticeText, finishedBannerText, isInvestigationOnly, noReportHeadNote, reworkCellText, edgeText, reworkLimitText, verdictJa, verdictText } from "./orgText.ts";
+import { displayRequest, displayWorkflowTitle, finalReportTask, finishedBannerFor, PLANNER_REQUEST_NOTE, sectionVisibility, taskArtifactNote, taskSubparts, completedNoticeText, finishedBannerText, isInvestigationOnly, noReportHeadNote, reworkCellText, edgeText, reworkLimitText, verdictJa, verdictText } from "./orgText.ts";
 
 test("周回の文言: 実行回数＝やり直し＋1。単位を分けて同じ数え方", () => {
   assert.equal(reworkLimitText(1, 3), "実行 2回目／最大 4回（やり直しは最大3回、残り2回）");
@@ -54,4 +54,58 @@ test("調査のみ: 変更タスクが無いときだけ取り込みの案内を
 test("完了通知の文も調査のみで切り替わる", () => {
   assert.ok(completedNoticeText([{ kind: "investigate" }]).includes("取り込む変更はありません"));
   assert.ok(completedNoticeText([{ kind: "change", commit: "a" }]).includes("取り込んでください"));
+});
+
+test("名前の整形: 先頭の見出し記号だけ除く", () => {
+  assert.equal(displayWorkflowTitle("# 依頼（依頼整理で確定・第1版）"), "依頼（依頼整理で確定・第1版）");
+  assert.equal(displayWorkflowTitle("調べる # 1"), "調べる # 1");
+  assert.equal(displayWorkflowTitle(null), null);
+  assert.equal(displayWorkflowTitle("#  "), null);
+});
+
+test("依頼の整形: 前置きの行を除く（完全一致・先頭一致）。他は残す", () => {
+  const body = `# 依頼（依頼整理で確定・第1版）\n${PLANNER_REQUEST_NOTE}\n\n## 目的\n構成を調べる`;
+  assert.equal(displayRequest(body), "依頼（依頼整理で確定・第1版）\n\n## 目的\n構成を調べる");
+  assert.equal(displayRequest("以下は依頼整理を終えた確定依頼である。別の言い方\n本文"), "本文");
+  assert.equal(displayRequest("ふつうの依頼"), "ふつうの依頼");
+  assert.equal(displayRequest(PLANNER_REQUEST_NOTE), PLANNER_REQUEST_NOTE, "残りが空なら隠さない");
+});
+
+test("終了後の出し分け", () => {
+  assert.deepEqual(sectionVisibility(true), { activity: false, waitBand: false, settingsFolded: true, releaseButton: false });
+  assert.deepEqual(sectionVisibility(false), { activity: true, waitBand: true, settingsFolded: false, releaseButton: true });
+});
+
+test("成果物の補足: 報告あり／変更あり。取れていないものを「なし」で埋めない", () => {
+  assert.equal(taskArtifactNote({ kind: "investigate", phase: "completed" }, "value"), "報告あり");
+  assert.equal(taskArtifactNote({ kind: "investigate", phase: "completed" }, "notObtained"), "報告 未取得");
+  assert.equal(taskArtifactNote({ kind: "investigate", phase: "running" }, "none"), null);
+  assert.equal(taskArtifactNote({ kind: "investigate", phase: "completed" }, "unknown"), null);
+  assert.equal(taskArtifactNote({ kind: "change", phase: "completed", commit: "0123456789" }, "none"), "変更あり（01234567）");
+  assert.equal(taskArtifactNote({ kind: "change", phase: "completed" }, "none"), null);
+});
+
+test("状態の下の補足行: 値があるものだけ", () => {
+  const base = { reworkUsed: 0, reworkMax: 2, retriesUsed: 0, retryMax: 3, hasRetry: false, waitingOn: [], artifact: null };
+  assert.deepEqual(taskSubparts(base), []);
+  assert.deepEqual(taskSubparts({ ...base, reworkUsed: 1, retriesUsed: 1, waitingOn: ["planner"] }), ["差し戻し 1/2", "再送 1/3", "待ち: planner"]);
+  assert.deepEqual(taskSubparts({ ...base, hasRetry: true }), ["再送 0/3"]);
+});
+
+test("結果にする報告: 他の依存先になっていない末端の調査で、報告を読めた最後のもの", () => {
+  const tasks = [
+    { id: "a", kind: "investigate", deps: [] }, { id: "b", kind: "investigate", deps: [] },
+    { id: "report", kind: "investigate", deps: ["a", "b"] }, { id: "rev", kind: "change", deps: ["report"] },
+  ];
+  assert.equal(finalReportTask(tasks, new Set(["a", "b", "report"])), "report");
+  assert.equal(finalReportTask(tasks, new Set(["a", "b"])), null, "末端の報告を読めなければ個別の報告を結果にしない");
+  assert.equal(finalReportTask([{ id: "x", kind: "investigate", deps: [] }], new Set(["x"])), "x");
+  assert.equal(finalReportTask([], new Set()), null);
+});
+
+test("完了の帯: 過去の記録で取り込みを促さない／調査のみは調査用", () => {
+  assert.ok(!finishedBannerFor([{ kind: "change", commit: "a" }], true).includes("取り込んでください"));
+  assert.ok(finishedBannerFor([{ kind: "change", commit: "a" }], false).includes("取り込んでください"));
+  assert.ok(finishedBannerFor([{ kind: "investigate" }], true).includes("取り込む変更はありません"));
+  assert.ok(!finishedBannerFor([{ kind: "investigate" }], false).includes("取り込んでください"));
 });

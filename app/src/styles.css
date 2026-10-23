@@ -465,6 +465,7 @@ textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;paddin
 .list-grp .grp-pin{flex:none;display:inline-flex;color:var(--ink2)}
 .list-grp .grp-pin svg.i{width:12px;height:12px}
 .row-chat.in-grp .row-main{padding-left:20px}
+.nest-grp .row-chat .row-main{padding-left:24px}
 .list-grp .grp-toggle{flex:1 1 auto;min-width:0;height:24px;padding:0 4px;gap:4px;font-size:var(--fs-s);font-weight:700;color:var(--ink);text-align:left;overflow:hidden}
 .list-grp .grp-toggle[aria-disabled=true]{cursor:default}
 .list-grp .grp-caret{flex:none;color:var(--ink3);width:10px}
@@ -990,7 +991,7 @@ button.uchip:hover{background:var(--accent-weak)}
 .org-tbl thead th{color:var(--ink3);font-weight:600;background:var(--surface2)}
 .org-tbl tbody th{font-weight:700}
 .org-tbl tr:last-child>td,.org-tbl tr:last-child>th{border-bottom:0}
-.org-tbl td.org-title{white-space:normal;min-width:14em;max-width:26em;overflow-wrap:anywhere}
+.org-tbl td.org-title,.org-tbl th.org-title{white-space:normal;min-width:14em;max-width:26em;overflow-wrap:anywhere}
 .org-tbl .st{margin-left:0}
 .org-tbl .st svg.i{width:12px;height:12px}
 .org-note-row td{white-space:normal;color:var(--ink2);padding-top:0}
@@ -1156,3 +1157,8 @@ button.uchip:hover{background:var(--accent-weak)}
 .org-consent{display:block;margin:6px 0}
 .linkish{height:auto;padding:0;border:0;background:transparent;color:var(--accent-text);text-decoration:underline;cursor:pointer;font:inherit}
 .menu-note{padding:2px 12px 6px;max-width:260px;white-space:normal}
+
+/* 組織画面: 状態の下の補足1行・結果節 */
+.org-tbl tbody th.org-title{font-weight:600}
+.org-sub{margin-top:2px;white-space:normal}
+.org-result{margin:8px 0 12px}

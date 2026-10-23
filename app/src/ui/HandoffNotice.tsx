@@ -1,7 +1,7 @@
 // 継続チャット（DESIGN_CONT §7）の入力欄まわり: 使用率チップ、目的メモの行、引き継ぎの案内行。
 // 規則: 引き継ぎは利用者の送信操作の中だけ（ここは案内と状態の表示。AgentDock から勝手に送らない）。
 //       案内は「資料を確認できた」「止める理由がない」ときだけ送信ボタンを「引き継いで送信」にする。確認できない・止める理由があるときは通常の「送信」のまま。
-//       閾値の案内は Known かつ live の使用率のときだけ。「このthreadで続ける」はメモリだけ（再起動で戻る）。
+//       閾値の案内は Known かつ live の使用率のときだけ。「この会話で続ける」はメモリだけ（再起動で戻る）。
 import { useEffect, useRef, useState } from "react";
 import type { Chat, ChatKey, ChatLocalView, ContinuationSettings } from "../ipc/types";
 import type { HandoffPreview } from "../ipc/types";
@@ -103,7 +103,7 @@ export function HandoffNotice({ ui, onPreview, onDraft }: { ui: HandoffUi; onPre
         <span className="hn-acts">
           <button className="small" onClick={onPreview}>資料を見る</button>
           {mode === "threshold" && onDraft ? <button className="small" title="更新案のダイアログを開きます（作成は、ダイアログの「作成する」を押したときだけ）" onClick={onDraft}>目的メモを更新</button> : null}
-          {mode === "threshold" ? <button className="small" onClick={ui.keep}>このthreadで続ける</button> : <button className="small" aria-label="案内を閉じる" title="案内を閉じる" onClick={ui.close}>×</button>}
+          {mode === "threshold" ? <button className="small" onClick={ui.keep}>この会話で続ける</button> : <button className="small" aria-label="案内を閉じる" title="案内を閉じる" onClick={ui.close}>×</button>}
         </span>
       </div>
       {pv.kind === "loading" ? <div className="hn-sub muted">資料を確認しています。確認できるまで、送信は通常の送信です。</div> : null}
@@ -141,7 +141,7 @@ export function PurposeLine({ local, onEdit, enabled }: { local: ChatLocalView |
   return (
     <div className="purposeline small">
       <button className="linkish" title="目的メモを編集" onClick={onEdit}>目的メモ: {first ?? "（空）"}</button>
-      {local?.conversation?.purposeDue ? <span className="muted" title="この thread で最初の送信・メモの変更後・圧縮の観測後の、手動の送信に添えます">次の送信に目的メモを添えます</span> : null}
+      {local?.conversation?.purposeDue ? <span className="muted" title="この会話で最初の送信・メモの変更後・圧縮の観測後の、手動の送信に添えます">次の送信に目的メモを添えます</span> : null}
     </div>
   );
 }

@@ -1,7 +1,7 @@
 // 実行: node --test src/ui/dockTasks.test.ts （tscの対象外）
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { orderWorkingFirst, branchOrder, descendantSummary, descendantSummaryText, cardDensity, chatSignature, mayRedirect, holdByTyping, nextHeldSig, orderByRecency, pickRecentDescendants, selectTasks, stableOrder, stableMembership, trackRecency, workSignature } from "./dockTasks.ts";
+import { orderWorkingFirst, branchOrder, descendantSummary, descendantSummaryText, isCompletedCard, cardDensity, chatSignature, mayRedirect, holdByTyping, nextHeldSig, orderByRecency, pickRecentDescendants, selectTasks, stableOrder, stableMembership, trackRecency, workSignature } from "./dockTasks.ts";
 
 const chat = (id: string, o: any = {}): any => ({ key: { backend: "codex", id }, lastUsedAt: null, createdAt: { kind: "notFetched" }, archived: { kind: "value", value: false }, ...o });
 const agent = (cid: string, id: string, state: string, o: any = {}): any => ({
@@ -166,13 +166,13 @@ test("descendantSummary: 内訳。状態不明は完了に数えず、履歴確�
   ]);
   const d = descendantSummary(s, c, (v) => (v.agent.key.id === "k4" ? "completed" : null));
   assert.deepEqual([d.total, d.working, d.waiting, d.done, d.failed, d.unknown, d.history, d.notFetched], [6, 1, 1, 1, 1, 1, 1, false]);
-  assert.equal(descendantSummaryText(d), "子 6件（作業中1・対応待ち1・完了1・失敗1・状態不明1・履歴で確認1）");
+  assert.equal(descendantSummaryText(d), "サブエージェント 6件（作業中1・対応待ち1・完了1・失敗1・状態不明1・履歴で確認1）");
 });
 test("descendantSummary: 子孫が無ければ未取得（0件とは言わない）", () => {
   const c = chat("a");
   const d = descendantSummary(snap([c], [kid("a", "r", "done", null)]), c, () => null);
   assert.equal(d.notFetched, true);
-  assert.match(descendantSummaryText(d), /未取得/);
+  assert.match(descendantSummaryText(d), /まだ読み込んでいません/);
 });
 test("branchOrder: 枝に作業中があるものが先、メイン直下だけが根", () => {
   const c = chat("a");
@@ -243,4 +243,18 @@ test("親の作業中判定を渡さない従来の呼び出しは、既存の�
   const { cs, rec } = many(8);
   const r = selectTasks(snap(cs), rec as any, new Map(), (c) => c.key.id === "c0", 5, (c) => c.key.id === "c1");
   assert.equal(ids(r.tasks)[0], "c0");
+});
+
+test("isCompletedCard: 完了・終了済みで作業中でなく対応待ちもないときだけ1行", () => {
+  assert.equal(isCompletedCard("done", false, 0), true);
+  assert.equal(isCompletedCard("closed", false, 0), true);
+  assert.equal(isCompletedCard("done", true, 0), false); // 子孫が作業中
+  assert.equal(isCompletedCard("done", false, 1), false); // 対応待ち
+  for (const st of ["running", "waiting", "interrupted", "failed", "unknown", "idle"] as const) assert.equal(isCompletedCard(st, false, 0), false);
+  assert.equal(isCompletedCard(null, false, 0), false);
+});
+test("isCompletedCard: サブエージェントに失敗・中断・状態不明があれば1行にしない", () => {
+  const k = (o: any) => ({ failed: 0, interrupted: 0, unknown: 0, ...o });
+  assert.equal(isCompletedCard("done", false, 0, k({})), true);
+  for (const o of [{ failed: 1 }, { interrupted: 1 }, { unknown: 1 }]) assert.equal(isCompletedCard("done", false, 0, k(o)), false);
 });

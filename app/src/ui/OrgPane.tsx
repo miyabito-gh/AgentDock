@@ -9,7 +9,7 @@ import { Popover } from "./Popover";
 import { ConfirmBlock } from "./DialogParts";
 import { tipWithKey } from "./shortcuts";
 import { roleLabel } from "./orgChat";
-import { CONFIRM_TONE, EFFECT_TEXT, NODE_KIND_TEXT, PHASE_TONE, waitCauseOf, artifactText, attemptText, retryText, edgeText, REWORK_COLUMN_TIP, noReportHeadNote, finishedBannerText, completedNoticeText, groupTasks, orgPendingRequests, requestWaitText, roleCounts, reworkLimitText, roundText, taskRequestWait, taskRowId, verdictText, waitBand, waitText, waitingDetail, workflowSummary, type OrgTone } from "./org";
+import { CONFIRM_TONE, EFFECT_TEXT, NODE_KIND_TEXT, PHASE_TONE, waitCauseOf, edgeText, noReportHeadNote, completedNoticeText, displayWorkflowTitle, displayRequest, sectionVisibility, taskArtifactNote, taskSubparts, finishedBannerFor, groupTasks, orgPendingRequests, requestWaitText, roleCounts, reworkLimitText, roundText, taskRequestWait, taskRowId, verdictText, waitBand, waitingDetail, workflowSummary, type OrgTone } from "./org";
 import { RequestGapLine } from "./RequestGap";
 import { keyStr, showKnown } from "./format";
 import { InterjectComposer, NEXT_TURN_NOTE } from "./InterjectComposer";
@@ -18,7 +18,7 @@ import { activityLines, elapsedText, lineText, stabilize, type ActivityLine, typ
 import { useThrottled } from "./useThrottled";
 import { takeNoteDraft } from "./orgNoteDraft";
 import { rootView } from "./derive";
-import { ArtifactsSection } from "./OrgArtifacts";
+import { ArtifactsSection, ResultSection, artifactsSig, hasArtifactTasks, jumpToReport, resultItem, useArtifacts } from "./OrgArtifacts";
 import { manageOffReason } from "./orgDeleteUi";
 
 /** 状態の表示（アイコン＋文字。形・色は `.st.<tone>`）。 */
@@ -48,7 +48,7 @@ function RowManageItems({ wf, live, close, onArchive, onDelete }: { wf: OrgWorkf
 export function OrgListRow({ wf, selected, onOpen, onStart, counts, live = false, onArchive, onDelete }: { wf: OrgWorkflowView | null; selected: boolean; onOpen: () => void; onStart: () => void; live?: boolean; onArchive?: (id: string) => void; onDelete?: (id: string) => void; /** 承認・質問の回答待ちと、回答を届けられなかった要求の件数（スナップショットから導いた値） */ counts?: { wait: number; fail: number } }) {
   if (!wf) return null;
   const sum = workflowSummary(wf);
-  const name = wf.title ?? wf.request.slice(0, 30);
+  const name = displayWorkflowTitle(wf.title) ?? wf.request.slice(0, 30);
   return (
     <div className="left-org">
       <div className={`row-chat org-row${selected ? " sel" : ""}`}>
@@ -87,7 +87,7 @@ export function OrgHistoryRows({ history, selectedId, onOpen, onDelete, onArchiv
     <div className="left-org" aria-label="過去のワークフロー">
       {shown.map((wf) => {
         const sum = workflowSummary(wf);
-        const name = wf.title ?? wf.request.slice(0, 30);
+        const name = displayWorkflowTitle(wf.title) ?? wf.request.slice(0, 30);
         const sel = selectedId === wf.workflowId;
         return (
           <div key={wf.workflowId} className={`row-chat org-row${sel ? " sel" : ""}`}>
@@ -223,6 +223,8 @@ export function OrgPane(p: OrgPaneProps) {
   const throttledAct = useThrottled(rawAct, 1000, reqSig);
   const prevAct = useRef<ActivityLine[]>([]);
   const actLines = useMemo(() => { const s = stabilize(prevAct.current, throttledAct.lines, Date.now()); prevAct.current = s; return s; }, [throttledAct]);
+  // 成果物（調査報告を含む）。結果の先頭表示とタスク表の「報告あり」にも使うので、ここで1回だけ取る。
+  const artState = useArtifacts(wf && hasArtifactTasks(wf) ? wf.workflowId : null, wf ? artifactsSig(wf) : "", p.live);
   /** 命令を実行する。成功したら確認ブロックを閉じ、失敗したら理由を通知して開いたままにする。 */
   const go = async (label: string, f: () => Promise<string | void>) => {
     setBusy(true);
@@ -506,23 +508,33 @@ export function OrgPane(p: OrgPaneProps) {
     catch (e) { setConfirm({ kind: "adopt", task, res: null, error: `最新の turn を読めませんでした（${host.asIpcError(e).message}）` }); }
   };
 
-  const taskActions = (t: OrgTaskView) => (
+  const taskActions = (t: OrgTaskView) => {
+    type Act = { key: string; label: string; title?: string; run: () => void; danger?: boolean; disabled?: boolean };
+    const main: Act[] = [];
+    if (t.needsChatChoice) main.push({ key: "choose", label: "チャットを選ぶ…", run: () => void openChoose(t.id) });
+    if (t.retry?.kind === "newAttempt") main.push({ key: "retryNew", label: "新しい試行で再送…", title: `前の turn（${t.retry.reasonLabel}）の続きを、同じチャットへ新しい試行として1回送ります`, run: () => setConfirm({ kind: "retryNew", task: t.id }) });
+    if (t.retry?.kind === "unsent") main.push({ key: "retry", label: "やり直す…", title: "まだ送られていないことを確認できているタスクを、もう一度送る状態に戻します", run: () => setConfirm({ kind: "retry", task: t.id }) });
+    if (t.canAdoptManual) main.push({ key: "adopt", label: "結果を取り込む…", title: "手動に切り替えたチャットの最新の回答を、このタスクの結果として取り込みます（チャットへは何も送りません）", run: () => void openAdopt(t.id) });
+    if (t.canAcceptManual) main.push({ key: "acceptManual", label: "手動で完了にする…", run: () => setConfirm({ kind: "acceptManual", task: t.id }) });
+    const mainAct = main[0] ?? null;
+    const menuActs: Act[] = main.slice(1);
+    if (!t.retry && t.retryRefusal) menuActs.push({ key: "retryRefused", label: "新しい試行で再送…", title: t.retryRefusal, run: () => {}, disabled: true });
+    if (t.canFail) menuActs.push({ key: "fail", label: "失敗として確定…", title: "あなたの判断で失敗として確定します（元に戻せません）", danger: true, run: () => setConfirm({ kind: "failTask", task: t.id }) });
+    if (t.canCancel) menuActs.push({ key: "cancel", label: "取り消す…", danger: true, run: () => setConfirm({ kind: "cancelTask", task: t.id }) });
+    // 手動に切り替えは取り消せない操作。終了済みのワークフローでは出さず、出すときも「…」メニューの中だけ。
+    if (t.chat && sectionVisibility(wf.finished).releaseButton) menuActs.push({ key: "release", label: "手動に切り替え…", title: "組織実行から切り離し、手入力できる通常のチャットにします（元に戻す操作はありません）", danger: true, run: () => setConfirm({ kind: "release", task: t.id, chat: t.chat! }) });
+    return (
     <div className="org-acts">
       {t.chat ? <button className="btn sm" disabled={!chatExists(t.chat)} title={chatExists(t.chat) ? "このタスクのチャットを開きます（見るだけ。何も送りません）" : "チャットがまだ一覧にありません"} onClick={() => p.onOpenChat(t.chat!)}>チャットを見る</button> : null}
       {ro ? null : <>
-      {t.needsChatChoice ? <button className="btn sm" onClick={() => void openChoose(t.id)}>チャットを選ぶ…</button> : null}
-      {t.chat ? <button className="btn sm" onClick={() => setConfirm({ kind: "release", task: t.id, chat: t.chat! })} title="組織実行から切り離し、手入力できる通常のチャットにします">手動に切り替え…</button> : null}
-      {t.retry?.kind === "unsent" ? <button className="btn sm" onClick={() => setConfirm({ kind: "retry", task: t.id })} title="まだ送られていないことを確認できているタスクを、もう一度送る状態に戻します">やり直す…</button> : null}
-      {t.retry?.kind === "newAttempt" ? <button className="btn sm" onClick={() => setConfirm({ kind: "retryNew", task: t.id })} title={`前の turn（${t.retry.reasonLabel}）の続きを、同じチャットへ新しい試行として1回送ります`}>新しい試行で再送…（再送 {t.retry.used}/{t.retry.max}）</button> : null}
-      {!t.retry && t.retryRefusal ? <button className="btn sm" disabled title={t.retryRefusal}>新しい試行で再送…</button> : null}
-      {t.canFail ? <button className="btn sm danger-line" onClick={() => setConfirm({ kind: "failTask", task: t.id })} title="あなたの判断で失敗として確定します（元に戻せません）">失敗として確定…</button> : null}
-      {t.canAdoptManual ? <button className="btn sm" onClick={() => void openAdopt(t.id)} title="手動に切り替えたチャットの最新の回答を、このタスクの結果として取り込みます（チャットへは何も送りません）">結果を取り込む…</button> : null}
-      {t.canAcceptManual ? <button className="btn sm" onClick={() => setConfirm({ kind: "acceptManual", task: t.id })}>手動で完了にする…</button> : null}
-      {t.canCancel ? <button className="btn sm danger-line" onClick={() => setConfirm({ kind: "cancelTask", task: t.id })}>取り消す…</button> : null}
+      {/* 主な操作は1つだけ行に出し、他は「…」メニューへ（優先順: チャット選択・再送・取り込み・手動完了）。 */}
+      {mainAct ? <button className="btn sm" onClick={mainAct.run} title={mainAct.title}>{mainAct.label}</button> : null}
       <Popover role="menu" align="right" triggerClassName="btn sm subtle" label={`タスク ${t.id} の操作`} title="このタスクへの指示・スキップ・差し戻しなど" trigger={<span aria-hidden="true">…</span>}>
         {(close) => (
           <>
             <div className="small muted" style={{ padding: "2px 8px" }}>このタスク（{t.id}）</div>
+            {menuActs.map((a) => <button key={a.key} type="button" role="menuitem" className={a.danger ? "danger" : undefined} aria-disabled={a.disabled ? true : undefined} title={a.title} onClick={() => { if (a.disabled) return; close(); a.run(); }}>{a.label}</button>)}
+            {menuActs.length > 0 ? <hr /> : null}
             <button type="button" role="menuitem" aria-disabled={t.interject.route === "refused" ? true : undefined} title={t.interject.label} onClick={() => { if (t.interject.route === "refused") return; close(); setConfirm({ kind: "interject", task: t.id }); }}>指示を挟む…</button>
             {t.skip || t.skipRefusal ? <button type="button" role="menuitem" aria-disabled={t.skip ? undefined : true} title={t.skip ? "このタスク（と、その検証役）を飛ばします" : t.skipRefusal ?? undefined} onClick={() => { if (!t.skip) return; close(); setConfirm({ kind: "skip", task: t.id }); }}>スキップ…</button> : null}
             {t.canSendBack || t.sendBackRefusal ? <button type="button" role="menuitem" aria-disabled={t.canSendBack ? undefined : true} title={t.canSendBack ? "次の指摘で直させます（自動の差し戻し回数には数えません）" : t.sendBackRefusal ?? undefined} onClick={() => { if (!t.canSendBack) return; close(); setConfirm({ kind: "sendBack", task: t.id, note: "" }); }}>差し戻す…</button> : null}
@@ -535,18 +547,27 @@ export function OrgPane(p: OrgPaneProps) {
       </Popover>
       </>}
     </div>
-  );
+    );
+  };
 
+  const vis = sectionVisibility(wf.finished);
+  const resItem = resultItem(wf, artState.view);
+  const invReport = (id: string): "value" | "notObtained" | "none" | "unknown" => {
+    if (!artState.view) return "unknown";
+    const it = artState.view.investigations.find((x) => x.task === id);
+    return !it ? "none" : it.report.kind === "value" ? "value" : "notObtained";
+  };
+  const topArtifacts = wf.finished && (wf.tasks.some((t) => t.commit) || resItem !== null);
   const groups = groupTasks(wf.tasks);
   const shownNotices = wf.notices.slice(-8).reverse();
 
   return (
     <>
-      {head(wf.title ?? "組織実行",
+      {head(displayWorkflowTitle(wf.title) ?? "組織実行",
         <Chip tone={sum.tone} icon={sum.icon} label={sum.label} />)}
       <div className="org-body">
         <div className="org-bar">
-          {ro ? <span className="small muted">過去のワークフロー（読み取り専用）</span> : null}
+          {ro ? <span className="small muted" title="保存されている記録を読み取り専用で表示しています。再開・承認・取消しなどの操作はできません（実行中のワークフローがあれば、左の一覧の上の行から開けます）。">過去のワークフロー（読み取り専用）</span> : null}
           {canResume && !ro ? <button className="btn primary" disabled={busy} title="必要なチャットを再開し、止めていたタスクの送信を始めます（確認があります）" onClick={openResume}>再開…</button> : null}
           {!ro && !wf.finished ? (
             <Popover role="menu" align="left" triggerClassName="btn" label="止める" title="止め方を選びます（範囲が違います）" trigger={<span>止める…</span>}>
@@ -594,9 +615,6 @@ export function OrgPane(p: OrgPaneProps) {
 
         {confirmBlock()}
 
-        {ro ? (
-          <div className="banner info" role="status"><Icon name="help" /><div>保存されている記録を読み取り専用で表示しています。再開・承認・取消しなどの操作はできません（実行中のワークフローがあれば、左の一覧の上の行から開けます）。</div></div>
-        ) : null}
         {wf.halt && wf.halt.kind !== "awaitingPlanApproval" && !ro ? (
           <div className={`banner ${wf.halt.kind === "sandboxUnhealthy" || wf.halt.kind === "definitionUnavailable" ? "err" : "warn"}`} role="status">
             <Icon name={orgIcon(wf.halt.icon)} />
@@ -623,9 +641,12 @@ export function OrgPane(p: OrgPaneProps) {
           </div>
         ) : null}
         {wf.finished ? (
-          <div className="banner info" role="status"><Icon name="branch" /><div>{finishedBannerText(wf.tasks)}
+          <div className="banner info" role="status"><Icon name="branch" /><div>{finishedBannerFor(wf.tasks, ro)}
             {wf.tasks.some((t) => t.commit) ? <button type="button" className="btn sm" style={{ marginLeft: 8 }} onClick={() => p.onAct(`orgArtifacts:${wf.workflowId}`)}>成果物を見る</button> : null}</div></div>
         ) : null}
+        {/* 結果を先頭に: 調査の統合報告は帯の直下に開いて出し、変更ありのワークフローは成果物パネルを先頭側に置く。 */}
+        {resItem ? <ResultSection item={resItem} /> : null}
+        {topArtifacts ? <ArtifactsSection wf={wf} live={p.live} onAct={p.onAct} state={artState} resultTask={resItem?.task ?? null} /> : null}
         {approvals.count > 0 && approvals.first && !ro ? (
           <div className="banner warn" role="status"><Icon name="alert" /><div>Codex の承認・質問の待ちが {approvals.count} 件あります。
             <button className="btn sm" style={{ marginLeft: 8 }} onClick={() => p.onOpenChat(approvals.first!.key)}>要求へ</button>
@@ -670,21 +691,33 @@ export function OrgPane(p: OrgPaneProps) {
         ) : null}
 
         <section className="org-sum" aria-label="概要">
-          <p className="org-req" title={wf.request}>{wf.request}</p>
-          <dl className="org-dl">
-            <dt>リポジトリ</dt><dd className="mono">{wf.repo}</dd>
-            <dt>タスク</dt><dd>完了 {doneN} / {wf.tasks.length}{sum.attention > 0 ? `　要対応 ${sum.attention}件` : ""}</dd>
-            <dt>並列数</dt><dd>Worker 同時 {lim.maxWriters}・全体 {lim.maxTotal}</dd>
-            <dt>turn</dt><dd>使用 {use.turnsUsed} / 上限 {lim.maxTurns}（残り {use.turnsRemaining}）</dd>
-            <dt>再計画</dt><dd>自動 {use.autoReplansUsed} / {lim.maxAutoReplans} 回、差し戻しはタスクごとに最大 {lim.maxRework} 回</dd>
-            <dt>トークン</dt>
-            <dd>{use.knownTokens === null ? "未取得" : `${use.knownTokens.toLocaleString()}（取得できた分の合計）`}{use.rowsWithoutTokens > 0 ? `　取得できなかった行 ${use.rowsWithoutTokens}/${use.rows}` : ""}</dd>
-          </dl>
+          <p className="org-req" title={displayRequest(wf.request)}>{displayRequest(wf.request)}</p>
+          {(() => {
+            const settings = (
+              <>
+                <dt>並列数</dt><dd>Worker 同時 {lim.maxWriters}・全体 {lim.maxTotal}</dd>
+                <dt>turn</dt><dd>使用 {use.turnsUsed} / 上限 {lim.maxTurns}（残り {use.turnsRemaining}）</dd>
+                <dt>再計画</dt><dd>自動 {use.autoReplansUsed} / {lim.maxAutoReplans} 回、差し戻しはタスクごとに最大 {lim.maxRework} 回</dd>
+                <dt>トークン</dt>
+                <dd>{use.knownTokens === null ? "未取得" : `${use.knownTokens.toLocaleString()}（取得できた分の合計）`}{use.rowsWithoutTokens > 0 ? `　取得できなかった行 ${use.rowsWithoutTokens}/${use.rows}` : ""}</dd>
+              </>
+            );
+            return (
+              <>
+                <dl className="org-dl">
+                  <dt>リポジトリ</dt><dd className="mono">{wf.repo}</dd>
+                  <dt>タスク</dt><dd>完了 {doneN} / {wf.tasks.length}{sum.attention > 0 ? `　要対応 ${sum.attention}件` : ""}</dd>
+                  {vis.settingsFolded ? null : settings}
+                </dl>
+                {vis.settingsFolded ? <details className="about"><summary>詳しく</summary><dl className="org-dl">{settings}</dl></details> : null}
+              </>
+            );
+          })()}
         </section>
 
         {wf.graph ? <GraphSection graph={wf.graph} wf={wf} ro={ro} busy={busy} chatExists={chatExists} onOpenChat={p.onOpenChat} onGate={(n, c) => setConfirm({ kind: "gate", task: n.task!, node: n.label, choice: c.id, label: c.label, needsNote: c.needsNote, note: "" })} onExtra={(n) => setConfirm({ kind: "extraRound", task: n.task!, node: n.label, note: "" })} onAccept={(n) => setConfirm({ kind: "acceptRound", task: n.task!, node: n.label })} /> : null}
 
-        <section className="org-wait-band" aria-label="待ち・作業中・完了">
+        {vis.waitBand ? <section className="org-wait-band" aria-label="待ち・作業中・完了">
           {(() => {
             const b = waitBand(snap, wf);
             const detail = waitingDetail(b.waiting);
@@ -696,9 +729,9 @@ export function OrgPane(p: OrgPaneProps) {
               </>
             );
           })()}
-        </section>
+        </section> : null}
 
-        <section className="org-activity" aria-label="いまの動き">
+        {vis.activity ? <section className="org-activity" aria-label="いまの動き">
           <h4 className="org-h">いまの動き</h4>
           {actLines.length === 0 ? <div className="small muted">動いているタスクはありません{throttledAct.done > 0 ? `（完了 ${throttledAct.done}件）` : ""}</div> : (
             <ul className="org-act-list">
@@ -717,7 +750,7 @@ export function OrgPane(p: OrgPaneProps) {
             </ul>
           )}
           {throttledAct.done > 0 && actLines.length > 0 ? <div className="small muted">完了 {throttledAct.done}件</div> : null}
-        </section>
+        </section> : null}
 
         <div className="org-tabs" role="tablist" aria-label="タスクと経過">
           <button type="button" role="tab" aria-selected={tab === "tasks"} className={`btn sm${tab === "tasks" ? " primary" : ""}`} onClick={() => setTab("tasks")}>タスク</button>
@@ -732,27 +765,41 @@ export function OrgPane(p: OrgPaneProps) {
               <div className="org-gh">{g.title}（{g.tasks.length}）</div>
               <div className="org-scroll">
                 <table className="org-tbl">
-                  <thead><tr><th scope="col">ID</th><th scope="col">役割</th><th scope="col">タスク</th><th scope="col">業務状態</th><th scope="col">確認状態</th><th scope="col">待ち先</th><th scope="col" title={REWORK_COLUMN_TIP}>差し戻し</th><th scope="col" title="あなたが押した「新しい試行で再送」の回数と上限">再送</th><th scope="col">成果物</th><th scope="col">操作</th></tr></thead>
+                  <thead><tr><th scope="col">タスク</th><th scope="col">担当</th><th scope="col">状態</th><th scope="col">操作</th></tr></thead>
                   <tbody>
                     {g.tasks.map((t) => {
                       const w = taskRequestWait(snap, t);
                       const waitMsg = requestWaitText(w);
+                      const artNote = taskArtifactNote({ kind: t.kind, commit: t.commit, phase: t.status.phase }, invReport(t.id));
+                      const subs = taskSubparts({ reworkUsed: Math.max(0, t.attempts - 1), reworkMax: Math.max(0, t.maxAttempts - 1), retriesUsed: t.retriesUsed, retryMax: t.retry?.max ?? wf.limits.maxRetries, hasRetry: !!t.retry, waitingOn: t.waitingOn, artifact: null });
                       return (
                       <Fragment key={t.id}>
                         <tr id={taskRowId(t.id)} tabIndex={-1}>
-                          <th scope="row" className="mono">{t.id}</th>
-                          <td>{t.role}{t.kind === "investigate" ? <> <span className="tag" title="ファイルを変えない調査のタスク。結果は報告（成果物の「調査報告」）に出ます">調査</span></> : null}</td>
-                          <td className="org-title">{t.title}</td>
-                          <td><StatusChip s={t.status} /></td>
-                          <td><ConfirmChip c={t.confirm} /></td>
-                          <td>{waitMsg ? <b>{waitMsg}</b> : waitText(t)}</td>
-                          <td>{attemptText(t)}</td>
-                          <td>{retryText(t, wf.limits.maxRetries)}</td>
-                          <td>{t.commit ? <button type="button" className="linkish" title="成果物の中身を開きます（見るだけ。何も書きません）" onClick={() => p.onAct(`orgArtifacts:${wf.workflowId}:${t.id}`)}>{artifactText(t)}</button> : artifactText(t)}</td>
+                          <th scope="row" className="org-title" title={`タスクID: ${t.id}`}>{t.title}<div className="small muted mono">{t.id}</div></th>
+                          <td>{roleLabel(t.role)}{t.kind === "investigate" ? <> <span className="tag" title="ファイルを変えない調査のタスク。結果は報告（成果物の「調査報告」）に出ます">調査</span></> : null}</td>
+                          <td>
+                            <StatusChip s={t.status} />
+                            {t.confirm.state !== "confirmed" ? <> <ConfirmChip c={t.confirm} /></> : null}
+                            {waitMsg || subs.length > 0 || artNote ? (
+                              <div className="small muted org-sub">
+                                {waitMsg ? <b>{waitMsg}</b> : null}
+                                {waitMsg && (subs.length > 0 || artNote) ? "　" : null}
+                                <span title="差し戻し＝Reviewer が差し戻した回数／上限（初回は数えません）。再送＝あなたが押した「新しい試行で再送」の回数／上限">{subs.join("・")}</span>
+                                {artNote ? (
+                                  <>{subs.length > 0 ? "・" : null}
+                                    {t.commit
+                                      ? <button type="button" className="linkish" title="成果物の中身を開きます（見るだけ。何も書きません）" onClick={() => p.onAct(`orgArtifacts:${wf.workflowId}:${t.id}`)}>{artNote}</button>
+                                      : t.kind === "investigate" && invReport(t.id) === "value"
+                                        ? <button type="button" className="linkish" title="この調査の報告へ移ります（見るだけ）" onClick={() => jumpToReport(t.id)}>{artNote}</button>
+                                        : artNote}</>
+                                ) : null}
+                              </div>
+                            ) : null}
+                          </td>
                           <td>{taskActions(t)}</td>
                         </tr>
                         {t.reconcile || t.stallNotified || t.needsChatChoice || t.attentionNote || w.pending.length > 0 || w.gaps.length > 0 ? (
-                          <tr key={`${t.id}:n`} className="org-note-row"><td /><td colSpan={9} className="small">
+                          <tr key={`${t.id}:n`} className="org-note-row"><td colSpan={4} className="small">
                             {w.pending.map((r) => <div key={`${r.key.source}/${r.key.requestId}`} className="org-req-card">{p.renderRequest(r, agentName)}</div>)}
                             {w.gaps.map((r) => <RequestGapLine key={`gap:${r.key.source}/${r.key.requestId}`} r={r} guide="org" />)}
                             {t.attentionNote ? <div>止まった理由: {t.attentionNote}{noReportHeadNote(t.attentionNote) ? <span className="muted">　（{noReportHeadNote(t.attentionNote)}）</span> : null}</div> : null}
@@ -771,7 +818,7 @@ export function OrgPane(p: OrgPaneProps) {
           ))}
         </section>
 
-        <ArtifactsSection wf={wf} live={p.live} onAct={p.onAct} />
+        {topArtifacts ? null : <ArtifactsSection wf={wf} live={p.live} onAct={p.onAct} state={artState} resultTask={null} />}
 
         {shownNotices.length > 0 ? (
           <details className="about">

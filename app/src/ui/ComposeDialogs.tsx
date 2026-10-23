@@ -76,9 +76,9 @@ export function ReferenceBody({ chat, chats, live, cap, insertText, onDone }: { 
         </select></div>
       {loadErr ? <div className="why err">履歴を取得できませんでした（未取得）: {loadErr}</div> : null}
       {!list && !loadErr ? <p className="small muted">履歴を取得しています…</p> : null}
-      {list && list.turns.length === 0 ? <p className="small muted">参考にできるやり取りがありません（会話本文のあるturnがありません）。</p> : null}
+      {list && list.turns.length === 0 ? <p className="small muted">参考にできるやり取りがありません（会話本文のあるやりとりがありません）。</p> : null}
       {list && list.turns.length > 0 ? (
-        <div className="check-list" role="group" aria-label="参考にするturn">
+        <div className="check-list" role="group" aria-label="参考にするやりとり">
           {list.turns.map((t, i) => (
             <label key={t.turn} style={{ display: "block" }}>
               <input type="checkbox" checked={picked.includes(t.turn)} onChange={() => toggle(t.turn)} />
@@ -93,8 +93,8 @@ export function ReferenceBody({ chat, chats, live, cap, insertText, onDone }: { 
       {err ? <div className="why err" style={{ marginTop: 4 }}>{err}</div> : null}
       {block ? (
         <>
-          <p className="small" style={{ marginTop: 8 }}>{block.chars.toLocaleString("ja-JP")} 文字{block.overLimit ? "（長いため、モデルの入力を圧迫するおそれがあります。必要なturnだけに絞ることをおすすめします。入れること自体は止めません）" : ""}</p>
-          {block.missing.length > 0 ? <div className="why err">取得できなかったturnがあります（本文に「未取得」と書いてあります）: {block.missing.join("、")}</div> : null}
+          <p className="small" style={{ marginTop: 8 }}>{block.chars.toLocaleString("ja-JP")} 文字{block.overLimit ? "（長いため、モデルの入力を圧迫するおそれがあります。必要なやりとりだけに絞ることをおすすめします。入れること自体は止めません）" : ""}</p>
+          {block.missing.length > 0 ? <div className="why err">取得できなかったやりとりがあります（本文に「未取得」と書いてあります）: {block.missing.join("、")}</div> : null}
           <textarea readOnly value={block.text} rows={10} style={{ width: "100%" }} className="mono" aria-label="入力欄へ入れる抜粋" />
         </>
       ) : null}

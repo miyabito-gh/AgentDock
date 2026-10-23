@@ -21,7 +21,7 @@ export interface InterjectComposerProps {
 const MAX = 4000;
 
 /** 追加指示・次の送信に添える指示の登録後に必ず示す注記（エンジンは自分では turn を始めない）。 */
-export const NEXT_TURN_NOTE = "登録しました。次に送る turn に添えます。いま止まっているタスクは「新しい試行で再送…」または「再開…」を押すまで送りません。";
+export const NEXT_TURN_NOTE = "登録しました。次の送信に添えます。いま止まっているタスクは「新しい試行で再送…」または「再開…」を押すまで送りません。";
 
 export function InterjectComposer({ workflowId, task, interjects, run, compact }: InterjectComposerProps) {
   const enterMode = useEnterMode();
@@ -39,7 +39,7 @@ export function InterjectComposer({ workflowId, task, interjects, run, compact }
     setBusy(true);
     const ok = await run("割り込み指示", async () => {
       const a = await host.orgInterject(workflowId, task.id, text.trim(), fallback);
-      return a.route === "steer" ? "実行中の turn に指示を送りました。結果は経過に出ます（届いたか確認できないときは、自動では送り直しません）。" : `次の送信に添えます（すぐには届きません）。${NEXT_TURN_NOTE}`;
+      return a.route === "steer" ? "実行中のやりとりに指示を送りました。結果は経過に出ます（届いたか確認できないときは、自動では送り直しません）。" : `次の送信に添えます（すぐには届きません）。${NEXT_TURN_NOTE}`;
     });
     setBusy(false);
     if (ok) setText("");

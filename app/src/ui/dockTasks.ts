@@ -224,14 +224,23 @@ export function descendantSummary(snap: HostSnapshot, c: Chat, outcomeOf: (v: Ag
   return s;
 }
 
-/** 「子 N件（作業中a・対応待ちb…）」。0件の内訳は省く。未取得のときは取得を促す文言（読みには行かない）。 */
+/**
+ * 完了カード（1行表示）にするか。親が完了・終了済みで、作業中でなく、対応待ちの要求もなく、サブエージェントに失敗・中断・状態不明がないとき。
+ * 空の情報（活動・サブエージェント未取得）を並べない。作業中・停止中・対応待ち・状態不明は従来どおりの表示。
+ */
+export function isCompletedCard(rootState: AgentView["status"]["state"] | null, working: boolean, pendingCount: number, kids: Pick<DescendantSummary, "failed" | "interrupted" | "unknown"> = { failed: 0, interrupted: 0, unknown: 0 }): boolean {
+  return (rootState === "done" || rootState === "closed") && !working && pendingCount === 0
+    && kids.failed === 0 && kids.interrupted === 0 && kids.unknown === 0;
+}
+
+/** 「サブエージェント N件（作業中a・対応待ちb…）」。0件の内訳は省く。未取得のときは取得を促す文言（読みには行かない）。 */
 export function descendantSummaryText(s: DescendantSummary): string {
-  if (s.notFetched) return "子孫: 未取得（中央で開くと読み込みます）";
+  if (s.notFetched) return "サブエージェント: まだ読み込んでいません（中央で開くと読み込みます）";
   const parts: [string, number][] = [
     ["作業中", s.working], ["対応待ち", s.waiting], ["待機", s.idle], ["完了", s.done], ["中断", s.interrupted],
     ["失敗", s.failed], ["状態不明", s.unknown], ["履歴で確認", s.history],
   ];
-  return `子 ${s.total}件（${parts.filter(([, n]) => n > 0).map(([l, n]) => `${l}${n}`).join("・")}）`;
+  return `サブエージェント ${s.total}件（${parts.filter(([, n]) => n > 0).map(([l, n]) => `${l}${n}`).join("・")}）`;
 }
 
 /**

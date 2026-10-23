@@ -6,7 +6,7 @@ import type { Chat, ChatListSettings, ChatListView, HostSnapshot, ProjectsOutcom
 import { Icon } from "./Icon";
 import { tipWithKey } from "./shortcuts";
 import { Popover } from "./Popover";
-import { TENTATIVE_HINT, TENTATIVE_STYLE, chatAgents, chatName, chatRequests, chatStatusText, chatTitle, isRunning, sortChats } from "./derive";
+import { TENTATIVE_HINT, TENTATIVE_STYLE, chatAgents, chatName, chatRequests, chatStatusText, isRunning, sortChats } from "./derive";
 import { STATE, keyStr, knownValue } from "./format";
 import { PENDING_TEXT, archiveTag } from "./ManageDialogs";
 import { GROUP_HEADER_HEIGHT, WINDOW_THRESHOLD, cumulativeTops, rowHeight, scrollTopToRevealVar, windowRangeVar } from "./listWindow";
@@ -15,6 +15,7 @@ import { projectUpdateMessage } from "./listFetch";
 import { PROJECTS_ENABLED } from "./features";
 import { OrgHistoryRows, OrgListRow } from "./OrgPane";
 import { isOrgOwned, workflowRequestCounts } from "./org";
+import { classifyLeft, listTitle, wfDisplayName } from "./leftNest";
 import { isHiddenPredecessor } from "./continuity";
 import type { OrgWorkflowView } from "../ipc/types";
 import { UNKNOWN_KEY, collapseAll, flattenGroups, groupChats, shortNames, worktreeOf, type FlatItem, type FolderGroup } from "./folderGroups";
@@ -76,9 +77,22 @@ export function LeftPane({ org, snap, sel, onSelect, onAct, onAcknowledge, onCha
   // 外部作成の会話を「一覧から外した」ものは、元の履歴を消さずにアプリの一覧からだけ隠す。
   // 引き継ぎ済みの以前の thread（supersededBy あり）も一覧から隠す。隠すだけで削除・アーカイブはしない（DESIGN_CONT §9）。
   const removed = (c: Chat) => localOf(c)?.visibility.kind === "removedFromList" || isHiddenPredecessor(localOf(c));
-  const visible = sortChats(snap.chats).filter((c) => !removed(c) && !isOrgOwned(localOf(c), org?.shown ?? null)).filter((c) =>
-    (showArch ? archived(c) : !archived(c) || (q !== "" && inclArch)) && (!q || chatName(c).includes(q)));
-  const loadedCount = snap.chats.filter((c) => !removed(c) && !isOrgOwned(localOf(c), org?.shown ?? null) && !archived(c)).length;
+  // 一覧に出す題名（資料見出しの除去・名前未確認の時刻つき・依頼整理の名前）。保存名は変えない。検索は元の名前でも表示名でも当たる。
+  const titleOf = (c: Chat) => listTitle(c, localOf(c));
+  const matchesQ = (c: Chat) => !q || chatName(c).includes(q) || titleOf(c).text.includes(q);
+  // アーカイブ表示では従来どおり組織の役割チャットを除く。通常表示では、役割チャット・依頼整理を入れ子へ回す（下）。
+  const filtered = sortChats(snap.chats).filter((c) => !removed(c) && (!showArch || !isOrgOwned(localOf(c), org?.shown ?? null))).filter((c) =>
+    (showArch ? archived(c) : !archived(c) || (q !== "" && inclArch)) && matchesQ(c));
+  // 依頼整理と組織の役割チャットは、ワークフローの下（または「依頼整理（未開始）」）へ畳む。アーカイブ表示では並べたまま。
+  const cls = (c: Chat) => (showArch ? { kind: "normal" as const } : classifyLeft(localOf(c), org?.shown ?? null, c.pinned));
+  const visible = filtered.filter((c) => cls(c).kind === "normal");
+  const nestedOf = (wid: string) => filtered.filter((c) => { const k = cls(c); return (k.kind === "role" || k.kind === "intake") && k.workflowId === wid; });
+  const intakeOpen = filtered.filter((c) => cls(c).kind === "intakeOpen");
+  const [nestOpen, setNestOpen] = useState<ReadonlySet<string>>(new Set());
+  const nestIsOpen = (key: string) => q !== "" || nestOpen.has(key);
+  const toggleNest = (key: string) => setNestOpen((s) => { const n = new Set(s); if (n.has(key)) n.delete(key); else n.add(key); return n; });
+  const allWfs: OrgWorkflowView[] = org ? [...(org.wf ? [org.wf] : []), ...org.history, ...org.archived] : [];
+  const loadedCount = snap.chats.filter((c) => !removed(c) && classifyLeft(localOf(c), org?.shown ?? null, c.pinned).kind === "normal" && !archived(c)).length;
   const pinned = visible.filter((c) => c.pinned && !showArch);
   const rest = visible.filter((c) => !c.pinned || showArch);
 
@@ -257,7 +271,7 @@ export function LeftPane({ org, snap, sel, onSelect, onAct, onAcknowledge, onCha
       const c = snap.chats.find((x) => x.key.id === menu.id);
       if (!c) return null;
       return {
-        label: `「${chatName(c)}」の操作`,
+        label: `「${titleOf(c).text}」の操作`,
         items: [
           { act: "rename", label: "名前を変更…" },
           { act: "pin", label: c.pinned ? "ピン留めを外す" : "ピン留め" },
@@ -393,7 +407,7 @@ export function LeftPane({ org, snap, sel, onSelect, onAct, onAcknowledge, onCha
           {...(fixed && !grouped ? { "aria-posinset": idx! + 1, "aria-setsize": items.length } : {})}
           onKeyDown={(e) => { if ((e.shiftKey && e.key === "F10") || e.key === "ContextMenu") { e.preventDefault(); e.stopPropagation(); openFromRow(e.currentTarget); } }}>
           <span className={`st st-mark ${statusCls || "none"}`} role="img" aria-label={`状態: ${statusText}`} title={statusText}><i aria-hidden="true" /></span>
-          <span className="nm" style={chatTitle(c).confirmed ? undefined : TENTATIVE_STYLE} title={chatTitle(c).confirmed ? kindTitle : TENTATIVE_HINT}>{chatName(c)}</span>
+          <span className="nm" style={titleOf(c).confirmed ? undefined : TENTATIVE_STYLE} title={titleOf(c).confirmed ? kindTitle : TENTATIVE_HINT}>{titleOf(c).text}</span>
           {c.origin === "external" ? <span className="tag" title="Codex 側で作られた会話（AgentDock が起動したものではない）">外部</span> : null}
           {c.noHistory ? <span className="tag" title="Codex に記録がありません">履歴なし</span> : null}
           {multi.has(c.key.id) ? <span className="tag" title={`他に一致: ${multi.get(c.key.id)!.join("、")}
@@ -412,9 +426,38 @@ export function LeftPane({ org, snap, sel, onSelect, onAct, onAcknowledge, onCha
             {isRunning(snap, c) ? <span className="mark pend" title="作業中">作業中</span> : null}
           </span>
         </button>
-        {moreBtn("chat", c.key.id, `「${chatName(c)}」の操作`, open, (el) => openMenu({ kind: "chat", id: c.key.id }, el))}
+        {moreBtn("chat", c.key.id, `「${titleOf(c).text}」の操作`, open, (el) => openMenu({ kind: "chat", id: c.key.id }, el))}
       </div>
     );
+  };
+
+  /** 畳んだ入れ子（既定は閉じる）。ワークフローごとの「依頼整理 N・役割 M」と、ワークフローに紐づかない「依頼整理（未開始）」。行は通常の行と同じ操作ができる。 */
+  const nestGroup = (key: string, label: string, chats: Chat[], title: string) => {
+    const open = nestIsOpen(key);
+    return (
+      <div key={`nest:${key}`} className="nest-grp">
+        <div className="list-grp" style={{ height: GROUP_HEADER_HEIGHT }}>
+          <button type="button" className="grp-toggle" aria-expanded={open} title={title} aria-disabled={q !== "" || undefined} onClick={() => { if (q === "") toggleNest(key); }}>
+            <span className="grp-caret" aria-hidden="true">{open ? "▾" : "▸"}</span>
+            <span className="grp-nm">{label}</span>
+            <span className="grp-n">{chats.length}</span>
+          </button>
+        </div>
+        {open ? chats.map((c) => row(c, undefined, `nest:${key}`)) : null}
+      </div>
+    );
+  };
+  const nestGroups = () => {
+    const out: React.ReactNode[] = [];
+    for (const wf of allWfs) {
+      const kids = nestedOf(wf.workflowId);
+      if (!kids.length) continue;
+      const nI = kids.filter((c) => cls(c).kind === "intake").length, nR = kids.length - nI;
+      const name = wfDisplayName(wf);
+      out.push(nestGroup(`wf:${wf.workflowId}`, `${name}：${[nI ? `依頼整理 ${nI}` : "", nR ? `役割 ${nR}` : ""].filter((x) => x).join("・")}`, kids, `組織ワークフロー「${name}」に紐づくチャット（依頼整理・役割）。開くと一覧に出ます`));
+    }
+    if (intakeOpen.length) out.push(nestGroup("intake-open", "依頼整理（未開始）", intakeOpen, "組織実行を開始していない（または取りやめた）依頼整理のチャットです"));
+    return out;
   };
 
   const VIEW_LABEL: Record<ChatListView, string> = { Recent: "最近使った順", ByFolder: "作業フォルダごと", ByProject: "プロジェクトごと" };
@@ -500,6 +543,7 @@ export function LeftPane({ org, snap, sel, onSelect, onAct, onAcknowledge, onCha
         ) : (
           <>
             {creating.length && onCreatingAct ? <CreatingRows items={creating} onAct={onCreatingAct} /> : null}
+            {nestGroups()}
             {pinned.length ? <><div className="list-h"><span>ピン留め</span></div>{pinned.map((c) => row(c))}</> : null}
             <div className="list-h"><span>{viewLabel}</span></div>
             {rest.length ? listRows() : <div className="empty-note">{q ? "一致するチャットはありません" : "まだチャットがありません"}</div>}

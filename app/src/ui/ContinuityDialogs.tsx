@@ -87,7 +87,7 @@ export function PurposeBody({ chat, chatName, current, live, orgOwned, save, onD
           </div>
         </div>
       ) : null}
-      <p className="small muted">この会話の送信に資料として添えます（この thread で最初の送信・メモを変更した後・文脈の圧縮を観測した後の、手動の送信のとき）。キューや追加指示には添えません。空にして保存すると、目的メモを削除します（記録は残ります）。</p>
+      <p className="small muted">この会話の送信に資料として添えます（この会話で最初の送信・メモを変更した後・文脈の圧縮を観測した後の、手動の送信のとき）。キューや追加指示には添えません。空にして保存すると、目的メモを削除します（記録は残ります）。</p>
       {orgOwned ? <div className="why">組織実行が所有するチャットでは、目的メモを編集できません。</div> : null}
       {current ? <p className="small muted">現在の版: {current.revision}{observedText(current.updatedAt) ? `（${observedText(current.updatedAt)} に保存）` : ""}</p> : null}
       {err ? <div className="why" role="alert">{err}</div> : null}
@@ -208,12 +208,12 @@ export function PurposeDraftBody({ chat, chatName, current, live, save, onBack, 
   return (
     <div className="content">
       <FootActions left={onBack ? <button className="btn" disabled={busy} onClick={onBack}>編集に戻る</button> : undefined} main={main} />
-      <p className="small muted">対象: {chatName}。会話とは別の一時 thread で、読み取り専用（承認を求めない）で作ります。会話本体には何も送りません。目的メモは、あなたが保存するまで変わりません。</p>
+      <p className="small muted">対象: {chatName}。会話とは別の一時的な別の会話で、読み取り専用（承認を求めない）で作ります。会話本体には何も送りません。目的メモは、あなたが保存するまで変わりません。</p>
       {head ? <div className={head.tone === "ok" || head.tone === "run" ? "" : "why"} role="status"><b>{head.text}</b>{state?.kind === "running" ? `（経過 ${elapsedText(state.startedAt, now)}）` : ""}</div> : null}
       {view && state?.kind !== "preparing" ? (
         <p className="small muted">
           {view.excludedRunning ? "実行中の往復は含めていません。" : ""}
-          {view.mode === "headOnly" ? "今の thread だけで作っています（出典は [今#n]）。" : ""}
+          {view.mode === "headOnly" ? "今の会話だけで作っています（出典は [今#n]）。" : ""}
           {view.usageTokens !== null ? ` 使用: ${view.usageTokens.toLocaleString("en-US")} トークン` : " 使用量: 未取得"}
         </p>
       ) : null}
@@ -266,8 +266,8 @@ export function PurposeDraftBody({ chat, chatName, current, live, save, onBack, 
               {est.notes.map((t, i) => <p key={i} className="small muted">{t}</p>)}
               {est.blockers.length > 0 ? <div className="why" role="alert"><ul>{est.blockers.map((b, i) => <li key={i}>{b}</li>)}</ul></div> : null}
               <div className="acts">
-                <button className="btn primary" disabled={busy || est.blockers.length > 0} onClick={() => void start(headOnly)}>{headOnly ? "今の thread だけで作成する" : "作成する"}</button>
-                {est.headOnlyAvailable && !headOnly ? <button className="btn" disabled={busy} onClick={() => setHeadOnly(true)}>今の thread だけで作る…</button> : null}
+                <button className="btn primary" disabled={busy || est.blockers.length > 0} onClick={() => void start(headOnly)}>{headOnly ? "今の会話だけで作成する" : "作成する"}</button>
+                {est.headOnlyAvailable && !headOnly ? <button className="btn" disabled={busy} onClick={() => setHeadOnly(true)}>今の会話だけで作る…</button> : null}
                 {headOnly ? <button className="btn" disabled={busy} onClick={() => setHeadOnly(false)}>全体で作る</button> : null}
               </div>
               <p className="small muted">押したときだけ、1回作ります（自動では作りません・やり直しも自動ではしません）。トークンを消費します。</p>
@@ -301,7 +301,7 @@ export function HandoffPreviewBody({ chatName, load, live }: { chatName: string;
   return (
     <div className="content">
       <FootActions left={<button className="btn" disabled={state.kind === "loading"} onClick={() => setTick((t) => t + 1)}>再確認</button>} />
-      <p className="small muted">対象: {chatName}。ここで見られるのは、引き継ぐときに新しい thread へ最初に添える資料です（読み取りのみ。何も送りません）。</p>
+      <p className="small muted">対象: {chatName}。ここで見られるのは、引き継ぐときに新しい会話へ最初に添える資料です（読み取りのみ。何も送りません）。</p>
       {state.kind === "loading" ? <p>資料を確認しています…</p> : null}
       {state.kind === "error" ? <div className="why" role="alert">資料を確認できませんでした: {state.message}</div> : null}
       {state.kind === "ok" ? (
@@ -342,7 +342,7 @@ export function ContinuationSettingsBody({ value, set }: { value: ContinuationSe
     <>
       <div className="field"><span>継続チャット</span>
         <label><input type="checkbox" checked={value.enabled} onChange={(e) => set({ ...value, enabled: e.target.checked })} />継続チャットを使う</label>
-        <span className="note">初期値はオフです。オンにすると、使用量チップ・目的メモ・引き継ぎの案内（と「目的メモ」「新しい thread へ引き継ぐ」の操作）が使えるようになります。オフのあいだはこれらを出さず、使用量も取り込みません。保存済みの目的メモなどの記録は消しません。</span>
+        <span className="note">初期値はオフです。オンにすると、使用量チップ・目的メモ・引き継ぎの案内（と「目的メモ」「新しい会話へ引き継ぐ」の操作）が使えるようになります。オフのあいだはこれらを出さず、使用量も取り込みません。保存済みの目的メモなどの記録は消しません。</span>
       </div>
       <div className="field"><span>引き継ぎの案内</span>
         <select aria-label="文脈の使用率が何%以上で案内するか" value={value.suggestAtPercent ?? ""}
@@ -350,13 +350,13 @@ export function ContinuationSettingsBody({ value, set }: { value: ContinuationSe
           <option value="">案内しない</option>
           {withCurrent(THRESHOLDS, value.suggestAtPercent).map((n) => <option key={n} value={n}>{n}% 以上で案内</option>)}
         </select>
-        <span className="note">文脈の使用率がこの値以上になったら（この接続で受け取った値のときだけ）、入力欄の上に「次の送信で新しい thread へ引き継ぎます」と案内します。案内だけで、自動では引き継ぎません。</span>
+        <span className="note">文脈の使用率がこの値以上になったら（この接続で受け取った値のときだけ）、入力欄の上に「次の送信で新しい会話へ引き継ぎます」と案内します。案内だけで、自動では引き継ぎません。</span>
       </div>
       <div className="field"><span>資料に入れる往復数</span>
         <select aria-label="引き継ぎ資料に入れる直近の往復数" value={value.rounds} onChange={(e) => set({ ...value, rounds: Number(e.target.value) })}>
           {withCurrent(ROUNDS, value.rounds).map((n) => <option key={n} value={n}>直近 {n} 往復</option>)}
         </select>
-        <span className="note">引き継ぎのときに新しい thread へ添える、直近の往復の数です（目的メモも添えます）。</span>
+        <span className="note">引き継ぎのときに新しい会話へ添える、直近の往復の数です（目的メモも添えます）。</span>
       </div>
     </>
   );

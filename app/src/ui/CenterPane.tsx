@@ -145,7 +145,7 @@ export interface QueueActions {
   resume: () => void;
   /** 「履歴と照合」。読み取りのみで再送しない。 */
   reconcile: (attempt: string) => void;
-  /** 「状態を再確認」。保留中の子孫の履歴を読み直す（読み取りのみ。resumeしない）。 */
+  /** 「状態を再確認」。保留中のサブエージェントの履歴を読み直す（読み取りのみ。resumeしない）。 */
   recheck: () => void;
   /** 「確認して今すぐ送る」。確認ダイアログで承認した後にだけ呼ぶ。先頭の1件だけを送る（以後は通常の判定）。 */
   sendNow: (entry: string) => Promise<boolean>;
@@ -161,8 +161,8 @@ export interface QueueActions {
 
 /** 追加指示にできない理由（できるときは null）。追加指示はモデル・権限・作業フォルダの変更には使えず、実行中のturnにだけ送れる。 */
 function steerBlockReason(running: boolean, changed: boolean, local: ChatLocalView | undefined): string | null {
-  if (!running) return "実行中のturnがないため、追加指示にはできません";
-  if (changed) return "モデル・推論の強さ・速度を変更中のため、追加指示にはできません（変更は次のturnから適用されます）";
+  if (!running) return "実行中のやりとりがないため、追加指示にはできません";
+  if (changed) return "モデル・推論の強さ・速度を変更中のため、追加指示にはできません（変更は次の送信から適用されます）";
   if (local?.nextCwd) return "作業フォルダの変更が予定されているため、追加指示にはできません";
   return null;
 }
@@ -281,7 +281,7 @@ function Header({ snap, chat, onAct, commands, local, onCwdToggle, wasLive, exte
       {(() => { const m = multiFolderMark(local); return m ? <span className="tag" title={m.title}>{m.text}</span> : null; })()}
       {local?.nextCwd ? <span className="tag mono" title={`次の送信から使う作業フォルダ（まだ適用していません）: ${local.nextCwd}`}>次: {baseName(local.nextCwd)}</span> : null}
       {local?.reviewOf ? <span className="tag" title={`このチャットはレビュー用に作られました（レビュー元: ${origName(snap, local.reviewOf)}）`}>レビュー</span> : null}
-      {local?.forkOf ? <span className="tag" title={`このチャットは${local.forkOf.purpose === "editResend" ? "依頼を編集して送り直すために" : local.forkOf.purpose === "regenerate" ? "応答を作り直すために" : ""}分岐で作られました（AgentDockの記録）。分岐元: ${origName(snap, local.forkOf.chat)}${local.forkOf.throughTurn ? `（turn ${local.forkOf.throughTurn} まで）` : ""}`}>{PURPOSE_TAG[local.forkOf.purpose ?? "fork"]}</span> : null}
+      {local?.forkOf ? <span className="tag" title={`このチャットは${local.forkOf.purpose === "editResend" ? "依頼を編集して送り直すために" : local.forkOf.purpose === "regenerate" ? "応答を作り直すために" : ""}分岐で作られました（AgentDockの記録）。分岐元: ${origName(snap, local.forkOf.chat)}${local.forkOf.throughTurn ? `（やりとり ${local.forkOf.throughTurn} まで）` : ""}`}>{PURPOSE_TAG[local.forkOf.purpose ?? "fork"]}</span> : null}
       {chat.noHistory ? <span className="tag" title={`Codex に、この会話の履歴がありません。${NO_HISTORY_TEXT}`}>履歴なし</span> : null}
       {chat.origin === "external" && isLive ? <span className="tag" title={`${externalLabel ?? "外部"} で作成された会話を、このアプリで再開済みです。${EXTERNAL_RESUMED_TEXT}`}>{externalLabel ?? "外部"}で作成</span> : null}
       <span className="grow" />
@@ -344,7 +344,7 @@ function Banners({ p }: { p: CenterProps }) {
         <div className="cbanner warn">
           <h4>{p.externalLabel ?? "外部"} で作成された会話です（閲覧のみ）</h4>
           外部でまだ実行中かどうか、このアプリでは確認できません。外部での実行が終わったことを確認してから再開すると、このアプリで続きを送れます。<Help text={EXTERNAL_REF_TEXT} />
-          {root && (root.status.state === "running" || root.status.state === "waiting") ? <div style={{ marginTop: 4 }}><b>最新のturnが実行中として記録されています。外部で実行中の可能性があります。</b></div> : null}
+          {root && (root.status.state === "running" || root.status.state === "waiting") ? <div style={{ marginTop: 4 }}><b>最新のやりとりが実行中として記録されています。外部で実行中の可能性があります。</b></div> : null}
           <div className="acts"><button className="btn-main" onClick={() => onAct("resumeExternal")}>外部での実行は終わっています。この会話を再開する</button></div>
         </div>
       ) : null}
@@ -806,10 +806,10 @@ function EntryRow({ n, e, qact, steerWhy, holdAttempt, holdHint }: { n: number; 
       </div>
       <div style={{ display: "flex", gap: 2 }}>
         {s.kind === "waiting" && !editing ? (() => {
-          // 追加指示（実行中のturnへ今すぐ）。条件を満たさないとき・受理不明の確認中は押せない（理由はツールチップ）
+          // 追加指示（実行中のやりとりへ今すぐ）。条件を満たさないとき・受理不明の確認中は押せない（理由はツールチップ）
           const block = steerUnk ? "追加指示の受理を確認中です。先に「履歴と照合」で確定してください" : steering ? "送信中です" : steerWhy ? (holdHint ? `${steerWhy}（${holdHint}）` : steerWhy) : null;
-          return <button className="small" aria-label="追加指示として今すぐ送る（実行中のturnへ割り込んで送ります）" aria-disabled={block ? true : undefined}
-            title={block ?? "追加指示として今すぐ送る（実行中のturnへ割り込んで送ります。受理されたらこの依頼は取り消します）"}
+          return <button className="small" aria-label="追加指示として今すぐ送る（実行中のやりとりへ割り込んで送ります）" aria-disabled={block ? true : undefined}
+            title={block ?? "追加指示として今すぐ送る（実行中のやりとりへ割り込んで送ります。受理されたらこの依頼は取り消します）"}
             onClick={() => { if (block) return; setSteering(true); void qact.steerEntry(e).finally(() => setSteering(false)); }}><Icon name="send" />追加指示</button>;
         })() : null}
         {steerUnk ? <button className="small" title="履歴と照合して、追加指示の受理を確認します（読み取りのみ。再送しません）" onClick={() => qact.steerReconcile(e.id)}>履歴と照合</button> : null}
@@ -837,7 +837,7 @@ function HoldExit({ q, head, nameOf, qact }: { q: ChatQueue; head: QueueEntry | 
   return (
     <div style={{ padding: "2px 10px" }}>
       <div className="acts">
-        <button className={h.kind === "stateUnknown" ? "btn-main" : "small"} title="保留中の子孫の履歴を読み直します（読み取りのみ。再開はしません）。終端を確認できれば、自動で送信に進みます" onClick={qact.recheck}>状態を再確認</button>
+        <button className={h.kind === "stateUnknown" ? "btn-main" : "small"} title="保留中のサブエージェントの履歴を読み直します（読み取りのみ。再開はしません）。終端を確認できれば、自動で送信に進みます" onClick={qact.recheck}>状態を再確認</button>
         {canSend ? <button className="small" onClick={() => setConfirming(true)}>確認して今すぐ送る…</button> : null}
       </div>
       {confirming && head ? (
@@ -846,7 +846,7 @@ function HoldExit({ q, head, nameOf, qact }: { q: ChatQueue; head: QueueEntry | 
           <div>次の対象は、完了・失敗・中断を確認できていません。作業が続いている可能性があります。</div>
           <ul style={{ margin: "4px 0 4px 18px", padding: 0 }}>
             {targets.length ? targets.map((t) => <li key={t.agent.id}>{targetList([t], nameOf)}</li>) : null}
-            {h.kind === "stateUnknown" && h.descendantScanIncomplete ? <li>子孫の探索が完了していません（未発見の子孫がいる可能性）</li> : null}
+            {h.kind === "stateUnknown" && h.descendantScanIncomplete ? <li>サブエージェントの探索が完了していません（見つかっていないものがある可能性）</li> : null}
           </ul>
           <div>送るのは先頭の1件（「{head.text.slice(0, 40)}{head.text.length > 40 ? "…" : ""}」）だけです。以後の依頼は、通常どおり条件を判定します。</div>
           <div className="acts">
@@ -879,7 +879,7 @@ function Queue({ q, nameOf, qact, steerWhy }: { q: ChatQueue | undefined; nameOf
         </div>
       ) : null}
       <details open>
-        <summary title={!stopped && !q.hold ? "親と子孫の作業が終わると、登録順に1件ずつ送ります" : undefined}><Icon name="list" /><b>完了後に送る依頼 {items.length}件</b>
+        <summary title={!stopped && !q.hold ? "親とサブエージェントの作業が終わると、登録順に1件ずつ送ります" : undefined}><Icon name="list" /><b>完了後に送る依頼 {items.length}件</b>
           <span className="muted" title={!stopped && q.hold && (q.hold.kind === "stateUnknown" || q.hold.kind === "notLive") && q.hold.targets.length ? targetList(q.hold.targets, nameOf) : undefined}>{stopped ? "停止中" : q.hold ? holdText(q.hold, nameOf, q.chat.id) : ""}</span>
           <span className="muted small qnote" title="送信待ちの依頼は、送信する時点のモデル・権限・作業フォルダで送ります。">送信時の設定で送信</span></summary>
         <HoldExit q={q} head={items[0]} nameOf={nameOf} qact={qact} />
@@ -1016,7 +1016,7 @@ function Composer({ p, running, lock, hu }: { p: CenterProps; running: boolean; 
           onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
           onCompositionStart={() => setComposing(true)} onCompositionEnd={(e) => { setComposing(false); setCaret(e.currentTarget.selectionStart); }}
           aria-controls={sugOpen ? sugId : undefined} aria-expanded={sugOpen || undefined} aria-activedescendant={sugOpen ? `${sugId}-${sugCur}` : undefined}
-          placeholder={`${running ? (defAct === "steer" ? "実行中のturnへ追加指示する依頼" : "完了後に送る次の依頼") : "メッセージを入力"}（${running ? runHint : enterHint}）`}
+          placeholder={`${running ? (defAct === "steer" ? "実行中のやりとりへ追加指示する依頼" : "完了後に送る次の依頼") : "メッセージを入力"}（${running ? runHint : enterHint}）`}
           onPaste={(e) => {
             // クリップボードの画像は添付にする（生バイトでホストへ）。文章だけの貼り付けは通常どおり。
             const img = Array.from(e.clipboardData.files).find((f) => f.type.startsWith("image/"));
@@ -1104,7 +1104,7 @@ function Composer({ p, running, lock, hu }: { p: CenterProps; running: boolean; 
               const mainBlock = steerMain ? steerWhy : null;
               return (
                 <button className={`btn-main send${hu.armed ? " handoff" : ""}`} aria-label={hu.armed ? "引き継いで送信" : running ? (steerMain ? "追加指示として送る" : "完了後に送る依頼として登録") : "送信"}
-                  title={hu.armed ? `新しい thread へ引き継いで送信します（目的メモ＋直近${hu.rounds}往復）。${enterHint}` : running ? (steerMain ? `${mainBlock ? `追加指示にできません（${mainBlock}）。` : "追加指示で送る（現在のturnへ割り込んで送ります）。"}${runHint}` : `完了後に送信（親と子孫の作業が終わってから送ります）。${runHint}`) : enterHint}
+                  title={hu.armed ? `新しい会話へ引き継いで送信します（目的メモ＋直近${hu.rounds}往復）。${enterHint}` : running ? (steerMain ? `${mainBlock ? `追加指示にできません（${mainBlock}）。` : "追加指示で送る（現在のやりとりへ割り込んで送ります）。"}${runHint}` : `完了後に送信（親とサブエージェントの作業が終わってから送ります）。${runHint}`) : enterHint}
                   disabled={!!lock || !!attachBlock || empty || !!mainBlock} onClick={() => void send(steerMain)}><Icon name="send" />{hu.armed ? <span className="lbl">引き継いで送信</span> : null}</button>
               );
             })()}
@@ -1117,10 +1117,10 @@ function Composer({ p, running, lock, hu }: { p: CenterProps; running: boolean; 
                       const isDef = a === defAct;
                       const kbd = isDef ? sendKeyName : "Ctrl＋Shift＋Enter";
                       return a === "queue" ? (
-                        <button key={a} role="menuitem" disabled={!!lock || !!attachBlock || empty} title="次の依頼として。親と子孫の作業が終わってから送ります" onClick={() => { close(); void send(false); }}><span>完了後に送信</span>{isDef ? <span className="tag">既定</span> : null}<span className="kbd">{kbd}</span></button>
+                        <button key={a} role="menuitem" disabled={!!lock || !!attachBlock || empty} title="次の依頼として。親とサブエージェントの作業が終わってから送ります" onClick={() => { close(); void send(false); }}><span>完了後に送信</span>{isDef ? <span className="tag">既定</span> : null}<span className="kbd">{kbd}</span></button>
                       ) : (
                         <button key={a} role="menuitem" aria-disabled={steerWhy ? true : undefined}
-                          title={steerWhy ?? "現在のturnへ割り込んで送ります。実行中のturnへ対象を照合して送ります。モデル・権限・フォルダの変更には使えません"}
+                          title={steerWhy ?? "現在のやりとりへ割り込んで送ります。実行中のやりとりへ対象を照合して送ります。モデル・権限・フォルダの変更には使えません"}
                           onClick={() => { if (steerWhy) return; close(); void send(true); }}><span>追加指示で送る</span>{isDef ? <span className="tag">既定</span> : null}<span className="kbd">{kbd}</span></button>
                       );
                     })}

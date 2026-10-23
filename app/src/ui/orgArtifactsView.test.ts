@@ -1,7 +1,7 @@
 // 実行: node --test src/ui/orgArtifactsView.test.ts （tscの対象外）
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { actionableRecords, checkOutcomeLabel, checksSummary, investigationText, reviewVerdictLabel, defaultTab, parseTable, tableDelimiter, headingText, importResultText, isCandidate, latestReview, orderSelection, reviewLine, reviewRoundCount, sha7, tabsOf, totalsText, undoResultText } from "./orgArtifactsView.ts";
+import { viewOf, actionableRecords, checkOutcomeLabel, checksSummary, investigationText, reviewVerdictLabel, defaultTab, parseTable, tableDelimiter, headingText, importResultText, isCandidate, latestReview, orderSelection, reviewLine, reviewRoundCount, sha7, tabsOf, totalsText, undoResultText } from "./orgArtifactsView.ts";
 
 const known = (value: any) => ({ kind: "value", value, basis: "direct" }) as any;
 const NF = { kind: "notFetched" } as any;
@@ -106,4 +106,12 @@ test("調査報告のコピー文: 結論ごとの根拠と参照・分からな
   const t = investigationText({ summary: "s", findings: [{ point: "p", basis: "b", refs: ["a.py:3", "c1"] }], references: ["a.py"], openQuestions: ["q"] });
   assert.equal(t, "要約: s\n\n結論1: p\n  根拠: b\n  参照: a.py:3 / c1\n\n調べた対象: a.py\n\n分からなかったこと:\n- q");
   assert.equal(investigationText({ summary: "s", findings: [], references: [], openQuestions: [] }), "要約: s");
+});
+
+test("別のワークフローの取得結果は使わない", () => {
+  const v = { workflowId: "a" };
+  assert.equal(viewOf(v, "a"), v);
+  assert.equal(viewOf(v, "b"), null);
+  assert.equal(viewOf(v, null), null);
+  assert.equal(viewOf(null, "a"), null);
 });
