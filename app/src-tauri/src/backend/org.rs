@@ -337,6 +337,9 @@ pub struct OrgTaskView {
     /// 試行（1 + 差し戻し回数）と、その上限。
     pub attempts: u32,
     pub max_attempts: u32,
+    /// 利用者が押した再送（新しい試行）の回数。差し戻し（上の試行）とは別の数。
+    #[serde(default)]
+    pub retries_used: u32,
     /// 役割チャット（なければ None。選んで開くのは閲覧だけ）。
     pub chat: Option<ChatKey>,
     pub commit: Option<String>,

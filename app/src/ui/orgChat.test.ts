@@ -1,7 +1,7 @@
 // 実行: node --test src/ui/orgChat.test.ts （tscの対象外）
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isOrgInstruction, orgChatTitle, parseOrgReport } from "./orgChat.ts";
+import { isOrgInstruction, orgAgentName, orgChatTitle, parseOrgReport, withOrgTitles } from "./orgChat.ts";
 
 const wf = { workflowId: "w", tasks: [{ id: "r1", title: "README の追加内容と変更範囲を検証" }] } as never;
 
@@ -11,6 +11,22 @@ test("タイトル: 役割名 タスクID: タスク名。手動に切替済み�
   assert.equal(orgChatTitle({ workflowId: "x", taskId: "r1", roleId: "reviewer", released: false }, wf), null);
   assert.equal(orgChatTitle({ workflowId: "w", taskId: "zz", roleId: "reviewer", released: false }, wf), null);
   assert.equal(orgChatTitle({ workflowId: "w", taskId: "r1", roleId: "custom", released: false }, wf), "custom r1: README の追加内容と変更範囲を検証");
+});
+
+test("要求元の代わりの名前: 役割・タスクID『題名』。所有していなければ null", () => {
+  assert.equal(orgAgentName({ workflowId: "w", taskId: "r1", roleId: "worker", released: false }, wf), "Worker・r1『README の追加内容と変更範囲を検証』");
+  assert.equal(orgAgentName({ workflowId: "w", taskId: "r1", roleId: "worker", released: true }, wf), null);
+  assert.equal(orgAgentName(null, wf), null);
+});
+
+test("withOrgTitles: 名前が空・欠損の根のエージェントだけ補い、名前があれば触らない", () => {
+  const l = { chat: { backend: "codex", id: "c1" }, org: { workflowId: "w", taskId: "r1", roleId: "worker", released: false } };
+  const mk = (dn: unknown) => ({ chats: [{ key: { id: "c1" }, name: { kind: "missing" } }], chatLocals: [l], agents: [{ agent: { key: { id: "c1" }, displayName: dn } }, { agent: { key: { id: "x" }, displayName: { kind: "missing" } } }] }) as never;
+  const out = withOrgTitles(mk({ kind: "missing" }), wf) as { agents: Array<{ agent: { displayName: { kind: string; value?: string } } }> };
+  assert.equal(out.agents[0].agent.displayName.value, "Worker・r1『README の追加内容と変更範囲を検証』");
+  assert.equal(out.agents[1].agent.displayName.kind, "missing");
+  const keep = withOrgTitles(mk({ kind: "value", value: "自分の名前", basis: "reported" }), wf) as typeof out;
+  assert.equal(keep.agents[0].agent.displayName.value, "自分の名前");
 });
 
 test("指示の判定は先頭一致のみ", () => {

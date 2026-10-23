@@ -9,10 +9,10 @@ import { Popover } from "./Popover";
 import { ConfirmBlock } from "./DialogParts";
 import { tipWithKey } from "./shortcuts";
 import { roleLabel } from "./orgChat";
-import { CONFIRM_TONE, EFFECT_TEXT, NODE_KIND_TEXT, PHASE_TONE, waitCauseOf, artifactText, attemptText, edgeText, groupTasks, orgPendingRequests, requestWaitText, roleCounts, reworkLimitText, roundText, taskRequestWait, taskRowId, verdictText, waitBand, waitText, waitingDetail, workflowSummary, type OrgTone } from "./org";
+import { CONFIRM_TONE, EFFECT_TEXT, NODE_KIND_TEXT, PHASE_TONE, waitCauseOf, artifactText, attemptText, retryText, edgeText, groupTasks, orgPendingRequests, requestWaitText, roleCounts, reworkLimitText, roundText, taskRequestWait, taskRowId, verdictText, waitBand, waitText, waitingDetail, workflowSummary, type OrgTone } from "./org";
 import { RequestGapLine } from "./RequestGap";
 import { keyStr, showKnown } from "./format";
-import { InterjectComposer } from "./InterjectComposer";
+import { InterjectComposer, NEXT_TURN_NOTE } from "./InterjectComposer";
 import { OrgTimeline } from "./OrgTimeline";
 import { activityLines, elapsedText, lineText, stabilize, type ActivityLine, type ChatActivity } from "./orgActivity";
 import { useThrottled } from "./useThrottled";
@@ -698,7 +698,7 @@ export function OrgPane(p: OrgPaneProps) {
               <div className="org-gh">{g.title}（{g.tasks.length}）</div>
               <div className="org-scroll">
                 <table className="org-tbl">
-                  <thead><tr><th scope="col">ID</th><th scope="col">役割</th><th scope="col">タスク</th><th scope="col">業務状態</th><th scope="col">確認状態</th><th scope="col">待ち先</th><th scope="col">試行</th><th scope="col">成果物</th><th scope="col">操作</th></tr></thead>
+                  <thead><tr><th scope="col">ID</th><th scope="col">役割</th><th scope="col">タスク</th><th scope="col">業務状態</th><th scope="col">確認状態</th><th scope="col">待ち先</th><th scope="col" title="Reviewer の差し戻しによる試行の回数（1 + 差し戻し回数）と上限">差し戻し</th><th scope="col" title="あなたが押した「新しい試行で再送」の回数と上限">再送</th><th scope="col">成果物</th><th scope="col">操作</th></tr></thead>
                   <tbody>
                     {g.tasks.map((t) => {
                       const w = taskRequestWait(snap, t);
@@ -713,11 +713,12 @@ export function OrgPane(p: OrgPaneProps) {
                           <td><ConfirmChip c={t.confirm} /></td>
                           <td>{waitMsg ? <b>{waitMsg}</b> : waitText(t)}</td>
                           <td>{attemptText(t)}</td>
+                          <td>{retryText(t, wf.limits.maxRetries)}</td>
                           <td>{t.commit ? <button type="button" className="linkish" title="成果物の中身を開きます（見るだけ。何も書きません）" onClick={() => p.onAct(`orgArtifacts:${wf.workflowId}:${t.id}`)}>{artifactText(t)}</button> : artifactText(t)}</td>
                           <td>{taskActions(t)}</td>
                         </tr>
                         {t.reconcile || t.stallNotified || t.needsChatChoice || t.attentionNote || w.pending.length > 0 || w.gaps.length > 0 ? (
-                          <tr key={`${t.id}:n`} className="org-note-row"><td /><td colSpan={8} className="small">
+                          <tr key={`${t.id}:n`} className="org-note-row"><td /><td colSpan={9} className="small">
                             {w.pending.map((r) => <div key={`${r.key.source}/${r.key.requestId}`} className="org-req-card">{p.renderRequest(r, agentName)}</div>)}
                             {w.gaps.map((r) => <RequestGapLine key={`gap:${r.key.source}/${r.key.requestId}`} r={r} guide="org" />)}
                             {t.attentionNote ? <div>止まった理由: {t.attentionNote}</div> : null}
@@ -860,7 +861,7 @@ function WorkflowNotes({ wf, run }: { wf: OrgWorkflowView; run: OrgPaneProps["ru
   const add = async () => {
     if (blank || busy) return;
     setBusy(true);
-    const ok = await run("追加指示", async () => { await host.orgAddNote(wf.workflowId, text.trim(), null); return "追加指示を追加しました。次に送るタスクへ添えます（実行中のタスクには届きません）。"; });
+    const ok = await run("追加指示", async () => { await host.orgAddNote(wf.workflowId, text.trim(), null); return `追加指示を追加しました。${NEXT_TURN_NOTE}（実行中のタスクには届きません）`; });
     setBusy(false);
     if (ok) setText("");
   };
@@ -880,6 +881,7 @@ function WorkflowNotes({ wf, run }: { wf: OrgWorkflowView; run: OrgPaneProps["ru
       ) : <div className="small muted">まだ届いていない追加指示はありません。</div>}
       <textarea rows={2} style={{ width: "100%" }} value={text} maxLength={4200} disabled={busy} aria-label="追加指示の内容" placeholder="例: コメントは日本語で書いてください" onChange={(e) => setText(e.target.value)} />
       <div className="small muted">
+        {NEXT_TURN_NOTE}{" "}
         {next.length > 0 ? <>次に送るタスクへ添えます: {next.map((t) => t.id).join(", ")}（これから計画されるタスクにも添えます）。</> : <>これから送るタスクがあれば添えます。</>}
         {running.length > 0 ? <>実行中の {running.map((t) => t.id).join(", ")} には届きません（届けるなら、そのタスクの「指示を挟む」を使ってください）。</> : null}
         {wf.halt?.kind === "awaitingPlanApproval" ? " 計画に反映するなら、Planner への割り込み指示か「計画を作り直す」を使ってください。" : ""}

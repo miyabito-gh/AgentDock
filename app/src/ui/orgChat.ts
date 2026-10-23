@@ -17,20 +17,43 @@ export function orgChatTitle(org: OrgBindingView | null | undefined, wf: OrgWork
   return `${roleLabel(org.roleId)} ${t.id}: ${t.title}`;
 }
 
-/** スナップショットのチャット名を、組織の役割チャットだけ上書きして返す（表示用。ホストの保存は変えない）。上書きがなければ同じ参照を返す。 */
+/**
+ * 組織が自分で作った役割チャットの根のエージェントの表示名（「Worker・build-1『build』」）。
+ * 要求元などの名前が空のときだけ使う代わりの名前（組織の所有と分かっているチャットに限る）。
+ */
+export function orgAgentName(org: OrgBindingView | null | undefined, wf: OrgWorkflowView | null | undefined): string | null {
+  if (!org || org.released || !wf || wf.workflowId !== org.workflowId) return null;
+  const t = wf.tasks.find((x) => x.id === org.taskId);
+  if (!t) return null;
+  return `${roleLabel(org.roleId)}・${t.id}${t.title ? `『${t.title}』` : ""}`;
+}
+
+/**
+ * スナップショットのチャット名を、組織の役割チャットだけ上書きして返す（表示用。ホストの保存は変えない）。
+ * 根のエージェントの表示名が空・欠損のときは、組織のタスク情報から補う。上書きがなければ同じ参照を返す。
+ */
 export function withOrgTitles(snap: HostSnapshot, wf: OrgWorkflowView | null | undefined): HostSnapshot {
   if (!wf) return snap;
   const names = new Map<string, string>();
+  const agentNames = new Map<string, string>();
   for (const l of snap.chatLocals as ChatLocalView[]) {
     const n = orgChatTitle(l.org, wf);
     if (n) names.set(l.chat.id, n);
+    const a = orgAgentName(l.org, wf);
+    if (a) agentNames.set(l.chat.id, a);
   }
-  if (names.size === 0) return snap;
+  if (names.size === 0 && agentNames.size === 0) return snap;
   const chats: Chat[] = snap.chats.map((c) => {
     const n = names.get(c.key.id);
     return n ? { ...c, name: { kind: "value", value: n, basis: "derived" } } : c;
   });
-  return { ...snap, chats };
+  const agents = snap.agents.map((v) => {
+    const a = agentNames.get(v.agent.key.id);
+    const dn = v.agent.displayName;
+    if (!a || (dn.kind === "value" && dn.value.trim() !== "")) return v;
+    return { ...v, agent: { ...v.agent, displayName: { kind: "value" as const, value: a, basis: "derived" as const } } };
+  });
+  return { ...snap, chats, agents };
 }
 
 /** 組織が自動送信した最初の指示か（先頭が目印で始まる）。利用者の通常の発話は対象外。 */

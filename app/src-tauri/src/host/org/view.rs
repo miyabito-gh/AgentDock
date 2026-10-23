@@ -322,6 +322,7 @@ fn task_view(t: &TaskSnapshot, snap: &OrgSnapshot, notices: &[NoticeEntry]) -> O
         confirm: confirm_view(t.confirm),
         attempts: t.attempts,
         max_attempts: 1 + snap.limits.max_rework,
+        retries_used: t.retry_count,
         chat: t.chat.as_ref().and_then(chat_key_of_ref),
         commit: t.commit.clone(),
         effects: t.effects.iter().copied().map(effect_view).collect(),
@@ -439,7 +440,7 @@ fn attention_note(t: &TaskSnapshot, notices: &[NoticeEntry]) -> Option<String> {
         OrgHostNotice::Engine(OrgNotice::TaskBlocked { task, why }) if task == &t.id => Some(why.clone()),
         _ => None,
     });
-    Some(why.unwrap_or_else(|| "理由は再起動で失われました".to_string()))
+    Some(why.unwrap_or_else(|| "理由は記録されていません。チャットを開いて確認してください".to_string()))
 }
 
 pub fn usage_view(snap: &OrgSnapshot, rows: &[UsageRow]) -> OrgUsageView {
@@ -1106,7 +1107,7 @@ mod tests {
         assert_eq!(v.tasks[0].attention_note.as_deref(), Some("作業用worktreeを作成できませんでした: fatal"));
         assert_eq!(v.tasks[1].attention_note, None, "only needs-attention tasks carry a reason");
         let lost = view_of(&s, &[], &[]);
-        assert_eq!(lost.tasks[0].attention_note.as_deref(), Some("理由は再起動で失われました"));
+        assert_eq!(lost.tasks[0].attention_note.as_deref(), Some("理由は記録されていません。チャットを開いて確認してください"));
     }
 
     #[test]

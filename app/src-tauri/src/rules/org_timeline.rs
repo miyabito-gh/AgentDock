@@ -43,12 +43,28 @@ struct AddRun {
     seq: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SendTrack {
+    /// 送信の直前に受理未確認を記録した（応答待ち。行は出さない）。
+    Held,
+    /// 送信の応答で受理を確認した。
+    Accepted,
+    /// 送信の応答で断られた（別の行が語る）。
+    Rejected,
+    /// 応答が不明、または照合が必要（確認は照合で行う）。
+    Reconcile,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct TimelineFold {
     tasks: HashMap<TaskId, Meta>,
     /// 今の業務状態に入った時刻。
     since: HashMap<TaskId, (i64, TaskStatus)>,
     confirm: HashMap<TaskId, ConfirmState>,
+    /// 通常の送信（受理未確認の記録→送信→応答）の途中経過。実際の照合と区別するための印。
+    send: HashMap<TaskId, SendTrack>,
+    /// 直前までの記録が「送信の準備（turn の消費・実行中への遷移）」だけだった。
+    send_prep: bool,
     rework: HashMap<TaskId, u32>,
     retries: HashMap<TaskId, u32>,
     skipped: HashSet<TaskId>,
@@ -175,6 +191,12 @@ impl TimelineFold {
             self.run = None;
         }
         let quiet = self.quiet_ready.take();
+        let prep = self.send_prep;
+        match ev.kind {
+            OrgEventKind::TurnSpent { .. } => self.send_prep = true,
+            OrgEventKind::StatusChanged { .. } => {}
+            _ => self.send_prep = false,
+        }
         use OrgEventKind as K;
         let change = match &ev.kind {
             K::Created { limits, .. } => {
@@ -189,7 +211,7 @@ impl TimelineFold {
                 None
             }
             K::StatusChanged { task, to, cause } => self.status_changed(ev, task, *to, *cause, quiet),
-            K::ConfirmChanged { task, to } => self.confirm_changed(ev, task, *to),
+            K::ConfirmChanged { task, to } => self.confirm_changed(ev, task, *to, prep),
             K::ReworkCounted { task } => {
                 *self.rework.entry(task.clone()).or_default() += 1;
                 None
@@ -203,10 +225,27 @@ impl TimelineFold {
                 Some(Self::row(ev, Some(task), self.role_actor(task), OrgTone::Info, format!("送信しました（{}）", turn_kind_label(*kind))))
             }
             K::DispatchSettled { task, outcome, .. } => match outcome {
-                SettleOutcome::Rejected => Some(Self::row(ev, Some(task), engine(), OrgTone::Bad, "送信が断られました".into())),
-                SettleOutcome::ReconciledAccepted { .. } => Some(Self::row(ev, Some(task), engine(), OrgTone::Good, "照合: 届いていました".into())),
-                SettleOutcome::ReconciledNotFound => Some(Self::row(ev, Some(task), engine(), OrgTone::Warn, "照合: 届いていませんでした".into())),
-                SettleOutcome::Accepted { .. } | SettleOutcome::Unknown => None,
+                SettleOutcome::Rejected => {
+                    self.send.insert(task.clone(), SendTrack::Rejected);
+                    Some(Self::row(ev, Some(task), engine(), OrgTone::Bad, "送信が断られました".into()))
+                }
+                SettleOutcome::ReconciledAccepted { .. } => {
+                    self.send.insert(task.clone(), SendTrack::Reconcile);
+                    Some(Self::row(ev, Some(task), engine(), OrgTone::Good, "照合: 届いていました".into()))
+                }
+                SettleOutcome::ReconciledNotFound => {
+                    self.send.insert(task.clone(), SendTrack::Reconcile);
+                    Some(Self::row(ev, Some(task), engine(), OrgTone::Warn, "照合: 届いていませんでした".into()))
+                }
+                SettleOutcome::Accepted { .. } => {
+                    self.send.insert(task.clone(), SendTrack::Accepted);
+                    None
+                }
+                // 送信の応答が得られなかったときだけ、受理未確認の警告を出す。
+                SettleOutcome::Unknown => {
+                    self.send.insert(task.clone(), SendTrack::Reconcile);
+                    Some(Self::row(ev, Some(task), engine(), OrgTone::Warn, "受理を確認できません".into()))
+                }
             },
             K::TurnObserved { task, end, .. } => {
                 let (tone, text) = match end {
@@ -345,11 +384,20 @@ impl TimelineFold {
         Some(Self::row(ev, Some(task), actor, tone, text))
     }
 
-    fn confirm_changed(&mut self, ev: &OrgEvent, task: &TaskId, to: ConfirmState) -> Option<OrgTimelineEntry> {
+    fn confirm_changed(&mut self, ev: &OrgEvent, task: &TaskId, to: ConfirmState, prep: bool) -> Option<OrgTimelineEntry> {
         let prev = self.confirm.insert(task.clone(), to).unwrap_or(ConfirmState::Confirmed);
         let (tone, text) = match to {
-            ConfirmState::SendUnknown => (OrgTone::Warn, "受理を確認できません".to_string()),
+            // 通常の送信の直前の記録は、応答が不明だったときだけ警告にする（DispatchSettled の Unknown）。
+            ConfirmState::SendUnknown if prep => {
+                self.send.insert(task.clone(), SendTrack::Held);
+                return None;
+            }
+            ConfirmState::SendUnknown => {
+                self.send.insert(task.clone(), SendTrack::Reconcile);
+                (OrgTone::Warn, "受理を確認できません".to_string())
+            }
             ConfirmState::NeedsReconcile(c) => {
+                self.send.insert(task.clone(), SendTrack::Reconcile);
                 let why = match c {
                     ReconcileCause::Disconnect => "接続断",
                     ReconcileCause::Wake => "スリープ復帰",
@@ -358,7 +406,13 @@ impl TimelineFold {
                 (OrgTone::Wait, format!("{why}のため照合待ち"))
             }
             ConfirmState::StopUnconfirmed => (OrgTone::Warn, "停止を確認できません".to_string()),
-            ConfirmState::Confirmed if prev != ConfirmState::Confirmed => (OrgTone::Good, "照合で確認".to_string()),
+            ConfirmState::Confirmed if prev != ConfirmState::Confirmed => match self.send.remove(task) {
+                // 送信の応答で受理を確認できた通常の経路。
+                Some(SendTrack::Accepted) => (OrgTone::Good, "受理を確認".to_string()),
+                // 断られた送信は別の行が語っている。
+                Some(SendTrack::Rejected) => return None,
+                _ => (OrgTone::Good, "照合で確認".to_string()),
+            },
             ConfirmState::Confirmed | ConfirmState::InterruptRequested => return None,
         };
         Some(Self::row(ev, Some(task), engine(), tone, text))
@@ -494,6 +548,40 @@ mod tests {
         );
         assert_eq!(&t[1..], ["スリープ復帰のため照合待ち", "照合で確認", "受理を確認できません", "停止を確認できません"]);
         assert_eq!(t.len(), 5, "the first Confirmed (nothing before it) is not shown");
+    }
+
+    fn send_prefix(w: &TaskId) -> Vec<OrgEventKind> {
+        vec![
+            OrgEventKind::TurnSpent { kind: TurnKind::Task },
+            OrgEventKind::StatusChanged { task: w.clone(), to: TaskStatus::Running, cause: Cause::Engine },
+            OrgEventKind::ConfirmChanged { task: w.clone(), to: ConfirmState::SendUnknown },
+            OrgEventKind::Dispatched { task: w.clone(), attempt: org_engine::AttemptRef::new("a1"), client_message_id: "c".into(), kind: TurnKind::Task, notes_upto: None },
+        ]
+    }
+
+    #[test]
+    fn a_normal_acceptance_is_not_called_a_reconciliation() {
+        let mut f = TimelineFold::new();
+        let w = tid("w");
+        let mut evs = vec![OrgEventKind::TaskAdded { task: plan("w", "worker", "x") }];
+        evs.extend(send_prefix(&w));
+        evs.push(OrgEventKind::DispatchSettled { task: w.clone(), attempt: org_engine::AttemptRef::new("a1"), outcome: SettleOutcome::Accepted { turn: org_engine::TurnRef::new("t") } });
+        evs.push(OrgEventKind::ConfirmChanged { task: w.clone(), to: ConfirmState::Confirmed });
+        let t = texts(&mut f, evs);
+        assert!(!t.iter().any(|x| x.contains("受理を確認できません") || x.contains("照合")), "{t:?}");
+        assert_eq!(t.last().unwrap(), "受理を確認");
+    }
+
+    #[test]
+    fn an_unknown_reply_warns_and_is_later_confirmed_by_reconciliation() {
+        let mut f = TimelineFold::new();
+        let w = tid("w");
+        let mut evs = vec![OrgEventKind::TaskAdded { task: plan("w", "worker", "x") }];
+        evs.extend(send_prefix(&w));
+        evs.push(OrgEventKind::DispatchSettled { task: w.clone(), attempt: org_engine::AttemptRef::new("a1"), outcome: SettleOutcome::Unknown });
+        evs.push(OrgEventKind::ConfirmChanged { task: w.clone(), to: ConfirmState::Confirmed });
+        let t = texts(&mut f, evs);
+        assert_eq!(&t[t.len() - 2..], ["受理を確認できません", "照合で確認"]);
     }
 
     #[test]

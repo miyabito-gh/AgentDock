@@ -5,7 +5,7 @@ const st = (phase: OrgStatusView["phase"], label: string, icon: string, reason: 
 const ok: OrgConfirmView = { state: "confirmed", cause: null, label: "確認済み", icon: "shield-check" };
 
 const task = (id: string, role: string, title: string, over: Partial<OrgTaskView>): OrgTaskView => ({
-  id, role, kind: "change", title, deps: [], waitingOn: [], status: st("pending", "待機中", "circle"), confirm: ok, attempts: 1, maxAttempts: 3, chat: null, commit: null,
+  id, role, kind: "change", title, deps: [], waitingOn: [], status: st("pending", "待機中", "circle"), confirm: ok, attempts: 1, maxAttempts: 3, retriesUsed: 0, chat: null, commit: null,
   effects: [], stallNotified: false, reconcile: null, canCancel: true, canAcceptManual: false, needsChatChoice: false, canRetry: false, retry: null, retryRefusal: null, canFail: false, canAdoptManual: false, attentionNote: null,
   since: null, interject: { route: "nextTurn", label: "次にこのタスクへ送るとき（差し戻し・再送など）に添えます。このタスクにもう送信がなければ届きません" }, skip: null, skipRefusal: null, canSendBack: false, sendBackNeedsNote: true, sendBackRefusal: null, canAcceptAsIs: false, canHold: false, held: false, notesPending: 0, ...over,
 });

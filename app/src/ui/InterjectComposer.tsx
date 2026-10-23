@@ -20,6 +20,9 @@ export interface InterjectComposerProps {
 
 const MAX = 4000;
 
+/** 追加指示・次の送信に添える指示の登録後に必ず示す注記（エンジンは自分では turn を始めない）。 */
+export const NEXT_TURN_NOTE = "登録しました。次に送る turn に添えます。いま止まっているタスクは「新しい試行で再送…」または「再開…」を押すまで送りません。";
+
 export function InterjectComposer({ workflowId, task, interjects, run, compact }: InterjectComposerProps) {
   const enterMode = useEnterMode();
   const [text, setText] = useState("");
@@ -36,19 +39,20 @@ export function InterjectComposer({ workflowId, task, interjects, run, compact }
     setBusy(true);
     const ok = await run("割り込み指示", async () => {
       const a = await host.orgInterject(workflowId, task.id, text.trim(), fallback);
-      return a.route === "steer" ? "実行中の turn に指示を送りました。結果は経過に出ます（届いたか確認できないときは、自動では送り直しません）。" : "次の送信に添えます（すぐには届きません）。";
+      return a.route === "steer" ? "実行中の turn に指示を送りました。結果は経過に出ます（届いたか確認できないときは、自動では送り直しません）。" : `次の送信に添えます（すぐには届きません）。${NEXT_TURN_NOTE}`;
     });
     setBusy(false);
     if (ok) setText("");
   };
   const decide = (id: string, add: boolean) => void run(add ? "次の送信に添える" : "割り込みの破棄", async () => {
     await host.orgInterjectFallback(workflowId, id, add);
-    return add ? "次の送信に添えます。" : "破棄しました。";
+    return add ? `次の送信に添えます。${NEXT_TURN_NOTE}` : "破棄しました。";
   });
   return (
     <div className="interject" aria-label={`${task.id} への割り込み指示`}>
       {compact ? null : <div className="small muted">タスク {task.id}『{task.title}』の役割チャットへの指示です。通常の送信ではありません。</div>}
       <div className={`small interject-route ${route.route}`} role="status">{route.label}</div>
+      {route.route === "nextTurn" ? <div className="small muted">{NEXT_TURN_NOTE}</div> : null}
       <textarea rows={3} style={{ width: "100%" }} value={text} maxLength={MAX + 200} disabled={refused || busy} aria-label="割り込み指示の内容" placeholder={refused ? "いまは送れません" : `例: READMEにも一言追記してください（${enterHint(enterMode)}）`}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => { if (isSendKey({ key: e.key, ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, metaKey: e.metaKey, isComposing: e.nativeEvent.isComposing }, enterMode)) { e.preventDefault(); void send(); } }} />
