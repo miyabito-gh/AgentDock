@@ -155,6 +155,12 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_snapshot,
+            commands::subagent_start,
+            commands::subagent_runs,
+            commands::subagent_recover,
+            commands::subagent_import_preview,
+            commands::subagent_import,
+            commands::subagent_verify_import,
             commands::connect_backend,
             commands::list_chats,
             commands::open_chat,

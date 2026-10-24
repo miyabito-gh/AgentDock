@@ -208,6 +208,7 @@ const contOn = (ctx: CommandContext) => (ctx.continuationOff ? "設定「継続�
 export const APP_COMMANDS: Command[] = [
   app("newChatQuick", "newChatQuick", { label: "新しいチャット（すぐ始める）", group: "チャット", keywords: ["作成", "新規", "クイック"] }),
   app("newChat", "newChat", { label: "新しいチャット（詳細を指定）…", group: "チャット", keywords: ["作成", "新規", "フォルダ"] }),
+  app("subagentRuns", "subagentRuns", { label: "サブエージェントで依頼", group: "チャット", keywords: ["子エージェント", "worktree", "並列", "履歴"] }),
   app("renameChat", "renameChat", { label: "名前を変更…", group: "チャット", needsChat: true, why: notPending }),
   app("togglePin", "togglePin", {
     label: "ピン留め", group: "チャット", needsChat: true,

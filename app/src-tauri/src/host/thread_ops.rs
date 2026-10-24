@@ -238,6 +238,11 @@ impl Host {
     /// turnを始める共通手順: 再開（必要なら）→ 送る前に未確認の記録を保存 → 送る → 結果に応じて記録を消す。
     /// 受理不明（応答なし・送ったか分からない失敗）は記録を残し、再送しない。
     async fn dispatch_turn_op(self: &Arc<Self>, chat: &ChatKey, op: TurnOp, confirmed: &UserConfirmed) -> Result<OpAck, IpcError> {
+        let send_lock = self.queue_rt.send_lock(chat);
+        let _send_guard = send_lock.lock().await;
+        if self.folder_op_active(chat) {
+            return Err(blocked(BlockedReason::ChatBusy, "作業フォルダの操作中のため、turn操作を開始できません"));
+        }
         self.ensure_live(chat, confirmed).await?;
         let pending = self.begin_pending_op(chat, op.parity()).await?;
         let sent = match op {

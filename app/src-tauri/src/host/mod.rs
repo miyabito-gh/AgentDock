@@ -31,6 +31,7 @@ pub mod queue_driver;
 pub mod read_limit;
 pub mod side;
 pub mod state;
+pub mod subagents;
 pub mod stop;
 pub mod thread_ops;
 pub mod worktree;
@@ -224,6 +225,7 @@ pub struct Host {
     org_rt: org::OrgRuntime,
     /// Gitの準備・プッシュの実行中のフォルダ（二重実行の防止。`gitprep.rs`）。
     gitprep_rt: gitprep::GitPrepRuntime,
+    subagent_rt: subagents::SubagentRuntime,
 }
 
 /// 最初の依頼の送信が確定（または後続タスクが終了）したら、同じチャットの送信停止を解く。
@@ -270,6 +272,7 @@ impl Host {
             first_sends: Mutex::new(HashSet::new()),
             org_rt: org::OrgRuntime::default(),
             gitprep_rt: gitprep::GitPrepRuntime::default(),
+            subagent_rt: subagents::SubagentRuntime::default(),
         }
     }
 
@@ -404,6 +407,7 @@ impl Host {
         self.baseline_observe(&env.event);
         // 組織実行: 観測をエンジンへ知らせるだけ（ロックの外・待たない・送信しない）。
         self.org_observe_event(&env.event);
+        if !matches!(env.event, BackendEvent::ActivityDelta { .. }) { self.subagent_observe(); }
         // 依頼整理: 要約の turn の終端を観測したら、履歴を読んで結果を取り込む（待たない・送らない）。
         self.intake_observe_event(&env.event);
         self.refresh_unnamed_chat(&env.event);
@@ -472,6 +476,7 @@ impl Host {
                 tokio::time::sleep(SCAN_INTERVAL).await;
             }
             host.scanning.lock().unwrap().remove(&root);
+            host.subagent_observe();
         });
     }
 
@@ -484,6 +489,7 @@ impl Host {
         let (mut explicit, mut applied, mut dockable) = (0usize, 0usize, 0usize);
         match self.backend.scan_descendants(root.clone()).await {
             Ok(scan) => {
+                self.subagent_note_scan(&root, &scan.found, scan.complete);
                 found_n = scan.found.len();
                 complete = scan.complete;
                 self.queue_rt.note_scan(&root, scan.complete);
@@ -654,6 +660,7 @@ impl Host {
         host.start_scan(root);
         // 添付・成果物の実体を確認する（なければ欠損として表示する）。
         self.spawn_recheck_files(Some(args.chat.clone()));
+        self.subagent_observe();
         Ok(history)
     }
 
@@ -798,6 +805,8 @@ impl Host {
             let task_key = key.clone();
             tokio::spawn(async move {
                 let _release = FirstSendRelease { host: host.clone(), chat: task_key.clone() };
+                let send_lock = host.queue_rt.send_lock(&task_key);
+                let _send_guard = send_lock.lock().await;
                 if let Some(name) = name {
                     // 起動した利用者の作成操作に続く処理。名前付けの失敗は送信を止めない。
                     let confirmed = UserConfirmed::from_user_command();
@@ -817,6 +826,13 @@ impl Host {
                     let mut attempt = sending;
                     host.rejected.lock().unwrap().insert(attempt.attempt_id.clone(), NotAccepted::new(request));
                     attempt.state = SendState::Rejected { message: e.message };
+                    host.emit_send(&task_key, &attempt);
+                    return;
+                }
+                if host.request_folder_op_active(&request) {
+                    let mut attempt = sending;
+                    host.rejected.lock().unwrap().insert(attempt.attempt_id.clone(), NotAccepted::new(request));
+                    attempt.state = SendState::Rejected { message: "作業フォルダの操作中のため、初回送信を開始できません".into() };
                     host.emit_send(&task_key, &attempt);
                     return;
                 }

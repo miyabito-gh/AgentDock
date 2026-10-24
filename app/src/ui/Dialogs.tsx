@@ -30,6 +30,7 @@ import { CloudBody } from "./CloudDialogs";
 import { ContinuationSettingsBody, HandoffPreviewBody, PurposeBody, PurposeDraftBody, type ContinuityDialogProps } from "./ContinuityDialogs";
 import { OrgDeleteDialog, OrgSettingsBody, type OrgSettingsProps } from "./OrgDialogs";
 import { OrgArtifactsBody, OrgImportBody } from "./OrgArtifacts";
+import { SubagentRunsBody } from "./SubagentRuns";
 import { IntakeStartBody, OrgIntakeBeginBody } from "./OrgIntake";
 import { GitPrepBody, GitPushBody } from "./GitDialogs";
 import { FolderListEditor } from "./WorkFoldersUi";
@@ -43,6 +44,7 @@ export type DialogState =
   | { type: "worktrees" }
   | { type: "cloud"; chatId: string | null }
   | { type: "orgStart"; /** Gitの準備から戻ったとき、入れていた作業フォルダを引き継ぐ。 */ folder?: string }
+  | { type: "subagentRuns" }
   | { type: "orgIntakeStart"; chatId: string }
   | { type: "gitPrep"; folder: string; /** 準備できたら開始ダイアログへ戻る。 */ backToStart?: boolean }
   | { type: "gitPush"; folder: string }
@@ -602,6 +604,10 @@ export function Dialogs({ externalTools, modelDefault, cont, org, folderTools, w
     case "orgStart": return (
       <Shell title="組織実行を始める" onClose={onClose} close="キャンセル">
         <OrgIntakeBeginBody begin={org.begin} browse={org.browse} live={org.settings.live} initialFolder={d.folder ?? ""} onPrepare={(folder) => org.go({ type: "gitPrep", folder, backToStart: true })} />
+      </Shell>);
+    case "subagentRuns": return (
+      <Shell title="サブエージェントで依頼" wide onClose={onClose} close="閉じる">
+        <SubagentRunsBody live={live} models={models} onOpenChat={(key) => { onClose(); threadOps.onOpenChat(key); }} />
       </Shell>);
     case "orgIntakeStart": return (
       <Shell title="この内容で組織実行を開始" wide onClose={onClose} close="キャンセル">

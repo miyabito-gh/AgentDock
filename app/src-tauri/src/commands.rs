@@ -1385,3 +1385,27 @@ pub async fn org_open_role_file(app: tauri::AppHandle, host: Hs<'_>, args: crate
         .open_path(path.to_string_lossy(), None::<&str>)
         .map_err(|e| IpcError { code: IpcErrorCode::Io, message: format!("開けませんでした: {e}"), blocked: None })
 }
+
+// Parent + backend-native subagent runs. Mutating actions originate only here.
+#[tauri::command]
+pub async fn subagent_start(host: Hs<'_>, args: crate::backend::subagents::SubagentStartArgs) -> R<crate::backend::subagents::SubagentRunView> {
+    host.inner().clone().subagent_start(args, &UserConfirmed::from_user_command()).await
+}
+#[tauri::command]
+pub async fn subagent_runs(host: Hs<'_>) -> R<Vec<crate::backend::subagents::SubagentRunView>> { host.inner().clone().subagent_runs().await }
+#[tauri::command]
+pub async fn subagent_recover(host: Hs<'_>, args: crate::backend::subagents::SubagentRecoverArgs) -> R<crate::backend::subagents::SubagentRunView> {
+    host.inner().clone().subagent_recover(args, &UserConfirmed::from_user_command()).await
+}
+#[tauri::command]
+pub async fn subagent_import_preview(host: Hs<'_>, args: crate::backend::subagents::SubagentRunArgs) -> R<crate::backend::subagents::SubagentImportPreview> {
+    host.inner().clone().subagent_import_preview(args).await
+}
+#[tauri::command]
+pub async fn subagent_import(host: Hs<'_>, args: crate::backend::subagents::SubagentImportArgs) -> R<crate::backend::org_artifacts::OrgImportOutcome> {
+    host.inner().clone().subagent_import(args, &UserConfirmed::from_user_command()).await
+}
+#[tauri::command]
+pub async fn subagent_verify_import(host: Hs<'_>, args: crate::backend::subagents::SubagentRunArgs) -> R<Vec<crate::backend::subagents::SubagentImportRecord>> {
+    host.inner().clone().subagent_verify_import(args).await
+}

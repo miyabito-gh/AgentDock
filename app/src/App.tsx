@@ -1558,6 +1558,7 @@ ${cur}` : p.text);
         if (live) host.closeThisWindow().catch((e) => sayErr("窓を閉じられませんでした", e)); else say("モックではトレイへ格納しません。");
         break;
       case "orgStart": setLNarrow(false); setDialog({ type: "orgStart" }); break;
+      case "subagentRuns": setLNarrow(false); setOrgScreen(false); setDialog({ type: "subagentRuns" }); break;
       case "orgIntakeFromChat":
         if (!chat) { say("チャットを選んでください。"); break; }
         if (!live) { say("この操作はモックでは動きません。"); break; }

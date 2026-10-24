@@ -33,3 +33,6 @@ pub mod cloud;
 pub mod intake;
 /// Gitの準備とアプリからのプッシュ（`app/DESIGN_ORG_INTAKE.md` §2・§3）のIPC型。
 pub mod git_ops;
+
+/// Parent chats with backend-native descendants; independent from legacy org execution.
+pub mod subagents;

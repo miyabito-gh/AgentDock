@@ -288,7 +288,38 @@ impl Host {
 
     pub(super) fn folder_op_active(&self, chat: &ChatKey) -> bool {
         let active = self.queue_rt.folder_ops.lock().unwrap().clone();
-        !active.is_empty() && folder_op_overlaps(&active, self.read(|d| d.chat(chat).and_then(|c| c.cwd.value().cloned())).as_deref())
+        !active.is_empty() && self.chat_operation_folders(chat).iter().any(|p| folder_op_overlaps(&active, Some(p)))
+    }
+
+    /// Include accepted/uncertain/next folders so a cwd retarget cannot bypass an import guard.
+    pub(super) fn chat_operation_folders(&self, chat: &ChatKey) -> Vec<String> {
+        self.read(|d| {
+            let mut folders: Vec<String> = d.chat(chat).and_then(|c| c.cwd.value()).cloned().into_iter().collect();
+            if let Some(local) = d.locals.get(chat) {
+                folders.extend(local.next_cwd.iter().cloned());
+                folders.extend(local.next_folders.iter().flatten().cloned());
+                folders.extend(local.unconfirmed_folders.iter().flatten().cloned());
+                folders.extend(local.accepted_folders.iter().flat_map(|f| f.folders.folders.iter()).cloned());
+            }
+            folders
+        })
+    }
+
+    /// Chats whose current or accepted/uncertain work folders overlap a folder operation.
+    pub(super) fn chats_overlapping_folders(&self, folders: &[String]) -> Vec<ChatKey> {
+        let chats = self.read(|d| d.chats.iter().map(|c| c.key.clone()).collect::<Vec<_>>());
+        let mut overlapping = chats.into_iter().filter(|chat| {
+            self.chat_operation_folders(chat).iter().any(|p| folders.iter().any(|f| paths_overlap(p, f)))
+        }).collect::<Vec<_>>();
+        overlapping.sort_by_key(|chat| format!("{chat:?}"));
+        overlapping.dedup();
+        overlapping
+    }
+
+    pub(super) fn request_folder_op_active(&self, request: &SendRequest) -> bool {
+        if self.folder_op_active(&request.chat) { return true; }
+        let active = self.queue_rt.folder_ops.lock().unwrap().clone();
+        request.cwd.iter().chain(request.work_folders.iter().flat_map(|f| f.folders.iter())).any(|p| folder_op_overlaps(&active, Some(p)))
     }
 
     /// 子孫の様子を調べるための判断の入力（読取りのみ）。履歴で終端を確認し、走査が止まっていれば読取りだけの走査を始める。
@@ -308,6 +339,19 @@ impl Host {
         let unresolved = self.unknown_attempt(chat);
         let ctx = GateContext { quitting: self.quit_phase() != QuitPhase::Idle, deleting: self.manage_rt.is_deleting(chat), manual: None, op_accept: None, folder_busy: false };
         self.read(|d| gate_input(d, chat, &terminals, scan_complete, unresolved, ctx, false))
+    }
+
+    /// Result import requires terminal evidence; elapsed time never clears an accepted turn.
+    /// Ordinary chat queue timeout behavior above intentionally remains unchanged.
+    pub(super) fn subagent_turn_pending(&self, chat: &ChatKey) -> bool {
+        let root = agent_key_of(chat);
+        let manual = self.queue_rt.manual_accepts.lock().unwrap().get(chat).cloned();
+        let op = self.queue_rt.op_accepts.lock().unwrap().get(chat).copied();
+        self.read(|d| {
+            let ended = d.last_end.get(&root);
+            manual.as_ref().is_some_and(|(turn, _)| ended.map(|(t, _, _)| t) != Some(turn))
+                || op.is_some_and(|since| !ended.is_some_and(|(_, _, at)| *at >= since))
+        })
     }
 
     /// 状態が変わったかもしれないので、次の評価を早める。
@@ -998,6 +1042,8 @@ impl Host {
         let make = |state: SendState| SendAttempt { attempt_id: attempt_id.clone(), client_message_id: client_message_id.clone(), at: since, state };
         match self.backend.reconcile_send(pending).await {
             ReconcileOutcome::Accepted { turn } => {
+                // Keep accepted-turn evidence before releasing the unknown-send barrier.
+                self.queue_rt.note_manual_accept(&chat, turn.turn_id.clone());
                 self.unresolved.lock().unwrap().resolve(attempt_id);
                 // 追加指示として送ったキュー項目なら、記録を消す前にその項目を控える（受理と確定したので取り消す）。
                 let steered = self.read(|d| d.queues.get(&chat).and_then(|f| f.unresolved_sends.iter().find(|r| &r.attempt == attempt_id)).and_then(|r| r.entry.clone()));
@@ -1503,6 +1549,67 @@ mod history_gate_tests {
 #[cfg(test)]
 mod manual_tests {
     use super::*;
+
+    #[test]
+    fn subagent_import_stays_blocked_after_acceptance_timeout_until_terminal_evidence() {
+        let host = Host::new(std::env::temp_dir());
+        let chat = ChatKey { backend: BackendKind::Codex, id: ExternalId("root".into()) };
+        let root = agent_key_of(&chat);
+        let accepted = ExternalId("accepted-new-turn".into());
+        // An ancient acceptance is well past the ordinary queue's 15 second window.
+        host.queue_rt.manual_accepts.lock().unwrap().insert(chat.clone(), (accepted.clone(), UnixMillis(1)));
+        host.mutate(|d| { d.last_end.insert(root.clone(), (ExternalId("previous-turn".into()), TurnEnd::Completed, UnixMillis(0))); ((), vec![]) });
+        assert!(host.subagent_turn_pending(&chat), "old completion cannot clear accepted new turn");
+        host.mutate(|d| { d.last_end.insert(root.clone(), (accepted, TurnEnd::Completed, UnixMillis(2))); ((), vec![]) });
+        assert!(!host.subagent_turn_pending(&chat));
+
+        host.queue_rt.op_accepts.lock().unwrap().insert(chat.clone(), UnixMillis(3));
+        assert!(host.subagent_turn_pending(&chat), "old completion cannot clear an accepted operation");
+        host.queue_rt.manual_accepts.lock().unwrap().clear();
+        host.mutate(|d| { d.last_end.insert(root.clone(), (ExternalId("operation-turn".into()), TurnEnd::Completed, UnixMillis(4))); ((), vec![]) });
+        assert!(!host.subagent_turn_pending(&chat));
+    }
+
+    #[test]
+    fn import_target_chat_discovery_includes_overlapping_extra_folders() {
+        let host = Host::new(std::env::temp_dir());
+        let key = |id: &str| ChatKey { backend: BackendKind::Codex, id: ExternalId(id.into()) };
+        let chat = |key: ChatKey, cwd: &str| Chat {
+            key,
+            kind: ChatKind::Development,
+            cwd: Known::direct(cwd.into()),
+            name: Known::NotFetched,
+            preview: Known::NotFetched,
+            pinned: false,
+            archived: Known::NotFetched,
+            origin: ChatOrigin::AppManaged,
+            draft: None,
+            created_at: Known::NotFetched,
+            last_used_at: None,
+            no_history: false,
+            project_id: None,
+        };
+        let parent = key("parent");
+        let extra = key("extra");
+        let separate = key("separate");
+        host.mutate(|d| {
+            d.upsert_chat(chat(parent.clone(), r"C:\repo"));
+            d.upsert_chat(chat(extra.clone(), r"C:\elsewhere"));
+            d.upsert_chat(chat(separate.clone(), r"C:\repo-sibling"));
+            let mut local = crate::store::records::ChatLocalFile::new(LocalId("extra-local".into()), Some(extra.clone()));
+            local.accepted_folders = Some(AcceptedFolders {
+                folders: WorkFolders { folders: vec![r"C:\repo\shared".into()] },
+                accepted_at: UnixMillis(1),
+            });
+            d.locals.insert(extra.clone(), local);
+            ((), vec![])
+        });
+
+        let targets = host.chats_overlapping_folders(&[r"C:\repo".into()]);
+        assert!(targets.contains(&parent), "primary cwd overlap must be included");
+        assert!(targets.contains(&extra), "accepted extra work folder overlap must be included");
+        assert!(!targets.contains(&separate), "a sibling path must not be treated as a child");
+    }
 
     #[test]
     fn manual_send_holds_the_queue_until_the_turn_ends_or_the_window_passes() {
