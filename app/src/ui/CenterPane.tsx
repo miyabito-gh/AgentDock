@@ -137,7 +137,8 @@ export interface FileActions {
   /** 送信前の添付を取り外す。 */
   remove: (id: string) => void;
   /** クリップボード画像の貼り付け。 */
-  pasteImage: (name: string, bytes: ArrayBuffer) => void;
+  pasteImage: (name: string, bytes: ArrayBuffer) => Promise<void>;
+  imageError: (message: string) => void;
 }
 
 export type { SendNotice };
@@ -285,6 +286,8 @@ function Header({ snap, chat, onAct, commands, local, onCwdToggle, wasLive, exte
         return <button className="btn subtle icon cwdopen" aria-label="作業フォルダを開く" aria-disabled={why ? true : undefined}
           title={why ?? `作業フォルダをエクスプローラーで開く\n${cwd}`} onClick={() => { if (!why) onAct("openCwd"); }}><Icon name="folderOpen" /></button>;
       })() : null}
+      {cwd ? <button className="btn subtle small" title={`このチャットの作業フォルダで設定したターミナルを起動
+${cwd}`} onClick={() => onAct("openTerminal")}>ターミナル</button> : null}
       {(() => { const m = multiFolderMark(local); return m ? <span className="tag" title={m.title}>{m.text}</span> : null; })()}
       {local?.nextCwd ? <span className="tag mono" title={`次の送信から使う作業フォルダ（まだ適用していません）: ${local.nextCwd}`}>次: {baseName(local.nextCwd)}</span> : null}
       {local?.reviewOf ? <span className="tag" title={`このチャットはレビュー用に作られました（レビュー元: ${origName(snap, local.reviewOf)}）`}>レビュー</span> : null}
@@ -904,9 +907,10 @@ function skillOrigin(f: AttachmentEntry, api: SkillPickApi | null): string | nul
 function Composer({ p, running, lock, hu }: { p: CenterProps; running: boolean; lock: string | null; hu: HandoffUi }) {
   const { settings, models, attachments } = p;
   const dflt = models.find((m) => m.isDefault) ?? models[0];
-  const [model, setModel] = useState(settings?.selected?.model ?? dflt?.id ?? "");
-  const [effort, setEffort] = useState(settings?.selected?.effort ?? dflt?.defaultEffort ?? "");
-  const [speed, setSpeed] = useState(settings?.selected?.speedTier ?? "");
+  // 保存結果・再開通知を含む同一チャットの更新も反映する。送信側と同じホストの選択値を正とする。
+  const model = settings?.selected?.model ?? dflt?.id ?? "";
+  const effort = settings?.selected ? settings.selected.effort ?? "" : dflt?.defaultEffort ?? "";
+  const speed = settings?.selected?.speedTier ?? "";
   const accepted = settings?.accepted.kind === "value" ? settings.accepted.value : null;
   const changed = !!accepted && (accepted.model !== model || (accepted.effort ?? "") !== effort || (accepted.speedTier ?? "") !== (speed === "default" ? "" : speed));
   const efforts = models.find((m) => m.id === model)?.efforts ?? [];
@@ -934,10 +938,10 @@ function Composer({ p, running, lock, hu }: { p: CenterProps; running: boolean; 
   const pickModel = (id: string) => {
     const e = models.find((m) => m.id === id)?.defaultEffort ?? "";
     // 速度の選択肢はモデルごとに違うので、モデルを変えたら指定なしに戻す。
-    setModel(id); setEffort(e); setSpeed(""); p.onModel(id, e, "");
+    p.onModel(id, e, "");
   };
-  const pickEffort = (e: string) => { setEffort(e); p.onModel(model, e, speed); };
-  const pickSpeed = (s: string) => { setSpeed(s); p.onModel(model, effort, s); };
+  const pickEffort = (e: string) => { p.onModel(model, e, speed); };
+  const pickSpeed = (s: string) => { p.onModel(model, effort, s); };
   // 入力欄は2行（44px）から160pxまで内容に合わせて伸びる（表示だけ）
   useLayoutEffect(() => {
     const el = p.inputRef.current;
@@ -1023,10 +1027,19 @@ function Composer({ p, running, lock, hu }: { p: CenterProps; running: boolean; 
           placeholder={`${running ? (defAct === "steer" ? "実行中のやりとりへ追加指示する依頼" : "完了後に送る次の依頼") : "メッセージを入力"}`}
           onPaste={(e) => {
             // クリップボードの画像は添付にする（生バイトでホストへ）。文章だけの貼り付けは通常どおり。
-            const img = Array.from(e.clipboardData.files).find((f) => f.type.startsWith("image/"));
-            if (!img) return;
+            const images = Array.from(e.clipboardData.files).filter((f) => f.type.startsWith("image/"));
+            if (!images.length) return;
             e.preventDefault();
-            void img.arrayBuffer().then((buf) => p.files.pasteImage(clipboardImageName(new Date()), buf));
+            void (async () => {
+              for (const image of images) {
+                const ext = ({ "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp", "image/bmp": "bmp" } as Record<string, string>)[image.type.toLowerCase()];
+                if (!ext) { p.files.imageError(`この画像形式は添付できません: ${image.type}`); continue; }
+                if (image.size > 25 * 1024 * 1024) { p.files.imageError("画像が大きすぎます（1枚の上限は25 MiB）"); continue; }
+                const name = clipboardImageName(new Date()).replace(/\.png$/, `-${crypto.randomUUID()}.${ext}`);
+                try { await p.files.pasteImage(name, await image.arrayBuffer()); }
+                catch { p.files.imageError(`画像を読み込めませんでした: ${image.name || name}`); }
+              }
+            })();
           }}
           onKeyDown={(e) => {
             if (sugOpen && !e.nativeEvent.isComposing) {
@@ -1048,8 +1061,8 @@ function Composer({ p, running, lock, hu }: { p: CenterProps; running: boolean; 
         <div className="ctrl">
           <div className="ctrl-l">
           <button aria-label="ファイル・画像・参考情報を追加" disabled={!!lock} onClick={() => p.onAct("attach")}><Icon name="clip" /></button>
-          <span className="sel"><select aria-label="モデル" title="モデル（次の送信から適用）" value={model} onChange={(e) => pickModel(e.target.value)}>{models.map((m) => <option key={m.id} value={m.id}>{m.displayName}</option>)}</select></span>
-          <span className="sel eff-inline"><select aria-label="推論の強さ" title="推論の強さ（次の送信から適用）" value={effort} onChange={(e) => pickEffort(e.target.value)}>{efforts.map((x) => <option key={x.id} value={x.id}>{effortLabel(x.id)}</option>)}</select></span>
+          <span className="sel"><select aria-label="モデル" title="モデル（次の送信から適用）" value={model} onChange={(e) => pickModel(e.target.value)}>{model && !models.some((m) => m.id === model) ? <option value={model}>{model}（一覧にない選択）</option> : null}{models.map((m) => <option key={m.id} value={m.id}>{m.displayName}</option>)}</select></span>
+          <span className="sel eff-inline"><select aria-label="推論の強さ" title="推論の強さ（次の送信から適用）" value={effort} onChange={(e) => pickEffort(e.target.value)}><option value="">既定</option>{effort && !efforts.some((x) => x.id === effort) ? <option value={effort}>{effortLabel(effort)}（一覧にない選択）</option> : null}{efforts.map((x) => <option key={x.id} value={x.id}>{effortLabel(x.id)}</option>)}</select></span>
           {/* まれな設定（権限・速度・計画／実行）と受理の全文は「⋯」へ。既定から外れているときだけ、下の小さな印で示す */}
           <Popover trigger={<Icon name="more" />} label="送信の設定" title="次の送信に使う権限・推論の強さ・速度・計画／実行（と、受理の全文）" triggerClassName="btn subtle icon">
             <div className="moreset">

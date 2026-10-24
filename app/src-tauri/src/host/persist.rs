@@ -661,6 +661,7 @@ impl Host {
     pub fn set_app_settings(self: &Arc<Self>, args: SetAppSettingsArgs) -> Result<AppSettings, IpcError> {
         self.precheck_space()?;
         let mut settings = args.settings;
+        crate::external_tools::validate_settings(&settings.external_tools).map_err(|m| err(IpcErrorCode::InvalidArgs, m))?;
         // 作業フォルダのセットが変わるときだけ形を検査する（直せない不正は保存せず、理由を返す）。
         if self.read(|d| d.settings.work_folder_sets != settings.work_folder_sets) {
             crate::rules::work_folders::validate_folder_sets(&settings.work_folder_sets).map_err(|m| err(IpcErrorCode::InvalidArgs, m))?;

@@ -3,6 +3,7 @@ import type { AppearanceSettings } from "./AppearanceSettings";
 import type { BaselineSettings } from "./BaselineSettings";
 import type { ChatListSettings } from "./ChatListSettings";
 import type { ContinuationSettings } from "./ContinuationSettings";
+import type { ExternalToolsSettings } from "./ExternalToolsSettings";
 import type { LayoutSettings } from "./LayoutSettings";
 import type { ModelChoice } from "./ModelChoice";
 import type { MonitorWindowScope } from "./MonitorWindowScope";
@@ -24,13 +25,21 @@ export type AppSettings = {
  */
 executables: { [key in string]: string }, 
 /**
+ * ユーザー操作で起動するエディタ・ターミナル。古い設定は未指定。
+ */
+externalTools: ExternalToolsSettings, 
+/**
  * Windowsログイン時に起動（初期値オフ）。オンならトレイ格納で起動する。
  */
 autostart: boolean, notifications: NotificationSettings, mainWindow: WindowPrefs, monitorWindow: WindowPrefs, monitorScope: MonitorWindowScope, 
 /**
  * 新しいチャットの既定モデル（既存チャットに波及させない）。
  */
-defaultModel: ModelChoice | null, sendKey: SendKey, 
+defaultModel: ModelChoice | null, 
+/**
+ * 送信キー。古い `settings.json`（この項目なし）は Enter で読む。保存済みの値はそのまま尊重する。
+ */
+sendKey: SendKey, 
 /**
  * 実行中の入力（送信キーの既定の送り方）。古い `settings.json` は「完了後に送信」で読む。
  */

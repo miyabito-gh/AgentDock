@@ -8,7 +8,7 @@ import { ExtLink } from "./markdown/parts";
 import { linkPolicy } from "./markdown/plugins";
 import { baseNameOf, pathCandidate, pathFromHref, pathLinkView, type PathCandidate, type PathLinkView } from "./markdown/refs";
 
-export type PathAction = "attach" | "copyAbs" |"open" | "reveal";
+export type PathAction = "attach" | "copyAbs" |"open" | "editor" | "reveal";
 
 export interface RefActions {
   /** 一覧にあるチャットの表示名。一覧になければ undefined。 */
@@ -22,7 +22,7 @@ export interface RefActions {
   /** パスの実在確認を依頼する（まとめて・間引いて問い合わせる）。 */
   requestPath: (path: string) => void;
   /** `strict`＝会話中のリンクから。作業フォルダの外・実行形式は確認でも開かない（ホストも同じ条件で止める）。 */
-  pathAct: (act: PathAction, path: string, info: PathInfo, strict?: boolean) => void;
+  pathAct: (act: PathAction, path: string, info: PathInfo, strict?: boolean, line?: number | null) => void;
   canAttach: boolean;
   /** このチャットの作業フォルダ（リンクの内外判定で、作業フォルダ自身を内にするため）。不明なら null。 */
   cwd?: string | null;
@@ -129,18 +129,19 @@ function PathMenu({ label, title, trigger, children }: { label: string; title: s
 }
 
 /** 会話中のリンク用。作業フォルダ内のファイルだけ「開く」「保存場所を表示」を出し、外・実行形式は理由を示す。 */
-function LinkPathMenu({ path, info, view, label }: { path: string; info: PathInfo; view: Extract<PathLinkView, { kind: "menu" }>; label: ReactNode }) {
+function LinkPathMenu({ path, info, view, label, line }: { line: number | null; path: string; info: PathInfo; view: Extract<PathLinkView, { kind: "menu" }>; label: ReactNode }) {
   const ctx = useContext(RefContext);
   if (!ctx) return <>{label}</>;
   return (
     <PathMenu label={`ファイル操作: ${baseNameOf(path)}`} title={`${info.absolute}（クリックまたは右クリックで操作）`} trigger={label}>
       {(close) => {
-        const act = (a: PathAction) => () => { close(); ctx.pathAct(a, path, info, true); };
+        const act = (a: PathAction) => () => { close(); ctx.pathAct(a, path, info, true, line); };
         return (
           <>
             <div className="muted" style={{ padding: "4px 10px", maxWidth: 360, overflowWrap: "anywhere" }}>{info.absolute}</div>
             {view.reason ? <div className="muted" role="note" style={{ padding: "0 10px 4px", maxWidth: 360 }}>{view.reason}</div> : null}
             {view.open ? <button role="menuitem" onClick={act("open")}><span>{info.kind === "folder" ? "フォルダを開く（既定のアプリ）" : "開く（既定のアプリ）"}</span></button> : null}
+            {view.open && info.kind === "file" ? <button role="menuitem" onClick={act("editor")}><span>設定したエディタで開く{line ? `（${line}行）` : ""}</span></button> : null}
             {view.reveal ? <button role="menuitem" onClick={act("reveal")}><span>保存場所を表示</span></button> : null}
             <button role="menuitem" onClick={act("copyAbs")}><span>パスをコピー</span></button>
           </>
@@ -169,20 +170,21 @@ function PathRef({ cand, plain, label, strict = false }: { cand: PathCandidate |
     const view = pathLinkView(info, ctx.cwd ? ctx.pathInfo(ctx.cwd)?.absolute : null);
     if (view?.kind === "missing") return <span ref={wrap} className="md-pathwrap"><span className="md-link off" title={`見つかりません: ${path}`}>{label}（見つかりません）</span></span>;
     if (view?.kind === "unconfirmed") return <span ref={wrap} className="md-pathwrap"><span className="md-link off" title={`確認できません: ${path}`}>{label}（存在を確認できません）</span></span>;
-    if (view?.kind === "menu") return <span ref={wrap} className="md-pathwrap"><LinkPathMenu path={path} info={info} view={view} label={label} /></span>;
+    if (view?.kind === "menu") return <span ref={wrap} className="md-pathwrap"><LinkPathMenu path={path} info={info} view={view} label={label} line={cand?.line ?? null} /></span>;
   }
   return (
     <span ref={wrap} className="md-pathwrap">
       {ok && ctx && path ? (
         <PathMenu label={`ファイル操作: ${baseNameOf(path)}`} title={`${ok.absolute}（クリックまたは右クリックで操作）`} trigger={label}>
           {(close) => {
-            const act = (a: PathAction) => () => { close(); ctx.pathAct(a, path, ok); };
+            const act = (a: PathAction) => () => { close(); ctx.pathAct(a, path, ok, false, cand?.line ?? null); };
             return (
               <>
                 {ok.kind === "file" ? <button role="menuitem" disabled={!ctx.canAttach} title={ctx.canAttach ? "入力欄の添付に追加します（コピーして保持）" : "チャットを選ぶと使えます"} onClick={act("attach")}><span>コンテキストとして添付</span></button> : null}
                 <button role="menuitem" onClick={act("copyAbs")}><span>絶対パスをコピー</span></button>
                 <hr />
                 <button role="menuitem" onClick={act("open")}><span>{ok.kind === "folder" ? "フォルダを開く" : "開く"}</span></button>
+                {ok.kind === "file" ? <button role="menuitem" onClick={act("editor")}><span>設定したエディタで開く{cand?.line ? `（${cand.line}行）` : ""}</span></button> : null}
                 <button role="menuitem" onClick={act("reveal")}><span>エクスプローラーで表示</span></button>
               </>
             );

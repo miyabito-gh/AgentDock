@@ -6,7 +6,7 @@ import type { Chat, ChatListSettings, ChatListView, HostSnapshot, ProjectsOutcom
 import { Icon } from "./Icon";
 import { tipWithKey } from "./shortcuts";
 import { Popover } from "./Popover";
-import { TENTATIVE_HINT, TENTATIVE_STYLE, chatAgents, chatName, chatRequests, chatStatusText, isRunning, sortChats } from "./derive";
+import { TENTATIVE_HINT, TENTATIVE_STYLE, chatAgents, chatName, chatRequests, chatStatusText, isRunning, rootView, sortChats } from "./derive";
 import { STATE, keyStr, knownValue } from "./format";
 import { PENDING_TEXT, archiveTag } from "./ManageDialogs";
 import { GROUP_HEADER_HEIGHT, WINDOW_THRESHOLD, cumulativeTops, rowHeight, scrollTopToRevealVar, windowRangeVar } from "./listWindow";
@@ -69,10 +69,14 @@ export function LeftPane({ org, snap, sel, onSelect, onAct, onAcknowledge, onCha
 }) {
   const rowH = rowHeight(uiSize);
   const [query, setQuery] = useState("");
+  const [folderQuery, setFolderQuery] = useState("");
+  const [stateFilter, setStateFilter] = useState("all");
   const [inclArch, setInclArch] = useState(false);
   const [showArch, setShowArch] = useState(false);
   const [menu, setMenu] = useState<OpenMenu | null>(null);
   const q = query.trim();
+  const folderQ = folderQuery.trim().replace(/\\/g, "/").toLocaleLowerCase();
+  const searching = !!q || !!folderQ || stateFilter !== "all";
   const localOf = (c: Chat) => snap.chatLocals.find((l) => l.chat.id === c.key.id);
   // アプリ側のアーカイブ（Codex へ未反映でも一覧から隠す、M43）と Codex 側のアーカイブのどちらかなら、アーカイブ扱い。
   const archived = (c: Chat) => localOf(c)?.visibility.kind === "archived" || knownValue(c.archived) === true;
@@ -81,18 +85,23 @@ export function LeftPane({ org, snap, sel, onSelect, onAct, onAcknowledge, onCha
   const removed = (c: Chat) => localOf(c)?.visibility.kind === "removedFromList" || isHiddenPredecessor(localOf(c));
   // 一覧に出す題名（資料見出しの除去・名前未確認の時刻つき・依頼整理の名前）。保存名は変えない。検索は元の名前でも表示名でも当たる。
   const titleOf = (c: Chat) => listTitle(c, localOf(c));
-  const matchesQ = (c: Chat) => !q || chatName(c).includes(q) || titleOf(c).text.includes(q);
+  const matchesQ = (c: Chat) => {
+    const named = !q || chatName(c).toLocaleLowerCase().includes(q.toLocaleLowerCase()) || titleOf(c).text.toLocaleLowerCase().includes(q.toLocaleLowerCase());
+    const folders = [knownValue(c.cwd), localOf(c)?.nextCwd, ...(localOf(c)?.nextFolders?.folders ?? []), ...(localOf(c)?.acceptedFolders?.folders.folders ?? [])];
+    const folder = !folderQ || folders.some((p) => p?.replace(/\\/g, "/").toLocaleLowerCase().includes(folderQ));
+    return named && folder && (stateFilter === "all" || (rootView(snap, c)?.status.state ?? "unknown") === stateFilter);
+  };
   // アーカイブ表示では従来どおり組織の役割チャットを除く。通常表示では、役割チャット・依頼整理を入れ子へ回す（下）。
   const filtered = sortChats(snap.chats).filter((c) => !removed(c) && (!showArch || !isOrgOwned(localOf(c), org?.shown ?? null))).filter((c) =>
-    (showArch ? archived(c) : !archived(c) || (q !== "" && inclArch)) && matchesQ(c));
+    (showArch ? archived(c) : !archived(c) || (searching && inclArch)) && matchesQ(c));
   // 依頼整理と組織の役割チャットは、ワークフローの下（または「依頼整理（未開始）」）へ畳む。アーカイブ表示では並べたまま。
-  const cls = (c: Chat) => (showArch ? { kind: "normal" as const } : classifyLeft(localOf(c), org?.shown ?? null, c.pinned, q !== ""));
+  const cls = (c: Chat) => (showArch ? { kind: "normal" as const } : classifyLeft(localOf(c), org?.shown ?? null, c.pinned, searching));
   const visible = filtered.filter((c) => cls(c).kind === "normal");
   const nestedOf = (wid: string) => filtered.filter((c) => { const k = cls(c); return (k.kind === "role" || k.kind === "intake") && k.workflowId === wid; });
   const intakeOpen = filtered.filter((c) => cls(c).kind === "intakeOpen");
   const intakeAbandoned = filtered.filter((c) => cls(c).kind === "intakeAbandoned");
   const [nestOpen, setNestOpen] = useState<ReadonlySet<string>>(new Set());
-  const nestIsOpen = (key: string) => q !== "" || nestOpen.has(key);
+  const nestIsOpen = (key: string) => searching || nestOpen.has(key);
   const toggleNest = (key: string) => setNestOpen((s) => { const n = new Set(s); if (n.has(key)) n.delete(key); else n.add(key); return n; });
   const allWfs: OrgWorkflowView[] = org ? [...(org.wf ? [org.wf] : []), ...org.history, ...org.archived] : [];
   // 依頼整理の会話をまとめて削除できる候補（終了した依頼整理。開始済みで一覧から隠している分も含む）。最終の判定はホスト。
@@ -111,7 +120,7 @@ export function LeftPane({ org, snap, sel, onSelect, onAct, onAcknowledge, onCha
   const byFolder = view === "ByFolder" && !showArch;
   const byProject = view === "ByProject" && !showArch;
   const grouped = byFolder || byProject;
-  const projectGrouping = byProject && loadedProjects ? groupByProject(rest, loadedProjects, chatList.pinnedFolders, (c) => localOf(c)?.acceptedFolders?.folders.folders ?? localOf(c)?.nextFolders?.folders ?? [], q === "") : null;
+  const projectGrouping = byProject && loadedProjects ? groupByProject(rest, loadedProjects, chatList.pinnedFolders, (c) => localOf(c)?.acceptedFolders?.folders.folders ?? localOf(c)?.nextFolders?.folders ?? [], !searching) : null;
   // 「振り分け直す」の結果通知。取り直しの完了後、最新の振り分けから件数を数えて1回だけ通知する。
   const [reclass, setReclass] = useState<"idle" | "busy" | "done">("idle");
   const doReclassify = async () => {
@@ -149,7 +158,7 @@ export function LeftPane({ org, snap, sel, onSelect, onAct, onAcknowledge, onCha
       : projects.kind === "failed" ? { text: "プロジェクト情報を取得できませんでした（作業フォルダごとで表示中）", bad: true } : null
     : null;
   // 検索中は一致のあるグループを折りたたみ無視で開く（保存値は変えない）。
-  const isCollapsed = (key: string) => q === "" && chatList.collapsedFolders.includes(key);
+  const isCollapsed = (key: string) => !searching && chatList.collapsedFolders.includes(key);
   const items: FlatItem[] = grouped
     ? flattenGroups(groups, isCollapsed)
     : rest.map((c) => ({ type: "chat" as const, chat: c, group: null }));
@@ -369,10 +378,10 @@ export function LeftPane({ org, snap, sel, onSelect, onAct, onAcknowledge, onCha
     return (
       <div key={`g:${g.key}`} className={`list-grp${open ? " menu-open" : ""}`} style={{ height: GROUP_HEADER_HEIGHT }}
         onContextMenu={(e) => { e.preventDefault(); const b = e.currentTarget.querySelector<HTMLElement>(".row-more"); if (b && g.key !== UNKNOWN_KEY) openMenu({ kind: "group", key: g.key }, b); }}>
-        <button type="button" className="grp-toggle" data-idx={idx} aria-expanded={!collapsed} title={title} onClick={() => { if (q === "") toggleCollapsed(g.key); }}
-          aria-disabled={q !== "" || undefined} aria-label={`${label}（${g.chats.length}件）${guessN ? "。フォルダ一致による推測を含む" : ""}${g.pinned ? "。ピン留め" : ""}${collapsed && q === "" ? "。折りたたみ中" : ""}`}>
-          <span className="grp-caret" aria-hidden="true">{collapsed && q === "" ? "▸" : "▾"}</span>
-          <span className="grp-ico" aria-hidden="true"><Icon name={g.kind === "general" || g.kind === "noProject" ? "chat" : g.kind === "unknown" ? "folderUnknown" : collapsed && q === "" ? "folder" : "folderOpen"} /></span>
+        <button type="button" className="grp-toggle" data-idx={idx} aria-expanded={!collapsed} title={title} onClick={() => { if (!searching) toggleCollapsed(g.key); }}
+          aria-disabled={searching || undefined} aria-label={`${label}（${g.chats.length}件）${guessN ? "。フォルダ一致による推測を含む" : ""}${g.pinned ? "。ピン留め" : ""}${collapsed && !searching ? "。折りたたみ中" : ""}`}>
+          <span className="grp-caret" aria-hidden="true">{collapsed && !searching ? "▸" : "▾"}</span>
+          <span className="grp-ico" aria-hidden="true"><Icon name={g.kind === "general" || g.kind === "noProject" ? "chat" : g.kind === "unknown" ? "folderUnknown" : collapsed && !searching ? "folder" : "folderOpen"} /></span>
           <span className="grp-nm">{label}</span>
           {guessN ? <span className="grp-guess" title="フォルダ一致による推測を含みます" aria-hidden="true">推定</span> : null}
           {g.chats.length === 0 ? <span className="grp-empty" style={{ fontSize: "0.85em", opacity: 0.6, marginLeft: "auto", marginRight: 6 }}>チャットなし</span> : null}
@@ -444,7 +453,7 @@ export function LeftPane({ org, snap, sel, onSelect, onAct, onAcknowledge, onCha
     return (
       <div key={`nest:${key}`} className="nest-grp">
         <div className="list-grp" style={{ height: GROUP_HEADER_HEIGHT }}>
-          <button type="button" className="grp-toggle" aria-expanded={open} title={title} aria-disabled={q !== "" || undefined} onClick={() => { if (q === "") toggleNest(key); }}>
+          <button type="button" className="grp-toggle" aria-expanded={open} title={title} aria-disabled={searching || undefined} onClick={() => { if (!searching) toggleNest(key); }}>
             <span className="grp-caret" aria-hidden="true">{open ? "▾" : "▸"}</span>
             <span className="grp-nm">{label}</span>
             <span className="grp-n">{count ?? chats.length}</span>
@@ -458,7 +467,7 @@ export function LeftPane({ org, snap, sel, onSelect, onAct, onAcknowledge, onCha
   const nestGroups = () => {
     const out: React.ReactNode[] = [];
     // 表示中（現在）のワークフローと、開いている過去のワークフローの分だけ（検索中は全部）。
-    const nestIds = new Set(nestWorkflowIds(allWfs.map((w) => w.workflowId), org?.wf?.workflowId ?? null, org?.selectedHistory ?? null, q !== ""));
+    const nestIds = new Set(nestWorkflowIds(allWfs.map((w) => w.workflowId), org?.wf?.workflowId ?? null, org?.selectedHistory ?? null, searching));
     for (const wf of allWfs) {
       if (!nestIds.has(wf.workflowId)) continue;
       const kids = nestedOf(wf.workflowId);
@@ -536,7 +545,13 @@ export function LeftPane({ org, snap, sel, onSelect, onAct, onAcknowledge, onCha
           <button className="btn icon" title={listStatus?.ok ? `チャット一覧を Codex から取り直します（読み取りのみ）。直近の結果: ${listStatus.text}` : "チャット一覧を Codex から取り直します（読み取りのみ）"} aria-label="一覧を更新" onClick={() => onAct("refreshList")}><Icon name="refresh" /></button>
         </div>
         <input type="search" placeholder="名前で検索" aria-label="チャットを名前で検索" value={query} onChange={(e) => setQuery(e.target.value)} />
-        {q ? <label className="small"><input type="checkbox" checked={inclArch} onChange={(e) => setInclArch(e.target.checked)} />アーカイブも含める</label> : null}
+        <input type="search" placeholder="作業フォルダで絞る" aria-label="作業フォルダで絞る" value={folderQuery} onChange={(e) => setFolderQuery(e.target.value)} />
+        <select aria-label="親の状態で絞る" value={stateFilter} onChange={(e) => setStateFilter(e.target.value)}>
+          <option value="all">親の状態: すべて</option>
+          {Object.entries(STATE).map(([state, label]) => <option key={state} value={state}>{label.t}</option>)}
+        </select>
+        {searching ? <div className="small muted">取得済みチャットだけを絞り込みます（本文検索は対象外）</div> : null}
+        {searching ? <label className="small"><input type="checkbox" checked={inclArch} onChange={(e) => setInclArch(e.target.checked)} />アーカイブも含める</label> : null}
         {projectsNote ? <div className={`small${projectsNote.bad ? " lt-fail" : ""}`} role="status">{projectsNote.text}</div> : null}
         {listStatus && !listStatus.ok ? <div className="small lt-fail" role="status">{listStatus.text}</div> : null}
       </div>
@@ -570,8 +585,8 @@ export function LeftPane({ org, snap, sel, onSelect, onAct, onAcknowledge, onCha
             {nestGroups()}
             {pinned.length ? <><div className="list-h"><span>ピン留め</span></div>{pinned.map((c) => row(c))}</> : null}
             <div className="list-h"><span>{viewLabel}</span></div>
-            {rest.length ? listRows() : <div className="empty-note">{q ? "一致するチャットはありません" : "まだチャットがありません"}</div>}
-            {onLoadMore && q === "" ? (
+            {rest.length ? listRows() : <div className="empty-note">{searching ? "一致するチャットはありません" : "まだチャットがありません"}</div>}
+            {onLoadMore && !searching ? (
               <div className="list-more" style={{ padding: "6px 8px", display: "flex", alignItems: "center", gap: 8 }}>
                 <button type="button" className="small" disabled={fetching} onClick={() => void runFetch(onLoadMore)}
                   title="Codex の一覧の続きを次の1ページ取得します（読み取りのみ）">{fetching ? "読み込み中…" : "続きを読み込む"}</button>

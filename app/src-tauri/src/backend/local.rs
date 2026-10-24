@@ -698,6 +698,9 @@ pub struct AppSettings {
     /// バックエンド別の実行ファイルのパス（キーはバックエンドID。例 "codex"）。未指定＝PATH（§11の推奨）。
     #[serde(default)]
     pub executables: std::collections::BTreeMap<String, String>,
+    /// ユーザー操作で起動するエディタ・ターミナル。古い設定は未指定。
+    #[serde(default)]
+    pub external_tools: crate::external_tools::ExternalToolsSettings,
     /// 旧形式（`codexExecutable`）の読込み専用。保存しない。読込み後に `migrate_legacy` で `executables` へ移す。
     #[serde(default, rename = "codexExecutable", skip_serializing)]
     #[cfg_attr(test, ts(skip))]
@@ -978,6 +981,7 @@ impl Default for AppSettings {
     fn default() -> Self {
         AppSettings {
             executables: Default::default(),
+            external_tools: Default::default(),
             legacy_codex_executable: None,
             autostart: false,
             notifications: NotificationSettings::default(),

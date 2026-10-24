@@ -1,3 +1,4 @@
+import { ExternalToolsBody, type ExternalToolsProps } from "./ExternalToolsSettings";
 import { isNewChatSubmitKey, pickQuickModel } from "./quickNew";
 import { ModelSettingsBody, type ModelDefaultProps } from "./ModelSettings";
 import type { EnterMode, RunningInputMode } from "./sendKeys";
@@ -114,7 +115,7 @@ function Shell({ title, children, foot, footLeft, close, wide, full, onClose, lo
   );
 }
 
-const TABS: Array<[string, string]> = [["general", "全般"], ["display", "表示"], ["notify", "通知"], ["input", "入力"], ["model", "モデル"], ["codex", "Codex"], ["mcp", "MCP・Plugins"], ["skills", "Skills"], ["org", "組織実行"], ["continuation", "継続チャット"], ["storage", "保存と容量"]];
+const TABS: Array<[string, string]> = [["general", "全般"], ["display", "表示"], ["notify", "通知"], ["input", "入力"], ["model", "モデル"], ["codex", "Codex"], ["externalTools", "外部ツール"], ["mcp", "MCP・Plugins"], ["skills", "Skills"], ["org", "組織実行"], ["continuation", "継続チャット"], ["storage", "保存と容量"]];
 
 export interface CodexExe { path: string; setPath: (p: string) => void; placeholder: string; connect: (p: string) => void; openDiag: () => void; browse: () => void; live: boolean; sandboxWorkaround: { value: boolean; set: (on: boolean) => void } }
 
@@ -173,7 +174,8 @@ const UI_SIZE_CHOICES: Array<[UiTextSize, string]> = [["Small", "小"], ["Normal
 const BODY_SIZE_CHOICES: Array<[BodyTextSize, string]> = [["Small", "小"], ["Normal", "標準"], ["Large", "大"], ["XLarge", "特大"]];
 const LIST_VIEW_CHOICES: Array<[ChatListView, string]> = [["Recent", "最近使った順"], ["ByFolder", "作業フォルダごと"]];
 
-function SettingsBody({ tab, enterMode, setEnterMode, runningInput, setRunningInput, top, source, models, modelDefault, exe, notify, autostart, appearance, manage, chats, compose, opCaps, org, cont }: {
+function SettingsBody({ externalTools, tab, enterMode, setEnterMode, runningInput, setRunningInput, top, source, models, modelDefault, exe, notify, autostart, appearance, manage, chats, compose, opCaps, org, cont }: {
+  externalTools: ExternalToolsProps;
   modelDefault: ModelDefaultProps;
   org: OrgSettingsProps; cont: ContinuityDialogProps;
   manage: ManageProps; chats: Chat[]; compose: ComposeDialogProps; opCaps: OpCapability[];
@@ -229,6 +231,7 @@ function SettingsBody({ tab, enterMode, setEnterMode, runningInput, setRunningIn
           <label><input type="radio" name="ri" checked={runningInput === "steer"} onChange={() => setRunningInput("steer")} />送信キーは「追加指示で送る」（Ctrl＋Shift＋Enter で完了後に送信）</label></div>
           <span className="note">実行中のチャットで送信キーを押したときの送り方です。どちらも送信条件と確認は同じで、追加指示にできないときは何も送りません。実行中でないときは変わりません。</span></div>
       </>);
+    case "externalTools": return <ExternalToolsBody {...externalTools} />;
     case "model": return <ModelSettingsBody models={models} def={modelDefault} />;
     case "codex": {
       const v = source?.version;
@@ -453,9 +456,10 @@ function RenameDialog({ chat, onClose, run }: { chat: Chat | undefined; onClose:
 /** isolate は「分離」（worktreeを作成してから開始）。worktree は既存のAgentDock作成worktreeの記録ID（チャットに結び付ける）。 */
 export interface NewChatInput { cwd: string | null; model: string; firstMessage: string | null; isolate: boolean; worktree: string | null; /** 追加の作業フォルダ（プライマリ以外）。 */ extraFolders: string[]; /** 強い確認を済ませたパス（ホストが再検査する）。 */ confirmedStrong: string[] }
 
-export function Dialogs({ modelDefault, cont, org, folderTools, workspaceRoots, d, onClose, chats, source, models, enterMode, setEnterMode, runningInput, setRunningInput, top, setTab, onAct, exe, onCreateChat, notify, autostart, appearance, quit, force, manage, onRename, opCaps, live, changesTick, turnRecords, onRevertDone, prefs, threadOps, worktree, cloudTasks, compose, resend }: {
+export function Dialogs({ externalTools, modelDefault, cont, org, folderTools, workspaceRoots, d, onClose, chats, source, models, enterMode, setEnterMode, runningInput, setRunningInput, top, setTab, onAct, exe, onCreateChat, notify, autostart, appearance, quit, force, manage, onRename, opCaps, live, changesTick, turnRecords, onRevertDone, prefs, threadOps, worktree, cloudTasks, compose, resend }: {
   org: OrgDialogProps;
   /** 設定「モデル」: 新しいチャットの既定（AppSettings.defaultModel）。 */
+  externalTools: ExternalToolsProps;
   modelDefault: ModelDefaultProps;
   cont: ContinuityDialogProps;
   compose: ComposeDialogProps;
@@ -593,7 +597,7 @@ export function Dialogs({ modelDefault, cont, org, folderTools, workspaceRoots, 
     case "settings": return (
       <Shell title="設定" wide onClose={onClose} close="閉じる">
         <div className="tabs vt" role="tablist" aria-orientation="vertical">{TABS.map(([k, t]) => <button key={k} role="tab" aria-selected={d.tab === k} onClick={() => setTab(k)}>{t}</button>)}</div>
-        <div className="content"><SettingsBody tab={d.tab} enterMode={enterMode} setEnterMode={setEnterMode} runningInput={runningInput} setRunningInput={setRunningInput} top={top} source={source} models={models} modelDefault={modelDefault} exe={exe} notify={notify} autostart={autostart} appearance={appearance} manage={manage} chats={chats} compose={compose} opCaps={opCaps} org={org.settings} cont={cont} /></div>
+        <div className="content"><SettingsBody externalTools={externalTools} tab={d.tab} enterMode={enterMode} setEnterMode={setEnterMode} runningInput={runningInput} setRunningInput={setRunningInput} top={top} source={source} models={models} modelDefault={modelDefault} exe={exe} notify={notify} autostart={autostart} appearance={appearance} manage={manage} chats={chats} compose={compose} opCaps={opCaps} org={org.settings} cont={cont} /></div>
       </Shell>);
     case "orgStart": return (
       <Shell title="組織実行を始める" onClose={onClose} close="キャンセル">

@@ -178,7 +178,7 @@ export const openFile = (target: FileRef, riskConfirmed = false): Promise<null> 
 /** 会話内のパスの実在・種類・絶対／相対パス（読取りのメタデータだけ。遅い・失敗は kind=unconfirmed）。 */
 export const statPaths = (chat: ChatKey, paths: string[]): Promise<PathInfo[]> => invokeCmd("stat_paths", { chat, paths });
 /** 会話内のパスを関連アプリで開く。作業フォルダ外・実行形式は `blocked.openNeedsConfirm`（`openFile` と同じ流れ）。 */
-export const openPath = (chat: ChatKey, path: string, riskConfirmed = false, workspaceOnly = false): Promise<null> => invokeCmd("open_path", { chat, path, riskConfirmed, workspaceOnly });
+export const openPath = (chat: ChatKey, path: string, riskConfirmed = false, workspaceOnly = false, target: import("./types").OpenTarget = "system", line: number | null = null): Promise<null> => invokeCmd("open_path", { chat, path, riskConfirmed, workspaceOnly, target, line });
 /** 会話内のパスをエクスプローラーで表示する。`workspaceOnly` なら作業フォルダの外は止める（リンク用）。 */
 export const revealPath = (chat: ChatKey, path: string, workspaceOnly = false): Promise<null> => invokeCmd("reveal_path", { chat, path, workspaceOnly });
 /** 名前を付けて保存。同名があれば `blocked.targetExists`。確認のうえ `overwriteConfirmed=true` で再実行する。 */

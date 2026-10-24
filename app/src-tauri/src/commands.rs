@@ -291,6 +291,11 @@ pub async fn stat_paths(host: Hs<'_>, args: crate::pathref::StatPathsArgs) -> R<
 pub async fn open_path(app: tauri::AppHandle, host: Hs<'_>, args: crate::pathref::OpenPathArgs) -> R<()> {
     use tauri_plugin_opener::OpenerExt;
     let path = host.inner().clone().open_path_target(&args).await?;
+    if args.target != crate::external_tools::OpenTarget::System {
+        let settings = host.get_app_settings().external_tools;
+        return crate::external_tools::launch(&settings, args.target, &path, args.line)
+            .map_err(|m| IpcError { code: IpcErrorCode::InvalidArgs, message: m, blocked: None });
+    }
     app.opener()
         .open_path(path.to_string_lossy(), None::<&str>)
         .map_err(|e| IpcError { code: IpcErrorCode::Io, message: format!("開けませんでした: {e}"), blocked: None })

@@ -8,7 +8,7 @@ import type {
 
 /** ホスト（`AppSettings::default`）と同じ初期値。接続前の表示用で、保存済みの値ではない。 */
 export const DEFAULT_SETTINGS: AppSettings = {
-  executables: {}, autostart: false,
+  executables: {}, externalTools: { editor: "vsCode", editorExecutable: "", terminal: "windowsTerminal", terminalExecutable: "" }, autostart: false,
   notifications: { enabled: true, approvalAndQuestion: true, completed: true, failed: true, sound: true, showChatName: true, orgAttention: true, orgFinished: true },
   mainWindow: { alwaysOnTop: false, bounds: null }, monitorWindow: { alwaysOnTop: false, bounds: null },
   monitorScope: "selectedChat", defaultModel: null, sendKey: "enter", runningInput: "queue", acknowledgedWarnings: [], tools: { git: null }, cloudEnvByRepo: {}, baselines: { enabled: true, repos: [] }, layout: { leftWidth: null, dockWidth: null },

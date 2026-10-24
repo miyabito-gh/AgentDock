@@ -168,6 +168,7 @@ impl Host {
         if bytes.is_empty() {
             return Err(err(IpcErrorCode::InvalidArgs, "画像のデータが空です"));
         }
+        attach::check_image_size(bytes.len()).map_err(|m| err(IpcErrorCode::InvalidArgs, m))?;
         let chat_dir = self.attach_dir(&chat)?;
         let (id, c) = (self.local_id("att"), chat.clone());
         let host = self.clone();

@@ -1,4 +1,5 @@
 // 差分の表示部品（変更を確認・組織実行の成果物パネルで共有）。本文は加工しない。取れていない値は「未確認」と書き、0や空で代用しない。
+import { useEffect, useMemo, useState } from "react";
 import type { ChangeKind, Known } from "../ipc/types";
 import { showKnown } from "./format";
 import { DIFF_ROW_LIMIT, diffRows } from "./changesView";
@@ -13,20 +14,33 @@ export interface DiffFileLike {
   binary: boolean;
 }
 
-/** 統一diffの表示。行番号（旧・新）と記号の列つき。本文は加工しない。巨大な差分は先頭だけ。 */
+/** 統一diffの表示。行番号（旧・新）と記号の列つき。本文は加工しない。描画だけをページ分割する。 */
 export function DiffText({ text }: { text: string }) {
-  const rows = diffRows(text);
-  const shown = rows.length > DIFF_ROW_LIMIT ? rows.slice(0, DIFF_ROW_LIMIT) : rows;
+  const rows = useMemo(() => diffRows(text), [text]);
+  const [position, setPosition] = useState({ text, page: 0 });
+  useEffect(() => { setPosition({ text, page: 0 }); }, [text]);
+  const pages = Math.max(1, Math.ceil(rows.length / DIFF_ROW_LIMIT));
+  const page = position.text === text ? Math.min(position.page, pages - 1) : 0;
+  const start = page * DIFF_ROW_LIMIT;
+  const shown = rows.slice(start, start + DIFF_ROW_LIMIT);
+  const move = (next: number) => setPosition({ text, page: next });
   return (
-    <div className="diffview" role="region" aria-label="差分" tabIndex={0}>
+    <>
+    {pages > 1 ? <div className="diff-pages" role="group" aria-label="差分のページ" style={{ display: "flex", alignItems: "center", gap: 8, padding: 6 }}>
+      <button type="button" className="small" disabled={page === 0} onClick={() => move(page - 1)}>前へ</button>
+      <span role="status">{start + 1}–{start + shown.length} 行／全 {rows.length} 行（{page + 1}/{pages} ページ）</span>
+      <button type="button" className="small" disabled={page + 1 === pages} onClick={() => move(page + 1)}>次へ</button>
+      <button type="button" className="small" disabled={page + 1 === pages} onClick={() => move(pages - 1)}>末尾へ</button>
+    </div> : null}
+    <div key={`${page}`} className="diffview" role="region" aria-label="差分" tabIndex={0}>
       {shown.map((r, i) => (
         <div key={i} className={`ln ${r.kind}`}>
           <span className="no" aria-hidden="true">{r.old ?? ""}</span><span className="no" aria-hidden="true">{r.new ?? ""}</span>
           <span className="sg" aria-hidden="true">{r.kind === "add" ? "+" : r.kind === "del" ? "−" : ""}</span>
           <span className="tx">{r.kind === "hunk" || r.kind === "meta" ? r.text : r.text === "" ? " " : r.text}</span>
         </div>))}
-      {rows.length > shown.length ? <div className="ln meta"><span className="tx">先頭 {shown.length} 行のみ表示しています（全 {rows.length} 行）。</span></div> : null}
     </div>
+    </>
   );
 }
 

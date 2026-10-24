@@ -1131,9 +1131,10 @@ ${cur}` : p.text);
       if (!chat || !live) return;
       host.removeAttachment(chat.key, id).catch((e) => sayErr("取り外せませんでした", e));
     },
-    pasteImage: (name, bytes) => {
+    imageError: (message) => say(message),
+    pasteImage: async (name, bytes) => {
       if (!chat || !live) { say("この操作はモックでは動きません。"); return; }
-      host.addAttachmentImageBytes(chat.key, name, bytes)
+      await host.addAttachmentImageBytes(chat.key, name, bytes)
         .then((e) => { if (e.state.kind === "copyFailed") say(`コピーできませんでした（${e.displayName}）: ${e.state.message}`); })
         .catch((e) => sayErr("画像を添付できませんでした", e));
     },
@@ -1141,7 +1142,7 @@ ${cur}` : p.text);
 
   // ── 会話内のチャットID・ファイルパス（項目5・24・30）。リンク・メニューはユーザーのクリックだけで動く。 ──
   const { pathInfo, requestPath } = usePathStats(live, chat?.key ?? null);
-  const pathAct = (act: PathAction, path: string, info: PathInfo, strict = false) => {
+  const pathAct = (act: PathAction, path: string, info: PathInfo, strict = false, line: number | null = null) => {
     if (!chat || !live || !info.absolute) { say("この操作はモックでは動きません。"); return; }
     const abs = info.absolute;
     const copy = (text: string, what: string) => { void copyText(text).then((ok) => say(ok ? `${what}をコピーしました。` : `${what}をコピーできませんでした。`)); };
@@ -1149,6 +1150,10 @@ ${cur}` : p.text);
       case "attach": void addFiles(chat.key, [abs]); break;
       case "copyAbs": copy(abs, "絶対パス"); break;
       case "reveal": host.revealPath(chat.key, path, strict).catch((e) => sayErr("表示できませんでした", e)); break;
+      case "editor":
+        if (strict) host.openPath(chat.key, path, false, true, "editor", line).catch((e) => sayErr("エディタを開けませんでした", e));
+        else openWithConfirm(chat.key, path, "editor", line);
+        break;
       case "open":
         if (strict) host.openPath(chat.key, path, false, true).catch((e) => sayErr("開けませんでした", e));
         else openWithConfirm(chat.key, path);
@@ -1156,13 +1161,13 @@ ${cur}` : p.text);
     }
   };
   /** 開く（作業フォルダ外・実行形式はホストが止めるので、確認のうえで再実行）。ユーザーのクリックから呼ぶ。 */
-  const openWithConfirm = (chatKey: ChatKey, path: string) => {
+  const openWithConfirm = (chatKey: ChatKey, path: string, target: import("./ipc/types").OpenTarget = "system", line: number | null = null) => {
     void (async () => {
-      try { await host.openPath(chatKey, path); return; } catch (e) {
+      try { await host.openPath(chatKey, path, false, false, target, line); return; } catch (e) {
         const b = host.asIpcError(e).blocked;
         if (b?.kind !== "openNeedsConfirm") { sayErr("開けませんでした", e); return; }
         if (!(await askConfirm(openFileConfirm({ executable: !!b.executable, outsideProject: !!b.outsideProject, path: b.path })))) { say("開くのをやめました。"); return; }
-        try { await host.openPath(chatKey, path, true); } catch (e2) { sayErr("開けませんでした", e2); }
+        try { await host.openPath(chatKey, path, true, false, target, line); } catch (e2) { sayErr("開けませんでした", e2); }
       }
     })();
   };
@@ -1605,6 +1610,7 @@ ${cur}` : p.text);
       case "togglePin": togglePin(chat?.key.id); break;
       case "renameChat": if (chat) setDialog({ type: "rename", chatId: chat.key.id }); break;
       case "refreshList": void refreshList(); break;
+      case "openTerminal": { const c = chat ? knownValue(chat.cwd) : null; if (chat && live && c) openWithConfirm(chat.key, c, "terminal"); break; }
       case "openCwd": { const c = chat ? knownValue(chat.cwd) : null; if (chat && live && c) openWithConfirm(chat.key, c); break; }
       case "reloadHistory": if (chat && live) { void loadChat(chat.key.id); say("保存履歴を取り直しています（読み取りのみ）。"); } break;
       case "attachPick": void pickFiles(); break;
@@ -1781,7 +1787,7 @@ ${cur}` : p.text);
           deleteWorkflow: (id, del, expect, intake) => host.orgDeleteWorkflow(id, del, expect, intake),
           deleteProgress: orgDelProg, onDeleteIssue: (m) => say(m, 8000),
           onDeleted: (id, note) => { setDialog((d) => (d?.type === "orgDelete" && d.workflowId === id ? null : d)); if (orgSel === id) setOrgSel(null); setOrgTick((n) => n + 1); say(`ワークフローを削除しました。worktree とブランチは残しています。${note ? ` ${note}` : ""}`, note ? 10000 : 6000); },
-        }} folderTools={folderTools} workspaceRoots={snap.workspaceRoots} onClose={closeDialog} opCaps={snap.opCapabilities} resend={{ state: resendState, handlers: resendHandlers }} chats={snap.chats} source={src} models={models}
+        }} externalTools={{ value: snap.settings.externalTools, save: (externalTools) => updateSettings((st) => ({ ...st, externalTools }), "外部ツールの設定を保存できませんでした") }} folderTools={folderTools} workspaceRoots={snap.workspaceRoots} onClose={closeDialog} opCaps={snap.opCapabilities} resend={{ state: resendState, handlers: resendHandlers }} chats={snap.chats} source={src} models={models}
           prefs={{ goal: dialog.type === "goal" ? goals[dialog.chatId] : undefined, saveGoal,
             settings: dialog.type === "status" && dialog.chatId ? bundle.modelSettings[dialog.chatId] : undefined,
             local: dialog.type === "status" && dialog.chatId ? snap.chatLocals.find((l) => l.chat.id === dialog.chatId) : undefined }}

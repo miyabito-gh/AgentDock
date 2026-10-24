@@ -4,6 +4,7 @@ pub mod codex;
 pub mod commands;
 pub mod diag;
 pub mod exec;
+pub mod external_tools;
 pub mod gitops;
 pub mod host;
 pub mod pathref;

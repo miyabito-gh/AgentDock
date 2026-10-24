@@ -31,6 +31,10 @@ pub struct StatPathsArgs {
 pub struct OpenPathArgs {
     pub chat: ChatKey,
     pub path: String,
+    #[serde(default)]
+    pub target: crate::external_tools::OpenTarget,
+    #[serde(default)]
+    pub line: Option<u32>,
     /// 開く前の確認（作業フォルダ外・実行形式）をユーザーが了承したとき true。
     #[serde(default)]
     pub risk_confirmed: bool,
