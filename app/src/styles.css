@@ -1181,3 +1181,64 @@ button.uchip:hover{background:var(--accent-weak)}
 
 .keyhint{margin:2px 2px 0}
 .nest-bulk{padding:2px 8px 6px 24px;display:flex;flex-direction:column;align-items:flex-start;gap:4px}
+
+/* Native subagent requests retain the app's existing controls and visual tokens. */
+.subagent-runs{min-width:0}
+.subagent-tabs{padding:0;margin:-4px 0 12px}
+.subagent-tabpanel[hidden]{display:none}
+.subagent-start>p:first-child{margin:0 0 16px;max-width:65em}
+.subagent-repo{display:flex;align-items:center;gap:6px;min-width:0}
+.subagent-repo input{flex:1 1 0;width:100%;min-width:0}
+.subagent-repo button{flex:none}
+.subagent-start textarea{width:100%;resize:vertical;min-height:8em}
+.subagent-list-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}
+.subagent-list-head>button{flex:none}
+.subagent-empty{padding:28px 8px;text-align:center;color:var(--ink2)}
+.subagent-run{min-width:0;padding:12px 0;border-bottom:1px solid var(--line)}
+.subagent-run:first-of-type{padding-top:4px}
+.subagent-run:last-child{border-bottom:0}
+.subagent-run.is-new{border-left:3px solid var(--accent);padding-left:10px}
+.subagent-run>header{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:7px}
+.subagent-run>header h3{min-width:0;margin:0;font-size:var(--fs-body);overflow-wrap:anywhere}
+.subagent-run>header time{flex:none;font-variant-numeric:tabular-nums}
+.subagent-overview p{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;margin:4px 0;overflow-wrap:anywhere}
+.subagent-overview .subagent-children{gap:4px 12px;color:var(--ink2)}
+.subagent-actions{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:9px 0}
+.subagent-run>.small,.subagent-start>.small{margin:7px 0}
+.subagent-blockers{margin:8px 0;padding:7px 10px;border-left:3px solid var(--wait-line);background:var(--wait-bg);color:var(--wait-ink);overflow-wrap:anywhere}
+.subagent-blockers ul{padding-left:18px;margin:4px 0 0}
+.subagent-preview{padding:10px 12px;margin:10px 0;border:1px solid var(--line-strong);border-radius:var(--r2);background:var(--surface2);min-width:0}
+.subagent-preview h4{margin:0 0 8px;font-size:var(--fs-body)}
+.subagent-paths,.subagent-meta{display:grid;grid-template-columns:130px minmax(0,1fr);gap:4px 10px;margin:8px 0;font-size:var(--fs-s)}
+.subagent-paths dt,.subagent-meta dt{color:var(--ink2)}
+.subagent-paths dd,.subagent-meta dd{margin:0;min-width:0;overflow-wrap:anywhere}
+.subagent-run code{white-space:normal;overflow-wrap:anywhere}
+.subagent-files{list-style:none;padding:0;margin:10px 0;border:1px solid var(--line);border-radius:var(--r1);max-height:15em;overflow:auto;background:var(--surface)}
+.subagent-files li{display:flex;align-items:baseline;justify-content:space-between;gap:8px;padding:6px 8px;border-bottom:1px solid var(--line2);font-size:var(--fs-s)}
+.subagent-files li:last-child{border-bottom:0}
+.subagent-files code{min-width:0}
+.subagent-file-count{flex:none;white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--ink2)}
+.subagent-consent{display:flex;align-items:flex-start;gap:6px;font-size:var(--fs-s);margin:10px 0}
+.subagent-consent input{flex:none;margin-top:4px}
+.subagent-details{margin:8px 0;font-size:var(--fs-s);min-width:0}
+.subagent-details>summary{cursor:pointer;color:var(--ink2);width:fit-content;max-width:100%;padding:3px 0}
+.subagent-details>summary:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.subagent-details[open]>summary{color:var(--ink);font-weight:600}
+.subagent-details p{margin:6px 0;overflow-wrap:anywhere}
+.subagent-agents{padding-left:18px;margin:8px 0;display:grid;gap:8px}
+.subagent-agents li{overflow-wrap:anywhere}
+.subagent-recovery{display:grid;gap:4px;min-width:0;max-width:100%}
+.subagent-recovery select{max-width:100%}
+.subagent-import-record{border-bottom:1px solid var(--line2);padding:3px 0}
+.subagent-outcome{margin:9px 0;font-size:var(--fs-s);font-weight:600;color:var(--ink)}
+@media(max-width:960px){
+  .subagent-run>header{align-items:flex-start;flex-direction:column;gap:2px}
+  .subagent-paths,.subagent-meta{grid-template-columns:110px minmax(0,1fr)}
+}
+@media(max-width:540px){
+  .subagent-paths,.subagent-meta{grid-template-columns:1fr;gap:2px}
+  .subagent-paths dd,.subagent-meta dd{margin-bottom:5px}
+  .subagent-files li{flex-wrap:wrap}
+  .subagent-preview{padding:8px}
+  .subagent-actions>.btn{height:auto;min-height:var(--ctl);white-space:normal;text-align:left}
+}

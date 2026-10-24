@@ -580,7 +580,7 @@ pub fn undo_decision(f: &UndoFacts) -> UndoDecision {
 /// 取り込みコミットのメッセージ。`tasks` は (タスクID, 題名, コミット)。
 pub fn import_commit_message(workflow_name: &str, tasks: &[(String, String, String)]) -> String {
     let name: String = workflow_name.lines().next().unwrap_or("").chars().take(60).collect();
-    let mut m = format!("AgentDock: 組織実行の成果を取り込み（{}）\n", name.trim());
+    let mut m = format!("AgentDock: 成果を取り込み（{}）\n", name.trim());
     m.push('\n');
     for (task, title, commit) in tasks {
         let t: String = title.lines().next().unwrap_or("").chars().take(80).collect();
@@ -1324,7 +1324,7 @@ mod tests {
     #[test]
     fn commit_message_lists_each_task_with_a_short_sha() {
         let m = import_commit_message("レポート作成\n詳細", &[("t1".into(), "概要".into(), "0123456789".into()), ("t2".into(), "付録".into(), "abc".into())]);
-        assert!(m.starts_with("AgentDock: 組織実行の成果を取り込み（レポート作成）\n\n"));
+        assert!(m.starts_with("AgentDock: 成果を取り込み（レポート作成）\n\n"));
         assert!(m.contains("- t1 概要 0123456\n") && m.contains("- t2 付録 abc\n"));
     }
 
