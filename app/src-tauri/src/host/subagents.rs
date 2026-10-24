@@ -87,7 +87,7 @@ fn terminal(f: &AgentFact) -> bool {
         !matches!(f.state, AgentState::Running | AgentState::Waiting | AgentState::Initializing | AgentState::Failed | AgentState::Interrupted) && (f.state != AgentState::Unknown || f.terminal_explicit)
 }
 /// Stricter than queue dispatch: a completed parent never relaxes an unknown child.
-fn gate_blockers(run: &SubagentRun, gate: &GateInput, pending_queue: bool) -> Vec<String> {
+pub(super) fn gate_blockers(run: &SubagentRun, gate: &GateInput, pending_queue: bool) -> Vec<String> {
     let mut b = Vec::new();
     if run.phase != "ready" { b.push(format!("開始工程が未確認です（{}）。自動で再開・再送しません", run.phase)); }
     if !gate.connected { b.push("バックエンド未接続です".into()); }

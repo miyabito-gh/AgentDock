@@ -56,6 +56,43 @@ fn history_term<'a>(latest: Option<&ExternalId>, term: Option<&'a TerminalFact>)
     term.filter(|t| t.end.is_some() && t.turn.is_some() && latest.is_none_or(|l| t.turn.as_ref() == Some(l)))
 }
 
+/// Turn IDs are opaque: a terminal fact is usable only if all current observations
+/// agree. In particular, a running/new failed turn cannot inherit an older completion.
+fn end_matches_view(d: &HostData, v: &AgentView, turn: &ExternalId, end: TurnEnd) -> bool {
+    !is_working(v.status.state)
+        && !d.running_turn.contains_key(&v.agent.key)
+        && v.agent.latest_turn.as_ref().is_none_or(|t| t == turn)
+        && v.status.turn.as_ref().is_none_or(|t| t == turn)
+        && (!matches!(v.status.state, AgentState::Failed | AgentState::Interrupted)
+            || matches!((v.status.state, end), (AgentState::Failed, TurnEnd::Failed) | (AgentState::Interrupted, TurnEnd::Interrupted)))
+}
+
+fn live_terminal<'a>(d: &'a HostData, v: &AgentView) -> Option<&'a (ExternalId, TurnEnd, UnixMillis)> {
+    d.last_end.get(&v.agent.key).filter(|(turn, end, _)| {
+        v.agent.latest_turn.as_ref() == Some(turn) && end_matches_view(d, v, turn, *end)
+    })
+}
+
+fn needs_terminal_read(d: &HostData, v: &AgentView) -> bool {
+    !is_working(v.status.state) && !d.running_turn.contains_key(&v.agent.key)
+        && (v.freshness != Freshness::Live || live_terminal(d, v).is_none())
+}
+
+fn terminal_fact_read_due(d: &HostData, v: &AgentView, fact: Option<&TerminalFact>, failed_at: Option<UnixMillis>, baseline: Option<UnixMillis>, now: UnixMillis) -> bool {
+    if !needs_terminal_read(d, v) {
+        return false;
+    }
+    let recheck = TERMINAL_RECHECK.as_millis() as i64;
+    match fact {
+        None => terminal_reread_due(false, true, now, failed_at, now, recheck),
+        Some(t) => {
+            let matches = matches!((&t.turn, t.end), (Some(turn), Some(end)) if end_matches_view(d, v, turn, end));
+            let stale = !matches || baseline.is_some_and(|b| t.checked_at < b);
+            terminal_reread_due(true, stale, t.checked_at, failed_at, now, recheck)
+        }
+    }
+}
+
 /// 履歴の末尾の様子を、再確認の結果にする。終端（またはturnなし）を確認できたものだけ `TerminalFound`、それ以外は状態不明のまま。
 /// 状態を終端扱いにする条件（`unknown_confirmed_idle`）と同じ判定にそろえ、最新turnが食い違うときは確認済みと言わない。
 fn recheck_outcome_of(latest_turn: Option<&ExternalId>, tail: &HistoryTail) -> RecheckOutcome {
@@ -216,8 +253,9 @@ fn gate_input(
     let fact = |v: &AgentView| -> q::AgentFact {
         let key = &v.agent.key;
         let latest = v.agent.latest_turn.as_ref();
-        let live_end = d.last_end.get(key).filter(|(t, _, _)| Some(t) == latest).map(|(_, end, at)| (*end, *at));
-        let term = history_term(latest, terminals.get(key));
+        let live_end = live_terminal(d, v).map(|(_, end, at)| (*end, *at));
+        let term = history_term(latest, terminals.get(key))
+            .filter(|t| end_matches_view(d, v, t.turn.as_ref().unwrap(), t.end.unwrap()));
         let history_end = term.and_then(|t| t.end.map(|e| (e, t.completed_at.unwrap_or(t.checked_at))));
         q::AgentFact {
             agent: key.clone(),
@@ -332,7 +370,9 @@ impl Host {
         if should_start_scan(scan_ready(flag, scan_running), scan_running, self.is_connected(), last_start, now_ms()) {
             self.start_scan(root.clone());
         }
-        self.refresh_terminal_facts(chat).await;
+        // Import/inspection also needs the parent's terminal after restart. Ordinary
+        // queue dispatch below continues to refresh descendants only.
+        self.refresh_terminal_facts(chat, true).await;
         let terminals = self.queue_rt.terminals.lock().unwrap().clone();
         let scan_running = self.scanning.lock().unwrap().contains(&root);
         let scan_complete = scan_ready(self.queue_rt.scans.lock().unwrap().get(&root).copied(), scan_running);
@@ -404,7 +444,7 @@ impl Host {
             // 走査が完了していない（未実施、または失敗して終わった）。読み取りだけの走査を始める（完了まで状態不明として保留）。
             self.start_scan(root.clone());
         }
-        self.refresh_terminal_facts(chat).await;
+        self.refresh_terminal_facts(chat, false).await;
         let terminals = self.queue_rt.terminals.lock().unwrap().clone();
         let scan_running = self.scanning.lock().unwrap().contains(&root);
         let scan_complete = scan_ready(self.queue_rt.scans.lock().unwrap().get(&root).copied(), scan_running);
@@ -490,8 +530,8 @@ impl Host {
         }
     }
 
-    /// live購読でない子孫の最新turnの終端を、履歴の読取りで確認する（resumeしない）。
-    async fn refresh_terminal_facts(self: &Arc<Self>, chat: &ChatKey) {
+    /// 子孫の終端を履歴で確認する。読み取り専用の取り込み確認では親も含める（resumeしない）。
+    async fn refresh_terminal_facts(self: &Arc<Self>, chat: &ChatKey, include_root: bool) {
         let now = now_ms();
         let cands: Vec<AgentKey> = {
             let terminals = self.queue_rt.terminals.lock().unwrap().clone();
@@ -501,17 +541,10 @@ impl Host {
                 let root = agent_key_of(chat);
                 d.agents
                     .iter()
-                    .filter(|v| &v.agent.chat == chat && v.agent.key != root && v.freshness != Freshness::Live && !is_working(v.status.state))
+                    .filter(|v| &v.agent.chat == chat && (include_root || v.agent.key != root))
                     .filter(|v| {
                         let failed_at = failed.get(&v.agent.key).copied();
-                        let recheck = TERMINAL_RECHECK.as_millis() as i64;
-                        match terminals.get(&v.agent.key) {
-                            None => terminal_reread_due(false, true, now, failed_at, now, recheck),
-                            Some(t) => {
-                                let stale = v.agent.latest_turn.as_ref().is_some_and(|l| t.turn.as_ref() != Some(l)) || baseline.is_some_and(|b| t.checked_at < b) || t.end.is_none();
-                                terminal_reread_due(true, stale, t.checked_at, failed_at, now, recheck)
-                            }
-                        }
+                        terminal_fact_read_due(d, v, terminals.get(&v.agent.key), failed_at, baseline, now)
                     })
                     .map(|v| v.agent.key.clone())
                     .take(TERMINAL_READS_PER_TICK)
@@ -1471,6 +1504,206 @@ mod history_gate_tests {
     fn decide(d: &HostData, terms: &HashMap<AgentKey, TerminalFact>, confirmed: bool) -> q::GateDecision {
         let f = &d.queues.get(&ck()).unwrap().queue;
         q::evaluate(f, &gate_input(d, &ck(), terms, true, None, ctx(), confirmed))
+    }
+
+    fn apply(d: &mut HostData, event: BackendEvent) {
+        d.apply_event(&EventEnvelope { source: SourceId("s".into()), seq: 1, received_at: UnixMillis(7_000), event },
+            &crate::codex::adapter::codex_capabilities(true));
+    }
+    fn child_status(state: AgentState, turn: &str) -> BackendEvent {
+        let mut status = view("luna", false, state, Freshness::Live).status;
+        status.turn = Some(ExternalId(turn.into()));
+        status.scope = StateScope::Turn;
+        BackendEvent::AgentStatus { agent: ak("luna"), status }
+    }
+    fn child_start(turn: &str) -> BackendEvent {
+        BackendEvent::TurnStarted { turn: TurnKey { agent: ak("luna"), turn_id: ExternalId(turn.into()) }, evidence: ev(7_000) }
+    }
+    fn child_end(turn: &str, end: TurnEnd) -> BackendEvent {
+        BackendEvent::TurnEnded { turn: TurnKey { agent: ak("luna"), turn_id: ExternalId(turn.into()) }, end, error: None, evidence: ev(7_000) }
+    }
+    fn child_fact(d: &HostData, terms: &HashMap<AgentKey, TerminalFact>) -> q::AgentFact {
+        gate_input(d, &ck(), terms, true, None, ctx(), false).descendants.into_iter().find(|f| f.agent == ak("luna")).unwrap()
+    }
+
+    fn restarted_subagent_host(root_turn: Option<&str>) -> (Arc<Host>, crate::backend::subagents::SubagentRun) {
+        let host = Arc::new(Host::new(std::env::temp_dir()));
+        host.mutate(|d| {
+            *d = data();
+            d.queues.clear();
+            d.last_end.clear();
+            d.agents[0] = view("root", true, AgentState::Unknown, Freshness::HistoryOnly);
+            d.agents[0].agent.latest_turn = root_turn.map(|t| ExternalId(t.into()));
+            ((), vec![])
+        });
+        host.queue_rt.note_scan(&ak("root"), true);
+        let run = crate::backend::subagents::SubagentRun {
+            schema_version: 1, id: "run-restart".into(), title: "restart".into(), created_at: UnixMillis(1),
+            repo: "repo".into(), worktree: None, parent: Some(ck()), first_attempt: None,
+            phase: "ready".into(), detail: None, observed_children: vec![ak("luna")],
+        };
+        (host, run)
+    }
+
+    fn cache_completed_history(host: &Host, agent: &str, turn: &str) {
+        let mut fact = fact_of(Some(turn), Some(TurnEnd::Completed));
+        fact.checked_at = now_ms();
+        host.queue_rt.terminals.lock().unwrap().insert(ak(agent), fact);
+    }
+
+    #[tokio::test]
+    async fn subagent_restart_recovers_history_only_parent_and_child_through_import_gate() {
+        for latest in [None, Some("r1")] {
+            let (host, run) = restarted_subagent_host(latest);
+            cache_completed_history(&host, "luna", "c1");
+            // Ordinary queue refresh still excludes the root. The unconnected test
+            // backend makes an attempted read observable as a recorded read failure.
+            host.refresh_terminal_facts(&ck(), false).await;
+            assert!(!host.queue_rt.read_failed.lock().unwrap().contains_key(&ak("root")));
+            let gate = host.queue_gate_input(&ck()).await;
+            assert!(host.queue_rt.read_failed.lock().unwrap().contains_key(&ak("root")));
+            assert!(!crate::host::subagents::gate_blockers(&run, &gate, false).is_empty(), "unreadable parent stays blocked");
+
+            // A successful history read supplies this cache; no live event or resume
+            // is needed to pass the actual import gate after restart.
+            cache_completed_history(&host, "root", "r1");
+            let gate = host.queue_gate_input(&ck()).await;
+            assert!(gate.root.as_ref().unwrap().terminal_explicit);
+            assert_eq!(gate.root.as_ref().unwrap().freshness, Freshness::HistoryOnly);
+            assert!(gate.descendants[0].terminal_explicit);
+            assert!(crate::host::subagents::gate_blockers(&run, &gate, false).is_empty());
+            assert!(matches!(q::evaluate_gate(&gate, None, false, &LocalId("q".into())), q::GateDecision::Hold(_)),
+                "history-only parent still cannot dispatch an ordinary queue");
+            assert!(host.read(|d| d.last_end.is_empty() && d.running_turn.is_empty()));
+        }
+    }
+
+    #[tokio::test]
+    async fn subagent_restart_rejects_new_active_failed_interrupted_or_incomplete_parent() {
+        for state in [AgentState::Running, AgentState::Failed, AgentState::Interrupted, AgentState::Unknown] {
+            let (host, run) = restarted_subagent_host(None);
+            cache_completed_history(&host, "root", "r1");
+            cache_completed_history(&host, "luna", "c1");
+            // A new turn may arrive while the history read is in flight. Its old
+            // completion must fail the gate even with a still-fresh cache.
+            host.mutate(|d| {
+                apply(d, BackendEvent::TurnStarted { turn: TurnKey { agent: ak("root"), turn_id: ExternalId("r2".into()) }, evidence: ev(7_000) });
+                let mut status = view("root", true, state, Freshness::HistoryOnly).status;
+                status.turn = Some(ExternalId("r2".into()));
+                apply(d, BackendEvent::AgentStatus { agent: ak("root"), status });
+                ((), vec![])
+            });
+            let gate = host.queue_gate_input(&ck()).await;
+            assert!(!gate.root.as_ref().unwrap().terminal_explicit);
+            assert!(gate.root.as_ref().unwrap().latest_end.is_none());
+            assert!(!crate::host::subagents::gate_blockers(&run, &gate, false).is_empty());
+        }
+        for end in [None, Some(TurnEnd::Failed), Some(TurnEnd::Interrupted)] {
+            let (host, run) = restarted_subagent_host(None);
+            cache_completed_history(&host, "luna", "c1");
+            let mut fact = fact_of(Some("r1"), end);
+            fact.checked_at = now_ms();
+            host.queue_rt.terminals.lock().unwrap().insert(ak("root"), fact);
+            let gate = host.queue_gate_input(&ck()).await;
+            assert!(!crate::host::subagents::gate_blockers(&run, &gate, false).is_empty());
+        }
+    }
+
+    #[test]
+    fn subagent_terminal_cache_rechecks_status_turn_mismatch_without_losing_backoff() {
+        let mut d = data();
+        d.agents[0] = view("root", true, AgentState::Unknown, Freshness::HistoryOnly);
+        d.agents[0].status.turn = Some(ExternalId("r2".into()));
+        let fact = fact_of(Some("r1"), Some(TurnEnd::Completed));
+        // latest_turn may still be absent after restart; status.turn also makes
+        // the older cache stale and must trigger a bounded retry.
+        assert!(!terminal_fact_read_due(&d, &d.agents[0], Some(&fact), None, None, UnixMillis(15_999)));
+        assert!(terminal_fact_read_due(&d, &d.agents[0], Some(&fact), None, None, UnixMillis(16_000)));
+        assert!(!terminal_fact_read_due(&d, &d.agents[0], Some(&fact), Some(UnixMillis(15_000)), None, UnixMillis(16_000)));
+        d.agents[0].status.turn = Some(ExternalId("r1".into()));
+        assert!(!terminal_fact_read_due(&d, &d.agents[0], Some(&fact), None, None, UnixMillis(30_000)));
+    }
+
+    #[test]
+    fn subagent_live_completion_survives_history_and_discovery_metadata() {
+        let mut d = data();
+        d.agents[1].freshness = Freshness::Live;
+        apply(&mut d, child_start("c2"));
+        apply(&mut d, child_status(AgentState::Done, "c2"));
+        apply(&mut d, child_end("c2", TurnEnd::Completed));
+        for turn in [None, Some("c1")] {
+            let mut metadata = view("luna", false, AgentState::Unknown, Freshness::HistoryOnly);
+            metadata.agent.latest_turn = turn.map(|t| ExternalId(t.into()));
+            d.upsert_history_agent(metadata.agent.clone(), metadata.status);
+            apply(&mut d, BackendEvent::AgentDiscovered { agent: metadata.agent });
+            let fact = child_fact(&d, &HashMap::new());
+            assert_eq!(fact.latest_turn, Some(ExternalId("c2".into())));
+            assert!(matches!(fact.latest_end, Some((TurnEnd::Completed, _))));
+            assert!(!needs_terminal_read(&d, d.view(&ak("luna")).unwrap()));
+        }
+        // A non-live history read can still advance to an actually newer turn.
+        d.agents[1].freshness = Freshness::HistoryOnly;
+        let mut metadata = d.agents[1].clone();
+        metadata.agent.latest_turn = Some(ExternalId("c3".into()));
+        d.upsert_history_agent(metadata.agent, metadata.status);
+        assert_eq!(d.agents[1].agent.latest_turn, Some(ExternalId("c3".into())));
+    }
+
+    #[test]
+    fn subagent_end_without_start_records_the_completed_turn() {
+        let mut d = data();
+        d.agents[1].freshness = Freshness::Live;
+        d.agents[1].status.state = AgentState::Done;
+        apply(&mut d, child_end("c1", TurnEnd::Completed));
+        let fact = child_fact(&d, &HashMap::new());
+        assert_eq!(fact.latest_turn, Some(ExternalId("c1".into())));
+        assert!(matches!(fact.latest_end, Some((TurnEnd::Completed, _))));
+    }
+
+    #[test]
+    fn subagent_live_child_without_terminal_evidence_can_recover_from_history() {
+        let mut d = data();
+        d.agents[1].freshness = Freshness::Live;
+        d.agents[1].status.state = AgentState::Done;
+        assert!(needs_terminal_read(&d, &d.agents[1]));
+        assert!(child_fact(&d, &HashMap::new()).latest_end.is_none());
+        let terms = HashMap::from([(ak("luna"), fact_of(Some("c1"), Some(TurnEnd::Completed)))]);
+        let fact = child_fact(&d, &terms);
+        assert_eq!(fact.latest_turn, Some(ExternalId("c1".into())));
+        assert!(matches!(fact.latest_end, Some((TurnEnd::Completed, _))));
+        assert!(fact.terminal_explicit);
+        // thread/read metadata arriving after the read must not discard the live turn.
+        d.upsert_history_agent(view("luna", false, AgentState::Unknown, Freshness::HistoryOnly).agent,
+            view("luna", false, AgentState::Unknown, Freshness::HistoryOnly).status);
+        assert!(child_fact(&d, &terms).terminal_explicit);
+    }
+
+    #[test]
+    fn subagent_old_completion_cannot_complete_a_new_active_failed_or_interrupted_turn() {
+        for state in [AgentState::Running, AgentState::Failed, AgentState::Interrupted] {
+            let mut d = data();
+            d.agents[1].freshness = Freshness::Live;
+            apply(&mut d, child_start("c1"));
+            apply(&mut d, child_status(AgentState::Done, "c1"));
+            apply(&mut d, child_end("c1", TurnEnd::Completed));
+            apply(&mut d, child_start("c2"));
+            apply(&mut d, child_status(state, "c2"));
+            let mut stale = view("luna", false, AgentState::Done, Freshness::HistoryOnly);
+            stale.agent.latest_turn = Some(ExternalId("c1".into()));
+            d.upsert_history_agent(stale.agent.clone(), stale.status);
+            apply(&mut d, BackendEvent::AgentDiscovered { agent: stale.agent });
+            apply(&mut d, child_end("c1", TurnEnd::Completed));
+            let terms = HashMap::from([(ak("luna"), fact_of(Some("c1"), Some(TurnEnd::Completed)))]);
+            let fact = child_fact(&d, &terms);
+            assert_eq!(fact.latest_turn, Some(ExternalId("c2".into())));
+            assert!(fact.latest_end.is_none());
+            assert!(!fact.terminal_explicit);
+            // Also fail closed for pre-existing inconsistent state with missing metadata.
+            d.agents[1].agent.latest_turn = None;
+            let fact = child_fact(&d, &terms);
+            assert!(fact.latest_end.is_none());
+            assert!(!fact.terminal_explicit);
+        }
     }
 
     #[test]

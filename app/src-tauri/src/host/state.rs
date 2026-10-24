@@ -668,10 +668,26 @@ impl HostData {
         vec![HostEvent::ChatUpdated { chat }]
     }
 
+    /// Discovery/list reads carry metadata, not a newer live turn. Preserve live observations
+    /// even when the read returns an older turn; non-live history may advance normally.
+    fn with_preserved_turn(&self, mut agent: Agent) -> Agent {
+        if let Some(v) = self.view(&agent.key) {
+            if v.freshness == Freshness::Live {
+                agent.latest_turn = v.agent.latest_turn.clone()
+                    .or_else(|| self.running_turn.get(&agent.key).cloned())
+                    .or_else(|| v.status.turn.clone())
+                    .or(agent.latest_turn);
+            } else if agent.latest_turn.is_none() {
+                agent.latest_turn = v.agent.latest_turn.clone();
+            }
+        }
+        agent
+    }
+
     /// 履歴・一覧から得た状態を反映する。live購読中のエージェントの状態は、古い可能性がある読み取りで上書きしない。
     /// 子孫（ルート以外）の発見・状態変化は監視活動として記録する（一覧のルートは記録しない）。
     pub fn upsert_history_agent(&mut self, agent: Agent, status: AgentStatus) -> Vec<HostEvent> {
-        let agent = self.with_assignment(agent);
+        let agent = self.with_preserved_turn(self.with_assignment(agent));
         let key = agent.key.clone();
         let is_root = matches!(agent.parent, ParentLink::Root);
         let at = status.evidence.observed_at;
@@ -967,7 +983,7 @@ impl HostData {
                 out.extend(self.record_spawn_supplements(&[(agent.clone(), spec.clone())]));
             }
             BackendEvent::AgentDiscovered { agent } => {
-                let agent = &self.with_assignment(agent.clone());
+                let agent = &self.with_preserved_turn(self.with_assignment(agent.clone()));
                 if self.view(&agent.key).is_none() {
                     let view = AgentView {
                         agent: agent.clone(),
@@ -1013,6 +1029,9 @@ impl HostData {
                     }
                     let view = self.view_mut(agent).map(|v| {
                         v.status = status.clone();
+                        if let Some(turn) = &status.turn {
+                            v.agent.latest_turn = Some(turn.clone());
+                        }
                         v.clone()
                     });
                     match view {
@@ -1061,14 +1080,27 @@ impl HostData {
                 out.push(HostEvent::TurnUpdated { turn: turn.clone(), end: None });
             }
             BackendEvent::TurnEnded { turn, end, evidence: ev, .. } => {
-                let mut was_nonterminal = self.nonterminal_seen.remove(&turn.agent);
-                if self.running_turn.get(&turn.agent) == Some(&turn.turn_id) {
-                    self.running_turn.remove(&turn.agent);
-                    was_nonterminal = true;
-                }
-                self.note_end(&turn.agent, turn.turn_id.clone(), *end, was_nonterminal);
+                // A late end still belongs in activity/stop records, but cannot complete a
+                // different observed turn or consume its pending completion notification.
+                let current = self.latest_turn_start.get(&turn.agent).is_none_or(|t| t == &turn.turn_id)
+                    && self.running_turn.get(&turn.agent).is_none_or(|t| t == &turn.turn_id)
+                    && self.view(&turn.agent).is_none_or(|v| {
+                        v.agent.latest_turn.as_ref().is_none_or(|t| t == &turn.turn_id)
+                            && v.status.turn.as_ref().is_none_or(|t| t == &turn.turn_id)
+                    });
                 let at = ev.source_time.unwrap_or(now);
-                self.last_end.insert(turn.agent.clone(), (turn.turn_id.clone(), *end, at));
+                if current {
+                    if let Some(v) = self.view_mut(&turn.agent) {
+                        v.agent.latest_turn = Some(turn.turn_id.clone());
+                    }
+                    let mut was_nonterminal = self.nonterminal_seen.remove(&turn.agent);
+                    if self.running_turn.get(&turn.agent) == Some(&turn.turn_id) {
+                        self.running_turn.remove(&turn.agent);
+                        was_nonterminal = true;
+                    }
+                    self.note_end(&turn.agent, turn.turn_id.clone(), *end, was_nonterminal);
+                    self.last_end.insert(turn.agent.clone(), (turn.turn_id.clone(), *end, at));
+                }
                 if let Some(chat) = self.chat_of_agent(&turn.agent) {
                     self.record_activity(chat, ActivityLine::TurnEnded { at, turn: turn.clone(), end: *end });
                 }
