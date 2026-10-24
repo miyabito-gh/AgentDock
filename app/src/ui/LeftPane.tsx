@@ -40,7 +40,7 @@ type OpenMenu = { kind: "chat"; id: string } | { kind: "group"; key: string };
 
 export function LeftPane({ org, snap, sel, onSelect, onAct, onAcknowledge, onChatAct, chatList, onChatList, projects = null, onNotice, listStatus, uiSize = "Normal", onNewChatIn, onReclassify, onFetchProjectChats, onLoadMore, creating = [], onCreatingAct }: {
   /** 組織実行（P-ORG-7b）。ワークフロー1件＝1行。役割チャットは通常の一覧から隠し、ワークフロー画面から辿る。wf が null なら開始の入口だけ（足元）。 */
-  org?: { wf: OrgWorkflowView | null; selected: boolean; onOpen: () => void; onStart: () => void; history: OrgWorkflowView[]; deletionOverflow?: number; archived: OrgWorkflowView[]; onUnarchive: (id: string) => void; onArchive: (id: string) => void; live: boolean; onDelete: (id: string) => void; selectedHistory: string | null; onOpenHistory: (id: string) => void; shown: ReadonlySet<string> | null };
+  org?: { wf: OrgWorkflowView | null; selected: boolean; onOpen: () => void; onStart: () => void; history: OrgWorkflowView[]; deletionOverflow?: number; archived: OrgWorkflowView[]; onUnarchive: (id: string) => void; onArchive: (id: string) => void; onArchiveMany?: (ids: string[]) => Promise<string>; live: boolean; onDelete: (id: string) => void; selectedHistory: string | null; onOpenHistory: (id: string) => void; shown: ReadonlySet<string> | null };
   /** 作成中の仮行（先頭。ピンより上）と、その操作。 */
   creating?: CreatingChat[]; onCreatingAct?: (id: string, op: "retry" | "dismiss" | "refresh") => void;
   /** プロジェクト見出しの「このプロジェクトのチャットを取得」。roots を cwd 条件に読む（読み取りのみ）。結果の通知は呼び出し側が出す。 */
@@ -84,10 +84,11 @@ export function LeftPane({ org, snap, sel, onSelect, onAct, onAcknowledge, onCha
   const filtered = sortChats(snap.chats).filter((c) => !removed(c) && (!showArch || !isOrgOwned(localOf(c), org?.shown ?? null))).filter((c) =>
     (showArch ? archived(c) : !archived(c) || (q !== "" && inclArch)) && matchesQ(c));
   // 依頼整理と組織の役割チャットは、ワークフローの下（または「依頼整理（未開始）」）へ畳む。アーカイブ表示では並べたまま。
-  const cls = (c: Chat) => (showArch ? { kind: "normal" as const } : classifyLeft(localOf(c), org?.shown ?? null, c.pinned));
+  const cls = (c: Chat) => (showArch ? { kind: "normal" as const } : classifyLeft(localOf(c), org?.shown ?? null, c.pinned, q !== ""));
   const visible = filtered.filter((c) => cls(c).kind === "normal");
   const nestedOf = (wid: string) => filtered.filter((c) => { const k = cls(c); return (k.kind === "role" || k.kind === "intake") && k.workflowId === wid; });
   const intakeOpen = filtered.filter((c) => cls(c).kind === "intakeOpen");
+  const intakeAbandoned = filtered.filter((c) => cls(c).kind === "intakeAbandoned");
   const [nestOpen, setNestOpen] = useState<ReadonlySet<string>>(new Set());
   const nestIsOpen = (key: string) => q !== "" || nestOpen.has(key);
   const toggleNest = (key: string) => setNestOpen((s) => { const n = new Set(s); if (n.has(key)) n.delete(key); else n.add(key); return n; });
@@ -460,6 +461,7 @@ export function LeftPane({ org, snap, sel, onSelect, onAct, onAcknowledge, onCha
       out.push(nestGroup(`wf:${wf.workflowId}`, `${name}：${[nI ? `依頼整理 ${nI}` : "", nR ? `役割 ${nR}` : ""].filter((x) => x).join("・")}`, kids, `組織ワークフロー「${name}」に紐づくチャット（依頼整理・役割）。開くと一覧に出ます`));
     }
     if (intakeOpen.length) out.push(nestGroup("intake-open", "依頼整理（未開始）", intakeOpen, "組織実行を開始していない（または取りやめた）依頼整理のチャットです"));
+    if (intakeAbandoned.length) out.push(nestGroup("intake-abandoned", `依頼整理（やめたもの ${intakeAbandoned.length}件）`, intakeAbandoned, "組織実行を始めずにやめた依頼整理のチャットです（削除はしていません）"));
     return out;
   };
 
@@ -520,7 +522,7 @@ export function LeftPane({ org, snap, sel, onSelect, onAct, onAcknowledge, onCha
         {listStatus && !listStatus.ok ? <div className="small lt-fail" role="status">{listStatus.text}</div> : null}
       </div>
       {org?.wf && org.wf.archivedAt === null ? <OrgListRow wf={org.wf} selected={org.selected} onOpen={org.onOpen} onStart={org.onStart} counts={workflowRequestCounts(snap, org.wf)} live={org.live} onArchive={org.onArchive} onDelete={org.onDelete} /> : null}
-      {org && org.history.length > 0 ? <OrgHistoryRows history={org.history} deletionOverflow={org.deletionOverflow} selectedId={org.selectedHistory} onOpen={org.onOpenHistory} onDelete={org.onDelete} onArchive={org.onArchive} live={org.live} /> : null}
+      {org && org.history.length > 0 ? <OrgHistoryRows history={org.history} deletionOverflow={org.deletionOverflow} selectedId={org.selectedHistory} onOpen={org.onOpenHistory} onDelete={org.onDelete} onArchive={org.onArchive} onArchiveMany={org.onArchiveMany} currentFinished={!!org.wf && org.wf.archivedAt === null && org.wf.finished} searching={q !== ""} live={org.live} /> : null}
       <div className="left-scroll" ref={scrollerRef} onScroll={() => { if (menu) closeMenu(false); if (windowed) measure(); }}>
         {showArch ? (
           <>

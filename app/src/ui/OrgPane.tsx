@@ -20,6 +20,9 @@ import { takeNoteDraft } from "./orgNoteDraft";
 import { rootView } from "./derive";
 import { ArtifactsSection, ResultSection, artifactsSig, hasArtifactTasks, jumpToReport, resultItem, useArtifacts } from "./OrgArtifacts";
 import { manageOffReason } from "./orgDeleteUi";
+import { splitHistory, foldCounts, foldLabel, archiveEligible, hasPendingImport } from "./orgFold";
+import { askBulkArchive, type BulkItem } from "./orgBulkArchive";
+import { intakeChatIdFor } from "./leftNest";
 
 /** 状態の表示（アイコン＋文字。形・色は `.st.<tone>`）。 */
 function Chip({ tone, icon, label, title }: { tone: OrgTone; icon: string; label: string; title?: string }) {
@@ -78,41 +81,69 @@ export function OrgListRow({ wf, selected, onOpen, onStart, counts, live = false
   );
 }
 
-/** 左一覧の過去のワークフロー（保存済み。読み取り専用）。完了／失敗／取消しの印つき。多いときは折りたたむ。選ぶと中央に開くだけ。 */
-const HISTORY_FOLDED = 3;
-export function OrgHistoryRows({ history, selectedId, onOpen, onDelete, onArchive, live = false, deletionOverflow = 0 }: { live?: boolean; onArchive?: (id: string) => void; history: OrgWorkflowView[]; /** 別枠に収まらず出さなかった削除途中の件数。 */ deletionOverflow?: number; selectedId: string | null; onOpen: (id: string) => void; /** 削除の途中のものに「削除を続ける…」の入口を出す。 */ onDelete?: (id: string) => void }) {
-  const [all, setAll] = useState(false);
-  const shown = all || history.length <= HISTORY_FOLDED + 1 ? history : history.slice(0, HISTORY_FOLDED);
+/**
+ * 左一覧の過去のワークフロー（保存済み。読み取り専用）。終了済みは『過去のワークフロー（N件…）』の1行に畳む（既定は閉じる。検索中は開く）。
+ * 畳むのは見た目だけで、アーカイブも削除もしない。実行中・開いている・直近の1件・削除途中は畳まず見せる。
+ */
+export function OrgHistoryRows({ history, selectedId, onOpen, onDelete, onArchive, onArchiveMany, live = false, deletionOverflow = 0, currentFinished = false, searching = false }: { live?: boolean; onArchive?: (id: string) => void; /** 1件ずつ順に既存のアーカイブを呼び、結果の文を返す。 */ onArchiveMany?: (ids: string[]) => Promise<string>; history: OrgWorkflowView[]; /** 現在のワークフローが終了済みか（直近枠の判定）。 */ currentFinished?: boolean; searching?: boolean; /** 別枠に収まらず出さなかった削除途中の件数。 */ deletionOverflow?: number; selectedId: string | null; onOpen: (id: string) => void; /** 削除の途中のものに「削除を続ける…」の入口を出す。 */ onDelete?: (id: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [last, setLast] = useState<string | null>(null);
+  const { visible, folded } = splitHistory(history, selectedId, currentFinished, searching);
+  const isOpen = open || searching;
+  const row = (wf: OrgWorkflowView) => {
+    const sum = workflowSummary(wf);
+    const name = displayWorkflowTitle(wf.title) ?? wf.request.slice(0, 30);
+    const sel = selectedId === wf.workflowId;
+    return (
+      <div key={wf.workflowId} className={`row-chat org-row${sel ? " sel" : ""}`}>
+        <button type="button" className="row-main" aria-current={sel} onClick={() => onOpen(wf.workflowId)} title={`過去の組織実行「${name}」（読み取り専用）
+状態: ${sum.label}`}>
+          <span className="tag ai" title="過去の組織実行（保存済み。読み取り専用）">組織</span>
+          <span className="nm">{name}</span>
+          <span className="marks"><Chip tone={sum.tone} icon={sum.icon} label={sum.label} />{wf.artifactHint && wf.artifactHint.ready > 0 ? <span className="mark wait" title="あなたの確認と取り込みを待っている成果">レビュー待ち {wf.artifactHint.ready}</span> : null}</span>
+        </button>
+        {wf.deletion && onDelete ? <button type="button" className="small" title="途中で止まった削除を続けます（確認があります）" onClick={() => onDelete(wf.workflowId)}>削除を続ける…</button> : null}
+        {onArchive && onDelete ? (
+          <Popover role="menu" align="right" triggerClassName="row-more" label={`過去の組織実行「${name}」の操作`} trigger={<span aria-hidden="true">…</span>}>
+            {(close) => (
+              <>
+                <button type="button" role="menuitem" onClick={() => { close(); onOpen(wf.workflowId); }}>ワークフローを開く</button>
+                <RowManageItems wf={wf} live={live} close={close} onArchive={onArchive} onDelete={onDelete} />
+              </>
+            )}
+          </Popover>
+        ) : null}
+      </div>
+    );
+  };
+  const eligibleN = archiveEligible(folded).length;
+  const bulk = async () => {
+    if (!onArchiveMany || busy) return;
+    const items: BulkItem[] = archiveEligible(folded).map((w) => ({ id: w.workflowId, name: displayWorkflowTitle(w.title) ?? w.request.slice(0, 30), state: workflowSummary(w).label, pending: hasPendingImport(w) }));
+    const ids = await askBulkArchive(items);
+    if (!ids || ids.length === 0) return;
+    setBusy(true);
+    try { setLast(await onArchiveMany(ids)); } finally { setBusy(false); }
+  };
   return (
     <div className="left-org" aria-label="過去のワークフロー">
-      {shown.map((wf) => {
-        const sum = workflowSummary(wf);
-        const name = displayWorkflowTitle(wf.title) ?? wf.request.slice(0, 30);
-        const sel = selectedId === wf.workflowId;
-        return (
-          <div key={wf.workflowId} className={`row-chat org-row${sel ? " sel" : ""}`}>
-            <button type="button" className="row-main" aria-current={sel} onClick={() => onOpen(wf.workflowId)} title={`過去の組織実行「${name}」（読み取り専用）
-状態: ${sum.label}`}>
-              <span className="tag ai" title="過去の組織実行（保存済み。読み取り専用）">組織</span>
-              <span className="nm">{name}</span>
-              <span className="marks"><Chip tone={sum.tone} icon={sum.icon} label={sum.label} />{wf.artifactHint && wf.artifactHint.ready > 0 ? <span className="mark wait" title="あなたの確認と取り込みを待っている成果">レビュー待ち {wf.artifactHint.ready}</span> : null}</span>
-            </button>
-            {wf.deletion && onDelete ? <button type="button" className="small" title="途中で止まった削除を続けます（確認があります）" onClick={() => onDelete(wf.workflowId)}>削除を続ける…</button> : null}
-            {onArchive && onDelete ? (
-              <Popover role="menu" align="right" triggerClassName="row-more" label={`過去の組織実行「${name}」の操作`} trigger={<span aria-hidden="true">…</span>}>
-                {(close) => (
-                  <>
-                    <button type="button" role="menuitem" onClick={() => { close(); onOpen(wf.workflowId); }}>ワークフローを開く</button>
-                    <RowManageItems wf={wf} live={live} close={close} onArchive={onArchive} onDelete={onDelete} />
-                  </>
-                )}
-              </Popover>
-            ) : null}
-          </div>
-        );
-      })}
+      {visible.map(row)}
       {deletionOverflow > 0 ? <div className="muted" role="note">ほか {deletionOverflow} 件の削除途中のワークフローがあります（新しいものから表示しています）</div> : null}
-      {shown.length < history.length ? <button type="button" className="small" onClick={() => setAll(true)}>過去のワークフローをすべて表示（あと {history.length - shown.length} 件）</button> : null}
+      {folded.length > 0 ? (
+        <>
+          <button type="button" className="small grp-toggle" aria-expanded={isOpen} aria-disabled={searching || undefined} title="終了したワークフローの行です。開くと一覧が出ます（自動でアーカイブ・削除はしません）" onClick={() => { if (!searching) setOpen((o) => !o); }}>
+            <span className="grp-caret" aria-hidden="true">{isOpen ? "▾" : "▸"}</span>{foldLabel(foldCounts(folded))}
+          </button>
+          {isOpen ? (
+            <>
+              {folded.map(row)}
+              {onArchiveMany ? <button type="button" className="small" disabled={busy || eligibleN === 0 || !live} title={!live ? "接続していないため実行できません" : eligibleN === 0 ? "まとめてアーカイブできる（終了して状態が確定した）ワークフローがありません" : "確認のあと、1件ずつアーカイブします（押したときだけ実行）"} onClick={() => void bulk()}>{busy ? "アーカイブしています…" : "完了したものをまとめてアーカイブ…"}</button> : null}
+            </>
+          ) : null}
+        </>
+      ) : null}
+      {last ? <div className="small muted" role="status">{last}</div> : null}
     </div>
   );
 }
@@ -274,6 +305,8 @@ export function OrgPane(p: OrgPaneProps) {
   const lim = wf.limits;
   const use = wf.usage;
   const chatExists = (k: ChatKey | null) => !!k && snap.chats.some((c) => c.key.id === k.id);
+  const intakeId = intakeChatIdFor(snap.chatLocals, wf.workflowId);
+  const intakeKey = intakeId ? snap.chats.find((c) => c.key.id === intakeId)?.key ?? null : null;
 
   const resumeFn = async (retryTasks: string[]): Promise<string> => {
     const r = await host.orgResume(wf.workflowId, retryTasks);
@@ -710,6 +743,7 @@ export function OrgPane(p: OrgPaneProps) {
                   <dt>リポジトリ</dt><dd className="mono">{wf.repo}</dd>
                   <dt>タスク</dt><dd>完了 {doneN} / {wf.tasks.length - plan.hiddenIds.size}{sum.attention > 0 ? `　要対応 ${sum.attention}件` : ""}</dd>
                   {vis.settingsFolded ? null : settings}
+                  {intakeKey ? <><dt>依頼整理</dt><dd><button type="button" className="btn sm subtle" title="この組織実行を始める前の依頼整理のチャットを開きます（見るだけ。何も送りません）" onClick={() => p.onOpenChat(intakeKey)}>依頼整理の会話を見る</button></dd></> : null}
                   {plan.line ? <><dt>計画</dt><dd>{plan.line.replace(/^計画: /, "")}{plan.chat ? <> <button type="button" className="btn sm subtle" disabled={!chatExists(plan.chat)} title={chatExists(plan.chat) ? "計画を作ったチャットを開きます（見るだけ。何も送りません）" : "チャットがまだ一覧にありません"} onClick={() => p.onOpenChat(plan.chat!)}>計画を見る</button></> : null}</dd></> : null}
                 </dl>
                 {vis.settingsFolded ? <details className="about"><summary>詳しく</summary><dl className="org-dl">{settings}</dl></details> : null}

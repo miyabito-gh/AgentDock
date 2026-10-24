@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { askConfirm } from "./ui/appConfirm";
+import { summarizeArchive, type ArchiveResult } from "./ui/orgFold";
 import { archivedToast } from "./ui/chatDeleteUi";
 import { openFileConfirm } from "./ui/confirmTexts";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -1716,7 +1717,14 @@ ${cur}` : p.text);
           style={{ ...(!leftTemp && leftOpen ? { "--lw": `${paneW.left}px` } : {}), ...(!rightTemp && rightOpen ? { "--rw": `${paneW.dock}px` } : {}) } as CSSProperties}
         >
           <aside className="left" id="pane-left" aria-label="チャット一覧">
-            <LeftPane org={{ wf: org?.workflow ?? null, selected: orgScreen && !orgHist, onOpen: () => { setOrgSel(null); setOrgScreen(true); setLNarrow(false); setQuick((q) => (q.open ? { ...q, open: false } : q)); }, onStart: () => act("orgStart"), history: org?.history ?? [], deletionOverflow: org?.deletionOverflow ?? 0, archived: org?.archived ?? [], onUnarchive: (id) => void orgRun("アーカイブの解除", async () => { await host.orgUnarchiveWorkflow(id); return "アーカイブを解除しました。"; }), onArchive: (id) => void orgRun("アーカイブ", async () => { await host.orgArchiveWorkflow(id); return "ワークフローをアーカイブしました（アーカイブ一覧から戻せます）。"; }), live, onDelete: (id) => setDialog({ type: "orgDelete", workflowId: id }), selectedHistory: orgHist?.workflowId ?? null, onOpenHistory: (id) => { setOrgSel(id); setOrgScreen(true); setLNarrow(false); setQuick((q) => (q.open ? { ...q, open: false } : q)); }, shown: orgShownIds }} creating={creating} onCreatingAct={creatingAct} snap={snap} sel={chat ? keyStr(chat.key) : null} onSelect={(id) => { selectChat(id); setLNarrow(false); }} onAct={act} onAcknowledge={(c) => onAcknowledge(c.key, null)}
+            <LeftPane org={{ wf: org?.workflow ?? null, selected: orgScreen && !orgHist, onOpen: () => { setOrgSel(null); setOrgScreen(true); setLNarrow(false); setQuick((q) => (q.open ? { ...q, open: false } : q)); }, onStart: () => act("orgStart"), history: org?.history ?? [], deletionOverflow: org?.deletionOverflow ?? 0, archived: org?.archived ?? [], onUnarchive: (id) => void orgRun("アーカイブの解除", async () => { await host.orgUnarchiveWorkflow(id); return "アーカイブを解除しました。"; }), onArchive: (id) => void orgRun("アーカイブ", async () => { await host.orgArchiveWorkflow(id); return "ワークフローをアーカイブしました（アーカイブ一覧から戻せます）。"; }), onArchiveMany: async (ids) => {
+              const rs: ArchiveResult[] = [];
+              for (const id of ids) {
+                try { await host.orgArchiveWorkflow(id); rs.push({ id, ok: true }); } catch (e) { rs.push({ id, ok: false, reason: host.asIpcError(e).message }); }
+              }
+              setOrgTick((n) => n + 1);
+              const m = summarizeArchive(rs); say(m, 8000); return m;
+            }, live, onDelete: (id) => setDialog({ type: "orgDelete", workflowId: id }), selectedHistory: orgHist?.workflowId ?? null, onOpenHistory: (id) => { setOrgSel(id); setOrgScreen(true); setLNarrow(false); setQuick((q) => (q.open ? { ...q, open: false } : q)); }, shown: orgShownIds }} creating={creating} onCreatingAct={creatingAct} snap={snap} sel={chat ? keyStr(chat.key) : null} onSelect={(id) => { selectChat(id); setLNarrow(false); }} onAct={act} onAcknowledge={(c) => onAcknowledge(c.key, null)}
               onChatAct={chatAct} chatList={snap.settings.chatList} projects={projects} onNotice={say} onReclassify={reclassify} onFetchProjectChats={fetchProjectChats} onLoadMore={listCursor ? loadMoreChats : undefined}
               onNewChatIn={(cwd, choices) => { setDialog({ type: "newChat", dev: true, cwd, cwdChoices: choices.length > 1 ? choices : undefined }); setLNarrow(false); }}
               onChatList={(f) => updateSettings((s) => ({ ...s, chatList: f(s.chatList) }), "一覧の表示設定を保存できませんでした。次回の起動では保存されている値に戻ります")} listStatus={listStatus} uiSize={snap.settings.appearance.uiText} />

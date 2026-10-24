@@ -1,7 +1,7 @@
 // 実行: node --test src/ui/leftNest.test.ts （tscの対象外）
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { classifyLeft, nestWorkflowIds, listTitle, stripDocHeader, wfTitleText, wfDisplayName, shortStamp } from "./leftNest.ts";
+import { intakeChatIdFor, classifyLeft, nestWorkflowIds, listTitle, stripDocHeader, wfTitleText, wfDisplayName, shortStamp } from "./leftNest.ts";
 
 const chat = (name: string | null, o: { preview?: string; used?: number | null; created?: number } = {}) => ({
   name: name === null ? { kind: "unknown" } : { kind: "value", value: name },
@@ -34,7 +34,12 @@ test("振り分け: 役割・依頼整理(紐づき/未開始)・通常", () => 
   assert.deepEqual(classifyLeft(role, shown), { kind: "role", workflowId: "wf-1" });
   assert.deepEqual(classifyLeft({ org: { workflowId: "wf-1", released: true } } as never, shown), { kind: "normal" });
   const st = (workflowId: string) => ({ conversation: { intake: { kind: "started", workflowId } } }) as never;
-  assert.deepEqual(classifyLeft(st("wf-1"), shown), { kind: "intake", workflowId: "wf-1" });
+  assert.deepEqual(classifyLeft(st("wf-1"), shown), { kind: "intakeDone" }); // 開始済みは一覧から隠す
+  assert.deepEqual(classifyLeft(st("wf-1"), shown, false, true), { kind: "intake", workflowId: "wf-1" }); // 検索中は見つかる
+  assert.deepEqual(classifyLeft({ conversation: { intake: { kind: "abandoned" } } } as never, shown), { kind: "intakeAbandoned" });
+  assert.deepEqual(classifyLeft({ conversation: { intake: { kind: "abandoned" } } } as never, shown, true), { kind: "normal" });
+  assert.equal(intakeChatIdFor([{ chat: { id: "c1" }, conversation: { intake: { kind: "started", workflowId: "wf-1" } } }, { chat: { id: "c2" } }] as never, "wf-1"), "c1");
+  assert.equal(intakeChatIdFor([{ chat: { id: "c1" }, conversation: { intake: { kind: "drafting" } } }] as never, "wf-1"), null);
   assert.deepEqual(classifyLeft(st("wf-9"), shown), { kind: "normal" });
   assert.deepEqual(classifyLeft({ conversation: { intake: { kind: "ready" } } } as never, shown), { kind: "intakeOpen" });
   assert.deepEqual(classifyLeft(undefined, shown), { kind: "normal" });

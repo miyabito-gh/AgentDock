@@ -41,19 +41,33 @@ export type LeftClass =
   | { kind: "normal" }
   | { kind: "role"; workflowId: string }
   | { kind: "intake"; workflowId: string }
-  | { kind: "intakeOpen" };
+  | { kind: "intakeOpen" }
+  | { kind: "intakeAbandoned" }
+  | { kind: "intakeDone" };
 
 /**
- * 左一覧での置き場所。role＝組織の役割チャット（手動に切替前。ワークフローの下）、intake＝そのワークフローに紐づく依頼整理、
- * intakeOpen＝ワークフローに紐づかない依頼整理（未開始・取りやめ）。shown＝画面に出せるワークフローID（null は未取得）。
+ * 左一覧での置き場所。role＝組織の役割チャット（手動に切替前。ワークフローの下）、intake＝そのワークフローに紐づく依頼整理（検索中だけ）、
+ * intakeOpen＝未開始（下書き・要約中・確認待ち）の依頼整理、intakeAbandoned＝やめた依頼整理（畳み行）、
+ * intakeDone＝組織実行を開始済みの依頼整理（役目が終わったので一覧から隠す。ワークフロー画面の『依頼整理の会話を見る』から開く。削除はしない）。
+ * shown＝画面に出せるワークフローID（null は未取得）。ピン留めは常に通常の行。
  */
-export function classifyLeft(l: ChatLocalView | undefined, shown: ReadonlySet<string> | null, pinned = false): LeftClass {
+export function classifyLeft(l: ChatLocalView | undefined, shown: ReadonlySet<string> | null, pinned = false, searching = false): LeftClass {
   if (pinned) return { kind: "normal" }; // ピン留めは優先（ピン留め欄に出す。外せば畳みに戻る）
   if (l?.org && !l.org.released && (shown === null || shown.has(l.org.workflowId))) return { kind: "role", workflowId: l.org.workflowId };
   const it = l?.conversation?.intake;
   if (!it) return { kind: "normal" };
-  if (it.kind === "started") return shown && shown.has(it.workflowId) ? { kind: "intake", workflowId: it.workflowId } : { kind: "normal" };
+  if (it.kind === "started") {
+    if (!(shown && shown.has(it.workflowId))) return { kind: "normal" }; // 辿り道が無いものは隠さない
+    return searching ? { kind: "intake", workflowId: it.workflowId } : { kind: "intakeDone" };
+  }
+  if (it.kind === "abandoned") return { kind: "intakeAbandoned" };
   return { kind: "intakeOpen" };
+}
+
+/** そのワークフローを開始した依頼整理のチャットID（無ければ null）。 */
+export function intakeChatIdFor(locals: ReadonlyArray<ChatLocalView>, workflowId: string): string | null {
+  const l = locals.find((x) => { const it = x.conversation?.intake; return !!it && it.kind === "started" && it.workflowId === workflowId; });
+  return l ? l.chat.id : null;
 }
 
 /**
