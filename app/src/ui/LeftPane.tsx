@@ -1,7 +1,7 @@
 import { multiFolderMark } from "./workFolders";
 import { CreatingRows } from "./CreatingRows";
 import type { CreatingChat } from "./creating";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { Chat, ChatListSettings, ChatListView, HostSnapshot, ProjectsOutcome, UiTextSize } from "../ipc/types";
 import { Icon } from "./Icon";
 import { tipWithKey } from "./shortcuts";
@@ -72,11 +72,15 @@ export function LeftPane({ org, snap, sel, onSelect, onAct, onAcknowledge, onCha
   const [folderQuery, setFolderQuery] = useState("");
   const [stateFilter, setStateFilter] = useState("all");
   const [inclArch, setInclArch] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const filtersId = useId();
   const [showArch, setShowArch] = useState(false);
   const [menu, setMenu] = useState<OpenMenu | null>(null);
   const q = query.trim();
   const folderQ = folderQuery.trim().replace(/\\/g, "/").toLocaleLowerCase();
-  const searching = !!q || !!folderQ || stateFilter !== "all";
+  const searching = !!q || !!folderQ || stateFilter !== "all" || inclArch;
+  const filterCount = Number(!!q) + Number(!!folderQ) + Number(stateFilter !== "all") + Number(inclArch);
+  const resetFilters = () => { setQuery(""); setFolderQuery(""); setStateFilter("all"); setInclArch(false); };
   const localOf = (c: Chat) => snap.chatLocals.find((l) => l.chat.id === c.key.id);
   // アプリ側のアーカイブ（Codex へ未反映でも一覧から隠す、M43）と Codex 側のアーカイブのどちらかなら、アーカイブ扱い。
   const archived = (c: Chat) => localOf(c)?.visibility.kind === "archived" || knownValue(c.archived) === true;
@@ -506,7 +510,7 @@ export function LeftPane({ org, snap, sel, onSelect, onAct, onAcknowledge, onCha
         <div className="lt-row">
           <button className="btn-line grow" onClick={() => onAct("newChat")} title={tipWithKey("作業フォルダなどを指定して作成", "newChat")}><Icon name="plus" />新しいチャット</button>
           <button className="btn icon" aria-label="クイック新規（すぐ入力して始める）" title={tipWithKey("クイック新規（一般チャットですぐ始める）", "quickNew")} onClick={() => onAct("newChatQuick")}><Icon name="chat" /></button>
-          <Popover role="menu" align="right" triggerClassName="btn lt-view" label={`一覧の並べ方（現在: ${viewLabel}）`} title={`一覧の並べ方: ${viewLabel}`} trigger={<>並べ方 <span aria-hidden="true">▾</span></>}>
+          <Popover role="menu" align="right" triggerClassName="btn icon" label="チャット作成と一覧の設定" title={`一覧の並べ方: ${viewLabel}`} trigger={<span aria-hidden="true">⋯</span>}>
             {(close) => (
               <>
                 {((PROJECTS_ENABLED ? ["Recent", "ByFolder", "ByProject"] : ["Recent", "ByFolder"]) as ChatListView[]).map((v) => (
@@ -544,14 +548,26 @@ export function LeftPane({ org, snap, sel, onSelect, onAct, onAcknowledge, onCha
           </Popover>
           <button className="btn icon" title={listStatus?.ok ? `チャット一覧を Codex から取り直します（読み取りのみ）。直近の結果: ${listStatus.text}` : "チャット一覧を Codex から取り直します（読み取りのみ）"} aria-label="一覧を更新" onClick={() => onAct("refreshList")}><Icon name="refresh" /></button>
         </div>
-        <input type="search" placeholder="名前で検索" aria-label="チャットを名前で検索" value={query} onChange={(e) => setQuery(e.target.value)} />
-        <input type="search" placeholder="作業フォルダで絞る" aria-label="作業フォルダで絞る" value={folderQuery} onChange={(e) => setFolderQuery(e.target.value)} />
-        <select aria-label="親の状態で絞る" value={stateFilter} onChange={(e) => setStateFilter(e.target.value)}>
-          <option value="all">親の状態: すべて</option>
-          {Object.entries(STATE).map(([state, label]) => <option key={state} value={state}>{label.t}</option>)}
-        </select>
-        {searching ? <div className="small muted">取得済みチャットだけを絞り込みます（本文検索は対象外）</div> : null}
-        {searching ? <label className="small"><input type="checkbox" checked={inclArch} onChange={(e) => setInclArch(e.target.checked)} />アーカイブも含める</label> : null}
+        <div className="lt-row lt-search">
+          <input type="search" placeholder="名前で検索" aria-label="チャットを名前で検索" value={query} onChange={(e) => setQuery(e.target.value)} />
+          <button type="button" className="btn sm lt-filter-toggle" aria-expanded={filtersOpen} aria-controls={filtersId} onClick={() => setFiltersOpen((open) => !open)}>絞り込み{filterCount ? ` ${filterCount}` : ""} <span aria-hidden="true">{filtersOpen ? "▴" : "▾"}</span></button>
+        </div>
+        {filterCount ? <div className="lt-active-filters" aria-label="適用中の検索条件">
+          {q ? <span className="lt-filter-chip" title={`名前: ${q}`}>名前: {q}</span> : null}
+          {folderQ ? <span className="lt-filter-chip" title={`フォルダ: ${folderQuery.trim()}`}>フォルダ: {folderQuery.trim()}</span> : null}
+          {stateFilter !== "all" ? <span className="lt-filter-chip">{Object.entries(STATE).find(([key]) => key === stateFilter)?.[1].t ?? stateFilter}</span> : null}
+          {inclArch ? <span className="lt-filter-chip">アーカイブを含む</span> : null}
+          <button type="button" className="small" onClick={resetFilters}>すべて解除</button>
+        </div> : null}
+        <div id={filtersId} className="lt-filter-panel" hidden={!filtersOpen}>
+          <label><span>作業フォルダ</span><input type="search" placeholder="フォルダ名・パス" value={folderQuery} onChange={(e) => setFolderQuery(e.target.value)} /></label>
+          <label><span>親の状態</span><select value={stateFilter} onChange={(e) => setStateFilter(e.target.value)}>
+            <option value="all">すべて</option>
+            {Object.entries(STATE).map(([state, label]) => <option key={state} value={state}>{label.t}</option>)}
+          </select></label>
+          <label className="lt-filter-archive"><input type="checkbox" checked={inclArch} onChange={(e) => setInclArch(e.target.checked)} />アーカイブも含める</label>
+          <p className="small muted">取得済みのチャットを検索します。本文は対象外です。</p>
+        </div>
         {projectsNote ? <div className={`small${projectsNote.bad ? " lt-fail" : ""}`} role="status">{projectsNote.text}</div> : null}
         {listStatus && !listStatus.ok ? <div className="small lt-fail" role="status">{listStatus.text}</div> : null}
       </div>

@@ -1108,7 +1108,7 @@ function Composer({ p, running, lock, hu }: { p: CenterProps; running: boolean; 
           {speedName ? <span className="small muted" title="速度の指定（次の送信から適用）">速度 {speedName}</span> : null}
           {wmSelected ? <span className="small muted" title={`計画／実行の指定: ${WORK_MODE_TEXT[wmSelected]}（次の送信から適用）`}>{wmShort(wmSelected)}</span> : null}
           {/* 受理の根拠は、問題があるときだけ1行目に出す（全文は title と「⋯」） */}
-          {!accepted ? <span className="small acc" title={`${acceptLine}\n${acceptTip}`}>受理未確認</span> : changed ? <span className="small acc" title={acceptLine}>未受理</span> : null}
+          {!accepted ? <span className="small acc" title={`${acceptLine}\n${acceptTip}`}>モデル未確認</span> : changed ? <span className="small acc" title={acceptLine}>未受理</span> : null}
           {wmSelected && wmAccepted !== wmSelected ? <span className="small acc" title={wmLine ?? undefined}>{wmShort(wmSelected)}: 未受理</span> : null}
           {!wmSelected && wmAccepted === "plan" ? <span className="small acc" title={wmLine ?? undefined}>計画／実行 {wmShort(wmAccepted)} のまま</span> : null}
           {speedKept ? <span className="small why" title={speedKeptLine ?? undefined}>速度 {speedKept} のまま</span> : null}
