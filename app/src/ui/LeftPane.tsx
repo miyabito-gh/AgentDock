@@ -15,7 +15,7 @@ import { projectUpdateMessage } from "./listFetch";
 import { PROJECTS_ENABLED } from "./features";
 import { OrgHistoryRows, OrgListRow } from "./OrgPane";
 import { isOrgOwned, workflowRequestCounts } from "./org";
-import { classifyLeft, listTitle, wfDisplayName } from "./leftNest";
+import { classifyLeft, listTitle, nestWorkflowIds, wfDisplayName } from "./leftNest";
 import { isHiddenPredecessor } from "./continuity";
 import type { OrgWorkflowView } from "../ipc/types";
 import { UNKNOWN_KEY, collapseAll, flattenGroups, groupChats, shortNames, worktreeOf, type FlatItem, type FolderGroup } from "./folderGroups";
@@ -449,7 +449,10 @@ export function LeftPane({ org, snap, sel, onSelect, onAct, onAcknowledge, onCha
   };
   const nestGroups = () => {
     const out: React.ReactNode[] = [];
+    // 表示中（現在）のワークフローと、開いている過去のワークフローの分だけ（検索中は全部）。
+    const nestIds = new Set(nestWorkflowIds(allWfs.map((w) => w.workflowId), org?.wf?.workflowId ?? null, org?.selectedHistory ?? null, q !== ""));
     for (const wf of allWfs) {
+      if (!nestIds.has(wf.workflowId)) continue;
       const kids = nestedOf(wf.workflowId);
       if (!kids.length) continue;
       const nI = kids.filter((c) => cls(c).kind === "intake").length, nR = kids.length - nI;

@@ -14,9 +14,9 @@ import { allState, confirmSummary, defaultRequest, fileKey, headline, keepChosen
 
 const SOURCE_TEXT: Record<ChangeSource, string> = { baseline: "このチャット", git: "Git（HEAD比較）" };
 
-const NOTE_BASELINE = "turnの開始時と終了時にAgentDockがGitで控えた内容の差です。Codexがコマンドで編集した変更も含みます（Codexの報告には依存しません）。Gitリポジトリのみで、.gitignore 対象・サブモジュール・作業フォルダ外は含みません。turnの最中に別のツールで変えた内容も含まれます。控えは自動削除されません。";
-const NOTE_GIT = "Gitの作業ツリーとHEADの現在の差分です（turnの区切りはありません）。Gitリポジトリのみ。";
-const NOTE_REVERT = "turnの開始時にAgentDockがGitで控えた内容へ、ファイルを書き戻します。現在の内容がこのチャットのturnによる変更だけのファイルはそのまま戻せます。turnの後や間に別の変更がある・終了時の控えがない・別の会話と同時に作業していたファイルは、理由を表示して止めます。内容を確認したうえで、ファイルごとに「それでも戻す」を選べます。コミットなどでHEADが変わった後のファイルは戻せません。戻す前の内容は、このチャット用の領域に控えとして保存します（自動では削除しません）。";
+const NOTE_BASELINE = "やりとりの開始時と終了時にAgentDockがGitで控えた内容の差です。Codexがコマンドで編集した変更も含みます（Codexの報告には依存しません）。Gitリポジトリのみで、.gitignore 対象・サブモジュール・作業フォルダ外は含みません。やりとりの最中に別のツールで変えた内容も含まれます。控えは自動削除されません。";
+const NOTE_GIT = "Gitの作業ツリーとHEADの現在の差分です（やりとりの区切りはありません）。Gitリポジトリのみ。";
+const NOTE_REVERT = "やりとりの開始時にAgentDockがGitで控えた内容へ、ファイルを書き戻します。現在の内容がこのチャットのやりとりによる変更だけのファイルはそのまま戻せます。やりとりの後や間に別の変更がある・終了時の控えがない・別の会話と同時に作業していたファイルは、理由を表示して止めます。内容を確認したうえで、ファイルごとに「それでも戻す」を選べます。コミットなどでHEADが変わった後のファイルは戻せません。戻す前の内容は、このチャット用の領域に控えとして保存します（自動では削除しません）。";
 const UNVERIFIED_TEXT = "この操作は実際のCodexで動作を確認していません。表示は受け取った報告と、読み取ったファイルの内容だけに基づきます。";
 
 /** 「記録しない」を選んだリポジトリの表示（専用の一行で見せるので、控えがない帯には重ねない）。 */
@@ -338,7 +338,7 @@ ${why}` : pathText(r.file)} onKeyDown={(e) => onRowKey(e, r)} onClick={() => { s
       </div>
       <FootActions
         left={canRevert ? <button className="btn" disabled={lockedUi} onClick={recheck}>再確認</button> : null}
-        main={canRevert && summary && summary.total > 0 && !confirm ? <button className="btn primary" disabled={lockedUi} onClick={() => setConfirm(true)}>{summary.total} 件を戻す…</button> : null} />
+        main={canRevert && summary && summary.total > 0 ? <button className="btn primary" disabled={lockedUi || confirm} title={confirm ? "上の確認で「やめる」か実行を選んでください" : undefined} onClick={() => setConfirm(true)}>{summary.total} 件を戻す…</button> : null} />
     </>
   );
 }

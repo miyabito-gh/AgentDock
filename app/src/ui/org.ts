@@ -146,7 +146,7 @@ export const GAP_TEXT: Record<RespondGap | "expired", string> = {
   notHeld: "AgentDock がこの要求を保持していないため、回答を届けられません（原因は特定できません）。",
   expired: "この要求には回答できません（接続が切れたため、期限切れです）。回答は送っていません。",
 };
-export const GAP_GUIDE_PLAIN = "Codex 側で turn が待ち続けている場合は中断してください。";
+export const GAP_GUIDE_PLAIN = "Codex 側でやりとりが待ち続けている場合は中断してください。";
 export const GAP_GUIDE = `${GAP_GUIDE_PLAIN}組織のタスクは中断後に『新しい試行で再送』できます。`;
 export const gapText = (r: PendingRequest): string => (r.state.kind === "unanswerable" ? GAP_TEXT[r.state.cause] : GAP_TEXT.expired);
 
@@ -218,7 +218,7 @@ export const taskRowId = (id: string): string => `org-task-${id}`;
 export const NODE_KIND_TEXT: Record<OrgNodeKind, string> = { agent: "役割", gate: "あなたの判断", router: "分岐", plannedTasks: "計画のタスク" };
 
 import { reworkCellText } from "./orgText";
-export { verdictJa, verdictText, reworkLimitText, roundText, edgeText, REWORK_COLUMN_TIP, noReportHeadNote, finishedBannerText, completedNoticeText, isInvestigationOnly, displayWorkflowTitle, displayRequest, sectionVisibility, taskArtifactNote, taskSubparts, finalReportTask, finishedBannerFor } from "./orgText";
+export { verdictJa, verdictText, reworkLimitText, roundText, edgeText, REWORK_COLUMN_TIP, noReportHeadNote, finishedBannerText, completedNoticeText, isInvestigationOnly, displayWorkflowTitle, displayRequest, sectionVisibility, releaseMenuState, orgSendLock, planSummary, taskArtifactNote, taskSubparts, finalReportTask, finishedBannerFor } from "./orgText";
 
 const man = (tokens: number): string => String(Math.round(tokens / 1000) / 10);
 
@@ -227,9 +227,9 @@ export function estimateLines(e: OrgEstimateView | null, hint: number, maxTurns:
   if (!e) return { lines: ["見積り: 未取得（このテンプレートの定義を読み込めていません）"], over: false };
   const perTurn = man(hint);
   const lines = [
-    `通常 ${e.turnsTypical} turn／最大 ${e.turnsMax} turn（形式修正込み）。1 turn あたり約${perTurn}万トークンの土台があるため、最大でおよそ ${e.turnsMax}×${perTurn}万 ≒ ${man(e.tokensMax)}万トークン（目安。実際の使用量ではありません）。`,
+    `通常 ${e.turnsTypical} 回／最大 ${e.turnsMax} 回のやりとり（形式修正込み）。1回のやりとりあたり約${perTurn}万トークンの土台があるため、最大でおよそ ${e.turnsMax}×${perTurn}万 ≒ ${man(e.tokensMax)}万トークン（目安。実際の使用量ではありません）。`,
   ];
   const over = e.turnsMax > maxTurns;
-  if (over) lines.push(`最大 ${e.turnsMax} turn は、turn 上限（${maxTurns}）を超えます。途中で turn 上限に達して止まる可能性があります。`);
+  if (over) lines.push(`最大 ${e.turnsMax} 回のやりとりは、やりとりの上限（${maxTurns}）を超えます。途中でやりとりの上限に達して止まる可能性があります。`);
   return { lines, over };
 }

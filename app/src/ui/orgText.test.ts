@@ -1,7 +1,7 @@
 // 実行: node --test src/ui/orgText.test.ts （tscの対象外）
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { displayRequest, displayWorkflowTitle, finalReportTask, finishedBannerFor, PLANNER_REQUEST_NOTE, sectionVisibility, taskArtifactNote, taskSubparts, completedNoticeText, finishedBannerText, isInvestigationOnly, noReportHeadNote, reworkCellText, edgeText, reworkLimitText, verdictJa, verdictText } from "./orgText.ts";
+import { planSummary, orgSendLock, releaseMenuState, displayRequest, displayWorkflowTitle, finalReportTask, finishedBannerFor, PLANNER_REQUEST_NOTE, sectionVisibility, taskArtifactNote, taskSubparts, completedNoticeText, finishedBannerText, isInvestigationOnly, noReportHeadNote, reworkCellText, edgeText, reworkLimitText, verdictJa, verdictText } from "./orgText.ts";
 
 test("周回の文言: 実行回数＝やり直し＋1。単位を分けて同じ数え方", () => {
   assert.equal(reworkLimitText(1, 3), "実行 2回目／最大 4回（やり直しは最大3回、残り2回）");
@@ -72,8 +72,8 @@ test("依頼の整形: 前置きの行を除く（完全一致・先頭一致）
 });
 
 test("終了後の出し分け", () => {
-  assert.deepEqual(sectionVisibility(true), { activity: false, waitBand: false, settingsFolded: true, releaseButton: false });
-  assert.deepEqual(sectionVisibility(false), { activity: true, waitBand: true, settingsFolded: false, releaseButton: true });
+  assert.deepEqual(sectionVisibility(true), { activity: false, waitBand: false, settingsFolded: true });
+  assert.deepEqual(sectionVisibility(false), { activity: true, waitBand: true, settingsFolded: false });
 });
 
 test("成果物の補足: 報告あり／変更あり。取れていないものを「なし」で埋めない", () => {
@@ -99,7 +99,11 @@ test("結果にする報告: 他の依存先になっていない末端の調査
   ];
   assert.equal(finalReportTask(tasks, new Set(["a", "b", "report"])), "report");
   assert.equal(finalReportTask(tasks, new Set(["a", "b"])), null, "末端の報告を読めなければ個別の報告を結果にしない");
-  assert.equal(finalReportTask([{ id: "x", kind: "investigate", deps: [] }], new Set(["x"])), "x");
+  assert.equal(finalReportTask([{ id: "x", kind: "investigate", deps: [] }], new Set(["x"])), null, "統合のない1件は結果にしない");
+  const par = ["a", "b", "c", "d"].map((id) => ({ id, kind: "investigate", deps: [] as string[] }));
+  assert.equal(finalReportTask(par, new Set(["a", "b", "c", "d"])), null, "並列の調査（統合なし）は結果にしない");
+  const two = [...tasks, { id: "report2", kind: "investigate", deps: ["a"] }];
+  assert.equal(finalReportTask(two, new Set(["a", "b", "report", "report2"])), null, "統合が複数なら結果にしない");
   assert.equal(finalReportTask([], new Set()), null);
 });
 
@@ -108,4 +112,29 @@ test("完了の帯: 過去の記録で取り込みを促さない／調査のみ
   assert.ok(finishedBannerFor([{ kind: "change", commit: "a" }], false).includes("取り込んでください"));
   assert.ok(finishedBannerFor([{ kind: "investigate" }], true).includes("取り込む変更はありません"));
   assert.ok(!finishedBannerFor([{ kind: "investigate" }], false).includes("取り込んでください"));
+});
+
+test("手動に切り替え: 終了後も出す／過去の記録は無効＋理由／ロック文は使えるときだけ手順を案内", () => {
+  assert.deepEqual(releaseMenuState(false, false), { show: false, disabled: false, reason: null });
+  assert.deepEqual(releaseMenuState(true, false), { show: true, disabled: false, reason: null });
+  const ro = releaseMenuState(true, true);
+  assert.ok(ro.show && ro.disabled && ro.reason);
+  assert.ok(orgSendLock(true).includes("手動に切り替え"));
+  assert.ok(!orgSendLock(false).includes("手動に切り替え"));
+  assert.ok(orgSendLock(false).includes("見るだけ"));
+  assert.ok(!orgSendLock(true).includes("turn"));
+});
+
+test("計画の1行: 終了後の完了した planner だけ表から外し、承認の別は通知から取れるときだけ", () => {
+  const k = { id: "c", kind: "x" } as unknown as import("../ipc/types").ChatKey;
+  const t = (id: string, role: string, phase: string, chat: typeof k | null = null) => ({ id, role, chat, status: { phase } });
+  const tasks = [t("p", "planner", "completed", k), t("w", "worker", "completed")];
+  const a = planSummary(tasks, true, ["planAutoApproved"]);
+  assert.equal(a.line, "計画: 承認済み（自動）"); assert.ok(a.hiddenIds.has("p")); assert.equal(a.chat, k);
+  assert.equal(planSummary(tasks, true, ["planNeedsApproval"]).line, "計画: 承認済み（利用者）");
+  assert.equal(planSummary(tasks, true, ["planNeedsApproval", "planAutoApproved"]).line, "計画: 承認済み（自動）");
+  assert.equal(planSummary(tasks, true, []).line, "計画: 承認済み", "取れなければ別を書かない");
+  assert.equal(planSummary(tasks, false, ["planAutoApproved"]).line, null, "実行中・停止中は表に残す");
+  assert.equal(planSummary([t("p", "planner", "failed"), t("w", "worker", "completed")], true, []).line, null, "失敗した計画は残す");
+  assert.equal(planSummary([t("p", "planner", "completed")], true, []).line, null, "計画しか無いときは残す");
 });

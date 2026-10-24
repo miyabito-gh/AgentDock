@@ -1,7 +1,7 @@
 // 実行: node --test src/ui/dockTasks.test.ts （tscの対象外）
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { orderWorkingFirst, branchOrder, descendantSummary, descendantSummaryText, isCompletedCard, cardDensity, chatSignature, mayRedirect, holdByTyping, nextHeldSig, orderByRecency, pickRecentDescendants, selectTasks, stableOrder, stableMembership, trackRecency, workSignature } from "./dockTasks.ts";
+import { orderWorkingFirst, branchOrder, descendantSummary, descendantSummaryText, isCompletedCard, completedKidsNote, cardDensity, chatSignature, mayRedirect, holdByTyping, nextHeldSig, orderByRecency, pickRecentDescendants, selectTasks, stableOrder, stableMembership, trackRecency, workSignature } from "./dockTasks.ts";
 
 const chat = (id: string, o: any = {}): any => ({ key: { backend: "codex", id }, lastUsedAt: null, createdAt: { kind: "notFetched" }, archived: { kind: "value", value: false }, ...o });
 const agent = (cid: string, id: string, state: string, o: any = {}): any => ({
@@ -257,4 +257,10 @@ test("isCompletedCard: サブエージェントに失敗・中断・状態不明
   const k = (o: any) => ({ failed: 0, interrupted: 0, unknown: 0, ...o });
   assert.equal(isCompletedCard("done", false, 0, k({})), true);
   for (const o of [{ failed: 1 }, { interrupted: 1 }, { unknown: 1 }]) assert.equal(isCompletedCard("done", false, 0, k(o)), false);
+});
+
+test("completedKidsNote: 完了カードで子が未取得のときだけ「サブエージェント未確認」", () => {
+  assert.equal(completedKidsNote(true, { notFetched: true }), "サブエージェント未確認");
+  assert.equal(completedKidsNote(true, { notFetched: false }), null);
+  assert.equal(completedKidsNote(false, { notFetched: true }), null);
 });

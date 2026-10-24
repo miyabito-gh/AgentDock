@@ -22,6 +22,11 @@ export function effortChar(effort: string): string {
   return EFFORT_CHAR[e] ?? effort.trim().slice(0, 4);
 }
 
+/** 推論の強さの表示名（選択肢用）。知っている識別子は日本語の短い語、知らない値はそのまま（値自体は変えない）。 */
+export function effortLabel(effort: string): string {
+  return EFFORT_CHAR[effort.trim().toLowerCase()] ?? effort;
+}
+
 const valueOf = (k: Known<string>): string | null => (k.kind === "value" && k.value.trim() !== "" ? k.value : null);
 
 /** カードに出す短い印（例 `Sol·高`）。モデルが取れていなければ null（印を出さない）。強度が無ければモデルだけ。 */

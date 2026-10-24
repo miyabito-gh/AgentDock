@@ -23,3 +23,20 @@ export function showVersionNotice(version: Ver, dismissed: string | null | undef
 export function isConnectionProblem(c: Conn): boolean {
   return c.kind === "launchFailed" || c.kind === "disconnected";
 }
+
+/** 全体バナーの文言と見せ方。起動失敗は直し方、版の注意は事実と影響を書く。非緊急の版の注意は role="status"。 */
+export function globalBannerView(c: { kind: string; message?: string | null }, version: Ver): { text: string; cls: "warn" | "err"; role: "alert" | "status" } | null {
+  if (c.kind === "launchFailed") {
+    return { text: `Codex を起動できませんでした（${c.message ?? "理由は取得できません"}）。codex.exe の場所が正しいか確認するか、AgentDock を再起動してください。`, cls: "err", role: "alert" };
+  }
+  if (c.kind === "disconnected") {
+    return { text: `Codex との接続が切れています${c.message ? `（${c.message}）` : ""}。表示は最後に受信した内容のままで、完了や失敗を意味しません。`, cls: "err", role: "alert" };
+  }
+  if (version.kind === "mismatch") {
+    return { text: `Codex の版が対象と異なります（動作は続けますが、一部が正しく動かない可能性があります）。使用中 ${version.actual}／対象 ${version.expected}`, cls: "warn", role: "status" };
+  }
+  if (version.kind === "unknown") {
+    return { text: `Codex の版を確認できません（動作は続けますが、一部が正しく動かない可能性があります）。${version.message}`, cls: "warn", role: "status" };
+  }
+  return null;
+}

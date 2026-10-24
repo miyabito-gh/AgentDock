@@ -65,7 +65,7 @@ test("グループ振り分け: 状態不明のうち履歴確認済みは履歴
 });
 test("履歴確認の内訳と注意表示", () => {
   const b = historyBreakdown(["completed", "completed", "failed", "noTurns"]);
-  assert.equal(historyBreakdownText(b), "完了2／失敗1／中断0／turnなし1");
+  assert.equal(historyBreakdownText(b), "完了2／失敗1／中断0／やりとりなし1");
   assert.equal(b.attention, true);
   assert.equal(historyBreakdown(["completed"]).attention, false);
 });

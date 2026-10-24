@@ -5,8 +5,16 @@
 export interface QuickModel { id: string; isDefault: boolean; defaultEffort: string | null }
 export interface QuickLast { model: { model: string; effort: string | null } | null }
 
-/** 前回のモデルが一覧にあればそれ、なければ既定のモデル、なければ先頭、なければ空。 */
-export function pickQuickModel(models: QuickModel[], last: QuickLast | null | undefined): string {
+/** 設定「モデル」で保存した既定が一覧にあればそのID。保存なし・一覧にない・一覧未取得は null（代用しない）。 */
+export function savedDefaultModelId(models: QuickModel[], saved: { model: string } | null | undefined): string | null {
+  const s = saved?.model;
+  return s && models.some((m) => m.id === s) ? s : null;
+}
+
+/** 保存した既定（設定「モデル」）が一覧にあればそれ、なければ前回のモデル、なければ既定のモデル、なければ先頭、なければ空。 */
+export function pickQuickModel(models: QuickModel[], last: QuickLast | null | undefined, saved?: { model: string } | null): string {
+  const d = savedDefaultModelId(models, saved);
+  if (d) return d;
   const l = last?.model?.model;
   if (l && models.some((m) => m.id === l)) return l;
   return models.find((m) => m.isDefault)?.id ?? models[0]?.id ?? "";

@@ -44,7 +44,7 @@ test("控えなしの理由（文脈つき）: 設定オフ→Gitなし→Git不
   assert.match(r(false, "notRepo"), /設定で控えの記録がオフ/);
   assert.match(r(true, "notRepo"), /Gitリポジトリではない/);
   assert.match(r(true, "unknown"), /確認できていない/);
-  assert.match(r(true, "repo"), /控えを取る前のturn/);
+  assert.match(r(true, "repo"), /控えを取る前のやりとり/);
   // ホストが返した失敗の理由は文脈より優先
   const f = [{ turn: "t", startedAt: 1, state: { kind: "failed", reason: { kind: "gitUnavailable" } }, concurrent: false }] as any;
   assert.match(noBaselineReason(f, { baselinesEnabled: true, git: "repo" })!, /Gitを実行できません/);

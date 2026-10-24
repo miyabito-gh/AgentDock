@@ -7,6 +7,7 @@ import { showKnown } from "./format";
 import { About } from "./DialogParts";
 import type { SetRepoFn } from "./RepoRecordPanel";
 import { cleanRepoPath } from "./revertView";
+import { DELETE_HEADLINE, DELETE_IRREVERSIBLE, deleteRunningNotice } from "./chatDeleteUi";
 
 /** 削除の完了した工程の表示文（ホストは列挙値だけを持つ）。 */
 export function stepText(s: DeleteStep): string {
@@ -38,6 +39,8 @@ export interface DeleteProps {
   /** 前回までの保留（再起動後も残る）。 */
   local: ChatLocalView | undefined;
   run: () => void;
+  /** 削除の代わりに、一覧から隠すだけのアーカイブにする（確認なし。元に戻せる）。 */
+  archive?: () => void;
 }
 
 export const PENDING_TEXT = (r: DeletePendingReason): string => {
@@ -49,20 +52,23 @@ export const PENDING_TEXT = (r: DeletePendingReason): string => {
   }
 };
 
-export function DeleteBody({ chat, d }: { chat: Chat | undefined; d: DeleteProps }) {
+export function DeleteBody({ chat, d, elapsedMs }: { chat: Chat | undefined; d: DeleteProps; /** 実行中の経過（ミリ秒）。 */ elapsedMs: number }) {
   const pv = d.preview;
   const name = chat ? chatName(chat) : "（名前を確認できないチャット）";
   const pending = d.local?.deletePending ?? null;
   const out = d.outcome;
   return (
     <div className="content">
-      <p><b>{name}</b> を削除します。</p>
+      <p><b>{DELETE_HEADLINE}</b></p>
+      <p>{name}</p>
+      <p className="why warn" role="note">{DELETE_IRREVERSIBLE}</p>
+      {d.running ? <p role="status">{deleteRunningNotice(elapsedMs)}</p> : null}
       {d.error ? <p style={{ color: "var(--fail)" }}>{d.error}</p> : !pv ? <p>削除の対象を確認しています…</p> : (
         <>
           <p>削除するもの:</p>
           <ul className="check-list">
             {pv.deletesBackendHistory
-              ? <li>会話の履歴（Codex の保存履歴）と、関連する子・孫の履歴{pv.descendants.kind === "value" ? `（取得済みの子・孫 ${pv.descendants.value} 件）` : "（子・孫の数は未確認）"}</li>
+              ? <li>会話の履歴（Codex の保存履歴）と、関連するサブエージェントの会話の履歴{pv.descendants.kind === "value" ? `（取得済みのサブエージェントの会話 ${pv.descendants.value} 件）` : "（サブエージェントの会話の数は未確認）"}</li>
               : <li>AgentDock の一覧からの表示と、このチャットの補足情報（ピン・下書き・キュー）</li>}
             <li>このチャット用に保存した添付のコピー {pv.attachments} 件</li>
             <li>チャット専用領域内の成果物 {pv.artifactsInChatArea} 件（領域の大きさ: {showKnown(pv.chatAreaBytes, fmtBytes)}）</li>
@@ -76,8 +82,8 @@ export function DeleteBody({ chat, d }: { chat: Chat | undefined; d: DeleteProps
             <li>作業フォルダ内のファイル</li>
             <li>他のチャットのファイル</li>
             {pv.previousThreads > 0 ? <li>以前の会話 {pv.previousThreads} 件（削除するのは今の会話だけで、直前の会話が一覧に戻ります）</li> : null}
-            {pv.worktreeRemoved ? <li>このチャットが使っていた worktree は既に削除されています（ブランチは残ります）</li> : null}
-            {pv.worktreePath ? <li>このチャットが使っている worktree（<span className="mono">{pv.worktreePath}</span>）とそのブランチ（worktree は残ります。メニュー「作業 → worktree を管理」から削除できます）</li> : null}
+            {pv.worktreeRemoved ? <li>このチャットが使っていた作業用の複製（worktree）は既に削除されています（ブランチは残ります）</li> : null}
+            {pv.worktreePath ? <li>このチャットが使っている作業用の複製（worktree。<span className="mono">{pv.worktreePath}</span>）とそのブランチ（複製は残ります。メニュー「作業 → worktree を管理」から削除できます）</li> : null}
           </ul>
           {pv.blockedReason ? <p className="why" role="alert"><b>削除できません。</b>{pv.blockedReason}</p> : null}
           {pv.requiresStop && !pv.blockedReason ? (

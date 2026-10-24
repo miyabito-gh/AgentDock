@@ -57,6 +57,14 @@ export function classifyLeft(l: ChatLocalView | undefined, shown: ReadonlySet<st
 }
 
 /**
+ * 畳み行（『<名前>：依頼整理 N・役割 M』）を出すワークフロー。表示中（現在）のものと、開いている過去のものだけ。
+ * 検索中は従来どおり全部（見つけられるように）。出さないワークフローのチャットは、そのワークフロー画面の「チャットを見る」から開ける。
+ */
+export function nestWorkflowIds(allIds: readonly string[], currentId: string | null, openedHistoryId: string | null, searching: boolean): string[] {
+  return searching ? [...allIds] : allIds.filter((id) => id === currentId || id === openedHistoryId);
+}
+
+/**
  * 一覧に出す題名。依頼整理は見出し付きの名前をやめて『依頼整理（日時）』、通常チャットは資料見出しを除いた本文の先頭、
  * 名前も最初の依頼も無いものは『名前未確認・日時』（時刻が無ければ従来の『（名前未確認）』）。保存名は変えない。
  */

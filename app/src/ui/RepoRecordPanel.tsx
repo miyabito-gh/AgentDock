@@ -4,6 +4,8 @@
 import { useState, type ReactNode } from "react";
 import type { Chat, RepoBaselinePref, RepoRecordChoice, SegmentStatus } from "../ipc/types";
 import { useCopy } from "./markdown/parts";
+import { askConfirm } from "./appConfirm";
+import { ownerAllowSpec, RECORD_CHOICE_NOTE, RECORD_SKIP_NOTE } from "./ownerAllow";
 import { cleanRepoPath, currentOwnerProblem, ownerCardProblem, ownerCommands, ownerFailedCount, prefFor, safeDirectoryCommand } from "./revertView";
 
 export type SetRepoFn = (repo: string, choice: RepoRecordChoice | null, allowGit: boolean) => Promise<void>;
@@ -23,9 +25,8 @@ function Guide({ compact, children }: { compact?: boolean; children: ReactNode }
   return compact ? <details className="about"><summary>対処のしかた</summary><div>{children}</div></details> : <>{children}</>;
 }
 
-/** 許可の確認（行き先のパスを表示）。 */
-const confirmAllow = (repo: string): boolean =>
-  window.confirm(`次のリポジトリを、AgentDockのgit操作だけに許可します。\n\n${cleanRepoPath(repo)}\n\nAgentDockが呼ぶgitにだけ safe.directory として渡します。あなたのgit設定（.gitconfig）は変更しません。このフォルダのGit管理は別のユーザーの所有です。内容を信頼できる場合だけ許可してください。許可はいつでも解除できます。`);
+/** 許可の確認（行き先のパスを表示。文面は組織実行の開始前と共通）。 */
+const confirmAllow = (repo: string): Promise<boolean> => askConfirm(ownerAllowSpec(cleanRepoPath(repo)));
 
 /** `ownerRepo`: 作業フォルダのリポジトリが、いま所有者違いでGitに拒否されているときの場所（`git_info` の所有者違い。控えの失敗記録がなくても案内を出す）。 */
 /** `compact`: 変更を確認の状態スロット用。見出し1行＋ボタンにし、案内①〜④は「対処のしかた」に畳む（文は同じ）。 */
@@ -45,6 +46,9 @@ export function RepoRecordPanel({ chat, segs, prefs, onSet, ownerRepo, compact }
     try { await onSet(repo, choice, allow); then?.(); } finally { setBusy(false); }
   };
 
+  /** 確認の後だけ、AgentDockのgit操作に許可して記録する。 */
+  const allowAndRecord = async () => { if (await confirmAllow(repo)) await set("Record", true); };
+
   if (pref?.choice === "Skip") {
     return (
       <div className="small" role="status">
@@ -58,8 +62,11 @@ export function RepoRecordPanel({ chat, segs, prefs, onSet, ownerRepo, compact }
       <div className="gbanner warn" role="status" style={{ display: "block" }}>
         <p><b>このリポジトリ（{cleanRepoPath(repo)}）のGit管理が、別のユーザー（Codexのサンドボックスなど）の所有になっています。</b></p>
         <p>そのため、差分の確認と変更の記録ができません。記録しますか？</p>
+        <p className="small muted">{RECORD_CHOICE_NOTE}</p>
+        <p className="small muted">{RECORD_SKIP_NOTE}</p>
         <div className="acts">
-          <button className="btn-line" disabled={busy || !onSet} onClick={() => void set("Record", false, () => setGuide(true))}>記録する</button>
+          <button className="btn-line" disabled={busy || !onSet} onClick={() => void allowAndRecord()}>AgentDockのgit操作だけに許可して記録する…</button>
+          <button className="btn-line" disabled={busy || !onSet} title="所有者が違うままでは記録できません。対処の案内を表示します" onClick={() => void set("Record", false, () => setGuide(true))}>記録する（対処の案内へ）</button>
           <button className="btn-line" disabled={busy || !onSet} onClick={() => void set("Skip", false)}>記録しない</button>
         </div>
       </div>
@@ -79,7 +86,7 @@ export function RepoRecordPanel({ chat, segs, prefs, onSet, ownerRepo, compact }
               <p>③ Gitに安全なフォルダとして登録する（あなたのgit設定を変更します。自分で実行）:</p>
               <CopyLine text={safeDirectoryCommand(repo)} />
               <p>④ またはAgentDockが呼ぶgitにだけ許可する（あなたのgit設定は変えません）:</p>
-              <div className="acts"><button className="btn-line" disabled={busy || !onSet || allowed} onClick={() => { if (confirmAllow(repo)) void set("Record", true); }}>{allowed ? "許可済み" : "AgentDockのgit操作だけに許可…"}</button></div>
+              <div className="acts"><button className="btn-line" disabled={busy || !onSet || allowed} onClick={() => void allowAndRecord()}>{allowed ? "許可済み" : "AgentDockのgit操作だけに許可…"}</button></div>
             </Guide>
           ) : null}
         </div>

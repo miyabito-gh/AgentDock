@@ -1,6 +1,8 @@
 // 組織実行の成果物パネル（ワークフロー画面の「成果物」節・「中身を見る」ダイアログ）と、取り込み前に戻す・状態を確認する操作（DESIGN_ORG_R3 §1・§2.5）。
 // 規則: 見る・プレビューするだけでは作業フォルダを変えない。取り込み・戻すは確認ダイアログの主操作だけ。取れていない値は「未確認」「未取得」と書く。
 //       成功と書くのは、ホストが読み戻しで確かめた結果のときだけ。不明のときは再実行せず、読取りだけの「状態を確認」を出す。
+import { askConfirm } from "./appConfirm";
+import { openFileConfirm } from "./confirmTexts";
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as host from "../ipc/client";
 import type { OrgArtifactFile, OrgArtifactItem, OrgArtifactPreview, OrgArtifactsView, OrgInvestigationItem, OrgImportRecordView, OrgImportResult, OrgImportPreview, OrgUndoPreview, OrgUndoOutcome, OrgWorkflowView } from "../ipc/types";
@@ -315,7 +317,7 @@ export function OrgArtifactsBody({ workflowId, initialTask, live, onImport, onPu
     try { await go(false); setNote("関連アプリで開きました（読取り専用のコピーです。編集しても成果物には反映されません）。"); } catch (e) {
       const er = host.asIpcError(e);
       if (er.blocked?.kind !== "openNeedsConfirm") { setNote(`開けませんでした: ${er.message}`); return; }
-      if (!window.confirm(`実行形式のファイルです。開くとプログラムが実行されることがあります。\n${er.blocked.path}\n\n内容を確認したうえで、開きますか？`)) { setNote("開くのをやめました。"); return; }
+      if (!(await askConfirm(openFileConfirm({ executable: true, outsideProject: false, path: er.blocked.path })))) { setNote("開くのをやめました。"); return; }
       try { await go(true); setNote("関連アプリで開きました（読取り専用のコピーです）。"); } catch (e2) { setNote(`開けませんでした: ${errText(e2)}`); }
     }
   };

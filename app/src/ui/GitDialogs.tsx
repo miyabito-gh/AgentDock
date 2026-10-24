@@ -185,7 +185,7 @@ const BLOCKER_FALLBACK: Record<PushBlocker, string> = {
 
 const REJECT_TEXT = (r: PushRejectReason): string => {
   switch (r.kind) {
-    case "nonFastForward": return "リモートが先に進んでいます（先に取り込み＝pull が必要です）。強制プッシュはしません。";
+    case "nonFastForward": return "リモートに新しい変更があります。Git で取り込んでから、もう一度送ってください（AgentDock には取り込み＝pull の操作がありません）。強制プッシュはしません。";
     case "hookDeclined": return "プッシュ前のフックまたはリモートのフックが断りました。";
     case "other": return `拒否されました: ${r.text}`;
   }
@@ -242,6 +242,7 @@ export function GitPushBody({ folder, onDone }: { folder: string; onDone: () => 
   };
   return (
     <div className="content">
+      <p><b>リモートへ送ると、AgentDock からは取り消せません。</b>内容を確認してから押してください。</p>
       <div className="field"><span>作業フォルダ</span><div className="mono">{folder}</div></div>
       {err ? <div className="why err" role="alert">{err}</div> : null}
       {!pv && !err ? <p className="small muted">送る内容を調べています（ネットワークは使いません）…</p> : null}

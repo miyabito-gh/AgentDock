@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { askConfirm } from "./ui/appConfirm";
+import { archivedToast } from "./ui/chatDeleteUi";
+import { openFileConfirm } from "./ui/confirmTexts";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { readText } from "@tauri-apps/plugin-clipboard-manager";
@@ -24,7 +27,8 @@ const loadMock = async () => {
 import { GlobalBanner, MenuBar, SaveBanner } from "./ui/Chrome";
 import { LeftPane, type ChatOp } from "./ui/LeftPane";
 import { histStart, histOk, histFail, type HistLoad } from "./ui/historyLoad";
-import { CenterPane, EmptyCenter, RequestCard, type FileActions, type SendNotice } from "./ui/CenterPane";
+import { CenterPane, EmptyCenter, RequestCard, type FileActions } from "./ui/CenterPane";
+import { hideClosed, noticeOf } from "./ui/sendNotice";
 import { fenceCode, insertBlock } from "./ui/attach";
 import { DockPane, MiniWindow, type DockActions, type DockFocus } from "./ui/Dock";
 import { commandViews } from "./ui/commandViews";
@@ -84,24 +88,6 @@ function markRetryable(list: PendingSend[] | undefined, a: SendAttempt | undefin
   return can ? list.map((p) => (p.outcome?.kind === "rejected" && p.outcome.attemptId === can ? { ...p, retryable: true } : p)) : list;
 }
 
-function noticeOf(a: SendAttempt | undefined, steer: { attemptId: string; queueInstead: () => void } | null = null): SendNotice | null {
-  if (!a) return null;
-  switch (a.state.kind) {
-    case "rejected":
-      if (steer && steer.attemptId === a.attemptId) {
-        return { cls: "err", title: "追加指示は受け付けられませんでした", body: `対象のturnがすでに終わっている可能性があります（${a.state.message}）。自動では切り替えません。`, canRetry: false,
-          alt: { label: "完了後に送信へ切り替える", run: steer.queueInstead } };
-      }
-      return { cls: "err", title: "送信は受け付けられませんでした", body: `Codex が受け付けなかったことを確認しています（${a.state.message}）。もう一度送ることができます。`, canRetry: true };
-    case "acceptanceUnknown":
-      return { cls: "warn", title: "送信が受理されたか確認できません", body: "応答がなく、Codex が受け付けたか分かりません。履歴と自動で照合しています。確認できるまで、再送と新しい送信は止めます。", canRetry: false };
-    case "notFoundAfterReconcile":
-      return { cls: "warn", title: "履歴に受理の痕跡がないことを確認しました", body: "この送信は受理されていません。必要なら、もう一度送ることができます。", canRetry: true };
-    default:
-      return null;
-  }
-}
-
 export default function App() {
   const [mode, setMode] = useState<Mode>("live");
   const [scenario, setScenario] = useState("normal");
@@ -157,6 +143,8 @@ export default function App() {
   const lastListItems = useRef<Chat[]>([]);
   const attemptsRef = useRef<Record<string, SendAttempt>>({});
   /** クイック新規の下書き（まだ会話を作っていない。メモリだけ）。 */
+  /** 閉じた送信結果の通知（チャットID→通知の識別子）。状態が変われば別の識別子になり再び出る。 */
+  const [noticeClosed, setNoticeClosed] = useState<Record<string, string>>({});
   const [quick, setQuick] = useState<{ open: boolean; text: string; model: string | null; busy?: boolean }>({ open: false, text: "", model: null });
   const quickRef = useRef<HTMLTextAreaElement>(null);
   const [steerUnknown, setSteerUnknown] = useState<Record<string, string>>({});
@@ -689,7 +677,7 @@ export default function App() {
         if (a.state.kind === "accepted") setSends((m) => ({ ...m, [chatId]: [...(m[chatId] ?? []), { text, at: a.at, atts: sentAtts, steer: running }].slice(-30) }));
         if (running) {
           setSteerOf((m) => ({ ...m, [chatId]: { attemptId: a.attemptId, text, attachments } }));
-          if (a.state.kind === "accepted") say("追加指示を Codex が受理しました。現在のturnへの反映は会話の表示で確認してください（受理と反映は別です）。");
+          if (a.state.kind === "accepted") say("追加指示を Codex が受理しました。現在のやりとりへの反映は会話の表示で確認してください（受理と反映は別です）。");
         }
       } catch (e) {
         // ホストが送る前に止めた（何も送っていない）。入力した文は仮の行に残し、入力欄へ戻せる。
@@ -779,7 +767,7 @@ ${cur}` : p.text);
         switch (a.state.kind) {
           case "accepted":
             setSends((m) => ({ ...m, [key.id]: [...(m[key.id] ?? []), { text: e.text, at: a.at, atts: sentAtts, steer: true }].slice(-30) }));
-            say("追加指示を Codex が受理しました。元の依頼は取り消しました。現在のturnへの反映は会話の表示で確認してください（受理と反映は別です）。");
+            say("追加指示を Codex が受理しました。元の依頼は取り消しました。現在のやりとりへの反映は会話の表示で確認してください（受理と反映は別です）。");
             break;
           case "acceptanceUnknown":
             setSteerUnknown((m) => ({ ...m, [e.id]: a.attemptId }));
@@ -981,7 +969,7 @@ ${cur}` : p.text);
   const quickSend = () => {
     const text = quick.text;
     if (!text.trim() || quick.busy) return;
-    const model = quick.model ?? pickQuickModel(models, snap.settings.lastNewChat);
+    const model = quick.model ?? pickQuickModel(models, snap.settings.lastNewChat, snap.settings.defaultModel);
     // 作成が終わる（新チャットへ移る、または一覧の仮行に失敗が出る）まで下書き画面に「作成中」を残し、前の会話へ戻さない。
     setQuick((q) => ({ ...q, busy: true }));
     void createChat({ cwd: null, model, firstMessage: text, isolate: false, worktree: null, extraFolders: [], confirmedStrong: [] })
@@ -1118,11 +1106,7 @@ ${cur}` : p.text);
           const er = host.asIpcError(e);
           const b = er.blocked;
           if (b?.kind !== "openNeedsConfirm") { sayErr("開けませんでした", e); return; }
-          const why = [
-            b.executable ? "実行形式のファイルです。開くとプログラムが実行されることがあります。" : "",
-            b.outsideProject ? "このチャットの作業フォルダの外にあるファイルです。" : "",
-          ].filter(Boolean).join("\n");
-          if (!window.confirm(`${why}\n${b.path}\n\n内容を確認したうえで、開きますか？`)) { say("開くのをやめました。"); return; }
+          if (!(await askConfirm(openFileConfirm({ executable: !!b.executable, outsideProject: !!b.outsideProject, path: b.path })))) { say("開くのをやめました。"); return; }
           try { await host.openFile(t, true); } catch (e2) { sayErr("開けませんでした", e2); }
         }
       })();
@@ -1176,11 +1160,7 @@ ${cur}` : p.text);
       try { await host.openPath(chatKey, path); return; } catch (e) {
         const b = host.asIpcError(e).blocked;
         if (b?.kind !== "openNeedsConfirm") { sayErr("開けませんでした", e); return; }
-        const why = [
-          b.executable ? "実行形式のファイルです。開くとプログラムが実行されることがあります。" : "",
-          b.outsideProject ? "このチャットの作業フォルダの外にあるファイルです。" : "",
-        ].filter(Boolean).join("\n");
-        if (!window.confirm(`${why}\n${b.path}\n\n内容を確認したうえで、開きますか？`)) { say("開くのをやめました。"); return; }
+        if (!(await askConfirm(openFileConfirm({ executable: !!b.executable, outsideProject: !!b.outsideProject, path: b.path })))) { say("開くのをやめました。"); return; }
         try { await host.openPath(chatKey, path, true); } catch (e2) { sayErr("開けませんでした", e2); }
       }
     })();
@@ -1357,13 +1337,14 @@ ${cur}` : p.text);
     try {
       const out = await host.deleteChat(c.key);
       if (out.kind === "deleted") {
-        setDialog(null);
+        setDialog((cur) => (cur?.type === "delete" ? null : cur)); // 閉じて他の画面を開いていたら、それは閉じない
         say(external ? "一覧から外しました。元の履歴は削除していません。" : "削除しました。");
         if (selRef.current === c.key.id) setSelId(null);
         return;
       }
       setDel((s) => ({ ...s, running: false, outcome: out }));
-    } catch (e) { setDel((s) => ({ ...s, running: false, error: host.asIpcError(e).message })); }
+      say("削除は完了していません。もう一度「削除」を開くと、残りを続けられます。", 7000); // 画面を閉じていても分かるように
+    } catch (e) { setDel((s) => ({ ...s, running: false, error: host.asIpcError(e).message })); say(`削除できませんでした: ${host.asIpcError(e).message.split("\n")[0]}`, 7000); }
   };
 
   const openExport = (chatId: string | undefined) => {
@@ -1398,7 +1379,7 @@ ${cur}` : p.text);
     if (on) {
       const working = isRunning(snap, target);
       host.archiveChat(target.key)
-        .then(() => say(working ? "アーカイブしました。作業は続きます。Codex への反映は、作業が終わり停止を確認してから行います。" : "アーカイブしました。"))
+        .then(() => say(archivedToast(working), 7000))
         .catch((e) => sayErr("アーカイブできませんでした", e));
     } else {
       host.unarchiveChat(target.key).then(() => say("アーカイブを解除しました。")).catch((e) => sayErr("アーカイブを解除できませんでした", e));
@@ -1746,9 +1727,9 @@ ${cur}` : p.text);
                 onAct={act} onOpenChat={(k) => selectChat(k.id)} onReload={() => setOrgTick((n) => n + 1)} run={orgRun} onDelete={(id) => setDialog({ type: "orgDelete", workflowId: id })}
                 renderRequest={(r, agentName) => <RequestCard r={r} onRespond={onRespond} agentName={agentName} />} />
             ) : quick.open || (!chat && live) ? (
-              <QuickNewPane models={models} model={quick.model ?? pickQuickModel(models, snap.settings.lastNewChat)} setModel={(id) => setQuick((q) => ({ ...q, model: id }))}
+              <QuickNewPane models={models} model={quick.model ?? pickQuickModel(models, snap.settings.lastNewChat, snap.settings.defaultModel)} setModel={(id) => setQuick((q) => ({ ...q, model: id }))}
                 text={quick.text} setText={(v) => setQuick((q) => ({ ...q, text: v }))} enterMode={enterMode} busy={!!quick.busy} inputRef={quickRef}
-                onSend={quickSend} onDetail={() => { setDialog({ type: "newChat", prefill: { model: quick.model ?? pickQuickModel(models, snap.settings.lastNewChat), first: quick.text, isolate: false, worktree: null } }); setQuick({ open: false, text: "", model: null }); }} />
+                onSend={quickSend} onDetail={() => { setDialog({ type: "newChat", prefill: { model: quick.model ?? pickQuickModel(models, snap.settings.lastNewChat, snap.settings.defaultModel), first: quick.text, isolate: false, worktree: null } }); setQuick({ open: false, text: "", model: null }); }} />
             ) : chat ? (
               <CenterPane
                 snap={snap} chat={chat} turns={bundle.turns[chat.key.id] ?? []} history={histLoads[chat.key.id]} onReloadHistory={() => void loadChat(chat.key.id)}
@@ -1760,10 +1741,10 @@ ${cur}` : p.text);
                 onAct={act} commands={cmdViews} onRespond={(r, a) => void onRespond(r, a)}
                 onSend={onSend} loadHandoffPreview={loadHandoffPreview} onHandoffSend={onHandoffSend} onModel={onModel} onWorkMode={onWorkMode} workModes={workModes}
                 decisions={decisions[chat.key.id] ?? NO_DECISIONS} pending={markRetryable(pendingSends[chat.key.id], attempts[chat.key.id])} onPendingRestore={(p) => pendingRestore(chat, p)} onPendingDismiss={(p) => pendingDismiss(chat, p)} goal={goals[chat.key.id]} goalBusy={goalBusy} onGoalReload={() => void loadGoal(chat.key)} onGoalClear={clearGoal}
-                notice={live ? noticeOf(attempts[chat.key.id], steerOf[chat.key.id] ? { attemptId: steerOf[chat.key.id].attemptId, queueInstead: () => { void onSend(steerOf[chat.key.id].text, false, steerOf[chat.key.id].attachments); } } : null) : null} onRetrySend={() => void onRetrySend()}
+                notice={live ? hideClosed(noticeOf(attempts[chat.key.id], steerOf[chat.key.id] ? { attemptId: steerOf[chat.key.id].attemptId, queueInstead: () => { void onSend(steerOf[chat.key.id].text, false, steerOf[chat.key.id].attachments); } } : null), noticeClosed[chat.key.id]) : null} onCloseNotice={(key) => setNoticeClosed((m) => ({ ...m, [chat.key.id]: key }))} onRetrySend={() => void onRetrySend()}
                 queue={snap.queues.find((q) => q.chat.id === chat.key.id)} local={snap.chatLocals.find((l) => l.chat.id === chat.key.id)}
                 qact={qact} onPermission={onPermission} wf={wf} sends={sends[chat.key.id] ?? NO_SENDS}
-                orgInterject={(() => { const o = snap.chatLocals.find((l) => l.chat.id === chat.key.id)?.org; const w = org?.workflow ?? null; return o && !o.released && w && w.workflowId === o.workflowId ? { workflowId: w.workflowId, task: w.tasks.find((t) => t.id === o.taskId) ?? null, interjects: w.interjects, run: orgRun } : null; })()}
+                orgInterject={(() => { const o = snap.chatLocals.find((l) => l.chat.id === chat.key.id)?.org; const w = org?.workflow ?? null; return o && !o.released && w && w.workflowId === o.workflowId ? { workflowId: w.workflowId, task: w.tasks.find((t) => t.id === o.taskId) ?? null, interjects: w.interjects, readonly: w.readonly, run: orgRun } : null; })()}
                 cwdInfo={headCwd ? pathInfo(headCwd) : undefined}
                 leftShown={leftTemp ? lNarrow : leftOpen} rightShown={rightTemp ? rNarrow : rightOpen}
               />
@@ -1782,7 +1763,7 @@ ${cur}` : p.text);
       {mini && !live ? <MiniWindow {...dockProps} top={miniTop} /> : null}
       {palette && !dialog ? <CommandPalette views={cmdViews} onRun={act} onClose={() => setPalette(false)} /> : null}
       {dialog ? (
-        <Dialogs d={dialog} cont={{
+        <Dialogs d={dialog} modelDefault={{ saved: snap.settings.defaultModel?.model ?? null, set: (id) => updateSettings((s) => ({ ...s, defaultModel: id ? { model: id, effort: models.find((m) => m.id === id)?.defaultEffort ?? null } : null }), "新しいチャットの既定のモデルを保存できませんでした") }} cont={{
           value: snap.settings.continuation, locals: snap.chatLocals, savePurpose, loadPreview: (id) => loadHandoffPreview({ backend: "codex", id }),
           setValue: (c) => updateSettings((s) => ({ ...s, continuation: c }), "継続チャットの設定を保存できませんでした。次回の起動では保存されている値に戻ります"),
         }} org={{
@@ -1825,7 +1806,7 @@ ${cur}` : p.text);
           manage={{
             selectedId: selId,
             ackedWarnings: { list: snap.settings.acknowledgedWarnings, reset: () => void resetWarnings() },
-            del: { ...del, local: snap.chatLocals.find((l) => l.chat.id === (dialog.type === "delete" ? dialog.chatId : "")), run: () => void runDelete() },
+            del: { ...del, local: snap.chatLocals.find((l) => l.chat.id === (dialog.type === "delete" ? dialog.chatId : "")), run: () => void runDelete(), archive: () => { if (dialog.type === "delete") { archiveOp(true, dialog.chatId); setDialog(null); } } },
             exp: { ...exp, setInclude: (b) => setExp((s) => ({ ...s, include: b })), run: () => void runExport() },
             usage: { ...usage, reload: loadUsage },
             baselines: {

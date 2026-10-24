@@ -12,8 +12,8 @@ export const BLOCK_LABEL: Record<RevertBlockCode, string> = {
   headMoved: "HEADが変わった（コミット・ブランチ切替など）",
   alreadyReverted: "戻し済み",
   endUnknown: "終了時の控えがない",
-  changedBetween: "turnの間に別の変更",
-  changedAfter: "turnの後に別の変更",
+  changedBetween: "やりとりの間に別の変更",
+  changedAfter: "やりとりの後に別の変更",
   concurrentChange: "同時作業の可能性",
   pathOutside: "作業フォルダの外",
   readFailed: "読み取れない",
@@ -150,9 +150,9 @@ export function noBaselineReason(status: SegmentStatus[] | null, ctx?: BaselineC
       if (ctx.git === "notRepo") return "作業フォルダがGitリポジトリではないため、変更の控えがありません。";
       if (ctx.git === "ownerMismatch") return "作業フォルダのGit管理が別のユーザー（Codexのサンドボックス）の所有になっているため、変更の控えを確認できません。「この会話の変更（記録）」タブの案内で対処できます。";
       if (ctx.git === "unknown") return "作業フォルダのGitの状態を確認できていないため、控えがない理由を特定できません。";
-      return "このチャットには変更の控えがありません（控えを取る前のturnだけです）。";
+      return "このチャットには変更の控えがありません（控えを取る前のやりとりだけです）。";
     }
-    return "このチャットには変更の控えがありません（控えを取る前のturn、Gitリポジトリではない、または設定で控えの記録がオフです）。";
+    return "このチャットには変更の控えがありません（控えを取る前のやりとり、Gitリポジトリではない、または設定で控えの記録がオフです）。";
   }
   const failed = [...status].reverse().find((s) => s.state.kind === "failed");
   if (failed && failed.state.kind === "failed" && failed.state.reason.kind === "skipped") return failureText(failed.state.reason);

@@ -1,4 +1,5 @@
-import { isNewChatSubmitKey } from "./quickNew";
+import { isNewChatSubmitKey, pickQuickModel } from "./quickNew";
+import { ModelSettingsBody, type ModelDefaultProps } from "./ModelSettings";
 import type { EnterMode, RunningInputMode } from "./sendKeys";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { IntakeBeginMode, OrgRunningNote } from "../ipc/types";
@@ -8,7 +9,9 @@ import { chatName } from "./derive";
 import { SCOPE_TEXT } from "./Chrome";
 import { Icon } from "./Icon";
 import { DeleteBody, ExportBody, StorageBody, type BaselineProps, type DeleteProps, type ExportProps, type UsageProps } from "./ManageDialogs";
+import { deleteLocked, deleteRunningLabel } from "./chatDeleteUi";
 import { FootCtx, useFootSlots, About, ConfirmBlock, FootActions } from "./DialogParts";
+import { useDialogFocus } from "./useDialogFocus";
 import * as host from "../ipc/client";
 import { copyText } from "./markdown/parts";
 import { hostOf, isIdnHost, textMismatchesUrl } from "./markdown/plugins";
@@ -79,6 +82,9 @@ export type DialogState =
  *  `foot` は主操作・危険操作まで呼び出し側が組むとき（閉じる／キャンセルも含めて渡す）。`footLeft` は左の副操作。 */
 function Shell({ title, children, foot, footLeft, close, wide, full, onClose, locked }: { title: string; children: ReactNode; foot?: ReactNode; footLeft?: ReactNode; close?: string; wide?: boolean; full?: boolean; onClose: () => void; locked?: boolean }) {
   const fs = useFootSlots();
+  // 開いたとき最初の操作へフォーカス、Tab はダイアログ内で循環、閉じたら開いたボタンへ戻す（useDialogFocus）。
+  const dlg = useRef<HTMLDivElement>(null);
+  useDialogFocus(dlg);
   // locked: 実行中の操作があり、結果を受け取るまで閉じさせない（閉じて開き直しての二重実行を防ぐ）。
   // Esc＝閉じる／キャンセルと同じ（IME変換中・locked中は閉じない）。Popover等は捕捉段階で止めるので、最前面の1つだけが閉じる。
   const esc = useRef({ onClose, locked });
@@ -94,7 +100,7 @@ function Shell({ title, children, foot, footLeft, close, wide, full, onClose, lo
   }, []);
   return (
     <div className="scrim" onMouseDown={(e) => { if (e.target === e.currentTarget && !locked) onClose(); }}>
-      <div className={`dialog ${wide ? "wide" : ""} ${full ? "full-narrow" : ""}`} role="dialog" aria-modal="true" aria-label={title}>
+      <div ref={dlg} tabIndex={-1} className={`dialog ${wide ? "wide" : ""} ${full ? "full-narrow" : ""}`} role="dialog" aria-modal="true" aria-label={title}>
         <header><h3>{title}</h3><button className="btn subtle icon" aria-label="閉じる" disabled={locked} onClick={onClose}><Icon name="x" /></button></header>
         <FootCtx.Provider value={fs.slots}>{children}</FootCtx.Provider>
         {close ? (
@@ -167,7 +173,8 @@ const UI_SIZE_CHOICES: Array<[UiTextSize, string]> = [["Small", "小"], ["Normal
 const BODY_SIZE_CHOICES: Array<[BodyTextSize, string]> = [["Small", "小"], ["Normal", "標準"], ["Large", "大"], ["XLarge", "特大"]];
 const LIST_VIEW_CHOICES: Array<[ChatListView, string]> = [["Recent", "最近使った順"], ["ByFolder", "作業フォルダごと"]];
 
-function SettingsBody({ tab, enterMode, setEnterMode, runningInput, setRunningInput, top, source, models, exe, notify, autostart, appearance, manage, chats, compose, opCaps, org, cont }: {
+function SettingsBody({ tab, enterMode, setEnterMode, runningInput, setRunningInput, top, source, models, modelDefault, exe, notify, autostart, appearance, manage, chats, compose, opCaps, org, cont }: {
+  modelDefault: ModelDefaultProps;
   org: OrgSettingsProps; cont: ContinuityDialogProps;
   manage: ManageProps; chats: Chat[]; compose: ComposeDialogProps; opCaps: OpCapability[];
   autostart: AutostartProps;
@@ -222,10 +229,7 @@ function SettingsBody({ tab, enterMode, setEnterMode, runningInput, setRunningIn
           <label><input type="radio" name="ri" checked={runningInput === "steer"} onChange={() => setRunningInput("steer")} />送信キーは「追加指示で送る」（Ctrl＋Shift＋Enter で完了後に送信）</label></div>
           <span className="note">実行中のチャットで送信キーを押したときの送り方です。どちらも送信条件と確認は同じで、追加指示にできないときは何も送りません。実行中でないときは変わりません。</span></div>
       </>);
-    case "model": return (
-      <div className="field"><span>新しいチャットの既定</span>
-        <div style={{ display: "flex", gap: 6 }}><select>{models.map((m) => <option key={m.id}>{m.displayName}</option>)}</select></div>
-        <span className="note">既定値を変えても、既存のチャットの設定は変わりません。選択肢は Codex から取得します。</span></div>);
+    case "model": return <ModelSettingsBody models={models} def={modelDefault} />;
     case "codex": {
       const v = source?.version;
       return (
@@ -255,12 +259,12 @@ function SettingsBody({ tab, enterMode, setEnterMode, runningInput, setRunningIn
 
 const STOP_TEXT: Record<StopSummary, string> = {
   notRequested: "中断要求を送れていません（停止を確認できません）",
-  interruptRequested: "中断要求済み・turn終端を未確認",
-  turnEndConfirmed: "停止を確認しました（turn終端）",
-  managedExecEndConfirmed: "停止を確認しました（管理実行の終了）",
-  osGoneConfirmed: "停止を確認しました（OSプロセスの消滅）",
-  unconfirmed: "停止未確認（中断要求から10秒以上）",
-  ownershipUnknown: "所有を確認できないため、強制終了の対象にしません",
+  interruptRequested: "停止を要求しました。止まったかどうかは、まだ確認できていません",
+  turnEndConfirmed: "停止を確認しました（やりとりが終わった）",
+  managedExecEndConfirmed: "停止を確認しました（AgentDock が起動した実行が終わった）",
+  osGoneConfirmed: "停止を確認しました（プロセスが終わった）",
+  unconfirmed: "停止未確認（中断の要求から10秒以上たちました。プロセスが残っている可能性があります）",
+  ownershipUnknown: "AgentDock が起動したものか確認できないため、強制終了の対象にしません",
 };
 const CONFIRMED_STOP: StopSummary[] = ["turnEndConfirmed", "managedExecEndConfirmed", "osGoneConfirmed"];
 
@@ -403,6 +407,28 @@ function ForceDialog({ f, chats, onClose }: { f: ForceProps; chats: Chat[]; onCl
 }
 
 /** 名前の変更。Codex に反映できたと確認できたときだけ閉じる（失敗は理由を残す）。 */
+/** チャットの削除。実行中は経過秒を出し、90秒までは閉じられない（超えたら閉じてよい。処理は続く）。代わりに「アーカイブする」を選べる。 */
+function DeleteDialog({ chat, m, onClose }: { chat: Chat | undefined; m: DeleteProps; onClose: () => void }) {
+  const started = useRef(0);
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!m.running) return;
+    started.current = Date.now(); setElapsed(0);
+    const t = setInterval(() => setElapsed(Date.now() - started.current), 1000);
+    return () => clearInterval(t);
+  }, [m.running]);
+  const locked = deleteLocked(m.running, elapsed);
+  const finished = m.outcome !== null;
+  const pv = m.preview;
+  const label = m.running ? deleteRunningLabel(elapsed) : pv?.requiresStop ? "中断して削除" : "削除";
+  return (
+    <Shell title="チャットを削除" locked={locked} onClose={onClose}
+      footLeft={!finished && m.archive ? <button className="btn" disabled={m.running} title={m.running ? "削除の実行中は選べません" : "削除せず、一覧から隠すだけにします。後から戻せます"} onClick={m.archive}>アーカイブする</button> : undefined}
+      foot={<><button className="btn" disabled={locked} onClick={onClose}>{finished ? "閉じる" : "キャンセル"}</button>{finished && m.outcome?.kind !== "partial" ? null : <button className="btn danger" disabled={!pv || m.running || !!pv.blockedReason} title={pv?.blockedReason ?? undefined} onClick={m.run}>{label}</button>}</>}>
+      <DeleteBody chat={chat} d={m} elapsedMs={elapsed} />
+    </Shell>);
+}
+
 function RenameDialog({ chat, onClose, run }: { chat: Chat | undefined; onClose: () => void; run: (name: string) => Promise<string | null> }) {
   const [name, setName] = useState(chat ? chatName(chat) : "");
   const [err, setErr] = useState<string | null>(null);
@@ -427,8 +453,10 @@ function RenameDialog({ chat, onClose, run }: { chat: Chat | undefined; onClose:
 /** isolate は「分離」（worktreeを作成してから開始）。worktree は既存のAgentDock作成worktreeの記録ID（チャットに結び付ける）。 */
 export interface NewChatInput { cwd: string | null; model: string; firstMessage: string | null; isolate: boolean; worktree: string | null; /** 追加の作業フォルダ（プライマリ以外）。 */ extraFolders: string[]; /** 強い確認を済ませたパス（ホストが再検査する）。 */ confirmedStrong: string[] }
 
-export function Dialogs({ cont, org, folderTools, workspaceRoots, d, onClose, chats, source, models, enterMode, setEnterMode, runningInput, setRunningInput, top, setTab, onAct, exe, onCreateChat, notify, autostart, appearance, quit, force, manage, onRename, opCaps, live, changesTick, turnRecords, onRevertDone, prefs, threadOps, worktree, cloudTasks, compose, resend }: {
+export function Dialogs({ modelDefault, cont, org, folderTools, workspaceRoots, d, onClose, chats, source, models, enterMode, setEnterMode, runningInput, setRunningInput, top, setTab, onAct, exe, onCreateChat, notify, autostart, appearance, quit, force, manage, onRename, opCaps, live, changesTick, turnRecords, onRevertDone, prefs, threadOps, worktree, cloudTasks, compose, resend }: {
   org: OrgDialogProps;
+  /** 設定「モデル」: 新しいチャットの既定（AppSettings.defaultModel）。 */
+  modelDefault: ModelDefaultProps;
   cont: ContinuityDialogProps;
   compose: ComposeDialogProps;
   /** 作業フォルダのセットの保存・「参照…」。 */
@@ -466,7 +494,7 @@ export function Dialogs({ cont, org, folderTools, workspaceRoots, d, onClose, ch
   const pre = d.type === "newChat" ? d.prefill : undefined;
   const [isolate, setIsolate] = useState(pre?.isolate ?? false);
   const [wt, setWt] = useState<string | null>(pre?.worktree ?? null);
-  const [model, setModel] = useState(pre && models.some((m) => m.id === pre.model) ? pre.model : models.find((m) => m.isDefault)?.id ?? models[0]?.id ?? "");
+  const [model, setModel] = useState(pre && models.some((m) => m.id === pre.model) ? pre.model : pickQuickModel(models, null, modelDefault.saved ? { model: modelDefault.saved } : null));
   const [first, setFirst] = useState(pre?.first ?? "");
   // 追加の作業フォルダ（新しいチャット）。プロジェクトから作るときは、プロジェクトの全フォルダを既定で並べる（外せる。上限8件）。
   const [extras, setExtras] = useState<FolderItem[]>([]);
@@ -565,7 +593,7 @@ export function Dialogs({ cont, org, folderTools, workspaceRoots, d, onClose, ch
     case "settings": return (
       <Shell title="設定" wide onClose={onClose} close="閉じる">
         <div className="tabs vt" role="tablist" aria-orientation="vertical">{TABS.map(([k, t]) => <button key={k} role="tab" aria-selected={d.tab === k} onClick={() => setTab(k)}>{t}</button>)}</div>
-        <div className="content"><SettingsBody tab={d.tab} enterMode={enterMode} setEnterMode={setEnterMode} runningInput={runningInput} setRunningInput={setRunningInput} top={top} source={source} models={models} exe={exe} notify={notify} autostart={autostart} appearance={appearance} manage={manage} chats={chats} compose={compose} opCaps={opCaps} org={org.settings} cont={cont} /></div>
+        <div className="content"><SettingsBody tab={d.tab} enterMode={enterMode} setEnterMode={setEnterMode} runningInput={runningInput} setRunningInput={setRunningInput} top={top} source={source} models={models} modelDefault={modelDefault} exe={exe} notify={notify} autostart={autostart} appearance={appearance} manage={manage} chats={chats} compose={compose} opCaps={opCaps} org={org.settings} cont={cont} /></div>
       </Shell>);
     case "orgStart": return (
       <Shell title="組織実行を始める" onClose={onClose} close="キャンセル">
@@ -634,18 +662,7 @@ export function Dialogs({ cont, org, folderTools, workspaceRoots, d, onClose, ch
     case "rename": return <RenameDialog chat={chats.find((x) => x.key.id === d.chatId)} onClose={onClose} run={(n) => onRename(d.chatId, n)} />;
     case "quit": return <QuitDialog q={quit} chats={chats} onClose={onClose} onAct={onAct} />;
     case "force": return <ForceDialog f={force} chats={chats} onClose={onClose} />;
-    case "delete": {
-      const m = manage.del;
-      const c = chats.find((x) => x.key.id === d.chatId);
-      const finished = m.outcome !== null;
-      const pv = m.preview;
-      const label = m.running ? "削除しています…" : pv?.requiresStop ? "中断して削除" : "削除";
-      return (
-        <Shell title="チャットを削除" onClose={onClose}
-          foot={<><button className="btn" onClick={onClose}>{finished ? "閉じる" : "キャンセル"}</button>{finished && m.outcome?.kind !== "partial" ? null : <button className="btn danger" disabled={!pv || m.running || !!pv.blockedReason} title={pv?.blockedReason ?? undefined} onClick={m.run}>{label}</button>}</>}>
-          <DeleteBody chat={c} d={m} />
-        </Shell>);
-    }
+    case "delete": return <DeleteDialog chat={chats.find((x) => x.key.id === d.chatId)} m={manage.del} onClose={onClose} />;
     case "export": {
       const m = manage.exp;
       return (
@@ -770,7 +787,8 @@ export function Dialogs({ cont, org, folderTools, workspaceRoots, d, onClose, ch
       <Shell title="追加" onClose={onClose}>
         <div className="content" style={{ display: "grid", gap: 6 }}>
           <button className="btn-line" onClick={() => onAct("attachPick")}><Icon name="clip" />ファイルを選ぶ（このチャット用にコピーします）</button>
-          <button className="btn-line" onClick={() => onAct("attachPasteSelection")}><Icon name="copy" />選択範囲を貼り付け（クリップボードの文章をコード枠で入力欄へ）</button>
+          <button className="btn-line" disabled={!manage.selectedId} title={!manage.selectedId ? "チャットを選ぶと使えます" : undefined} onClick={() => onAct("attachPasteSelection")}><Icon name="copy" />クリップボードの文字を貼り付け（コード枠にして入力欄へ。送信はしません）</button>
+          {!manage.selectedId ? <span className="small muted">クリップボードの貼り付けは、チャットを選ぶと使えます。</span> : null}
           <button className="btn-line" disabled={opCaps.find((c) => c.op === "referenceChat")?.support !== "supported"} onClick={() => onAct("reference")}><Icon name="chat" />過去の会話を参考に…（本文の抜粋を入力欄へ。要約しません）</button>
           <button className="btn-line" disabled={opCaps.find((c) => c.op === "skills")?.support !== "supported"} onClick={() => onAct("skills")}><Icon name="check" />Skill を指定…（送信時に明示的に呼び出します）</button>
           <button className="btn-line" disabled={opCaps.find((c) => c.op === "sideChat")?.support !== "supported"} onClick={() => onAct("sideOpen")}><Icon name="branch" />side相談を開く（読み取り専用の一時的な相談。主会話には影響しません）</button>

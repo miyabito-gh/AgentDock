@@ -124,7 +124,7 @@ export function tabsOf(f: Pick<OrgArtifactFile, "kind" | "preview">): FileTab[] 
 export function importResultText(r: OrgImportResult): { tone: "ok" | "warn"; text: string } {
   const o: OrgImportOutcome = r.outcome;
   switch (o.kind) {
-    case "applied": return { tone: "ok", text: `取り込みました（${r.files ?? 0} ファイル）。ブランチ ${r.branch} の先頭を ${sha7(o.head)} に確認しました。` };
+    case "applied": return { tone: "ok", text: `取り込みました${r.files == null ? "" : `（${r.files} ファイル）`}。ブランチ ${r.branch} の先頭を ${sha7(o.head)} に確認しました。` };
     case "notApplied": return { tone: "warn", text: `取り込めませんでした（${o.reason}）。作業フォルダは変わっていません。` };
     case "partial": return { tone: "warn", text: `取り込みの途中で止まり、一部のファイルだけが書き換わりました（${o.files.join("、")}）。コミットは進んでいません。「取り込み前に戻す」で、その分を元に戻せます。` };
     case "unknown": return { tone: "warn", text: `取り込めたか確認できません${o.headNow.kind === "value" ? `（今のコミット ${sha7(o.headNow.value)}）` : ""}。再実行はしていません。「状態を確認」で読み取って確かめてください。` };

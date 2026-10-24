@@ -1,5 +1,5 @@
 // 組織実行の周回・判定・辺の文言（純粋関数。node --test で単体テストできるよう org.ts から分けている）。
-import type { OrgGraphEdgeView, OrgGraphNodeView, OrgVerdict } from "../ipc/types";
+import type { ChatKey, OrgGraphEdgeView, OrgGraphNodeView, OrgVerdict } from "../ipc/types";
 
 /** 判定値の日本語訳。未知の値は元の値をそのまま出す（推測で訳さない）。ホスト側の辺の条件の訳（view.rs の verdict_ja）と同じ対応。 */
 const VERDICT_JA: Record<string, string> = { rework: "やり直し", pass: "合格", replan: "計画からやり直し" };
@@ -24,8 +24,8 @@ export const roundText = (n: OrgGraphNodeView): string | null => (n.round !== nu
 export function edgeText(e: OrgGraphEdgeView, nameOf: (id: string) => string = (id) => id): { head: string; detail: string; untaken: boolean; title: string } {
   const title = `${e.from}->${e.to}`;
   if (e.kind === "feedback") {
-    const allowed = e.allowed ?? 0;
-    return { head: `↺ ${nameOf(e.to)}`, detail: `${e.label}、やり直し 最大${allowed}回・使用${e.used}回・残り${Math.max(0, allowed - e.used)}回`, untaken: e.used === 0, title };
+    const allowed = e.allowed;
+    return { head: `↺ ${nameOf(e.to)}`, detail: allowed == null ? `${e.label}、やり直し 上限は確認できません・使用${e.used}回` : `${e.label}、やり直し 最大${allowed}回・使用${e.used}回・残り${Math.max(0, allowed - e.used)}回`, untaken: e.used === 0, title };
   }
   return { head: `→ ${nameOf(e.to)}`, detail: e.label, untaken: e.used === 0, title };
 }
@@ -80,9 +80,26 @@ export function displayRequest(request: string): string {
   return s === "" ? request : s;
 }
 
-/** 状態に応じた出し分け。終了済み（完了・取り消し済み・失敗）では、動きの節・0件のチップ・設定値の表を前面に出さず、行ごとの「手動に切り替え」も出さない。 */
-export function sectionVisibility(finished: boolean): { activity: boolean; waitBand: boolean; settingsFolded: boolean; releaseButton: boolean } {
-  return { activity: !finished, waitBand: !finished, settingsFolded: finished, releaseButton: !finished };
+/** 状態に応じた出し分け。終了済み（完了・取り消し済み・失敗）では、動きの節・0件のチップ・設定値の表を前面に出さない。 */
+export function sectionVisibility(finished: boolean): { activity: boolean; waitBand: boolean; settingsFolded: boolean } {
+  return { activity: !finished, waitBand: !finished, settingsFolded: finished };
+}
+
+/**
+ * 行の「…」メニューの「手動に切り替え…」。終了したワークフローでも出す（ホストは終了後も拒否しない）。
+ * 出すのは、チャットのあるタスクだけ。過去の記録（読み取り専用）では操作できないので、無効にして理由を添える。
+ */
+export function releaseMenuState(hasChat: boolean, readonly: boolean): { show: boolean; disabled: boolean; reason: string | null } {
+  if (!hasChat) return { show: false, disabled: false, reason: null };
+  return readonly
+    ? { show: true, disabled: true, reason: "過去の記録（読み取り専用）のため、ここからは切り替えられません" }
+    : { show: true, disabled: false, reason: null };
+}
+
+/** 組織実行のチャットへ手入力できない理由。手動に切り替えられるときだけ、その手順を案内する（使えないときは事実だけ）。 */
+export function orgSendLock(releasable: boolean): string {
+  const base = "組織実行のチャットです。ここから通常の送信はできません（やりとりを始めるのは組織実行だけです）。中央の入力欄は「割り込み指示」で、実行中のやりとりに届けるか、次の送信に添えます。";
+  return releasable ? `${base}通常のチャットとして送るには、ワークフロー画面のタスクの「…」メニューから「手動に切り替え…」を選んでください。` : "このチャットは見るだけです（過去のワークフローの記録のため、ここからは送れません）。";
 }
 
 /** タスク行の「成果物」の補足。コミットがあれば変更あり、調査の報告があれば「報告あり」。取れていないものは「なし」と書かない（null＝出さない／未取得は文字で）。 */
@@ -105,14 +122,19 @@ export function taskSubparts(x: { reworkUsed: number; reworkMax: number; retries
 }
 
 /**
- * 結果として先頭に出す報告のタスク。調査タスクのうち、他の調査タスクの依存先になっていない末端（統合報告）の最後のもの。
- * 報告を読めたもの（`withReport` に含まれるもの）だけが対象。無ければ null。
+ * 結果として先頭に出す報告のタスク。統合タスクが1件に定まるときだけ:
+ * 他の調査タスクの依存先になっていない末端の調査がちょうど1件で、それが別の調査タスクを統合している（依存先に調査がある）こと。
+ * 並列の調査（統合なし）や末端が複数のときは null（全報告を並べる）。末端の報告を読めなければ null。
  */
 export function finalReportTask(tasks: ReadonlyArray<{ id: string; kind: string; deps: string[] }>, withReport: ReadonlySet<string>): string | null {
-  const depended = new Set(tasks.filter((t) => t.kind === "investigate").flatMap((t) => t.deps));
-  let best: string | null = null;
-  for (const t of tasks) if (t.kind === "investigate" && !depended.has(t.id) && withReport.has(t.id)) best = t.id;
-  return best;
+  const inv = tasks.filter((t) => t.kind === "investigate");
+  const depended = new Set(inv.flatMap((t) => t.deps));
+  const leaves = inv.filter((t) => !depended.has(t.id));
+  if (leaves.length !== 1) return null;
+  const leaf = leaves[0];
+  const ids = new Set(inv.map((t) => t.id));
+  if (!leaf.deps.some((d) => ids.has(d)) || !withReport.has(leaf.id)) return null;
+  return leaf.id;
 }
 
 /** 完了後の帯の文（過去の記録では取り込み操作を促さない。調査のみは調査用の文）。 */
@@ -120,4 +142,23 @@ export function finishedBannerFor(tasks: ReadonlyArray<{ kind: string; commit?: 
   if (isInvestigationOnly(tasks)) return "調査が終わりました。結果は下で読めます。取り込む変更はありません。";
   if (readonly) return "終了した記録です。成果物と取り込みの記録は下で確認できます。";
   return "成果物を確認して取り込んでください。AgentDock は自動でマージしません。";
+}
+
+/**
+ * 完了後のタスク表から外す計画タスク（planner）と、概要の「計画: 承認済み…」の1行。
+ * 外すのは、ワークフローが終了済みで、planner 以外のタスクもあり、完了した planner だけ（実行中・停止中・失敗は従来どおり表に残す）。
+ * 自動承認か利用者承認かは、通知の種類から取れるときだけ（最後に起きたほう）。取れなければ「計画: 承認済み」。
+ */
+export function planSummary(
+  tasks: ReadonlyArray<{ id: string; role: string; chat: ChatKey | null; status: { phase: string } }>,
+  finished: boolean,
+  noticeKinds: ReadonlyArray<string>,
+): { hiddenIds: ReadonlySet<string>; line: string | null; chat: ChatKey | null } {
+  const none = { hiddenIds: new Set<string>(), line: null, chat: null };
+  if (!finished || !tasks.some((t) => t.role !== "planner")) return none;
+  const hidden = tasks.filter((t) => t.role === "planner" && t.status.phase === "completed");
+  if (hidden.length === 0) return none;
+  let how = "";
+  for (const k of noticeKinds) if (k === "planAutoApproved") how = "（自動）"; else if (k === "planNeedsApproval") how = "（利用者）";
+  return { hiddenIds: new Set(hidden.map((t) => t.id)), line: `計画: 承認済み${how}`, chat: [...hidden].reverse().find((t) => t.chat)?.chat ?? null };
 }

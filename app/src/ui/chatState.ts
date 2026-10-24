@@ -85,14 +85,14 @@ export function historyBreakdown(outcomes: HistoryOutcome[]): { completed: numbe
   return { completed: n("completed"), failed, interrupted, noTurns: n("noTurns"), attention: failed + interrupted > 0 };
 }
 export function historyBreakdownText(b: ReturnType<typeof historyBreakdown>): string {
-  return [`完了${b.completed}`, `失敗${b.failed}`, `中断${b.interrupted}`, ...(b.noTurns ? [`turnなし${b.noTurns}`] : [])].join("／");
+  return [`完了${b.completed}`, `失敗${b.failed}`, `中断${b.interrupted}`, ...(b.noTurns ? [`やりとりなし${b.noTurns}`] : [])].join("／");
 }
 
 export const HISTORY_OUTCOME_TEXT: Record<HistoryOutcome, string> = {
   completed: "履歴で完了を確認",
   failed: "履歴で失敗を確認",
   interrupted: "履歴で中断を確認",
-  noTurns: "履歴でturnなしを確認",
+  noTurns: "履歴でやりとりなしを確認",
 };
 
 /** 「確認済みにして隠す」を解く署名。状態・原文ラベル・最新turn・直近活動の時刻が変われば別物（新しい活動として再表示する）。 */

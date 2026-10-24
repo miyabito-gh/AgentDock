@@ -63,7 +63,7 @@ export function OrgIntakeBeginBody({ begin, browse, live, initialFolder, onPrepa
       </div>
       <div className="banner info" role="note"><div>
         まず、普通のチャットで AI と依頼を詰めます（<b>組織実行はまだ始まりません</b>）。固まったら「要約を作る」で依頼の形にまとめ、内容を確認してから開始します。
-        テンプレート・並列数・turn 上限は、その要約の画面で決めます。AgentDock は自動でマージしません。
+        テンプレート・並列数・やりとりの上限は、その要約の画面で決めます。AgentDock は自動でマージしません。
       </div></div>
       {needsPrep(status) ? <p className="small muted">Git の準備が要ります。「Gitを準備…」で整えるか、準備してから開始してください（依頼の整理だけなら今すぐできます）。</p> : null}
       {err ? <div className="why err" role="alert">{err}</div> : null}
@@ -225,11 +225,11 @@ function SummaryCard({ chat, view, busy, run }: { chat: ChatKey; view: IntakeVie
           <option value="">計画して実行（標準）</option>
           {templates.map((t) => <option key={t.id} value={t.id} disabled={!t.selectable}>{t.name}{t.selectable ? "" : "（選べません）"}</option>)}
         </select></div>
-      <div className="field"><span>並列数・turn 上限（任意）</span>
+      <div className="field"><span>並列数・やりとりの上限（任意）</span>
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
           <label>Worker 同時 <input type="text" inputMode="numeric" size={3} value={f.maxWriters} placeholder="2" onChange={(e) => set({ maxWriters: e.target.value })} aria-label="Worker の同時実行数（1〜4）" /></label>
           <label>全体 <input type="text" inputMode="numeric" size={3} value={f.maxTotal} placeholder="3" onChange={(e) => set({ maxTotal: e.target.value })} aria-label="全体の同時実行数（1〜4）" /></label>
-          <label>turn 上限 <input type="text" inputMode="numeric" size={4} value={f.maxTurns} placeholder={String(turnDefault)} onChange={(e) => set({ maxTurns: e.target.value })} aria-label="turn 上限" /></label>
+          <label>やりとりの上限 <input type="text" inputMode="numeric" size={4} value={f.maxTurns} placeholder={String(turnDefault)} onChange={(e) => set({ maxTurns: e.target.value })} aria-label="やりとりの上限" /></label>
         </div>
         {est ? <span className="note">{est.lines.join(" ")}</span> : null}</div>
       {problem ? <div className="why err" role="alert">{problem}</div> : null}

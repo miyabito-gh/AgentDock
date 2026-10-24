@@ -1,5 +1,5 @@
 import { multiFolderMark } from "./workFolders";
-import { ORG_SEND_LOCK } from "./OrgPane";
+import { orgSendLock } from "./orgText";
 import { RequestGapLine } from "./RequestGap";
 import { chatGapRequests } from "./org";
 import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
@@ -8,13 +8,16 @@ import type {
   PermissionPreset, QueueEntry, RequestAnswer, ActivityKind, SaveState, StopRecord, TurnRecord, WorkMode, WorkModeInfo,
 } from "../ipc/types";
 import { Icon } from "./Icon";
+import { useDialogFocus } from "./useDialogFocus";
 import { FindBar } from "./FindBar";
 import { Popover } from "./Popover";
 import { WorkFoldersPanel, type WorkFoldersApi } from "./WorkFoldersUi";
 import { Markdown, PathText, COPY_LABEL, useCopy } from "./Markdown";
 import { PENDING_TEXT } from "./ManageDialogs";
 import { TENTATIVE_HINT, TENTATIVE_STYLE, chatAgents, chatDisplay, chatName, chatRequests, chatTitle, chatStatusText, chatStops, isRunning, rootView, stopOpen } from "./derive";
-import { FRESH, STATE, STOP_LABEL, hms, holdText, keyStr, knownValue, showKnown, stopCauseText, targetList, unconfirmedNote } from "./format";
+import type { SendNotice } from "./sendNotice";
+import { FRESH, STATE, STOP_LABEL, hms, savedPartText, holdText, keyStr, knownValue, showKnown, stopCauseText, targetList, unconfirmedNote } from "./format";
+import { effortLabel } from "./modelLabel";
 import { baseName, clipboardImageName, mimeOf } from "./attach";
 import { decisionLine, placeDecisions, slotKey, type DecisionItem } from "./decisions";
 import { createFoldMemory, isLongBody, messageTexts, needsExpand, workFold, workFoldLabel } from "./fold";
@@ -49,7 +52,7 @@ const SCOPE_TEXT = { once: "1回だけ", session: "このセッション中", pe
 
 export interface CenterProps {
   /** 組織実行が所有するチャットのとき、通常の入力欄の代わりに出す割り込み指示の材料（それ以外は null）。 */
-  orgInterject?: { workflowId: string; task: OrgTaskView | null; interjects: OrgInterjectView[]; run: (label: string, f: () => Promise<string | void>) => Promise<boolean> } | null;
+  orgInterject?: { workflowId: string; task: OrgTaskView | null; interjects: OrgInterjectView[]; readonly?: boolean; run: (label: string, f: () => Promise<string | void>) => Promise<boolean> } | null;
   /** 左（チャット一覧）・右（ドック）が今見えているか（狭い画面では一時表示の開閉）。ヘッダーの開閉ボタンの見た目に使う。 */
   leftShown: boolean;
   rightShown: boolean;
@@ -97,6 +100,8 @@ export interface CenterProps {
   onGoalClear: () => void;
   /** 直近の送信の受理状態の案内（受理なし・受理不明・照合の結果）。 */
   notice: SendNotice | null;
+  /** 通知を閉じる（表示を消すだけ。送信の状態は変えない）。 */
+  onCloseNotice: (key: string) => void;
   onRetrySend: () => void;
   /** 完了後に送る依頼（キュー）。undefined＝まだ登録がない。 */
   queue: ChatQueue | undefined;
@@ -135,7 +140,9 @@ export interface FileActions {
   pasteImage: (name: string, bytes: ArrayBuffer) => void;
 }
 
-export interface SendNotice { cls: "warn" | "err"; title: string; body: string; canRetry: boolean; alt?: { label: string; run: () => void } }
+export type { SendNotice };
+/** 本文が取れていないときの表示（「…」や空で埋めない）。 */
+const BODY_MISSING = "本文を取得できませんでした（会話を開くと読み込みます）";
 
 /** キュー項目への操作（ホストが判断・保存する。UIは意図を伝えるだけ）。 */
 export interface QueueActions {
@@ -307,14 +314,14 @@ function targetName(snap: HostSnapshot, c: Chat, t: StopRecord["targets"][number
 function StopBanner({ snap, chat, rec, onAct }: { snap: HostSnapshot; chat: Chat; rec: StopRecord; onAct: (a: string) => void }) {
   return (
     <div className="cbanner warn" role="alert">
-      <h4>停止を確認できていない対象があります（中断要求後・ホストの判定）<Help text="時間の経過だけで停止や失敗とは判断しません。停止が確認できるまで、削除と新しい送信は保留します。" /></h4>
+      <h4>止まったか確認できていない対象があります<Help text="中断を要求したあと、止まったことをまだ確認できていません。時間が経っただけで停止や失敗とは判断しません。停止が確認できるまで、削除と新しい送信は保留します。" /></h4>
       <ul className="targets">
         {rec.targets.map((t, i) => (
           <li key={i}><b>{targetName(snap, chat, t)}</b><span>{STOP_LABEL[t.summary]}</span></li>
         ))}
       </ul>
       <div className="acts">
-        <button className="btn-line" onClick={() => onAct("noop")}>待つ</button>
+        <button className="btn-line" title="保存履歴を読み直して状態を取り直します（読み取りのみ）" onClick={() => onAct("reloadHistory")}>もう一度確認する</button>
         <button className="btn-line" onClick={() => onAct("interrupt")}>中断を再試行</button>
         <button className="btn-danger" onClick={() => onAct("force")}>強制終了…</button>
       </div>
@@ -330,7 +337,7 @@ function Banners({ p }: { p: CenterProps }) {
     <>
       {p.notice ? (
         <div className={`cbanner ${p.notice.cls}`} role="alert">
-          <h4>{p.notice.title}</h4>
+          <h4>{p.notice.title}<button className="btn sm" style={{ marginLeft: 8 }} aria-label="この通知を閉じる" title="閉じる（送信の状態は変わりません）" onClick={() => p.onCloseNotice(p.notice!.key)}>×</button></h4>
           {p.notice.body}
           {p.notice.canRetry || p.notice.alt ? (
             <div className="acts">
@@ -358,7 +365,7 @@ function Banners({ p }: { p: CenterProps }) {
       {p.save && p.save.kind === "saveFailed" ? (
         <div className="cbanner err" role="alert">
           <h4>一部を保存できませんでした</h4>
-          <span title="保存できていない内容を保存済みとは表示しません。">保存済み: {p.save.savedPart ?? "なし"}。未保存: {p.save.unsavedPart ?? "不明"}（{p.save.message}）。</span>
+          <span title="保存できていない内容を保存済みとは表示しません。">{savedPartText(p.save.savedPart, p.save.unsavedPart)}（{p.save.message}）。</span>
           <div className="acts"><button className="btn-line" onClick={() => onAct("retrySave")}>保存を再試行</button><button className="btn-line" onClick={() => onAct("settings:storage")}>容量を確認</button></div>
         </div>
       ) : null}
@@ -388,10 +395,7 @@ function Thumb({ target, name, load }: { target: FileRef; name: string; load: Fi
     <>
       <button className="thumbbtn" aria-label={`${name}のプレビューを拡大`} onClick={() => setBig(true)}><img className="thumbimg" src={url} alt="" /></button>
       {big ? (
-        <div className="lightbox" role="dialog" aria-modal="true" aria-label={`${name}のプレビュー`} onClick={() => setBig(false)}>
-          <img src={url} alt={name} />
-          <div className="small">{name}　（画面で表示できることと、モデルが内容を読めることは別です。クリックで閉じる）</div>
-        </div>
+        <Lightbox name={name} url={url} onClose={() => setBig(false)} />
       ) : null}
     </>
   );
@@ -627,7 +631,7 @@ function Messages({ orgBound, headKey, threads, chatId, turns, reqs, gaps, runni
             {wfOpen ? wfEntries.map((e) => e.kind.kind === "agentMessage" ? (
               <div className="msg ai" key={e.key.itemId}>
                 <div className="who">Codex</div>
-                <div className="bubble" data-find="body"><Markdown text={e.text.kind === "value" ? e.text.value : "…"} streaming={false} /></div>
+                <div className="bubble" data-find="body">{e.text.kind === "value" ? <Markdown text={e.text.value} streaming={false} /> : <span className="muted">{BODY_MISSING}</span>}</div>
               </div>
             ) : (
               <div className="msg ai" key={e.key.itemId}><div className="activity"><b>{kindLabel(e.kind)}</b>　{entryText(e)}</div></div>
@@ -661,7 +665,7 @@ function Messages({ orgBound, headKey, threads, chatId, turns, reqs, gaps, runni
                     <div className="sr">あなた</div>
                     {env?.envelope ? <EnvelopeFold env={env} /> : null}
                     {noBody
-                      ? (atts.length ? null : <div className="bubble" data-find="body"><span className="muted">（本文なし）</span></div>)
+                      ? (atts.length && e.text.kind === "value" ? null : <div className="bubble" data-find="body"><span className="muted">{e.text.kind === "value" ? "（本文なし）" : BODY_MISSING}</span></div>)
                       : <UserBubble text={utext} forceOpen={find.open && needsExpand([utext], find.query)} open={openMsgs.includes(e.key.itemId)} onToggle={() => toggleMsg(e.key.itemId)} />}
                     </>}
                     {atts.length ? <MsgChips atts={atts} locals={locals} files={files} /> : null}
@@ -676,8 +680,8 @@ function Messages({ orgBound, headKey, threads, chatId, turns, reqs, gaps, runni
                 {lead}
                 <div className="msg ai">
                   <div className="who">Codex</div>
-                  <div className="bubble" data-find="body">{(() => { const rep = orgBound && !(t.end === null && e === lastAi) ? parseOrgReport(text) : null; return rep ? <OrgReportView report={rep} raw={text} /> : <Markdown text={text} streaming={t.end === null && e === lastAi} />; })()}</div>
-                  <div className="acts"><CopyAct text={text} /><button onClick={() => onAct(`fork:${t.key.turnId}`)}><Icon name="branch" />ここから分岐</button>
+                  <div className="bubble" data-find="body">{e.text.kind !== "value" && !(t.end === null && e === lastAi) ? <span className="muted">{BODY_MISSING}</span> : (() => { const rep = orgBound && !(t.end === null && e === lastAi) ? parseOrgReport(text) : null; return rep ? <OrgReportView report={rep} raw={text} /> : <Markdown text={text} streaming={t.end === null && e === lastAi} />; })()}</div>
+                  <div className="acts">{e.text.kind === "value" ? <CopyAct text={text} /> : null}<button onClick={() => onAct(`fork:${t.key.turnId}`)}><Icon name="branch" />ここから分岐</button>
                     {mine && e === lastAi ? <button aria-disabled={blocked("regenerate", null) || undefined} onClick={() => onAct(`resend:regenerate|${t.key.turnId}|`)}><Icon name="refresh" />もう一度…</button> : null}</div>
                 </div>
                 </Fragment>
@@ -974,7 +978,7 @@ function Composer({ p, running, lock, hu }: { p: CenterProps; running: boolean; 
   const sendKeyName = sendKeyNameOf(p.enterMode);
   const runHint = `${enterHint}／Ctrl＋Shift＋Enter で${actLabel(altAct)}`;
   // 受理の根拠。全文は title と「⋯」に常に置き、1行目には問題があるとき（未受理・受理未確認・不一致）だけ短く出す。
-  const acceptLine = `${changed ? `選択: ${model}／${effort}${speed ? `／速度 ${speed}` : ""}（未受理。次のターンから適用）　` : ""}受理済み: ${settings ? (accepted ? `${accepted.model}／${accepted.effort ?? "既定"}${accepted.speedTier ? `／速度 ${accepted.speedTier}` : ""}` : showKnown(settings.accepted)) : "未確認"}${!accepted ? "（受け取るまで確認不可）" : ""}`;
+  const acceptLine = `${changed ? `選択: ${model}／${effortLabel(effort)}${speed ? `／速度 ${speed}` : ""}（未受理。次のターンから適用）　` : ""}受理済み: ${settings ? (accepted ? `${accepted.model}／${accepted.effort ? effortLabel(accepted.effort) : "既定"}${accepted.speedTier ? `／速度 ${accepted.speedTier}` : ""}` : showKnown(settings.accepted)) : "未確認"}${!accepted ? "（受け取るまで確認不可）" : ""}`;
   const acceptTip = !accepted ? "会話の再開・開始の応答か Codex の設定通知でモデルを受け取るまで、受理は確認できません。受け取っていない間は、選択値が使われたとは言えません。" : undefined;
   const wmLine = wmSelected || wmAccepted
     ? `計画／実行: 選択 ${wmSelected ? WORK_MODE_TEXT[wmSelected] : "未選択"}／受理済み ${wmAccepted ? WORK_MODE_TEXT[wmAccepted] : "未確認"}${wmSelected && wmAccepted !== wmSelected ? "（未受理。次のターンから適用）" : ""}`
@@ -1016,7 +1020,7 @@ function Composer({ p, running, lock, hu }: { p: CenterProps; running: boolean; 
           onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
           onCompositionStart={() => setComposing(true)} onCompositionEnd={(e) => { setComposing(false); setCaret(e.currentTarget.selectionStart); }}
           aria-controls={sugOpen ? sugId : undefined} aria-expanded={sugOpen || undefined} aria-activedescendant={sugOpen ? `${sugId}-${sugCur}` : undefined}
-          placeholder={`${running ? (defAct === "steer" ? "実行中のやりとりへ追加指示する依頼" : "完了後に送る次の依頼") : "メッセージを入力"}（${running ? runHint : enterHint}）`}
+          placeholder={`${running ? (defAct === "steer" ? "実行中のやりとりへ追加指示する依頼" : "完了後に送る次の依頼") : "メッセージを入力"}`}
           onPaste={(e) => {
             // クリップボードの画像は添付にする（生バイトでホストへ）。文章だけの貼り付けは通常どおり。
             const img = Array.from(e.clipboardData.files).find((f) => f.type.startsWith("image/"));
@@ -1040,11 +1044,12 @@ function Composer({ p, running, lock, hu }: { p: CenterProps; running: boolean; 
             e.preventDefault();
             void send(act === "steer");
           }} />
+        <div className="small muted keyhint">{running ? runHint : enterHint}</div>
         <div className="ctrl">
           <div className="ctrl-l">
           <button aria-label="ファイル・画像・参考情報を追加" disabled={!!lock} onClick={() => p.onAct("attach")}><Icon name="clip" /></button>
           <span className="sel"><select aria-label="モデル" title="モデル（次の送信から適用）" value={model} onChange={(e) => pickModel(e.target.value)}>{models.map((m) => <option key={m.id} value={m.id}>{m.displayName}</option>)}</select></span>
-          <span className="sel eff-inline"><select aria-label="推論の強さ" title="推論の強さ（次の送信から適用）" value={effort} onChange={(e) => pickEffort(e.target.value)}>{efforts.map((x) => <option key={x.id} value={x.id}>{x.id}</option>)}</select></span>
+          <span className="sel eff-inline"><select aria-label="推論の強さ" title="推論の強さ（次の送信から適用）" value={effort} onChange={(e) => pickEffort(e.target.value)}>{efforts.map((x) => <option key={x.id} value={x.id}>{effortLabel(x.id)}</option>)}</select></span>
           {/* まれな設定（権限・速度・計画／実行）と受理の全文は「⋯」へ。既定から外れているときだけ、下の小さな印で示す */}
           <Popover trigger={<Icon name="more" />} label="送信の設定" title="次の送信に使う権限・推論の強さ・速度・計画／実行（と、受理の全文）" triggerClassName="btn subtle icon">
             <div className="moreset">
@@ -1058,7 +1063,7 @@ function Composer({ p, running, lock, hu }: { p: CenterProps; running: boolean; 
               </label>
               <label className="eff-pop">
                 <span>推論の強さ</span>
-                <select aria-label="推論の強さ" value={effort} onChange={(e) => pickEffort(e.target.value)}>{efforts.map((x) => <option key={x.id} value={x.id}>{x.id}</option>)}</select>
+                <select aria-label="推論の強さ" value={effort} onChange={(e) => pickEffort(e.target.value)}>{efforts.map((x) => <option key={x.id} value={x.id}>{effortLabel(x.id)}</option>)}</select>
               </label>
               <label>
                 <span>速度 {stCap?.verification === "unverified" && speed ? <UnverifiedTag cap={stCap} /> : null}</span>
@@ -1139,9 +1144,10 @@ function Composer({ p, running, lock, hu }: { p: CenterProps; running: boolean; 
 }
 
 /** 送信を止める理由（無ければ null）。中央の入力欄とドックの指示欄で同じ判定を使う。 */
-export function sendLockReason(snap: HostSnapshot, chat: Chat, local: CenterProps["local"]): string | null {
+/** `orgReleasable`＝組織実行のチャットを「手動に切り替え」できるか（現在のワークフローの画面から。過去の記録は不可）。 */
+export function sendLockReason(snap: HostSnapshot, chat: Chat, local: CenterProps["local"], orgReleasable = false): string | null {
   const delPending = local?.deletePending ?? null;
-  return local?.org && !local.org.released ? ORG_SEND_LOCK // 組織実行のチャットは閲覧のみ（ホストも同じ判定で拒否する）
+  return local?.org && !local.org.released ? orgSendLock(orgReleasable) // 組織実行のチャットは閲覧のみ（ホストも同じ判定で拒否する）
     : delPending ? `削除を保留中のため、送信できません。${PENDING_TEXT(delPending.reason)}`
     : chatStops(snap, chat).some(stopOpen) ? "停止を確認できるまで、このチャットへの新しい送信は止めています。"
     : chat.origin === "external" && rootView(snap, chat)?.freshness !== "live" ? "再開するまで送信できません（上の案内から再開）" : null;
@@ -1190,7 +1196,7 @@ export function CenterPane(p: CenterProps) {
     const v = chatAgents(snap, chat).find((x) => keyStr(x.agent.key) === keyStr(a));
     return v ? showKnown(v.agent.displayName) : a.id;
   };
-  const lock = sendLockReason(snap, chat, p.local) ?? firstSendLockReason(p.pending);
+  const lock = sendLockReason(snap, chat, p.local, !!p.orgInterject && !p.orgInterject.readonly) ?? firstSendLockReason(p.pending);
   // 引き継ぎの案内（worktree に結び付いたチャットは対象外）。台帳の結び付き（作成元チャット）か、作業フォルダが台帳の worktree 内か
   const inWorktree = snap.worktrees.some((w) => w.createdForChat?.id === chat.key.id) || worktreeOf(knownValue(chat.cwd) ?? null, snap.worktrees) !== null;
   const hu = useHandoff({ chat, local: p.local, settings: snap.settings.continuation, running, worktree: inWorktree, load: p.loadHandoffPreview });
@@ -1220,7 +1226,7 @@ export function CenterPane(p: CenterProps) {
           {p.orgInterject.task
             ? <InterjectComposer workflowId={p.orgInterject.workflowId} task={p.orgInterject.task} interjects={p.orgInterject.interjects} run={p.orgInterject.run} />
             : <div className="small muted">このチャットのタスクを特定できないため、指示は送れません。</div>}
-          <div className="small muted">組織実行のチャットです。通常の送信・添付・キュー・モデル変更はできません。通常のチャットとして使うには、ワークフロー画面で「手動に切り替え」てください。</div>
+          <div className="small muted">組織実行のチャットです。通常の送信・添付・キュー・モデル変更はできません。{p.orgInterject.readonly ? "このチャットは見るだけです（過去のワークフローの記録のため）。" : "通常のチャットとして使うには、ワークフロー画面のタスクの「…」メニューから「手動に切り替え…」を選んでください。"}</div>
         </div>
       ) : (
       <Composer key={`${chat.key.id}:${p.models.length}`} p={p} running={running} lock={lock} hu={hu} />
@@ -1241,6 +1247,28 @@ export function EmptyCenter({ onAct }: { onAct: (a: string) => void }) {
         </div>
         <p className="small muted" style={{ marginTop: 14 }}>CLI や VS Code で作った会話は、左の一覧から開けます（外部で実行中なら閲覧のみ）。</p>
       </div>
+    </div>
+  );
+}
+
+/** 画像の拡大表示。Esc・クリック・「閉じる」で閉じる。開いたら「閉じる」へフォーカス、Tab は枠内、閉じたら拡大したサムネイルへ戻す。 */
+function Lightbox({ name, url, onClose }: { name: string; url: string; onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useDialogFocus(ref);
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.isComposing || e.defaultPrevented) return;
+      e.preventDefault();
+      onClose();
+    };
+    document.addEventListener("keydown", h);
+    return () => document.removeEventListener("keydown", h);
+  }, [onClose]);
+  return (
+    <div ref={ref} tabIndex={-1} className="lightbox" role="dialog" aria-modal="true" aria-label={`${name}のプレビュー`} onClick={onClose}>
+      <img src={url} alt={name} />
+      <div className="small">{name}　（画面で表示できることと、モデルが内容を読めることは別です。Esc・クリックで閉じる）</div>
+      <button type="button" className="btn" onClick={onClose}>閉じる</button>
     </div>
   );
 }

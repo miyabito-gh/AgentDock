@@ -241,7 +241,7 @@ export function ResendBody({ chat, live, cap, s, h, onClose, onRunning }: { chat
       {first ? (
         <p>これは会話の最初の依頼です。分岐はせず、<b>{name}</b> と同じ種類・作業フォルダ・モデル・権限の新しいチャットを作り、下の文を入力欄へ入れます（送信しません）。元の会話はそのまま残ります。</p>
       ) : (
-        <p>元の会話はそのまま残ります。turn {plan.turnNo} の直前までを分岐した新しいチャット「{name}{suffix}」へ送ります。</p>
+        <p>元の会話はそのまま残ります。やりとり {plan.turnNo} の直前までを分岐した新しいチャット「{name}{suffix}」へ送ります。</p>
       )}
       <UnverifiedNote cap={first ? undefined : cap} />
       {editing ? (

@@ -1,6 +1,7 @@
 // Ctrl+K のコマンドメニュー（検索つき一覧、P3-8）。項目は操作台帳（commands.ts）から作る。文字のみ。
 // 利用者が明示的に開いたときだけ検索欄へフォーカスを移し、閉じたら元の場所へ戻す。通知や新しい活動では開かない。
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
+import { useDialogFocus } from "./useDialogFocus";
 import { filterCommands, type CommandView } from "./commands";
 
 export function CommandPalette({ views, onRun, onClose }: { views: CommandView[]; onRun: (act: string) => void; onClose: () => void }) {
@@ -10,11 +11,9 @@ export function CommandPalette({ views, onRun, onClose }: { views: CommandView[]
   const items = useMemo(() => filterCommands(views, q), [views, q]);
   const cur = Math.min(pos, Math.max(0, items.length - 1));
 
-  useEffect(() => {
-    const prev = document.activeElement as HTMLElement | null;
-    input.current?.focus();
-    return () => { if (prev && document.contains(prev)) prev.focus(); };
-  }, []);
+  // 検索欄へフォーカス（ヘッダー内の唯一の操作要素）、Tab は枠内で循環、閉じたら元の場所へ戻す。
+  const dlg = useRef<HTMLDivElement>(null);
+  useDialogFocus(dlg);
 
   const run = (v: CommandView | undefined) => {
     if (!v || v.state.kind === "disabled") return;
@@ -31,7 +30,7 @@ export function CommandPalette({ views, onRun, onClose }: { views: CommandView[]
 
   return (
     <div className="scrim" onClick={onClose}>
-      <div className="dialog palette" role="dialog" aria-modal="true" aria-label="コマンドメニュー" onClick={(e) => e.stopPropagation()} onKeyDown={onKey}>
+      <div ref={dlg} tabIndex={-1} className="dialog palette" role="dialog" aria-modal="true" aria-label="コマンドメニュー" onClick={(e) => e.stopPropagation()} onKeyDown={onKey}>
         <header>
           <input ref={input} type="text" className="palette-q" value={q} placeholder="操作を検索（名前・別名・メニュー名）" aria-label="操作を検索" onChange={(e) => { setQ(e.target.value); setPos(0); }} />
         </header>

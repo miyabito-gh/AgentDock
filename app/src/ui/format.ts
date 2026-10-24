@@ -36,13 +36,18 @@ export const SOURCE_LABEL: Record<EvidenceSource, string> = {
 
 export const STOP_LABEL: Record<StopSummary, string> = {
   notRequested: "中断を要求していません",
-  interruptRequested: "中断要求済み・停止を未確認",
-  turnEndConfirmed: "turn終端を確認しました",
-  managedExecEndConfirmed: "管理実行の終了を確認しました",
-  osGoneConfirmed: "OS上の実体の消滅を確認しました",
-  unconfirmed: "停止を確認できていません",
-  ownershipUnknown: "所有を確認できないため停止対象に含めていません",
+  interruptRequested: "停止を要求しました。止まったかどうかは、まだ確認できていません",
+  turnEndConfirmed: "やりとりが終わったことを確認しました",
+  managedExecEndConfirmed: "AgentDock が起動した実行が終わったことを確認しました",
+  osGoneConfirmed: "プロセスが終わったことを確認しました",
+  unconfirmed: "止まったかどうか確認できていません。プロセスが残っている可能性があります",
+  ownershipUnknown: "AgentDock が起動したものか確認できないため、停止の対象に含めていません",
 };
+
+/** 「一部を保存できませんでした」の保存済み／未保存の文。取れていない側を「なし」で埋めず、確認できないと書く。 */
+export function savedPartText(saved: string | null, unsaved: string | null): string {
+  return `保存済みの内容: ${saved ?? "確認できません"}。未保存の内容: ${unsaved ?? "確認できません"}`;
+}
 
 /** 保留の対象の一覧（名前・状態・鮮度）。状態と鮮度は別軸のまま並べる。 */
 export const targetList = (ts: HoldTarget[], nameOf: (a: AgentKey) => string): string =>

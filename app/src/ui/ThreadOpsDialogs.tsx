@@ -230,7 +230,7 @@ export function ForkBody({ chat, live, cap, throughTurn, onOpenChat }: Pick<Thre
   return (
     <>
     <div className="content">
-      <p><b>{chatName(chat)}</b> を{throughTurn ? <>「turn <ShortId id={throughTurn} />」まで</> : "最新の終了したturnまで"}引き継いだ、新しい会話に分岐します。元の会話は変わりません。</p>
+      <p><b>{chatName(chat)}</b> を{throughTurn ? <>「やりとり <ShortId id={throughTurn} />」まで</> : "最新の終了したやりとりまで"}引き継いだ、新しい会話に分岐します。元の会話は変わりません。</p>
       <UnverifiedNote cap={cap} />
       <p className="small">元の会話を削除すると、分岐先が参照する添付は欠損表示になります。</p>
       <About><p>分岐先はAgentDockで管理する会話として一覧に加わります。分岐先の履歴は、元の会話の添付のコピーを参照します。</p></About>
@@ -302,7 +302,7 @@ function SnapshotView({ chat }: { chat: Chat }) {
         <div className="diffview" role="region" aria-label="圧縮前の本文" tabIndex={0} style={{ whiteSpace: "pre-wrap" }}>
           {turns.length === 0 ? <div className="ln">（この控えに本文はありません）</div> : turns.map((t) => (
             <div key={t.key.turnId} className="ln" style={{ marginBottom: 6 }}>
-              <div className="meta">turn <ShortId id={t.key.turnId} />{t.complete ? "" : "（部分的にしか読めていません）"}</div>
+              <div className="meta">やりとり <ShortId id={t.key.turnId} />{t.complete ? "" : "（部分的にしか読めていません）"}</div>
               {t.entries.map((e) => <div key={e.key.itemId}><b>{entryLabel(e.kind)}</b>　{e.text.kind === "value" ? e.text.value : "（内容の記載なし）"}</div>)}
             </div>))}
         </div>
@@ -350,7 +350,7 @@ export function CompactBody({ chat, live, cap, pending, waiting }: ThreadOpProps
       )}
       <SnapshotView key={result?.snapshot ?? 0} chat={chat} />
     </div>
-    {!result ? <FootActions main={<button className="btn primary" disabled={confirming || pending.some((p) => p.op === "compact")} onClick={() => setConfirming(true)}>確認へ…</button>} /> : null}
+    {!result ? <FootActions main={<button className="btn primary" disabled={confirming || pending.some((p) => p.op === "compact")} title={confirming ? "上の確認で「やめる」か実行を選んでください" : undefined} onClick={() => setConfirming(true)}>確認へ…</button>} /> : null}
     </>
   );
 }

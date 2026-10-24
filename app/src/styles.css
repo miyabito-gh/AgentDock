@@ -1162,3 +1162,8 @@ button.uchip:hover{background:var(--accent-weak)}
 .org-tbl tbody th.org-title{font-weight:600}
 .org-sub{margin-top:2px;white-space:normal}
 .org-result{margin:8px 0 12px}
+
+/* ダイアログ基盤: 枠自体へのフォーカス（見出しの代わり）に輪郭を出さない */
+.dialog:focus,.lightbox:focus{outline:none}
+
+.keyhint{margin:2px 2px 0}

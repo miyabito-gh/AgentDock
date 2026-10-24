@@ -188,7 +188,7 @@ export function OrgSettingsBody({ live, stallMinutes, setStall }: OrgSettingsPro
                   <button className="btn sm" onClick={() => void openGraph(x.file)} title={x.file}>ファイルを開く</button>
                 </div>
                 <div className="small">{x.description || "（説明なし）"}</div>
-                <div className="small muted">置き場: {x.workspace === "git" ? "Git" : "フォルダ（Git なし）"}　使う役割: {x.roles.join("、") || "—"}　最大 {x.estimate.turnsMax} turn（通常 {x.estimate.turnsTypical}）</div>
+                <div className="small muted">置き場: {x.workspace === "git" ? "Git" : "フォルダ（Git なし）"}　使う役割: {x.roles.join("、") || "—"}　最大 {x.estimate.turnsMax} 回のやりとり（通常 {x.estimate.turnsTypical} 回）</div>
                 {x.reasons.length > 0 ? <ul className="check-list">{x.reasons.map((r, i) => <li key={i}>{r}</li>)}</ul> : null}
               </li>
             ))}

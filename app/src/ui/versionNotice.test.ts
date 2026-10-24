@@ -27,3 +27,14 @@ test("接続断・起動失敗は閉じられない扱い", () => {
   assert.equal(isConnectionProblem({ kind: "launchFailed" }), true);
   assert.equal(isConnectionProblem({ kind: "connected" }), false);
 });
+
+import { globalBannerView } from "./versionNotice.ts";
+test("全体バナーの文言: 版の注意は事実と影響、role=status。起動失敗は直し方つきで alert", () => {
+  const m = globalBannerView({ kind: "connected" }, { kind: "mismatch", expected: "0.162.1", actual: "0.161.0" })!;
+  assert.ok(m.text.startsWith("Codex の版が対象と異なります（動作は続けますが"));
+  assert.equal(m.role, "status");
+  const f = globalBannerView({ kind: "launchFailed", message: "x" }, { kind: "match", version: "1" })!;
+  assert.ok(f.text.includes("codex.exe の場所"));
+  assert.equal(f.role, "alert");
+  assert.equal(globalBannerView({ kind: "connected" }, { kind: "match", version: "1" }), null);
+});

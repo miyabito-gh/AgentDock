@@ -1,7 +1,7 @@
 // 実行: node --test src/ui/leftNest.test.ts （tscの対象外）
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { classifyLeft, listTitle, stripDocHeader, wfTitleText, wfDisplayName, shortStamp } from "./leftNest.ts";
+import { classifyLeft, nestWorkflowIds, listTitle, stripDocHeader, wfTitleText, wfDisplayName, shortStamp } from "./leftNest.ts";
 
 const chat = (name: string | null, o: { preview?: string; used?: number | null; created?: number } = {}) => ({
   name: name === null ? { kind: "unknown" } : { kind: "value", value: name },
@@ -42,4 +42,12 @@ test("振り分け: 役割・依頼整理(紐づき/未開始)・通常", () => 
   assert.deepEqual(classifyLeft(role, shown, true), { kind: "normal" });
   assert.deepEqual(classifyLeft(st("wf-1"), shown, true), { kind: "normal" });
   assert.deepEqual(classifyLeft({ conversation: { intake: { kind: "ready" } } } as never, shown, true), { kind: "normal" });
+});
+
+test("畳み行の対象: 現在と開いている過去だけ。検索中は全部", () => {
+  const ids = ["w3", "w2", "w1"];
+  assert.deepEqual(nestWorkflowIds(ids, "w3", null, false), ["w3"]);
+  assert.deepEqual(nestWorkflowIds(ids, "w3", "w1", false), ["w3", "w1"]);
+  assert.deepEqual(nestWorkflowIds(ids, null, null, false), []);
+  assert.deepEqual(nestWorkflowIds(ids, "w3", null, true), ids);
 });

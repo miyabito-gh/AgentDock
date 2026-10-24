@@ -43,3 +43,10 @@ test("modelTooltip marks the root's recorded model", () => {
   assert.equal(modelTooltip(nf, nf, undefined, true), "親（メイン）のモデル（記録値）\nモデル: 未確認");
   assert.equal(modelTooltip(nf, nf), "モデル: 未確認");
 });
+
+import { effortLabel } from "./modelLabel.ts";
+test("推論の強さの表示名: 既知は日本語、未知はそのまま", () => {
+  assert.equal(effortLabel("medium"), "中");
+  assert.equal(effortLabel("xhigh"), "最高");
+  assert.equal(effortLabel("ultra-future"), "ultra-future");
+});

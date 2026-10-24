@@ -233,6 +233,11 @@ export function isCompletedCard(rootState: AgentView["status"]["state"] | null, 
     && kids.failed === 0 && kids.interrupted === 0 && kids.unknown === 0;
 }
 
+/** 1行の完了カードの末尾に添える文。サブエージェントを取得できていないときだけ（未確認を黙って隠さない。色だけにしない）。 */
+export function completedKidsNote(completed: boolean, kids: Pick<DescendantSummary, "notFetched">): string | null {
+  return completed && kids.notFetched ? "サブエージェント未確認" : null;
+}
+
 /** 「サブエージェント N件（作業中a・対応待ちb…）」。0件の内訳は省く。未取得のときは取得を促す文言（読みには行かない）。 */
 export function descendantSummaryText(s: DescendantSummary): string {
   if (s.notFetched) return "サブエージェント: まだ読み込んでいません（中央で開くと読み込みます）";

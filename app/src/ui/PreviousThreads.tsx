@@ -68,7 +68,15 @@ function SegmentView({ history }: { history: AgentHistory }) {
       {history.turns.map((t) => (
         <div key={t.key.agent.id + t.key.turnId} className="prevturn">
           {t.entries.filter((e) => e.kind.kind === "userMessage" || e.kind.kind === "agentMessage").map((e) => {
-            const text = e.text.kind === "value" ? e.text.value : "…";
+            if (e.text.kind !== "value") {
+              // 取得できなかった本文を「…」などで埋めない。取れていないことを示す（コピーも出さない）。
+              return (
+                <div className={e.kind.kind === "userMessage" ? "msg user" : "msg ai"} key={e.key.itemId}>
+                  <div className="muted prevnote">本文を取得できませんでした（会話を開くと読み込みます）</div>
+                </div>
+              );
+            }
+            const text = e.text.value;
             if (e.kind.kind === "userMessage") {
               const env = splitEnvelope(text);
               return (

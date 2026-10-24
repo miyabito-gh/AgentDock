@@ -4,7 +4,8 @@
 import { useState } from "react";
 import * as host from "../ipc/client";
 import { CopyLine } from "./RepoRecordPanel";
-import { ownerAllowConfirmText } from "./ownerAllow";
+import { askConfirm } from "./appConfirm";
+import { ownerAllowSpec } from "./ownerAllow";
 import { cleanRepoPath, ownerCommands, safeDirectoryCommand } from "./revertView";
 
 export function OwnerAllowPanel({ repo, onAllowed }: { repo: string; onAllowed: () => void }) {
@@ -12,7 +13,7 @@ export function OwnerAllowPanel({ repo, onAllowed }: { repo: string; onAllowed: 
   const [err, setErr] = useState<string | null>(null);
   const shown = cleanRepoPath(repo);
   const allow = async () => {
-    if (busy || !window.confirm(ownerAllowConfirmText(shown))) return;
+    if (busy || !(await askConfirm(ownerAllowSpec(shown)))) return;
     setBusy(true); setErr(null);
     try { await host.setRepoBaseline(repo, "Record", true); onAllowed(); }
     catch (e) { setErr(host.asIpcError(e).message); }

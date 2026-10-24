@@ -1,8 +1,9 @@
 // ダイアログの共通部品（UI-3）。外枠 Shell（Dialogs.tsx）のフッターへ、本文側から操作を差し込む。
 // 構造: ヘッダー／本文／フッター（左＝副操作、右＝閉じる（キャンセル）＋主操作）。主操作がいちばん右。
-import { createContext, useContext, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { shortId } from "./revertView";
+import { captureOpener, restoreOpener } from "./useDialogFocus";
 
 interface FootSlots { left: HTMLElement | null; main: HTMLElement | null }
 export const FootCtx = createContext<FootSlots>({ left: null, main: null });
@@ -35,10 +36,26 @@ export function About({ children }: { children: ReactNode }) {
   );
 }
 
-/** 危険な確定の確認ブロック（赤枠）。中に危険ボタンと「やめる」を置く。 */
+/** 危険な確定の確認ブロック（赤枠）。中に危険ボタンと「やめる」を置く。
+ *  出たらその位置へスクロールして、最初の入力欄（なければ危険でない最初のボタン）へフォーカスを移し、閉じたら開いた行・ボタンへ戻す。
+ *  危険な操作そのものにはフォーカスを置かない（Enter の押し間違いを防ぐ）。 */
 export function ConfirmBlock({ label, children, actions, wide }: { label: string; children: ReactNode; actions: ReactNode; wide?: boolean }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const hid = useId();
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const opener = captureOpener();
+    el.scrollIntoView({ block: "nearest" });
+    const target = el.querySelector<HTMLElement>("input:not([type=hidden]):not(:disabled),textarea:not(:disabled),select:not(:disabled)")
+      ?? Array.from(el.querySelectorAll<HTMLElement>(".acts button:not(:disabled)")).find((b) => !b.classList.contains("danger") && !b.classList.contains("btn-danger"))
+      ?? el;
+    target.focus({ preventScroll: true });
+    return () => restoreOpener(opener);
+  }, []);
   return (
-    <div className={`confirm${wide ? " wide" : ""}`} role="alertdialog" aria-label={label}>
+    <div ref={ref} tabIndex={-1} className={`confirm${wide ? " wide" : ""}`} role="alertdialog" aria-labelledby={hid}>
+      <span id={hid} className="sr">{label}</span>
       {children}
       <div className="acts end">{actions}</div>
     </div>

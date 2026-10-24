@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AgentKey, AgentView, Chat, ChatKey, HistoryOutcome, HostSnapshot, MonitorScope, PendingRequest, RequestAnswer } from "../ipc/types";
 import { RequestCard, chatChipClass } from "./CenterPane";
-import { DESCENDANT_LIMIT, branchOrder, cardDensity, chatSignature, descendantSummary, descendantSummaryText, holdByTyping, isCompletedCard, mayRedirect, nextHeldSig, orderWorkingFirst, selectTasks, stableMembership, stableOrder, trackRecency, workSignature, type Recency } from "./dockTasks";
+import { DESCENDANT_LIMIT, branchOrder, cardDensity, chatSignature, descendantSummary, descendantSummaryText, holdByTyping, isCompletedCard, completedKidsNote, mayRedirect, nextHeldSig, orderWorkingFirst, selectTasks, stableMembership, stableOrder, trackRecency, workSignature, type Recency } from "./dockTasks";
 import { Icon } from "./Icon";
 import { OrgBadge } from "./OrgPane";
 import { RequestGapLine } from "./RequestGap";
@@ -354,6 +354,7 @@ function TaskCard({ snap, c, band, line, open, marked, mini, at, confirmed, acti
             <OrgBadge local={snap.chatLocals.find((l) => l.chat.id === c.key.id)} />
             {marked ? <span className="tc-mark" role="img" aria-label="新しい動きがあります">●</span> : null}
             <span className={`st ${chip}`}><i aria-hidden="true" />{stateText}</span>
+            {completedKidsNote(completed, sum) ? <span className="small muted" title="サブエージェントの状態をまだ取得していません（中央で開くと読み込みます）">{completedKidsNote(completed, sum)}</span> : null}
             {at ? <span className="tc-at">{hms(at)}</span> : null}
           </>
         )}

@@ -3,6 +3,8 @@
 //       導入・削除・サーバーの追加・削除は確認画面の後だけ。実行前後に設定を照合した結果を出し、自動では元に戻さない。
 //       認可URLは「ブラウザで開く」を押したときだけ開き、画面にも出さない。完了通知が来ないときは「完了未確認」（失敗とは言わない）。
 //       再読込みはボタンのときだけ。受付は既存の会話への反映の確認ではない。
+import { askConfirm } from "./appConfirm";
+import { extensionRunConfirm } from "./confirmTexts";
 import { useCallback, useEffect, useState } from "react";
 import * as host from "../ipc/client";
 import type { ConfigCompare, ExtensionOpRecord, ExtensionOpStatus, ExtensionView, OpCapability, ToolServerAuth, ToolServerConnection, ToolServerList, ToolServerLogin } from "../ipc/types";
@@ -122,7 +124,7 @@ export function ExtensionsBody({ live, toolCap, extCap }: { live: boolean; toolC
     } catch (e) { setMsg(`再読込みを要求できませんでした: ${errText(e)}`); } finally { setBusy(false); }
   };
   const run = async (op: Parameters<typeof host.manageExtension>[0], what: string, detail: string) => {
-    if (!window.confirm(`${what}\n\ncodex.exe のコマンドを実行します（${detail}）。~/.codex の設定が変わる可能性があります。\n実行の前後に設定を読み直して照合し、結果を表示します。自動では元に戻しません。\n\n実行しますか？`)) return;
+    if (!(await askConfirm(extensionRunConfirm(what, detail)))) return;
     setBusy(true); setMsg(null); setLast(null);
     try { setLast(await host.manageExtension(op)); } catch (e) { setMsg(`実行できませんでした: ${errText(e)}`); } finally { setBusy(false); loadServers(); loadExts(); loadOps(); }
   };

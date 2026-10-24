@@ -46,7 +46,7 @@ export function parseCount(s: string, min: number, max: number): number | null |
 /** 入力の誤り（保存できない理由）。なければ null。 */
 export function formProblem(f: SummaryForm, turnLimit: number): string | null {
   if (parseCount(f.maxWriters, 1, 4) === undefined || parseCount(f.maxTotal, 1, 4) === undefined) return "並列数は 1〜4 の整数で入れてください（空欄なら既定）";
-  if (parseCount(f.maxTurns, 1, turnLimit) === undefined) return `turn 上限は 1〜${turnLimit} の整数で入れてください（空欄なら既定）`;
+  if (parseCount(f.maxTurns, 1, turnLimit) === undefined) return `やりとりの上限は 1〜${turnLimit} の整数で入れてください（空欄なら既定）`;
   return null;
 }
 
