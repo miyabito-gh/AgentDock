@@ -27,3 +27,69 @@
 - NSIS x64を作成済み。終了コード0。詳細と実行コマンドはINSTALLER_BUILD.md。インストーラー実行は利用者が行う。
 - app/で npm.cmd run tauri -- build --bundles nsis。通常実行はesbuildのアクセス拒否で失敗し、昇格実行で再試行。
 - 前回のPowerShell→Python標準入力で文字コード変換が起き、日本語記録の一部が「?」になったため修復。アプリソースは変更していない。
+
+## 2026-10-24 実機スモーク試験で検出した終了照合の修正
+- 対象: feature/subagent-migration、基点9b95bd5。state.rsとqueue_driver.rsの未コミット修正。
+- 専用repo agentdocktestで、Lunaの子readme_readerが正常終了し、親がREADMEへ指定行を追加、7c1df4fでコミット。元repoはe7b0874のままclean。アプリの取り込み判定が子孫の終端未確認として阻害し、取り込みは未実行。
+- Liveの最新turnをmetadataの欠損/旧値から保護し、TurnEndedでも矛盾しないturnを保持。最新turn・status・running情報と矛盾する旧終端を判定に使わない。終端証拠が欠ける非作業中のLive子も履歴読取りで再確認する。resume/送信/停止はしない。保存schemaとUIは変更なし。
+- Sol実装、Luna検証、別Solの独立レビュー。必須レビュー指摘なし。host::state 30件、host::queue_driver 18件、subagent 21件、cargo check --locked、npm type-check、npm build成功。4件の回帰テストを追加。既存ts-rs/import混在/bundle容量の警告あり。
+- 既存のdesktop/windows schema変更は保持。テストで生成されたIPC型はGit差分上の内容変更なし。
+- 更新用NSISを生成済み（release 8分4秒、終了コード0）。稼働中のインストール版は変更していない。修正版での実機取り込み成功は未確認。アプリ終了後に更新し、既存依頼を再読込して取り込み確認を再開する。依頼の再送や手動マージは不要。
+- 既知の限定条件: 同一起動中、終端キャッシュc1と欠損latest/status.turn=c2が矛盾すると安全に保留したまま再読しない可能性。通常の新AgentStatus経路ではlatestを補完し、再起動でキャッシュが空になるため今回の更新後復旧は妨げない。
+- 修正版NSIS: app/src-tauri/target/release/bundle/nsis/AgentDock_0.0.1_x64-setup.exe、7027472 bytes、2026-10-24 22:32:53 JST。SHA-256: 7F2C443DE4FF9F63302CE23AAD10E04F1A66BE334873C100DCD125F41AF76CFE。インストール/再起動未実施。
+
+## 2026-10-24 再起動後の親終了履歴の取り込み判定
+- 更新後の実機で子の阻害は解消したが、親HistoryOnly/Unknownの「親の最新turnの完了・鮮度を確認できません」が残った。前回修正は親の履歴再読を対象から漏らしていた。
+- 読取り専用queue_gate_inputでは親も既存上限・バックオフ付きで履歴再確認する。通常のキュー送信経路は子のみのまま。キャッシュとstatus.turnの不一致も再読対象にした。
+- queue_driver.rsとsubagents.rsを追加変更、回帰3件追加。実Hostで親読取試行と実gate_blockersを確認（成功履歴はキャッシュ注入であり、実通信とGit準備のE2Eではない）。新turn/失敗/中断/不完全履歴/読取失敗は拒否を維持。Sol実装・別Solレビューで必須修正なし。
+- Luna検証: queue_driver 21件、subagent 24件、cargo check --locked成功。type-checkも成功したがRustのみの変更のため今後この種の再実行は省く。
+- 利用者方針: 変更に必要なテストだけ実施し、成功済み証拠を再利用する。未変更範囲のテスト/型チェック/画面buildを繰り返さず、追加実行は失敗・追加変更・具体的な未解決懸念がある場合に限定。テストとレビューの分担は最小構成にする。
+- 今回は既存distを再利用し、TEMPの設定でbeforeBuildCommandを空にしてdebug NSISを生成する。通常の配布設定は変更していない。稼働中アプリと保存データは未変更、元repoへの取り込みは未実行。
+- debug NSIS生成成功（dev compile 1分47秒、終了0）。成果物: C:\Users\wmasa\Documents\Rust\AgentDock_next\app\src-tauri\target\debug\bundle\nsis\AgentDock_0.0.1_x64-setup.exe、SHA-256: 3688D332362474DD57A98045F65697A36BA7FAA5BAD15A4DB572AC64014CB4CB。インストールと実機取り込みは未実施。
+
+## 2026-10-24 22:47 実機取り込みの確認結果
+- 利用者がdebug修正版へ更新後、最初のpreviewは走査中として阻害。ログで対象rootのcomplete=trueを確認し、再読込とpreview再実行で解消。親子はHistoryOnly/Unknownの表示を維持しつつ履歴正常終了の証拠で判定を通過した。
+- 利用者が確認チェック後に取り込みを1回実行。画面「取り込み適用を確認しました」、imports.jsonlのend outcome applied、元repo HEAD 7b062570ddcedde85cb84455634aa68d462ae31aを確認。
+- 元repo READMEは見出し＋AgentDock動作確認の2行、git statusは## mainのみでclean。成果コミット7c1df4fも履歴に含まれる。
+- 子による読取り→親の専用worktree編集/コミット→元repo取り込みの最終合格条件3点は満たした。ただし途中で2件の修正と更新/再起動を挟んだため、初回から無中断の正常系成功とは区別する。
+- 次の別試験は追加指示、停止、再起動復旧。今回の付随観察として再起動後の既存依頼復元と取り込みは確認できたが、独立した復旧試験の合格とは扱わない。
+- UI残課題: previewの走査待ちから自動再評価されず手動再読込が必要。取り込み成功後も適用ボタンが有効に見える。新方式の取り込みコミット文言が「組織実行」のまま。今回未修正。
+## 2026-10-24 追加指示と再取り込みの実機確認
+- 同じ親01a16dc0-4676-79c1-8265-f5bfe579be7dへ完了後の追加指示を利用者が送信。新しい子を作らず、専用worktree READMEへAgentDock追加指示確認を1行追加し61f04adでコミット。取り込み前の元repoは7b06257でclean・追加行なしを確認。
+- 同じ依頼のpreviewはREADME +1/-0、成果61f04ad、取込先7b06257で阻害なし。利用者が取り込みを実行し、台帳applied・元repo009f4d00957cc318e98009a6b3a6ba36f17a8ea6を確認。
+- 元READMEは見出しと2つの確認行が各1回、git statusは## mainのみ。完了済み親への追加指示と同じ依頼の再取り込みは合格。実行中steer・停止試験はまだ未実施。
+## 2026-10-24 親子中断の実機確認
+- 同じ親へ停止試験を送り、新Luna子Meitner /root/sleep_probe（01a16e30-898e-7423-ac7c-92c874e36c6d）がStart-Sleep 120秒を実行、親はwait。利用者が入力欄の中断を1回押した。選択肢は表示されず親子とも中断表示。
+- activity.jsonlで親turn 01a16e30-7a34-7952-a0de-335a45d42797が22:54:26、子turn 01a16e30-8b6f-7d60-bdc9-4101a918a941が22:54:27にinterrupted終了したことを確認。正常完了や要求のみとは区別できる。
+- 元repoは009f4d0でclean、専用worktreeもclean。親子turnの中断確認は合格。OS上の外部プロセス全停止までを保証する試験ではない。再起動後の停止状態復元と二重送信抑止は次の独立試験。
+## 2026-10-24 停止後の再起動復旧確認
+- 利用者が通常終了/起動後に既存親を開いた。親は状態不明・履歴取得済み/live未復旧、子2件は履歴確認（完了1/中断1）。履歴とlive状態を混同していない。
+- 保存queueはpausedAfterRestart、entries空、awaitingなし、unresolvedSends空、pendingOps空。活動記録のuserMessageは初回/追加指示/停止試験の計3turnのままで、再起動後の追加送信・新turnは観測されない。対象の子孫走査はfound=2 complete=true。
+- 元repoはclean。停止済みの依頼を再起動後に履歴として復元し、勝手に再送しない試験は合格。実行中にアプリ終了した場合/受理不明送信/切断故障は未試験。
+- 入力欄の受理未確認はCenterPaneのaccepted model設定表示であり、送信受理不明の表示ではない。履歴だけ開いた状態では設定のlive受理未確認が正しい。
+## 2026-10-24 実行中追加指示の実機確認
+- 利用者が親単独の待機試験を送信し、実行中にCtrl+Shift+Enterで追加指示を送信。両userMessageは同じturn 01a16e35-6bcc-7b41-9095-57bba0af3682に記録。queue entries空・unresolvedSends空で完了後の別送信ではない。
+- 同turn最終応答「実行中追加指示を受信」、23:01:26のcompleted終了をログで確認。元repoと専用worktreeはclean。
+- 実行中steer受信・反映・正常終了は合格。活動ログでは待機コマンドの完了項目を確認していないため、PowerShellの120秒待機自体の実行保証とは区別する。今回必要な判定は実行中追加指示の同turn受理。
+## 2026-10-24 実行中からの安全な終了・再起動
+- 親単独でStart-Sleep 180秒のinProgress表示を確認。利用者のメニュー終了で「作業を中断して終了」の確認が出るため、通常経路では中断なし終了ではなく安全終了の試験に変更した。強制終了は未実施。
+- 対象turn 01a16e3b-b694-7832-8719-2e9444f3b0baは23:08:20にinterrupted終了、その後disconnected。再起動後の履歴で待機コマンドfailed/終了コード-1を表示。正常完了とは扱っていない。
+- queueはpausedAfterRestart、entries/awaiting/unresolvedSends空。対象活動記録に再起動後の追加userMessageや新turnはない。元repo clean。
+- 実行中からの終了確認→中断→アプリ終了→再起動後の履歴復元・二重送信抑止は合格。通常経路での確認範囲は終了。異常終了/切断/受理不明の故障試験は未実施。
+## 2026-10-24 UI情報整理
+- 利用者承認により左ペインの検索は常設1本、作業フォルダ/親状態/アーカイブは絞り込みへ集約。適用条件を閉じてもチップと全解除を表示。クイック新規・並べ方は小メニューへ移設。
+- サブエージェント依頼は「新しい依頼」と「依頼一覧」に分離。主操作は親チャットを開く/取り込み内容を確認。作業場所・開始段階・復旧候補・コミット・履歴は詳細表示へ。親の名前欠損も「親」で明示、readyを作業完了と表示しない。元フォルダ（取り込み先）の意味を明記。
+- 取り込み確認は変更ファイル/増減/成果パス/取込先を表示し、確認チェックを維持。apply開始時に確認内容を消費、適用結果はpreview外へ保持。拒否や通信失敗時も同一確認の再利用を防止。台帳Beginなしを確認できた拒否は再previewへ復帰、unknown/partialは照合が済むまで禁止。
+- 走査中だけ3秒ごと最大20回の非重複・読取り専用更新。状態変更や走査解消で古いpreview/確認チェックを破棄。新規依頼や送信/再開/取り込みは自動実行しない。
+- 「受理未確認」バッジを「モデル未確認」へ。共通取り込みコミットの見出しを中立な「AgentDock: 成果を取り込み」へ。
+- 同時実行: subagent_startのoperation lockは開始処理中だけで、その後の複数依頼実行を1件に制限しない。依頼ごと別worktree。Codex側の子数/資源上限は別。複数実依頼の負荷試験は利用量節約のため未実施。
+- Sol worker実装・Sol reviewerレビュー指摘（拒否後verifyからの復帰）を反映。Luna testerがRust既存コミット文言テスト1件成功。worker/tester/reviewerが利用上限で停止後、親が残りのUI確認/ビルドを引継ぎ、最終fixを再確認。
+- npm build(tsc含む)成功。通常実行はesbuildの親ディレクトリアクセス拒否、同一コマンドの権限付き再実行で成功。既知import混在/bundle容量警告のみ。debug NSISは既存dist再利用・beforeBuildCommand省略、dev compile 40.65秒・終了0。広範Rust回帰/追加Codex依頼は実行せず。
+- 実コンポーネント+固定データのブラウザQA: 左条件開閉/表示/解除、タブ間draft保持、通常適用は1回かつpreview消費、開始前拒否→結果照合→新確認へ復帰、既存unknownは照合後も禁止、960px固定枠で配置確認。IPCはstubで実保存データ未使用。fixture欠損のassignment/blockersを補正して確認。実アプリUI更新後の実通信確認は未実施。
+- 一時Viteサーバーは対象PID/コマンドを照合して停止、4つのQAファイルはTEMPへ退避。既存の生成型/schema変更・既存Rust終了照合fixは保持。ソースは未コミット、push/インストールなし。
+- UI改善版installer: C:\Users\wmasa\Documents\Rust\AgentDock_next\app\src-tauri\target\debug\bundle\nsis\AgentDock_0.0.1_x64-setup.exe / 7634847 bytes / SHA-256 575FF38FA56BF9281841DFE5DDF0F4ACDC4420F289D5A86F0E24A86300655B1B / 2026-10-24T23:38:08。QA控え: C:\Users\wmasa\AppData\Local\Temp\agentdock-ui-qa-20261024-235017。
+
+## 2026-10-25 クイック新規の常設復帰とリリース準備
+- 利用者指定でクイック新規を左ペイン上部の元のアイコンボタンへ戻し、メニュー内の重複を削除。他のUI整理は維持。
+- 簡易確認として差分確認とnpm build(tsc含む)成功。変更は配置復帰のみのため広範テストは反復せず、前節の関連Rust/実機/固定データ確認を再利用。画面buildは既知のesbuildアクセス制限を権限付き再実行で解消。
+- 利用者がpushとリリースビルドを明示承認。feature/subagent-migrationをoriginへpushし、確認済みdistを再利用してdebug指定なしのNSISを生成する。実機へのインストールはしない。生成物のハッシュと対象HEADは配布物のbuild.jsonに記録する。
