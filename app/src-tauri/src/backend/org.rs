@@ -402,6 +402,90 @@ pub struct OrgTaskView {
     /// このタスクにまだ届いていない追加指示の件数。
     #[serde(default)]
     pub notes_pending: u32,
+    /// 止まっている理由の説明（止まっていない・終わったタスクは None）。表示用の導出で、状態は変えない。
+    #[serde(default)]
+    pub stop: Option<OrgStopView>,
+}
+
+/// 止まり方の分類（「止まっています」カードの見出しの元）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub enum OrgStopKind {
+    ReworkLimit,
+    CheckFailed,
+    NothingWritten,
+    NeedsAttention,
+    UsageLimit,
+    TurnFailed,
+    Manual,
+    ManualStop,
+    RoundLimit,
+    Limit,
+    AwaitingApproval,
+    /// 送ったか確認できていません（受理不明）。
+    SendUnknown,
+    /// 切断・再起動などの後で、状態を読み直す前。
+    NeedsReconcile,
+    /// 中断を要求したが、停止は未確認。
+    InterruptRequested,
+    StopUnconfirmed,
+    /// 先行タスクが止まっている／失敗したため待っている。
+    DependencyBlocked,
+    /// 成果物（調査報告を含む）を読めず失敗した。
+    InvalidArtifact,
+}
+
+/// 今できる操作の識別子（ボタンの出し分けの元。有効かどうかは既存の can_* と一致）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub enum OrgStopAction {
+    SendBack,
+    AcceptAsIs,
+    Fail,
+    RetryNew,
+    RetryUnsent,
+    Cancel,
+    AdoptManual,
+    AcceptManual,
+    ChooseChat,
+    OpenChat,
+    History,
+}
+
+/// 手がかり1件。`known` が偽のときの `text` は「記録されていません」系の文（0や空で埋めない）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgStopEvidence {
+    pub label: String,
+    /// 切り詰め済みの行（最大3行・各120字）。
+    pub lines: Vec<String>,
+    pub known: bool,
+    /// 切り詰めた（全文はチャットか経過で見る）。
+    pub truncated: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgStopView {
+    pub kind: OrgStopKind,
+    /// 見出し（1行。利用者の語）。
+    pub headline: String,
+    /// 事実の短い行。
+    pub facts: Vec<String>,
+    pub evidence: Vec<OrgStopEvidence>,
+    pub actions: Vec<OrgStopAction>,
+    /// 次の一手（1〜2文）。
+    pub hint: String,
+    /// 確認状態が確定でないための表示（「止まった」ではなく事実どおりに書く）。
+    pub unconfirmed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1381,6 +1465,39 @@ pub struct OrgDeletePreview {
     pub record_bytes: Known<u64>,
     /// 途中の削除があれば、その進み。
     pub deletion: Option<OrgDeletionView>,
+    /// このワークフローを開始した依頼整理の会話（紐づけを確認できたときだけ。None のときは `intake_unlinked` を見る）。
+    #[serde(default)]
+    pub intake: Option<OrgDeleteIntakeRow>,
+    /// 依頼整理の会話との紐づけを確認できない（記録がない）。この場合は依頼整理の会話を削除の対象にしない。
+    #[serde(default)]
+    pub intake_unlinked: bool,
+}
+
+/// ワークフローの削除と一緒に消せる依頼整理の会話1件。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgDeleteIntakeRow {
+    pub chat: ChatKey,
+    pub name: Option<String>,
+    /// 依頼整理の状態の文（開始済み・やめたもの等）。
+    pub state: String,
+    /// すでにアプリの記録にない（削除済み）。
+    pub gone: bool,
+    /// 削除できない理由（あれば）。この理由はワークフローの削除を止めない。
+    pub blocked: Option<String>,
+}
+
+/// 依頼整理の会話の削除の結果（ワークフロー削除と一緒に選んだときだけ）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct OrgIntakeDeleteResult {
+    pub deleted: bool,
+    /// 削除できなかった理由（`deleted` が false のとき）。
+    pub reason: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1393,6 +1510,9 @@ pub struct OrgDeleteArgs {
     pub delete_chats: bool,
     /// 確認画面で見せたチャット。実行時の集合と違えば拒否（確認し直し）。
     pub expect_chats: Vec<ChatKey>,
+    /// 一緒に削除する依頼整理の会話（確認画面で見せたもの）。None なら削除しない。ホストが紐づけを確かめ、違えば拒否する。
+    #[serde(default)]
+    pub intake_chat: Option<ChatKey>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1400,7 +1520,16 @@ pub struct OrgDeleteArgs {
 #[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum OrgDeleteOutcome {
-    Deleted,
+    /// 依頼整理の会話は別の結果（`intake`）。会話を消せなくても、ワークフローは削除済み。
+    Deleted {
+        #[serde(default)]
+        intake: Option<OrgIntakeDeleteResult>,
+    },
     /// 途中で止まった。完了と偽らず、残りは同じ操作で続ける。
-    Partial { done: Vec<String>, failed: Vec<String> },
+    Partial {
+        done: Vec<String>,
+        failed: Vec<String>,
+        #[serde(default)]
+        intake: Option<OrgIntakeDeleteResult>,
+    },
 }

@@ -150,7 +150,7 @@ export interface OrgDialogProps { settings: OrgSettingsProps;
   onIntakeStarted: (workflowId: string, warning: string | null) => void;
   /** 別のダイアログへ切り替える。 */
   go: (d: DialogState) => void;
-  previewDelete: (id: string) => Promise<OrgDeletePreview>; deleteWorkflow: (id: string, deleteChats: boolean, expect: ChatKey[]) => Promise<OrgDeleteOutcome>; onDeleted: (id: string) => void;
+  previewDelete: (id: string) => Promise<OrgDeletePreview>; deleteWorkflow: (id: string, deleteChats: boolean, expect: ChatKey[], intakeChat: ChatKey | null) => Promise<OrgDeleteOutcome>; onDeleted: (id: string, note: string | null) => void;
   /** 削除の進行（表示だけ。ホストの orgDeleteProgress）。 */
   deleteProgress: { workflowId: string; done: number; total: number } | null;
   /** 削除の拒否・失敗・途中終了を通知（トースト）へ出す。 */
@@ -613,7 +613,7 @@ export function Dialogs({ modelDefault, cont, org, folderTools, workspaceRoots, 
       </Shell>);
     case "orgDelete": return (
       <Shell title="ワークフローを削除" onClose={onClose} close="閉じる">
-        <OrgDeleteDialog workflowId={d.workflowId} live={org.settings.live} preview={org.previewDelete} remove={org.deleteWorkflow} onDone={() => org.onDeleted(d.workflowId)} progress={org.deleteProgress?.workflowId === d.workflowId ? org.deleteProgress : null} onIssue={org.onDeleteIssue} onClose={onClose} />
+        <OrgDeleteDialog workflowId={d.workflowId} live={org.settings.live} preview={org.previewDelete} remove={org.deleteWorkflow} onDone={(note) => org.onDeleted(d.workflowId, note)} progress={org.deleteProgress?.workflowId === d.workflowId ? org.deleteProgress : null} onIssue={org.onDeleteIssue} onClose={onClose} />
       </Shell>);
     case "orgArtifacts": return (
       <Shell title="成果物" wide onClose={onClose} close="閉じる">

@@ -17,6 +17,8 @@ import { OrgHistoryRows, OrgListRow } from "./OrgPane";
 import { isOrgOwned, workflowRequestCounts } from "./org";
 import { classifyLeft, listTitle, nestWorkflowIds, wfDisplayName } from "./leftNest";
 import { isHiddenPredecessor } from "./continuity";
+import { IntakeBulkDeleteDialog } from "./IntakeBulkDelete";
+import { intakeDeleteTargets, stateCounts, type IntakeDeleteRow } from "./intakeDelete";
 import type { OrgWorkflowView } from "../ipc/types";
 import { UNKNOWN_KEY, collapseAll, flattenGroups, groupChats, shortNames, worktreeOf, type FlatItem, type FolderGroup } from "./folderGroups";
 
@@ -93,6 +95,10 @@ export function LeftPane({ org, snap, sel, onSelect, onAct, onAcknowledge, onCha
   const nestIsOpen = (key: string) => q !== "" || nestOpen.has(key);
   const toggleNest = (key: string) => setNestOpen((s) => { const n = new Set(s); if (n.has(key)) n.delete(key); else n.add(key); return n; });
   const allWfs: OrgWorkflowView[] = org ? [...(org.wf ? [org.wf] : []), ...org.history, ...org.archived] : [];
+  // 依頼整理の会話をまとめて削除できる候補（終了した依頼整理。開始済みで一覧から隠している分も含む）。最終の判定はホスト。
+  const bulkTargets = intakeDeleteTargets(snap.chats.filter((c) => !removed(c)), localOf, new Map(allWfs.map((w) => [w.workflowId, { finished: w.finished }])));
+  const bulkCounts = stateCounts(bulkTargets);
+  const [bulkRows, setBulkRows] = useState<IntakeDeleteRow[] | null>(null);
   const loadedCount = snap.chats.filter((c) => !removed(c) && classifyLeft(localOf(c), org?.shown ?? null, c.pinned).kind === "normal" && !archived(c)).length;
   const pinned = visible.filter((c) => c.pinned && !showArch);
   const rest = visible.filter((c) => !c.pinned || showArch);
@@ -433,7 +439,7 @@ export function LeftPane({ org, snap, sel, onSelect, onAct, onAcknowledge, onCha
   };
 
   /** 畳んだ入れ子（既定は閉じる）。ワークフローごとの「依頼整理 N・役割 M」と、ワークフローに紐づかない「依頼整理（未開始）」。行は通常の行と同じ操作ができる。 */
-  const nestGroup = (key: string, label: string, chats: Chat[], title: string) => {
+  const nestGroup = (key: string, label: string, chats: Chat[], title: string, extra?: React.ReactNode, count?: number) => {
     const open = nestIsOpen(key);
     return (
       <div key={`nest:${key}`} className="nest-grp">
@@ -441,10 +447,11 @@ export function LeftPane({ org, snap, sel, onSelect, onAct, onAcknowledge, onCha
           <button type="button" className="grp-toggle" aria-expanded={open} title={title} aria-disabled={q !== "" || undefined} onClick={() => { if (q === "") toggleNest(key); }}>
             <span className="grp-caret" aria-hidden="true">{open ? "▾" : "▸"}</span>
             <span className="grp-nm">{label}</span>
-            <span className="grp-n">{chats.length}</span>
+            <span className="grp-n">{count ?? chats.length}</span>
           </button>
         </div>
         {open ? chats.map((c) => row(c, undefined, `nest:${key}`)) : null}
+        {open ? extra : null}
       </div>
     );
   };
@@ -461,7 +468,19 @@ export function LeftPane({ org, snap, sel, onSelect, onAct, onAcknowledge, onCha
       out.push(nestGroup(`wf:${wf.workflowId}`, `${name}：${[nI ? `依頼整理 ${nI}` : "", nR ? `役割 ${nR}` : ""].filter((x) => x).join("・")}`, kids, `組織ワークフロー「${name}」に紐づくチャット（依頼整理・役割）。開くと一覧に出ます`));
     }
     if (intakeOpen.length) out.push(nestGroup("intake-open", "依頼整理（未開始）", intakeOpen, "組織実行を開始していない（または取りやめた）依頼整理のチャットです"));
-    if (intakeAbandoned.length) out.push(nestGroup("intake-abandoned", `依頼整理（やめたもの ${intakeAbandoned.length}件）`, intakeAbandoned, "組織実行を始めずにやめた依頼整理のチャットです（削除はしていません）"));
+    // 終了した依頼整理（やめたもの・開始済み）の畳み。開始済みは一覧に再表示せず、まとめて削除の対象としてだけ数える。
+    const startedHidden = bulkCounts.started;
+    if (intakeAbandoned.length || startedHidden) {
+      const off = org?.live === false;
+      const bulk = (
+        <div className="nest-bulk small">
+          {startedHidden ? <div className="muted" title="組織実行を開始済みの依頼整理です。一覧には出していません（ワークフロー画面の『依頼整理の会話を見る』から開けます）">開始済みの依頼整理 {startedHidden}件（一覧には出していません）</div> : null}
+          <button type="button" className="small" disabled={bulkTargets.length === 0 || off} onClick={() => setBulkRows(bulkTargets)}
+            title={off ? "Codex に接続していないため実行できません" : bulkTargets.length === 0 ? "削除できる終了した依頼整理がありません" : "確認のあと、1件ずつ削除します（押したときだけ実行。ピン留め・実行中・停止未確認のものは除きます）"}>依頼整理の会話をまとめて削除…</button>
+        </div>
+      );
+      out.push(nestGroup("intake-abandoned", intakeAbandoned.length ? `依頼整理（やめたもの ${intakeAbandoned.length}件${startedHidden ? `・開始済み ${startedHidden}件` : ""}）` : `依頼整理（開始済み ${startedHidden}件）`, intakeAbandoned, "組織実行を始めずにやめた・開始済みの依頼整理のチャットです（自動では削除しません）", bulk, intakeAbandoned.length + startedHidden));
+    }
     return out;
   };
 
@@ -569,6 +588,7 @@ export function LeftPane({ org, snap, sel, onSelect, onAct, onAcknowledge, onCha
           ))}
         </div>
       ) : null}
+      {bulkRows ? <IntakeBulkDeleteDialog rows={bulkRows} onFinished={(t) => onNotice?.(t)} onClose={() => setBulkRows(null)} /> : null}
       <div className="left-foot">
         <button className="small" style={{ height: 22 }} onClick={() => setShowArch(true)}><Icon name="archive" />アーカイブ（{snap.chats.filter((c) => !removed(c) && !isOrgOwned(localOf(c), org?.shown ?? null) && archived(c)).length + (org?.archived.length ?? 0)}）</button>
         {/* 完了・取り消し済み・アーカイブ済みのワークフローがあっても出す。実行中（finished でない）の間だけ、理由つきで無効にする（行のメニュー・OrgPane と同じ条件）。 */}

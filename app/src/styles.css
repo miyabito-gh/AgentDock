@@ -542,6 +542,8 @@ textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;paddin
 .tc-h .tc-name,.tc-line .tc-name{flex:1 1 auto;min-width:0;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tc-h .st,.tc-line .st{flex:none}
 .tc-h button.small{flex:none;height:22px}
+.tc-note{margin-top:1px;font-size:var(--fs-xs);color:var(--ink3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.tc-h .tc-name{min-width:4em}
 .tc-at{flex:none;font-size:var(--fs-xs);color:var(--ink3)}
 .tc-mark{flex:none;color:var(--accent);font-size:var(--fs-s)}
 .tc-line{display:flex;align-items:center;gap:6px;flex:1 1 auto;min-width:0;width:100%;height:auto;min-height:24px;padding:2px 4px;border-color:transparent;background:transparent;text-align:left}
@@ -1167,3 +1169,4 @@ button.uchip:hover{background:var(--accent-weak)}
 .dialog:focus,.lightbox:focus{outline:none}
 
 .keyhint{margin:2px 2px 0}
+.nest-bulk{padding:2px 8px 6px 24px;display:flex;flex-direction:column;align-items:flex-start;gap:4px}

@@ -7,6 +7,7 @@ import type { OrgReconcileView } from "./OrgReconcileView";
 import type { OrgRetryView } from "./OrgRetryView";
 import type { OrgSkipView } from "./OrgSkipView";
 import type { OrgStatusView } from "./OrgStatusView";
+import type { OrgStopView } from "./OrgStopView";
 import type { OrgTaskKind } from "./OrgTaskKind";
 import type { UnixMillis } from "./UnixMillis";
 
@@ -115,4 +116,8 @@ held: boolean,
 /**
  * このタスクにまだ届いていない追加指示の件数。
  */
-notesPending: number, };
+notesPending: number, 
+/**
+ * 止まっている理由の説明（止まっていない・終わったタスクは None）。表示用の導出で、状態は変えない。
+ */
+stop: OrgStopView | null, };

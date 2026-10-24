@@ -145,6 +145,8 @@ export const touchChatUsed = (chat: ChatKey): Promise<null> => invokeCmd("touch_
 export const previewDelete = (chat: ChatKey): Promise<DeletePreview> => invokeCmd("preview_delete", { chat });
 /** 削除（確認画面の後だけ）。停止を確認できなければ pending、部分失敗は partial（完了とは言わない）。 */
 export const deleteChat = (chat: ChatKey): Promise<DeleteOutcome> => invokeCmd("delete_chat", { chat });
+/** 左一覧の「依頼整理の会話をまとめて削除」の1件分。対象かどうかはホストが最終判定し、対象外は削除しない（中断もしない）。 */
+export const intakeDeleteChat = (chat: ChatKey): Promise<DeleteOutcome> => invokeCmd("intake_delete_chat", { chat });
 /** アーカイブ。アプリの一覧からは即座に隠れる。Codexへの反映は作業終了・停止確認の後。 */
 export const archiveChat = (chat: ChatKey): Promise<ChatLocalView> => invokeCmd("archive_chat", { chat });
 export const unarchiveChat = (chat: ChatKey): Promise<ChatLocalView> => invokeCmd("unarchive_chat", { chat });
@@ -354,7 +356,7 @@ export const orgManualResult = (workflowId: string, task: string): Promise<OrgMa
 export const orgAdoptManual = (workflowId: string, task: string, turnId: string): Promise<null> => invokeCmd("org_adopt_manual", { workflowId, task, turnId });
 export const orgRaiseTurnLimit = (workflowId: string, to: number): Promise<null> => invokeCmd("org_raise_turn_limit", { workflowId, to });
 export const orgPreviewDelete = (workflowId: string): Promise<OrgDeletePreview> => invokeCmd("org_preview_delete", { workflowId });
-export const orgDeleteWorkflow = (workflowId: string, deleteChats: boolean, expectChats: OrgChatKey[]): Promise<OrgDeleteOutcome> => invokeCmd("org_delete_workflow", { workflowId, deleteChats, expectChats });
+export const orgDeleteWorkflow = (workflowId: string, deleteChats: boolean, expectChats: OrgChatKey[], intakeChat: OrgChatKey | null = null): Promise<OrgDeleteOutcome> => invokeCmd("org_delete_workflow", { workflowId, deleteChats, expectChats, intakeChat });
 export const orgArchiveWorkflow = (workflowId: string): Promise<null> => invokeCmd("org_archive_workflow", { workflowId });
 export const orgUnarchiveWorkflow = (workflowId: string): Promise<null> => invokeCmd("org_unarchive_workflow", { workflowId });
 // ── 成果物パネルと確認つきの取り込み（DESIGN_ORG_R3）。閲覧・プレビューは作業フォルダを変えない。org_import／org_import_undo は確認ダイアログの後だけ ──

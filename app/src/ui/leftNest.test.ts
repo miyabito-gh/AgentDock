@@ -56,3 +56,9 @@ test("畳み行の対象: 現在と開いている過去だけ。検索中は全
   assert.deepEqual(nestWorkflowIds(ids, null, null, false), []);
   assert.deepEqual(nestWorkflowIds(ids, "w3", null, true), ids);
 });
+
+test("ワークフローを削除したあと、開始済みの依頼整理は紐づけ先が消えるので通常の行に戻る（見失わない）", () => {
+  const st = { conversation: { intake: { kind: "started", workflowId: "wf-1" } } } as never;
+  assert.deepEqual(classifyLeft(st, new Set(["wf-1"])), { kind: "intakeDone" });
+  assert.deepEqual(classifyLeft(st, new Set()), { kind: "normal" });
+});

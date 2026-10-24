@@ -1,5 +1,5 @@
 // 組織実行の周回・判定・辺の文言（純粋関数。node --test で単体テストできるよう org.ts から分けている）。
-import type { ChatKey, OrgGraphEdgeView, OrgGraphNodeView, OrgVerdict } from "../ipc/types";
+import type { ChatKey, OrgGraphEdgeView, OrgGraphNodeView, OrgStopAction, OrgStopEvidence, OrgStopKind, OrgStopView, OrgVerdict } from "../ipc/types";
 
 /** 判定値の日本語訳。未知の値は元の値をそのまま出す（推測で訳さない）。ホスト側の辺の条件の訳（view.rs の verdict_ja）と同じ対応。 */
 const VERDICT_JA: Record<string, string> = { rework: "やり直し", pass: "合格", replan: "計画からやり直し" };
@@ -161,4 +161,110 @@ export function planSummary(
   let how = "";
   for (const k of noticeKinds) if (k === "planAutoApproved") how = "（自動）"; else if (k === "planNeedsApproval") how = "（利用者）";
   return { hiddenIds: new Set(hidden.map((t) => t.id)), line: `計画: 承認済み${how}`, chat: [...hidden].reverse().find((t) => t.chat)?.chat ?? null };
+}
+
+// ── 「止まっています」カード（純粋関数）。理由・手がかり・操作は、ホストが返す stop（OrgTaskView.stop）から作る ──
+
+/** カードに要るタスクの最小の形（OrgTaskView の一部）。 */
+export interface StopTaskLike {
+  id: string;
+  title: string;
+  stop: OrgStopView | null;
+  chat: unknown | null;
+  sendBackRefusal: string | null;
+}
+export type StopButtonKey = OrgStopAction | "release" | "answer";
+export interface StopButton { key: StopButtonKey; label: string; enabled: boolean; title: string }
+export interface StopCard {
+  /** 先頭のタスク（承認・質問の待ちだけのときは null）。 */
+  task: string | null;
+  kind: OrgStopKind | "approval";
+  /** 確認状態が確定でない（「止まった」ではなく事実どおりに書く）。 */
+  unconfirmed: boolean;
+  heading: string;
+  /** 事実の行（先頭にタスクの名前）。 */
+  facts: string[];
+  evidence: OrgStopEvidence[];
+  hint: string;
+  buttons: StopButton[];
+  /** ほかに止まっているもの・待ちは何件あるか。 */
+  others: number;
+}
+
+const BUTTON_TEXT: Record<StopButtonKey, { label: string; title: string }> = {
+  sendBack: { label: "もう一度直させる…", title: "理由を書いて、もう1周だけ直させます（確認があります）" },
+  acceptAsIs: { label: "このまま受け入れる…", title: "いまの結果のまま完了にします（確認があります）" },
+  fail: { label: "失敗として確定…", title: "あなたの判断で失敗として確定します（元に戻せません。確認があります）" },
+  retryNew: { label: "新しい試行で再送…", title: "前のやりとりの続きを、同じチャットへ新しい試行として1回送ります（確認があります）" },
+  retryUnsent: { label: "やり直す…", title: "まだ送られていないことを確認できているタスクを、もう一度送る状態に戻します" },
+  cancel: { label: "取り消す…", title: "このタスクを取り消します（確認があります）" },
+  adoptManual: { label: "結果を取り込む…", title: "手動に切り替えたチャットの最新の回答を、このタスクの結果として取り込みます（チャットへは何も送りません）" },
+  acceptManual: { label: "手動で完了にする…", title: "このタスクを手動で完了にします（確認があります）" },
+  chooseChat: { label: "チャットを選ぶ…", title: "作成結果を確認できていないチャットを結び付けます" },
+  openChat: { label: "チャットを見る", title: "このタスクのチャットを開きます（見るだけ。何も送りません）" },
+  history: { label: "経過を見る", title: "このタスクの経過（記録）を開きます" },
+  release: { label: "手動に切り替え…", title: "組織実行から切り離し、手入力できる通常のチャットにします（元に戻す操作はありません）" },
+  answer: { label: "承認に答える", title: "承認・質問のカードへ移動します（答えるのはあなたです）" },
+};
+
+/** 止まったタスクの見出し。確定でない状態は「止まっています」と書かず、事実の見出しをそのまま使う。 */
+export const stopHeading = (s: OrgStopView): string => (s.unconfirmed ? s.headline : `止まっています: ${s.headline}`);
+
+/** タスク行の補足1行（見出しの短縮）。通知の理由があれば添える（長いものは切る）。 */
+export function stopRowNote(s: OrgStopView, attentionNote: string | null): string {
+  const head = s.unconfirmed ? s.headline : `止まった理由: ${s.headline}`;
+  if (!attentionNote) return head;
+  const flat = attentionNote.replace(/\s+/g, " ").trim();
+  return `${head}（${flat.length > 120 ? `${flat.slice(0, 120)}…` : flat}）`;
+}
+
+/**
+ * 止まっているタスクがあれば、先頭1件のカードを作る（複数は残り件数）。承認・質問の待ち（approvals 件）はタスクの停止の後ろに並ぶ。
+ * `canRelease` は「手動に切り替え…」を操作として出せるタスクか（行の「…」メニューと同じ判定）。
+ */
+export function stopCard(tasks: StopTaskLike[], finished: boolean, approvals: number, canRelease: (t: StopTaskLike) => boolean): StopCard | null {
+  if (finished) return null;
+  // 操作できる止まりを先頭に、待ち先が止まっているだけのもの（経過を見る以外に操作がない）は後ろへ。同順位は元の並び。
+  const rank = (t: StopTaskLike): number => (t.stop!.kind === "dependencyBlocked" ? 2 : t.stop!.actions.some((a) => a !== "openChat" && a !== "history" && a !== "cancel") ? 0 : 1);
+  const hit = tasks.filter((t) => t.stop !== null).map((t, i) => ({ t, i })).sort((a, b) => rank(a.t) - rank(b.t) || a.i - b.i).map((x) => x.t);
+  const t = hit[0];
+  if (!t || !t.stop) {
+    if (approvals <= 0) return null;
+    return {
+      task: null, kind: "approval", unconfirmed: false,
+      heading: "承認・質問の返事を待っています",
+      facts: [`返事待ち ${approvals}件`],
+      evidence: [],
+      hint: "承認・質問のカードで、許可・拒否や回答を選んでください（答えるのはあなたです。代わりには答えません）。",
+      buttons: [{ key: "answer", ...BUTTON_TEXT.answer, enabled: true }],
+      others: 0,
+    };
+  }
+  const s = t.stop;
+  const has = (a: OrgStopAction): boolean => s.actions.includes(a);
+  const keys: StopButtonKey[] = [];
+  // 差し戻しの上限・テスト失敗は、3択を常に並べる（選べないものは理由つきで無効）
+  if (s.kind === "reworkLimit" || s.kind === "checkFailed") keys.push("sendBack", "acceptAsIs", "fail");
+  for (const a of s.actions) if (!keys.includes(a) && a !== "openChat" && a !== "history" && a !== "cancel") keys.push(a);
+  if (canRelease(t) && !s.unconfirmed) keys.push("release");
+  if (has("cancel")) keys.push("cancel");
+  if (has("openChat")) keys.push("openChat");
+  keys.push("history");
+  const buttons: StopButton[] = keys.map((key) => {
+    const enabled = key === "release" ? true : has(key as OrgStopAction);
+    const base = BUTTON_TEXT[key];
+    const refused = key === "sendBack" && !enabled ? t.sendBackRefusal ?? "いまは選べません" : null;
+    return { key, label: base.label, enabled, title: enabled ? base.title : refused ?? "いまは選べません（確認状態が確定ではないなど）" };
+  });
+  return {
+    task: t.id,
+    kind: s.kind,
+    unconfirmed: s.unconfirmed,
+    heading: stopHeading(s),
+    facts: [`${t.id}『${t.title}』`, ...s.facts],
+    evidence: s.evidence.slice(0, 3),
+    hint: s.hint,
+    buttons,
+    others: hit.length - 1 + (approvals > 0 ? 1 : 0),
+  };
 }

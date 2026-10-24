@@ -267,6 +267,29 @@ impl OrgCore {
                 // The reviewer waits until the worker task is under review again.
                 self.set_status(id, TaskStatus::Rework, Cause::Engine);
             }
+            VerdictJudgement::ReworkNoAction { failed } => {
+                // The reviewer asked for a send-back but its own findings say nothing needs fixing: a contradiction.
+                // It is neither counted as a send-back nor turned into a pass; the user decides.
+                if self.task(&target).is_some_and(|t| t.status() == TaskStatus::Reviewing) {
+                    let (findings, why) = if failed.is_empty() {
+                        (
+                            vec!["レビューは差し戻しでしたが、直すべき具体的な指摘がありませんでした".to_string()],
+                            "レビューの判定（差し戻し）と所見（修正は求めない）が食い違っています。もう一度直させる／このまま受け入れる／失敗として確定のどれかを選んでください",
+                        )
+                    } else {
+                        (
+                            schemas::failed_check_findings(&v),
+                            "検証のコマンドが失敗しましたが、所見は修正を求めていません（依頼どおりの失敗の可能性があります）。もう一度直させる／このまま受け入れる／失敗として確定のどれかを選んでください",
+                        )
+                    };
+                    self.rec(OrgEventKind::FindingsRecorded { task: target.clone(), findings });
+                    if !failed.is_empty() {
+                        self.rec(OrgEventKind::VerdictDemoted { task: id.clone(), target: target.clone(), failed });
+                    }
+                    self.block(&target, BlockedReason::CheckFailed, why);
+                }
+                self.set_status(id, TaskStatus::Rework, Cause::Engine);
+            }
             VerdictJudgement::Rework => {
                 let limit_reached = {
                     let limits = self.s().limits().clone();

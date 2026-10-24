@@ -9,4 +9,8 @@ deleteChats: boolean,
 /**
  * 確認画面で見せたチャット。実行時の集合と違えば拒否（確認し直し）。
  */
-expectChats: Array<ChatKey>, };
+expectChats: Array<ChatKey>, 
+/**
+ * 一緒に削除する依頼整理の会話（確認画面で見せたもの）。None なら削除しない。ホストが紐づけを確かめ、違えば拒否する。
+ */
+intakeChat: ChatKey | null, };

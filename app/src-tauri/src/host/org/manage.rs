@@ -14,7 +14,7 @@ use org_engine::{restore, HaltReason};
 
 use super::driver::{snapshot_of, OrgSnapshot};
 use crate::backend::backend::UserConfirmed;
-use crate::backend::ipc::{BlockedReason, HostEvent, IpcError, IpcErrorCode};
+use crate::backend::intake::{IntakeRecord, IntakeState};use crate::backend::ipc::{BlockedReason, HostEvent, IpcError, IpcErrorCode};
 use crate::backend::local::DeleteOutcome;
 use crate::backend::model::{Basis, ChatKey, Known};
 use crate::backend::org::*;
@@ -23,9 +23,12 @@ use crate::host::manage::{DeleteMode, SetGuard};
 use crate::host::{blocked, err, now_ms, Host};
 use crate::rules::manage::save_blocks_chat;
 use crate::rules::org::chat_key_of_ref;
-use crate::rules::org_manage::{chat_block_reason, delete_progress_counts, delete_targets, next_steps, step_label, verdict, Binding, ChatFact, DeleteRecord, ManageKind, Step, TaskFact, VerdictInput, FILES_LABEL};
+use crate::rules::org_manage::{
+    chat_block_reason, delete_progress_counts, delete_targets, intake_delete_block, intake_link, intake_state_finished, next_steps, step_label, verdict, Binding, ChatFact, DeleteRecord, IntakeDeleteFact, ManageKind, Step, TaskFact,
+    VerdictInput, FILES_LABEL,
+};
 use crate::store::org::{
-    dir_bytes, read_archived_at, read_delete_record, remove_archived, remove_workflow_files, workflow_dir, write_archived, write_delete_record, ReadOnlyOrgStore,
+    dir_bytes, read_archived_at, read_delete_record, remove_archived, remove_workflow_files, workflow_dir, write_archived, write_delete_record, ReadOnlyOrgStore, INTAKE_FILE,
 };
 
 /// 判定と実行の元になる、1つのワークフローの事実。
@@ -45,6 +48,30 @@ struct Facts {
 fn snapshot_from_disk(dir: &Path) -> Option<OrgSnapshot> {
     let (state, _) = restore(&ReadOnlyOrgStore::new(dir.to_path_buf())).ok()?;
     Some(snapshot_of(&state, None))
+}
+
+/// 依頼整理の記録が「開始した」と持つワークフローID（現在の状態の分と履歴の分、重複なし）。
+fn intake_workflow_ids(i: &IntakeRecord) -> Vec<String> {
+    let mut ids: Vec<String> = Vec::new();
+    if let IntakeState::Started { workflow_id, .. } = &i.state {
+        ids.push(workflow_id.clone());
+    }
+    for s in &i.started {
+        if !ids.contains(&s.workflow_id) {
+            ids.push(s.workflow_id.clone());
+        }
+    }
+    ids
+}
+
+fn intake_state_text(i: &IntakeRecord) -> &'static str {
+    match i.state {
+        IntakeState::Started { .. } => "開始済み",
+        IntakeState::Abandoned => "やめたもの",
+        IntakeState::Drafting => "下書き",
+        IntakeState::Summarizing { .. } => "要約中",
+        IntakeState::Ready => "確認待ち",
+    }
 }
 
 fn io_err(what: &str, e: impl std::fmt::Display) -> IpcError {
@@ -118,6 +145,69 @@ impl Host {
         ChatFact { chat: chat.clone(), label: name.unwrap_or_else(|| chat.id.0.clone()), work, pending, save_blocked, in_use }
     }
 
+    /// このワークフローを開始した依頼整理のチャット。第一は `intake.json`、なければ依頼整理の記録の「開始済み」から（1つに決まるときだけ）。
+    async fn org_intake_link(self: &Arc<Self>, dir: &Path, workflow_id: &str) -> Option<ChatKey> {
+        let d = dir.to_path_buf();
+        let copy = tokio::task::spawn_blocking(move || {
+            std::fs::read(d.join(INTAKE_FILE)).ok().and_then(|b| serde_json::from_slice::<crate::backend::intake::IntakeCopy>(&b).ok()).map(|c| c.chat)
+        })
+        .await
+        .ok()
+        .flatten();
+        let started_by: Vec<(ChatKey, Vec<String>)> = self.read(|d| {
+            d.locals
+                .iter()
+                .filter_map(|(k, l)| l.conversation.as_ref().and_then(|c| c.intake.as_ref()).map(|i| (k.clone(), intake_workflow_ids(i))))
+                .collect()
+        });
+        intake_link(copy.as_ref(), &started_by, workflow_id)
+    }
+
+    /// 依頼整理チャット1件の削除の判定材料。読取りだけ（状態不明は履歴の終端を読んでから見る）。
+    /// `bulk`＝左一覧のまとめて削除（ピン留め・紐づくワークフローの未終了も見る）。`except_workflow`＝いま削除するワークフロー（別の残っているワークフローの数から除く）。
+    pub(in crate::host) async fn intake_delete_fact(self: &Arc<Self>, chat: &ChatKey, bulk: bool, except_workflow: Option<&str>) -> IntakeDeleteFact {
+        self.confirm_unknown_terminals(Some(chat), true).await;
+        let chat_fact = self.org_chat_fact(chat);
+        let rec = self.read(|d| d.locals.get(chat).and_then(|l| l.conversation.as_ref()).and_then(|c| c.intake.clone()));
+        let finished_intake = rec.as_ref().is_some_and(|r| intake_state_finished(&r.state));
+        let (pinned, superseded) = self.read(|d| (d.chat(chat).is_some_and(|c| c.pinned) || d.locals.get(chat).is_some_and(|l| l.pinned), d.locals.get(chat).is_some_and(|l| l.superseded_by.is_some())));
+        let ids: Vec<String> = rec.as_ref().map(intake_workflow_ids).unwrap_or_default();
+        let root = self.org_store_root().ok();
+        let mut workflow_unfinished = None;
+        let mut other_alive = 0u32;
+        for id in ids {
+            let exists = root.as_ref().is_some_and(|r| workflow_dir(r, &id).is_dir());
+            if !exists {
+                continue; // 紐づけ先が消えている（見失わないよう、このチャットは通常の行に出ている）
+            }
+            if except_workflow == Some(id.as_str()) {
+                continue;
+            }
+            other_alive += 1;
+            if bulk && workflow_unfinished.is_none() {
+                workflow_unfinished = self.org_workflow_unfinished(&id).await;
+            }
+        }
+        // まとめて削除では、紐づくワークフローが残っていても、終わっていれば削除してよい（記録が残るだけ）。残っている件数は止める理由にしない。
+        if bulk {
+            other_alive = 0;
+        }
+        IntakeDeleteFact { chat: chat_fact, finished_intake, pinned: bulk && pinned, superseded, workflow_unfinished, other_workflows_alive: other_alive }
+    }
+
+    /// ワークフローがまだ終わっていない（または状態を確認できない）ときの理由。終わっていれば None。
+    async fn org_workflow_unfinished(self: &Arc<Self>, workflow_id: &str) -> Option<String> {
+        let facts = match self.org_manage_facts(workflow_id).await {
+            Ok(f) => f,
+            Err(e) => return Some(e.message),
+        };
+        let (v, _) = self.org_verdict(ManageKind::Archive, &facts, false).await;
+        match v {
+            OrgManageVerdict::Allowed => None,
+            OrgManageVerdict::Blocked { reasons } => Some(reasons.join("／")),
+        }
+    }
+
     /// 判定。削除で役割チャットも消すなら、状態不明のチャットは履歴の終端を読んでから見る（読取りだけ。resumeしない）。
     async fn org_verdict(self: &Arc<Self>, kind: ManageKind, facts: &Facts, delete_chats: bool) -> (OrgManageVerdict, Vec<ChatFact>) {
         let mut chat_facts = Vec::new();
@@ -174,7 +264,25 @@ impl Host {
             Ok(Some(n)) => Known::direct(n),
             _ => Known::NotFetched,
         };
+        // 開始元の依頼整理の会話（紐づけを確認できたときだけ。できなければ対象にしない）。
+        let intake = match self.org_intake_link(&facts.dir, &facts.workflow_id).await {
+            Some(chat) => {
+                let rec = self.read(|d| d.locals.get(&chat).and_then(|l| l.conversation.as_ref()).and_then(|c| c.intake.clone()));
+                let known = self.read(|d| d.chat(&chat).is_some() || d.locals.contains_key(&chat));
+                if !known {
+                    Some(OrgDeleteIntakeRow { chat, name: None, state: "削除済み".to_string(), gone: true, blocked: None })
+                } else {
+                    let fact = self.intake_delete_fact(&chat, false, Some(&facts.workflow_id)).await;
+                    let name = self.read(|d| d.chat(&chat).and_then(|c| c.name.value().cloned()));
+                    Some(OrgDeleteIntakeRow { chat, name, state: rec.as_ref().map_or("状態不明", |r| intake_state_text(r)).to_string(), gone: false, blocked: intake_delete_block(&fact) })
+                }
+            }
+            None => None,
+        };
+        let intake_unlinked = intake.is_none();
         Ok(OrgDeletePreview {
+            intake,
+            intake_unlinked,
             workflow_id: facts.workflow_id.clone(),
             title: facts.snapshot.as_ref().and_then(|s| s.title.clone()),
             verdict,
@@ -229,8 +337,8 @@ impl Host {
         };
         let res = self.org_delete_inner(args, confirmed).await;
         match &res {
-            Ok(OrgDeleteOutcome::Deleted) => crate::diag::log("org_delete", &format!("deleted wf={wf}")),
-            Ok(OrgDeleteOutcome::Partial { done, failed }) => crate::diag::log("org_delete", &format!("partial wf={wf} done={} failed={}", done.len(), failed.join(" / "))),
+            Ok(OrgDeleteOutcome::Deleted { intake }) => crate::diag::log("org_delete", &format!("deleted wf={wf} intake={:?}", intake.as_ref().map(|i| i.deleted))),
+            Ok(OrgDeleteOutcome::Partial { done, failed, .. }) => crate::diag::log("org_delete", &format!("partial wf={wf} done={} failed={}", done.len(), failed.join(" / "))),
             Err(e) => crate::diag::log("org_delete", &format!("refused/failed wf={wf} code={:?}: {}", e.code, e.message.replace('\n', " / "))),
         }
         res
@@ -255,6 +363,16 @@ impl Host {
         if !same(&facts.targets, &args.expect_chats) {
             return Err(err(IpcErrorCode::Rejected, "確認した後に、削除の対象のチャットが変わりました。もう一度、削除の確認から行ってください"));
         }
+        // 一緒に消す依頼整理の会話は、確認時の紐づけと同じときだけ（違えば何も消さずに確認し直し）。
+        let intake_target = match &args.intake_chat {
+            Some(k) => {
+                if self.org_intake_link(&facts.dir, &facts.workflow_id).await.as_ref() != Some(k) {
+                    return Err(err(IpcErrorCode::Rejected, "確認した後に、依頼整理の会話の紐づけが変わりました。もう一度、削除の確認から行ってください"));
+                }
+                Some(k.clone())
+            }
+            None => None,
+        };
         let mut rec = match facts.record.clone() {
             Some(r) => r,
             None => {
@@ -303,15 +421,52 @@ impl Host {
                 }
             }
         }
+        // 依頼整理の会話は別の結果として扱う。消せなくても、ワークフローの削除と再開（「削除を続ける」）は妨げない。
+        let intake = match &intake_target {
+            Some(k) => Some(self.org_delete_intake_chat(k, &workflow_id, confirmed).await),
+            None => None,
+        };
         if rec.failed.is_empty() && rec.done.iter().any(|d| d == FILES_LABEL) {
             self.org_forget_workflow_runtime(&workflow_id, &facts.targets, &facts.kept_released);
-            return Ok(OrgDeleteOutcome::Deleted);
+            return Ok(OrgDeleteOutcome::Deleted { intake });
         }
         // 完了と偽らない。失敗が出た段で止まり、続きは同じ操作で（済んだ段は飛ばす）。
         if rec.failed.is_empty() {
             rec.failed.push("削除を完了できませんでした".to_string());
         }
-        Ok(OrgDeleteOutcome::Partial { done: rec.done, failed: rec.failed })
+        Ok(OrgDeleteOutcome::Partial { done: rec.done, failed: rec.failed, intake })
+    }
+
+    /// 依頼整理の会話1件の削除（既存の通常チャット削除。停止を確認できない・実行中・保存失敗・引き継ぎ済みは削除せず理由を返す）。
+    async fn org_delete_intake_chat(self: &Arc<Self>, chat: &ChatKey, workflow_id: &str, confirmed: &UserConfirmed) -> OrgIntakeDeleteResult {
+        let known = self.read(|d| d.chat(chat).is_some() || d.locals.contains_key(chat));
+        if !known {
+            return OrgIntakeDeleteResult { deleted: true, reason: None }; // すでに削除済み
+        }
+        let fact = self.intake_delete_fact(chat, false, Some(workflow_id)).await;
+        if let Some(reason) = intake_delete_block(&fact) {
+            return OrgIntakeDeleteResult { deleted: false, reason: Some(reason) };
+        }
+        match self.delete_chat_core(chat.clone(), confirmed, DeleteMode::User).await {
+            Ok(DeleteOutcome::Deleted) => OrgIntakeDeleteResult { deleted: true, reason: None },
+            Ok(DeleteOutcome::Partial { failed, .. }) => OrgIntakeDeleteResult { deleted: false, reason: Some(failed.join("、")) },
+            Ok(DeleteOutcome::Pending { .. }) => OrgIntakeDeleteResult { deleted: false, reason: Some("停止を確認できていません".to_string()) },
+            Err(e) => OrgIntakeDeleteResult { deleted: false, reason: Some(e.message) },
+        }
+    }
+
+    /// 左一覧の「依頼整理の会話をまとめて削除」の1件分。開始済み・やめたものだけ。ピン留め・紐づくワークフローが未終了・実行中・停止未確認・保存失敗・引き継ぎ済みは削除しない（中断もしない）。
+    /// 実行は既存の通常チャット削除（`DeleteMode::User`）。判定はここが最終。
+    pub async fn intake_delete_chat(self: &Arc<Self>, args: crate::host::ChatArgs, confirmed: &UserConfirmed) -> Result<DeleteOutcome, IpcError> {
+        let chat = args.chat;
+        if !self.read(|d| d.locals.get(&chat).and_then(|l| l.conversation.as_ref()).is_some_and(|c| c.intake.is_some())) {
+            return Err(err(IpcErrorCode::NotFound, "依頼整理の会話ではありません"));
+        }
+        let fact = self.intake_delete_fact(&chat, true, None).await;
+        if let Some(reason) = intake_delete_block(&fact) {
+            return Err(blocked(BlockedReason::ChatBusy, reason));
+        }
+        self.delete_chat_core(chat, confirmed, DeleteMode::User).await
     }
 
     /// 役割チャット1件の削除（または「残す」なら手動への切り替え）。成功＝その段は済み。

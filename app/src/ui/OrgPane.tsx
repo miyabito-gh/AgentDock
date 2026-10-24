@@ -9,7 +9,8 @@ import { Popover } from "./Popover";
 import { ConfirmBlock } from "./DialogParts";
 import { tipWithKey } from "./shortcuts";
 import { roleLabel } from "./orgChat";
-import { CONFIRM_TONE, EFFECT_TEXT, NODE_KIND_TEXT, PHASE_TONE, waitCauseOf, edgeText, noReportHeadNote, completedNoticeText, displayWorkflowTitle, displayRequest, sectionVisibility, releaseMenuState, planSummary, taskArtifactNote, taskSubparts, finishedBannerFor, groupTasks, orgPendingRequests, requestWaitText, roleCounts, reworkLimitText, roundText, taskRequestWait, taskRowId, verdictText, waitBand, waitingDetail, workflowSummary, type OrgTone } from "./org";
+import { CONFIRM_TONE, EFFECT_TEXT, NODE_KIND_TEXT, PHASE_TONE, waitCauseOf, edgeText, noReportHeadNote, completedNoticeText, displayWorkflowTitle, displayRequest, sectionVisibility, releaseMenuState, planSummary, taskArtifactNote, taskSubparts, finishedBannerFor, groupTasks, orgPendingRequests, requestWaitText, roleCounts, reworkLimitText, roundText, taskRequestWait, taskRowId, verdictText, waitBand, waitingDetail, workflowSummary, stopCard, stopRowNote, type OrgTone } from "./org";
+import type { StopButtonKey } from "./orgText";
 import { RequestGapLine } from "./RequestGap";
 import { keyStr, showKnown } from "./format";
 import { InterjectComposer, NEXT_TURN_NOTE } from "./InterjectComposer";
@@ -586,6 +587,30 @@ export function OrgPane(p: OrgPaneProps) {
   };
 
   const vis = sectionVisibility(wf.finished);
+  // 止まっているタスク（確認状態が確定でないものを含む）と承認・質問の待ちを、理由・手がかり・操作つきの1枚のカードにする（行の「…」の中だけに隠さない）。
+  const dc = ro ? null : stopCard(wf.tasks, wf.finished, approvals.count, (t) => !!t.chat && !releaseMenuState(true, ro).disabled);
+  const dcTask = dc?.task ? wf.tasks.find((t) => t.id === dc.task) : undefined;
+  const jumpToDecision = () => { const el = document.getElementById("org-decision"); el?.scrollIntoView({ block: "center" }); el?.focus({ preventScroll: true }); };
+  const decide = (key: StopButtonKey) => {
+    if (!dc) return;
+    const id = dc.task;
+    if (key === "answer") { setTab("tasks"); window.setTimeout(() => document.querySelector(".org-req-card")?.scrollIntoView({ block: "center" }), 0); return; }
+    if (!id || !dcTask) return;
+    switch (key) {
+      case "sendBack": setConfirm({ kind: "sendBack", task: id, note: "" }); break;
+      case "acceptAsIs": setConfirm({ kind: "acceptAsIs", task: id }); break;
+      case "fail": setConfirm({ kind: "failTask", task: id }); break;
+      case "retryNew": setConfirm({ kind: "retryNew", task: id }); break;
+      case "retryUnsent": setConfirm({ kind: "retry", task: id }); break;
+      case "cancel": setConfirm({ kind: "cancelTask", task: id }); break;
+      case "acceptManual": setConfirm({ kind: "acceptManual", task: id }); break;
+      case "adoptManual": void openAdopt(id); break;
+      case "chooseChat": void openChoose(id); break;
+      case "release": if (dcTask.chat) setConfirm({ kind: "release", task: id, chat: dcTask.chat }); break;
+      case "openChat": if (dcTask.chat) p.onOpenChat(dcTask.chat); break;
+      case "history": setTlTask(id); setTab("timeline"); break;
+    }
+  };
   const resItem = resultItem(wf, artState.view);
   const invReport = (id: string): "value" | "notObtained" | "none" | "unknown" => {
     if (!artState.view) return "unknown";
@@ -754,13 +779,33 @@ export function OrgPane(p: OrgPaneProps) {
 
         {wf.graph ? <GraphSection graph={wf.graph} wf={wf} ro={ro} busy={busy} chatExists={chatExists} onOpenChat={p.onOpenChat} onGate={(n, c) => setConfirm({ kind: "gate", task: n.task!, node: n.label, choice: c.id, label: c.label, needsNote: c.needsNote, note: "" })} onExtra={(n) => setConfirm({ kind: "extraRound", task: n.task!, node: n.label, note: "" })} onAccept={(n) => setConfirm({ kind: "acceptRound", task: n.task!, node: n.label })} /> : null}
 
+        {dc ? (
+          <section id="org-decision" tabIndex={-1} className="org-card" aria-label="止まっている理由">
+            <h4><Icon name="alert" />{dc.heading}</h4>
+            {dc.facts.length > 0 ? <p className="small">{dc.facts.join("　／　")}</p> : null}
+            {dc.evidence.map((e) => (
+              <div key={e.label} className="small">
+                <b>{e.label}</b>{e.known ? null : <span className="muted">（取れていません）</span>}
+                <ul>{e.lines.map((l, i) => <li key={i} className={e.known ? undefined : "muted"}>{l}</li>)}</ul>
+                {e.truncated ? <p className="small muted">一部だけ表示しています。全文は「チャットを見る」か「経過を見る」で確認できます。</p> : null}
+              </div>
+            ))}
+            {dc.hint ? <p>{dc.hint}</p> : null}
+            {dc.others > 0 ? <p className="small muted">ほかにも止まっているもの・返事待ちが {dc.others} 件あります（この件が片付くと次が出ます）。</p> : null}
+            <div className="acts end org-card-acts">
+              {dc.buttons.map((b) => <button key={b.key} type="button" className={`btn${b.key === "sendBack" || b.key === "retryNew" || b.key === "answer" ? " primary" : b.key === "fail" || b.key === "cancel" || b.key === "release" ? " danger-line" : ""}`} disabled={busy || !b.enabled} title={b.title} onClick={() => decide(b.key)}>{b.label}</button>)}
+            </div>
+            {dc.buttons.some((b) => !b.enabled) ? <p className="small muted">選べない操作は、ボタンの上にカーソルを置くと理由が出ます。</p> : null}
+          </section>
+        ) : null}
+
         {vis.waitBand ? <section className="org-wait-band" aria-label="待ち・作業中・完了">
           {(() => {
             const b = waitBand(snap, wf);
             const detail = waitingDetail(b.waiting);
             return (
               <>
-                <button type="button" className={`btn${b.waiting.total > 0 ? " attn" : ""}`} disabled={!b.waiting.firstId} title={b.waiting.firstId ? "対応が要る最初のタスクの行へ移動します" : "あなたの対応待ちのタスクはありません"} onClick={() => jumpTo(b.waiting.firstId)}>あなたの対応待ち {b.waiting.total}{detail ? `（${detail}）` : ""}</button>
+                <button type="button" className={`btn${b.waiting.total > 0 ? " attn" : ""}`} disabled={!b.waiting.firstId} title={b.waiting.firstId ? "対応が要る最初のタスクの行へ移動します" : "あなたの対応待ちのタスクはありません"} onClick={() => (dc && dc.task && b.waiting.firstId === dc.task ? jumpToDecision() : jumpTo(b.waiting.firstId))}>あなたの対応待ち {b.waiting.total}{detail ? `（${detail}）` : ""}</button>
                 <button type="button" className="btn" disabled={!b.working.firstId} title={b.working.firstId ? "作業中の最初のタスクの行へ移動します" : "作業中のタスクはありません"} onClick={() => jumpTo(b.working.firstId)}>作業中 {b.working.total}</button>
                 <button type="button" className="btn" disabled={b.done.done === 0} title={b.done.done > 0 ? "完了したタスクの行へ移動します" : "完了したタスクはまだありません"} onClick={() => jumpTo(wf.tasks.find((t) => t.status.phase === "completed")?.id ?? null)}>完了 {b.done.done}／全 {b.done.all}</button>
               </>
@@ -835,11 +880,11 @@ export function OrgPane(p: OrgPaneProps) {
                           </td>
                           <td>{taskActions(t)}</td>
                         </tr>
-                        {t.reconcile || t.stallNotified || t.needsChatChoice || t.attentionNote || w.pending.length > 0 || w.gaps.length > 0 ? (
+                        {t.reconcile || t.stallNotified || t.needsChatChoice || t.attentionNote || t.stop || w.pending.length > 0 || w.gaps.length > 0 ? (
                           <tr key={`${t.id}:n`} className="org-note-row"><td colSpan={4} className="small">
                             {w.pending.map((r) => <div key={`${r.key.source}/${r.key.requestId}`} className="org-req-card">{p.renderRequest(r, agentName)}</div>)}
                             {w.gaps.map((r) => <RequestGapLine key={`gap:${r.key.source}/${r.key.requestId}`} r={r} guide="org" />)}
-                            {t.attentionNote ? <div>止まった理由: {t.attentionNote}{noReportHeadNote(t.attentionNote) ? <span className="muted">　（{noReportHeadNote(t.attentionNote)}）</span> : null}</div> : null}
+                            {t.stop ? <div>{stopRowNote(t.stop, t.attentionNote)}{noReportHeadNote(t.attentionNote) ? <span className="muted">　（{noReportHeadNote(t.attentionNote)}）</span> : null}</div> : t.attentionNote ? <div>止まった理由: {t.attentionNote}</div> : null}
                             {t.stallNotified ? <div>実行中のまま新しい出力がないと通知済みです（自動では止めません）。</div> : null}
                             {t.needsChatChoice ? <div>チャットの作成結果を確認できていません。「チャットを選ぶ」で結び付けるまで進めません。</div> : null}
                             {t.reconcile ? <div>照合（読取りのみ）: {t.reconcile.text}{t.reconcile.worktree.label ? `　作業場所: ${t.reconcile.worktree.label}` : ""}</div> : null}

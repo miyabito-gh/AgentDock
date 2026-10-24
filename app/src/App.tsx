@@ -1778,9 +1778,9 @@ ${cur}` : p.text);
           settings: { live, stallMinutes: snap.settings.orgStallMinutes, setStall: async (m) => { if (!live) return "モックでは動きません。"; try { await host.orgSetStallMinutes(m); return null; } catch (e) { return host.asIpcError(e).message; } } },
           begin: intakeBegin, browse: folderTools.browse, onIntakeStarted: intakeStarted, go: setDialog,
           previewDelete: (id) => (live ? host.orgPreviewDelete(id) : Promise.reject(new Error("モックでは動きません。"))),
-          deleteWorkflow: (id, del, expect) => host.orgDeleteWorkflow(id, del, expect),
+          deleteWorkflow: (id, del, expect, intake) => host.orgDeleteWorkflow(id, del, expect, intake),
           deleteProgress: orgDelProg, onDeleteIssue: (m) => say(m, 8000),
-          onDeleted: (id) => { setDialog((d) => (d?.type === "orgDelete" && d.workflowId === id ? null : d)); if (orgSel === id) setOrgSel(null); setOrgTick((n) => n + 1); say("ワークフローを削除しました。worktree とブランチは残しています。", 6000); },
+          onDeleted: (id, note) => { setDialog((d) => (d?.type === "orgDelete" && d.workflowId === id ? null : d)); if (orgSel === id) setOrgSel(null); setOrgTick((n) => n + 1); say(`ワークフローを削除しました。worktree とブランチは残しています。${note ? ` ${note}` : ""}`, note ? 10000 : 6000); },
         }} folderTools={folderTools} workspaceRoots={snap.workspaceRoots} onClose={closeDialog} opCaps={snap.opCapabilities} resend={{ state: resendState, handlers: resendHandlers }} chats={snap.chats} source={src} models={models}
           prefs={{ goal: dialog.type === "goal" ? goals[dialog.chatId] : undefined, saveGoal,
             settings: dialog.type === "status" && dialog.chatId ? bundle.modelSettings[dialog.chatId] : undefined,

@@ -311,7 +311,7 @@ fn task_view(t: &TaskSnapshot, snap: &OrgSnapshot, notices: &[NoticeEntry]) -> O
         ),
         Some(Err(e)) => (None, Some(e.clone())),
     };
-    OrgTaskView {
+    let mut view = OrgTaskView {
         id: t.id.0.clone(),
         role: t.role.clone(),
         kind: if ex.investigation { OrgTaskKind::Investigate } else { OrgTaskKind::Change },
@@ -355,7 +355,10 @@ fn task_view(t: &TaskSnapshot, snap: &OrgSnapshot, notices: &[NoticeEntry]) -> O
         can_hold: ex.can_hold,
         held: ex.held,
         notes_pending: ex.notes_pending,
-    }
+        stop: None,
+    };
+    view.stop = stop_view(t, snap, &view, blocked_why(t, notices).as_deref());
+    view
 }
 
 /// 手動に切り替えたチャットの最新 turn を、取込みの確認用の形にする（純粋な変換）。
@@ -441,6 +444,271 @@ fn attention_note(t: &TaskSnapshot, notices: &[NoticeEntry]) -> Option<String> {
         _ => None,
     });
     Some(why.unwrap_or_else(|| "理由は記録されていません。チャットを開いて確認してください".to_string()))
+}
+
+// ───────────── 「止まっている理由」の説明（表示用の導出。状態・保存・送信は変えない） ─────────────
+
+const EV_LINES: usize = 3;
+const EV_CHARS: usize = 120;
+const NOT_RECORDED: &str = "記録されていません（チャットを開いて確認してください）";
+
+/// 1行に整えて切り詰める（空白の連続は1つに）。切ったときは true。
+fn clip_line(s: &str) -> (String, bool) {
+    let flat: String = s.split_whitespace().collect::<Vec<_>>().join(" ");
+    if flat.chars().count() > EV_CHARS {
+        (format!("{}…", flat.chars().take(EV_CHARS).collect::<String>()), true)
+    } else {
+        (flat, false)
+    }
+}
+
+/// 手がかり。行が無ければ `missing`（空・0で埋めない）。先頭3行・各120字まで。
+fn evidence_of(label: &str, lines: &[String], missing: &str) -> OrgStopEvidence {
+    let nonempty: Vec<&String> = lines.iter().filter(|l| !l.trim().is_empty()).collect();
+    if nonempty.is_empty() {
+        return OrgStopEvidence { label: label.to_string(), lines: vec![missing.to_string()], known: false, truncated: false };
+    }
+    let mut truncated = nonempty.len() > EV_LINES;
+    let shown = nonempty
+        .iter()
+        .take(EV_LINES)
+        .map(|l| {
+            let (s, cut) = clip_line(l);
+            truncated |= cut;
+            s
+        })
+        .collect();
+    OrgStopEvidence { label: label.to_string(), lines: shown, known: true, truncated }
+}
+
+/// 止まった理由の通知（メモリ上）。再起動で失われたときは None。
+fn blocked_why(t: &TaskSnapshot, notices: &[NoticeEntry]) -> Option<String> {
+    notices.iter().rev().find_map(|e| match &e.notice {
+        OrgHostNotice::Engine(OrgNotice::TaskBlocked { task, why }) if task == &t.id => Some(why.clone()),
+        _ => None,
+    })
+}
+
+fn stop_actions(v: &OrgTaskView) -> Vec<OrgStopAction> {
+    let mut a = Vec::new();
+    if v.needs_chat_choice {
+        a.push(OrgStopAction::ChooseChat);
+    }
+    if v.can_send_back {
+        a.push(OrgStopAction::SendBack);
+    }
+    if v.can_accept_as_is {
+        a.push(OrgStopAction::AcceptAsIs);
+    }
+    match v.retry.as_ref().map(|r| r.kind) {
+        Some(OrgRetryKind::NewAttempt) => a.push(OrgStopAction::RetryNew),
+        Some(OrgRetryKind::Unsent) => a.push(OrgStopAction::RetryUnsent),
+        None => {}
+    }
+    if v.can_adopt_manual {
+        a.push(OrgStopAction::AdoptManual);
+    }
+    if v.can_accept_manual {
+        a.push(OrgStopAction::AcceptManual);
+    }
+    if v.can_fail {
+        a.push(OrgStopAction::Fail);
+    }
+    if v.can_cancel {
+        a.push(OrgStopAction::Cancel);
+    }
+    if v.chat.is_some() {
+        a.push(OrgStopAction::OpenChat);
+    }
+    a.push(OrgStopAction::History);
+    a
+}
+
+/// 止まったタスクの説明を作る。`v` は同じタスクの画面の写し（操作の可否は v の can_* と一致させる）。
+/// 通信断・受理不明・停止未確認は「止まった」「失敗」と書かず、事実のまま書く。
+pub fn stop_view(t: &TaskSnapshot, snap: &OrgSnapshot, v: &OrgTaskView, why: Option<&str>) -> Option<OrgStopView> {
+    let retry_fact = || format!("再送 {}/{}", v.retries_used, v.retry.as_ref().map_or(snap.limits.max_retries, |r| r.max));
+    let rework_facts = || vec![format!("差し戻し {}/{}", t.attempts.saturating_sub(1), v.max_attempts.saturating_sub(1)), retry_fact()];
+    let why_ev = |label: &str| {
+        let lines: Vec<String> = why.map(|w| w.lines().map(str::to_string).collect()).unwrap_or_default();
+        evidence_of(label, &lines, NOT_RECORDED)
+    };
+    let mk = |kind, headline: String, facts: Vec<String>, evidence: Vec<OrgStopEvidence>, hint: &str, unconfirmed: bool| {
+        Some(OrgStopView { kind, headline, facts, evidence, actions: stop_actions(v), hint: hint.to_string(), unconfirmed })
+    };
+    use OrgStopKind as K;
+    if !finished(t.status) && t.confirm != ConfirmState::Confirmed {
+        let recon: Vec<String> = v.reconcile.iter().map(|r| format!("状態を読み直した結果: {}", r.text)).collect();
+        let rec_ev = if recon.is_empty() {
+            OrgStopEvidence { label: "状態の読み直し".into(), lines: vec!["まだ読み直せていません".into()], known: false, truncated: false }
+        } else {
+            evidence_of("状態の読み直し", &recon, NOT_RECORDED)
+        };
+        let facts = vec![format!("タスクの状態: {}", v.status.label), format!("確認状態: {}", v.confirm.label)];
+        return match t.confirm {
+            ConfirmState::SendUnknown => mk(
+                K::SendUnknown,
+                "送ったものが届いたか確認できていません".into(),
+                facts,
+                vec![rec_ev],
+                "チャットを開いて、送った内容が届いているか確認してください。自動では再送しません。",
+                true,
+            ),
+            ConfirmState::NeedsReconcile(c) => {
+                let when = match c {
+                    ReconcileCause::Disconnect => "通信が途切れたため",
+                    ReconcileCause::Wake => "スリープから復帰したため",
+                    ReconcileCause::Restart => "アプリを再起動したため",
+                };
+                mk(
+                    K::NeedsReconcile,
+                    format!("{when}、いまの状態を確認できていません"),
+                    facts,
+                    vec![rec_ev],
+                    "状態を読み直せるまで待つか、チャットで様子を見てください。読み直しでは何も送りません。",
+                    true,
+                )
+            }
+            ConfirmState::InterruptRequested => mk(
+                K::InterruptRequested,
+                "中断を要求しましたが、停止を確認できていません".into(),
+                facts,
+                vec![rec_ev],
+                "停止が確認できるまで、実行中として扱います。チャットで様子を見てください。",
+                true,
+            ),
+            _ => mk(
+                K::StopUnconfirmed,
+                "停止を確認できていません".into(),
+                facts,
+                vec![rec_ev],
+                "停止が確認できるまで、次の操作は選べません。チャットで様子を見てください。",
+                true,
+            ),
+        };
+    }
+    match t.status {
+        TaskStatus::Blocked(EBlocked::ReworkLimit) => {
+            let ev = evidence_of("Reviewer の所見", &t.extras.last_findings, "所見は記録されていません");
+            let headline = if ev.known { "差し戻しの上限に達しました" } else { "Reviewer が差し戻しましたが、直す指摘が記録されていません" };
+            mk(
+                K::ReworkLimit,
+                headline.into(),
+                rework_facts(),
+                vec![ev],
+                "所見を読んで、直すべき内容なら「もう一度直させる」、依頼どおりなら「このまま受け入れる」を選んでください。",
+                false,
+            )
+        }
+        TaskStatus::Blocked(EBlocked::CheckFailed) => {
+            const PREFIX: &str = "検証のコマンドが失敗しました: ";
+            let failed: Vec<String> = t.extras.last_findings.iter().filter_map(|f| f.strip_prefix(PREFIX).map(str::to_string)).collect();
+            let mut facts = rework_facts();
+            let hint = "依頼どおりの結果なら「このまま受け入れる」、直すべきなら「もう一度直させる」を選んでください。";
+            if failed.is_empty() {
+                // 失敗したコマンドの記録が無い（差し戻し判定だが直す指摘が無い場合など）。あるはずの失敗を作らない。
+                let ev = if t.extras.last_findings.is_empty() {
+                    OrgStopEvidence { label: "Reviewer の所見".into(), lines: vec!["所見は記録されていません".into()], known: false, truncated: false }
+                } else {
+                    OrgStopEvidence { label: "Reviewer の所見".into(), lines: vec!["Reviewer は差し戻しましたが、直すべき指摘は書かれていません（依頼どおりの結果か、チャットで確認してください）".into()], known: true, truncated: false }
+                };
+                return mk(K::CheckFailed, "テスト結果の確認が必要です".into(), facts, vec![ev], hint, false);
+            }
+            facts.push(format!("失敗した確認 {}件", failed.len()));
+            mk(
+                K::CheckFailed,
+                "Reviewer は合格としましたが、確認のコマンドが失敗しました".into(),
+                facts,
+                vec![evidence_of("失敗した確認（コマンド／要約）", &failed, "失敗した確認の内容は記録されていません")],
+                hint,
+                false,
+            )
+        }
+        TaskStatus::Blocked(EBlocked::NeedsAttention) if t.extras.nothing_written => mk(
+            K::NothingWritten,
+            "Worker が変更を書きませんでした".into(),
+            vec![retry_fact()],
+            vec![why_ev("Worker の報告・理由")],
+            "チャットで報告を読み、書くべきなら「新しい試行で再送」、書く必要がなかったなら「このまま受け入れる」や取消しを選んでください。",
+            false,
+        ),
+        TaskStatus::Blocked(EBlocked::NeedsAttention) => {
+            mk(K::NeedsAttention, "対応が必要で止まっています".into(), Vec::new(), vec![why_ev("理由")], "チャットを開いて内容を確認してから、操作を選んでください。", false)
+        }
+        TaskStatus::Blocked(EBlocked::UsageLimit) => mk(
+            K::UsageLimit,
+            "利用上限に達したため、やりとりが失敗しました".into(),
+            vec![retry_fact()],
+            vec![why_ev("理由")],
+            "上限が解けてから「新しい試行で再送」を選んでください。自動では再送しません。",
+            false,
+        ),
+        TaskStatus::Blocked(EBlocked::TurnFailed) => mk(
+            K::TurnFailed,
+            "やりとりが失敗して止まっています".into(),
+            vec![retry_fact()],
+            vec![why_ev("エラー")],
+            "エラーを読んで、「新しい試行で再送」か「失敗として確定」を選んでください。自動では再送しません。",
+            false,
+        ),
+        TaskStatus::Blocked(EBlocked::Manual) => mk(
+            K::Manual,
+            "手動に切り替え済みです。結果の取り込みを待っています".into(),
+            vec![format!("チャット: {}", if v.chat.is_some() { "あり" } else { "なし" })],
+            Vec::new(),
+            "チャットで作業して、終わったら「結果を取り込む」か「手動で完了にする」を選んでください。",
+            false,
+        ),
+        TaskStatus::Blocked(EBlocked::ManualStop) => {
+            mk(K::ManualStop, "中断されて止まっています".into(), Vec::new(), vec![why_ev("理由")], "続けるなら「新しい試行で再送」、やめるなら「失敗として確定」か取消しを選んでください。", false)
+        }
+        TaskStatus::Blocked(EBlocked::RoundLimit) => mk(
+            K::RoundLimit,
+            "やり直しの周回が上限に達しました".into(),
+            Vec::new(),
+            Vec::new(),
+            "「流れ」の該当ノードで、もう1周か、このまま受け入れるかを選んでください。",
+            false,
+        ),
+        TaskStatus::Blocked(EBlocked::Limit) => mk(
+            K::Limit,
+            "やりとりの上限に達して止まっています".into(),
+            vec![format!("使用 {}/{}", snap.turns_used, snap.limits.max_turns)],
+            Vec::new(),
+            "画面上部のメニューから「やりとりの上限を上げる」を選ぶと続けられます。",
+            false,
+        ),
+        TaskStatus::Blocked(EBlocked::AwaitingApproval) => {
+            mk(K::AwaitingApproval, "承認を待っています".into(), Vec::new(), Vec::new(), "承認のカードで、許可するか拒否するかを選んでください。", false)
+        }
+        TaskStatus::Pending | TaskStatus::Ready => {
+            let stopped: Vec<String> = v
+                .waiting_on
+                .iter()
+                .filter_map(|d| {
+                    let dt = snap.tasks.iter().find(|x| x.id.0 == *d)?;
+                    matches!(dt.status, TaskStatus::Blocked(_) | TaskStatus::Failed(_) | TaskStatus::Cancelled)
+                        .then(|| format!("待ち先: {}（{}）", d, status_view(dt.status).label))
+                })
+                .collect();
+            if stopped.is_empty() {
+                return None;
+            }
+            mk(
+                K::DependencyBlocked,
+                format!("先行のタスク {} が止まっているため、待っています", v.waiting_on.join("、")),
+                stopped,
+                Vec::new(),
+                "先行のタスクの止まっている理由を解決すると、続きが進みます。",
+                false,
+            )
+        }
+        TaskStatus::Failed(FailReason::InvalidArtifact) => {
+            let headline = if v.kind == OrgTaskKind::Investigate { "調査の報告を読めずに失敗しました" } else { "成果物を読めずに失敗しました" };
+            mk(K::InvalidArtifact, headline.into(), Vec::new(), vec![why_ev("理由")], "チャットで最終回答を確認してください。このタスクは失敗として確定しています。", false)
+        }
+        _ => None,
+    }
 }
 
 pub fn usage_view(snap: &OrgSnapshot, rows: &[UsageRow]) -> OrgUsageView {
@@ -1553,5 +1821,103 @@ mod tests {
         assert!(manual_result_view(&[turn_rec(Some(E::Completed), true, None)], false, None).problem.unwrap().contains("最終回答"));
         let none = manual_result_view(&[], false, None);
         assert!(none.turn_id.is_none() && none.problem.is_some());
+    }
+
+    fn stop_of(mut t: TaskSnapshot, tasks_extra: Vec<TaskSnapshot>, notices: &[NoticeEntry]) -> Option<OrgStopView> {
+        let id = t.id.0.clone();
+        t.attempts = 3;
+        let mut all = vec![t];
+        all.extend(tasks_extra);
+        let v = view_of(&snap(all, None), notices, &[]);
+        v.tasks.into_iter().find(|x| x.id == id).unwrap().stop
+    }
+
+    #[test]
+    fn stop_rework_limit_shows_findings_clipped_and_unknown_when_missing() {
+        let mut t = task("w1", &[], TaskStatus::Blocked(EBlocked::ReworkLimit), ConfirmState::Confirmed);
+        t.extras.last_findings = vec!["a".into(), "b".repeat(300), "c".into(), "d".into()];
+        let s = stop_of(t, vec![], &[]).unwrap();
+        assert_eq!(s.kind, OrgStopKind::ReworkLimit);
+        assert_eq!(s.facts[0], "差し戻し 2/2");
+        let ev = &s.evidence[0];
+        assert!(ev.known && ev.truncated);
+        assert_eq!(ev.lines.len(), 3);
+        assert_eq!(ev.lines[1].chars().count(), 121, "120 chars plus the ellipsis");
+        assert!(s.actions.contains(&OrgStopAction::History));
+        let none = stop_of(task("w1", &[], TaskStatus::Blocked(EBlocked::ReworkLimit), ConfirmState::Confirmed), vec![], &[]).unwrap();
+        assert!(!none.evidence[0].known);
+        assert!(none.headline.contains("指摘が記録されていません"));
+    }
+
+    #[test]
+    fn stop_check_failed_lists_commands_and_actions_match_can_flags() {
+        let mut t = task("w1", &[], TaskStatus::Blocked(EBlocked::CheckFailed), ConfirmState::Confirmed);
+        t.extras.last_findings = vec!["検証のコマンドが失敗しました: pytest ／ ImportError".into()];
+        let s = stop_of(t, vec![], &[]).unwrap();
+        assert_eq!(s.kind, OrgStopKind::CheckFailed);
+        assert_eq!(s.evidence[0].lines[0], "pytest ／ ImportError");
+        assert!(s.actions.contains(&OrgStopAction::Fail), "can_fail is true when blocked and confirmed");
+        assert!(!s.actions.contains(&OrgStopAction::SendBack), "can_send_back follows the extras");
+    }
+
+    #[test]
+    fn stop_error_text_comes_from_notice_or_says_not_recorded() {
+        let why = entry(1, OrgHostNotice::Engine(OrgNotice::TaskBlocked { task: TaskId::new("w1"), why: "エラーです\n2行目".into() }));
+        let s = stop_of(task("w1", &[], TaskStatus::Blocked(EBlocked::TurnFailed), ConfirmState::Confirmed), vec![], &[why]).unwrap();
+        assert_eq!(s.kind, OrgStopKind::TurnFailed);
+        assert_eq!(s.evidence[0].lines, vec!["エラーです".to_string(), "2行目".to_string()]);
+        let lost = stop_of(task("w1", &[], TaskStatus::Blocked(EBlocked::UsageLimit), ConfirmState::Confirmed), vec![], &[]).unwrap();
+        assert_eq!(lost.kind, OrgStopKind::UsageLimit);
+        assert!(!lost.evidence[0].known && lost.evidence[0].lines[0].starts_with("記録されていません"));
+        let mut nw = task("w1", &[], TaskStatus::Blocked(EBlocked::NeedsAttention), ConfirmState::Confirmed);
+        nw.extras.nothing_written = true;
+        assert_eq!(stop_of(nw, vec![], &[]).unwrap().kind, OrgStopKind::NothingWritten);
+        let na = stop_of(task("w1", &[], TaskStatus::Blocked(EBlocked::NeedsAttention), ConfirmState::Confirmed), vec![], &[]).unwrap();
+        assert_eq!(na.kind, OrgStopKind::NeedsAttention);
+    }
+
+    #[test]
+    fn stop_unconfirmed_is_never_called_failed_or_stopped() {
+        for (c, kind) in [
+            (ConfirmState::SendUnknown, OrgStopKind::SendUnknown),
+            (ConfirmState::NeedsReconcile(ReconcileCause::Disconnect), OrgStopKind::NeedsReconcile),
+            (ConfirmState::InterruptRequested, OrgStopKind::InterruptRequested),
+            (ConfirmState::StopUnconfirmed, OrgStopKind::StopUnconfirmed),
+        ] {
+            let s = stop_of(task("w1", &[], TaskStatus::Running, c), vec![], &[]).unwrap();
+            assert_eq!(s.kind, kind);
+            assert!(s.unconfirmed);
+            assert!(s.headline.contains("確認できていません"), "{}", s.headline);
+            assert!(!s.headline.contains("失敗") && !s.headline.contains("完了"), "{}", s.headline);
+            assert!(!s.actions.contains(&OrgStopAction::Fail), "failing needs a confirmed state");
+        }
+        assert!(stop_of(task("w1", &[], TaskStatus::Running, ConfirmState::Confirmed), vec![], &[]).is_none());
+    }
+
+    #[test]
+    fn stop_dependency_and_manual_and_none_cases() {
+        let dep = task("t1", &[], TaskStatus::Blocked(EBlocked::TurnFailed), ConfirmState::Confirmed);
+        let s = stop_of(task("t2", &["t1"], TaskStatus::Pending, ConfirmState::Confirmed), vec![dep], &[]).unwrap();
+        assert_eq!(s.kind, OrgStopKind::DependencyBlocked);
+        assert!(s.facts[0].starts_with("待ち先: t1"));
+        let running_dep = task("t1", &[], TaskStatus::Running, ConfirmState::Confirmed);
+        assert!(stop_of(task("t2", &["t1"], TaskStatus::Pending, ConfirmState::Confirmed), vec![running_dep], &[]).is_none());
+        assert_eq!(stop_of(task("w1", &[], TaskStatus::Blocked(EBlocked::Manual), ConfirmState::Confirmed), vec![], &[]).unwrap().kind, OrgStopKind::Manual);
+        assert!(stop_of(task("w1", &[], TaskStatus::Completed, ConfirmState::Confirmed), vec![], &[]).is_none());
+        let inv = stop_of(task("w1", &[], TaskStatus::Failed(FailReason::InvalidArtifact), ConfirmState::Confirmed), vec![], &[]).unwrap();
+        assert_eq!(inv.kind, OrgStopKind::InvalidArtifact);
+    }
+
+    #[test]
+    fn stop_check_failed_without_a_failed_command_does_not_invent_one() {
+        let mut t = task("w1", &[], TaskStatus::Blocked(EBlocked::CheckFailed), ConfirmState::Confirmed);
+        t.extras.last_findings = vec!["レビューは差し戻しでしたが、直すべき具体的な指摘がありませんでした".into()];
+        let s = stop_of(t, vec![], &[]).unwrap();
+        assert_eq!(s.kind, OrgStopKind::CheckFailed);
+        assert!(!s.headline.contains("合格"), "{}", s.headline);
+        assert!(!s.facts.iter().any(|f| f.contains("失敗した確認")));
+        assert!(s.evidence[0].lines[0].contains("直すべき指摘は書かれていません"));
+        let empty = stop_of(task("w1", &[], TaskStatus::Blocked(EBlocked::CheckFailed), ConfirmState::Confirmed), vec![], &[]).unwrap();
+        assert!(!empty.evidence[0].known);
     }
 }

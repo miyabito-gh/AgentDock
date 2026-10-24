@@ -214,6 +214,7 @@ pub fn run() {
             commands::touch_chat_used,
             commands::preview_delete,
             commands::delete_chat,
+            commands::intake_delete_chat,
             commands::archive_chat,
             commands::unarchive_chat,
             commands::export_markdown,

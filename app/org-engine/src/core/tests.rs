@@ -1978,3 +1978,42 @@ fn a_prompt_is_the_same_for_the_same_inputs() {
         assert_eq!(send_text(&a, id, 0), send_text(&b, id, 0));
     }
 }
+
+const SELF_CONTRADICTORY: &str = r#"{"verdict":"rework","findings":["test_powerのImportErrorを検出したため差し戻す。失敗は依頼の目的に沿ったもの。追加の実装修正は求めない"],"checks":[{"command":"pytest","outcome":"failed","summary":"ImportError"}],"noCheckReason":""}"#;
+
+#[test]
+fn a_rework_that_asks_for_no_fix_goes_to_the_user_not_to_a_sendback() {
+    let mut sim = Sim::new();
+    sim.with_plan(&plan_kinds(&[("w", "worker", "change", &[]), ("r", "reviewer", "change", &["w"])]));
+    sim.complete_turn("w", REPORT);
+    let sends_before = sim.sends("w") + sim.sends("r");
+    sim.complete_turn("r", SELF_CONTRADICTORY);
+    assert_eq!(sim.t("w").status(), TaskStatus::Blocked(BlockedReason::CheckFailed));
+    assert_eq!(sim.t("r").status(), TaskStatus::Rework);
+    assert_eq!(sim.t("w").rework_count(), 0, "not counted as a send-back");
+    assert_eq!(sim.sends("w") + sim.sends("r"), sends_before, "nothing is sent again by itself");
+    assert!(!persisted(&sim).iter().any(|e| matches!(&e.kind, OrgEventKind::ReworkCounted { .. })));
+    assert!(sim.t("w").last_findings()[0].contains("pytest"));
+    assert_eq!(&replay(&sim), sim.st());
+}
+
+#[test]
+fn a_rework_with_no_fix_and_no_failed_check_is_also_held_for_the_user() {
+    let mut sim = Sim::new();
+    sim.with_plan(&plan_kinds(&[("w", "worker", "change", &[]), ("r", "reviewer", "change", &["w"])]));
+    sim.complete_turn("w", REPORT);
+    sim.complete_turn("r", r#"{"verdict":"rework","findings":["修正は不要です"],"checks":[],"noCheckReason":""}"#);
+    assert_eq!(sim.t("w").status(), TaskStatus::Blocked(BlockedReason::CheckFailed));
+    assert_eq!(sim.t("w").rework_count(), 0);
+    assert_eq!(&replay(&sim), sim.st());
+}
+
+#[test]
+fn an_actionable_rework_is_still_a_sendback() {
+    let mut sim = Sim::new();
+    sim.with_plan(&plan_kinds(&[("w", "worker", "change", &[]), ("r", "reviewer", "change", &["w"])]));
+    sim.complete_turn("w", REPORT);
+    sim.complete_turn("r", REWORK);
+    assert_eq!(sim.t("w").rework_count(), 1);
+    assert_ne!(sim.t("w").status(), TaskStatus::Blocked(BlockedReason::CheckFailed));
+}

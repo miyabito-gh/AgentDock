@@ -211,14 +211,54 @@ pub enum VerdictJudgement {
     Rework,
     /// The reviewer said pass but a check failed: the user decides (never an automatic send-back).
     PassContradicted { failed: Vec<String> },
+    /// The reviewer said rework but its own findings say nothing needs fixing: not a send-back, the user decides
+    /// (`failed` = the commands whose check failed; may be empty).
+    ReworkNoAction { failed: Vec<String> },
+}
+
+/// Phrases (compared after lowercasing and removing whitespace) with which a finding says nothing needs fixing.
+/// A wrong hit only sends the verdict to the user, so the list errs on the wide side.
+pub const NO_FIX_PHRASES: &[&str] = &[
+    "追加の修正は求めない",
+    "追加の実装修正は求めない",
+    "修正は求めない",
+    "修正は不要",
+    "修正不要",
+    "修正の必要はない",
+    "修正の必要はありません",
+    "修正は必要ない",
+    "直すものはない",
+    "直す点はない",
+    "直すべき点はない",
+    "対応は不要",
+    "変更は不要",
+    "nofurtherfix",
+    "nofixneeded",
+    "nofixrequired",
+    "nothingtofix",
+    "nochangesneeded",
+    "noactionneeded",
+];
+
+/// True when a rework verdict has no finding the worker could act on: all findings are empty, or one of them
+/// says no fix is needed.
+pub fn findings_demand_no_fix(findings: &[String]) -> bool {
+    if findings.iter().all(|f| f.trim().is_empty()) {
+        return true;
+    }
+    findings.iter().any(|f| {
+        let n: String = f.chars().filter(|c| !c.is_whitespace()).collect::<String>().to_lowercase();
+        NO_FIX_PHRASES.iter().any(|p| n.contains(p))
+    })
 }
 
 pub fn judge_verdict(v: &ReviewerVerdict) -> VerdictJudgement {
+    let checks = v.checks.as_deref().unwrap_or(&[]);
+    let failed: Vec<String> = checks.iter().filter(|c| c.outcome == CheckOutcome::Failed).map(|c| c.command.clone()).collect();
     match v.verdict {
+        VerdictKind::Rework if findings_demand_no_fix(&v.findings) => VerdictJudgement::ReworkNoAction { failed },
         VerdictKind::Rework => VerdictJudgement::Rework,
         VerdictKind::Pass => {
-            let checks = v.checks.as_deref().unwrap_or(&[]);
-            let failed: Vec<String> = checks.iter().filter(|c| c.outcome == CheckOutcome::Failed).map(|c| c.command.clone()).collect();
             if !failed.is_empty() {
                 VerdictJudgement::PassContradicted { failed }
             } else {
@@ -518,7 +558,19 @@ mod tests {
         assert_eq!(j("pass", FAILED, ""), VerdictJudgement::PassContradicted { failed: vec!["pytest".into()] });
         let mixed = format!("[{},{}]", &PASSED[1..PASSED.len() - 1], &FAILED[1..FAILED.len() - 1]);
         assert!(matches!(j("pass", &mixed, ""), VerdictJudgement::PassContradicted { .. }), "one failure outweighs a pass");
+        // "f" is an actionable finding: a normal send-back
         assert_eq!(j("rework", FAILED, ""), VerdictJudgement::Rework);
+        // the real case: rework whose own finding asks for no fix goes to the user, with the failed check
+        let selfc = format!(
+            r#"{{"verdict":"rework","findings":["test_powerのImportErrorを検出したため差し戻す。追加の実装修正は求めない。"],"checks":{FAILED},"noCheckReason":""}}"#
+        );
+        assert_eq!(
+            judge_verdict(&parse_verdict(&selfc).unwrap()),
+            VerdictJudgement::ReworkNoAction { failed: vec!["pytest".into()] }
+        );
+        assert!(findings_demand_no_fix(&["No further fix is needed".into()]));
+        assert!(findings_demand_no_fix(&["修正 は 不要です".into()]));
+        assert!(!findings_demand_no_fix(&["power の戻り値を直す".into()]));
         // an older output without checks is judged as it was (display only)
         let old = ReviewerVerdict { verdict: VerdictKind::Pass, findings: vec![], checks: None, no_check_reason: None };
         assert_eq!(judge_verdict(&old), VerdictJudgement::Pass { unverified: false });

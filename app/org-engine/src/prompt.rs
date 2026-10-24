@@ -197,6 +197,11 @@ pub fn reviewer_prompt(task: &Task, request: &str, target: (&TaskId, Option<&str
          - 実行したコマンドごとに checks に command・outcome（passed / failed / notRun）・結果の要約（終了コードや件数）を書く。実行していないコマンドを passed と書かない。\n\
          - この sandbox は読み取り専用。書込みが要るためテストを実行できない場合は outcome=notRun とし、理由を summary に書く（-p no:cacheprovider 等のキャッシュ無効化は使ってよい）。権限の変更・承認の要求で回避しない。\n\
          - テストが存在しない・文書だけの変更などで実行するものが無いときは checks を空にし、noCheckReason に理由を書く。確認が成功したものがあるときの noCheckReason は空文字にする。\n\
+         判定の決め方:\n\
+         - rework（差し戻し）は、Worker が実際に直せる具体的な指摘があるときだけ。findings に「追加の修正は求めない」「直すものはない」と書くなら rework にしない。\n\
+         - 依頼が、意図して失敗するテストや失敗の記録を求めている場合（依頼文に「失敗する」「実装しない」「失敗を記録」等がある）、その失敗は依頼の達成です。判定は pass、失敗した check は outcome=failed のまま記録し（成功と偽らない）、所見に「依頼どおりの失敗」と書く。\n\
+         - テストの失敗が依頼と関係のない不具合・未実装なら rework とし、findings に直せる指摘を書く。\n\
+         - 直せるか迷うときは rework にせず、所見に理由を書いて pass にし、失敗した check は failed として記録する（利用者が判断します）。\n\
          回答は指定のJSONスキーマ（verdict は pass か rework、findings に指摘、checks、noCheckReason）に従う。rework のときは findings に直すべき点を書く。\n\
          {MATERIAL_NOTE}\n",
         task.id, task.title
@@ -334,6 +339,26 @@ mod tests {
         assert_eq!(q.matches("-----END USER NOTE-----").count(), 0);
         // the genuine block of a real note still exists
         assert_eq!(quote_note("hi").matches("-----BEGIN USER NOTE-----").count(), 1);
+    }
+
+    #[test]
+    fn reviewer_prompt_states_when_to_send_back_and_is_deterministic() {
+        let t = Task::from_plan(&crate::types::PlanTask {
+            id: TaskId::new("r"),
+            role: crate::types::RoleId::new("reviewer"),
+            deps: vec![TaskId::new("w")],
+            effects: vec![],
+            title: "review".into(),
+            instructions: "check".into(),
+            kind: crate::types::TaskKind::Change,
+        });
+        let w = TaskId::new("w");
+        let a = reviewer_prompt(&t, "req", (&w, Some("sum"), "abc"), 1, Some((true, false)));
+        let b = reviewer_prompt(&t, "req", (&w, Some("sum"), "abc"), 1, Some((true, false)));
+        assert_eq!(a, b);
+        assert!(a.contains("直せる具体的な指摘があるときだけ"));
+        assert!(a.contains("依頼どおりの失敗") && a.contains("outcome=failed"));
+        assert!(a.contains("迷うときは rework にせず"));
     }
 
     #[test]

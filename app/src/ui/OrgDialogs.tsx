@@ -8,6 +8,7 @@ import { ConfirmBlock } from "./DialogParts";
 import { showKnown } from "./format";
 import { fmtBytes } from "./ManageDialogs";
 import { elapsedLabel, isSlow, progressText, SLOW_NOTICE, type DeleteProgress } from "./orgDeleteUi";
+import { intakeChoice, intakeOutcomeText } from "./intakeDelete";
 
 /** 標準（従来の計画経路）。ホストの定義ファイルに依存せず、いつでも選べる。送るときは graphId を付けない（今までの開始と同じ）。 */
 export const STANDARD_ID = "standard";
@@ -211,8 +212,9 @@ export function OrgDeleteDialog({ workflowId, live, preview, remove, onDone, pro
   workflowId: string;
   live: boolean;
   preview: (id: string) => Promise<OrgDeletePreview>;
-  remove: (id: string, deleteChats: boolean, expect: ChatKey[]) => Promise<OrgDeleteOutcome>;
-  onDone: () => void;
+  remove: (id: string, deleteChats: boolean, expect: ChatKey[], intakeChat: ChatKey | null) => Promise<OrgDeleteOutcome>;
+  /** 削除が済んだ。note＝依頼整理の会話についての一言（あれば）。 */
+  onDone: (note: string | null) => void;
   /** ホストの削除の進行（この workflow の分だけ。表示だけ）。 */
   progress: DeleteProgress | null;
   /** 拒否・失敗・途中終了をトーストへも出す。 */
@@ -222,6 +224,9 @@ export function OrgDeleteDialog({ workflowId, live, preview, remove, onDone, pro
   const [pv, setPv] = useState<OrgDeletePreview | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [delChats, setDelChats] = useState(true);
+  // 依頼整理の会話も削除する（役割チャットの「会話も削除」とは別。既定オン）。
+  const [delIntake, setDelIntake] = useState(true);
+  const [intakeNote, setIntakeNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [partial, setPartial] = useState<{ done: string[]; failed: string[] } | null>(null);
@@ -249,8 +254,12 @@ export function OrgDeleteDialog({ workflowId, live, preview, remove, onDone, pro
     startedAt.current = Date.now(); setElapsed(0);
     setBusy(true); setErr(null);
     try {
-      const o = await remove(workflowId, delChats, pv.chats.map((c) => c.chat));
-      if (o.kind === "deleted") { onDone(); return; }
+      const ic = intakeChoice(pv);
+      const intakeChat = ic.kind === "offer" && !ic.blocked && delIntake && pv.intake ? pv.intake.chat : null;
+      const o = await remove(workflowId, delChats, pv.chats.map((c) => c.chat), intakeChat);
+      const note = intakeOutcomeText(o.intake);
+      if (o.kind === "deleted") { onDone(note); return; }
+      setIntakeNote(note);
       setPartial({ done: o.done, failed: o.failed });
       onIssue(`削除を最後まで終えられませんでした（失敗 ${o.failed.length} 件）。「削除を続ける…」で再開できます。`);
       await load();
@@ -263,6 +272,7 @@ export function OrgDeleteDialog({ workflowId, live, preview, remove, onDone, pro
   const pt = progressText(progress);
   const label = busy ? `削除しています…${pt ? ` ${pt}` : ""}（${elapsedLabel(elapsed)}）` : resuming || partial ? "削除を続ける" : "削除する";
   const nm = (c: OrgDeletePreview["chats"][number]) => c.name ?? c.chat.id;
+  const ic = pv ? intakeChoice(pv) : null;
   return (
     <div className="content">
       {!pv && !loadErr ? <p className="small muted">確認の内容を読み込んでいます…</p> : null}
@@ -281,6 +291,17 @@ export function OrgDeleteDialog({ workflowId, live, preview, remove, onDone, pro
               {!delChats ? <p className="small muted">オフにすると、手動に切り替えて通常のチャットとして一覧に残します。</p> : null}
               <ul className="check-list">{pv.chats.map((c) => <li key={c.chat.id}>{nm(c)}（{c.roleId || "—"}・{c.taskId || "—"}）{c.blocked && delChats ? <span className="why err"> {c.blocked}</span> : null}</li>)}</ul>
             </>
+          ) : null}
+          {ic ? (
+            <div>
+              {ic.kind !== "offer" ? <p className="small muted">{ic.note}</p> : pv.intake ? (
+                <>
+                  <label><input type="checkbox" checked={delIntake && !ic.blocked} disabled={busy || !!ic.blocked} onChange={(e) => setDelIntake(e.target.checked)} />このワークフローの依頼整理の会話も削除する（{pv.intake.name ?? "依頼整理"}・{pv.intake.state}）</label>
+                  {ic.blocked ? <p className="small why err">削除しません: {ic.blocked}（ワークフローの削除は続けられます）</p> : <p className="small muted">オフのときは、依頼整理の会話をそのまま残します。</p>}
+                </>
+              ) : null}
+              {intakeNote ? <p className="small why err" role="status">{intakeNote}</p> : null}
+            </div>
           ) : null}
           <p className="small"><b>残るもの</b>: 手動に切り替え済みのチャット {pv.keptReleased.length}件／worktree {pv.worktrees.length}件</p>
           {pv.worktrees.length > 0 ? (

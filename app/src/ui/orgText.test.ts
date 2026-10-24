@@ -1,7 +1,7 @@
 // 実行: node --test src/ui/orgText.test.ts （tscの対象外）
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { planSummary, orgSendLock, releaseMenuState, displayRequest, displayWorkflowTitle, finalReportTask, finishedBannerFor, PLANNER_REQUEST_NOTE, sectionVisibility, taskArtifactNote, taskSubparts, completedNoticeText, finishedBannerText, isInvestigationOnly, noReportHeadNote, reworkCellText, edgeText, reworkLimitText, verdictJa, verdictText } from "./orgText.ts";
+import { planSummary, orgSendLock, releaseMenuState, displayRequest, displayWorkflowTitle, finalReportTask, finishedBannerFor, PLANNER_REQUEST_NOTE, sectionVisibility, taskArtifactNote, taskSubparts, completedNoticeText, finishedBannerText, isInvestigationOnly, noReportHeadNote, reworkCellText, edgeText, reworkLimitText, verdictJa, verdictText, stopCard, stopRowNote } from "./orgText.ts";
 
 test("周回の文言: 実行回数＝やり直し＋1。単位を分けて同じ数え方", () => {
   assert.equal(reworkLimitText(1, 3), "実行 2回目／最大 4回（やり直しは最大3回、残り2回）");
@@ -137,4 +137,60 @@ test("計画の1行: 終了後の完了した planner だけ表から外し、�
   assert.equal(planSummary(tasks, false, ["planAutoApproved"]).line, null, "実行中・停止中は表に残す");
   assert.equal(planSummary([t("p", "planner", "failed"), t("w", "worker", "completed")], true, []).line, null, "失敗した計画は残す");
   assert.equal(planSummary([t("p", "planner", "completed")], true, []).line, null, "計画しか無いときは残す");
+});
+
+const stp = (kind: string, over: Record<string, unknown> = {}) => ({ kind, headline: "見出し", facts: ["差し戻し 2/2"], evidence: [], actions: ["sendBack", "acceptAsIs", "fail", "openChat", "history"], hint: "次の一手", unconfirmed: false, ...over });
+const stt = (id: string, stop: unknown, over: Record<string, unknown> = {}) => ({ id, title: `title ${id}`, stop, chat: { id: "c" }, sendBackRefusal: null, ...over }) as never;
+
+test("止まっているカード: 止まりが無ければ null、複数は先頭1件と残り件数", () => {
+  assert.equal(stopCard([stt("a", null)], false, 0, () => false), null);
+  assert.equal(stopCard([stt("a", stp("reworkLimit"))], true, 0, () => false), null, "終了後は出さない");
+  const c = stopCard([stt("a", stp("reworkLimit")), stt("b", stp("turnFailed"))], false, 0, () => false)!;
+  assert.equal(c.task, "a");
+  assert.equal(c.others, 1);
+  assert.equal(c.heading, "止まっています: 見出し");
+  assert.deepEqual(c.buttons.map((b) => b.key), ["sendBack", "acceptAsIs", "fail", "openChat", "history"]);
+});
+
+test("止まっているカード: 3択は常に並び、選べないものは理由つきで無効", () => {
+  const c = stopCard([stt("a", stp("checkFailed", { actions: ["acceptAsIs", "history"] }), { sendBackRefusal: "理由X" })], false, 0, () => false)!;
+  const sb = c.buttons.find((b) => b.key === "sendBack")!;
+  assert.equal(sb.enabled, false);
+  assert.equal(sb.title, "理由X");
+  assert.equal(c.buttons.find((b) => b.key === "fail")!.enabled, false);
+  assert.equal(c.buttons.find((b) => b.key === "acceptAsIs")!.enabled, true);
+});
+
+test("止まっているカード: 受理不明・通信断は『止まった』『失敗』と書かず、手動切替も出さない", () => {
+  const c = stopCard([stt("a", stp("needsReconcile", { headline: "通信が途切れたため、いまの状態を確認できていません", unconfirmed: true, actions: ["cancel", "openChat", "history"] }))], false, 0, () => true)!;
+  assert.equal(c.unconfirmed, true);
+  assert.ok(!/止まっています|失敗/.test(c.heading), c.heading);
+  assert.ok(!c.buttons.some((b) => b.key === "release"));
+  assert.equal(c.buttons.at(-3)!.key, "cancel");
+});
+
+test("止まっているカード: 承認・質問だけの待ち、停止があればその後ろに数える", () => {
+  const a = stopCard([stt("a", null)], false, 2, () => false)!;
+  assert.equal(a.kind, "approval");
+  assert.deepEqual(a.buttons.map((b) => b.key), ["answer"]);
+  assert.equal(stopCard([stt("a", stp("manual"))], false, 1, () => false)!.others, 1);
+});
+
+test("止まっているカード: 手がかりは3項目まで、行の補足は見出しの短縮（通知は120字まで）", () => {
+  const ev = [1, 2, 3, 4].map((n) => ({ label: `e${n}`, lines: ["x"], known: true, truncated: false }));
+  assert.equal(stopCard([stt("a", stp("reworkLimit", { evidence: ev }))], false, 0, () => false)!.evidence.length, 3);
+  assert.equal(stopRowNote(stp("turnFailed") as never, null), "止まった理由: 見出し");
+  assert.ok(stopRowNote(stp("turnFailed") as never, "あ".repeat(200)).includes("…"));
+  assert.equal(stopRowNote(stp("sendUnknown", { headline: "届いたか確認できていません", unconfirmed: true }) as never, null), "届いたか確認できていません");
+});
+
+test("止まっているカード: 待ち先が止まっているだけのタスクは、操作できる止まりより後ろ", () => {
+  const dep = stt("w2", stp("dependencyBlocked", { actions: ["history"] }));
+  const act = stt("w1", stp("turnFailed", { actions: ["retryNew", "fail", "history"] }));
+  const c = stopCard([dep, act], false, 0, () => false)!;
+  assert.equal(c.task, "w1");
+  assert.equal(c.others, 1);
+  assert.equal(stopCard([dep], false, 0, () => false)!.task, "w2");
+  const view = stt("w3", stp("needsReconcile", { actions: ["cancel", "history"] }));
+  assert.equal(stopCard([view, act], false, 0, () => false)!.task, "w1", "見るだけ・取消しだけの止まりも、実行系の操作があるものより後ろ");
 });

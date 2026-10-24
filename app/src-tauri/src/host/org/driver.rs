@@ -106,6 +106,10 @@ pub struct TaskExtras {
     pub turn_ended: bool,
     /// 前の割り込みの結果がまだ決まっていない。
     pub open_interject: bool,
+    /// 直近の Reviewer の所見（イベントの FindingsRecorded から復元済み。空は「指摘なし」か未記録）。
+    pub last_findings: Vec<String>,
+    /// 直近のやりとりが変更なしで終わった（Worker が何も書かなかった）。
+    pub nothing_written: bool,
 }
 
 /// グラフ定義と、画面に出すための進み具合（周回の回数・スロットの最新の版）。
@@ -232,6 +236,8 @@ fn extras_of(state: &org_engine::WorkflowState, t: &org_engine::Task) -> TaskExt
         has_settle: t.last_settle().is_some(),
         turn_ended: t.observed().is_some_and(|o| Some(&o.turn) == t.accepted_turn()),
         open_interject: state.interjects().iter().any(|i| i.task == t.id && i.outcome.is_none()),
+        last_findings: t.last_findings().to_vec(),
+        nothing_written: t.nothing_written(),
     }
 }
 

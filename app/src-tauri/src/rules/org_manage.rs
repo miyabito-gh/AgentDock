@@ -189,6 +189,62 @@ pub fn next_steps(rec: &DeleteRecord) -> Vec<Step> {
     }
 }
 
+// ───────────── 依頼整理の会話の削除（ワークフロー削除との選択式・左一覧のまとめて削除） ─────────────
+
+/// ワークフローを開始した依頼整理のチャットを特定する。
+/// 第一は `intake.json`（開始時に書いた写しのチャット）。なければ、依頼整理の記録に「このワークフローを開始した」とあるチャットが**ただ1つ**のとき。
+/// 複数あるなど決められないときは None（紐づけを確認できない）。
+pub fn intake_link(copy_chat: Option<&ChatKey>, started_by: &[(ChatKey, Vec<String>)], workflow_id: &str) -> Option<ChatKey> {
+    if let Some(c) = copy_chat {
+        return Some(c.clone());
+    }
+    let mut hits = started_by.iter().filter(|(_, ids)| ids.iter().any(|i| i == workflow_id)).map(|(c, _)| c);
+    let first = hits.next()?;
+    hits.next().is_none().then(|| first.clone())
+}
+
+/// 依頼整理の現在の状態が「終了」（開始済み・やめた）か。開始後に編集して Ready などに戻ったものは終了ではない（started 履歴や intake.json が残っていても）。
+pub fn intake_state_finished(s: &crate::backend::intake::IntakeState) -> bool {
+    use crate::backend::intake::IntakeState as S;
+    matches!(s, S::Started { .. } | S::Abandoned)
+}
+
+/// 依頼整理チャットの削除の判定材料。「まとめて削除」だけが見る項目は、ワークフロー削除では既定値（false / None）で渡す。
+#[derive(Debug, Clone, PartialEq)]
+pub struct IntakeDeleteFact {
+    pub chat: ChatFact,
+    /// 開始済みまたはやめた依頼整理か（まとめて削除だけが見る。未開始は対象外）。
+    pub finished_intake: bool,
+    /// ピン留め（まとめて削除だけが見る）。
+    pub pinned: bool,
+    /// 引き継ぎ済み（引き継ぎ先がある）。
+    pub superseded: bool,
+    /// 紐づくワークフローが終わっていない（まとめて削除だけが見る）。理由の文。
+    pub workflow_unfinished: Option<String>,
+    /// この依頼整理から始めた、他の（まだ残っている）ワークフローの件数。
+    pub other_workflows_alive: u32,
+}
+
+/// 削除できない理由。削除してよければ None。停止を確認できない・実行中・保存失敗のチャットは削除しない（中断もしない）。
+pub fn intake_delete_block(f: &IntakeDeleteFact) -> Option<String> {
+    if !f.finished_intake {
+        return Some("この依頼整理は、開始後に編集されて新しい下書きになっています。残します".to_string());
+    }
+    if f.pinned {
+        return Some("ピン留めされています".to_string());
+    }
+    if f.superseded {
+        return Some("引き継ぎ済みです".to_string());
+    }
+    if let Some(m) = &f.workflow_unfinished {
+        return Some(format!("紐づくワークフローが終わっていません（{m}）"));
+    }
+    if f.other_workflows_alive > 0 {
+        return Some(format!("この依頼整理から始めた別のワークフローが{}件残っています", f.other_workflows_alive));
+    }
+    chat_block_reason(&f.chat)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -330,6 +386,66 @@ mod tests {
         let mut odd = rec(&["a"], &[]);
         odd.done.push(FILES_LABEL.into());
         assert_eq!(next_steps(&odd), vec![Step::Chat(chat("a"))]);
+    }
+
+    #[test]
+    fn intake_link_prefers_the_copy_and_refuses_ambiguity() {
+        let started = vec![(chat("i1"), vec!["wf-1".to_string()]), (chat("i2"), vec!["wf-2".to_string()])];
+        assert_eq!(intake_link(Some(&chat("c")), &started, "wf-1"), Some(chat("c")));
+        assert_eq!(intake_link(None, &started, "wf-1"), Some(chat("i1")));
+        assert_eq!(intake_link(None, &started, "wf-9"), None);
+        let two = vec![(chat("i1"), vec!["wf-1".to_string()]), (chat("i2"), vec!["wf-1".to_string()])];
+        assert_eq!(intake_link(None, &two, "wf-1"), None);
+    }
+
+    #[test]
+    fn only_the_current_started_or_abandoned_state_counts_as_finished() {
+        use crate::backend::intake::IntakeState as S;
+        use crate::backend::model::UnixMillis as U;
+        let fin = |s: S| {
+            let mut f = ifact("a");
+            f.finished_intake = intake_state_finished(&s);
+            f.other_workflows_alive = 0; // started history / intake.json link may remain
+            intake_delete_block(&f)
+        };
+        assert_eq!(fin(S::Started { workflow_id: "w".into(), rev: 1, at: U(1) }), None);
+        assert_eq!(fin(S::Abandoned), None);
+        for s in [S::Drafting, S::Summarizing { client_message_id: "m".into(), sent_at: U(1) }, S::Ready] {
+            assert!(fin(s).unwrap().contains("新しい下書き"));
+        }
+    }
+
+    fn ifact(id: &str) -> IntakeDeleteFact {
+        IntakeDeleteFact { chat: fact(id), finished_intake: true, pinned: false, superseded: false, workflow_unfinished: None, other_workflows_alive: 0 }
+    }
+
+    #[test]
+    fn intake_delete_is_refused_for_each_unsafe_condition_and_allowed_otherwise() {
+        assert_eq!(intake_delete_block(&ifact("a")), None);
+        let mut f = ifact("a");
+        f.finished_intake = false;
+        assert!(intake_delete_block(&f).is_some());
+        let mut f = ifact("a");
+        f.pinned = true;
+        assert!(intake_delete_block(&f).is_some());
+        let mut f = ifact("a");
+        f.superseded = true;
+        assert!(intake_delete_block(&f).unwrap().contains("引き継ぎ"));
+        let mut f = ifact("a");
+        f.workflow_unfinished = Some("x".into());
+        assert!(intake_delete_block(&f).is_some());
+        let mut f = ifact("a");
+        f.other_workflows_alive = 1;
+        assert!(intake_delete_block(&f).is_some());
+        let mut f = ifact("a");
+        f.chat.work.has_unfinished = true;
+        assert!(intake_delete_block(&f).is_some());
+        let mut f = ifact("a");
+        f.chat.work.stop_unconfirmed = Some(crate::backend::model::LocalId("s".into()));
+        assert!(intake_delete_block(&f).unwrap().contains("停止"));
+        let mut f = ifact("a");
+        f.chat.save_blocked = true;
+        assert!(intake_delete_block(&f).is_some());
     }
 
     #[test]

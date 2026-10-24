@@ -431,6 +431,13 @@ pub async fn delete_chat(host: Hs<'_>, args: ChatArgs) -> R<DeleteOutcome> {
     host.inner().clone().delete_chat(args, &confirmed).await
 }
 
+/// 左一覧の「依頼整理の会話をまとめて削除」の1件分（確認画面を経たユーザー操作だけ）。ホストが対象かどうかを最終判定し、対象外は削除しない。
+#[tauri::command]
+pub async fn intake_delete_chat(host: Hs<'_>, args: ChatArgs) -> R<DeleteOutcome> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().intake_delete_chat(args, &confirmed).await
+}
+
 /// アーカイブ（アプリの一覧からは即座に隠す。Codexへの反映は作業終了・停止確認の後）。
 #[tauri::command]
 pub async fn archive_chat(host: Hs<'_>, args: ChatArgs) -> R<ChatLocalView> {

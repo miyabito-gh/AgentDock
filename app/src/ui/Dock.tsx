@@ -354,13 +354,13 @@ function TaskCard({ snap, c, band, line, open, marked, mini, at, confirmed, acti
             <OrgBadge local={snap.chatLocals.find((l) => l.chat.id === c.key.id)} />
             {marked ? <span className="tc-mark" role="img" aria-label="新しい動きがあります">●</span> : null}
             <span className={`st ${chip}`}><i aria-hidden="true" />{stateText}</span>
-            {completedKidsNote(completed, sum) ? <span className="small muted" title="サブエージェントの状態をまだ取得していません（中央で開くと読み込みます）">{completedKidsNote(completed, sum)}</span> : null}
             {at ? <span className="tc-at">{hms(at)}</span> : null}
           </>
         )}
         <button className="small" onClick={() => onOpen(c.key.id)} title="中央でこのチャットを開きます">開く</button>
         {onClose ? <button className="small" aria-label={`${chatName(c)}のカードを閉じる`} title="この画面から外します（新しい活動があれば再表示します。会話・作業には影響しません）" onClick={onClose}><Icon name="x" /></button> : null}
       </div>
+      {completedKidsNote(completed, sum) ? <div className="tc-note" title="サブエージェントの状態をまだ取得していません（中央で開くと読み込みます）">{completedKidsNote(completed, sum)}</div> : null}
       {reqs.length ? (
         <div className="tc-reqs" ref={reqsRef}>
           {reqs.map((r) => (mini || !actions

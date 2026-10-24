@@ -2,6 +2,7 @@
 import type { ChatKey } from "./ChatKey";
 import type { Known } from "./Known";
 import type { OrgDeleteChatRow } from "./OrgDeleteChatRow";
+import type { OrgDeleteIntakeRow } from "./OrgDeleteIntakeRow";
 import type { OrgDeletionView } from "./OrgDeletionView";
 import type { OrgKeptWorktreeRow } from "./OrgKeptWorktreeRow";
 import type { OrgManageVerdict } from "./OrgManageVerdict";
@@ -25,4 +26,12 @@ worktrees: Array<OrgKeptWorktreeRow>, recordBytes: Known<number>,
 /**
  * 途中の削除があれば、その進み。
  */
-deletion: OrgDeletionView | null, };
+deletion: OrgDeletionView | null, 
+/**
+ * このワークフローを開始した依頼整理の会話（紐づけを確認できたときだけ。None のときは `intake_unlinked` を見る）。
+ */
+intake: OrgDeleteIntakeRow | null, 
+/**
+ * 依頼整理の会話との紐づけを確認できない（記録がない）。この場合は依頼整理の会話を削除の対象にしない。
+ */
+intakeUnlinked: boolean, };
