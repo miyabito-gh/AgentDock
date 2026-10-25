@@ -1,13 +1,17 @@
-//! Explicit-file foundation and bounded read-only native preview. No source
-//! writer. Decisions are observations, never write authorization. Source
-//! adoption remains blocked pending writer guards, journals, and replacement.
-//! Hashes are not locks; Unix fixtures do not establish Windows race safety.
+//! Bounded Visual Editor file scope, immutable snapshots, isolated draft, and
+//! Host-gated session transactions. Source adoption and draft undo use the
+//! journaled native writer only after fresh stop and folder-operation checks.
+//! The writer is per-file, not a multi-file atomic transaction. Unknown or
+//! partial results remain blocked for read-only recovery inspection.
+pub(crate) mod apply;
 mod decision;
+pub mod session;
 mod draft;
 mod scope;
 mod snapshot;
 pub use decision::*;
 pub use draft::*;
+pub(crate) use draft::audit_draft_scope;
 pub use scope::*;
 pub use snapshot::*;
 
@@ -29,5 +33,7 @@ pub enum VisualError {
 pub type VisualResult<T> = Result<T, VisualError>;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod apply_tests;
 
 pub mod preview;

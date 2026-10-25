@@ -203,6 +203,7 @@ impl Host {
 
     /// レビュー。現在の会話か、新しい会話で実行する。受け付けた事実だけを返し、結果は会話の記録（レビュー結果）の観測で示す。
     pub async fn start_review(self: &Arc<Self>, args: StartReviewArgs, confirmed: &UserConfirmed) -> Result<ReviewOutcome, IpcError> {
+        if self.visual_bound(&args.chat)? { return Err(err(IpcErrorCode::Blocked, "Visual Editor chat cannot start review outside edit transactions")); }
         self.check_not_org_owned(&args.chat)?;
         let cap_op = match args.delivery {
             ReviewDelivery::CurrentChat => ParityOp::CodeReview,
@@ -277,6 +278,7 @@ impl Host {
     /// 分岐の本体（`fork_chat` と `resend_as_fork` で共用）。元の会話は変えない（再開もしない）。
     /// `name_suffix` は分岐先の名前「{元の名前}（{suffix}）」。拒否・受理不明は分岐先なしで返す（再送しない）。
     async fn fork_inner(self: &Arc<Self>, chat: &ChatKey, through_turn: Option<ExternalId>, purpose: ForkPurpose, name_suffix: &str, confirmed: &UserConfirmed) -> Result<ForkResult, IpcError> {
+        if self.visual_bound(chat)? { return Err(err(IpcErrorCode::Blocked, "Visual Editor chat cannot fork outside edit transactions")); }
         self.require_op(ParityOp::Fork)?;
         self.check_op_target(chat)?;
         self.precheck_space()?;
@@ -546,6 +548,7 @@ impl Host {
 
     /// 文脈の圧縮。送る前に圧縮前の本文を控えとして保存し、保存できなければ送らない。受け付けた事実だけを返す。
     pub async fn compact_chat(self: &Arc<Self>, args: ChatArgs, confirmed: &UserConfirmed) -> Result<CompactChatResult, IpcError> {
+        if self.visual_bound(&args.chat)? { return Err(err(IpcErrorCode::Blocked, "Visual Editor chat cannot compact during edit transactions")); }
         self.check_not_org_owned(&args.chat)?;
         self.require_op(ParityOp::Compact)?;
         self.check_op_target(&args.chat)?;

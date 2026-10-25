@@ -1409,3 +1409,29 @@ pub async fn subagent_import(host: Hs<'_>, args: crate::backend::subagents::Suba
 pub async fn subagent_verify_import(host: Hs<'_>, args: crate::backend::subagents::SubagentRunArgs) -> R<Vec<crate::backend::subagents::SubagentImportRecord>> {
     host.inner().clone().subagent_verify_import(args).await
 }
+
+#[tauri::command]
+pub async fn visual_edit_create(host: Hs<'_>, args: crate::host::visual::VisualCreateArgs) -> R<crate::visual_edit::session::SessionView> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().visual_create(args, &confirmed).await
+}
+#[tauri::command]
+pub async fn visual_edit_list(host: Hs<'_>) -> R<Vec<crate::visual_edit::session::SessionView>> {
+    host.inner().clone().visual_list().await
+}
+#[tauri::command]
+pub async fn visual_edit_status(host: Hs<'_>, args: crate::host::visual::VisualSessionArgs) -> R<crate::visual_edit::session::SessionView> {
+    host.inner().clone().visual_status(&args.session_id).await
+}
+#[tauri::command]
+pub async fn visual_edit_adopt(host: Hs<'_>, args: crate::host::visual::VisualWriteArgs) -> R<crate::visual_edit::session::SessionView> {
+    host.inner().clone().visual_adopt(args).await
+}
+#[tauri::command]
+pub async fn visual_edit_undo(host: Hs<'_>, args: crate::host::visual::VisualWriteArgs) -> R<crate::visual_edit::session::SessionView> {
+    host.inner().clone().visual_undo(args).await
+}
+#[tauri::command]
+pub async fn visual_edit_diff(host: Hs<'_>, args: crate::host::visual::VisualDiffArgs) -> R<crate::host::visual::VisualDiffView> {
+    host.inner().clone().visual_diff(args).await
+}

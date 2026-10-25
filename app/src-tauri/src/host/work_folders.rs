@@ -210,6 +210,7 @@ impl Host {
     /// 次のturnから使う作業フォルダの並びの変更（M44の拡張）。作業中・停止未確認なら止め、送信待ちがあれば確認を求める。
     /// UIの確認結果は信用せず、ここで同じ検査を再実行する。
     pub async fn set_next_work_folders(self: &Arc<Self>, args: SetNextWorkFoldersArgs) -> Result<SettingsImpact, IpcError> {
+        if self.visual_bound(&args.chat)? {return Err(err(IpcErrorCode::Blocked,"Visual Editor chat must keep its isolated copy as cwd"));}
         self.check_not_org_owned(&args.chat)?;
         let info = self.read(|d| {
             d.chat(&args.chat).map(|c| {

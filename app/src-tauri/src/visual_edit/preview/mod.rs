@@ -84,7 +84,7 @@ fn close(session: &Session) -> Result<(), String> {
     session.view.close().map_err(|e| e.to_string())
 }
 /// Only strip the canonical drive prefix. UNC/device namespaces remain rejected.
-fn normal_drive_path(path: &std::path::Path) -> Result<std::path::PathBuf, String> {
+pub(crate) fn normal_drive_path(path: &std::path::Path) -> Result<std::path::PathBuf, String> {
     #[cfg(windows)]
     {
         use std::path::{Component, Prefix};
@@ -110,7 +110,7 @@ fn normal_drive_path(path: &std::path::Path) -> Result<std::path::PathBuf, Strin
 fn display_path(path: &std::path::Path) -> Result<String, String> {
     Ok(normal_drive_path(path)?.to_string_lossy().into_owned())
 }
-fn relative_entry(root: &std::path::Path, supplied: &str) -> Result<RelativePath, String> {
+pub(crate) fn relative_entry(root: &std::path::Path, supplied: &str) -> Result<RelativePath, String> {
     let candidate = std::path::Path::new(supplied);
     if !candidate.is_absolute() {
         return RelativePath::parse(&supplied.replace('\\', "/")).map_err(|e| e.to_string());

@@ -103,6 +103,8 @@ export default function App() {
   const [leftOpen, setLeftOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(true);
   const [visualMode, setVisualMode] = useState(false);
+  const [visualEditChatId, setVisualEditChatId] = useState<string | null>(null);
+  const [visualBoundChatIds, setVisualBoundChatIds] = useState<Set<string>>(() => new Set());
   const [lNarrow, setLNarrow] = useState(false);
   const [rNarrow, setRNarrow] = useState(false);
   const [mini, setMini] = useState(false);
@@ -654,7 +656,7 @@ export default function App() {
   const sendTo = async (chat: Chat, text: string, steer: boolean, attachments: string[]): Promise<boolean> => {
     if (!live) { void loadMock().then((m) => m.client.sendMessage(chat.key, text, steer ? "steer" : "newTurn")); say("送信を依頼しました（モック）。"); return true; }
     const running = isRunning(snap, chat);
-    if (running && !steer) {
+    if (running && !steer && !visualBoundChatIds.has(chat.key.id)) {
       // 完了後に送る依頼として登録する（送信はホストが条件を判断して1件ずつ行う）。
       try { await host.enqueue(chat.key, text, attachments); say("完了後に送る依頼として登録しました。"); return true; } catch (e) { sayErr("依頼を登録できませんでした", e); return false; }
     }
@@ -691,7 +693,7 @@ export default function App() {
     })();
     return true;
   };
-  const onSend = async (text: string, steer: boolean, attachments: string[]): Promise<boolean> => (chat ? sendTo(chat, text, steer, attachments) : false);
+  const onSend = async (text: string, steer: boolean, attachments: string[]): Promise<boolean> => (chat ? sendTo(chat, text, visualBoundChatIds.has(chat.key.id) && isRunning(snap, chat) ? true : steer, attachments) : false);
 
   /** 「引き継いで送信」（DESIGN_CONT §7.3）。利用者の送信操作の中だけで呼ぶ。拒否・受理不明で再送しない。 */
   const onHandoffSend = async (text: string, attachments: string[]): Promise<boolean> => {
@@ -1716,6 +1718,7 @@ ${cur}` : p.text);
           <MenuBar open={menu} setOpen={setMenuOpen} views={cmdViews} onAct={act} tag={modeTag} live={live} />
           <button type="button" className="btn sm visual-entry" aria-pressed={visualShown} onClick={() => {
             setVisualMode(!visualShown); setOrgScreen(false); setQuick((q) => ({ ...q, open: false })); setRNarrow(false);
+            if (!visualShown && visualEditChatId && visualEditChatId !== selId) { setSelId(visualEditChatId); if (live) void loadChat(visualEditChatId); }
           }}>Visual Editor</button>
         </div>
         <GlobalBanner source={src} dismissed={snap.settings.dismissedVersionNotice}
@@ -1746,9 +1749,12 @@ ${cur}` : p.text);
               onChatList={(f) => updateSettings((s) => ({ ...s, chatList: f(s.chatList) }), "一覧の表示設定を保存できませんでした。次回の起動では保存されている値に戻ります")} listStatus={listStatus} uiSize={snap.settings.appearance.uiText} />
           </aside>
           <main className="center">
-            <VisualWorkspace key={visualShown ? `visual:${mode}:${selId ?? "none"}` : "normal"} enabled={visualShown}
+            <VisualWorkspace key={mode} enabled={visualShown}
               blocked={!!dialog || !!menu || palette || mockOpen || !!(sideId && sideShown) || lNarrow || rNarrow || dragging}
-              chatName={chat ? chatName(chat) : null} canInsert={!!chat && !orgScreen && !quick.open}
+              chatName={chat ? chatName(chat) : null} chatId={chat?.key.id ?? null} canInsert={!!chat && !orgScreen && !quick.open}
+              onOpenEditChat={(id) => { setVisualEditChatId(id); setVisualBoundChatIds((ids) => new Set(ids).add(id)); setSelId(id); setOrgScreen(false); setQuick((q) => ({ ...q, open: false })); if (live) void loadChat(id); }}
+              onLeaveEditChat={() => setVisualEditChatId(null)}
+              onKnownEditChats={(ids) => setVisualBoundChatIds((old) => new Set([...old, ...ids]))}
               onInsert={(text) => {
                 if (!chat) return;
                 onDraft(chat, curDraft.length ? `${curDraft}\n\n${text}` : text);
@@ -1768,7 +1774,7 @@ ${cur}` : p.text);
                 attachments={draftAttachments} files={files} inputRef={composerRef}
                 skillPick={live ? { skills: skillLists[chat.key.id], load: () => loadSkills(chat.key), recent: snap.settings.recentSkills ?? [], pick: (sk) => { void pickSkill(chat.key, sk.name, sk.path); } } : null}
                 settings={bundle.modelSettings[chat.key.id]} models={models} save={chatSave}
-                externalLabel={bundle.externalLabel[chat.key.id]} wasLive={liveSeen.current.has(chat.key.id)} enterMode={enterMode} runningInput={snap.settings.runningInput ?? "queue"}
+                externalLabel={bundle.externalLabel[chat.key.id]} wasLive={liveSeen.current.has(chat.key.id)} enterMode={enterMode} runningInput={chat && visualBoundChatIds.has(chat.key.id) ? "steer" : snap.settings.runningInput ?? "queue"}
                 draft={curDraft} setDraft={(v) => onDraft(chat, v)}
                 onAct={act} commands={cmdViews} onRespond={(r, a) => void onRespond(r, a)}
                 onSend={onSend} loadHandoffPreview={loadHandoffPreview} onHandoffSend={onHandoffSend} onModel={onModel} onWorkMode={onWorkMode} workModes={workModes}

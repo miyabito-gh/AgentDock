@@ -12,7 +12,7 @@ use std::{
 /// Created only in a caller-supplied unused directory outside the source. A
 /// partial creation is retained on failure; there is no destructive cleanup.
 /// Snapshots are in memory plus immutable byte files/manifest for initial state.
-/// This is not yet a restart loader, journal, sandbox, or adoption capability.
+/// Restart loading and operation journals live in session/apply modules. This copy is not an OS sandbox or a source adoption permit.
 pub struct IsolatedDraft {
     root: ProjectRoot,
     scope: FileScope,
@@ -32,9 +32,9 @@ impl IsolatedDraft {
     /// Reject any unselected file/directory, and collect the full explicit set.
     /// A caller must establish real stop evidence; audit is not an OS sandbox.
     pub fn observe(&self) -> VisualResult<Snapshot> {
-        audit(&self.root, &self.scope)?;
+        audit_draft_scope(&self.root, &self.scope)?;
         let result = Snapshot::capture(&self.root, &self.scope)?;
-        audit(&self.root, &self.scope)?;
+        audit_draft_scope(&self.root, &self.scope)?;
         Ok(result)
     }
 }
@@ -142,7 +142,7 @@ fn write_new(root: &ProjectRoot, path: &RelativePath, bytes: &[u8]) -> VisualRes
     file.sync_all()?;
     Ok(())
 }
-fn audit(root: &ProjectRoot, scope: &FileScope) -> VisualResult<()> {
+pub(crate) fn audit_draft_scope(root: &ProjectRoot, scope: &FileScope) -> VisualResult<()> {
     let mut allowed = BTreeSet::new();
     let mut dirs = BTreeSet::new();
     for (p, _) in scope.files() {

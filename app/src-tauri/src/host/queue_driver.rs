@@ -657,6 +657,7 @@ impl Host {
     /// 状態不明・ライブ未復旧の子孫と走査未完了を承知のうえで送る。作業中の子孫・失敗・中断・親の条件・停止未確認・受理不明は緩めない。
     /// 送信は通常の経路（Sending保存→送信、受理不明の扱い）を通る。指定は1回の評価だけで、次の項目は通常の判定に戻る。
     pub async fn send_queue_entry_now(self: &Arc<Self>, args: QueueEntryArgs, _confirmed: &UserConfirmed) -> Result<ChatQueue, IpcError> {
+        if self.visual_bound(&args.chat)? { return Err(err(IpcErrorCode::Blocked, "Visual Editor chat does not use automatic queue")); }
         self.check_not_org_owned(&args.chat)?;
         let chat = args.chat.clone();
         // 手動送信・自動送信と同時に `turn/start` を送らない。
@@ -1093,6 +1094,7 @@ impl Host {
                     self.cancel_steered(&chat, &e);
                 }
                 let a = make(SendState::Accepted { turn });
+                self.visual_reconciled(&chat, &a).await;
                 self.emit_send(&chat, &a);
                 ReconcileStep::Resolved(a)
             }
@@ -1104,6 +1106,7 @@ impl Host {
                 self.note_folders_not_accepted(&chat);
                 self.apply_reconciled(&chat, attempt_id, |a| q::SendResult::ReconciledNotFound { attempt: a });
                 let a = make(SendState::NotFoundAfterReconcile);
+                self.visual_reconciled(&chat, &a).await;
                 self.emit_send(&chat, &a);
                 ReconcileStep::Resolved(a)
             }
@@ -1187,6 +1190,7 @@ impl Host {
 
     /// 完了後に送る依頼を登録する。設定（モデル・権限・作業フォルダ）は登録時に固定せず、送信時点のものを使う。
     pub fn enqueue(self: &Arc<Self>, args: EnqueueArgs) -> Result<QueueEntry, IpcError> {
+        if self.visual_bound(&args.chat)? { return Err(err(IpcErrorCode::Blocked, "Visual Editor chat does not use automatic queue")); }
         self.check_not_org_owned(&args.chat)?;
         if args.text.trim().is_empty() && args.attachments.is_empty() {
             return Err(err(IpcErrorCode::InvalidArgs, "依頼が空です"));
@@ -1260,6 +1264,7 @@ impl Host {
 
     /// 「キューを再開」（ユーザー操作）。親がliveでなければ、ここで再開（resume）する。「確認済み」とは別の操作。
     pub async fn resume_queue(self: &Arc<Self>, args: ChatArgs, confirmed: &UserConfirmed) -> Result<ChatQueue, IpcError> {
+        if self.visual_bound(&args.chat)? { return Err(err(IpcErrorCode::Blocked, "Visual Editor chat does not use automatic queue")); }
         self.check_not_org_owned(&args.chat)?;
         let send_lock = self.queue_rt.send_lock(&args.chat);
         let _send_guard = send_lock.lock().await;
@@ -1318,6 +1323,7 @@ impl Host {
 
     /// 権限の変更。次の送信から適用し、送信待ちの依頼にも及ぶ件数を返す（追加指示・実行中のturnには使わない）。
     pub fn set_chat_permission(self: &Arc<Self>, args: SetChatPermissionArgs) -> Result<SettingsImpact, IpcError> {
+        if args.permission == PermissionPreset::FullAccess && self.visual_bound(&args.chat)? { return Err(err(IpcErrorCode::Blocked, "Full access is unavailable for an isolated Visual Editor chat")); }
         self.check_not_org_owned(&args.chat)?;
         if self.read(|d| d.chat(&args.chat).is_none()) {
             return Err(err(IpcErrorCode::NotFound, "チャットが見つかりません"));

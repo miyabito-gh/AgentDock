@@ -288,6 +288,7 @@ impl Host {
     /// 「引き継いで送信」（DESIGN_CONT §6.3）。新しい thread を作り、資料つきで1回だけ送る。
     /// 前提が満たされない・読めない・開始できない間は何も作らず `NotStarted`。送信の拒否・受理不明は再送しない。
     pub async fn handoff_and_send(self: &Arc<Self>, args: HandoffAndSendArgs, confirmed: &UserConfirmed) -> Result<HandoffResult, IpcError> {
+        if self.visual_bound(&args.chat)? { return Err(err(IpcErrorCode::Blocked, "Visual Editor chat cannot hand off outside edit transactions")); }
         let p = args.chat.clone();
         if args.text.trim().is_empty() && args.attachments.is_empty() {
             return Err(err(IpcErrorCode::InvalidArgs, "引き継いで送る依頼の文が空です"));

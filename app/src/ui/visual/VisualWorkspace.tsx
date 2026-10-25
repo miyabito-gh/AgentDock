@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { actOnPreview, closePreview, instructionTemplates, onPreviewError, onPreviewSelection, openPreview, parentFolder, previewAvailable, selectionDraft, updatePreviewBounds, type PreviewAction, type PreviewBounds, type PreviewElement, type PreviewSession } from "./api";
+import { actOnPreview, closePreview, instructionTemplates, onPreviewError, onPreviewSelection, openPreview, parentFolder, previewAvailable, selectionDraft, updatePreviewBounds, type PreviewAction, type PreviewBounds, type PreviewElement, type PreviewSession, type VisualEditSession } from "./api";
+import { VisualEditControls } from "./VisualEditControls";
 import "./visual.css";
 
 const messageOf = (error: unknown): string => error instanceof Error ? error.message
@@ -12,13 +13,19 @@ function overlayOpen(): boolean {
     .some((node) => node.getClientRects().length > 0 && getComputedStyle(node).visibility !== "hidden");
 }
 
-export function VisualWorkspace({ enabled, blocked, chatName, canInsert, onInsert, onNotice, children }: {
-  enabled: boolean; blocked: boolean; chatName: string | null; canInsert: boolean;
+export function VisualWorkspace({ enabled, blocked, chatName, chatId, canInsert, onInsert, onNotice, onOpenEditChat, onLeaveEditChat, onKnownEditChats, children }: {
+  enabled: boolean; blocked: boolean; chatName: string | null; chatId: string | null; canInsert: boolean;
+  onOpenEditChat: (id: string) => void; onLeaveEditChat: () => void; onKnownEditChats: (ids: string[]) => void;
   onInsert: (text: string) => void; onNotice: (message: string) => void; children: ReactNode;
 }) {
   const desktop = previewAvailable();
   const stage = useRef<HTMLDivElement>(null);
   const [session, setSession] = useState<PreviewSession | null>(null);
+  const [edit, setEdit] = useState<VisualEditSession | null>(null);
+  const editRef = useRef<VisualEditSession | null>(null);
+  const editBinding = useRef(false);
+  const reloadPending = useRef(false);
+  const reviewOpen = useRef(false);
   const [selection, setSelection] = useState<PreviewElement[]>([]);
   const [truncated, setTruncated] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -53,7 +60,7 @@ export function VisualWorkspace({ enabled, blocked, chatName, canInsert, onInser
     return { x: Math.max(0, rect.x), y: Math.max(0, rect.y), width: Math.max(1, Math.min(rect.width, window.innerWidth - Math.max(0, rect.x))), height: Math.max(1, Math.min(rect.height, window.innerHeight - Math.max(0, rect.y))) };
   }, []);
   const visible = useCallback(() => enabledRef.current && !blockedRef.current && !pickerOpen.current
-    && document.visibilityState !== "hidden" && !!stage.current && !overlayOpen(), []);
+    && !reviewOpen.current && document.visibilityState !== "hidden" && !!stage.current && !overlayOpen(), []);
 
   const syncBounds = useCallback(() => {
     const active = current.current;
@@ -174,7 +181,7 @@ export function VisualWorkspace({ enabled, blocked, chatName, canInsert, onInser
   };
 
   const pick = async (folder: boolean) => {
-    if (!desktop || operationBusy.current || closeFailed.current) return;
+    if (!desktop || editRef.current || operationBusy.current || closeFailed.current) return;
     operationBusy.current = true;
     pickerOpen.current = true;
     const token = ++generation.current;
@@ -206,6 +213,9 @@ export function VisualWorkspace({ enabled, blocked, chatName, canInsert, onInser
   const action = async (action: PreviewAction) => {
     const active = current.current;
     if (!active || operationBusy.current || closeFailed.current) return;
+    if (action === "reload" && editRef.current && !["editable", "changes"].includes(editRef.current.phase)) {
+      setError("編集の停止と変更確認が済むまで再読み込みできません。"); return;
+    }
     operationBusy.current = true; setBusy(true); setError(null);
     try {
       await enqueue(() => actOnPreview(active.sessionId, action));
@@ -230,14 +240,65 @@ export function VisualWorkspace({ enabled, blocked, chatName, canInsert, onInser
     finally { operationBusy.current = false; if (alive.current) setBusy(false); }
   };
 
+  const bindEdit = async (next: VisualEditSession) => {
+    if (editBinding.current || operationBusy.current || closeFailed.current) throw new Error("プレビューの操作中です。");
+    editBinding.current = true;
+    const token = ++generation.current;
+    editRef.current = next; setEdit(next); setError(null);
+    onOpenEditChat(next.chat.id);
+    try { await replacePreview(next.draftRoot + "/" + next.htmlPath, next.draftRoot, token); }
+    finally { editBinding.current = false; }
+  };
+  const beforeDiff = async () => {
+    reviewOpen.current = true;
+    const active = current.current;
+    try {
+      await syncBounds();
+      if (active && (closeFailed.current || current.current?.sessionId !== active.sessionId)) throw new Error("プレビューの退避を確認できませんでした。");
+    } catch (failure) {
+      reviewOpen.current = false; void syncBounds(); throw failure;
+    }
+  };
+  const afterDiff = () => { reviewOpen.current = false; void syncBounds(); };
+  const leaveEdit = async () => {
+    const active = editRef.current;
+    if (!active || editBinding.current || operationBusy.current || closeFailed.current) throw new Error("プレビューの操作中です。");
+    editBinding.current = true;
+    try {
+      await replacePreview(active.sourceRoot + "/" + active.htmlPath, active.sourceRoot, ++generation.current);
+      editRef.current = null; setEdit(null); onLeaveEditChat();
+    } finally { editBinding.current = false; }
+  };
+  const updateEdit = (next: VisualEditSession) => {
+    if (editRef.current?.sessionId !== next.sessionId || next.revision < editRef.current.revision) return;
+    const oldRevision = editRef.current.revision;
+    editRef.current = next; setEdit(next);
+    if (oldRevision !== next.revision) {
+      setSelection([]); setTruncated(false); setInserted(false);
+      reloadPending.current = true;
+      if (current.current && !editBinding.current && !operationBusy.current && ["editable", "changes"].includes(next.phase)) { reloadPending.current = false; void action("reload"); }
+    }
+  };
+  useEffect(() => {
+    if (!enabled || !edit || current.current || editBinding.current || closeFailed.current) return;
+    const token = ++generation.current;
+    void replacePreview(edit.draftRoot + "/" + edit.htmlPath, edit.draftRoot, token)
+      .catch((failure) => { if (alive.current) setError("編集用コピーのプレビューを開けませんでした: " + messageOf(failure)); });
+  }, [enabled, edit?.sessionId]);
+  useEffect(() => {
+    if (enabled && !busy && reloadPending.current && current.current && edit && ["editable", "changes"].includes(edit.phase)) {
+      reloadPending.current = false; void action("reload");
+    }
+  }, [enabled, busy, edit?.revision, edit?.phase]);
   if (!enabled) return <>{children}</>;
   const disabled = !session || busy || closeUnconfirmed;
+  const reloadAllowed = !edit || edit.phase === "editable" || edit.phase === "changes";
   return (
     <div className="visual-workspace">
       <section className="visual-preview" aria-label="HTMLプレビュー">
         <header className="visual-toolbar">
-          <button type="button" className="btn primary sm" disabled={!desktop || busy || closeUnconfirmed} onClick={() => void pick(false)}>HTMLを開く</button>
-          <button type="button" className="btn sm" disabled={disabled} onClick={() => void action("reload")}>再読み込み</button>
+          <button type="button" className="btn primary sm" disabled={!desktop || busy || closeUnconfirmed || !!edit} onClick={() => void pick(false)}>HTMLを開く</button>
+          <button type="button" className="btn sm" disabled={disabled || !reloadAllowed} onClick={() => void action("reload")}>再読み込み</button>
           <span className="visual-tools" role="group" aria-label="ページの操作モード">
             <button type="button" className="btn sm" aria-pressed={!interaction} disabled={disabled} onClick={() => void action("select")}>選択</button>
             <button type="button" className="btn sm" aria-pressed={interaction} disabled={disabled} onClick={() => void action("interact")}>操作</button>
@@ -248,7 +309,7 @@ export function VisualWorkspace({ enabled, blocked, chatName, canInsert, onInser
         <div className="visual-file">
           <div><span>HTML</span><strong title={session?.htmlPath}>{session?.htmlPath ?? "未選択"}</strong></div>
           <div><span>表示ルート</span><span className="visual-path" title={session?.rootPath}>{session?.rootPath ?? "HTMLの親フォルダを使用"}</span>
-            <button type="button" className="btn subtle sm" disabled={disabled} onClick={() => void pick(true)}>変更…</button></div>
+            <button type="button" className="btn subtle sm" disabled={disabled || !!edit} onClick={() => void pick(true)}>変更…</button></div>
         </div>
         <div className="visual-stage" ref={stage} aria-label="専用プレビューの表示領域">
           {!session ? <div className="visual-empty"><strong>HTMLを表示して、要素を選択</strong><p>{desktop ? "HTMLを開くと、ここにページを表示します。" : "デスクトップ版でHTMLを開いてください。"}</p><p>画像・CSSなどは表示ルートから読み込みます。<br />../assets が必要なら、表示ルートを親フォルダへ変更できます。</p></div>
@@ -258,17 +319,18 @@ export function VisualWorkspace({ enabled, blocked, chatName, canInsert, onInser
       </section>
       <section className="visual-chat" aria-label="参照先のチャット">
         <div className="visual-selection">
+          <VisualEditControls enabled={enabled && desktop} preview={session} session={edit} onBind={bindEdit} onUpdate={updateEdit} onLeave={leaveEdit} onBeforeDiff={beforeDiff} onAfterDiff={afterDiff} onKnownEditChats={onKnownEditChats} onNotice={onNotice} />
           <div className="visual-selection-title"><strong>選択情報</strong><span>{selection.length}件{truncated ? "（一部のみ）" : ""}</span></div>
-          <div className="visual-target">入力先: {chatName ?? "チャットを選択してください"}</div>
+          <div className="visual-target">入力先: {edit ? chatId === edit.chat.id ? chatName ?? edit.chat.id : "専用チャットへ切り替えてください" : chatName ?? "チャットを選択してください"}</div>
           {selection.length ? <div className="visual-selected-list">{selection.map((item, index) => <div key={`${index}:${item.selector}`}><strong title={item.selector}>{item.selector || item.tag}</strong>{item.text ? <span>{item.text}</span> : null}</div>)}</div>
             : <p className="visual-selection-empty">プレビューで要素をクリックしてください。</p>}
           <div className="visual-templates" role="group" aria-label="指示のひな形">{instructionTemplates.map((item, index) => <button key={item.name} type="button" className="btn sm" aria-pressed={template === index} onClick={() => { setTemplate(index); setInserted(false); }}>{item.name}</button>)}</div>
-          <button type="button" className="btn-line sm visual-insert" disabled={!session || !selection.length || truncated || !canInsert || busy || closeUnconfirmed} onClick={() => {
-            if (!session || !selection.length || truncated || !canInsert || closeFailed.current) return;
+          <button type="button" className="btn-line sm visual-insert" disabled={!session || !selection.length || truncated || !canInsert || busy || closeUnconfirmed || (!!edit && chatId !== edit.chat.id)} onClick={() => {
+            if (!session || !selection.length || truncated || !canInsert || closeFailed.current || (edit && chatId !== edit.chat.id)) return;
             onInsert(selectionDraft(session, selection, instructionTemplates[template].text)); setInserted(true);
           }}>選択情報を入力欄へ</button>
           <p className="visual-draft-note" role="status">{inserted ? "入力欄へ追加しました。内容を編集してから送信できます。" : truncated ? "選択情報が多いため一部のみ表示しています。選択を減らしてから入力欄へ追加してください。" : "指示のひな形と要素情報を追加します。送信はチャットの入力欄から行います。"}</p>
-          <p className="visual-draft-note">送信は通常のチャットとして扱われます。変更の採用・復元はまだ利用できません。</p>
+          <p className="visual-draft-note">{edit ? "専用チャットで指示を送ります。元フォルダは採用するまで変更しません。" : "閲覧中の元ファイルには編集用チャットを作ってから指示を送れます。"}</p>
           {error ? <p className="visual-error" role="alert">{error}</p> : null}
           {closeUnconfirmed ? <button type="button" className="btn-line sm" disabled={busy} onClick={() => void retryClose()}>閉じるを再試行</button> : null}
         </div>

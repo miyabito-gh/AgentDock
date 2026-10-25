@@ -36,6 +36,7 @@ pub mod stop;
 pub mod thread_ops;
 pub mod worktree;
 pub mod work_folders;
+pub mod visual;
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -226,6 +227,7 @@ pub struct Host {
     /// Gitの準備・プッシュの実行中のフォルダ（二重実行の防止。`gitprep.rs`）。
     gitprep_rt: gitprep::GitPrepRuntime,
     subagent_rt: subagents::SubagentRuntime,
+    visual_rt: visual::VisualRuntime,
 }
 
 /// 最初の依頼の送信が確定（または後続タスクが終了）したら、同じチャットの送信停止を解く。
@@ -273,6 +275,7 @@ impl Host {
             org_rt: org::OrgRuntime::default(),
             gitprep_rt: gitprep::GitPrepRuntime::default(),
             subagent_rt: subagents::SubagentRuntime::default(),
+            visual_rt: visual::VisualRuntime::default(),
         }
     }
 
@@ -1164,6 +1167,15 @@ impl Host {
             self.emit_send(&chat, &attempt);
             return attempt;
         }
+        let visual_id = match self.visual_before_send(&request, &attempt, &auth).await {
+            Ok(id) => id,
+            Err(e) => {
+                self.rejected.lock().unwrap().insert(attempt_id.clone(), NotAccepted::new(request));
+                attempt.state = SendState::Rejected { message: e.message };
+                self.emit_send(&chat, &attempt);
+                return attempt;
+            }
+        };
         self.emit_send(&chat, &attempt);
         self.emit_send_phase(&chat, SendPhase::Preparing);
         // 目的メモの資料を含む利用者の送信は、受理を確認できたときだけ「届いた版」を記録する（本文の見出しから読むので再送も同じ）。
@@ -1176,6 +1188,7 @@ impl Host {
             if let Err(message) = self.recheck_send_folders(folders).await {
                 self.rejected.lock().unwrap().insert(attempt_id.clone(), NotAccepted::new(request));
                 attempt.state = SendState::Rejected { message };
+                self.visual_after_send(visual_id.as_deref(), &attempt).await;
                 self.emit_send(&chat, &attempt);
                 return attempt;
             }
@@ -1184,6 +1197,7 @@ impl Host {
         if let Err(message) = self.record_presend(&chat, &attempt_id, &request, attempt.at).await {
             self.rejected.lock().unwrap().insert(attempt_id.clone(), NotAccepted::new(request));
             attempt.state = SendState::Rejected { message };
+            self.visual_after_send(visual_id.as_deref(), &attempt).await;
             self.emit_send(&chat, &attempt);
             return attempt;
         }
@@ -1217,6 +1231,7 @@ impl Host {
             }
         };
         attempt.state = state;
+        self.visual_after_send(visual_id.as_deref(), &attempt).await;
         self.emit_send(&chat, &attempt);
         if let SendState::Accepted { turn } = &attempt.state {
             // 受理からそのturnの開始・終端を観測するまで、キューは親が作業中として保留する。
