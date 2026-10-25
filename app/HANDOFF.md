@@ -330,3 +330,8 @@
 - 実装: SessionEvent::Discarded。visual_discard(session_id, keep_backup): current モードは終了済みのみ、実行中・未解決・保留操作・送信未決は拒否。先に Discarded を記録（以後 list/binding_id/load から外れる。session.json と events.jsonl は残す）→ draft と tx-*-after（keep時）／initial・tx-*・_journals/<id>（完全削除時）を、保存領域内のリンクでないフォルダに限って削除（remove_storage_dir）。元のフォルダには触れない。コマンド visual_edit_discard。SessionView に adopted。
 - 画面: 「詳細」の「保存された編集」「終了した編集」の各行に「破棄」→ インライン確認。表示中のコピーはプレビューを閉じてから削除。専用チャットの破棄では、その会話を一覧に戻す（不要なら通常の削除で消せる）。
 - 検証: cargo test --lib 全件（新規: discarded_session_is_hidden…, remove_storage_dir_only_deletes…）、tsc成功。debug NSIS(7932974 bytes, SHA-256 2c1e25fa30e2554b9402a664f010fa39a4b3ac6e51641b7bb635ff63c74dcc7a)。実機未確認。
+
+## 2026-10-26 リリースビルド
+- 対象: feature/visual-editor 6661c27abd06722ee132367ec4a50c483a7e4f25（originへpush済み）。npm.cmd run tauri -- build --bundles nsis（debug指定なし）、終了0。
+- app/src-tauri/target/release/bundle/nsis/AgentDock_0.0.1_x64-setup.exe、7360797 bytes、SHA-256 f4ebafa235f4e8a4e245791dbcd2d96b89445f770a66707bd4b53c688ef6749d。同じ場所の .exe.build.json に来歴。インストールはしていない。
+- 実機未確認: 「今の会話で続ける」の一連、右ペインの見た目と幅、破棄。
