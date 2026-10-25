@@ -133,3 +133,10 @@
 - 実測report・時刻・試験hash/最終build hashはverification/visual-editor/V0_NATIVE_PROBE.mdに分離して記録。命名/出力項目だけの変更後はGUI反復なし。Solは診断コード保存可、製品有効化不可と判断。既存icon/Chrome_WidgetWin警告は残る。
 - 次の検証計画はverification/visual-editor/NETWORK_BOUNDARY.md。独立preview hostをOSのネットワーク境界に置く方式を候補とするが、起動・全子プロセス・中央UIは未実証。profile/ACL/firewall/パッケージ登録などOS設定はまだ変更していない。独立profileだけで通信隔離とせず、JavaScript無効化等で仕様を勝手に縮小しない。
 - 3回のGUI後はいずれもhelperのprocesses=[]で終了確認。通常AgentDock領域・~/.codexは未変更。targetの実測ログ/profileは保持。新ブランチは未push、master/origin/masterは09b00e3のまま。既存生成型/schemaの変更表示は引き続き保持する。
+## 2026-10-25 利便性を優先した通信許可と製品統合着手
+
+- 利用者が「プレビューの通信は許可し、アプリ権限・ファイル範囲は守る」方針を明示承認。厳格なTCP遮断/OS通信隔離を初期必須条件から外す。過去の不合格記録は保持するが、現在の阻害条件にしない。要件正本/設計§15を更新し、旧NETWORK_BOUNDARYを参考扱いへ変更。
+- 対象feature/visual-editor、基点cc69010。今回の実装対象は実際の中央preview＋要素選択＋既存チャットへの情報挿入。AI自動編集・採用・復元の完成とは区別する。挿入だけで送信しない。
+- Luna Explorerが既存Tauri/IPC/画面を調査。Sol Backend/UIが担当ファイルを分けて実装。Luna Testerが最終検証、別Solが独立レビュー。親は方針/統合/文書を担当。Astra不使用。
+- 受入: root内相対HTML/CSS/module/画像表示とHTTP(S)依存利用、選択/複数/親/Esc、選択情報挿入時の既存draft保持、閉じる/overlay時のnative child退避、previewから全製品command/plugin/任意ファイルの拒否。過去のTCP到達自体を失敗条件にしない。
+- 確認予定: 関連Rust純粋ロジック試験・cargo check --locked、appでnpm type-check/build。必要な実WebView検証は専用identifier/profile/固定fixtureで行い、通常アプリ領域や認証へ書かない。実Codex送信・採用はまだ試験しない。
