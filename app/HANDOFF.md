@@ -318,3 +318,8 @@
 - 修正: (1) visual_bound: 紐付けがあれば編集中、cwdがコピー配下でも restore待ちの会話は編集中ではない。 (2) visual_before_send: restore注入を visual_cwd 検査より先に。 (3) 新しい編集の開始: restore待ちの会話は、前の編集が記録した戻し先を引き継いで開始でき、前のセッションは Restored で閉じる(置き換え)。 (4) visual_preview_close: 入れ替わり済みなら成功として扱い、今のプレビューには触れない。
 - 検証: cargo test --lib 全件、tsc。debug NSIS(7957723 bytes, SHA-256 1c3c2b626e397dd845d1bcfb20cf3aa65276e0a7798bd09f9d88bcb9d978db83)。
 - 未確認(実機): 上記の会話で「今の会話で続ける」を開始でき、編集後の終了→最初の送信で元の作業フォルダに戻ること。
+
+## 2026-10-26 開始エラー「source and storage overlap」
+- 症状: 前の修正後も「編集を始められませんでした」。原因: 右ペインのプレビューが前の編集のコピー(visual-…\draft)のままで、create がそれを元のフォルダとして渡し、保存場所と重なって拒否された（前のバージョンの終了時プレビュー入れ替え失敗の名残）。
+- 修正: create 時、表示中の root がコピー配下なら listVisualEdits で持ち主のセッションを探し、その元フォルダ・HTMLで作成。見つからなければ「表示しているのは編集用コピーです。HTMLを開くで元のHTMLを開いてください」。
+- 検証: tsc成功。debug NSIS(7908924 bytes, SHA-256 1f53f9c4781fab59fd7b4312bc9af8518772459c167755ee14ba9f16d8a6f579)。実機未確認。

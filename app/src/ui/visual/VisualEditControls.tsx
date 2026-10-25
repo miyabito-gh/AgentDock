@@ -10,6 +10,7 @@ const FRIENDLY: Array<[string, string]> = [
   ["work folder is unknown", "この会話の作業フォルダを確認できません。"],
   ["could not be forked", "会話を分岐できませんでした。何も変更していません。"],
   ["only Codex chats", "この会話では使えません（Codexの会話のみ対応）。"],
+  ["source and storage overlap", "表示しているのは編集用コピーです。「HTMLを開く」で元のHTMLを開いてください。"],
 ];
 const friendly = (message: string): string => FRIENDLY.find(([key]) => message.includes(key))?.[1] ?? message;
 const messageOf = (error: unknown): string => {
@@ -114,7 +115,15 @@ export function VisualEditControls({ enabled, chatId, currentChat, onEnded, prev
     writeLock.current = true; setBusy(true); setError(null);
     try {
       const mode: VisualStartMode = currentChat ? startMode : "new";
-      const next = await createVisualEdit(preview.rootPath, preview.htmlPath, null, currentChat, mode);
+      // 表示中が前の編集のコピーのままなら、その持ち主の編集から本当の元のフォルダを求める（コピーを元にして作らない）。
+      let rootPath = preview.rootPath, htmlPath = preview.htmlPath;
+      if (/[\\/]visual-editor[\\/]visual-[^\\/]+[\\/]draft/i.test(rootPath)) {
+        const norm = (value: string) => value.replace(/\\/g, "/").replace(/\/$/, "").toLowerCase();
+        const owner = (await listVisualEdits()).find((item) => norm(item.draftRoot) === norm(rootPath));
+        if (!owner) throw new Error("source and storage overlap");
+        rootPath = owner.sourceRoot; htmlPath = owner.sourceRoot + "/" + owner.htmlPath;
+      }
+      const next = await createVisualEdit(rootPath, htmlPath, null, currentChat, mode);
       setSessions((all) => [next, ...all.filter((item) => item.sessionId !== next.sessionId)]);
       await bind(next);
       onNotice(mode === "current" ? "この会話で編集を始めました。依頼はまだ送信していません。" : mode === "fork" ? "会話を分岐して、編集を始めました。依頼はまだ送信していません。" : "編集用コピーと専用チャットを作成しました。依頼はまだ送信していません。");
