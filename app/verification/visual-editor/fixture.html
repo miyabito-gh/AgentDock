@@ -1,0 +1,14 @@
+<!doctype html><html><meta charset="utf-8"><link rel="stylesheet" href="fixture.css"><script type="module" src="fixture.mjs"></script><body>
+<p id="styled">Relative CSS/module/SVG fixture</p><img id="image" src="fixture.svg">
+<script>
+const report=value=>parent.postMessage(value,'*'); const attack='@@CANARY@@';
+report({kind:'ipc-surface',tauriInternals:typeof window.__TAURI_INTERNALS__,chromeWebview:typeof window.chrome?.webview});
+if(window.__TAURI_INTERNALS__)window.__TAURI_INTERNALS__.invoke('visual_probe_nonexistent_command',{}).then(()=>report({kind:'fake-command',resolved:true}),()=>report({kind:'fake-command',resolved:false}));
+try{parent.document.body;report({kind:'parent-dom',reachable:true});}catch{report({kind:'parent-dom',reachable:false});}
+fetch(attack+'/fetch').then(()=>report({kind:'fetch',resolved:true}),()=>report({kind:'fetch',resolved:false}));
+for(const src of [attack+'/image','file:///C:/agentdock-v0-nonexistent.txt','tauri://localhost/v0-denied']){const image=new Image();image.src=src;}
+fetch('redirect.json').catch(()=>{});
+const frame=document.createElement('iframe');frame.src=attack+'/nested-frame';document.body.append(frame);
+window.open(attack+'/popup');
+setTimeout(()=>{location.href='frame-target.html';},1200);
+</script></body></html>
