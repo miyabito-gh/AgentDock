@@ -5,7 +5,7 @@ Windows上でCodex App Serverを操作するTauri 2 + React + Rustクライア�
 ## 現在地
 masterは09b00e3へ早送りし、origin/masterへのpushを確認済み（2026-10-25）。通常改善と新サブエージェント方式を含む。実機受入の実績と未確認条件はapp/HANDOFF.mdを参照。旧組織実行は有効なまま。旧基準fbe67ca / baseline/org-engine-2026-10-24は履歴として保持する。
 
-開発ブランチはfeature/visual-editor。明示したファイルの分離コピー・控え・競合判定のRust基盤と、WebView2検証用exampleを実装。関連Rust試験7件・通常cargo check・exampleビルドは成功。厳格なTCP遮断試験は旧方針の履歴。利用者合意によりプレビュー通信を許可し、アプリ操作権限・ローカルファイル範囲の保護を維持する。表示/選択と既存チャットへの情報挿入を実装し、専用WebViewの限定実機試験に合格。AI編集用transaction/採用/復元は未完成。[実装・検証範囲](app/verification/visual-editor/READONLY_PREVIEW.md)を参照。[設計と受入条件](app/DESIGN_VISUAL_EDITOR.md)を参照。
+開発ブランチはfeature/visual-editor。明示したファイルの分離コピー・控え・競合判定のRust基盤と、WebView2検証用exampleを実装。関連Rust試験7件・通常cargo check・exampleビルドは成功。厳格なTCP遮断試験は旧方針の履歴。利用者合意によりプレビュー通信を許可し、アプリ操作権限・ローカルファイル範囲の保護を維持する。表示/選択と既存チャットへの情報挿入を実装し、専用WebViewの限定実機試験に合格。編集用コピー・既存チャットとの送信transaction・差分・採用・最新編集の復元をソース実装し、関連CLI検証を通過。実Codexと製品画面の一連受入は未実施。[編集フローの検証と制約](app/verification/visual-editor/EDIT_FLOW.md)を参照。[実装・検証範囲](app/verification/visual-editor/READONLY_PREVIEW.md)を参照。[設計と受入条件](app/DESIGN_VISUAL_EDITOR.md)を参照。
 
 ## 最初に読む資料
 1. [AI共通指示](AGENTS.md)
