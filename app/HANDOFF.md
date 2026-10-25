@@ -248,3 +248,12 @@
 - 今回の受入で見つけ修正した不具合: (1) 子フォルダを含む対象でコピー作成が「unsafe path」で失敗（discover）。(2) IPCエラーが[object Object]表示。(3) フォルダ固定(pin)が祖先を読取り共有で保持し、Visual Editor表示中にos error 32で保存失敗。(4) ライブ終了済みturnで履歴確認がなく停止確認が滞留（別セッションが修正）。回帰テスト: discover_tests、pin_save_tests。
 - 残る要望・既知: Codexが日本語を既定エンコードで書いて破損することがある→専用チャット初期指示にUTF-8/apply_patch指定、元チャット文脈の引き継ぎ（分岐等）、編集チャット復帰時のプレビュー自動復帰、採用成功メッセージの表示確認、診断ログ[visual-gate]は残置。windowBounds保存失敗の古い記録は修正前のもの。
 - 状態: 変更は未コミット（visual.rs / queue_driver.rs / scope.rs / VisualEditControls.tsx / tests.rs / HANDOFF.md、生成型・schema39件は内容差分なし）。最新installer SHA-256 cbc5eb77…8e03。push・masterへの反映なし。
+
+## 2026-10-25 Visual Editor 使いやすさ改善（実装、実機未確認）
+- 利用者要望: (1) チャット上の編集欄が分かりづらい→直感的に。(2) 要素選択は細かい指示のときだけ。通常は「ドラッグで範囲選択→チャットで依頼→AI判断で修正」。
+- ドラッグ範囲選択: preview/selection.js。6px以上のドラッグで範囲確定（ボタンを離した位置から計算）。範囲内に完全に入る要素は親子重複なく最外のみ、無ければ部分的に入る最内を選ぶ。Ctrl+ドラッグは追加、Escで解除、ドラッグ中のテキスト選択・ネイティブdragを抑止。クリック単体選択は従来どおり。実ブラウザ＋ネイティブ送信モックで、大範囲=段落ブロック、見出しのみ=h1、Esc=0件を確認。
+- 自動添付: api.ts visualSendContext。編集チャットの送信時、App.tsx onSend が選択範囲（目安）と「修正箇所はAIが判断」「UTF-8のままapply_patchで最小差分、PowerShellのGet-Content/Set-Content禁止」を送信文末へ追記。印(VISUAL_CONTEXT_MARK)で再送時の重複を防止。選択なしでも方針は付く。
+- 右ペイン: 状態カード（編集できます/AIが作業中/AIの編集がN件/元が変わっているため反映できません等）、主ボタン「この内容を元に反映」「直前のAI編集を取り消す」、変更は「xxxの変更を見る」。パス・対象範囲・保存済み・再確認・元HTML閲覧は「詳細」へ。選択は1行表示、ひな形と「セレクタ付き指示を入力欄に書き出す」は「細かく指示する」へ。ツールバーは「範囲選択／ページ操作／外側へ広げる／選択を解除」。
+- 復帰: 専用編集チャットへ切り替えるとVisual Editorが自動で開く（App.selectChat）。再起動後はチャットIDで保存済みセッションを自動で開き直す（VisualEditControls.loadList）。※知られたID集合は一度Visual Editorを開くまで空のため、再起動直後は手動で開く必要あり。
+- 検証: tsc成功、cargo test --lib visual 35件成功、debug NSIS再生成(SHA-256 4d2632ce06390ca36ddb55fa1d115b4b4e87b908d3edd4c1e78e3e9a1aaeec85, 7892335 bytes)。実アプリでの見た目・操作は未確認。
+- 未対応: 元チャット文脈の引き継ぎ（Codex分岐の調査要）。

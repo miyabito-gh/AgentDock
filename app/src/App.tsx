@@ -60,6 +60,7 @@ import { pushRecent } from "./ui/skillPick";
 import { SendKeyContext } from "./ui/SendKeyContext";
 import { applyAppearance, watchSystemTheme } from "./ui/appearance";
 import { VisualWorkspace } from "./ui/visual/VisualWorkspace";
+import { VISUAL_CONTEXT_MARK } from "./ui/visual/api";
 
 type Mode = "live" | "mock";
 const EXE_KEY = "agentdock.codexExe";
@@ -103,6 +104,7 @@ export default function App() {
   const [leftOpen, setLeftOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(true);
   const [visualMode, setVisualMode] = useState(false);
+  const [visualCtx, setVisualCtx] = useState<string | null>(null);
   const [visualEditChatId, setVisualEditChatId] = useState<string | null>(null);
   const [visualBoundChatIds, setVisualBoundChatIds] = useState<Set<string>>(() => new Set());
   const [lNarrow, setLNarrow] = useState(false);
@@ -548,7 +550,8 @@ export default function App() {
     : "Codex 版を確認できません";
 
   const selectChat = (id: string | null) => {
-    if (id !== selId) setVisualMode(false);
+    // 専用の編集チャットへ戻るときはVisual Editorを開いたままにし、それ以外ではプレビューを閉じる。
+    if (id !== selId) setVisualMode(id !== null && visualBoundChatIds.has(id));
     setOrgScreen(false);
     setSelId(id);
     setQuick((q) => (q.open ? { ...q, open: false } : q)); // 下書きは隠すだけ（文は残る）
@@ -693,7 +696,12 @@ export default function App() {
     })();
     return true;
   };
-  const onSend = async (text: string, steer: boolean, attachments: string[]): Promise<boolean> => (chat ? sendTo(chat, text, visualBoundChatIds.has(chat.key.id) && isRunning(snap, chat) ? true : steer, attachments) : false);
+  const onSend = async (text: string, steer: boolean, attachments: string[]): Promise<boolean> => {
+    if (!chat) return false;
+    // 編集チャットでは、選択範囲と編集方針を送信文に自動で添える（再送で重複しないよう印で判定）。
+    const withContext = visualShown && visualCtx && chat.key.id === visualEditChatId && !text.includes(VISUAL_CONTEXT_MARK) ? `${text}\n\n${visualCtx}` : text;
+    return sendTo(chat, withContext, visualBoundChatIds.has(chat.key.id) && isRunning(snap, chat) ? true : steer, attachments);
+  };
 
   /** 「引き継いで送信」（DESIGN_CONT §7.3）。利用者の送信操作の中だけで呼ぶ。拒否・受理不明で再送しない。 */
   const onHandoffSend = async (text: string, attachments: string[]): Promise<boolean> => {
@@ -1755,6 +1763,7 @@ ${cur}` : p.text);
               onOpenEditChat={(id) => { setVisualEditChatId(id); setVisualBoundChatIds((ids) => new Set(ids).add(id)); setSelId(id); setOrgScreen(false); setQuick((q) => ({ ...q, open: false })); if (live) void loadChat(id); }}
               onLeaveEditChat={() => setVisualEditChatId(null)}
               onKnownEditChats={(ids) => setVisualBoundChatIds((old) => new Set([...old, ...ids]))}
+              onContext={setVisualCtx}
               onInsert={(text) => {
                 if (!chat) return;
                 onDraft(chat, curDraft.length ? `${curDraft}\n\n${text}` : text);

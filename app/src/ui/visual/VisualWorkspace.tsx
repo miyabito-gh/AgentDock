@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { actOnPreview, closePreview, instructionTemplates, onPreviewError, onPreviewSelection, openPreview, parentFolder, previewAvailable, selectionDraft, updatePreviewBounds, type PreviewAction, type PreviewBounds, type PreviewElement, type PreviewSession, type VisualEditSession } from "./api";
+import { actOnPreview, closePreview, instructionTemplates, onPreviewError, onPreviewSelection, openPreview, parentFolder, previewAvailable, selectionDraft, updatePreviewBounds, visualSendContext, type PreviewAction, type PreviewBounds, type PreviewElement, type PreviewSession, type VisualEditSession } from "./api";
 import { VisualEditControls } from "./VisualEditControls";
 import "./visual.css";
 
@@ -13,10 +13,10 @@ function overlayOpen(): boolean {
     .some((node) => node.getClientRects().length > 0 && getComputedStyle(node).visibility !== "hidden");
 }
 
-export function VisualWorkspace({ enabled, blocked, chatName, chatId, canInsert, onInsert, onNotice, onOpenEditChat, onLeaveEditChat, onKnownEditChats, children }: {
+export function VisualWorkspace({ enabled, blocked, chatName, chatId, canInsert, onInsert, onContext, onNotice, onOpenEditChat, onLeaveEditChat, onKnownEditChats, children }: {
   enabled: boolean; blocked: boolean; chatName: string | null; chatId: string | null; canInsert: boolean;
   onOpenEditChat: (id: string) => void; onLeaveEditChat: () => void; onKnownEditChats: (ids: string[]) => void;
-  onInsert: (text: string) => void; onNotice: (message: string) => void; children: ReactNode;
+  onInsert: (text: string) => void; onContext: (text: string | null) => void; onNotice: (message: string) => void; children: ReactNode;
 }) {
   const desktop = previewAvailable();
   const stage = useRef<HTMLDivElement>(null);
@@ -45,6 +45,8 @@ export function VisualWorkspace({ enabled, blocked, chatName, chatId, canInsert,
   const serial = useRef<Promise<unknown>>(Promise.resolve());
   const lastBounds = useRef("");
   const notice = useRef(onNotice);
+  const onContextRef = useRef(onContext);
+  onContextRef.current = onContext;
   enabledRef.current = enabled;
   blockedRef.current = blocked;
   notice.current = onNotice;
@@ -290,6 +292,10 @@ export function VisualWorkspace({ enabled, blocked, chatName, chatId, canInsert,
       reloadPending.current = false; void action("reload");
     }
   }, [enabled, busy, edit?.revision, edit?.phase]);
+  // 編集チャットへの送信に、選択範囲と編集方針を自動で添える（入力欄は書き換えない）。
+  const contextText = enabled && edit && chatId === edit.chat.id ? visualSendContext(edit.htmlPath, selection) : null;
+  useEffect(() => { onContextRef.current(contextText); }, [contextText]);
+  useEffect(() => () => onContextRef.current(null), []);
   if (!enabled) return <>{children}</>;
   const disabled = !session || busy || closeUnconfirmed;
   const reloadAllowed = !edit || edit.phase === "editable" || edit.phase === "changes";
@@ -300,11 +306,11 @@ export function VisualWorkspace({ enabled, blocked, chatName, chatId, canInsert,
           <button type="button" className="btn primary sm" disabled={!desktop || busy || closeUnconfirmed || !!edit} onClick={() => void pick(false)}>HTMLを開く</button>
           <button type="button" className="btn sm" disabled={disabled || !reloadAllowed} onClick={() => void action("reload")}>再読み込み</button>
           <span className="visual-tools" role="group" aria-label="ページの操作モード">
-            <button type="button" className="btn sm" aria-pressed={!interaction} disabled={disabled} onClick={() => void action("select")}>選択</button>
-            <button type="button" className="btn sm" aria-pressed={interaction} disabled={disabled} onClick={() => void action("interact")}>操作</button>
+            <button type="button" className="btn sm" aria-pressed={!interaction} disabled={disabled} title="ページ上をドラッグして範囲を選びます（クリックで1つ、Ctrl＋クリックで追加）" onClick={() => void action("select")}>範囲選択</button>
+            <button type="button" className="btn sm" aria-pressed={interaction} disabled={disabled} title="ページのリンクやボタンを実際に操作します" onClick={() => void action("interact")}>ページ操作</button>
           </span>
-          <button type="button" className="btn sm" disabled={disabled || !selection.length} onClick={() => void action("parent")}>親要素</button>
-          <button type="button" className="btn sm" disabled={disabled || !selection.length} onClick={() => void action("clear")}>解除</button>
+          <button type="button" className="btn sm" disabled={disabled || !selection.length} title="選択を、それを含む一つ外側の要素に広げます" onClick={() => void action("parent")}>外側へ広げる</button>
+          <button type="button" className="btn sm" disabled={disabled || !selection.length} onClick={() => void action("clear")}>選択を解除</button>
         </header>
         <div className="visual-file">
           <div><span>HTML</span><strong title={session?.htmlPath}>{session?.htmlPath ?? "未選択"}</strong></div>
@@ -315,22 +321,27 @@ export function VisualWorkspace({ enabled, blocked, chatName, chatId, canInsert,
           {!session ? <div className="visual-empty"><strong>HTMLを表示して、要素を選択</strong><p>{desktop ? "HTMLを開くと、ここにページを表示します。" : "デスクトップ版でHTMLを開いてください。"}</p><p>画像・CSSなどは表示ルートから読み込みます。<br />../assets が必要なら、表示ルートを親フォルダへ変更できます。</p></div>
             : <div className="visual-native-note">{blocked || overlayOpen() ? "メニュー・ダイアログの操作中はプレビューを非表示にします。" : "専用プレビュー領域"}</div>}
         </div>
-        <footer className="visual-status" role="status">{busy ? "操作を確認しています…" : session ? interaction ? "操作モード: リンクやボタンを操作できます" : "選択モード: クリックで選択 · Ctrl＋クリックで複数選択" : "HTMLを開いて開始"}</footer>
+        <footer className="visual-status" role="status">{busy ? "操作を確認しています…" : session ? interaction ? "ページ操作: リンクやボタンを操作できます（範囲選択に戻すには「範囲選択」）" : "範囲選択: ドラッグで範囲を選択 · クリックで1つ · Ctrl＋クリックで追加 · Escで解除" : "HTMLを開いて開始"}</footer>
       </section>
       <section className="visual-chat" aria-label="参照先のチャット">
         <div className="visual-selection">
-          <VisualEditControls enabled={enabled && desktop} preview={session} session={edit} onBind={bindEdit} onUpdate={updateEdit} onLeave={leaveEdit} onBeforeDiff={beforeDiff} onAfterDiff={afterDiff} onKnownEditChats={onKnownEditChats} onNotice={onNotice} />
-          <div className="visual-selection-title"><strong>選択情報</strong><span>{selection.length}件{truncated ? "（一部のみ）" : ""}</span></div>
-          <div className="visual-target">入力先: {edit ? chatId === edit.chat.id ? chatName ?? edit.chat.id : "専用チャットへ切り替えてください" : chatName ?? "チャットを選択してください"}</div>
-          {selection.length ? <div className="visual-selected-list">{selection.map((item, index) => <div key={`${index}:${item.selector}`}><strong title={item.selector}>{item.selector || item.tag}</strong>{item.text ? <span>{item.text}</span> : null}</div>)}</div>
-            : <p className="visual-selection-empty">プレビューで要素をクリックしてください。</p>}
-          <div className="visual-templates" role="group" aria-label="指示のひな形">{instructionTemplates.map((item, index) => <button key={item.name} type="button" className="btn sm" aria-pressed={template === index} onClick={() => { setTemplate(index); setInserted(false); }}>{item.name}</button>)}</div>
-          <button type="button" className="btn-line sm visual-insert" disabled={!session || !selection.length || truncated || !canInsert || busy || closeUnconfirmed || (!!edit && chatId !== edit.chat.id)} onClick={() => {
-            if (!session || !selection.length || truncated || !canInsert || closeFailed.current || (edit && chatId !== edit.chat.id)) return;
-            onInsert(selectionDraft(session, selection, instructionTemplates[template].text)); setInserted(true);
-          }}>選択情報を入力欄へ</button>
-          <p className="visual-draft-note" role="status">{inserted ? "入力欄へ追加しました。内容を編集してから送信できます。" : truncated ? "選択情報が多いため一部のみ表示しています。選択を減らしてから入力欄へ追加してください。" : "指示のひな形と要素情報を追加します。送信はチャットの入力欄から行います。"}</p>
-          <p className="visual-draft-note">{edit ? "専用チャットで指示を送ります。元フォルダは採用するまで変更しません。" : "閲覧中の元ファイルには編集用チャットを作ってから指示を送れます。"}</p>
+          <VisualEditControls enabled={enabled && desktop} chatId={chatId} preview={session} session={edit} onBind={bindEdit} onUpdate={updateEdit} onLeave={leaveEdit} onBeforeDiff={beforeDiff} onAfterDiff={afterDiff} onKnownEditChats={onKnownEditChats} onNotice={onNotice} />
+          <div className="visual-selection-line" role="status">
+            {selection.length
+              ? <><strong>選択中 {selection.length}件{truncated ? "（一部のみ）" : ""}</strong><span title={selection.map((item) => item.selector).join("\n")}>{selection[0].text.replace(/\s+/g, " ").trim().slice(0, 24) || selection[0].selector || selection[0].tag}{selection.length > 1 ? ` ほか${selection.length - 1}件` : ""}</span>
+                {edit && chatId === edit.chat.id ? <small>送信すると自動で添付されます</small> : null}</>
+              : <span>{edit ? "ページをドラッグして範囲を選ぶと、依頼に添付されます（選ばなくても送れます）" : "プレビューで要素を選べます"}</span>}
+          </div>
+          <details className="visual-more visual-fine"><summary>細かく指示する</summary>
+            <div className="visual-target">入力先: {edit ? chatId === edit.chat.id ? chatName ?? edit.chat.id : "専用チャットへ切り替えてください" : chatName ?? "チャットを選択してください"}</div>
+            {selection.length ? <div className="visual-selected-list">{selection.map((item, index) => <div key={`${index}:${item.selector}`}><strong title={item.selector}>{item.selector || item.tag}</strong>{item.text ? <span>{item.text}</span> : null}</div>)}</div> : <p className="visual-selection-empty">要素を選ぶと、ここに詳細が出ます。</p>}
+            <div className="visual-templates" role="group" aria-label="指示のひな形">{instructionTemplates.map((item, index) => <button key={item.name} type="button" className="btn sm" aria-pressed={template === index} onClick={() => { setTemplate(index); setInserted(false); }}>{item.name}</button>)}</div>
+            <button type="button" className="btn-line sm visual-insert" disabled={!session || !selection.length || truncated || !canInsert || busy || closeUnconfirmed || (!!edit && chatId !== edit.chat.id)} onClick={() => {
+              if (!session || !selection.length || truncated || !canInsert || closeFailed.current || (edit && chatId !== edit.chat.id)) return;
+              onInsert(selectionDraft(session, selection, instructionTemplates[template].text)); setInserted(true);
+            }}>セレクタ付きの指示を入力欄に書き出す</button>
+            <p className="visual-draft-note" role="status">{inserted ? "入力欄へ追加しました。内容を編集してから送信できます。" : "通常は不要です。要素を厳密に指定したいときだけ使います。"}</p>
+          </details>
           {error ? <p className="visual-error" role="alert">{error}</p> : null}
           {closeUnconfirmed ? <button type="button" className="btn-line sm" disabled={busy} onClick={() => void retryClose()}>閉じるを再試行</button> : null}
         </div>

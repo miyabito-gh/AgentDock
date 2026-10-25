@@ -77,3 +77,23 @@
 .visual-diff-columns h3{font-size:var(--fs-s);margin:3px 0}
 .visual-diff-columns pre{flex:1;overflow:auto;border:1px solid var(--line);padding:8px;margin:0;background:var(--surface2);white-space:pre-wrap;overflow-wrap:anywhere;font-size:var(--fs-xs)}
 @media(max-width:760px){.visual-diff-scrim{padding:8px}.visual-diff-columns{grid-template-columns:minmax(0,1fr);overflow:auto}.visual-diff-columns section{min-height:160px}}
+
+/* 右ペイン上部: 状態を一目で、次の操作を1つ目立たせる。技術的な情報は「詳細」へ。 */
+.visual-lead,.visual-hint{margin:4px 0 8px;color:var(--ink2);font-size:var(--fs-s);line-height:1.6}
+.visual-hint{font-size:var(--fs-xs);margin:6px 0}
+.visual-start{width:100%;padding:9px 12px;font-size:var(--fs)}
+.visual-status-card{display:flex;flex-direction:column;gap:2px;padding:9px 11px;border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:6px;background:var(--surface);margin:0 0 8px}
+.visual-status-card strong{font-size:var(--fs);font-weight:600}
+.visual-status-card span{color:var(--ink2);font-size:var(--fs-xs);line-height:1.5}
+.visual-status-card.warn{border-left-color:var(--fail);background:var(--fail-bg)}
+.visual-status-card.wait{border-left-color:var(--line);color:var(--ink2)}
+.visual-edit-actions .btn{flex:1 1 auto;padding:8px 10px}
+.visual-more{margin:8px 0 0;font-size:var(--fs-xs)}
+.visual-more>summary{cursor:pointer;color:var(--ink2);padding:2px 0}
+.visual-more[open]>summary{margin-bottom:4px}
+.visual-selection-line{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px;padding:6px 9px;border:1px dashed var(--accent-line);border-radius:6px;background:var(--accent-weak);font-size:var(--fs-xs);line-height:1.5}
+.visual-selection-line strong{font-size:var(--fs-s);color:var(--accent-text)}
+.visual-selection-line span{color:var(--ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;max-width:100%}
+.visual-selection-line small{color:var(--ink2);flex-basis:100%}
+.visual-fine{margin-top:6px}
+.visual-selection{padding:10px 12px}

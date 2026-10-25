@@ -17,8 +17,8 @@ const phaseLabel = (phase: string) => ({
   runningOrReconciling: "実行・停止を確認中", changes: "変更を確認", rejected: "要確認",
 } as Record<string, string>)[phase] ?? "状態: " + phase;
 
-export function VisualEditControls({ enabled, preview, session, onBind, onUpdate, onLeave, onBeforeDiff, onAfterDiff, onKnownEditChats, onNotice }: {
-  enabled: boolean; preview: PreviewSession | null; session: VisualEditSession | null;
+export function VisualEditControls({ enabled, chatId, preview, session, onBind, onUpdate, onLeave, onBeforeDiff, onAfterDiff, onKnownEditChats, onNotice }: {
+  enabled: boolean; chatId: string | null; preview: PreviewSession | null; session: VisualEditSession | null;
   onBind: (session: VisualEditSession) => Promise<void>; onUpdate: (session: VisualEditSession) => void; onLeave: () => Promise<void>;
   onBeforeDiff: () => Promise<void>; onAfterDiff: () => void; onKnownEditChats: (ids: string[]) => void; onNotice: (text: string) => void;
 }) {
@@ -34,6 +34,7 @@ export function VisualEditControls({ enabled, preview, session, onBind, onUpdate
   const [diffPath, setDiffPath] = useState<string | null>(null);
   const [operation, setOperation] = useState<{ kind: "adopt" | "undo"; outcome: string; revision: number; id: string | null; message?: string } | null>(null);
   const writeLock = useRef(false);
+  const autoBound = useRef<string | null>(null);
   const generation = useRef(0);
   const currentId = useRef(session?.sessionId ?? null);
   const revision = useRef(session?.revision ?? -1);
@@ -47,11 +48,16 @@ export function VisualEditControls({ enabled, preview, session, onBind, onUpdate
   const loadList = async () => {
     if (listBusy) return;
     setListBusy(true); setListError(null);
-    try { const found = await listVisualEdits(); setSessions(found); onKnownEditChats(found.map((item) => item.chat.id)); }
+    try {
+      const found = await listVisualEdits(); setSessions(found); onKnownEditChats(found.map((item) => item.chat.id));
+      // 再起動後などで専用チャットを開いたときは、その編集コピーを自動で開き直す。
+      const mine = chatId && !currentId.current ? found.find((item) => item.chat.id === chatId) : undefined;
+      if (mine && autoBound.current !== mine.sessionId) { autoBound.current = mine.sessionId; void bind(mine); }
+    }
     catch (e) { setListError("編集セッション一覧を取得できませんでした: " + messageOf(e)); }
     finally { setListBusy(false); }
   };
-  useEffect(() => { if (enabled) void loadList(); }, [enabled]);
+  useEffect(() => { if (enabled) void loadList(); }, [enabled, chatId]);
 
   useEffect(() => {
     if (!enabled || !session) return;
@@ -153,27 +159,53 @@ export function VisualEditControls({ enabled, preview, session, onBind, onUpdate
   };
 
   const visibleChanges = session?.changes.filter((item) => item.change !== null) ?? [];
+  const conflicts = visibleChanges.filter((item) => item.conflict);
+  const status = !session ? null : conflicts.length ? { tone: "warn", text: "元のファイルが変わっているため、反映できません", hint: "元のファイルを確認してください。AIの編集は取り消せます。" }
+    : stale ? { tone: "wait", text: "状態を確認しています…", hint: "" }
+    : session.phase === "runningOrReconciling" ? { tone: "wait", text: "AIが作業中、または終了を確認中です", hint: "終わると変更が表示されます。" }
+    : session.phase === "preparedUnresolved" || session.phase === "acceptanceUnknown" ? { tone: "warn", text: "依頼が届いたか確認できていません", hint: "チャットの表示を確認してください。自動では再送しません。" }
+    : session.phase === "rejected" ? { tone: "warn", text: "依頼が受け付けられませんでした", hint: "チャットの表示を確認してください。" }
+    : visibleChanges.length ? { tone: "ok", text: `AIの編集が${visibleChanges.length}件あります`, hint: "プレビューで確認して、よければ元に反映します。" }
+    : { tone: "ok", text: "編集できます", hint: "プレビューをドラッグして範囲を選び、下のチャットに依頼を書いて送信します。" };
   return <section className="visual-edit" aria-label="編集用コピー">
-    <div className="visual-edit-heading">
-      <strong>編集用コピー</strong>
-      <button type="button" className="btn-line sm" disabled={listBusy} onClick={() => void loadList()}>一覧を更新</button>
-    </div>
     {!session ? <>
-      <p>指定ルート内のHTML・CSS・JS全体が編集候補です。コピー作成後に対象一覧を確認してから送信してください。</p>
-      <button type="button" className="btn primary sm" disabled={!preview || busy} onClick={() => void create()}>編集用コピーで作業を始める</button>
-      {preview ? <p className="visual-scope-line">元ルート: {preview.rootPath}<br />HTML: {preview.htmlPath}</p> : null}
+      <div className="visual-edit-heading"><strong>編集用コピー</strong></div>
+      <p className="visual-lead">元のファイルは変更しません。コピーでAIに編集させ、確認してから元に反映できます。</p>
+      <button type="button" className="btn primary visual-start" disabled={!preview || busy} onClick={() => void create()}>{busy ? "作成しています…" : "編集を始める（コピーを作成）"}</button>
+      {!preview ? <p className="visual-hint">先に中央の「HTMLを開く」でページを表示してください。</p> : null}
+      <details className="visual-more"><summary>詳細</summary>
+        {preview ? <p className="visual-scope-line">元ルート: {preview.rootPath}<br />HTML: {preview.htmlPath}</p> : null}
+        <button type="button" className="btn-line sm" disabled={listBusy} onClick={() => void loadList()}>保存された編集を探す</button>
+        {sessions.length ? <ul>{sessions.map((item) => <li key={item.sessionId}><button type="button" className="btn-line sm" disabled={busy} onClick={() => void bind(item)}>{item.htmlPath} · {phaseLabel(item.phase)}</button><small>{item.draftRoot}</small></li>)}</ul> : null}
+      </details>
     </> : <>
-      <div className="visual-edit-heading"><span>{phaseLabel(session.phase)} · 版 {session.revision}</span><button type="button" className="btn-line sm" disabled={busy} onClick={() => void recheck()}>状態を再確認</button></div>
-      <div className="visual-edit-heading"><button type="button" className="btn-line sm" disabled={busy} onClick={() => void onLeave().catch((e) => setError("元のHTMLを開けませんでした: " + messageOf(e)))}>元のHTMLを閲覧</button>{!preview ? <button type="button" className="btn-line sm" disabled={busy} onClick={() => void bind(session)}>コピーを再表示</button> : null}</div>
-      <p className="visual-scope-line">元: {session.sourceRoot}<br />コピー: {session.draftRoot}<br />HTML: {session.htmlPath}</p>
-      <details className="visual-scope"><summary>対象範囲 {session.scope.length}件</summary><ul>{session.scope.map((item) => <li key={item.path}><span>{item.access === "edit" ? "編集可" : "表示のみ"}</span> {item.path}</li>)}</ul></details>
-      {session.blockers.length ? <ul className="visual-blockers">{session.blockers.map((item, index) => <li key={index}>{item}</li>)}</ul> : null}
-      <div className="visual-edit-heading"><strong>変更 {visibleChanges.length}件</strong><span>{stale ? "状態未確認" : "状態確認済み"}</span></div>
-      {visibleChanges.length ? <ul className="visual-changes">{visibleChanges.map((item) => <li key={item.path}><button type="button" className="btn-line sm" onClick={() => void readDiff(item.path)}>{changeLabel(item.change)} {item.path}</button>{item.conflict ? <small>競合: {item.conflict}</small> : null}</li>)}</ul> : <p>確認できた変更はありません。</p>}
-      <div className="visual-edit-actions"><button type="button" className="btn sm" disabled={busy || stale || !session.canAdopt} onClick={() => void write("adopt")}>元フォルダへ採用</button><button type="button" className="btn sm" disabled={busy || stale || !session.canUndo} onClick={() => void write("undo")}>最新の未採用編集を戻す</button></div>
-      {operation && operation.revision === session.revision && (operation.id === null || operation.id === session.lastOperation?.id) ? <p role="status">{operation.outcome === "applied" ? actionLabel(operation.kind) + "を確認しました。" : actionLabel(operation.kind) + "は " + operation.outcome + " です。"} {operation.message}</p> : null}
+      <div className={"visual-status-card " + (status?.tone ?? "")} role="status">
+        <strong>{status?.text}</strong>
+        {status?.hint ? <span>{status.hint}</span> : null}
+      </div>
+      {visibleChanges.length ? <ul className="visual-changes">{visibleChanges.map((item) => <li key={item.path}><button type="button" className="btn-line sm" onClick={() => void readDiff(item.path)}>{item.path} の変更を見る</button><small>{changeLabel(item.change)}{item.conflict ? " · 元のファイルが変更されています" : ""}</small></li>)}</ul> : null}
+      <div className="visual-edit-actions">
+        <button type="button" className="btn primary" disabled={busy || stale || !session.canAdopt} onClick={() => void write("adopt")}>この内容を元に反映</button>
+        <button type="button" className="btn" disabled={busy || stale || !session.canUndo} onClick={() => void write("undo")}>直前のAI編集を取り消す</button>
+      </div>
+      {operation && operation.revision === session.revision && (operation.id === null || operation.id === session.lastOperation?.id)
+        ? <p className="visual-hint" role="status">{operation.outcome === "applied" ? (operation.kind === "adopt" ? "元のファイルに反映しました。" : "直前のAI編集を取り消しました。") : actionLabel(operation.kind) + "の結果は「" + operation.outcome + "」です。"} {operation.message}</p> : null}
+      <details className="visual-more"><summary>詳細</summary>
+        <div className="visual-edit-heading">
+          <span>{phaseLabel(session.phase)} · 版 {session.revision} · {stale ? "状態未確認" : "状態確認済み"}</span>
+          <button type="button" className="btn-line sm" disabled={busy} onClick={() => void recheck()}>状態を再確認</button>
+        </div>
+        <div className="visual-edit-heading">
+          <button type="button" className="btn-line sm" disabled={busy} onClick={() => void onLeave().catch((e) => setError("元のHTMLを開けませんでした: " + messageOf(e)))}>元のHTMLを閲覧</button>
+          {!preview ? <button type="button" className="btn-line sm" disabled={busy} onClick={() => void bind(session)}>コピーを再表示</button> : null}
+          <button type="button" className="btn-line sm" disabled={listBusy} onClick={() => void loadList()}>一覧を更新</button>
+        </div>
+        <p className="visual-scope-line">元: {session.sourceRoot}<br />コピー: {session.draftRoot}<br />HTML: {session.htmlPath}</p>
+        <details className="visual-scope"><summary>対象範囲 {session.scope.length}件</summary><ul>{session.scope.map((item) => <li key={item.path}><span>{item.access === "edit" ? "編集可" : "表示のみ"}</span> {item.path}</li>)}</ul></details>
+        {session.blockers.length ? <ul className="visual-blockers">{session.blockers.map((item, index) => <li key={index}>{item}</li>)}</ul> : null}
+        {sessions.length ? <details className="visual-sessions"><summary>保存された編集 {sessions.length}件</summary><ul>{sessions.map((item) => <li key={item.sessionId}><button type="button" className="btn-line sm" disabled={busy || item.sessionId === session?.sessionId} onClick={() => void bind(item)}>{item.htmlPath} · {phaseLabel(item.phase)}</button><small>{item.draftRoot}</small></li>)}</ul></details> : null}
+      </details>
     </>}
-    {sessions.length ? <details className="visual-sessions"><summary>保存された編集セッション {sessions.length}件</summary><ul>{sessions.map((item) => <li key={item.sessionId}><button type="button" className="btn-line sm" disabled={busy || item.sessionId === session?.sessionId} onClick={() => void bind(item)}>{item.htmlPath} · {phaseLabel(item.phase)}</button><small>{item.draftRoot}</small></li>)}</ul></details> : null}
     {listError ? <p className="visual-error" role="alert">{listError}</p> : null}
     {error ? <p className="visual-error" role="alert">{error}</p> : null}
     {diffPath ? <div className="visual-diff-scrim" role="presentation"><div className="visual-diff" role="dialog" aria-modal="true" aria-label="ファイル差分"><header><strong>{diffPath}</strong><button type="button" className="btn sm" onClick={() => { setDiff(null); setDiffPath(null); onAfterDiff(); }}>閉じる</button></header>{diffBusy ? <p>差分を読み込んでいます…</p> : diff ? <><p>{diff.binary ? "バイナリファイルのため本文を表示できません。" : diff.truncated ? "本文は一部のみ表示しています。" : "元とコピーの内容"}</p>{!diff.binary ? <div className="visual-diff-columns"><section><h3>元・直前</h3><pre>{diff.before ?? "（ファイルなし）"}</pre></section><section><h3>コピー・現在</h3><pre>{diff.after ?? "（ファイルなし）"}</pre></section></div> : null}</> : <p>差分を表示できませんでした。状態を再確認してください。</p>}</div></div> : null}
