@@ -172,3 +172,8 @@
 - 実装6ecd540（feature/visual-editor）。最終session回帰8/8、Host停止gate1/1、cargo check --locked終了0。writer6件＋権限付きhardlink1件、UI build／最終type-checkの成功証拠を再利用。最終binding修正後に再レビューし必須指摘なし。
 - 全担当が起動したコマンドの終了結果を回収。今回の作業による稼働中コマンドなし。通常アプリ自体の停止を断定するものではない。
 - ソース変更はcommit済み。文書をこの後の別コミットへ保存する。以前からの生成型/schema39件のstatus表示は内容差分なしで保持し、今回の実装としてstageしていない。新ブランチのpush・インストール・通常アプリ更新は行っていない。
+## 2026-10-25 17:38 JST 試験用Visual Editorインストーラー
+
+- 利用者の依頼でae1e71fのdebug NSIS x64を生成。appで `npm.cmd run tauri -- build --debug --bundles nsis`。通常実行はesbuildのディレクトリアクセス拒否、同じコマンドの権限付き再実行で終了0。本体dev compile 1分30秒。画面buildも成功。
+- exe: app/src-tauri/target/debug/bundle/nsis/AgentDock_0.0.1_x64-setup.exe、7881559 bytes、2026-10-25T08:38:05.2760475Z。SHA-256: 822012E281F981A8F6686D4F034CEF5E2B0A5A1FC342FDD55488E77BA5D20110。同じ場所の.exe.build.jsonに来歴を保存。
+- インストーラー／アプリの起動・インストールは未実行。既存identifierと保存領域を利用する更新用成果物。実Codex編集E2E受入は未実施のまま。起動したビルドセッションは終了0を回収し、稼働中コマンドなし。
