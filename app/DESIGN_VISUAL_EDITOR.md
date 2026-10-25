@@ -1,10 +1,10 @@
 # AgentDock Visual Editor 設計案
 
-作成: 2026-10-25。状態: **提案・未実装・未検証**。
+作成: 2026-10-25。現在: **初期Rust基盤とprobeを実装。製品機能未実装、V0通信隔離は不合格**。設計時の決定区分と現在の実績を分け、最新状態は§14を参照。
 調査基点: `feature/subagent-migration` / `09b00e3eb20456077659bb961cece97d453ac851`。
 利用者の仕様整理01〜05を前提に、現行コードへの統合と未設計部分を具体化する。06と本書の追加提案は利用者決定ではない。要件正本の合意済み部分を置き換えない。
 
-2026-10-25 着手: 利用者の了承と作業開始指示を受け、本書の推奨案を初期実装方針として進める。06は関連ファイルの範囲確認、編集用コピーと採用、最新未採用編集の復元を採用。外部通信遮断、ビルド不要HTML/CSS/JS、失敗・中断時の途中変更保持、終了後の再開用データ保持を初期方針とする。上表の「追加提案」は設計時点の決定区分として残す。プレビュー隔離と安全な元ファイル反映は技術検証前であり、未検証のまま機能公開しない。
+2026-10-25 着手: 利用者の了承と作業開始指示を受け、本書の推奨案を初期実装方針として進める。06は関連ファイルの範囲確認、編集用コピーと採用、最新未採用編集の復元を採用。外部通信遮断、ビルド不要HTML/CSS/JS、失敗・中断時の途中変更保持、終了後の再開用データ保持を初期方針とする。§1の「追加提案」は設計時点の決定区分として残す。着手時点ではプレビュー隔離と安全な元ファイル反映は技術検証前であり、未検証のまま機能公開しない。
 
 ## 1. 設計の結論と決定状態
 
@@ -320,3 +320,23 @@ previewからはこれらを直接呼べない。選択の通知はファイル�
 3. **「元に戻す」は最新の未採用編集単位を対象にする**案。複数回分の未採用変更は累積で採用し、採用後の取消は初期版の主操作に含めない。
 
 実装側の未解決事項はV0で確認する: 専用WebViewの中央配置と限定ブリッジ、WebView2でのframe別資源／遷移遮断、opaque originでのmodule等の互換、ソース位置パーサー、Windowsの競合防止と複数ファイル反映の復旧。未検証事項を安全性・互換性の保証に置き換えない。
+
+## 13. V0のソース調査（2026-10-25）
+
+以下はLuna Explorerによる依存ソースの読取り調査。実行確認ではない。
+
+- lock上のTauriは2.12.1、tauri-runtime-wry 2.12.1、wry 0.57.0、webview2-com 0.39.1。`Window::add_child`はTauriの`unstable` featureを必要とする。現在の通常ビルドでは有効化していない。
+- `WebviewBuilder::on_web_resource_request`はTauri独自schemeの要求に限る旨を実装文書に記載（tauri 2.12.1 `src/webview/mod.rs`）。HTTP全通信の遮断に転用できない。`with_webview`経由でWebView2 COMの資源要求・frame遷移を処理する専用probeが必要。
+- capabilityの`windows: ["main"]`はmain窓内の全WebViewに適用される（tauri-utils 2.10.1 `src/acl/capability.rs`）。中央にpreview子WebViewを足す際は既存default/attachmentsを**webviews単位**へ見直す。窓ラベルだけの確認で隔離できたと扱わない。
+- 現行`build.rs`は`tauri_build::build()`のみで、アプリ独自コマンドのACL用カタログを定義していない。`tauri_build::AppManifest::commands`へコマンド一覧を登録してpreview用拒否permissionを作る方式が候補。既存の`generate_handler!`との一覧不一致を検出する必要がある。
+- 代替は1か所のinvoke handlerでWebViewラベルをfail-closedに検査する方式。Tauriの`Invoke`型は安定APIではない旨の注記があるため、依存更新時の確認が必要。既存commandを個別に大量改修する前に、中央での拒否を検証する。
+- probeは製品Host/承認/送信handlerやpluginsを持たない別の起動構成で行う。probeでの無権限確認を製品IPCの隔離完了と読み替えず、製品側ACLとmain/monitorの回帰を別工程で確認する。
+## 14. 初期基盤の実装とV0の実測（2026-10-25）
+
+- `887b639`: `src-tauri/src/visual_edit/`へ明示範囲、Windowsパスとreparse検査、バイト単位snapshot・SHA-256 manifest、分離コピー、採用／最新undo前の読取り専用競合判定を実装。対象512件・単体8MiB・合計64MiB。通常経路にはmodule宣言だけを追加。
+- 自動依存探索、DOM選択、製品UI／チャットの結合、採用writer、undo writer、永続操作台帳、再起動loaderは未実装。呼出側の停止証拠や競合なしの結果をそのまま書込み権限にしない。Windows読取りhandleを保持するが、欠落名を含む集合全体のatomic snapshotや全悪意ある並行操作への保証ではない。
+- `fc15894`と`dfce3bd`: 独立した非表示窓のchild WebViewを使うopt-in probeを実装。通常Host・command・plugin・保存処理は起動しない。Cargo exampleで欠けていたCommon-Controls v6 manifestを限定的に追加し、実起動とログ取得まで確認した。
+- Luna Tester: 関連Rust試験7/7、通常cargo check、probe build成功。build.rs変更後の通常cargo checkも成功（39.04秒）。Solの独立レビューは実験コードの限定承認。試験成功と製品受入は別。
+- **実機probeはNativeOnly／Layeredとも厳格な通信遮断に不合格**。CSP併用でHTTP要求の拒否を観測したが、別loopbackポートへのTCP接続が届いた。150ms内にHTTP要求行は観測せず、原因は未確定。preconnect等を断定しない。
+- 相対CSS・module・SVGの読込み、親DOMへ到達できないことを制御fixtureで観測した。一方、iframeにTauri globalsが見えた。製品handlerを持たないprobeなので、製品IPC拒否の証明にはならない。中央UIの位置追従／重なりも未試験。
+- 詳細は[実測記録](verification/visual-editor/V0_NATIVE_PROBE.md)。次の課題は専用host／OS側を含む通信境界の再設計。V0合格まで製品UIへ公開しない。Windowsの設定やfirewall、既存Codex設定を無断変更しない。

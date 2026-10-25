@@ -26,7 +26,7 @@ GUI起動はこの環境の権限付き実行を使う。`Inspect`は読取り�
 
 独立identifierは`com.agentdock.visual-preview-probe`。profile/reportは`app/src-tauri/target/visual-probe/run-<GUID>/`、起動記録は`launcher-<GUID>/`。自動削除しない。通常アプリ領域や`~/.codex`へのアクセスはない。攻撃fixtureのHTTP宛先は別ポートのloopback canaryのみ。実在する秘密ファイル・コマンドを使わず、OS全体の通信を計測した試験ではない。
 
-NativeOnlyはCSPなしでnative層を観測する比較条件。LayeredはHTTP CSPを併用し、token付きfixture URLだけをscript/style/image/font/connect/frameへ許可する。fixture用inline script/styleは許可、default/object/worker/base/formsは拒否。policyを変えてもTCP接続を検出したら失敗の判定は緩めない。
+NativeOnlyはCSPなしでnative層を観測する比較条件。LayeredはHTTP CSPを併用し、token付きfixtureのscript/style/image/connect/frameを限定許可する。fixture用inline scriptは許可し、fontとinline styleは不許可。default/object/worker/base/formsも拒否。policyを変えてもTCP接続を検出したら失敗の判定は緩めない。
 
 通常はsetup後6秒で観測を保存する。native終了0は設定完了・canary接続未観測という限定条件のみで、V0全体の合格ではない。2はcanary接続または設定未完了、3はreport保存失敗、4はdefault拒否設定失敗で即時終了、5は起動/終了の20秒watchdog。mainより前のloader失敗をRust watchdogで止めることはできないためhelper側にも待機上限を持つ。
 

@@ -5,7 +5,7 @@ Windows上でCodex App Serverを操作するTauri 2 + React + Rustクライア�
 ## 現在地
 masterは09b00e3へ早送りし、origin/masterへのpushを確認済み（2026-10-25）。通常改善と新サブエージェント方式を含む。実機受入の実績と未確認条件はapp/HANDOFF.mdを参照。旧組織実行は有効なまま。旧基準fbe67ca / baseline/org-engine-2026-10-24は履歴として保持する。
 
-開発ブランチはfeature/visual-editor。Visual Editorは設計と初期技術検証の段階で、製品機能としては未実装。[設計と受入条件](app/DESIGN_VISUAL_EDITOR.md)を参照。
+開発ブランチはfeature/visual-editor。明示したファイルの分離コピー・控え・競合判定のRust基盤と、WebView2検証用exampleを実装。関連Rust試験7件・通常cargo check・exampleビルドは成功。実機probeは厳格なTCP遮断に不合格で、製品UI/AI連携/採用処理は未実装・未公開。[設計と受入条件](app/DESIGN_VISUAL_EDITOR.md)を参照。
 
 ## 最初に読む資料
 1. [AI共通指示](AGENTS.md)

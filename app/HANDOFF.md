@@ -2,6 +2,8 @@
 
 更新: 2026-10-24。通常機能改善と新方式のソース実装・関連検証・独立レビューを保存済み。実Codexによる受入は未実施。README → AGENTS → 本書 → MIGRATION_SUBAGENTSの順に読む。
 
+最新追記（2026-10-25）: master/origin/masterは09b00e3。開発はfeature/visual-editor。設計5733b16、初期基盤887b639、probe fc15894/dfce3bdを保存。実機V0は通信隔離に不合格。以下の古い保存地点・未検証記録は当時の状態。詳細は末尾を参照する。
+
 ## 保存地点
 - 旧版はfbe67ca。masterとorigin/masterへ保存済み。タグbaseline/org-engine-2026-10-24もpush済み。旧フォルダと既存worktreeを保持。
 - 作業場所はAgentDock_next、ブランチfeature/subagent-migration。新ブランチは未push。
@@ -107,3 +109,15 @@
 - 対象: Visual EditorのV0技術調査と、範囲・編集用コピー・B/E/C競合判定の独立Rust基盤。受入: 元を変えずコピーできる、範囲外/特殊パスを拒否、追加/変更/削除や他作業の競合を検出、上限とバイト保持。安全性未確認のプレビュー/採用を製品IPCから有効化しない。
 - Luna Explorerが専用WebViewと通信/IPC遮断を調査、Sol Workerが新規Rustモジュールを実装。最終確認はLuna Tester、独立レビューはSolを予定。親は統合と文書を担当。必要な確認は関連Rust試験とcargo check --locked。UI/既存送信を変えない段階では画面build/実Codex試験を反復しない。
 - 調査開始時点でAgentDock本体・cargo/rustc・関連開発サーバーは観測されず。Codexアプリ自体のプロセスは稼働。実アプリ保存データ・~/.codexには触れない。新ブランチのpushはまだ行わない。
+## 2026-10-25 Visual Editor初期基盤とV0実測
+- 対象feature/visual-editor。887b639は明示範囲のsnapshot・分離コピー・読取り専用競合判定、fc15894/dfce3bdはopt-in WebView2 probeと起動修正・実測。新ブランチは未push。master/origin/masterは09b00e3のまま。
+- Sol WorkerがRust基盤、別Sol Workerがprobeを実装。Luna Explorerが依存ソース/IPC/起動を調査、Luna Testerが最終CLIと実reportを照合、別Sol Reviewerが独立レビュー。パス・並行操作・未信頼WebViewを含むため高リスクとして分担。Astra不使用。helperの区切り比較・reparse検査の2指摘を修正後、実験コードの追加必須修正0件。製品隔離は承認していない。
+- `cargo test --manifest-path app/src-tauri/Cargo.toml --lib visual_edit --locked` は7/7成功。最初の通常実行はjunction fixture作成Access deniedで6/7だったため、同じコマンドを権限付きで再確認して成功。製品assertion失敗と環境拒否を区別した。
+- 最終 `cargo check --manifest-path app/src-tauri/Cargo.toml --locked` はbuild.rs修正後も成功（39.04秒）。probeの `cargo build --manifest-path app/src-tauri/Cargo.toml --example visual_preview_probe --features visual-preview-probe --locked --offline` は最終7.65秒で成功。既存ts-rs属性・incremental hard-link fallback警告あり。
+- 初回GUI起動の承認待ちが中断されたが、利用者の再承認後に親が起動。TaskDialogIndirectのloaderエラーをComputer Useで確認して閉じ、native終了-1073741511を取得。Cargo exampleへmanifestが適用されないことが原因で、probe feature＋Windows MSVC＋examplesだけにCommon-Controls v6 manifestを追加。実PEも照合した。
+- 承認を再利用する固定helper `app/verification/visual-editor/Run-NativeProbe.ps1` を追加。Inspectは読取り、Runは既存probeを拒否して固定exe/引数で非表示起動し、GUID別ログと自身PIDの25秒待機を使う。自動停止なし。reparseは拒否するが事前検査はatomicではなく、ランチャーを並行実行しない。
+- 実測NativeOnlyは11:15:22〜11:15:30 JST、Layeredは11:19:35〜11:19:42 JST、いずれもnative終了2。CSP併用で要求拒否を観測したが、禁止先の別loopbackポートへTCP接続が届いた。Layeredの150ms読取りは0 bytes/HTTP行なし。原因は未確定でpreconnectを断定しない。**V0通信隔離は不合格**。
+- fixtureの相対CSS/module/SVGと親DOM到達拒否を観測。iframeにはTauri globalsが見えた。製品IPC・中央UI追従・全通信手段は未検証。詳細/実report ID/EXE hashはverification/visual-editor/V0_NATIVE_PROBE.md。製品UI/AI接続/採用writer/undo writer/台帳/loaderは未実装で公開しない。
+- 次: 専用host/OS側を含む通信境界の補強を設計し、V0を再評価する。未確認のbrowser flagで成功扱いにせず、Windows設定/firewallや~/.codexを勝手に変更しない。UI未変更なのでnpm type-check/buildは反復せず、実Codex呼出しも行っていない。
+- 承認設定を読取り調査: 現在のprojectはtrusted、default_permissionsはrelease-projects（workspace継承＋明示root/.git書込み）。GUI/ネットワーク/システム照会まで無制限にする設定ではない。config.toml変更なし。担当間の実行セッションIDは共有できず、以後は実行担当が終了結果を回収してから渡す。
+- probeは各試験後にhelper processes=[]で終了確認。常駐プロセスの追加なし。通常AgentDock保存領域・認証・設定への書込みなし。生成型/schemaの既存変更表示39件は最終raw hash比較ですべてindexとバイト一致を確認。内容の破棄やステージはせず保持。試験profile/report/logはignoredなtarget配下へ保持。
