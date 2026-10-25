@@ -125,7 +125,7 @@ impl FileScope {
                 .unwrap_or("")
                 .to_ascii_lowercase();
             let allowed = match f.access {
-                FileAccess::Edit => matches!(ext.as_str(), "html" | "htm" | "css" | "js" | "mjs"),
+                FileAccess::Edit => matches!(ext.as_str(), "html" | "htm" | "css" | "js" | "mjs" | "svg"),
                 FileAccess::ReadOnly => matches!(
                     ext.as_str(),
                     "png"

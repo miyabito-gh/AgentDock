@@ -18,7 +18,7 @@ pub struct VisualWriteArgs { pub session_id:String, pub revision:u64 }
 fn visual_err(e:impl std::fmt::Display)->IpcError { err(IpcErrorCode::Blocked,format!("Visual Editor: {e}")) }
 fn path_string(path:&Path)->Result<String,IpcError> { Ok(ve::preview::normal_drive_path(path).map_err(visual_err)?.to_string_lossy().into_owned()) }
 fn known_access(ext:&str)->Option<FileAccess> {
-    match ext { "html"|"htm"|"css"|"js"|"mjs"=>Some(FileAccess::Edit), "png"|"jpg"|"jpeg"|"gif"|"webp"|"avif"|"svg"|"ico"|"woff"|"woff2"|"ttf"|"otf"|"json"=>Some(FileAccess::ReadOnly), _=>None }
+    match ext { "html"|"htm"|"css"|"js"|"mjs"|"svg"=>Some(FileAccess::Edit), "png"|"jpg"|"jpeg"|"gif"|"webp"|"avif"|"ico"|"woff"|"woff2"|"ttf"|"otf"|"json"=>Some(FileAccess::ReadOnly), _=>None }
 }
 fn discover(root:&ProjectRoot, html:&RelativePath)->ve::VisualResult<FileScope> {
     let mut chosen=Vec::new();
@@ -405,6 +405,7 @@ mod discover_tests {
         let paths:Vec<_>=scope.selected().iter().map(|f|f.path.clone()).collect();
         let _=fs::remove_dir_all(&base);
         assert!(paths.contains(&"index.html".to_string()) && paths.contains(&"assets/mark.svg".to_string()), "{paths:?}");
+        assert!(scope.selected().iter().all(|f| f.access==FileAccess::Edit), "svg and html must be editable");
     }
 }
 #[cfg(test)]

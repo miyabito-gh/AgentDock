@@ -97,3 +97,9 @@
 .visual-selection-line small{color:var(--ink2);flex-basis:100%}
 .visual-fine{margin-top:6px}
 .visual-selection{padding:10px 12px}
+
+.visual-recovery{display:flex;flex-direction:column;gap:6px;align-items:flex-start;padding:10px 11px;border:1px solid var(--line);border-radius:6px;background:var(--surface);margin:0 0 8px}
+.visual-recovery strong{font-size:var(--fs-s)}
+.visual-recovery p{margin:0;color:var(--ink2);font-size:var(--fs-xs)}
+.visual-recovery small{color:var(--ink2);line-height:1.5}
+.visual-recovery .btn.primary{align-self:stretch;padding:8px 10px}

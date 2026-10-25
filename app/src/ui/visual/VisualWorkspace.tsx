@@ -293,7 +293,7 @@ export function VisualWorkspace({ enabled, blocked, chatName, chatId, canInsert,
     }
   }, [enabled, busy, edit?.revision, edit?.phase]);
   // 編集チャットへの送信に、選択範囲と編集方針を自動で添える（入力欄は書き換えない）。
-  const contextText = enabled && edit && chatId === edit.chat.id ? visualSendContext(edit.htmlPath, selection) : null;
+  const contextText = enabled && edit && chatId === edit.chat.id ? visualSendContext(edit.htmlPath, selection, edit.scope) : null;
   useEffect(() => { onContextRef.current(contextText); }, [contextText]);
   useEffect(() => () => onContextRef.current(null), []);
   if (!enabled) return <>{children}</>;

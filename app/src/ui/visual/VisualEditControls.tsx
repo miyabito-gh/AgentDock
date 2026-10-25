@@ -158,9 +158,24 @@ export function VisualEditControls({ enabled, chatId, preview, session, onBind, 
     } finally { writeLock.current = false; setBusy(false); }
   };
 
+  // 反映できないときの回復: 元の最新の内容から編集用コピーを作り直す（今のコピーは「保存された編集」に残る）。
+  const restart = async () => {
+    if (!session || busy || writeLock.current) return;
+    writeLock.current = true; setBusy(true); setError(null);
+    try {
+      const next = await createVisualEdit(session.sourceRoot, session.sourceRoot + "/" + session.htmlPath);
+      setSessions((all) => [next, ...all.filter((item) => item.sessionId !== next.sessionId)]);
+      await bind(next);
+      onNotice("元の最新の内容から、編集用コピーを作り直しました。依頼はまだ送信していません。");
+    } catch (e) {
+      setError("作り直せませんでした: " + messageOf(e));
+    } finally { writeLock.current = false; setBusy(false); }
+  };
   const visibleChanges = session?.changes.filter((item) => item.change !== null) ?? [];
   const conflicts = visibleChanges.filter((item) => item.conflict);
-  const status = !session ? null : conflicts.length ? { tone: "warn", text: "元のファイルが変わっているため、反映できません", hint: "元のファイルを確認してください。AIの編集は取り消せます。" }
+  const waiting = !!session && ["runningOrReconciling", "preparedUnresolved", "acceptanceUnknown", "rejected"].includes(session.phase);
+  const cannotApply = !!session && !stale && !waiting && visibleChanges.length > 0 && (conflicts.length > 0 || !session.canAdopt);
+  const status = !session ? null : cannotApply ? { tone: "warn", text: "この編集は元のファイルに反映できません", hint: conflicts.length ? "編集を始めたあとに、元のファイルが変更されたようです。" : "元のファイルが変更された、または表示専用のファイルが変更されたようです。" }
     : stale ? { tone: "wait", text: "状態を確認しています…", hint: "" }
     : session.phase === "runningOrReconciling" ? { tone: "wait", text: "AIが作業中、または終了を確認中です", hint: "終わると変更が表示されます。" }
     : session.phase === "preparedUnresolved" || session.phase === "acceptanceUnknown" ? { tone: "warn", text: "依頼が届いたか確認できていません", hint: "チャットの表示を確認してください。自動では再送しません。" }
@@ -183,14 +198,20 @@ export function VisualEditControls({ enabled, chatId, preview, session, onBind, 
         <strong>{status?.text}</strong>
         {status?.hint ? <span>{status.hint}</span> : null}
       </div>
-      {visibleChanges.length ? <ul className="visual-changes">{visibleChanges.map((item) => <li key={item.path}><button type="button" className="btn-line sm" onClick={() => void readDiff(item.path)}>{item.path} の変更を見る</button><small>{changeLabel(item.change)}{item.conflict ? " · 元のファイルが変更されています" : ""}</small></li>)}</ul> : null}
-      <div className="visual-edit-actions">
+      {cannotApply ? <div className="visual-recovery">
+        <strong>どうすればいい？</strong>
+        <p>元の変更とAIの編集は、自動では合わせられません。</p>
+        <button type="button" className="btn primary" disabled={busy} onClick={() => void restart()}>元の最新の内容から、やり直す</button>
+        <small>元のファイルの今の内容で編集用コピーを作り直します（新しい専用チャットが作られます）。今のコピーのAI編集は引き継がれませんが、「詳細」の保存された編集に残ります。</small>
+        <button type="button" className="btn-line sm" disabled={busy} onClick={() => void onLeave().catch((e) => setError("元のHTMLを開けませんでした: " + messageOf(e)))}>まず元のファイルを見る</button>
+      </div> : <div className="visual-edit-actions">
         <button type="button" className="btn primary" disabled={busy || stale || !session.canAdopt} onClick={() => void write("adopt")}>この内容を元に反映</button>
         <button type="button" className="btn" disabled={busy || stale || !session.canUndo} onClick={() => void write("undo")}>直前のAI編集を取り消す</button>
-      </div>
+      </div>}
       {operation && operation.revision === session.revision && (operation.id === null || operation.id === session.lastOperation?.id)
         ? <p className="visual-hint" role="status">{operation.outcome === "applied" ? (operation.kind === "adopt" ? "元のファイルに反映しました。" : "直前のAI編集を取り消しました。") : actionLabel(operation.kind) + "の結果は「" + operation.outcome + "」です。"} {operation.message}</p> : null}
-      <details className="visual-more"><summary>詳細</summary>
+      <details className="visual-more"><summary>詳細{visibleChanges.length ? `（変更ファイル${visibleChanges.length}件）` : ""}</summary>
+        {visibleChanges.length ? <ul className="visual-changes">{visibleChanges.map((item) => <li key={item.path}><button type="button" className="btn-line sm" onClick={() => void readDiff(item.path)}>{item.path} の差分</button><small>{changeLabel(item.change)}{item.conflict ? " · 元のファイルが変更されています" : ""}</small></li>)}</ul> : null}
         <div className="visual-edit-heading">
           <span>{phaseLabel(session.phase)} · 版 {session.revision} · {stale ? "状態未確認" : "状態確認済み"}</span>
           <button type="button" className="btn-line sm" disabled={busy} onClick={() => void recheck()}>状態を再確認</button>
