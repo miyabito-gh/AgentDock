@@ -15,6 +15,15 @@ pub struct VisualSessionArgs { pub session_id:String }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VisualWriteArgs { pub session_id:String, pub revision:u64 }
+/// 保存領域の中の、リンクでないフォルダだけを削除する（保存領域そのものや外は削除しない）。
+fn remove_storage_dir(storage:&Path,dir:&Path)->Result<(),String> {
+    let meta=match fs::symlink_metadata(dir) {Ok(m)=>m,Err(e) if e.kind()==std::io::ErrorKind::NotFound=>return Ok(()),Err(e)=>return Err(e.to_string())};
+    if meta.file_type().is_symlink() || !meta.is_dir() {return Err("not a plain directory".into());}
+    let root=fs::canonicalize(storage).map_err(|e|e.to_string())?;
+    let target=fs::canonicalize(dir).map_err(|e|e.to_string())?;
+    if target==root || !target.starts_with(&root) {return Err("outside the visual storage".into());}
+    fs::remove_dir_all(dir).map_err(|e|e.to_string())
+}
 fn visual_err(e:impl std::fmt::Display)->IpcError { err(IpcErrorCode::Blocked,format!("Visual Editor: {e}")) }
 fn path_string(path:&Path)->Result<String,IpcError> { Ok(ve::preview::normal_drive_path(path).map_err(visual_err)?.to_string_lossy().into_owned()) }
 fn known_access(ext:&str)->Option<FileAccess> {
@@ -150,6 +159,41 @@ impl Host {
         if self.send_unsettled(&chat) || self.subagent_turn_pending(&chat) {return Err(visual_err("this chat has a send or turn that is not settled"));}
         session::append(&s.folder,&SessionEvent::Ended).map_err(visual_err)?;
         self.visual_loaded(session_id)?.view().map_err(visual_err)
+    }
+    /// 編集を破棄する。コピーのファイルを削除し、反映前のバックアップ（元の内容）は `keep_backup` のとき残す。
+    /// 反映していない編集は元に影響しないので、すべて削除する。元のフォルダには触れない。
+    pub async fn visual_discard(self:&Arc<Self>,session_id:&str,keep_backup:bool)->Result<(),IpcError> {
+        let initial=self.visual_loaded(session_id)?;
+        let chat=initial.meta.chat.clone();
+        let _send_guard=self.queue_rt.send_lock(&chat).lock_owned().await;
+        let _guard=self.visual_rt.lock.lock().await;
+        let mut s=self.visual_loaded(session_id)?;
+        if s.is_current_mode() && !s.ended() {return Err(visual_err("end the edit first, then discard it"));}
+        self.visual_refresh(&mut s).await?;
+        let view=s.view().map_err(visual_err)?;
+        if matches!(view.phase.as_str(),"preparedUnresolved"|"acceptanceUnknown"|"runningOrReconciling"|"partial"|"recoveryRequired") || s.pending_operation() {
+            return Err(visual_err("the edit is still running or unresolved; wait until it stops and its changes are confirmed"));
+        }
+        if self.send_unsettled(&chat) || self.subagent_turn_pending(&chat) {return Err(visual_err("this chat has a send or turn that is not settled"));}
+        let keep=keep_backup && s.latest_adopted().is_some();
+        let folder=s.folder.clone();
+        let storage=self.visual_root();
+        // 先に記録する（以後は一覧・紐付けから外れる）。削除が途中で失敗しても、元のファイルには影響しない。
+        session::append(&folder,&SessionEvent::Discarded).map_err(visual_err)?;
+        let mut failed=Vec::new();
+        let mut targets=Vec::new();
+        for entry in fs::read_dir(&folder).map_err(visual_err)? {
+            let entry=entry.map_err(visual_err)?;
+            if !entry.file_type().map_err(visual_err)?.is_dir() {continue;}
+            let name=entry.file_name().to_string_lossy().into_owned();
+            let remove=name=="draft" || (!keep && name=="initial") || (name.starts_with("tx-") && (!keep || name.ends_with("-after")));
+            if remove {targets.push(entry.path());}
+        }
+        if !keep {targets.push(storage.join("_journals").join(session_id));}
+        for dir in targets {
+            if let Err(e)=remove_storage_dir(&storage,&dir) {failed.push(format!("{}: {e}",dir.display()));}
+        }
+        if failed.is_empty() {Ok(())} else {Err(visual_err(format!("the edit was discarded, but some files could not be deleted: {}",failed.join("; "))))}
     }
     pub async fn visual_list(self:&Arc<Self>)->Result<Vec<SessionView>,IpcError> {
         let _guard=self.visual_rt.lock.lock().await;
@@ -523,5 +567,22 @@ mod pin_save_tests {
         assert!(ancestor.is_ok(), "save in pinned ancestor failed: {ancestor:?}");
         assert!(inside.is_ok(), "save inside pinned dir failed: {inside:?}");
         assert!(swap.is_err(), "pinned directory must not be renamable");
+    }
+}
+#[cfg(test)]
+mod discard_tests {
+    use super::*;
+    #[test]
+    fn remove_storage_dir_only_deletes_plain_directories_inside_the_storage() {
+        let base=std::env::temp_dir().join(format!("agentdock-discard-{}",std::process::id()));
+        let _=fs::remove_dir_all(&base);
+        let storage=base.join("store"); let draft=storage.join("s1").join("draft"); let outside=base.join("outside");
+        fs::create_dir_all(draft.join("assets")).unwrap(); fs::write(draft.join("assets").join("a.txt"),"x").unwrap();
+        fs::create_dir_all(&outside).unwrap(); fs::write(outside.join("keep.txt"),"x").unwrap();
+        assert!(remove_storage_dir(&storage,&draft).is_ok() && !draft.exists());
+        assert!(remove_storage_dir(&storage,&draft).is_ok(), "an already removed directory is not an error");
+        assert!(remove_storage_dir(&storage,&outside).is_err() && outside.join("keep.txt").exists());
+        assert!(remove_storage_dir(&storage,&storage).is_err() && storage.exists());
+        let _=fs::remove_dir_all(&base);
     }
 }

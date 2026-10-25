@@ -154,3 +154,9 @@
 .vm-opt{height:auto}
 .vp-edit .visual-recovery{margin:6px 0 0}
 .vp-edit .visual-more{margin:6px 0 0}
+
+.vs-saved{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.vs-saved>span{font-size:var(--fs-xs);color:var(--ink2)}
+.vs-confirm{display:flex;flex-direction:column;align-items:flex-start;gap:5px;margin:5px 0;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--surface2)}
+.vs-confirm p{margin:0;font-size:var(--fs-xs)}
+.vs-confirm .btn.danger{color:var(--fail-ink);border-color:var(--fail-line)}

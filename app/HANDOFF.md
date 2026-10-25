@@ -323,3 +323,10 @@
 - 症状: 前の修正後も「編集を始められませんでした」。原因: 右ペインのプレビューが前の編集のコピー(visual-…\draft)のままで、create がそれを元のフォルダとして渡し、保存場所と重なって拒否された（前のバージョンの終了時プレビュー入れ替え失敗の名残）。
 - 修正: create 時、表示中の root がコピー配下なら listVisualEdits で持ち主のセッションを探し、その元フォルダ・HTMLで作成。見つからなければ「表示しているのは編集用コピーです。HTMLを開くで元のHTMLを開いてください」。
 - 検証: tsc成功。debug NSIS(7908924 bytes, SHA-256 1f53f9c4781fab59fd7b4312bc9af8518772459c167755ee14ba9f16d8a6f579)。実機未確認。
+
+## 2026-10-26 編集の破棄機能
+- 要望: やめた編集を破棄したい。方針（利用者了承）: 反映していないものは1回の確認で削除。反映済み(終了後)は「コピーだけ削除（反映前のバックアップは残す）」と「バックアップも含めて削除」の2択。編集中のものは先に「編集を終える」。
+- 理由: 反映すると元のファイルは上書きされ、反映前の内容は _journals/<id>/adopt-*/ の before と、セッションの initial / tx-*-before にしか残らない（AgentDockに「反映後に元を戻す」機能はまだない）。
+- 実装: SessionEvent::Discarded。visual_discard(session_id, keep_backup): current モードは終了済みのみ、実行中・未解決・保留操作・送信未決は拒否。先に Discarded を記録（以後 list/binding_id/load から外れる。session.json と events.jsonl は残す）→ draft と tx-*-after（keep時）／initial・tx-*・_journals/<id>（完全削除時）を、保存領域内のリンクでないフォルダに限って削除（remove_storage_dir）。元のフォルダには触れない。コマンド visual_edit_discard。SessionView に adopted。
+- 画面: 「詳細」の「保存された編集」「終了した編集」の各行に「破棄」→ インライン確認。表示中のコピーはプレビューを閉じてから削除。専用チャットの破棄では、その会話を一覧に戻す（不要なら通常の削除で消せる）。
+- 検証: cargo test --lib 全件（新規: discarded_session_is_hidden…, remove_storage_dir_only_deletes…）、tsc成功。debug NSIS(7932974 bytes, SHA-256 2c1e25fa30e2554b9402a664f010fa39a4b3ac6e51641b7bb635ff63c74dcc7a)。実機未確認。

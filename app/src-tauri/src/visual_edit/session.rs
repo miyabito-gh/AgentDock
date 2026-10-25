@@ -41,6 +41,8 @@ pub enum SessionEvent {
     Ended,
     /// 終了後の最初の送信が受理され、元の作業場所へ戻った。
     Restored,
+    /// 利用者が編集を破棄した。コピー（と、選んだ場合は反映前のバックアップ）を削除した。以後は一覧・紐付けに出さない。
+    Discarded,
 }
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -61,6 +63,8 @@ pub struct SessionView {
     /// "dedicated"（専用チャット）または "current"（既存の会話で続ける）。
     pub mode: String,
     pub ended: bool,
+    /// 元のフォルダへ反映したことがある（反映前のバックアップが残っている）。
+    pub adopted: bool,
 }
 #[derive(Clone, Debug)]
 pub struct LoadedSession {
@@ -159,7 +163,7 @@ impl LoadedSession {
         if matches!(phase,"changes") && changes.iter().all(|f|f.change.is_none()) {phase="editable";}
         if self.events.iter().rev().find_map(|e|match e {SessionEvent::OperationResult{outcome,..}=>Some(outcome.as_str()),SessionEvent::Adopted{..}|SessionEvent::UndoApplied{..}=>Some("applied"),_=>None}).is_some_and(|x|x=="partial" || x=="conflict") {phase="partial"; blockers.push("file operation is partial or conflicted; inspect journal and current files".into());}
         let last_operation=self.events.iter().rev().find_map(|e|match e {SessionEvent::OperationIntent{operation_id,purpose,..}=>Some(LastOperationView{kind:purpose.clone(),id:operation_id.clone(),outcome:self.outcome(operation_id).unwrap_or("unknown").into(),message:None}),_=>None});
-        Ok(SessionView{session_id:self.meta.session_id.clone(),chat:self.meta.chat.clone(),source_root:self.meta.source_root.clone(),draft_root:self.meta.draft_root.clone(),html_path:self.meta.html_path.clone(),scope:self.meta.scope.clone(),phase:(if self.ended(){"ended"}else{phase}).into(),revision:self.revision(),changes,blockers,can_adopt:false,can_undo:false,last_operation,mode:(if self.is_current_mode(){"current"}else{"dedicated"}).into(),ended:self.ended()})
+        Ok(SessionView{session_id:self.meta.session_id.clone(),chat:self.meta.chat.clone(),source_root:self.meta.source_root.clone(),draft_root:self.meta.draft_root.clone(),html_path:self.meta.html_path.clone(),scope:self.meta.scope.clone(),phase:(if self.ended(){"ended"}else{phase}).into(),revision:self.revision(),changes,blockers,can_adopt:false,can_undo:false,last_operation,mode:(if self.is_current_mode(){"current"}else{"dedicated"}).into(),ended:self.ended(),adopted:self.latest_adopted().is_some()})
     }
 }
 fn durable_file(path: &Path, bytes: &[u8]) -> VisualResult<()> {
@@ -178,6 +182,8 @@ pub fn save_pending_binding(folder:&Path,binding:&PendingBinding)->VisualResult<
 pub fn load(root: &Path, id: &str) -> VisualResult<LoadedSession> {
     validate_id(id)?;
     let folder=root.join(id);
+    // 破棄した編集は、コピーのファイルが無いので読み込まない。
+    if events_have(&folder, "discarded") { return Err(VisualError::Conflict("visual session was discarded")); }
     let meta:SessionMeta=serde_json::from_slice(&fs::read(folder.join("session.json"))?)?;
     if meta.version != 1 || meta.session_id != id { return Err(VisualError::Conflict("visual session metadata mismatch")); }
     let source_path=super::preview::normal_drive_path(Path::new(&meta.source_root)).map_err(|_|VisualError::Conflict("invalid source root"))?;
@@ -242,7 +248,7 @@ pub fn binding_id(root:&Path, chat:&ChatKey)->VisualResult<Option<String>> {
         if let (Some(b),Some(m))=(&binding,&meta) {if b.chat!=m.chat || b.draft_root!=m.draft_root {return Err(VisualError::Conflict("visual binding changed during creation"));}}
         if meta.as_ref().is_some_and(|m|&m.chat==chat) || binding.as_ref().is_some_and(|b|&b.chat==chat) {
             // 終えた編集は紐付けを外した扱い（その会話は通常の送信に戻る。元へ戻す処理は restore_for が受け持つ）。
-            if events_have(&entry.path(), "ended") {continue;}
+            if events_have(&entry.path(), "ended") || events_have(&entry.path(), "discarded") {continue;}
             return Ok(Some(id));
         }
         if meta.is_none() && binding.is_none() && entry.path().join("pending.json").exists() {unbound_pending=true;}
@@ -281,6 +287,7 @@ pub fn list(root: &Path) -> VisualResult<Vec<LoadedSession>> {
         if !e.file_type()?.is_dir() { return Err(VisualError::Conflict("unrecognized visual storage entry")); }
         let id=e.file_name().into_string().map_err(|_| VisualError::Conflict("invalid session folder name"))?;
         if id=="_journals" { ProjectRoot::open(&e.path())?; continue; }
+        if events_have(&e.path(), "discarded") { continue; }
         sessions.push(load(root,&id)?);
     }
     Ok(sessions)
@@ -369,6 +376,18 @@ mod session_tests {
             save_snapshot(&self.folder().join("e1"),&after).unwrap();
             append(&self.folder(),&SessionEvent::Captured{attempt_id:"a1".into(),after:"e1".into()}).unwrap();
         }
+    }
+    #[test]
+    fn discarded_session_is_hidden_from_list_and_binding_even_without_its_files() {
+        let c=Case::new();
+        let chat=ChatKey{backend:BackendKind::Codex,id:ExternalId("thread-1".into())};
+        assert_eq!(list(&c.root).unwrap().len(),1);
+        append(&c.folder(),&SessionEvent::Discarded).unwrap();
+        fs::remove_dir_all(c.folder().join("draft")).unwrap();
+        fs::remove_dir_all(c.folder().join("initial")).unwrap();
+        assert_eq!(list(&c.root).unwrap().len(),0);
+        assert_eq!(binding_id(&c.root,&chat).unwrap(),None);
+        assert!(load(&c.root,&c.id).is_err());
     }
     #[test]
     fn ended_edit_on_existing_chat_unbinds_and_restores_exactly_once() {

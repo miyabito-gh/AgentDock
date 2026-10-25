@@ -15,8 +15,8 @@ function overlayOpen(): boolean {
     .some((node) => node.getClientRects().length > 0 && getComputedStyle(node).visibility !== "hidden");
 }
 
-export function VisualWorkspace({ enabled, blocked, chatId, canInsert, currentChat, onInsert, onContext, onChip, onEnded, openRequest, onNotice, onOpenEditChat, onLeaveEditChat, onKnownEditChats, children }: {
-  enabled: boolean; blocked: boolean; chatName: string | null; chatId: string | null; canInsert: boolean; currentChat: ChatKey | null; onEnded: (id: string) => void;
+export function VisualWorkspace({ enabled, blocked, chatId, canInsert, currentChat, onInsert, onContext, onChip, onEnded, onDiscarded, openRequest, onNotice, onOpenEditChat, onLeaveEditChat, onKnownEditChats, children }: {
+  enabled: boolean; blocked: boolean; chatName: string | null; chatId: string | null; canInsert: boolean; currentChat: ChatKey | null; onEnded: (id: string) => void; onDiscarded: (chatId: string, mode: "dedicated" | "current") => void;
   onOpenEditChat: (id: string) => void; onLeaveEditChat: () => void; onKnownEditChats: (ids: string[], dedicated: string[]) => void;
   onInsert: (text: string) => void; onContext: (text: string | null) => void; onChip: (chip: { count: number; label: string; onClear: () => void } | null) => void; openRequest: { path: string; nonce: number } | null; onNotice: (message: string) => void; children: ReactNode;
 }) {
@@ -244,6 +244,15 @@ export function VisualWorkspace({ enabled, blocked, chatId, canInsert, currentCh
     finally { operationBusy.current = false; if (alive.current) setBusy(false); }
   };
 
+  // 破棄するコピーを表示しているプレビューを閉じる（表示中のフォルダは削除できないため）。
+  const closeDraftPreview = async (draftRoot: string) => {
+    const active = current.current;
+    if (!active || operationBusy.current) return;
+    const norm = (value: string) => value.replace(/\\/g, "/").replace(/\/$/, "").toLowerCase();
+    if (!norm(active.rootPath).startsWith(norm(draftRoot))) return;
+    await enqueue(() => closePreview(active.sessionId));
+    if (current.current?.sessionId === active.sessionId) { current.current = null; setSession(null); setSelection([]); setTruncated(false); }
+  };
   const bindEdit = async (next: VisualEditSession) => {
     if (editBinding.current || operationBusy.current || closeFailed.current) throw new Error("プレビューの操作中です。");
     editBinding.current = true;
@@ -328,7 +337,7 @@ export function VisualWorkspace({ enabled, blocked, chatId, canInsert, currentCh
       <section className="vp-card vp-edit" aria-label="編集">
         <header className="vp-head"><strong>編集</strong><span className="vp-sub">{edit ? (edit.mode === "current" ? "この会話で編集中" : "専用チャットで編集中") + " · " + (fileName ?? "") : "未開始"}</span></header>
         <div className="vp-body">
-          <VisualEditControls enabled={enabled && desktop} chatId={chatId} currentChat={currentChat} onEnded={async (id) => { await leaveEdit(); onEnded(id); }} preview={session} session={edit} onBind={bindEdit} onUpdate={updateEdit} onLeave={leaveEdit} onBeforeDiff={beforeDiff} onAfterDiff={afterDiff} onKnownEditChats={onKnownEditChats} onNotice={onNotice} />
+          <VisualEditControls enabled={enabled && desktop} chatId={chatId} currentChat={currentChat} onEnded={async (id) => { await leaveEdit(); onEnded(id); }} onCloseDraftPreview={closeDraftPreview} onDiscarded={onDiscarded} preview={session} session={edit} onBind={bindEdit} onUpdate={updateEdit} onLeave={leaveEdit} onBeforeDiff={beforeDiff} onAfterDiff={afterDiff} onKnownEditChats={onKnownEditChats} onNotice={onNotice} />
           {error ? <p className="visual-error" role="alert">{error}</p> : null}
           {closeUnconfirmed ? <button type="button" className="btn-line sm" disabled={busy} onClick={() => void retryClose()}>閉じるを再試行</button> : null}
         </div>

@@ -103,6 +103,8 @@ export interface VisualEditSession {
   htmlPath: string; scope: VisualFileScope[]; phase: string; revision: number;
   /** dedicated＝編集用の新しいチャット / current＝今ある会話を編集中だけ編集用コピーで作業させる。 */
   mode: "dedicated" | "current"; ended: boolean;
+  /** 元のフォルダへ反映したことがある（反映前のバックアップが残っている）。 */
+  adopted: boolean;
   changes: VisualChange[]; blockers: string[]; canAdopt: boolean; canUndo: boolean;
   lastOperation?: VisualLastOperation;
 }
@@ -153,7 +155,7 @@ function parseVisualSession(value: unknown): VisualEditSession {
     draftRoot: requiredText(value.draftRoot, 4096, "編集用コピー"),
     htmlPath: requiredText(value.htmlPath, 2048, "HTML"),
     scope, phase: requiredText(value.phase, 100, "編集状態"), revision: value.revision,
-    mode: value.mode === "current" ? "current" : "dedicated", ended: value.ended === true,
+    mode: value.mode === "current" ? "current" : "dedicated", ended: value.ended === true, adopted: value.adopted === true,
     changes, blockers, canAdopt: value.canAdopt, canUndo: value.canUndo, lastOperation,
   };
 }
@@ -165,6 +167,10 @@ function parseVisualDiff(value: unknown): VisualDiff {
 export type VisualStartMode = "current" | "fork" | "new";
 export async function createVisualEdit(rootPath: string, htmlPath: string, model?: ModelChoice | null, chat?: ChatKey | null, mode: VisualStartMode = "new"): Promise<VisualEditSession> {
   return parseVisualSession(await invoke<unknown>("visual_edit_create", { args: { rootPath, htmlPath, model: model ?? null, chat: mode === "new" ? null : chat ?? null, mode } }));
+}
+/** 編集を破棄する（コピーを削除。keepBackup＝反映前のバックアップを残す。反映していない編集では無視）。 */
+export async function discardVisualEdit(sessionId: string, keepBackup: boolean): Promise<void> {
+  await invoke<unknown>("visual_edit_discard", { args: { sessionId, keepBackup } });
 }
 export async function endVisualEdit(sessionId: string): Promise<VisualEditSession> {
   return parseVisualSession(await invoke<unknown>("visual_edit_end", { args: { sessionId } }));

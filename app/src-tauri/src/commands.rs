@@ -1423,6 +1423,13 @@ pub async fn visual_edit_list(host: Hs<'_>) -> R<Vec<crate::visual_edit::session
 pub async fn visual_edit_end(host: Hs<'_>, args: crate::host::visual::VisualSessionArgs) -> R<crate::visual_edit::session::SessionView> {
     host.inner().clone().visual_end(&args.session_id).await
 }
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VisualDiscardArgs { pub session_id: String, pub keep_backup: bool }
+#[tauri::command]
+pub async fn visual_edit_discard(host: Hs<'_>, args: VisualDiscardArgs) -> R<()> {
+    host.inner().clone().visual_discard(&args.session_id, args.keep_backup).await
+}
 #[tauri::command]
 pub async fn visual_edit_status(host: Hs<'_>, args: crate::host::visual::VisualSessionArgs) -> R<crate::visual_edit::session::SessionView> {
     host.inner().clone().visual_status(&args.session_id).await

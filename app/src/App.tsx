@@ -1778,6 +1778,7 @@ ${cur}` : p.text);
               onKnownEditChats={(ids, dedicated) => { setVisualBoundChatIds((old) => new Set([...old, ...ids])); setVisualDedicatedIds((old) => new Set([...old, ...dedicated])); }}
               currentChat={chat && chat.key.backend === "codex" && !visualBoundChatIds.has(chat.key.id) ? chat.key : null}
               onEnded={(id) => setVisualBoundChatIds((old) => { const next = new Set(old); next.delete(id); return next; })}
+              onDiscarded={(id, mode) => { if (mode === "dedicated") setVisualDedicatedIds((old) => { const next = new Set(old); next.delete(id); return next; }); setVisualBoundChatIds((old) => { const next = new Set(old); next.delete(id); return next; }); }}
               onContext={setVisualCtx} onChip={setVisualChip} openRequest={visualOpen}
               onInsert={(text) => {
                 if (!chat) return;
