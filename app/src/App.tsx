@@ -53,7 +53,7 @@ import { fromLocal, type SentLocal } from "./ui/chips";
 import { resendCtxOf, resendTargetOf, rootTurns, type ResendHandlers, type ResendState } from "./ui/ResendDialog";
 import { resendAvailability } from "./ui/resend";
 import { PaneSplitter } from "./ui/PaneSplitter";
-import { displayWidths, loadSaved, paneModes, type PaneKind } from "./ui/paneWidth";
+import { PANE, displayWidths, loadSaved, paneModes, type PaneKind } from "./ui/paneWidth";
 import { chatName, isRunning, isWorkingForDock, stopOpen } from "./ui/derive";
 import { hms, keyStr, knownValue } from "./ui/format";
 import { pushRecent } from "./ui/skillPick";
@@ -105,6 +105,8 @@ export default function App() {
   const [rightOpen, setRightOpen] = useState(true);
   const [visualMode, setVisualMode] = useState(false);
   const [visualCtx, setVisualCtx] = useState<string | null>(null);
+  const [visualDedicatedIds, setVisualDedicatedIds] = useState<Set<string>>(() => new Set());
+  const [visualW, setVisualW] = useState<number | null>(() => { try { const v = Number(window.localStorage.getItem("agentdock.visualPaneWidth")); return Number.isFinite(v) && v > 0 ? v : null; } catch { return null; } });
   const [visualChip, setVisualChip] = useState<{ count: number; label: string; onClear: () => void } | null>(null);
   const [visualOpen, setVisualOpen] = useState<{ path: string; nonce: number } | null>(null);
   const [visualEditChatId, setVisualEditChatId] = useState<string | null>(null);
@@ -518,6 +520,10 @@ export default function App() {
     winW, left: loadSaved("left", savedLayout.leftWidth), dock: loadSaved("dock", savedLayout.dockWidth),
     leftShown: !leftTemp && leftOpen, dockShown: !rightTemp && rightOpen,
   });
+  // Visual Editorを開いている間は、右ペイン（プレビュー）を広めにし、幅も変えられる。会話は中央に残す。
+  const visualLeftPx = !leftTemp && leftOpen ? paneW.left : 0;
+  const visualMax = Math.max(PANE.visual.min, Math.min(PANE.visual.max, winW - visualLeftPx - 380));
+  const visualPx = Math.max(PANE.visual.min, Math.min(visualW ?? PANE.visual.def, visualMax));
   const onPaneCommit = (kind: PaneKind, w: number | null) => {
     const layout = kind === "left" ? { ...savedLayout, leftWidth: w } : { ...savedLayout, dockWidth: w };
     setLayoutOv(layout);
@@ -552,8 +558,6 @@ export default function App() {
     : "Codex 版を確認できません";
 
   const selectChat = (id: string | null) => {
-    // 専用の編集チャットへ戻るときはVisual Editorを開いたままにし、それ以外ではプレビューを閉じる。
-    if (id !== selId) setVisualMode(id !== null && visualBoundChatIds.has(id));
     setOrgScreen(false);
     setSelId(id);
     setQuick((q) => (q.open ? { ...q, open: false } : q)); // 下書きは隠すだけ（文は残る）
@@ -1748,9 +1752,9 @@ ${cur}` : p.text);
         ) : null}
         <SaveBanner failed={failedSaves.filter((s) => !forChat(s))} warnings={warnHidden ? [] : snap.startupWarnings} onDismissWarnings={dismissWarnings} onAct={act} />
         <div
-          className={`body ${visualShown ? "visual-mode" : ""} ${leftOpen ? "" : "l-off"} ${rightOpen ? "" : "r-off"} ${lNarrow ? "n-l" : ""} ${rNarrow ? "n-r" : ""}`}
-          data-left-temp={leftTemp ? "" : undefined} data-right-temp={rightTemp ? "" : undefined}
-          style={{ ...(!leftTemp && leftOpen ? { "--lw": `${paneW.left}px` } : {}), ...(!rightTemp && rightOpen ? { "--rw": `${paneW.dock}px` } : {}) } as CSSProperties}
+          className={`body ${visualShown ? "visual-mode" : ""} ${leftOpen ? "" : "l-off"} ${rightOpen || visualShown ? "" : "r-off"} ${lNarrow ? "n-l" : ""} ${rNarrow && !visualShown ? "n-r" : ""}`}
+          data-left-temp={leftTemp ? "" : undefined} data-right-temp={rightTemp && !visualShown ? "" : undefined}
+          style={{ ...(!leftTemp && leftOpen ? { "--lw": `${paneW.left}px` } : {}), ...(visualShown ? { "--rw": `${visualPx}px` } : !rightTemp && rightOpen ? { "--rw": `${paneW.dock}px` } : {}) } as CSSProperties}
         >
           <aside className="left" id="pane-left" aria-label="チャット一覧">
             <LeftPane org={{ wf: org?.workflow ?? null, selected: orgScreen && !orgHist, onOpen: () => { setOrgSel(null); setOrgScreen(true); setLNarrow(false); setQuick((q) => (q.open ? { ...q, open: false } : q)); }, onStart: () => act("orgStart"), history: org?.history ?? [], deletionOverflow: org?.deletionOverflow ?? 0, archived: org?.archived ?? [], onUnarchive: (id) => void orgRun("アーカイブの解除", async () => { await host.orgUnarchiveWorkflow(id); return "アーカイブを解除しました。"; }), onArchive: (id) => void orgRun("アーカイブ", async () => { await host.orgArchiveWorkflow(id); return "ワークフローをアーカイブしました（アーカイブ一覧から戻せます）。"; }), onArchiveMany: async (ids) => {
@@ -1760,7 +1764,7 @@ ${cur}` : p.text);
               }
               setOrgTick((n) => n + 1);
               const m = summarizeArchive(rs); say(m, 8000); return m;
-            }, live, onDelete: (id) => setDialog({ type: "orgDelete", workflowId: id }), selectedHistory: orgHist?.workflowId ?? null, onOpenHistory: (id) => { setOrgSel(id); setOrgScreen(true); setLNarrow(false); setQuick((q) => (q.open ? { ...q, open: false } : q)); }, shown: orgShownIds }} creating={creating} onCreatingAct={creatingAct} snap={snap} sel={chat ? keyStr(chat.key) : null} onSelect={(id) => { selectChat(id); setLNarrow(false); }} onAct={act} onAcknowledge={(c) => onAcknowledge(c.key, null)}
+            }, live, onDelete: (id) => setDialog({ type: "orgDelete", workflowId: id }), selectedHistory: orgHist?.workflowId ?? null, onOpenHistory: (id) => { setOrgSel(id); setOrgScreen(true); setLNarrow(false); setQuick((q) => (q.open ? { ...q, open: false } : q)); }, shown: orgShownIds }} creating={creating} onCreatingAct={creatingAct} snap={visualDedicatedIds.size ? { ...snap, chats: snap.chats.filter((c) => !visualDedicatedIds.has(c.key.id)) } : snap} sel={chat ? keyStr(chat.key) : null} onSelect={(id) => { selectChat(id); setLNarrow(false); }} onAct={act} onAcknowledge={(c) => onAcknowledge(c.key, null)}
               onChatAct={chatAct} chatList={snap.settings.chatList} projects={projects} onNotice={say} onReclassify={reclassify} onFetchProjectChats={fetchProjectChats} onLoadMore={listCursor ? loadMoreChats : undefined}
               onNewChatIn={(cwd, choices) => { setDialog({ type: "newChat", dev: true, cwd, cwdChoices: choices.length > 1 ? choices : undefined }); setLNarrow(false); }}
               onChatList={(f) => updateSettings((s) => ({ ...s, chatList: f(s.chatList) }), "一覧の表示設定を保存できませんでした。次回の起動では保存されている値に戻ります")} listStatus={listStatus} uiSize={snap.settings.appearance.uiText} />
@@ -1771,7 +1775,7 @@ ${cur}` : p.text);
               chatName={chat ? chatName(chat) : null} chatId={chat?.key.id ?? null} canInsert={!!chat && !orgScreen && !quick.open}
               onOpenEditChat={(id) => { setVisualEditChatId(id); setVisualBoundChatIds((ids) => new Set(ids).add(id)); setSelId(id); setOrgScreen(false); setQuick((q) => ({ ...q, open: false })); if (live) void loadChat(id); }}
               onLeaveEditChat={() => setVisualEditChatId(null)}
-              onKnownEditChats={(ids) => setVisualBoundChatIds((old) => new Set([...old, ...ids]))}
+              onKnownEditChats={(ids, dedicated) => { setVisualBoundChatIds((old) => new Set([...old, ...ids])); setVisualDedicatedIds((old) => new Set([...old, ...dedicated])); }}
               currentChat={chat && chat.key.backend === "codex" && !visualBoundChatIds.has(chat.key.id) ? chat.key : null}
               onEnded={(id) => setVisualBoundChatIds((old) => { const next = new Set(old); next.delete(id); return next; })}
               onContext={setVisualCtx} onChip={setVisualChip} openRequest={visualOpen}
@@ -1811,9 +1815,9 @@ ${cur}` : p.text);
             ) : <EmptyCenter onAct={act} />}
             </VisualWorkspace>
           </main>
-          <aside className="right" id="pane-dock" aria-label="エージェントのドック"><DockPane {...dockProps} /></aside>
+          <aside className="right" id="pane-dock" aria-label={visualShown ? "Visual Editor" : "エージェントのドック"}>{visualShown ? null : <DockPane {...dockProps} />}</aside>
           {!leftTemp && leftOpen && !(visualShown && winW <= 1100) ? <PaneSplitter kind="left" width={paneW.left} max={paneW.leftMax} onCommit={(w) => onPaneCommit("left", w)} /> : null}
-          {!visualShown && !rightTemp && rightOpen ? <PaneSplitter kind="dock" width={paneW.dock} max={paneW.dockMax} onCommit={(w) => onPaneCommit("dock", w)} /> : null}
+          {visualShown ? <PaneSplitter kind="visual" width={visualPx} max={visualMax} onCommit={(w) => { setVisualW(w); try { if (w === null) window.localStorage.removeItem("agentdock.visualPaneWidth"); else window.localStorage.setItem("agentdock.visualPaneWidth", String(w)); } catch { /* 保存できなくても動く */ } }} /> : !rightTemp && rightOpen ? <PaneSplitter kind="dock" width={paneW.dock} max={paneW.dockMax} onCommit={(w) => onPaneCommit("dock", w)} /> : null}
           {lNarrow || rNarrow ? <div className="panel-scrim" aria-hidden="true" onClick={() => { setLNarrow(false); setRNarrow(false); }} /> : null}
         </div>
       </div>

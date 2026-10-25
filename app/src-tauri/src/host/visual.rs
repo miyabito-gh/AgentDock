@@ -58,6 +58,14 @@ impl Host {
     }
     fn visual_loaded(&self,id:&str)->Result<LoadedSession,IpcError> { session::load(&self.visual_root(),id).map_err(visual_err) }
     /// 既存の会話で続ける・分岐して続ける場合の、対象の会話と戻し先。専用チャットを新規に作る場合は None。
+    /// 会話が止まっていると確認できるか。ライブで終了を観測済みのturnは通常の経路では履歴を読まないため、ここで読取り専用に履歴の終端を確認する。
+    async fn visual_chat_stopped(self:&Arc<Self>,chat:&ChatKey)->bool {
+        let mut gate=self.queue_gate_input(chat).await;
+        if !Self::visual_overlap_stopped(&gate) && gate.root.as_ref().is_some_and(|r|r.latest_end.is_some() && !r.terminal_explicit) {
+            if self.read_terminal_fact(crate::host::state::agent_key_of(chat)).await {gate=self.queue_gate_input(chat).await;}
+        }
+        Self::visual_overlap_stopped(&gate)
+    }
     async fn visual_existing_target(self:&Arc<Self>,args:&VisualCreateArgs,source:&ProjectRoot,confirmed:&UserConfirmed)->Result<Option<(ChatKey,RestoreInfo)>,IpcError> {
         let mode=args.mode.as_deref().unwrap_or("new");
         if mode=="new" {return Ok(None);}
@@ -69,8 +77,7 @@ impl Host {
         if self.visual_bound(&chat)? {return Err(visual_err("this chat is already used by an edit session"));}
         if session::restore_for(&self.visual_root(),&chat).map_err(visual_err)?.is_some() {return Err(visual_err("the previous edit on this chat has not returned to its original folder yet; send once from the original folder first"));}
         if self.send_unsettled(&chat) || self.subagent_turn_pending(&chat) {return Err(visual_err("this chat has a send or turn that is not settled"));}
-        let gate=self.queue_gate_input(&chat).await;
-        if !Self::visual_overlap_stopped(&gate) {return Err(visual_err("this chat is running, or its stop is not confirmed"));}
+        if !self.visual_chat_stopped(&chat).await {return Err(visual_err("this chat is running, or its stop is not confirmed"));}
         let cwd=self.read(|d|d.chat(&chat).and_then(|c|c.cwd.value().cloned())).ok_or_else(||visual_err("the chat's work folder is unknown"))?;
         let folders=self.work_folders_for_send(&chat,true).map(|f|f.folders).filter(|f|!f.is_empty()).unwrap_or_else(||vec![cwd.clone()]);
         let _=source;

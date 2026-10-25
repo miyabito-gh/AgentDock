@@ -1,11 +1,13 @@
 // 左一覧・ドックの幅（UI-7）。純粋関数だけ。保存値は窓幅で変えず、表示幅だけを縮める。
-export type PaneKind = "left" | "dock";
+export type PaneKind = "left" | "dock" | "visual";
 
 export interface PaneSpec { def: number; min: number; max: number }
 
 export const PANE: Record<PaneKind, PaneSpec> = {
   left: { def: 240, min: 180, max: 400 },
   dock: { def: 320, min: 260, max: 520 },
+  /** Visual Editorを開いている間の右ペイン（プレビュー）。広めを既定にする。 */
+  visual: { def: 560, min: 320, max: 1100 },
 };
 
 /** 中央（会話）の最小幅。 */

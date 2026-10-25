@@ -17,6 +17,7 @@ interface Props {
 const META: Record<PaneKind, { label: string; controls: string; cssVar: "--lw" | "--rw"; dir: 1 | -1; cls: string }> = {
   left: { label: "チャット一覧の幅", controls: "pane-left", cssVar: "--lw", dir: 1, cls: "split-l" },
   dock: { label: "ドックの幅", controls: "pane-dock", cssVar: "--rw", dir: -1, cls: "split-r" },
+  visual: { label: "Visual Editorの幅", controls: "pane-dock", cssVar: "--rw", dir: -1, cls: "split-r" },
 };
 
 export function PaneSplitter({ kind, width, max, onCommit }: Props) {

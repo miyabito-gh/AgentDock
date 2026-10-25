@@ -2,12 +2,23 @@ import { useEffect, useRef, useState } from "react";
 import type { ChatKey } from "../../ipc/types";
 import { adoptVisualEdit, createVisualEdit, diffVisualEdit, endVisualEdit, listVisualEdits, statusVisualEdit, undoVisualEdit, type PreviewSession, type VisualDiff, type VisualEditSession, type VisualStartMode } from "./api";
 
+const FRIENDLY: Array<[string, string]> = [
+  ["this chat is running, or its stop is not confirmed", "この会話が実行中か、停止を確認できません。作業が終わってから、もう一度お試しください。"],
+  ["already used by an edit session", "この会話は、すでに別の編集で使われています。"],
+  ["has not returned to its original folder yet", "前の編集の後始末が済んでいません。この会話で一度送信してから、もう一度お試しください。"],
+  ["send or turn that is not settled", "この会話に、結果の確認が済んでいない送信があります。"],
+  ["work folder is unknown", "この会話の作業フォルダを確認できません。"],
+  ["could not be forked", "会話を分岐できませんでした。何も変更していません。"],
+  ["only Codex chats", "この会話では使えません（Codexの会話のみ対応）。"],
+];
+const friendly = (message: string): string => FRIENDLY.find(([key]) => message.includes(key))?.[1] ?? message;
 const messageOf = (error: unknown): string => {
-  if (error instanceof Error) return error.message;
-  if (typeof error === "string") return error;
+  if (error instanceof Error) return friendly(error.message);
+  if (typeof error === "string") return friendly(error);
   if (error && typeof error === "object" && "message" in error && typeof (error as { message: unknown }).message === "string") {
     const e = error as { code?: unknown; message: string };
-    return typeof e.code === "string" ? `${e.message} (${e.code})` : e.message;
+    const known = friendly(e.message);
+    return known !== e.message ? known : typeof e.code === "string" ? `${e.message} (${e.code})` : e.message;
   }
   return "不明なエラー";
 };
@@ -21,7 +32,7 @@ const phaseLabel = (phase: string) => ({
 export function VisualEditControls({ enabled, chatId, currentChat, onEnded, preview, session, onBind, onUpdate, onLeave, onBeforeDiff, onAfterDiff, onKnownEditChats, onNotice }: {
   enabled: boolean; chatId: string | null; currentChat: ChatKey | null; onEnded: (id: string) => Promise<void>; preview: PreviewSession | null; session: VisualEditSession | null;
   onBind: (session: VisualEditSession) => Promise<void>; onUpdate: (session: VisualEditSession) => void; onLeave: () => Promise<void>;
-  onBeforeDiff: () => Promise<void>; onAfterDiff: () => void; onKnownEditChats: (ids: string[]) => void; onNotice: (text: string) => void;
+  onBeforeDiff: () => Promise<void>; onAfterDiff: () => void; onKnownEditChats: (ids: string[], dedicated: string[]) => void; onNotice: (text: string) => void;
 }) {
   const [sessions, setSessions] = useState<VisualEditSession[]>([]);
   const [listError, setListError] = useState<string | null>(null);
@@ -37,6 +48,8 @@ export function VisualEditControls({ enabled, chatId, currentChat, onEnded, prev
   const writeLock = useRef(false);
   const [startMode, setStartMode] = useState<VisualStartMode>("current");
   const autoBound = useRef<string | null>(null);
+  const sessionChatId = useRef<string | null>(null);
+  sessionChatId.current = session?.chat.id ?? null;
   const generation = useRef(0);
   const currentId = useRef(session?.sessionId ?? null);
   const revision = useRef(session?.revision ?? -1);
@@ -51,10 +64,12 @@ export function VisualEditControls({ enabled, chatId, currentChat, onEnded, prev
     if (listBusy) return;
     setListBusy(true); setListError(null);
     try {
-      const all = await listVisualEdits(); const found = all.filter((item) => !item.ended); setSessions(found); onKnownEditChats(found.map((item) => item.chat.id));
+      const all = await listVisualEdits(); const found = all.filter((item) => !item.ended); setSessions(found); onKnownEditChats(found.map((item) => item.chat.id), found.filter((item) => item.mode === "dedicated").map((item) => item.chat.id));
       // 再起動後などで専用チャットを開いたときは、その編集コピーを自動で開き直す。
       const mine = chatId && !currentId.current ? found.find((item) => item.chat.id === chatId) : undefined;
       if (mine && autoBound.current !== mine.sessionId) { autoBound.current = mine.sessionId; void bind(mine); }
+      // 別の会話を選んだとき、編集中の表示を引きずらない（その会話が自分の編集を持たなければ、元のHTMLの表示へ戻す）。
+      else if (!mine && chatId && sessionChatId.current && sessionChatId.current !== chatId) void onLeave().catch(() => undefined);
     }
     catch (e) { setListError("編集セッション一覧を取得できませんでした: " + messageOf(e)); }
     finally { setListBusy(false); }
@@ -103,7 +118,7 @@ export function VisualEditControls({ enabled, chatId, currentChat, onEnded, prev
       await bind(next);
       onNotice(mode === "current" ? "この会話で編集を始めました。依頼はまだ送信していません。" : mode === "fork" ? "会話を分岐して、編集を始めました。依頼はまだ送信していません。" : "編集用コピーと専用チャットを作成しました。依頼はまだ送信していません。");
     } catch (e) {
-      setError("作業開始の結果を確認できませんでした: " + messageOf(e) + " 一覧を再確認してください。");
+      setError("編集を始められませんでした。" + messageOf(e));
     } finally { writeLock.current = false; setBusy(false); }
   };
   const recheck = async () => {
@@ -203,10 +218,10 @@ export function VisualEditControls({ enabled, chatId, currentChat, onEnded, prev
     {!session ? <>
       <div className="visual-edit-heading"><strong>編集用コピー</strong></div>
       <p className="visual-lead">元のファイルは変更しません。コピーでAIに編集させ、確認してから元に反映できます。</p>
-      {currentChat ? <div className="visual-modes" role="radiogroup" aria-label="どの会話で編集しますか">
+      {currentChat ? <div className="vm-group" role="radiogroup" aria-label="どの会話で編集しますか">
         <strong>どの会話で編集しますか</strong>
         {([["current", "今の会話で続ける", "これまでの内容と修正を、この会話が覚えます"], ["fork", "分岐して続ける", "今の会話はそのまま残し、コピーした会話で編集します"], ["new", "新しい会話で始める", "履歴は引き継ぎません"]] as const).map(([mode, title, note]) =>
-          <label key={mode} className={"visual-mode" + (startMode === mode ? " on" : "")}><input type="radio" name="visual-start-mode" checked={startMode === mode} onChange={() => setStartMode(mode)} /><span><b>{title}</b><small>{note}</small></span></label>)}
+          <label key={mode} className={"vm-opt" + (startMode === mode ? " on" : "")}><input type="radio" name="visual-start-mode" checked={startMode === mode} onChange={() => setStartMode(mode)} /><span><b>{title}</b><small>{note}</small></span></label>)}
       </div> : null}
       <button type="button" className="btn primary visual-start" disabled={!preview || busy} onClick={() => void create()}>{busy ? "作成しています…" : currentChat ? "編集を始める" : "編集を始める（コピーを作成）"}</button>
       {!preview ? <p className="visual-hint">先に中央の「HTMLを開く」でページを表示してください。</p> : null}

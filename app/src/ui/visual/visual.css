@@ -3,8 +3,6 @@
 .visual-appbar>.menubar{flex:1;min-width:0;border-bottom:0}
 .visual-entry{margin:2px 8px 2px 4px;flex:none;align-self:center}
 .visual-entry[aria-pressed=true],.visual-workspace button[aria-pressed=true]{color:var(--accent-text);background:var(--accent-weak);border-color:var(--accent-line)}
-.body.visual-mode{--rw:0px!important}
-.body.visual-mode>.right{display:none!important}
 .visual-workspace{flex:1;min-width:0;min-height:0;display:grid;grid-template-columns:minmax(230px,1fr) minmax(360px,45%);overflow:hidden}
 .visual-preview,.visual-chat{display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--surface)}
 .visual-preview{border-right:1px solid var(--line)}
@@ -108,11 +106,34 @@
 .visual-banner small{margin-left:auto;color:var(--ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .visual-chip{border-color:var(--accent-line)!important;background:var(--accent-weak)}
 
-.visual-modes{display:flex;flex-direction:column;gap:5px;margin:0 0 9px}
-.visual-modes>strong{font-size:var(--fs-s);font-weight:600}
-.visual-mode{display:flex;gap:8px;align-items:flex-start;padding:7px 9px;border:1px solid var(--line);border-radius:6px;cursor:pointer;background:var(--surface)}
-.visual-mode.on{border-color:var(--accent-line);background:var(--accent-weak)}
-.visual-mode input{margin-top:3px;flex:none}
-.visual-mode b{display:block;font-weight:600;font-size:var(--fs-s)}
-.visual-mode small{display:block;color:var(--ink2);font-size:var(--fs-xs);line-height:1.5}
+.vm-group{display:flex;flex-direction:column;gap:5px;margin:0 0 9px}
+.vm-group>strong{font-size:var(--fs-s);font-weight:600}
+.vm-opt{display:flex;gap:8px;align-items:flex-start;padding:7px 9px;border:1px solid var(--line);border-radius:6px;cursor:pointer;background:var(--surface)}
+.vm-opt.on{border-color:var(--accent-line);background:var(--accent-weak)}
+.vm-opt input{margin-top:3px;flex:none}
+.vm-opt b{display:block;font-weight:600;font-size:var(--fs-s)}
+.vm-opt small{display:block;color:var(--ink2);font-size:var(--fs-xs);line-height:1.5}
 .visual-finish{margin:2px 0 6px}
+
+/* ── 右ペイン: 編集(状態と操作) と プレビュー を、見出し付きの2区画に分ける ── */
+.visual-pane{display:flex;flex-direction:column;flex:1;min-height:0;min-width:0;background:var(--surface)}
+.vp-card{display:flex;flex-direction:column;min-height:0;min-width:0}
+.vp-card+.vp-card{border-top:2px solid var(--line)}
+.vp-head{display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--surface2);border-bottom:1px solid var(--line);font-size:var(--fs-s);flex:none;min-width:0}
+.vp-head>strong{font-weight:600;letter-spacing:.02em}
+.vp-sub{color:var(--ink2);font-size:var(--fs-xs);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.vp-edit{flex:0 1 auto;max-height:52%}
+.vp-edit>.vp-body{overflow:auto;padding:10px 12px;min-height:0}
+.vp-preview{flex:1 1 0;min-height:240px}
+.vp-bar{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:6px 10px;border-bottom:1px solid var(--line2);flex:none}
+.vp-group{display:inline-flex;align-items:center;gap:4px}
+.vp-group>label{color:var(--ink2);font-size:var(--fs-xs);margin-right:2px}
+.vp-seg{display:inline-flex}
+.vp-seg .btn{border-radius:0}.vp-seg .btn:first-child{border-radius:6px 0 0 6px}.vp-seg .btn:last-child{border-radius:0 6px 6px 0;margin-left:-1px}
+.vp-foot{flex:none;border-top:1px solid var(--line);background:var(--surface2)}
+.vp-foot .visual-status{border-top:0}
+.vp-foot .visual-selection-line{margin:6px 10px}
+.vp-foot .visual-more{margin:0 10px 6px}
+.vp-where{margin:0 10px 6px;font-size:var(--fs-xs);color:var(--ink2)}
+.vp-where .visual-path{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.visual-pane .visual-stage{flex:1;min-height:120px}
