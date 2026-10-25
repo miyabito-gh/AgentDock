@@ -1,7 +1,8 @@
 <!doctype html><html><meta charset="utf-8"><title>V0 probe</title><body>
 <iframe id="preview" sandbox="allow-scripts" allow="camera 'none'; microphone 'none'; geolocation 'none'" src="fixture.html"></iframe>
 <script>
-const reports=[];
-addEventListener('message',e=>{if(e.source===document.querySelector('iframe').contentWindow&&reports.length<40)reports.push(JSON.stringify(e.data).slice(0,512));});
-setTimeout(()=>chrome.webview.postMessage({kind:'fixture-observations',reports}),3500);
+let count=0;
+const forward=value=>{if(count++<40)chrome.webview.postMessage(JSON.stringify({kind:'fixture-observations',report:JSON.stringify(value).slice(0,512)}));};
+addEventListener('message',e=>{if(e.source===document.querySelector('iframe').contentWindow)forward(e.data);});
+forward({kind:'shell-ready'});
 </script></body></html>

@@ -66,6 +66,15 @@ mod probe {
             .unwrap_or_else(|| uri.chars().take(180).collect())
     }
     pub fn run() {
+        let arguments: Vec<String> = std::env::args().skip(1).collect();
+        let layered_csp = match arguments.as_slice() {
+            [] => false,
+            [argument] if argument == "--layered-csp" => true,
+            _ => {
+                eprintln!("usage: visual_preview_probe [--layered-csp]");
+                std::process::exit(64);
+            }
+        };
         let run_id = unsafe {
             CoCreateGuid()
                 .expect("probe run GUID")
@@ -83,6 +92,12 @@ mod probe {
         let attack_origin = format!("http://{}", canary.local_addr().unwrap());
         let token = unsafe { CoCreateGuid().expect("probe GUID").to_u128().to_string() };
         let prefix = format!("/{token}/");
+        let static_base = format!("{origin}{prefix}");
+        let csp_header = if layered_csp {
+            format!("Content-Security-Policy: default-src 'none'; script-src 'unsafe-inline' {static_base}fixture.mjs; style-src {static_base}fixture.css; img-src {static_base}fixture.svg; font-src 'none'; connect-src {static_base}redirect.json; frame-src {static_base}fixture.html; object-src 'none'; worker-src 'none'; base-uri 'none'; form-action 'none'\r\n")
+        } else {
+            String::new()
+        };
         let fixtures = BTreeMap::from([
             (
                 "shell.html",
@@ -141,7 +156,7 @@ mod probe {
                 let method = fields.next().unwrap_or("");
                 let path = fields.next().unwrap_or("");
                 if method == "GET" && path.strip_prefix(&prefix) == Some("redirect.json") {
-                    let response = format!("HTTP/1.1 302 Found\r\nLocation: {redirect_target}\r\nContent-Length: 0\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n");
+                    let response = format!("HTTP/1.1 302 Found\r\n{csp_header}Location: {redirect_target}\r\nContent-Length: 0\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n");
                     let _ = stream.write_all(response.as_bytes());
                     continue;
                 }
@@ -150,7 +165,7 @@ mod probe {
                     .and_then(|name| fixtures.get(name));
                 if method == "GET" {
                     if let Some((mime, body)) = asset {
-                        let headers = format!("HTTP/1.1 200 OK\r\nContent-Type: {mime}\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n", body.len());
+                        let headers = format!("HTTP/1.1 200 OK\r\n{csp_header}Content-Type: {mime}\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n", body.len());
                         let _ = stream.write_all(headers.as_bytes());
                         let _ = stream.write_all(body.as_bytes());
                         continue;
@@ -166,7 +181,28 @@ mod probe {
         thread::spawn(move || {
             for incoming in canary.incoming() {
                 let Ok(mut stream) = incoming else { break };
-                event(&canary_events, json!({"kind":"CANARY_REACHED"}));
+                let _ = stream.set_read_timeout(Some(Duration::from_millis(150)));
+                let mut buffer = [0; 512];
+                let (count, read_outcome) = match stream.read(&mut buffer) {
+                    Ok(count) => (count, if count == 0 { "closed" } else { "read" }),
+                    Err(error)
+                        if matches!(
+                            error.kind(),
+                            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                        ) =>
+                    {
+                        (0, "timeout")
+                    }
+                    Err(_) => (0, "read-error"),
+                };
+                let request = String::from_utf8_lossy(&buffer[..count]);
+                let first_line = request.lines().next().unwrap_or("");
+                // A TCP connection remains a failed boundary even when no HTTP bytes arrive.
+                event(
+                    &canary_events,
+                    json!({"kind":"CANARY_REACHED", "readBytes":count,
+                    "readOutcome":read_outcome,"firstHttpLine":first_line}),
+                );
                 let _ = stream.write_all(
                     b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
                 );
@@ -238,7 +274,7 @@ mod probe {
                         .iter()
                         .any(|value| value["kind"] == "native-installed-before-navigation")
                         && !observations.iter().any(|value| value["kind"] == "installation-failed");
-                    let report = json!({"schema":1,"probe":"isolated-child-webview","csp":false,
+                    let report = json!({"schema":1,"probe":"isolated-child-webview","csp":layered_csp,
                     "status":"observations-only-not-V0-acceptance", "canaryReached":canary_reached,
                     "productionIpcTested":false,"centralEmbedTested":false,
                     "profile":report_root.join("webview-profile"),"events":observations});
@@ -272,6 +308,13 @@ mod probe {
         let settings = core.Settings()?;
         settings.SetAreHostObjectsAllowed(false)?;
         settings.SetAreDevToolsEnabled(false)?;
+        let mut web_message_enabled = false.into();
+        settings.IsWebMessageEnabled(&mut web_message_enabled)?;
+        settings.SetIsWebMessageEnabled(true)?;
+        event(
+            &events,
+            json!({"kind":"web-message-setting", "before":web_message_enabled.as_bool(), "configured":true}),
+        );
         // Web messages carry bounded observations only. No application handler is registered.
         // add_* retains the COM handler until the WebView is destroyed at process exit.
         let mut registration = 0;
@@ -376,7 +419,7 @@ mod probe {
         core.add_WebMessageReceived(
             &WebMessageReceivedEventHandler::create(Box::new(move |_, args| {
                 if let Some(args) = args {
-                    let message = read_string(|value| args.WebMessageAsJson(value))?;
+                    let message = read_string(|value| args.TryGetWebMessageAsString(value))?;
                     if message.len() <= 32768 {
                         event(
                             &message_events,

@@ -1,7 +1,8 @@
 <!doctype html><html><meta charset="utf-8"><link rel="stylesheet" href="fixture.css"><script type="module" src="fixture.mjs"></script><body>
 <p id="styled">Relative CSS/module/SVG fixture</p><img id="image" src="fixture.svg">
 <script>
-const report=value=>parent.postMessage(value,'*'); const attack='@@CANARY@@';
+const report=value=>parent.postMessage(value,'*');
+addEventListener('securitypolicyviolation',e=>report({kind:'csp-violation',directive:e.violatedDirective,blockedScheme:e.blockedURI.split(':')[0]})); const attack='@@CANARY@@';
 report({kind:'ipc-surface',tauriInternals:typeof window.__TAURI_INTERNALS__,chromeWebview:typeof window.chrome?.webview});
 if(window.__TAURI_INTERNALS__)window.__TAURI_INTERNALS__.invoke('visual_probe_nonexistent_command',{}).then(()=>report({kind:'fake-command',resolved:true}),()=>report({kind:'fake-command',resolved:false}));
 try{parent.document.body;report({kind:'parent-dom',reachable:true});}catch{report({kind:'parent-dom',reachable:false});}
