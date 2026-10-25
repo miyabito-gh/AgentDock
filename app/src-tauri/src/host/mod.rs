@@ -1146,7 +1146,7 @@ impl Host {
 
     /// `dispatch_send` の本体。試行IDと開始時刻を呼び出し側が先に決めたもの（`Sending`）で送る（最初の依頼を後続タスクで送るため）。
     /// `auth` は送信の根拠。利用者の送信は組織が所有するチャットへ送らない（二重の保護）。組織の送信は許可の宛先と一致するものだけ。
-    pub(super) async fn dispatch_send_as(self: &Arc<Self>, request: SendRequest, mut attempt: SendAttempt, auth: SendAuth<'_>) -> SendAttempt {
+    pub(super) async fn dispatch_send_as(self: &Arc<Self>, mut request: SendRequest, mut attempt: SendAttempt, auth: SendAuth<'_>) -> SendAttempt {
         let attempt_id = attempt.attempt_id.clone();
         let chat = request.chat.clone();
         let refusal = match &auth {
@@ -1167,7 +1167,7 @@ impl Host {
             self.emit_send(&chat, &attempt);
             return attempt;
         }
-        let visual_id = match self.visual_before_send(&request, &attempt, &auth).await {
+        let visual_id = match self.visual_before_send(&mut request, &attempt, &auth).await {
             Ok(id) => id,
             Err(e) => {
                 self.rejected.lock().unwrap().insert(attempt_id.clone(), NotAccepted::new(request));

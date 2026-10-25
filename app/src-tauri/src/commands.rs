@@ -1420,6 +1420,10 @@ pub async fn visual_edit_list(host: Hs<'_>) -> R<Vec<crate::visual_edit::session
     host.inner().clone().visual_list().await
 }
 #[tauri::command]
+pub async fn visual_edit_end(host: Hs<'_>, args: crate::host::visual::VisualSessionArgs) -> R<crate::visual_edit::session::SessionView> {
+    host.inner().clone().visual_end(&args.session_id).await
+}
+#[tauri::command]
 pub async fn visual_edit_status(host: Hs<'_>, args: crate::host::visual::VisualSessionArgs) -> R<crate::visual_edit::session::SessionView> {
     host.inner().clone().visual_status(&args.session_id).await
 }

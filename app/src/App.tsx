@@ -1772,6 +1772,8 @@ ${cur}` : p.text);
               onOpenEditChat={(id) => { setVisualEditChatId(id); setVisualBoundChatIds((ids) => new Set(ids).add(id)); setSelId(id); setOrgScreen(false); setQuick((q) => ({ ...q, open: false })); if (live) void loadChat(id); }}
               onLeaveEditChat={() => setVisualEditChatId(null)}
               onKnownEditChats={(ids) => setVisualBoundChatIds((old) => new Set([...old, ...ids]))}
+              currentChat={chat && chat.key.backend === "codex" && !visualBoundChatIds.has(chat.key.id) ? chat.key : null}
+              onEnded={(id) => setVisualBoundChatIds((old) => { const next = new Set(old); next.delete(id); return next; })}
               onContext={setVisualCtx} onChip={setVisualChip} openRequest={visualOpen}
               onInsert={(text) => {
                 if (!chat) return;
@@ -1791,7 +1793,7 @@ ${cur}` : p.text);
                 snap={snap} chat={chat} turns={bundle.turns[chat.key.id] ?? []} history={histLoads[chat.key.id]} onReloadHistory={() => void loadChat(chat.key.id)}
                 attachments={draftAttachments} files={files} inputRef={composerRef}
                 visualChip={visualShown && chat.key.id === visualEditChatId ? visualChip : null}
-                visualHint={visualShown && chat.key.id === visualEditChatId ? "例: この見出しを短く / ここを青系の配色に" : undefined}
+                visualHint={visualBoundChatIds.has(chat.key.id) ? (visualShown && chat.key.id === visualEditChatId ? "例: この見出しを短く / ここを青系の配色に" : "編集用コピーで作業中の会話です。依頼はコピーに反映されます（Visual Editorで確認・終了）") : undefined}
                 skillPick={live ? { skills: skillLists[chat.key.id], load: () => loadSkills(chat.key), recent: snap.settings.recentSkills ?? [], pick: (sk) => { void pickSkill(chat.key, sk.name, sk.path); } } : null}
                 settings={bundle.modelSettings[chat.key.id]} models={models} save={chatSave}
                 externalLabel={bundle.externalLabel[chat.key.id]} wasLive={liveSeen.current.has(chat.key.id)} enterMode={enterMode} runningInput={chat && visualBoundChatIds.has(chat.key.id) ? "steer" : snap.settings.runningInput ?? "queue"}

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import type { ChatKey } from "../../ipc/types";
 import { actOnPreview, closePreview, instructionTemplates, onPreviewError, onPreviewSelection, openPreview, parentFolder, previewAvailable, selectionDraft, updatePreviewBounds, visualSendContext, type PreviewAction, type PreviewBounds, type PreviewElement, type PreviewSession, type VisualEditSession } from "./api";
 import { VisualEditControls } from "./VisualEditControls";
 import "./visual.css";
@@ -13,8 +14,8 @@ function overlayOpen(): boolean {
     .some((node) => node.getClientRects().length > 0 && getComputedStyle(node).visibility !== "hidden");
 }
 
-export function VisualWorkspace({ enabled, blocked, chatName, chatId, canInsert, onInsert, onContext, onChip, openRequest, onNotice, onOpenEditChat, onLeaveEditChat, onKnownEditChats, children }: {
-  enabled: boolean; blocked: boolean; chatName: string | null; chatId: string | null; canInsert: boolean;
+export function VisualWorkspace({ enabled, blocked, chatName, chatId, canInsert, currentChat, onInsert, onContext, onChip, onEnded, openRequest, onNotice, onOpenEditChat, onLeaveEditChat, onKnownEditChats, children }: {
+  enabled: boolean; blocked: boolean; chatName: string | null; chatId: string | null; canInsert: boolean; currentChat: ChatKey | null; onEnded: (id: string) => void;
   onOpenEditChat: (id: string) => void; onLeaveEditChat: () => void; onKnownEditChats: (ids: string[]) => void;
   onInsert: (text: string) => void; onContext: (text: string | null) => void; onChip: (chip: { count: number; label: string; onClear: () => void } | null) => void; openRequest: { path: string; nonce: number } | null; onNotice: (message: string) => void; children: ReactNode;
 }) {
@@ -344,7 +345,7 @@ export function VisualWorkspace({ enabled, blocked, chatName, chatId, canInsert,
       </section>
       <section className="visual-chat" aria-label="参照先のチャット">
         <div className="visual-selection">
-          <VisualEditControls enabled={enabled && desktop} chatId={chatId} preview={session} session={edit} onBind={bindEdit} onUpdate={updateEdit} onLeave={leaveEdit} onBeforeDiff={beforeDiff} onAfterDiff={afterDiff} onKnownEditChats={onKnownEditChats} onNotice={onNotice} />
+          <VisualEditControls enabled={enabled && desktop} chatId={chatId} currentChat={currentChat} onEnded={async (id) => { await leaveEdit(); onEnded(id); }} preview={session} session={edit} onBind={bindEdit} onUpdate={updateEdit} onLeave={leaveEdit} onBeforeDiff={beforeDiff} onAfterDiff={afterDiff} onKnownEditChats={onKnownEditChats} onNotice={onNotice} />
           <div className="visual-selection-line" role="status">
             {selection.length
               ? <><strong>選択中 {selection.length}件{truncated ? "（一部のみ）" : ""}</strong><span title={selection.map((item) => item.selector).join("\n")}>{selection[0].text.replace(/\s+/g, " ").trim().slice(0, 24) || selection[0].selector || selection[0].tag}{selection.length > 1 ? ` ほか${selection.length - 1}件` : ""}</span>

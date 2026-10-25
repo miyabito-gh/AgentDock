@@ -13,7 +13,16 @@ pub struct SessionMeta {
     pub draft_root: String,
     pub html_path: String,
     pub scope: Vec<SelectedFile>,
+    /// None＝専用チャット（編集用コピーを作業場所に作った新規チャット）。Some("current")＝既存の会話を、編集中だけ編集用コピーで作業させる。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
+    /// 既存の会話で続けるとき、編集を終えたあとに元へ戻す作業フォルダの並び（先頭＝cwd）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub restore: Option<RestoreInfo>,
 }
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RestoreInfo { pub folders: Vec<String> }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PendingBinding { pub version:u32, pub session_id:String, pub chat:ChatKey, pub draft_root:String }#[derive(Clone, Debug, Serialize, Deserialize)]
@@ -28,6 +37,10 @@ pub enum SessionEvent {
     OperationResult { operation_id: String, outcome: String },
     Adopted { after: String },
     UndoApplied { attempt_id: String, before: String },
+    /// 既存の会話での編集を終えた。以後の送信は元の作業場所へ戻して行う。
+    Ended,
+    /// 終了後の最初の送信が受理され、元の作業場所へ戻った。
+    Restored,
 }
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -45,6 +58,9 @@ pub struct SessionView {
     pub can_adopt: bool,
     pub can_undo: bool,
     pub last_operation: Option<LastOperationView>,
+    /// "dedicated"（専用チャット）または "current"（既存の会話で続ける）。
+    pub mode: String,
+    pub ended: bool,
 }
 #[derive(Clone, Debug)]
 pub struct LoadedSession {
@@ -54,6 +70,11 @@ pub struct LoadedSession {
 }
 impl LoadedSession {
     pub fn scope(&self) -> VisualResult<FileScope> { FileScope::new(self.meta.scope.clone()) }
+    pub fn is_current_mode(&self) -> bool { self.meta.mode.as_deref() == Some("current") }
+    pub fn ended(&self) -> bool { self.events.iter().any(|e| matches!(e, SessionEvent::Ended)) }
+    pub fn restored(&self) -> bool { self.events.iter().any(|e| matches!(e, SessionEvent::Restored)) }
+    /// 編集を終えたが、元の作業場所へ戻す送信がまだ受理されていない。
+    pub fn restore_pending(&self) -> bool { self.is_current_mode() && self.ended() && !self.restored() }
     pub fn initial(&self) -> VisualResult<Snapshot> { load_snapshot(&self.folder.join("initial"), &self.scope()?) }
     pub fn latest(&self) -> Option<(&str, &str, &str)> {
         self.events.iter().rev().find_map(|e| match e {
@@ -138,7 +159,7 @@ impl LoadedSession {
         if matches!(phase,"changes") && changes.iter().all(|f|f.change.is_none()) {phase="editable";}
         if self.events.iter().rev().find_map(|e|match e {SessionEvent::OperationResult{outcome,..}=>Some(outcome.as_str()),SessionEvent::Adopted{..}|SessionEvent::UndoApplied{..}=>Some("applied"),_=>None}).is_some_and(|x|x=="partial" || x=="conflict") {phase="partial"; blockers.push("file operation is partial or conflicted; inspect journal and current files".into());}
         let last_operation=self.events.iter().rev().find_map(|e|match e {SessionEvent::OperationIntent{operation_id,purpose,..}=>Some(LastOperationView{kind:purpose.clone(),id:operation_id.clone(),outcome:self.outcome(operation_id).unwrap_or("unknown").into(),message:None}),_=>None});
-        Ok(SessionView{session_id:self.meta.session_id.clone(),chat:self.meta.chat.clone(),source_root:self.meta.source_root.clone(),draft_root:self.meta.draft_root.clone(),html_path:self.meta.html_path.clone(),scope:self.meta.scope.clone(),phase:phase.into(),revision:self.revision(),changes,blockers,can_adopt:false,can_undo:false,last_operation})
+        Ok(SessionView{session_id:self.meta.session_id.clone(),chat:self.meta.chat.clone(),source_root:self.meta.source_root.clone(),draft_root:self.meta.draft_root.clone(),html_path:self.meta.html_path.clone(),scope:self.meta.scope.clone(),phase:(if self.ended(){"ended"}else{phase}).into(),revision:self.revision(),changes,blockers,can_adopt:false,can_undo:false,last_operation,mode:(if self.is_current_mode(){"current"}else{"dedicated"}).into(),ended:self.ended()})
     }
 }
 fn durable_file(path: &Path, bytes: &[u8]) -> VisualResult<()> {
@@ -219,10 +240,37 @@ pub fn binding_id(root:&Path, chat:&ChatKey)->VisualResult<Option<String>> {
         };
         if let Some(m)=&meta {if m.version!=1 || m.session_id!=id {return Err(VisualError::Conflict("visual binding metadata mismatch"));}}
         if let (Some(b),Some(m))=(&binding,&meta) {if b.chat!=m.chat || b.draft_root!=m.draft_root {return Err(VisualError::Conflict("visual binding changed during creation"));}}
-        if meta.as_ref().is_some_and(|m|&m.chat==chat) || binding.as_ref().is_some_and(|b|&b.chat==chat) {return Ok(Some(id));}
+        if meta.as_ref().is_some_and(|m|&m.chat==chat) || binding.as_ref().is_some_and(|b|&b.chat==chat) {
+            // 終えた編集は紐付けを外した扱い（その会話は通常の送信に戻る。元へ戻す処理は restore_for が受け持つ）。
+            if events_have(&entry.path(), "ended") {continue;}
+            return Ok(Some(id));
+        }
         if meta.is_none() && binding.is_none() && entry.path().join("pending.json").exists() {unbound_pending=true;}
     }
     if unbound_pending {return Err(VisualError::Conflict("unbound pending visual chat; inspect incomplete creation before other sends"));}
+    Ok(None)
+}
+fn events_have(folder: &Path, kind: &str) -> bool {
+    let needle = format!("\"kind\":\"{kind}\"");
+    fs::read_to_string(folder.join("events.jsonl")).map(|t| t.lines().any(|l| l.contains(&needle))).unwrap_or(false)
+}
+/// 編集を終えたが、元の作業場所へ戻す送信がまだ受理されていない会話の、戻し先。
+pub fn restore_for(root: &Path, chat: &ChatKey) -> VisualResult<Option<(String, RestoreInfo)>> {
+    if !root.exists() { return Ok(None); }
+    for entry in fs::read_dir(root)? {
+        let entry = entry?;
+        if !entry.file_type()?.is_dir() { continue; }
+        let id = entry.file_name().into_string().map_err(|_| VisualError::Conflict("invalid session folder"))?;
+        if id == "_journals" { continue; }
+        validate_id(&id)?;
+        let meta_path = entry.path().join("session.json");
+        if !meta_path.exists() { continue; }
+        let meta: SessionMeta = serde_json::from_slice(&fs::read(&meta_path)?)?;
+        if &meta.chat != chat || meta.mode.as_deref() != Some("current") { continue; }
+        if events_have(&entry.path(), "ended") && !events_have(&entry.path(), "restored") {
+            if let Some(info) = meta.restore { return Ok(Some((id, info))); }
+        }
+    }
     Ok(None)
 }
 pub fn list(root: &Path) -> VisualResult<Vec<LoadedSession>> {
@@ -282,7 +330,7 @@ mod session_tests {
         let scope=FileScope::new(vec![SelectedFile{path:"index.html".into(),access:FileAccess::Edit}]).unwrap();
         let draft=super::super::create_isolated_draft(&project,scope.clone(),&store,"session-1").unwrap();
         fs::write(draft.storage_path().join("initial").join("manifest.json"),serde_json::to_vec(&draft.initial().manifest()).unwrap()).unwrap();
-        let meta=SessionMeta{version:1,session_id:"session-1".into(),chat:ChatKey{backend:BackendKind::Codex,id:ExternalId("thread-1".into())},source_root:project.path().to_string_lossy().into_owned(),draft_root:draft.root().path().to_string_lossy().into_owned(),html_path:"index.html".into(),scope:scope.selected()};
+        let meta=SessionMeta{version:1,session_id:"session-1".into(),chat:ChatKey{backend:BackendKind::Codex,id:ExternalId("thread-1".into())},source_root:project.path().to_string_lossy().into_owned(),draft_root:draft.root().path().to_string_lossy().into_owned(),html_path:"index.html".into(),scope:scope.selected(),mode:None,restore:None};
         save_meta(draft.storage_path(),&meta).unwrap();
         File::create(draft.storage_path().join("events.jsonl")).unwrap();
         fs::create_dir_all(store.join("_journals").join("session-1").join("adopt-1")).unwrap();
@@ -303,7 +351,7 @@ mod session_tests {
             let id="session-1".to_string();
             let draft=super::super::create_isolated_draft(&project,scope.clone(),&root,&id).unwrap();
             fs::write(draft.storage_path().join("initial").join("manifest.json"),serde_json::to_vec(&draft.initial().manifest()).unwrap()).unwrap();
-            let meta=SessionMeta{version:1,session_id:id.clone(),chat:ChatKey{backend:BackendKind::Codex,id:ExternalId("thread-1".into())},source_root:project.path().to_string_lossy().into_owned(),draft_root:draft.root().path().to_string_lossy().into_owned(),html_path:"index.html".into(),scope:scope.selected()};
+            let meta=SessionMeta{version:1,session_id:id.clone(),chat:ChatKey{backend:BackendKind::Codex,id:ExternalId("thread-1".into())},source_root:project.path().to_string_lossy().into_owned(),draft_root:draft.root().path().to_string_lossy().into_owned(),html_path:"index.html".into(),scope:scope.selected(),mode:None,restore:None};
             save_meta(draft.storage_path(),&meta).unwrap();
             File::create(draft.storage_path().join("events.jsonl")).unwrap();
             Self{base,root,id}
@@ -321,6 +369,30 @@ mod session_tests {
             save_snapshot(&self.folder().join("e1"),&after).unwrap();
             append(&self.folder(),&SessionEvent::Captured{attempt_id:"a1".into(),after:"e1".into()}).unwrap();
         }
+    }
+    #[test]
+    fn ended_edit_on_existing_chat_unbinds_and_restores_exactly_once() {
+        let c=Case::new();
+        let chat=ChatKey{backend:BackendKind::Codex,id:ExternalId("thread-1".into())};
+        // 専用チャットの編集は、終えても戻し先を持たない。
+        assert!(restore_for(&c.root,&chat).unwrap().is_none());
+        let mut meta=c.loaded().meta.clone();
+        meta.mode=Some("current".into());
+        meta.restore=Some(RestoreInfo{folders:vec!["C:/original".into()]});
+        fs::remove_file(c.folder().join("session.json")).unwrap();
+        save_meta(&c.folder(),&meta).unwrap();
+        assert_eq!(binding_id(&c.root,&chat).unwrap().as_deref(),Some("session-1"));
+        assert!(restore_for(&c.root,&chat).unwrap().is_none());
+        append(&c.folder(),&SessionEvent::Ended).unwrap();
+        assert_eq!(binding_id(&c.root,&chat).unwrap(),None);
+        let (id,info)=restore_for(&c.root,&chat).unwrap().unwrap();
+        assert_eq!((id.as_str(),info.folders),("session-1",vec!["C:/original".to_string()]));
+        let s=c.loaded();
+        assert!(s.restore_pending() && s.ended());
+        assert_eq!(s.view().unwrap().phase,"ended");
+        append(&c.folder(),&SessionEvent::Restored).unwrap();
+        assert!(restore_for(&c.root,&chat).unwrap().is_none());
+        assert!(!c.loaded().restore_pending());
     }
     #[test]
     fn accepted_attempt_cannot_be_downgraded_by_late_unknown() {

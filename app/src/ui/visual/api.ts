@@ -101,6 +101,8 @@ export interface VisualLastOperation { kind: "adopt" | "undo"; id: string; outco
 export interface VisualEditSession {
   sessionId: string; chat: ChatKey; sourceRoot: string; draftRoot: string;
   htmlPath: string; scope: VisualFileScope[]; phase: string; revision: number;
+  /** dedicated＝編集用の新しいチャット / current＝今ある会話を編集中だけ編集用コピーで作業させる。 */
+  mode: "dedicated" | "current"; ended: boolean;
   changes: VisualChange[]; blockers: string[]; canAdopt: boolean; canUndo: boolean;
   lastOperation?: VisualLastOperation;
 }
@@ -151,6 +153,7 @@ function parseVisualSession(value: unknown): VisualEditSession {
     draftRoot: requiredText(value.draftRoot, 4096, "編集用コピー"),
     htmlPath: requiredText(value.htmlPath, 2048, "HTML"),
     scope, phase: requiredText(value.phase, 100, "編集状態"), revision: value.revision,
+    mode: value.mode === "current" ? "current" : "dedicated", ended: value.ended === true,
     changes, blockers, canAdopt: value.canAdopt, canUndo: value.canUndo, lastOperation,
   };
 }
@@ -159,8 +162,12 @@ function parseVisualDiff(value: unknown): VisualDiff {
   return { path: requiredText(value.path, 2048, "差分のパス"), before: optionalText(value.before, 262144), after: optionalText(value.after, 262144),
     truncated: value.truncated, binary: value.binary };
 }
-export async function createVisualEdit(rootPath: string, htmlPath: string, model?: ModelChoice | null): Promise<VisualEditSession> {
-  return parseVisualSession(await invoke<unknown>("visual_edit_create", { args: { rootPath, htmlPath, model: model ?? null } }));
+export type VisualStartMode = "current" | "fork" | "new";
+export async function createVisualEdit(rootPath: string, htmlPath: string, model?: ModelChoice | null, chat?: ChatKey | null, mode: VisualStartMode = "new"): Promise<VisualEditSession> {
+  return parseVisualSession(await invoke<unknown>("visual_edit_create", { args: { rootPath, htmlPath, model: model ?? null, chat: mode === "new" ? null : chat ?? null, mode } }));
+}
+export async function endVisualEdit(sessionId: string): Promise<VisualEditSession> {
+  return parseVisualSession(await invoke<unknown>("visual_edit_end", { args: { sessionId } }));
 }
 export async function listVisualEdits(): Promise<VisualEditSession[]> {
   const value = await invoke<unknown>("visual_edit_list");

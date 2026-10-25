@@ -286,3 +286,12 @@
 - 試験（Codex単体、app-server直接、サーバー側プロセスは停止・試験フォルダ削除済み）: 元会話でturnごとにcwdと書込み範囲(workspaceWrite, writableRoots=[])をコピーへ切替えると、コピーへは書け、元フォルダの絶対パスへの書込みは「アクセス拒否」、元は未変更、会話の記憶も保持。CodexはANSIで日本語を書いた（UTF-8指示が必要）。
 - 実装（第1段）: (1) ドラッグ中に十字カーソルと「N件」の札（selection.js）。(2) 入力欄の上に「ページの選択 N件」の札（既存のchipsスタイル、×で外す。CenterPaneのvisualChip）。(3) 編集チャットの入力欄の例文（visualHint）。(4) 右ペインに青帯「編集用コピーで作業中」と対象ファイル名。ブラウザでドラッグ選択と十字カーソルを確認、tsc成功。
 - 未実装（第2段、設計確認が必要）: 「今の会話で続ける」「分岐して続ける」。必要事項: 編集中のturnでcwdとwork_foldersをコピーへ強制、FullAccess禁止、追加フォルダの除去、編集終了後に元の作業場所へ戻す（Codexのturn上書きは以後のturnにも及ぶため、終了後の最初の送信で元cwdを明示する）、元のパスを直接編集しないよう送信文で誘導、steer時の扱い。元ファイル保護の境界に触れるため、agentdock-designerでの設計確認とレビューを予定。
+
+## 2026-10-25 UI/UX整理 第2段: 既存の会話で編集を続ける／分岐（実装済み・実機未確認）
+- 設計: SessionMeta に mode(None=専用チャット / "current"=既存の会話)とrestore(戻し先の作業フォルダ)を追加。SessionEvent に Ended / Restored。fork は fork_chat で分岐した会話を current モードで結び付ける。
+- 開始: visual_create に chat/mode(new|current|fork)。current/fork は送信ロック→visualロックの順で取り、対象会話が Codex・組織所有でない・未使用・戻し待ちなし・送信/turn未決なし・停止確認済み・cwd既知を検査してから作成（fork は draft作成の前に実行。失敗しても未紐付けの pending.json を残さない）。
+- 編集中の送信: visual_before_send が &mut SendRequest を受け、current モードの新しいturnは cwd=None・work_folders=[編集用コピー]・permission=WorkspaceWriteOnRequest に強制（FullAccessや追加フォルダは通さない）。専用チャットの既存検査は不変。
+- 終了: コマンド visual_edit_end（画面「編集を終えて、元の作業場所に戻る」）。実行中・未解決・保留操作がある間は拒否。Ended を記録すると binding_id が紐付けを外し、その会話は通常の送信に戻る。終了直後の最初の新turnは restore_for が元の作業フォルダ並びを work_folders で明示送信（Codexのturn上書きは以後のturnに及ぶため）。受理(visual_after_send / 照合後のvisual_reconciled)で Restored を記録。受理不明・拒否なら次の送信でも再度戻す。
+- 画面: 開始前に「今の会話で続ける(既定)／分岐して続ける／新しい会話で始める」。編集中は青帯「この会話は、いま編集用コピーで作業中です」。Visual Editorを閉じた通常画面でも、入力欄の例文で「編集用コピーで作業中の会話です」と表示。終了済みの編集は保存一覧に出さない。
+- 検証: cargo test --lib 全1567件成功（新規: ended_edit_on_existing_chat_unbinds_and_restores_exactly_once）。tsc成功。debug NSIS(7906793 bytes, SHA-256 908c7e7f1f7a28ba430087cb9c26e08718ccfc8ffa3e00649c9804e1fdeb2e53)。事前のCodex単体試験で、turn毎のcwd/書込み範囲切替が効き元フォルダへの書込みは拒否、会話の記憶は保持を確認済み。
+- 実機で未確認（要確認）: (1) 実アプリで元の会話から開始→編集→元へ反映、元フォルダへの書込みが起きないこと。 (2) 編集終了後の最初の送信が元の作業フォルダで動くこと（restore）。 (3) 分岐で会話履歴が引き継がれ元の会話が変わらないこと。 (4) 元の会話の権限が未設定(None)の場合、編集で上書きした権限(WorkspaceWriteOnRequest)が終了後も残り得る。 (5) 追加フォルダ付きの会話の戻り。 (6) 実行中の会話から開始を選んだときの拒否表示。 (7) 画面の見た目（入力欄の札、青帯、3択）。

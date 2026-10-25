@@ -163,6 +163,7 @@ pub fn run() {
             commands::visual_edit_create,
             commands::visual_edit_list,
             commands::visual_edit_status,
+            commands::visual_edit_end,
             commands::visual_edit_adopt,
             commands::visual_edit_undo,
             commands::visual_edit_diff,

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { adoptVisualEdit, createVisualEdit, diffVisualEdit, listVisualEdits, statusVisualEdit, undoVisualEdit, type PreviewSession, type VisualDiff, type VisualEditSession } from "./api";
+import type { ChatKey } from "../../ipc/types";
+import { adoptVisualEdit, createVisualEdit, diffVisualEdit, endVisualEdit, listVisualEdits, statusVisualEdit, undoVisualEdit, type PreviewSession, type VisualDiff, type VisualEditSession, type VisualStartMode } from "./api";
 
 const messageOf = (error: unknown): string => {
   if (error instanceof Error) return error.message;
@@ -17,8 +18,8 @@ const phaseLabel = (phase: string) => ({
   runningOrReconciling: "実行・停止を確認中", changes: "変更を確認", rejected: "要確認",
 } as Record<string, string>)[phase] ?? "状態: " + phase;
 
-export function VisualEditControls({ enabled, chatId, preview, session, onBind, onUpdate, onLeave, onBeforeDiff, onAfterDiff, onKnownEditChats, onNotice }: {
-  enabled: boolean; chatId: string | null; preview: PreviewSession | null; session: VisualEditSession | null;
+export function VisualEditControls({ enabled, chatId, currentChat, onEnded, preview, session, onBind, onUpdate, onLeave, onBeforeDiff, onAfterDiff, onKnownEditChats, onNotice }: {
+  enabled: boolean; chatId: string | null; currentChat: ChatKey | null; onEnded: (id: string) => Promise<void>; preview: PreviewSession | null; session: VisualEditSession | null;
   onBind: (session: VisualEditSession) => Promise<void>; onUpdate: (session: VisualEditSession) => void; onLeave: () => Promise<void>;
   onBeforeDiff: () => Promise<void>; onAfterDiff: () => void; onKnownEditChats: (ids: string[]) => void; onNotice: (text: string) => void;
 }) {
@@ -34,6 +35,7 @@ export function VisualEditControls({ enabled, chatId, preview, session, onBind, 
   const [diffPath, setDiffPath] = useState<string | null>(null);
   const [operation, setOperation] = useState<{ kind: "adopt" | "undo"; outcome: string; revision: number; id: string | null; message?: string } | null>(null);
   const writeLock = useRef(false);
+  const [startMode, setStartMode] = useState<VisualStartMode>("current");
   const autoBound = useRef<string | null>(null);
   const generation = useRef(0);
   const currentId = useRef(session?.sessionId ?? null);
@@ -49,7 +51,7 @@ export function VisualEditControls({ enabled, chatId, preview, session, onBind, 
     if (listBusy) return;
     setListBusy(true); setListError(null);
     try {
-      const found = await listVisualEdits(); setSessions(found); onKnownEditChats(found.map((item) => item.chat.id));
+      const all = await listVisualEdits(); const found = all.filter((item) => !item.ended); setSessions(found); onKnownEditChats(found.map((item) => item.chat.id));
       // 再起動後などで専用チャットを開いたときは、その編集コピーを自動で開き直す。
       const mine = chatId && !currentId.current ? found.find((item) => item.chat.id === chatId) : undefined;
       if (mine && autoBound.current !== mine.sessionId) { autoBound.current = mine.sessionId; void bind(mine); }
@@ -95,10 +97,11 @@ export function VisualEditControls({ enabled, chatId, preview, session, onBind, 
     if (!preview || session || busy || writeLock.current) return;
     writeLock.current = true; setBusy(true); setError(null);
     try {
-      const next = await createVisualEdit(preview.rootPath, preview.htmlPath);
+      const mode: VisualStartMode = currentChat ? startMode : "new";
+      const next = await createVisualEdit(preview.rootPath, preview.htmlPath, null, currentChat, mode);
       setSessions((all) => [next, ...all.filter((item) => item.sessionId !== next.sessionId)]);
       await bind(next);
-      onNotice("編集用コピーと専用チャットを作成しました。依頼はまだ送信していません。");
+      onNotice(mode === "current" ? "この会話で編集を始めました。依頼はまだ送信していません。" : mode === "fork" ? "会話を分岐して、編集を始めました。依頼はまだ送信していません。" : "編集用コピーと専用チャットを作成しました。依頼はまだ送信していません。");
     } catch (e) {
       setError("作業開始の結果を確認できませんでした: " + messageOf(e) + " 一覧を再確認してください。");
     } finally { writeLock.current = false; setBusy(false); }
@@ -158,6 +161,20 @@ export function VisualEditControls({ enabled, chatId, preview, session, onBind, 
     } finally { writeLock.current = false; setBusy(false); }
   };
 
+  // 既存の会話での編集を終える。以後この会話は、元の作業場所で動く。反映していない変更は元へ入らない（コピーは残る）。
+  const finish = async () => {
+    if (!session || busy || writeLock.current || session.mode !== "current") return;
+    if (!window.confirm("編集を終えます。\n・元へ反映していない変更は、元のファイルに入りません（コピーは残ります）。\n・この会話の次の送信から、元の作業場所で動きます。\n終えますか？")) return;
+    writeLock.current = true; setBusy(true); setError(null);
+    try {
+      const done = await endVisualEdit(session.sessionId);
+      if (!done.ended) throw new Error("終了を確認できませんでした。");
+      await onEnded(session.sessionId);
+      onNotice("編集を終えました。この会話は元の作業場所に戻ります。");
+    } catch (e) {
+      setError("編集を終えられませんでした: " + messageOf(e));
+    } finally { writeLock.current = false; setBusy(false); }
+  };
   // 反映できないときの回復: 元の最新の内容から編集用コピーを作り直す（今のコピーは「保存された編集」に残る）。
   const restart = async () => {
     if (!session || busy || writeLock.current) return;
@@ -186,7 +203,12 @@ export function VisualEditControls({ enabled, chatId, preview, session, onBind, 
     {!session ? <>
       <div className="visual-edit-heading"><strong>編集用コピー</strong></div>
       <p className="visual-lead">元のファイルは変更しません。コピーでAIに編集させ、確認してから元に反映できます。</p>
-      <button type="button" className="btn primary visual-start" disabled={!preview || busy} onClick={() => void create()}>{busy ? "作成しています…" : "編集を始める（コピーを作成）"}</button>
+      {currentChat ? <div className="visual-modes" role="radiogroup" aria-label="どの会話で編集しますか">
+        <strong>どの会話で編集しますか</strong>
+        {([["current", "今の会話で続ける", "これまでの内容と修正を、この会話が覚えます"], ["fork", "分岐して続ける", "今の会話はそのまま残し、コピーした会話で編集します"], ["new", "新しい会話で始める", "履歴は引き継ぎません"]] as const).map(([mode, title, note]) =>
+          <label key={mode} className={"visual-mode" + (startMode === mode ? " on" : "")}><input type="radio" name="visual-start-mode" checked={startMode === mode} onChange={() => setStartMode(mode)} /><span><b>{title}</b><small>{note}</small></span></label>)}
+      </div> : null}
+      <button type="button" className="btn primary visual-start" disabled={!preview || busy} onClick={() => void create()}>{busy ? "作成しています…" : currentChat ? "編集を始める" : "編集を始める（コピーを作成）"}</button>
       {!preview ? <p className="visual-hint">先に中央の「HTMLを開く」でページを表示してください。</p> : null}
       <details className="visual-more"><summary>詳細</summary>
         {preview ? <p className="visual-scope-line">元ルート: {preview.rootPath}<br />HTML: {preview.htmlPath}</p> : null}
@@ -194,7 +216,7 @@ export function VisualEditControls({ enabled, chatId, preview, session, onBind, 
         {sessions.length ? <ul>{sessions.map((item) => <li key={item.sessionId}><button type="button" className="btn-line sm" disabled={busy} onClick={() => void bind(item)}>{item.htmlPath} · {phaseLabel(item.phase)}</button><small>{item.draftRoot}</small></li>)}</ul> : null}
       </details>
     </> : <>
-      <div className="visual-banner" title={session.draftRoot}><span aria-hidden="true">●</span> 編集用コピーで作業中<small>{session.htmlPath}</small></div>
+      <div className="visual-banner" title={session.draftRoot}><span aria-hidden="true">●</span> {session.mode === "current" ? "この会話は、いま編集用コピーで作業中です" : "専用チャットで、編集用コピーを編集中です"}<small>{session.htmlPath}</small></div>
       <div className={"visual-status-card " + (status?.tone ?? "")} role="status">
         <strong>{status?.text}</strong>
         {status?.hint ? <span>{status.hint}</span> : null}
@@ -209,6 +231,7 @@ export function VisualEditControls({ enabled, chatId, preview, session, onBind, 
         <button type="button" className="btn primary" disabled={busy || stale || !session.canAdopt} onClick={() => void write("adopt")}>この内容を元に反映</button>
         <button type="button" className="btn" disabled={busy || stale || !session.canUndo} onClick={() => void write("undo")}>直前のAI編集を取り消す</button>
       </div>}
+      {session.mode === "current" ? <button type="button" className="btn-line sm visual-finish" disabled={busy} onClick={() => void finish()}>編集を終えて、元の作業場所に戻る</button> : null}
       {operation && operation.revision === session.revision && (operation.id === null || operation.id === session.lastOperation?.id)
         ? <p className="visual-hint" role="status">{operation.outcome === "applied" ? (operation.kind === "adopt" ? "元のファイルに反映しました。" : "直前のAI編集を取り消しました。") : actionLabel(operation.kind) + "の結果は「" + operation.outcome + "」です。"} {operation.message}</p> : null}
       <details className="visual-more"><summary>詳細{visibleChanges.length ? `（変更ファイル${visibleChanges.length}件）` : ""}</summary>

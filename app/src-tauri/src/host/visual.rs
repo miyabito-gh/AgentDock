@@ -1,6 +1,6 @@
 use super::{err, Host, SendAuth};
 use crate::backend::{backend::{PermissionPreset, SendMode, SendRequest, UserConfirmed}, ipc::{IpcError, IpcErrorCode, StartChatArgs}, model::{BackendKind, ChatKey, ModelChoice, SendAttempt, SendState}};
-use crate::visual_edit::{self as ve, session::{self, LoadedSession, SessionEvent, SessionMeta, SessionView}, FileAccess, FileScope, ProjectRoot, RelativePath, SelectedFile, Snapshot};
+use crate::visual_edit::{self as ve, session::{self, LoadedSession, RestoreInfo, SessionEvent, SessionMeta, SessionView}, FileAccess, FileScope, ProjectRoot, RelativePath, SelectedFile, Snapshot};
 use serde::Deserialize;
 use std::{fs, path::{Path, PathBuf}, sync::Arc};
 
@@ -8,7 +8,7 @@ use std::{fs, path::{Path, PathBuf}, sync::Arc};
 pub(super) struct VisualRuntime { pub lock: tokio::sync::Mutex<()> }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct VisualCreateArgs { pub root_path:String, pub html_path:String, pub model:Option<ModelChoice> }
+pub struct VisualCreateArgs { pub root_path:String, pub html_path:String, pub model:Option<ModelChoice>, #[serde(default)] pub chat:Option<ChatKey>, #[serde(default)] pub mode:Option<String> }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VisualSessionArgs { pub session_id:String }
@@ -57,11 +57,37 @@ impl Host {
         Ok(session::binding_id(&self.visual_root(),chat).map_err(visual_err)?.is_some())
     }
     fn visual_loaded(&self,id:&str)->Result<LoadedSession,IpcError> { session::load(&self.visual_root(),id).map_err(visual_err) }
+    /// 既存の会話で続ける・分岐して続ける場合の、対象の会話と戻し先。専用チャットを新規に作る場合は None。
+    async fn visual_existing_target(self:&Arc<Self>,args:&VisualCreateArgs,source:&ProjectRoot,confirmed:&UserConfirmed)->Result<Option<(ChatKey,RestoreInfo)>,IpcError> {
+        let mode=args.mode.as_deref().unwrap_or("new");
+        if mode=="new" {return Ok(None);}
+        if mode!="current" && mode!="fork" {return Err(visual_err("unknown start mode"));}
+        let Some(chat)=args.chat.clone() else {return Err(visual_err("an existing chat is required for this start mode"));};
+        if chat.backend!=BackendKind::Codex {return Err(visual_err("only Codex chats can be edited in place"));}
+        self.check_not_org_owned(&chat)?;
+        if self.read(|d|d.chat(&chat).is_none()) {return Err(visual_err("chat is not listed"));}
+        if self.visual_bound(&chat)? {return Err(visual_err("this chat is already used by an edit session"));}
+        if session::restore_for(&self.visual_root(),&chat).map_err(visual_err)?.is_some() {return Err(visual_err("the previous edit on this chat has not returned to its original folder yet; send once from the original folder first"));}
+        if self.send_unsettled(&chat) || self.subagent_turn_pending(&chat) {return Err(visual_err("this chat has a send or turn that is not settled"));}
+        let gate=self.queue_gate_input(&chat).await;
+        if !Self::visual_overlap_stopped(&gate) {return Err(visual_err("this chat is running, or its stop is not confirmed"));}
+        let cwd=self.read(|d|d.chat(&chat).and_then(|c|c.cwd.value().cloned())).ok_or_else(||visual_err("the chat's work folder is unknown"))?;
+        let folders=self.work_folders_for_send(&chat,true).map(|f|f.folders).filter(|f|!f.is_empty()).unwrap_or_else(||vec![cwd.clone()]);
+        let _=source;
+        let restore=RestoreInfo{folders};
+        if mode=="current" {return Ok(Some((chat,restore)));}
+        let forked=self.fork_chat(crate::backend::ipc::ForkChatArgs{chat:chat.clone(),through_turn:None},confirmed).await?;
+        let Some(new_chat)=forked.chat else {return Err(visual_err("the chat could not be forked (not accepted or not confirmed); nothing was changed"));};
+        Ok(Some((new_chat.key,restore)))
+    }
     pub async fn visual_create(self:&Arc<Self>,args:VisualCreateArgs,confirmed:&UserConfirmed)->Result<SessionView,IpcError> {
+        // 送信ロックは visual ロックより先に取る（通常の送信と同じ順序）。
+        let _send_guard=match (&args.chat,args.mode.as_deref()) {(Some(c),Some("current"|"fork"))=>Some(self.queue_rt.send_lock(c).lock_owned().await),_=>None};
         let _guard=self.visual_rt.lock.lock().await;
         let source=ProjectRoot::open(Path::new(&args.root_path)).map_err(visual_err)?;
         let html=ve::preview::relative_entry(source.path(),&args.html_path).map_err(visual_err)?;
         let scope=discover(&source,&html).map_err(visual_err)?;
+        let existing=self.visual_existing_target(&args,&source,confirmed).await?;
         let storage_root=self.visual_root(); fs::create_dir_all(&storage_root).map_err(visual_err)?;
         let id=self.local_id("visual").0;
         session::validate_id(&id).map_err(visual_err)?;
@@ -75,13 +101,37 @@ impl Host {
         let pending=serde_json::json!({"version":1,"sessionId":id,"draftRoot":draft_root});
         let mut pending_file=fs::OpenOptions::new().write(true).create_new(true).open(draft.storage_path().join("pending.json")).map_err(visual_err)?;
         serde_json::to_writer(&mut pending_file,&pending).map_err(visual_err)?; pending_file.sync_all().map_err(visual_err)?;
-        let started=self.start_chat_in(StartChatArgs { backend:BackendKind::Codex,cwd:None,model:args.model,permission:Some(PermissionPreset::WorkspaceWriteOnRequest),first_message:None,worktree:None,extra_folders:Vec::new(),confirmed_strong:Vec::new() },Some(draft_root.clone()),confirmed).await?;
-        let binding=session::PendingBinding{version:1,session_id:id.clone(),chat:started.chat.key.clone(),draft_root:draft_root.clone()};
+        let (chat_key,restore)=match existing {
+            Some((key,restore))=>(key,Some(restore)),
+            None=>{
+                let started=self.start_chat_in(StartChatArgs { backend:BackendKind::Codex,cwd:None,model:args.model,permission:Some(PermissionPreset::WorkspaceWriteOnRequest),first_message:None,worktree:None,extra_folders:Vec::new(),confirmed_strong:Vec::new() },Some(draft_root.clone()),confirmed).await?;
+                (started.chat.key,None)
+            }
+        };
+        let binding=session::PendingBinding{version:1,session_id:id.clone(),chat:chat_key.clone(),draft_root:draft_root.clone()};
         session::save_pending_binding(draft.storage_path(),&binding).map_err(visual_err)?;
-        let meta=SessionMeta {version:1,session_id:id,chat:started.chat.key,source_root:path_string(source.path())?,draft_root,html_path:html.as_str().into(),scope:scope.selected()};
+        let meta=SessionMeta {version:1,session_id:id,chat:chat_key,source_root:path_string(source.path())?,draft_root,html_path:html.as_str().into(),scope:scope.selected(),mode:restore.as_ref().map(|_|"current".to_string()),restore};
         session::save_meta(draft.storage_path(),&meta).map_err(visual_err)?;
         fs::OpenOptions::new().write(true).create_new(true).open(draft.storage_path().join("events.jsonl")).and_then(|f|f.sync_all()).map_err(visual_err)?;
         self.visual_loaded(&meta.session_id)?.view().map_err(visual_err)
+    }
+    /// 既存の会話での編集を終える。以後その会話の送信は、元の作業場所へ戻して行う。専用チャットの編集は終えるものがない。
+    pub async fn visual_end(self:&Arc<Self>,session_id:&str)->Result<SessionView,IpcError> {
+        let initial=self.visual_loaded(session_id)?;
+        let chat=initial.meta.chat.clone();
+        let _send_guard=self.queue_rt.send_lock(&chat).lock_owned().await;
+        let _guard=self.visual_rt.lock.lock().await;
+        let mut s=self.visual_loaded(session_id)?;
+        if !s.is_current_mode() {return Err(visual_err("only an edit on an existing chat can be ended"));}
+        if s.ended() {return s.view().map_err(visual_err);}
+        self.visual_refresh(&mut s).await?;
+        let view=s.view().map_err(visual_err)?;
+        if matches!(view.phase.as_str(),"preparedUnresolved"|"acceptanceUnknown"|"runningOrReconciling"|"partial"|"recoveryRequired") || s.pending_operation() {
+            return Err(visual_err("the edit is still running or unresolved; wait until it stops and its changes are confirmed"));
+        }
+        if self.send_unsettled(&chat) || self.subagent_turn_pending(&chat) {return Err(visual_err("this chat has a send or turn that is not settled"));}
+        session::append(&s.folder,&SessionEvent::Ended).map_err(visual_err)?;
+        self.visual_loaded(session_id)?.view().map_err(visual_err)
     }
     pub async fn visual_list(self:&Arc<Self>)->Result<Vec<SessionView>,IpcError> {
         let _guard=self.visual_rt.lock.lock().await;
@@ -185,15 +235,29 @@ impl Host {
         }
         Ok(view)
     }
-    pub(super) async fn visual_before_send(self:&Arc<Self>,request:&SendRequest,attempt:&SendAttempt,auth:&SendAuth<'_>)->Result<Option<String>,IpcError> {
+    pub(super) async fn visual_before_send(self:&Arc<Self>,request:&mut SendRequest,attempt:&SendAttempt,auth:&SendAuth<'_>)->Result<Option<String>,IpcError> {
         let _guard=self.visual_rt.lock.lock().await;
         let binding=session::binding_id(&self.visual_root(),&request.chat).map_err(visual_err)?;
         let Some(id)=binding else {
             if self.visual_cwd(&request.chat) {return Err(visual_err("incomplete visual session binding; send blocked"));}
+            // 既存の会話で編集を終えた直後の最初の送信は、作業場所を元へ戻して行う（Codexのturn上書きは以後のturnにも及ぶため）。
+            if matches!(request.mode,SendMode::NewTurn) {
+                if let Some((sid,info))=session::restore_for(&self.visual_root(),&request.chat).map_err(visual_err)? {
+                    request.cwd=None;
+                    request.work_folders=Some(crate::backend::model::WorkFolders{folders:info.folders});
+                    return Ok(Some(sid));
+                }
+            }
             return Ok(None)
         };
         let mut s=self.visual_loaded(&id)?;
         if !matches!(auth,SendAuth::User) {return Err(visual_err("visual chat accepts user sends only"));}
+        // 既存の会話で続ける場合: 編集中の新しいturnは、作業場所と書込み範囲を必ず編集用コピーだけにし、権限も書込み可の既定に固定する。
+        if s.is_current_mode() && matches!(request.mode,SendMode::NewTurn) {
+            request.cwd=None;
+            request.work_folders=Some(crate::backend::model::WorkFolders{folders:vec![s.meta.draft_root.clone()]});
+            request.permission=Some(PermissionPreset::WorkspaceWriteOnRequest);
+        }
         if matches!(request.permission,Some(PermissionPreset::FullAccess)) {return Err(visual_err("full access is unavailable for an isolated visual chat"));}
         if let Some(cwd)=&request.cwd { if !crate::rules::work_folders::is_same_or_under(&s.meta.draft_root,cwd) || !crate::rules::work_folders::is_same_or_under(cwd,&s.meta.draft_root) { return Err(visual_err("visual chat cwd must remain the isolated copy")); } }
         if request.work_folders.as_ref().is_some_and(|f| f.folders.len()!=1 || !crate::rules::work_folders::is_same_or_under(&s.meta.draft_root,&f.folders[0]) || !crate::rules::work_folders::is_same_or_under(&f.folders[0],&s.meta.draft_root)) {return Err(visual_err("visual chat cannot receive extra work folders"));}
@@ -216,7 +280,16 @@ impl Host {
     }
     pub(super) async fn visual_reconciled(&self,chat:&ChatKey,attempt:&SendAttempt) {
         let _guard=self.visual_rt.lock.lock().await;
-        let Ok(Some(id))=session::binding_id(&self.visual_root(),chat) else {return};
+        let Ok(binding)=session::binding_id(&self.visual_root(),chat) else {return};
+        let Some(id)=binding else {
+            // 終了後の最初の送信の受理を、あとの照合で確認できた場合。
+            if matches!(attempt.state,SendState::Accepted{..}) {
+                if let Ok(Some((sid,_)))=session::restore_for(&self.visual_root(),chat) {
+                    if let Ok(s)=self.visual_loaded(&sid) {if s.restore_pending() {let _=session::append(&s.folder,&SessionEvent::Restored);}}
+                }
+            }
+            return;
+        };
         let Ok(s)=self.visual_loaded(&id) else {return};
         let event=match &attempt.state {
             SendState::Accepted{turn}=>Some(SessionEvent::Accepted{attempt_id:attempt.attempt_id.0.clone(),turn_id:turn.turn_id.0.clone()}),
@@ -233,6 +306,10 @@ impl Host {
         let _guard=self.visual_rt.lock.lock().await;
         let Some(id)=id else {return};
         let Ok(s)=self.visual_loaded(id) else {return};
+        if s.restore_pending() {
+            if matches!(attempt.state,SendState::Accepted{..}) {let _=session::append(&s.folder,&SessionEvent::Restored);}
+            return;
+        }
         let event=match &attempt.state {
             SendState::Accepted{turn}=>Some(SessionEvent::Accepted{attempt_id:attempt.attempt_id.0.clone(),turn_id:turn.turn_id.0.clone()}),
             SendState::Rejected{..}=>Some(SessionEvent::Rejected{attempt_id:attempt.attempt_id.0.clone()}),
