@@ -140,3 +140,20 @@
 - Luna Explorerが既存Tauri/IPC/画面を調査。Sol Backend/UIが担当ファイルを分けて実装。Luna Testerが最終検証、別Solが独立レビュー。親は方針/統合/文書を担当。Astra不使用。
 - 受入: root内相対HTML/CSS/module/画像表示とHTTP(S)依存利用、選択/複数/親/Esc、選択情報挿入時の既存draft保持、閉じる/overlay時のnative child退避、previewから全製品command/plugin/任意ファイルの拒否。過去のTCP到達自体を失敗条件にしない。
 - 確認予定: 関連Rust純粋ロジック試験・cargo check --locked、appでnpm type-check/build。必要な実WebView検証は専用identifier/profile/固定fixtureで行い、通常アプリ領域や認証へ書かない。実Codex送信・採用はまだ試験しない。
+## 2026-10-25 表示・選択スライスの実装と限定実機合格
+
+- 対象feature/visual-editor、方針更新54f9f65からの未コミット実装。詳細はverification/visual-editor/READONLY_PREVIEW.md。中央native preview/右既存chat、単一・複数・主選択の親/Esc、ひな形と未信頼選択情報の既存draftへの追記を実装。追記だけで送信しない。採用/復元未対応を画面に表示。
+- RustはPreviewManager/4commands、root内readonly snapshot配信、native選択observer、全application invoke入口のmain/monitor exact label guard。plugin capabilityはwindowsからwebviews exact名へ変更、生成capabilities.jsonも対応更新。HTTP(S)/data/blobは許可、完全通信遮断なし。profileはmainと分離する。
+- Sol Backend/UIが実装、Luna Explorer/Testerが調査/CLI、別Solがレビュー。GPT-6.1 Solの利用上限後は親が限定修正/実行を引継ぎ、最終独立レビューをGPT-6 Solへ交代。Astra不使用。前任workerの権限付き試験コマンドは3223秒応答せず中断、session ID未返却・書込み反映なし。実行結果不明を成功に数えず、親は別名のURL回帰で再現した。
+- Luna: cargo check終了0(12.98秒)、関連Rust13/13、npm build(tsc含む)終了0(8.02秒)、payload/path/contextの一時実行確認。Sol: Windows通常/verbatim/case/root逸脱の追加path回帰1件成功(39.04秒)。最終UI制御修正後は親のnpm build終了0(7.85秒)、未対応案内の文言追加後にtype-check終了0。
+- 実機で選択HTML404を検出し、Server::urlがtoken末尾の空segmentを残す問題を修正。親の空白/日本語URL→実配信解決回帰で旧実装1件失敗(29.04秒)、pop_if_empty後成功(30.48秒)。拒否分類回帰1件も成功。無関係な全テストは反復せず、最後の通常cargo checkも成功。既存hard-link/ts-rs/import/chunk警告は残る。
+- 専用exampleは製品manager/commands/guardを再利用し、通常Host/store/認証/Codexを起動しない。テスト設定のbasename無視を専用folder/tauri.conf.jsonと起動前identifier検査で修正。設定不具合・URL404・拒否診断未分類の3失敗記録を保持したうえで、最後のrun-0dc4138a231b4e8fac930bf1b43b3d69はnative終了0・全6check成功。
+- 実測成功: CSS/module・相対/root画像・data/blob画像、別loopback API JSON、単一→Ctrl複数→主選択親→Esc、native shown/hidden/reshownと幅、close後childなし、秘密/範囲外の404、悪意extra field通知の不採用。main sentinel1回の後previewから増加なし、pluginとcustom commandはTauri 2.12.1 ACL明示拒否。wrapper自体の動的経路・実file-scheme・実マウス/DPI/React本画面/HTTPS/LAN/実Codex編集/採用は未実測。
+- 最終sourceの専用example build終了0(7.15秒)。EXE hash 5BD471278C0A840AB73805FC73D8C72AB629B235A731F42780472E3D9995755C。13:31:49〜53 JST、launcher071e64522ccf44c7824f410c1d9c667a。helperでprocesses=[]、LunaのViteもlistenerなしを確認。GUIの実行担当と結果回収は親に集約した。
+- 実アプリ保存データ・~/.codex・Windows firewall/ACLは変更なし。専用targetのfixture/log/profileと専用identifierのpreview profileを保持。生成型/schema既存39件は破棄せず、内容比較して今回のcapabilities.json実変更と区別する。新ブランチ未push、master/origin/masterは09b00e3。
+- 次: React本画面の実マウス/overlay/DPI確認と、Visual専用コピー・送信transaction・停止照合後の自動更新、差分/採用/復元を実装する。現在の通常chat送信に専用コピー/採用の保証はない。全体MVP完成や配布更新とは報告しない。
+### 保存コミットと最終照合
+
+- 54f9f65: 利用者合意に基づく通信許可。1fe3411: native preview/選択/権限境界。5471890: 中央previewと既存chat/draft UI。30c028c: 専用実機検証。40ae93c: selection scriptの空行末尾空白だけ除去（機能不変、再実機試験なし）。文書は後続コミットへ保存する。
+- 最後の通常cargo checkは終了0/11.20秒、UI未対応案内追加後のtype-checkも終了0。Sol系利用上限による担当交代と結果不明のコマンドを成功に含めないことを記録済み。
+- 生成物status40件のraw hash比較で、意図したcapabilities.jsonだけがindexと不一致。他39件はすべてバイト一致。capabilities.jsonのみ権限変更と合わせてcommitし、他39件は保持。新ブランチ未push、master/origin/master 09b00e3を維持。
