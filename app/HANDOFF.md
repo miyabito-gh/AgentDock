@@ -272,3 +272,10 @@
 - 通常チャットから遷移: 会話中のファイルパスのメニュー（RefParts: LinkPathMenu/PathRef）と成果物の行（CenterPane FilesBlock）に、HTMLだけ「Visual Editorで開く」を追加。App.openInVisual がVisual Editorを開き、VisualWorkspace が表示ルート=HTMLの親フォルダで表示（編集中なら編集から離れる）。表示するだけで、編集用コピーは利用者が「編集を始める」で作る。
 - 既知: 表示専用に残る拡張子(png/jpg/woff/json等)をAIが変更した場合は反映・取り消しとも不可で「やり直す」が回復手段。作り直すと元チャットの文脈は引き継がれない。
 - 検証: tsc成功、cargo test --lib visual 35件成功。利用者の依頼によりビルド保留中のためinstaller未再生成（最新installerは回復機能・遷移メニューを含まない）。実機の見た目・操作は未確認。
+
+## 2026-10-25 「元の会話で続ける」方式の事前確認（単体Codex試験）
+- 目的: 元チャットを編集用コピーで継続する案が安全か。codex app-server（0.163.0）を単体起動し、thread/start(cwd=original, workspace-write)後に、turn/startで cwd=copy と sandboxPolicy workspaceWrite writableRoots=[]（AgentDockのsandbox_policy_jsonと同じ）へ切替。承認は never。試験は一時フォルダ外の専用フォルダ（後で削除）。使用モデル gpt-6-luna・effort低、3ターン。
+- 結果: (1) copy\b.txt は作成できた。(2) 切替後に original\a.txt（絶対パス）への書込みは「アクセスが拒否されました」で失敗、元は「ORIGINAL」のまま。(3) 3ターン目で、1ターン目に書いた内容を「ORIGINAL」と正しく答え、会話の記憶は継続。
+- 注意: 試験フォルダをTEMP配下に置くと、workspaceWrite が TMPDIR を書込み可にするため元も書き換えられた（初回の混乱要因）。元フォルダがTEMP配下の場合、この方式では保護できない。実装では、元ルートがTEMP等の既定書込み許可領域にある場合は「元の会話で続ける」を無効にするか分岐へ誘導する。
+- 副産物: Codexは日本語を PowerShell 既定エンコードで書くことがあり、T1ではSet-Content、後のターンではWriteAllTextを自発的に使った。UTF-8指示は引き続き添付する。
+- 結論: 「今の会話で続ける」を既定にする方針で実装可能。後片付け済み（試験フォルダ削除）。
