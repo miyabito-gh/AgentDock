@@ -1,0 +1,59 @@
+<!doctype html><meta charset="utf-8"><title>Isolated editor boundary probe</title>
+<body>Isolated native preview verification controller<script>
+(async () => {
+  const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+  const post=value=>{try{window.chrome.webview.postMessage(JSON.stringify(value));}catch(_){}};
+  let invoke;
+  const observations={selections:[], lifecycle:[], errors:[]};
+  const bounds={x:10,y:50,width:600,height:380};
+  await sleep(150);
+  try {
+    invoke=window.__TAURI_INTERNALS__?.invoke;
+    post({probe:"main-bootstrap",invokeSurface:typeof invoke,globalSurface:typeof window.__TAURI__});
+    if(typeof invoke!=="function" || typeof window.__TAURI__?.event?.listen!=="function") throw new Error("main Tauri bootstrap surface missing");
+    await window.__TAURI__.event.listen('visual-preview-selection', e=>observations.selections.push(e.payload));
+    await window.__TAURI__.event.listen('visual-preview-error', e=>observations.errors.push(e.payload));
+    observations.mainSentinel=await invoke('probe_privileged_sentinel');
+    const fixture=await invoke('probe_fixture');
+    const session=await invoke('visual_preview_open',{rootPath:fixture.root,htmlPath:'pages/index.html',bounds});
+    const sessionId=session.sessionId;
+    observations.sessionId=sessionId;
+    await invoke('probe_attach',{sessionId});
+    observations.lifecycle.push('opened');
+    await invoke('visual_preview_bounds',{sessionId,bounds,visible:true});
+    await sleep(75); await invoke('probe_step',{sessionId,step:'shown'});
+    observations.lifecycle.push('shown');
+    await sleep(650);
+    await invoke('probe_step',{sessionId,step:'resources'});
+    await sleep(850);
+    await invoke('probe_step',{sessionId,step:'click-one'}); await sleep(180);
+    await invoke('probe_step',{sessionId,step:'ctrl-click-two'}); await sleep(180);
+    await invoke('visual_preview_action',{sessionId,action:'parent'}); await sleep(180);
+    await invoke('probe_step',{sessionId,step:'escape'}); await sleep(180);
+    observations.beforeMalicious=observations.selections.length;
+    await invoke('probe_step',{sessionId,step:'malicious'}); await sleep(220);
+    observations.afterMalicious=observations.selections.length;
+    await invoke('visual_preview_bounds',{sessionId,bounds:{...bounds,x:15,width:580},visible:false});
+    await sleep(75); await invoke('probe_step',{sessionId,step:'hidden'});
+    observations.lifecycle.push('hidden');
+    await invoke('visual_preview_bounds',{sessionId,bounds,visible:true});
+    await sleep(75); await invoke('probe_step',{sessionId,step:'reshown'});
+    observations.lifecycle.push('reshown');
+    await invoke('visual_preview_close',{sessionId});
+    observations.lifecycle.push('closed');
+    const narrow=await invoke('visual_preview_open',{rootPath:fixture.root+'/pages',htmlPath:'index.html',bounds});
+    await invoke('visual_preview_close',{sessionId:narrow.sessionId});
+    observations.rootChange=[];
+    const ordinary=Array.from(narrow.htmlPath.slice(0,4)).map(c=>c.charCodeAt(0)).join(',')==='92,92,63,92'?narrow.htmlPath.slice(4):narrow.htmlPath;
+    for(const htmlPath of [ordinary,narrow.htmlPath]) {
+      const broad=await invoke('visual_preview_open',{rootPath:fixture.root,htmlPath,bounds});
+      observations.rootChange.push(broad.htmlPath.split(String.fromCharCode(92)).join('/').endsWith('pages/index.html'));
+      await invoke('visual_preview_close',{sessionId:broad.sessionId});
+    }
+    await sleep(200);
+  } catch(e) {observations.errors.push(String(e));post({probe:"main-bootstrap-error",error:String(e)});}
+  if(typeof invoke==="function") {
+    try {await invoke('probe_finish',{observations});} catch(e) {post({probe:'main-finish-error',error:String(e)});}
+  }
+})();
+</script></body>

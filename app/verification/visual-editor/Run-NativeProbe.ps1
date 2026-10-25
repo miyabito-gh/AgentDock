@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param([ValidateSet('Inspect', 'Run')][string]$Mode = 'Inspect',
-    [ValidateSet('NativeOnly', 'Layered', 'Offline')][string]$Policy = 'NativeOnly')
+    [ValidateSet('NativeOnly', 'Layered', 'Offline', 'Editor')][string]$Policy = 'NativeOnly')
 $ErrorActionPreference = 'Stop'
 $repoRoot = 'C:\Users\wmasa\Documents\Rust\AgentDock_next'
 $scriptRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
@@ -9,6 +9,10 @@ if (-not [string]::Equals($scriptRoot, $repoRoot, [StringComparison]::OrdinalIgn
 }
 $exePath = Join-Path $repoRoot 'app\src-tauri\target\debug\examples\visual_preview_probe.exe'
 $probeRoot = Join-Path $repoRoot 'app\src-tauri\target\visual-probe'
+if ($Policy -eq 'Editor') {
+    $exePath = Join-Path $repoRoot 'app\src-tauri\target\debug\examples\visual_editor_boundary_probe.exe'
+    $probeRoot = Join-Path $repoRoot 'app\src-tauri\target\visual-editor-probe'
+}
 
 function Assert-NoReparsePath([string]$Path) {
     $checkedPath = [IO.Path]::GetFullPath($Path)
@@ -31,9 +35,11 @@ Assert-NoReparsePath $probeRoot
 
 function Get-ProbeProcesses {
     # A failed/inaccessible host query must never become evidence that no process exists.
-    $candidates = @(Get-CimInstance Win32_Process -Filter "Name = 'visual_preview_probe.exe'")
+    $processFilter = if ($Policy -eq 'Editor') { "Name = 'visual_editor_boundary_probe.exe' OR Name = 'visual_preview_probe.exe'" } else { "Name = 'visual_preview_probe.exe'" }
+    $candidates = @(Get-CimInstance Win32_Process -Filter $processFilter)
     foreach ($candidate in $candidates) {
-        $exactPathMatch = [string]::Equals($candidate.ExecutablePath, $exePath, [StringComparison]::OrdinalIgnoreCase)
+        $candidateExe = if ($Policy -eq 'Editor' -and $candidate.Name -eq 'visual_preview_probe.exe') { Join-Path $repoRoot 'app\src-tauri\target\debug\examples\visual_preview_probe.exe' } else { $exePath }
+        $exactPathMatch = [string]::Equals($candidate.ExecutablePath, $candidateExe, [StringComparison]::OrdinalIgnoreCase)
         if ($exactPathMatch -or [string]::IsNullOrEmpty($candidate.ExecutablePath)) {
             $started = $null; $responding = $null
             try {
