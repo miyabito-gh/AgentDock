@@ -148,13 +148,18 @@ pub fn run() {
                 host.start_power_watch();
             });
             app.manage(host.clone());
+            app.manage(visual_edit::preview::PreviewManager::default());
             // 通常画面の位置を復元して表示する。自動起動（--autostart）なら通常画面は開かず、トレイ格納で起動する。
             let start_hidden = std::env::args().any(|a| a == "--autostart");
             win::window::restore_main(app.handle(), &host, start_hidden);
             setup_tray(app, host).map_err(|e| format!("tray: {e}"))?;
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![
+        .invoke_handler(visual_edit::preview::guarded_invoke_handler(tauri::generate_handler![
+            visual_edit::preview::visual_preview_open,
+            visual_edit::preview::visual_preview_bounds,
+            visual_edit::preview::visual_preview_action,
+            visual_edit::preview::visual_preview_close,
             commands::get_snapshot,
             commands::subagent_start,
             commands::subagent_runs,
@@ -361,7 +366,7 @@ pub fn run() {
             commands::pick_codex_executable,
             commands::pick_folder,
             commands::pick_save_file,
-        ])
+        ]))
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 

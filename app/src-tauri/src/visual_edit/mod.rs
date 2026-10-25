@@ -1,6 +1,6 @@
-//! Explicit-file Visual Editor foundation. No IPC, app-data access, or source
-//! writer. Decisions are observations, never write authorization. Production
-//! adoption is blocked pending host guards, journals, and native replacement.
+//! Explicit-file foundation and bounded read-only native preview. No source
+//! writer. Decisions are observations, never write authorization. Source
+//! adoption remains blocked pending writer guards, journals, and replacement.
 //! Hashes are not locks; Unix fixtures do not establish Windows race safety.
 mod decision;
 mod draft;
@@ -29,3 +29,5 @@ pub enum VisualError {
 pub type VisualResult<T> = Result<T, VisualError>;
 #[cfg(test)]
 mod tests;
+
+pub mod preview;
