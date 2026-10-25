@@ -132,6 +132,8 @@ export interface FileActions {
   open: (t: FileRef) => void;
   /** 保存先を選んで保存する（同名は上書き確認）。 */
   save: (t: FileRef, name: string) => void;
+  /** HTMLをVisual Editorで開く（見るだけ。編集は編集用コピーを作ってから）。 */
+  openVisual?: (path: string) => void;
   /** 画像のアプリ内プレビュー用のバイト列。 */
   preview: (t: FileRef) => Promise<ArrayBuffer>;
   /** 送信前の添付を取り外す。 */
@@ -458,6 +460,7 @@ function FilesBlock({ chatId, sent, artifacts, files }: { chatId: string; sent: 
                 <b>{name}</b>　<span className={`st ${gone ? "bad" : ""}`}>成果物・{gone ? "見つかりません（欠損）。移動または削除された可能性があります" : unsure ? "実在を確認できていません" : `実在を確認済み${a.checkedAt !== null ? `（${hms(a.checkedAt)}）` : ""}`}</span>
                 <div className="mono small muted"><PathText path={a.path} />{a.inChatArea ? "" : <>　<span className="tag" title="作業フォルダ側のファイル。チャットを削除しても消しません">作業フォルダ側</span></>}</div>
               </div>
+              {files.openVisual && /\.html?$/i.test(name) ? <button className="small" disabled={gone || unsure} title="Visual Editorで表示し、ドラッグで範囲を選んで編集を依頼できます" onClick={() => files.openVisual?.(a.path)}>Visual Editorで開く</button> : null}
               <button className="small" disabled={gone} onClick={() => files.open(target)}>開く</button>
               <button className="small" disabled={gone} onClick={() => files.save(target, name)}>名前を付けて保存…</button>
             </div>

@@ -13,10 +13,10 @@ function overlayOpen(): boolean {
     .some((node) => node.getClientRects().length > 0 && getComputedStyle(node).visibility !== "hidden");
 }
 
-export function VisualWorkspace({ enabled, blocked, chatName, chatId, canInsert, onInsert, onContext, onNotice, onOpenEditChat, onLeaveEditChat, onKnownEditChats, children }: {
+export function VisualWorkspace({ enabled, blocked, chatName, chatId, canInsert, onInsert, onContext, openRequest, onNotice, onOpenEditChat, onLeaveEditChat, onKnownEditChats, children }: {
   enabled: boolean; blocked: boolean; chatName: string | null; chatId: string | null; canInsert: boolean;
   onOpenEditChat: (id: string) => void; onLeaveEditChat: () => void; onKnownEditChats: (ids: string[]) => void;
-  onInsert: (text: string) => void; onContext: (text: string | null) => void; onNotice: (message: string) => void; children: ReactNode;
+  onInsert: (text: string) => void; onContext: (text: string | null) => void; openRequest: { path: string; nonce: number } | null; onNotice: (message: string) => void; children: ReactNode;
 }) {
   const desktop = previewAvailable();
   const stage = useRef<HTMLDivElement>(null);
@@ -292,6 +292,17 @@ export function VisualWorkspace({ enabled, blocked, chatName, chatId, canInsert,
       reloadPending.current = false; void action("reload");
     }
   }, [enabled, busy, edit?.revision, edit?.phase]);
+  // 通常チャットのファイルメニューからの「Visual Editorで開く」。編集中なら編集から離れて、そのHTMLを表示する。
+  const handledOpen = useRef(0);
+  useEffect(() => {
+    if (!enabled || !desktop || !openRequest || handledOpen.current === openRequest.nonce) return;
+    if (operationBusy.current || editBinding.current || closeFailed.current) { notice.current("プレビューの操作中です。少し待ってからもう一度開いてください。"); handledOpen.current = openRequest.nonce; return; }
+    handledOpen.current = openRequest.nonce;
+    if (editRef.current) { editRef.current = null; setEdit(null); onLeaveEditChat(); }
+    const token = ++generation.current;
+    void replacePreview(openRequest.path, parentFolder(openRequest.path), token)
+      .catch((failure) => { if (alive.current) setError("HTMLを開けませんでした: " + messageOf(failure)); });
+  }, [enabled, desktop, openRequest?.nonce]);
   // 編集チャットへの送信に、選択範囲と編集方針を自動で添える（入力欄は書き換えない）。
   const contextText = enabled && edit && chatId === edit.chat.id ? visualSendContext(edit.htmlPath, selection, edit.scope) : null;
   useEffect(() => { onContextRef.current(contextText); }, [contextText]);

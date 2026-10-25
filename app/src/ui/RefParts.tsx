@@ -8,7 +8,8 @@ import { ExtLink } from "./markdown/parts";
 import { linkPolicy } from "./markdown/plugins";
 import { baseNameOf, pathCandidate, pathFromHref, pathLinkView, type PathCandidate, type PathLinkView } from "./markdown/refs";
 
-export type PathAction = "attach" | "copyAbs" |"open" | "editor" | "reveal";
+export type PathAction = "attach" | "copyAbs" |"open" | "editor" | "reveal" | "visual";
+export const isHtmlPath = (path: string): boolean => /\.html?$/i.test(path);
 
 export interface RefActions {
   /** 一覧にあるチャットの表示名。一覧になければ undefined。 */
@@ -142,6 +143,7 @@ function LinkPathMenu({ path, info, view, label, line }: { line: number | null; 
             {view.reason ? <div className="muted" role="note" style={{ padding: "0 10px 4px", maxWidth: 360 }}>{view.reason}</div> : null}
             {view.open ? <button role="menuitem" onClick={act("open")}><span>{info.kind === "folder" ? "フォルダを開く（既定のアプリ）" : "開く（既定のアプリ）"}</span></button> : null}
             {view.open && info.kind === "file" ? <button role="menuitem" onClick={act("editor")}><span>設定したエディタで開く{line ? `（${line}行）` : ""}</span></button> : null}
+            {view.open && info.kind === "file" && isHtmlPath(path) ? <button role="menuitem" onClick={act("visual")}><span>Visual Editorで開く（見ながら編集）</span></button> : null}
             {view.reveal ? <button role="menuitem" onClick={act("reveal")}><span>保存場所を表示</span></button> : null}
             <button role="menuitem" onClick={act("copyAbs")}><span>パスをコピー</span></button>
           </>
@@ -185,6 +187,7 @@ function PathRef({ cand, plain, label, strict = false }: { cand: PathCandidate |
                 <hr />
                 <button role="menuitem" onClick={act("open")}><span>{ok.kind === "folder" ? "フォルダを開く" : "開く"}</span></button>
                 {ok.kind === "file" ? <button role="menuitem" onClick={act("editor")}><span>設定したエディタで開く{cand?.line ? `（${cand.line}行）` : ""}</span></button> : null}
+                {ok.kind === "file" && isHtmlPath(path) ? <button role="menuitem" onClick={act("visual")}><span>Visual Editorで開く（見ながら編集）</span></button> : null}
                 <button role="menuitem" onClick={act("reveal")}><span>エクスプローラーで表示</span></button>
               </>
             );

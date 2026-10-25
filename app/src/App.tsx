@@ -105,6 +105,7 @@ export default function App() {
   const [rightOpen, setRightOpen] = useState(true);
   const [visualMode, setVisualMode] = useState(false);
   const [visualCtx, setVisualCtx] = useState<string | null>(null);
+  const [visualOpen, setVisualOpen] = useState<{ path: string; nonce: number } | null>(null);
   const [visualEditChatId, setVisualEditChatId] = useState<string | null>(null);
   const [visualBoundChatIds, setVisualBoundChatIds] = useState<Set<string>>(() => new Set());
   const [lNarrow, setLNarrow] = useState(false);
@@ -1113,6 +1114,7 @@ ${cur}` : p.text);
   };
 
   const files: FileActions = {
+    openVisual: (path) => openInVisual(path),
     open: (t) => {
       if (!live) { say("この操作はモックでは動きません。"); return; }
       void (async () => {
@@ -1155,6 +1157,11 @@ ${cur}` : p.text);
 
   // ── 会話内のチャットID・ファイルパス（項目5・24・30）。リンク・メニューはユーザーのクリックだけで動く。 ──
   const { pathInfo, requestPath } = usePathStats(live, chat?.key ?? null);
+  /** 通常チャットのHTMLを、Visual Editorで開く（表示するだけ。編集用コピーは利用者が「編集を始める」で作る）。 */
+  const openInVisual = (path: string) => {
+    setVisualOpen({ path, nonce: Date.now() });
+    setVisualMode(true); setOrgScreen(false); setQuick((q) => ({ ...q, open: false })); setRNarrow(false);
+  };
   const pathAct = (act: PathAction, path: string, info: PathInfo, strict = false, line: number | null = null) => {
     if (!chat || !live || !info.absolute) { say("この操作はモックでは動きません。"); return; }
     const abs = info.absolute;
@@ -1162,6 +1169,7 @@ ${cur}` : p.text);
     switch (act) {
       case "attach": void addFiles(chat.key, [abs]); break;
       case "copyAbs": copy(abs, "絶対パス"); break;
+      case "visual": openInVisual(abs); break;
       case "reveal": host.revealPath(chat.key, path, strict).catch((e) => sayErr("表示できませんでした", e)); break;
       case "editor":
         if (strict) host.openPath(chat.key, path, false, true, "editor", line).catch((e) => sayErr("エディタを開けませんでした", e));
@@ -1763,7 +1771,7 @@ ${cur}` : p.text);
               onOpenEditChat={(id) => { setVisualEditChatId(id); setVisualBoundChatIds((ids) => new Set(ids).add(id)); setSelId(id); setOrgScreen(false); setQuick((q) => ({ ...q, open: false })); if (live) void loadChat(id); }}
               onLeaveEditChat={() => setVisualEditChatId(null)}
               onKnownEditChats={(ids) => setVisualBoundChatIds((old) => new Set([...old, ...ids]))}
-              onContext={setVisualCtx}
+              onContext={setVisualCtx} openRequest={visualOpen}
               onInsert={(text) => {
                 if (!chat) return;
                 onDraft(chat, curDraft.length ? `${curDraft}\n\n${text}` : text);
