@@ -11,6 +11,7 @@ pub mod pathref;
 pub mod rules;
 pub mod store;
 pub mod win;
+pub mod visual_edit;
 
 use std::sync::Arc;
 
