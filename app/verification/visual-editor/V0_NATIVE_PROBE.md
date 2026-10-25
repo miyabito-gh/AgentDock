@@ -69,3 +69,32 @@ canaryはTCP接続の事実を先に失敗条件として扱い、別スレッ�
 - `tauri-runtime-wry-2.12.1/src/dialog/windows.rs`はTaskDialogIndirectを使用する。
 - `webview2-com-sys-0.39.1/src/bindings.rs`の`ICoreWebView2_22`、frame navigation、download、合成response APIを使う。
 - `wry-0.57.0/src/webview2/mod.rs`の既存WebMessageReceivedは文字列として取得するため、probeのshellもJSON文字列を渡す。
+
+## 追加切り分け（2026-10-25、経路別canary）
+
+共有canaryでは原因を絞れなかったため、既存のfetch・image・nested-frame・popup・redirectを別々のloopbackポートへ分離した。遮断ポリシーと攻撃操作は維持。schema 2は受理時刻・読取り完了時刻・実WebView2版・経路を記録する。通常reportは最大5×32件の専用接続記録を用い、TCP acceptを読取り前に登録し、monitorをstop/joinしてから保存する。watchdogは終了5の結果不明扱いであり、末尾acceptの完全収録を保証しない。停止後も実行中ページがある短い期間を含め、全期間・全通信の測定ではない。
+
+EXE SHA-256: `002CC12F6D02183F7F9675D9B318BE8A88D4D35A445CD39FC0F8E2C14956BFFD`。実Runtimeは`155.0.4283.62`。
+
+|条件|JST時刻 / native終了|report|
+|---|---|---|
+|Layered|11:49:20〜11:49:26 / 2|`run-140566390106413881197016082285702951974/report.json`|
+|NativeOnly|11:49:48〜11:49:55 / 2|`run-126595657732232215725806263848106157320/report.json`|
+
+両方でnested-frame専用宛先にTCP acceptが1件あった。Layeredは0bytes/closed、NativeOnlyは0bytes/timeout。HTTP行は未観測。ほか4宛先へのacceptはこの観測中にはなかった。redirectの302書込み成功と転送先要求の拒否も記録した。**今回の到達先はnested-frame用と特定できたが、ブラウザー内部の接続機構や以前の共有canary試験の原因までは断定しない。** CSP違反やframe navigation取消の観測をTCP遮断成功へ読み替えない。
+
+相対CSS/module/SVGと親DOM到達拒否は維持。popupのnativeイベントは両試験で観測されず、sandboxで先に抑止された可能性があるため、native popup handlerの実動作は未確認。Luna Testerがreportを独立照合。Sol Reviewerは診断コードに追加必須修正なし。focused offline example buildは16.20秒・終了0。通常コード・Cargo・build.rs・UIが未変更なので既存通常check/Rust基盤試験/npm buildは反復していない。
+
+次の限定実験は、許可資源を合成応答で配信し、CDPのoffline emulationを読込み前に設定する方法。これもOS隔離の代替保証ではなく、TCP/UDP/WebRTC等の未試験範囲を残す。製品有効化条件は変更しない。
+
+公式資料: [WebView2 browser flags](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/webview-features-flags)はflagsを製品に使わないよう案内。[WebView2 CallDevToolsProtocolMethod](https://learn.microsoft.com/en-us/microsoft-edge/webview2/reference/win32/icorewebview2#calldevtoolsprotocolmethod)は非同期CDP呼出し。[CDP Network](https://chromedevtools.github.io/devtools-protocol/tot/Network/)のoffline emulationを全通信のOS遮断仕様とは扱わない。
+## Offline比較試験（2026-10-25）
+
+固定helperの追加条件は `-Policy Offline`（引数`--offline-preview`）。NativeOnly/Layeredは維持。全許可資源をfresh IStreamの合成応答にし、302も合成する。配信originは予約するがネットワークへの配信fallbackを設けない。CDP `Network.emulateNetworkConditionsByRule`→`Network.overrideNetworkState`の成功応答を直列確認した後だけ初回Navigateする。未対応/応答異常で表示へ進まない。白紙を成功にしないため、全6資源の合成応答と相対CSS/module/SVGの観測を終了条件に加えた。
+
+実測: 11:54:38〜11:54:44 JST、native終了2。`run-245893903978854521679482638161485380993/report.json`、launcher `517b48e635d24f9395e7090bcff036ba`。試験EXE SHA-256: `152784409E3A0A2F0B6B5B1B79BD5911EF0D4DA589580117EB1102A94EC6B282`。
+
+両CDP応答成功、offlineConfigured/FixtureReady=true、相対資源表示、全6合成応答を確認。それでもnested-frame専用宛先へTCP1件、0bytes/timeoutを観測した。予約した配信originにもTCP acceptが5件あった。旧イベント名`offline-network-fallback-attempt`はacceptだけの記録で、HTTPを読んでおらず、HTTP要求や実fallbackの実行を証明しない。ページ表示を確認しても厳格な通信遮断は不合格である。
+
+Luna Tester/Sol Reviewerが独立照合。この実測用ビルドは8.36秒・終了0。通常アプリの変更なし。起動後helperでprocesses=[]を確認。CDP emulationを安全境界へ採用する案は見送る。[次のOS境界検証案](NETWORK_BOUNDARY.md)へ進む。OS方式はまだ未実装・未検証で、製品UIは引き続き未公開。
+実測後、ログの意味を明確にするためイベント名を`offline-origin-tcp-accepted`へ変更し、判定済みの`offlineValid`をreportへ追加した。終了条件の変更なし。最終ソースのfocused example buildは6.79秒・終了0、EXE SHA-256は`8133C2BF5117F1069E7BE2BFBFC9094B0C4817C1C7B58BB1E0A0FC26A63DF681`。命名・出力項目だけの変更なのでGUIは反復せず、上の実測hashとは区別する。

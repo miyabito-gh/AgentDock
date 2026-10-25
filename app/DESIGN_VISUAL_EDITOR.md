@@ -340,3 +340,9 @@ previewからはこれらを直接呼べない。選択の通知はファイル�
 - **実機probeはNativeOnly／Layeredとも厳格な通信遮断に不合格**。CSP併用でHTTP要求の拒否を観測したが、別loopbackポートへのTCP接続が届いた。150ms内にHTTP要求行は観測せず、原因は未確定。preconnect等を断定しない。
 - 相対CSS・module・SVGの読込み、親DOMへ到達できないことを制御fixtureで観測した。一方、iframeにTauri globalsが見えた。製品handlerを持たないprobeなので、製品IPC拒否の証明にはならない。中央UIの位置追従／重なりも未試験。
 - 詳細は[実測記録](verification/visual-editor/V0_NATIVE_PROBE.md)。次の課題は専用host／OS側を含む通信境界の再設計。V0合格まで製品UIへ公開しない。Windowsの設定やfirewall、既存Codex設定を無断変更しない。
+
+### 14.1 通信経路の追加切り分け
+
+2026-10-25。5攻撃ごとにcanaryを分離してNativeOnly/Layeredを再測定し、両方でnested-frame専用宛先へのTCP到達を確認した。次に許可資源のメモリ応答とCDP offlineを併用。設定完了・HTML/CSS/module/SVG表示は成功したが、nested-frame宛てTCP接続は残った。HTTP要求は未観測。実測と限定条件は[V0記録](verification/visual-editor/V0_NATIVE_PROBE.md)を参照。
+
+資源要求拒否・CSP・CDP emulationだけを厳格な通信境界として採用しない。次は[専用hostのOS境界検証案](verification/visual-editor/NETWORK_BOUNDARY.md)を調査する。方式は候補段階で、WebView2の起動・全子プロセスの制限・中央表示の成立は未検証。合意済みのJavaScript動作や通信遮断要件を勝手に縮小せず、製品有効化は引き続き保留する。

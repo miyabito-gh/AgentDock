@@ -121,3 +121,15 @@
 - 次: 専用host/OS側を含む通信境界の補強を設計し、V0を再評価する。未確認のbrowser flagで成功扱いにせず、Windows設定/firewallや~/.codexを勝手に変更しない。UI未変更なのでnpm type-check/buildは反復せず、実Codex呼出しも行っていない。
 - 承認設定を読取り調査: 現在のprojectはtrusted、default_permissionsはrelease-projects（workspace継承＋明示root/.git書込み）。GUI/ネットワーク/システム照会まで無制限にする設定ではない。config.toml変更なし。担当間の実行セッションIDは共有できず、以後は実行担当が終了結果を回収してから渡す。
 - probeは各試験後にhelper processes=[]で終了確認。常駐プロセスの追加なし。通常AgentDock保存領域・認証・設定への書込みなし。生成型/schemaの既存変更表示39件は最終raw hash比較ですべてindexとバイト一致を確認。内容の破棄やステージはせず保持。試験profile/report/logはignoredなtarget配下へ保持。
+
+## 2026-10-25 通信経路の分離とOffline比較
+
+- 対象feature/visual-editor、基点84ba0d7。利用者の続行指示で、既存5攻撃を別canaryへ分離。read前にTCP acceptを専用上限付き記録へ残し、通常reportはstop/join後にsnapshotする。watchdog終了5に末尾accept完全収録の保証はない。実Runtime版も取得。
+- Luna調査、Sol実装、親が承認済み固定helperで逐次GUI検証、Luna Testerがreportを独立照合、別Solがレビュー。Astra不使用。権限付きGUIを担当間で重複実行せず、すべて親が終了結果を取得。
+- NativeOnly/Layeredの両方でnested-frame宛てTCP1件/HTTP0bytes。redirect宛てのacceptはなし。内部機構や以前の共有canaryの原因まで断定しない。
+- 続いてOffline条件を追加。全資源・302をメモリ応答にし、CDP2コマンドの完了後だけNavigate。設定失敗/白紙/資源不足/通信fallbackで成功にしない。CDPはOS境界ではない。
+- Offlineも設定・全資源の表示は成功したが、nested-frame TCP1件/0bytesと予約originへのTCP accept5件を観測し、native終了2。旧イベント名にfallback-attemptとあるがHTTPは読まず、実HTTP fallbackは確認していない。**V0隔離は不合格のまま。** 最終ソースではTCP acceptの名前に訂正、offlineValid項目を追加。終了条件は不変。
+- focused example buildは16.20秒（経路分離）、8.36秒（Offline）、6.79秒（命名/出力項目訂正）で終了0。最終diffcheck/PowerShell構文検査成功。通常lib/Cargo/build.rs/UIは未変更のため、前回成功の基盤Rust7件/通常checkと画面buildを反復せず。実Codex試験は行っていない。
+- 実測report・時刻・試験hash/最終build hashはverification/visual-editor/V0_NATIVE_PROBE.mdに分離して記録。命名/出力項目だけの変更後はGUI反復なし。Solは診断コード保存可、製品有効化不可と判断。既存icon/Chrome_WidgetWin警告は残る。
+- 次の検証計画はverification/visual-editor/NETWORK_BOUNDARY.md。独立preview hostをOSのネットワーク境界に置く方式を候補とするが、起動・全子プロセス・中央UIは未実証。profile/ACL/firewall/パッケージ登録などOS設定はまだ変更していない。独立profileだけで通信隔離とせず、JavaScript無効化等で仕様を勝手に縮小しない。
+- 3回のGUI後はいずれもhelperのprocesses=[]で終了確認。通常AgentDock領域・~/.codexは未変更。targetの実測ログ/profileは保持。新ブランチは未push、master/origin/masterは09b00e3のまま。既存生成型/schemaの変更表示は引き続き保持する。
