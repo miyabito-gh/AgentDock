@@ -319,8 +319,9 @@ pub async fn visual_preview_close(
     controller(&webview)?;
     let mut slot = state.0.lock().await;
     if let Some(s) = slot.as_ref() {
+        // すでに別のプレビューに入れ替わっている（閉じたい対象は存在しない）ときは、成功として扱い、今のプレビューには触れない。
         if s.id != session_id {
-            return Err("preview session mismatch".into());
+            return Ok(());
         }
         close(s)?;
         *slot = None;
