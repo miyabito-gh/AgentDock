@@ -74,6 +74,7 @@ export function VisualEditControls({ enabled, chatId, currentChat, onEnded, prev
     catch (e) { setListError("編集セッション一覧を取得できませんでした: " + messageOf(e)); }
     finally { setListBusy(false); }
   };
+  useEffect(() => { autoBound.current = null; }, [chatId]);
   useEffect(() => { if (enabled) void loadList(); }, [enabled, chatId]);
 
   useEffect(() => {
@@ -214,39 +215,46 @@ export function VisualEditControls({ enabled, chatId, currentChat, onEnded, prev
     : session.phase === "rejected" ? { tone: "warn", text: "依頼が受け付けられませんでした", hint: "チャットの表示を確認してください。" }
     : visibleChanges.length ? { tone: "ok", text: `AIの編集が${visibleChanges.length}件あります`, hint: "プレビューで確認して、よければ元に反映します。" }
     : { tone: "ok", text: "編集できます", hint: "プレビューをドラッグして範囲を選び、下のチャットに依頼を書いて送信します。" };
+  const existingEdit = !session && chatId ? sessions.find((item) => item.chat.id === chatId && !item.ended) : undefined;
   return <section className="visual-edit" aria-label="編集用コピー">
     {!session ? <>
-      <div className="visual-edit-heading"><strong>編集用コピー</strong></div>
-      <p className="visual-lead">元のファイルは変更しません。コピーでAIに編集させ、確認してから元に反映できます。</p>
-      {currentChat ? <div className="vm-group" role="radiogroup" aria-label="どの会話で編集しますか">
-        <strong>どの会話で編集しますか</strong>
-        {([["current", "今の会話で続ける", "これまでの内容と修正を、この会話が覚えます"], ["fork", "分岐して続ける", "今の会話はそのまま残し、コピーした会話で編集します"], ["new", "新しい会話で始める", "履歴は引き継ぎません"]] as const).map(([mode, title, note]) =>
-          <label key={mode} className={"vm-opt" + (startMode === mode ? " on" : "")}><input type="radio" name="visual-start-mode" checked={startMode === mode} onChange={() => setStartMode(mode)} /><span><b>{title}</b><small>{note}</small></span></label>)}
-      </div> : null}
-      <button type="button" className="btn primary visual-start" disabled={!preview || busy} onClick={() => void create()}>{busy ? "作成しています…" : currentChat ? "編集を始める" : "編集を始める（コピーを作成）"}</button>
-      {!preview ? <p className="visual-hint">先に中央の「HTMLを開く」でページを表示してください。</p> : null}
+      {existingEdit ? <div className="vs-start">
+        <p className="visual-lead">この会話には、編集の途中のコピーがあります。</p>
+        <button type="button" className="btn primary" disabled={busy} onClick={() => void bind(existingEdit)}>編集を開く</button>
+      </div> : <div className="vs-start">
+        <p className="visual-lead">元のファイルは変更しません。コピーでAIに編集させ、確認してから元に反映できます。</p>
+        {currentChat ? <div className="vm-group" role="radiogroup" aria-label="どの会話で編集しますか">
+          {([["current", "今の会話で続ける", "これまでの内容と修正を、この会話が覚えます"], ["fork", "分岐して続ける", "今の会話は残し、コピーした会話で編集します"], ["new", "新しい会話で始める", "履歴は引き継ぎません"]] as const).map(([mode, title, note]) =>
+            <label key={mode} className={"vm-opt" + (startMode === mode ? " on" : "")}><input type="radio" name="visual-start-mode" checked={startMode === mode} onChange={() => setStartMode(mode)} /><span><b>{title}</b><small>{note}</small></span></label>)}
+        </div> : null}
+        <div className="vs-actions">
+          <button type="button" className="btn primary" disabled={!preview || busy} onClick={() => void create()}>{busy ? "作成しています…" : "編集を始める"}</button>
+          {!preview ? <small className="visual-hint">先に「HTMLを開く」でページを表示してください。</small> : null}
+        </div>
+      </div>}
       <details className="visual-more"><summary>詳細</summary>
         {preview ? <p className="visual-scope-line">元ルート: {preview.rootPath}<br />HTML: {preview.htmlPath}</p> : null}
         <button type="button" className="btn-line sm" disabled={listBusy} onClick={() => void loadList()}>保存された編集を探す</button>
         {sessions.length ? <ul>{sessions.map((item) => <li key={item.sessionId}><button type="button" className="btn-line sm" disabled={busy} onClick={() => void bind(item)}>{item.htmlPath} · {phaseLabel(item.phase)}</button><small>{item.draftRoot}</small></li>)}</ul> : null}
       </details>
     </> : <>
-      <div className="visual-banner" title={session.draftRoot}><span aria-hidden="true">●</span> {session.mode === "current" ? "この会話は、いま編集用コピーで作業中です" : "専用チャットで、編集用コピーを編集中です"}<small>{session.htmlPath}</small></div>
-      <div className={"visual-status-card " + (status?.tone ?? "")} role="status">
-        <strong>{status?.text}</strong>
-        {status?.hint ? <span>{status.hint}</span> : null}
+      <div className={"vs-row " + (status?.tone ?? "")} role="status">
+        <span className="vs-dot" aria-hidden="true" />
+        <span className="vs-text"><strong>{status?.text}</strong>{status?.hint ? <small>{status.hint}</small> : null}</span>
       </div>
       {cannotApply ? <div className="visual-recovery">
         <strong>どうすればいい？</strong>
         <p>元の変更とAIの編集は、自動では合わせられません。</p>
-        <button type="button" className="btn primary" disabled={busy} onClick={() => void restart()}>元の最新の内容から、やり直す</button>
+        <div className="vs-actions">
+          <button type="button" className="btn primary" disabled={busy} onClick={() => void restart()}>元の最新の内容から、やり直す</button>
+          <button type="button" className="btn" disabled={busy} onClick={() => void onLeave().catch((e) => setError("元のHTMLを開けませんでした: " + messageOf(e)))}>まず元のファイルを見る</button>
+        </div>
         <small>元のファイルの今の内容で編集用コピーを作り直します（新しい専用チャットが作られます）。今のコピーのAI編集は引き継がれませんが、「詳細」の保存された編集に残ります。</small>
-        <button type="button" className="btn-line sm" disabled={busy} onClick={() => void onLeave().catch((e) => setError("元のHTMLを開けませんでした: " + messageOf(e)))}>まず元のファイルを見る</button>
-      </div> : <div className="visual-edit-actions">
+      </div> : <div className="vs-actions">
         <button type="button" className="btn primary" disabled={busy || stale || !session.canAdopt} onClick={() => void write("adopt")}>この内容を元に反映</button>
-        <button type="button" className="btn" disabled={busy || stale || !session.canUndo} onClick={() => void write("undo")}>直前のAI編集を取り消す</button>
+        <button type="button" className="btn" disabled={busy || stale || !session.canUndo} onClick={() => void write("undo")}>直前の編集を取り消す</button>
+        {session.mode === "current" ? <button type="button" className="btn-line" disabled={busy} onClick={() => void finish()} title="元の作業場所に戻ります。反映していない変更は元に入りません">編集を終える</button> : null}
       </div>}
-      {session.mode === "current" ? <button type="button" className="btn-line sm visual-finish" disabled={busy} onClick={() => void finish()}>編集を終えて、元の作業場所に戻る</button> : null}
       {operation && operation.revision === session.revision && (operation.id === null || operation.id === session.lastOperation?.id)
         ? <p className="visual-hint" role="status">{operation.outcome === "applied" ? (operation.kind === "adopt" ? "元のファイルに反映しました。" : "直前のAI編集を取り消しました。") : actionLabel(operation.kind) + "の結果は「" + operation.outcome + "」です。"} {operation.message}</p> : null}
       <details className="visual-more"><summary>詳細{visibleChanges.length ? `（変更ファイル${visibleChanges.length}件）` : ""}</summary>

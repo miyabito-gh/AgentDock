@@ -137,3 +137,20 @@
 .vp-where{margin:0 10px 6px;font-size:var(--fs-xs);color:var(--ink2)}
 .vp-where .visual-path{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .visual-pane .visual-stage{flex:1;min-height:120px}
+
+/* ── 編集区画を低くする: 状態と操作を1〜2行にまとめる ── */
+.vp-edit>.vp-body{padding:8px 12px}
+.vp-edit .visual-edit{padding:0;margin:0;border-bottom:0}
+.vs-row{display:flex;gap:8px;align-items:flex-start}
+.vs-dot{width:9px;height:9px;border-radius:50%;background:var(--accent);margin-top:5px;flex:none}
+.vs-row.wait .vs-dot{background:var(--ink3,#999)}
+.vs-row.warn .vs-dot{background:var(--fail)}
+.vs-text strong{font-size:var(--fs);font-weight:600}
+.vs-text small{display:block;color:var(--ink2);font-size:var(--fs-xs);line-height:1.5}
+.vs-actions{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:8px 0 2px}
+.vs-start{display:flex;flex-direction:column;gap:6px}
+.vs-start .visual-lead{margin:0}
+.vm-group{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:6px;margin:0}
+.vm-opt{height:auto}
+.vp-edit .visual-recovery{margin:6px 0 0}
+.vp-edit .visual-more{margin:6px 0 0}

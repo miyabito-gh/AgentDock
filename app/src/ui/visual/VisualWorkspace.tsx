@@ -326,7 +326,7 @@ export function VisualWorkspace({ enabled, blocked, chatId, canInsert, currentCh
   const pane = (
     <div className="visual-pane">
       <section className="vp-card vp-edit" aria-label="編集">
-        <header className="vp-head"><strong>編集</strong><span className="vp-sub">{edit ? (edit.mode === "current" ? "この会話で編集中" : "専用チャットで編集中") : "未開始"}</span></header>
+        <header className="vp-head"><strong>編集</strong><span className="vp-sub">{edit ? (edit.mode === "current" ? "この会話で編集中" : "専用チャットで編集中") + " · " + (fileName ?? "") : "未開始"}</span></header>
         <div className="vp-body">
           <VisualEditControls enabled={enabled && desktop} chatId={chatId} currentChat={currentChat} onEnded={async (id) => { await leaveEdit(); onEnded(id); }} preview={session} session={edit} onBind={bindEdit} onUpdate={updateEdit} onLeave={leaveEdit} onBeforeDiff={beforeDiff} onAfterDiff={afterDiff} onKnownEditChats={onKnownEditChats} onNotice={onNotice} />
           {error ? <p className="visual-error" role="alert">{error}</p> : null}

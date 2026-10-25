@@ -7,7 +7,7 @@ export const PANE: Record<PaneKind, PaneSpec> = {
   left: { def: 240, min: 180, max: 400 },
   dock: { def: 320, min: 260, max: 520 },
   /** Visual Editorを開いている間の右ペイン（プレビュー）。広めを既定にする。 */
-  visual: { def: 560, min: 320, max: 1100 },
+  visual: { def: 560, min: 320, max: 3000 },
 };
 
 /** 中央（会話）の最小幅。 */
