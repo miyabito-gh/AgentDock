@@ -265,7 +265,8 @@ pub(crate) fn open_checked(path: &Path, directory: bool) -> VisualResult<File> {
     #[cfg(windows)]
     {
         use std::os::windows::fs::OpenOptionsExt;
-        o.share_mode(1)
+        // 固定中のフォルダ直下でも他の保存（rename置換を含む）を止めないよう、フォルダは読取り・書込み共有にして削除・改名だけ拒否する。
+        o.share_mode(if directory { 3 } else { 1 })
             .custom_flags(0x00200000 | if directory { 0x02000000 } else { 0 });
     }
     let f = o.open(path)?;

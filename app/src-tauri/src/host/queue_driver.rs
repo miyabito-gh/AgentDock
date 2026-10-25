@@ -557,7 +557,7 @@ impl Host {
     }
 
     /// 1エージェントの履歴を読み、最新turnの終端を確認結果として記録する（読み取りのみ。resumeしない）。終端を確認できたら true。
-    async fn read_terminal_fact(self: &Arc<Self>, agent: AgentKey) -> bool {
+    pub(in crate::host) async fn read_terminal_fact(self: &Arc<Self>, agent: AgentKey) -> bool {
         matches!(self.read_tail_fact(agent).await, Ok(HistoryTail::Ended(..)))
     }
 

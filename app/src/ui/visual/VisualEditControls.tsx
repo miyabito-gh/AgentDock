@@ -1,7 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { adoptVisualEdit, createVisualEdit, diffVisualEdit, listVisualEdits, statusVisualEdit, undoVisualEdit, type PreviewSession, type VisualDiff, type VisualEditSession } from "./api";
 
-const messageOf = (error: unknown): string => error instanceof Error ? error.message : String(error);
+const messageOf = (error: unknown): string => {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  if (error && typeof error === "object" && "message" in error && typeof (error as { message: unknown }).message === "string") {
+    const e = error as { code?: unknown; message: string };
+    return typeof e.code === "string" ? `${e.message} (${e.code})` : e.message;
+  }
+  return "不明なエラー";
+};
 const actionLabel = (kind: "adopt" | "undo") => kind === "adopt" ? "採用" : "復元";
 const changeLabel = (kind: string | null) => kind === "add" ? "追加" : kind === "delete" ? "削除" : kind === "change" ? "変更" : "要確認";
 const phaseLabel = (phase: string) => ({

@@ -51,6 +51,89 @@ fn scope(files: &[(&str, FileAccess)]) -> FileScope {
     )
     .unwrap()
 }
+
+#[cfg(windows)]
+#[test]
+fn preview_root_allows_atomic_chat_and_queue_saves_in_sibling_storage() {
+    let f = Fixture::new();
+    let store = f.path.join("storage/chats/test-chat");
+    for name in ["chat.json", "queue.json"] {
+        crate::store::atomic::write_atomic(&store.join(name), b"before").unwrap();
+    }
+    let root = f.root();
+    crate::store::atomic::free_space(&store)
+        .unwrap_or_else(|error| panic!("free space check with preview root held: {error}"));
+    for name in ["chat.json", "queue.json"] {
+        crate::store::atomic::write_atomic(&store.join(name), b"after")
+            .unwrap_or_else(|error| panic!("{name} save with preview root held: {error}"));
+        assert_eq!(fs::read(store.join(name)).unwrap(), b"after");
+    }
+    drop(root);
+}
+
+#[cfg(windows)]
+#[test]
+fn preview_root_allows_atomic_chat_and_queue_saves_in_ancestor_storage() {
+    let f = Fixture::new();
+    let workspace = f.source().join("workspace");
+    fs::create_dir_all(&workspace).unwrap();
+    for name in ["chat.json", "queue.json"] {
+        crate::store::atomic::write_atomic(&f.source().join(name), b"before").unwrap();
+    }
+    let root = ProjectRoot::open(&workspace).unwrap();
+    for name in ["chat.json", "queue.json"] {
+        crate::store::atomic::write_atomic(&f.source().join(name), b"after")
+            .unwrap_or_else(|error| panic!("{name} save with descendant preview root held: {error}"));
+        assert_eq!(fs::read(f.source().join(name)).unwrap(), b"after");
+    }
+    drop(root);
+}
+
+#[cfg(windows)]
+#[test]
+fn preview_root_allows_store_chat_and_queue_saves_in_sibling_storage() {
+    use crate::{
+        backend::{
+            local::{ChatQueue, QueueRun},
+            model::{BackendKind, ChatKey, ExternalId, LocalId},
+        },
+        store::{
+            records::{ChatLocalFile, QueueFile, SCHEMA_VERSION},
+            Store,
+        },
+    };
+
+    let f = Fixture::new();
+    let store = Store::open(f.path.join("storage")).unwrap();
+    let chat = ChatKey { backend: BackendKind::Codex, id: ExternalId("fixture-chat".into()) };
+    let mut local = ChatLocalFile::new(LocalId("fixture-dir".into()), Some(chat.clone()));
+    let mut queue = QueueFile {
+        schema_version: SCHEMA_VERSION,
+        queue: ChatQueue {
+            chat,
+            run: QueueRun::PausedAfterRestart,
+            hold: None,
+            baseline_at: None,
+            awaiting: None,
+            entries: vec![],
+            next_order: 0,
+        },
+        unresolved_sends: vec![],
+    };
+    let root = f.root();
+    for revision in 0..2 {
+        local.draft.text = format!("fixture draft {revision}");
+        queue.queue.next_order = revision;
+        store.check_space(1024).unwrap();
+        store.save_chat_local(&local).unwrap();
+        store.save_queue(&queue).unwrap();
+        let restored = Store::open(store.root().to_path_buf()).unwrap().load_all();
+        assert!(restored.problems.is_empty(), "{:?}", restored.problems);
+        assert_eq!(restored.chats[0].local, local);
+        assert_eq!(restored.chats[0].queue.as_ref(), Some(&queue));
+    }
+    drop(root);
+}
 fn evidence() -> ReviewEvidence {
     ReviewEvidence {
         stopped: true,

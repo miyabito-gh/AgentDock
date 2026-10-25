@@ -30,7 +30,7 @@ fn discover(root:&ProjectRoot, html:&RelativePath)->ve::VisualResult<FileScope> 
             let Ok(rel)=RelativePath::parse(&relative) else { continue };
             let metadata=fs::symlink_metadata(entry.path())?;
             if metadata.file_type().is_symlink() { return Err(ve::VisualError::Conflict("link in discovered scope")); }
-            if metadata.is_dir() { ProjectRoot::open(&entry.path())?; stack.push(entry.path()); continue; }
+            if metadata.is_dir() { ProjectRoot::from_verified_path(&entry.path())?; stack.push(entry.path()); continue; }
             if !metadata.is_file() { continue; }
             let ext=rel.as_str().rsplit('.').next().unwrap_or("").to_ascii_lowercase();
             if let Some(access)=known_access(&ext) {
@@ -110,8 +110,21 @@ impl Host {
         let attempt=attempt.to_string();
         if s.after(&attempt).is_some() || s.latest_rejected(&attempt) {return Ok(())}
         let Some(turn)=s.accepted_turn(&attempt).map(str::to_string) else {return Ok(())};
-        let gate=self.queue_gate_input(&s.meta.chat).await;
-        if self.visual_gate_stopped(&gate,&turn).is_err(){return Ok(())}
+        let mut gate=self.queue_gate_input(&s.meta.chat).await;
+        // ライブで終了を観測済みのturnは通常の経路では履歴を読まないため、ここで読取り専用に一度だけ確認し、履歴での終端確認を揃える。
+        if self.visual_gate_stopped(&gate,&turn).is_err() && gate.root.as_ref().is_some_and(|r|r.latest_end.is_some() && !r.terminal_explicit && r.latest_turn.as_ref().map(|t|t.0.as_str())==Some(turn.as_str())) {
+            if self.read_terminal_fact(crate::host::state::agent_key_of(&s.meta.chat)).await { gate=self.queue_gate_input(&s.meta.chat).await; }
+        }
+        if let Err(e)=self.visual_gate_stopped(&gate,&turn) {
+            static LAST_LOG:std::sync::atomic::AtomicI64=std::sync::atomic::AtomicI64::new(0);
+            let now=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d|d.as_millis() as i64).unwrap_or(0);
+            if now-LAST_LOG.load(std::sync::atomic::Ordering::Relaxed)>=10_000 {
+                LAST_LOG.store(now,std::sync::atomic::Ordering::Relaxed);
+                let root=gate.root.as_ref().map(|r|format!("state={:?} fresh={:?} turn={:?} end={} explicit={}",r.state,r.freshness,r.latest_turn.as_ref().map(|t|t.0.clone()),r.latest_end.is_some(),r.terminal_explicit));
+                crate::diag::log("visual-gate",&format!("not stopped: {} accepted_turn={turn} connected={} scan_complete={} open_stop={} unresolved_attempt={} unresolved_op={} manual_pending={} delete={} quitting={} descendants={} root=[{}]",e.message,gate.connected,gate.descendant_scan_complete,gate.open_stop.is_some(),gate.unresolved_attempt.is_some(),gate.unresolved_op.is_some(),gate.manual_turn_pending,gate.delete_pending,gate.quitting,gate.descendants.len(),root.unwrap_or_default()));
+            }
+            return Ok(());
+        }
         let root=ProjectRoot::open(Path::new(&s.meta.draft_root)).map_err(visual_err)?;
         ve::audit_draft_scope(&root,&s.scope().map_err(visual_err)?).map_err(visual_err)?;
         let after=Snapshot::capture(&root,&s.scope().map_err(visual_err)?).map_err(visual_err)?;
@@ -375,5 +388,43 @@ mod visual_gate_tests {
         g.descendants[0].latest_end=Some((TurnEnd::Interrupted,UnixMillis(3))); g.descendants[0].terminal_explicit=true;
         assert!(Host::visual_overlap_stopped(&g));
         g.open_stop=Some(crate::backend::model::LocalId("stop".into())); assert!(!Host::visual_overlap_stopped(&g));
+    }
+}#[cfg(test)]
+mod discover_tests {
+    use super::*;
+    #[test]
+    fn discovers_files_in_subdirectories_of_a_canonical_root() {
+        let base=std::env::temp_dir().join(format!("agentdock-discover-{}",std::process::id()));
+        let _=fs::remove_dir_all(&base);
+        fs::create_dir_all(base.join("assets")).unwrap();
+        fs::write(base.join("index.html"),"<p>x</p>").unwrap();
+        fs::write(base.join("assets").join("mark.svg"),"<svg/>").unwrap();
+        let root=ProjectRoot::open(&base).unwrap();
+        let html=RelativePath::parse("index.html").unwrap();
+        let scope=discover(&root,&html).expect("subdirectory must not be rejected");
+        let paths:Vec<_>=scope.selected().iter().map(|f|f.path.clone()).collect();
+        let _=fs::remove_dir_all(&base);
+        assert!(paths.contains(&"index.html".to_string()) && paths.contains(&"assets/mark.svg".to_string()), "{paths:?}");
+    }
+}
+#[cfg(test)]
+mod pin_save_tests {
+    use super::*;
+    #[test]
+    fn pinned_root_blocks_directory_swap_but_not_saves_in_ancestors() {
+        let base=std::env::temp_dir().join(format!("agentdock-pin-{}",std::process::id()));
+        let _=fs::remove_dir_all(&base);
+        let child=base.join("a").join("b"); fs::create_dir_all(&child).unwrap();
+        let state=base.join("a").join("state.json");
+        crate::store::atomic::write_atomic(&state,b"1").unwrap();
+        let pins=ProjectRoot::open(&child).unwrap();
+        let ancestor=crate::store::atomic::write_atomic(&state,b"2");
+        let inside=crate::store::atomic::write_atomic(&child.join("x.json"),b"2");
+        let swap=fs::rename(&child,base.join("a").join("moved"));
+        drop(pins);
+        let _=fs::remove_dir_all(&base);
+        assert!(ancestor.is_ok(), "save in pinned ancestor failed: {ancestor:?}");
+        assert!(inside.is_ok(), "save inside pinned dir failed: {inside:?}");
+        assert!(swap.is_err(), "pinned directory must not be renamable");
     }
 }

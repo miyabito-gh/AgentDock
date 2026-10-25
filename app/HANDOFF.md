@@ -177,3 +177,74 @@
 - 利用者の依頼でae1e71fのdebug NSIS x64を生成。appで `npm.cmd run tauri -- build --debug --bundles nsis`。通常実行はesbuildのディレクトリアクセス拒否、同じコマンドの権限付き再実行で終了0。本体dev compile 1分30秒。画面buildも成功。
 - exe: app/src-tauri/target/debug/bundle/nsis/AgentDock_0.0.1_x64-setup.exe、7881559 bytes、2026-10-25T08:38:05.2760475Z。SHA-256: 822012E281F981A8F6686D4F034CEF5E2B0A5A1FC342FDD55488E77BA5D20110。同じ場所の.exe.build.jsonに来歴を保存。
 - インストーラー／アプリの起動・インストールは未実行。既存identifierと保存領域を利用する更新用成果物。実Codex編集E2E受入は未実施のまま。起動したビルドセッションは終了0を回収し、稼働中コマンドなし。
+## 2026-10-25 Visual Editor 実機確認の引き継ぎ
+- 指定資料6点をREADME → HANDOFF → MIGRATION_SUBAGENTS → DESIGN_VISUAL_EDITOR → READONLY_PREVIEW → EDIT_FLOWの順に読んだ。対象repoはfeature/visual-editor、HEAD 2e246a7。既存の生成型/schema39件の変更は保持し、内容を変更していない。
+- 試験用NSISは存在し、7,881,559 bytes、SHA-256 822012E281F981A8F6686D4F034CEF5E2B0A5A1FC342FDD55488E77BA5D20110で引継ぎ記録と一致。
+- AgentDockはC:\Users\wmasa\AppData\Local\AgentDock\agentdock.exe（PID 51512）で起動中。Codex CLIも起動中（PID 29484）。AgentDock exeは2026-10-25 17:37:44更新、17:39:09起動、file/product version 0.0.1。利用者が同日インストーラーを適用した可能性が高いため再インストールしなかった。インストーラーとのpayload一致は未照合。
+- Computer Useのアプリ一覧・ウィンドウ一覧取得がnative pipe unavailable（file not found）で失敗し、製品UIの観察・操作は開始できなかった。強制終了、再起動、保存領域操作はしていない。
+- workspace内に試験repo `target/visual-editor-acceptance/fixture` を用意。index.html、styles.css、app.js、assets/mark.svgを含み、相対CSS/JS/SVG参照を設定。git init済み、全ファイル未追跡で初期状態。アプリ実画面での表示確認は未実施。
+- 未実施: 要素選択/下書き保持、編集コピー/専用チャット作成、実Codex編集・停止・差分、コピー内復元、元フォルダ採用、競合拒否、画面重なり、再起動復元。モデル利用と試験会話を伴う実Codex送信も未実施。
+- 次の再開条件: native UI automation接続を復旧し、起動中AgentDockを閉じずに画面状態を確認する。既に開いている版が今回の更新か利用者へ確認し、必要な場合のみ停止確認・バックアップを経て更新する。アプリ作業とモデル利用量の説明を保ち、承認/質問は利用者が操作する。
+- この確認ターンではアプリソース、テストコード、インストーラー、~/.codex、AgentDock保存領域を変更していない。残プロセス: AgentDock PID 51512とCodex CLI PID 29484は元から起動中。Computer Use初期化後にCodex PID 38684、57680、67772も観測した。いずれも停止していない。
+## 2026-10-25 Visual Editor 受入の途中経過（利用者操作）
+- 利用者がVisual Editorでfixtureを表示。HTML/CSS/SVGは表示され、JSボタンの文言変更も確認。プレビュー上で先に「操作」モードへ切り替える必要があった。
+- 編集フローへ進む前に「一部を保存できませんでした」が発生。画面はこのチャットのpin/draft/model choice等の直近変更が未保存と表示し、原因文は「別のプロセスが使用中です。(os error 32)」。これは空き容量不足のエラーではなく共有違反を示す。読み取り確認ではC:空き約474.97 GiB。容量ダイアログの表示値は未確認。
+- `retry_save` はfailed save scopeの保存を再試行する処理で、チャット送信は行わない。利用者に再試行を案内。成功が見えるまで編集開始・アプリ終了を保留する。原因プロセスは未特定。ソース変更なし。
+## 2026-10-25 Visual Editor中のチャット送信不可・保存帯の消失
+- 利用者報告: 「保存を再試行」後に同じエラーが再表示されるが、帯はすぐ消える。Visual Editor表示中はチャットを送信できない。
+- 読取り専用で `diag.log` を確認。対象chat key `01a17239-21c7-7643-ae9b-891a10804fa2` で `chatLocal` と `queue` の `save failed ... error=io` が繰り返し記録され、最終観測は17:54:17 JST。OS空き容量は約474.97 GiB。
+- 17:54:27以後、対象 `chat.json` / `queue.json` の更新を確認。17:54:41時点の保存chatLocalには下書き22文字とmodel gpt-6-luna/mediumが記録されていた。下書き本文は読み出し・出力していない。帯の消失が保存成功を示した可能性はあるが、ユーザーが送信を試した際の表示や成功は未確認。
+- 実装確認: Visual Editorの表示自体でComposerの送信を無効化していない。通常送信はpresend記録を`queue.json`へ同期保存し、保存失敗時は「送信前の保存に失敗したため送っていません」と拒否する。Visual Editor中の送信不可は保存失敗との関連が疑われるが、今回の送信試行をログで特定できていないため断定しない。
+- ファイルロックを保持するプロセスは未特定。save error詳細はdiag上で `error=io` とだけ記録。アプリ・Codexは停止していない。変更・送信・再試行操作はしていない。
+## 2026-10-25 Visual Editor表示中の送信拒否を画面で確認
+- 利用者の追加スクリーンショットで、個別送信が「送信は受け付けられませんでした」「送信前の保存に失敗したため送っていません」と表示されたことを確認。手動の「もう一度送る」ボタンが出ており、自動再送ではない。
+- 同じスクリーンショットでは、その後の利用者文「visual editor表示しながらだとチャット送信できない」が会話本文に現れ、Codexの応答も返っている。Visual Editor表示中の送信が常に禁止されるわけではない。保存失敗した個別送信は拒否され、保存が通った後の別送信は成功したと考えられる。
+- 失敗した最初の依頼は未送信と画面が明示。再送・復元の操作は利用者に委ね、ここでは実施していない。依然残る赤いchatLocal保存帯のos error 32は未解決。ソース変更なし。
+## 2026-10-25 送信可否に関する前記録の訂正
+- 利用者補足: スクリーンショットの「visual editor表示しながらだとチャット送信できない」は、Visual Editorを閉じた後に送信したもの。したがって同画面上の後続会話を「Visual Editor表示中の送信成功」とした直前記録の解釈は誤り。
+- 確認済みなのは、Visual Editor表示中に少なくとも1回、送信前保存失敗により明示的に拒否されたこと、およびVisual Editorを閉じてからの送信成功。Visual Editor表示中の通常送信がUIで阻害されるか、閉じることで保存ロックが解消したかは未切り分け。chatLocal/queueの共有違反との因果関係も断定しない。
+## 2026-10-25 Visual Editor 実機確認の再開（状態確認のみ）
+- 状態確認: AgentDock（%LOCALAPPDATA%\AgentDock\agentdock.exe, PID 61952）とCodex CLI起動中。exeは17:37更新で試験版適用済みとみなし再インストール・再ビルドなし。
+- 保存失敗(os error 32)の原因: store/atomic.rs の write_atomic は tmp→rename で、共有違反は50ms×5回(約250ms)で諦める。Rust側のopenはFILE_SHARE_DELETE付きのため、保持者は外部（ウイルス対策・インデックス・Codex等）の可能性。diag.logは現在回転済みで当該記録が残っておらず、保持プロセス未特定。
+- ソース・保存領域・~/.codexは変更なし。実機操作（要素選択〜採用）は未実施。
+
+## 2026-10-25 編集用コピー作成失敗の修正
+- 再現: 「編集用コピーで作業を始める」で「作業開始の結果を確認できませんでした: [object Object]」。保存領域にvisual-editorが作られず、コピー作成前の失敗。
+- 原因: host/visual.rs の discover が正規化済みルート(\?\C:\...)配下のサブフォルダを ProjectRoot::open へ渡し、通常ドライブ形式以外として「unsafe path」で拒否。assets等のサブフォルダを持つ対象は必ず失敗。一時プローブで実fixtureに対し再現。
+- 修正: discover の子フォルダ検査を from_verified_path に変更（検証済みルート配下・symlink拒否済み）。回帰テスト discover_tests 1件追加・成功。UIの messageOf は {code,message} 形式のIPCエラーを文字列化するよう修正（[object Object]解消）。tsc成功。
+- 試験用インストーラー再生成（debug NSIS、終了0）。未インストール。実機の編集フロー再確認は未実施。
+
+## 2026-10-25 手順3の実機結果と停止確認の滞留
+- 編集用コピー作成は成功（元と同一内容のコピー、events空、送信なしを実ファイルで照合）。
+- 実Codex依頼（index.html見出し変更）後、コピーのindex.htmlの日本語が文字化け（実機確誁Efixture等、14〜16行目）。元は未変更。Codexが `Get-Content -Raw` / `Set-Content`（PowerShell 5.1、エンコード未指定）で書いたことが画面のコマンド記録から判明。Codexの「他は触っていない」報告は事実と異なる。本体バグではなくCodex側編集方法の問題と見る。対策案: 専用チャットの初期指示でUTF-8指定。未実装。
+- 不具合: Codex完了後もセッションが「runningOrReconciling」のまま、変更0件・採用/復元が押せない。events.jsonlは prepared/accepted のみでafter snapshot未取得。visual_refreshのgate（visual_gate_stopped）が通らない理由は静的に特定できず、診断ログ `[visual-gate] not stopped: ...` を追加（挙動不変、10秒に1回）。診断入りdebug NSIS再生成、SHA-256 0fe9fe4fe41134adab5f0d757721a8bbc7c9e34ae511305cdcc62fef0ad046dd。
+- 並行事象: windows.json/chat保存で os error 32 が散発（原因プロセス未特定）。
+- 要望: 元チャット文脈の引き継ぎ（分岐fork等）は別作業。
+
+## 2026-10-25 os error 32（保存失敗）の原因特定と修正
+- 利用者観察: 保存エラーはVisual Editorを開いている間だけ出続け、閉じると消えてアプリも終了できた。
+- 原因: visual_edit/scope.rs の open_checked が、固定(pin)するフォルダを共有=読取りのみ(share_mode 1)で開き、ルートから祖先をドライブ直下まで全て保持。試験fixtureがチャットのworkspace配下(AppData\Local\com.agentdock.app\chats\dir-…)にあるため、windows.json・chat.json・queue.json等のrename置換がos error 32で失敗。実験（一時テスト）で、固定中は祖先側・固定フォルダ内の保存がともに32で失敗、固定解除で成功を再現。
+- 修正: フォルダのshare_modeを3（読取り・書込み共有、削除/改名のみ拒否）へ。回帰テスト pin_save_tests（固定中も祖先・内部の保存が成功し、固定フォルダの改名は失敗）追加。cargo test --lib visual 35件成功。
+- 試験用installerを再生成（診断ログ [visual-gate] も含む）。
+
+## 2026-10-25 停止確認の滞留の原因と修正
+- 診断ログ [visual-gate]: root state=Done fresh=Live end=true だが terminal_explicit=false のまま。原因: queue_driver の needs_terminal_read がライブ終端を観測済みの turn では履歴を読まず、Visual Editorのゲート(visual_gate_stopped)は履歴での終端確認を必須とするため、履歴取得に切り替わるまで永久に待つ。
+- 修正: visual_refresh で、ライブ終了済み・履歴未確認のとき read_terminal_fact（読取り専用）を1回呼んでゲートを再評価。read_terminal_factを pub(in crate::host) に。cargo check・cargo test --lib visual 成功。実機再確認は未実施。
+- 実機（保存エラー修正版）: 新セッション visual-1792924767440-1 は最終的に captured（変更1件・版1）まで到達。元フォルダは17:42:45のまま未変更。コピーのindex.htmlは再び文字化け（Codex側のPowerShell編集）。旧セッション 1792921804571-1 は停止確認中のまま。
+
+## 2026-10-25 実機受入の進捗（手順3〜8）
+- 3 コピー作成: 合格（元と同一内容、送信なし）。作成失敗の原因はdiscoverが\?\形式サブフォルダを拒否していたこと→修正済み。
+- 4/5 編集→停止後取り込み・復元: 合格。初回はCodexがPowerShell既定エンコードで日本語を破損（UTF-8指定とapply_patch指示で回避）。復元はコピーが元とハッシュ一致に戻り、ジャーナル記録あり。
+- 停止確認の滞留: ライブ終了通知済みturnは履歴を読まず explicit=false で止まる→履歴確認を追加する修正（別セッションが実装、同原因を診断ログで確認）。修正後の実機で取り込み成功。
+- 6 採用: 合格。元index.htmlがコピーと一致(C8C536A4D8E5)、他3ファイル未変更、意図→結果→adopted記録とジャーナルあり、fixtureのGitはコミット0件。採用後は採用ボタンが消える。「採用を確認しました」表示は利用者の画面では未視認。
+- 7 競合: 合格。元を手編集後の採用は「source changed or read-only dependency changed／競合 externalChange」で拒否。元は手編集のまま、採用記録・ジャーナルなし。
+- 8 画面重なり: 合格（別チャット切替、差分ダイアログ、サイズ変更）。編集チャットへ戻ってもプレビューは自動復帰せず、Visual Editorボタンで再表示（要望）。
+- 保存エラー os error 32: 固定フォルダの共有モード修正で解消（Visual Editor表示中に再発なし）。
+- 未実施: 1の複数/親選択・Esc・下書き保持、9/10 再起動後の復元と勝手な再送・再採用がないこと。
+- 要望: 専用チャット初期指示にUTF-8/apply_patch指定、元チャット文脈の引き継ぎ、編集チャット復帰時のプレビュー自動復帰。
+
+## 2026-10-25 Visual Editor 実機受入 完了
+- 手順1〜10を実機で確認し合格。1: 単一/Ctrl複数/親要素/Esc/下書き保持を利用者が確認。9: 再起動後、3セッションのイベント増加なし（再送・再採用なし）、元/コピーのハッシュ不変、変更1件と競合表示・採用ボタン無効が復元。
+- 今回の受入で見つけ修正した不具合: (1) 子フォルダを含む対象でコピー作成が「unsafe path」で失敗（discover）。(2) IPCエラーが[object Object]表示。(3) フォルダ固定(pin)が祖先を読取り共有で保持し、Visual Editor表示中にos error 32で保存失敗。(4) ライブ終了済みturnで履歴確認がなく停止確認が滞留（別セッションが修正）。回帰テスト: discover_tests、pin_save_tests。
+- 残る要望・既知: Codexが日本語を既定エンコードで書いて破損することがある→専用チャット初期指示にUTF-8/apply_patch指定、元チャット文脈の引き継ぎ（分岐等）、編集チャット復帰時のプレビュー自動復帰、採用成功メッセージの表示確認、診断ログ[visual-gate]は残置。windowBounds保存失敗の古い記録は修正前のもの。
+- 状態: 変更は未コミット（visual.rs / queue_driver.rs / scope.rs / VisualEditControls.tsx / tests.rs / HANDOFF.md、生成型・schema39件は内容差分なし）。最新installer SHA-256 cbc5eb77…8e03。push・masterへの反映なし。
