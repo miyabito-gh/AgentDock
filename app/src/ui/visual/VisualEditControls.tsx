@@ -194,6 +194,7 @@ export function VisualEditControls({ enabled, chatId, preview, session, onBind, 
         {sessions.length ? <ul>{sessions.map((item) => <li key={item.sessionId}><button type="button" className="btn-line sm" disabled={busy} onClick={() => void bind(item)}>{item.htmlPath} · {phaseLabel(item.phase)}</button><small>{item.draftRoot}</small></li>)}</ul> : null}
       </details>
     </> : <>
+      <div className="visual-banner" title={session.draftRoot}><span aria-hidden="true">●</span> 編集用コピーで作業中<small>{session.htmlPath}</small></div>
       <div className={"visual-status-card " + (status?.tone ?? "")} role="status">
         <strong>{status?.text}</strong>
         {status?.hint ? <span>{status.hint}</span> : null}

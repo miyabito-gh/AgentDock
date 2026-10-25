@@ -66,6 +66,10 @@ export interface CenterProps {
   attachments: AttachmentEntry[];
   /** 添付・成果物の操作（ホストが判断・保存する。UIは意図を伝えるだけ）。 */
   files: FileActions;
+  /** Visual Editorで選んだ範囲の札（編集チャットの入力欄の上に出す。送信時に自動で添付される）。 */
+  visualChip?: { count: number; label: string; onClear: () => void } | null;
+  /** 入力欄の例文（編集チャットのとき）。 */
+  visualHint?: string;
   /** 入力欄の `$` 候補の窓口（実接続のときだけ。モックは null）。 */
   skillPick: SkillPickApi | null;
   /** 入力欄（選択範囲の貼り付けでカーソル位置を使う）。 */
@@ -1016,6 +1020,14 @@ function Composer({ p, running, lock, hu }: { p: CenterProps; running: boolean; 
             <Help text="送信前に確認・取り外せます。このチャット用にコピーした分を送ります（元のファイルは変更しません）。画像は表示できますが、モデルが内容を読めるかは未確認です。" />
           </div>
         ) : null}
+        {p.visualChip ? (
+          <div className="chips">
+            <span className="chip visual-chip" title="ページ上で選んだ範囲です。送信すると依頼に自動で添付されます">
+              <Icon name="diff" /><span>ページの選択 {p.visualChip.count}件</span><span className="st">{p.visualChip.label}・送信すると添付されます</span>
+              <button aria-label="ページの選択を外す" onClick={p.visualChip.onClear}><Icon name="x" /></button>
+            </span>
+          </div>
+        ) : null}
         {lock ? <div className="lockmsg">{lock}</div> : null}
         <HandoffNotice ui={hu} onPreview={() => p.onAct("handoffPreview")} onDraft={() => p.onAct("purposeDraft")} />
         {attachBlock ? <div className="lockmsg">{attachBlock}</div> : null}
@@ -1027,7 +1039,7 @@ function Composer({ p, running, lock, hu }: { p: CenterProps; running: boolean; 
           onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
           onCompositionStart={() => setComposing(true)} onCompositionEnd={(e) => { setComposing(false); setCaret(e.currentTarget.selectionStart); }}
           aria-controls={sugOpen ? sugId : undefined} aria-expanded={sugOpen || undefined} aria-activedescendant={sugOpen ? `${sugId}-${sugCur}` : undefined}
-          placeholder={`${running ? (defAct === "steer" ? "実行中のやりとりへ追加指示する依頼" : "完了後に送る次の依頼") : "メッセージを入力"}`}
+          placeholder={`${running ? (defAct === "steer" ? "実行中のやりとりへ追加指示する依頼" : "完了後に送る次の依頼") : (p.visualHint ?? "メッセージを入力")}`}
           onPaste={(e) => {
             // クリップボードの画像は添付にする（生バイトでホストへ）。文章だけの貼り付けは通常どおり。
             const images = Array.from(e.clipboardData.files).filter((f) => f.type.startsWith("image/"));

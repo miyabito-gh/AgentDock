@@ -13,10 +13,10 @@ function overlayOpen(): boolean {
     .some((node) => node.getClientRects().length > 0 && getComputedStyle(node).visibility !== "hidden");
 }
 
-export function VisualWorkspace({ enabled, blocked, chatName, chatId, canInsert, onInsert, onContext, openRequest, onNotice, onOpenEditChat, onLeaveEditChat, onKnownEditChats, children }: {
+export function VisualWorkspace({ enabled, blocked, chatName, chatId, canInsert, onInsert, onContext, onChip, openRequest, onNotice, onOpenEditChat, onLeaveEditChat, onKnownEditChats, children }: {
   enabled: boolean; blocked: boolean; chatName: string | null; chatId: string | null; canInsert: boolean;
   onOpenEditChat: (id: string) => void; onLeaveEditChat: () => void; onKnownEditChats: (ids: string[]) => void;
-  onInsert: (text: string) => void; onContext: (text: string | null) => void; openRequest: { path: string; nonce: number } | null; onNotice: (message: string) => void; children: ReactNode;
+  onInsert: (text: string) => void; onContext: (text: string | null) => void; onChip: (chip: { count: number; label: string; onClear: () => void } | null) => void; openRequest: { path: string; nonce: number } | null; onNotice: (message: string) => void; children: ReactNode;
 }) {
   const desktop = previewAvailable();
   const stage = useRef<HTMLDivElement>(null);
@@ -307,6 +307,14 @@ export function VisualWorkspace({ enabled, blocked, chatName, chatId, canInsert,
   const contextText = enabled && edit && chatId === edit.chat.id ? visualSendContext(edit.htmlPath, selection, edit.scope) : null;
   useEffect(() => { onContextRef.current(contextText); }, [contextText]);
   useEffect(() => () => onContextRef.current(null), []);
+  const chipRef = useRef(onChip);
+  chipRef.current = onChip;
+  const chipLabel = selection.length ? (selection[0].text.replace(/\s+/g, " ").trim().slice(0, 18) || selection[0].selector || selection[0].tag) + (selection.length > 1 ? ` ほか${selection.length - 1}件` : "") : "";
+  const hasChip = enabled && !!edit && chatId === edit.chat.id && selection.length > 0;
+  useEffect(() => {
+    chipRef.current(hasChip ? { count: selection.length, label: chipLabel, onClear: () => { void action("clear"); } } : null);
+  }, [hasChip, selection.length, chipLabel]);
+  useEffect(() => () => chipRef.current(null), []);
   if (!enabled) return <>{children}</>;
   const disabled = !session || busy || closeUnconfirmed;
   const reloadAllowed = !edit || edit.phase === "editable" || edit.phase === "changes";
@@ -340,8 +348,8 @@ export function VisualWorkspace({ enabled, blocked, chatName, chatId, canInsert,
           <div className="visual-selection-line" role="status">
             {selection.length
               ? <><strong>選択中 {selection.length}件{truncated ? "（一部のみ）" : ""}</strong><span title={selection.map((item) => item.selector).join("\n")}>{selection[0].text.replace(/\s+/g, " ").trim().slice(0, 24) || selection[0].selector || selection[0].tag}{selection.length > 1 ? ` ほか${selection.length - 1}件` : ""}</span>
-                {edit && chatId === edit.chat.id ? <small>送信すると自動で添付されます</small> : null}</>
-              : <span>{edit ? "ページをドラッグして範囲を選ぶと、依頼に添付されます（選ばなくても送れます）" : "プレビューで要素を選べます"}</span>}
+                {edit && chatId === edit.chat.id ? <small>入力欄の上の札で確認できます。送信すると添付されます</small> : null}</>
+              : <span>{edit ? "ページをドラッグして範囲を選べます（選ばなくても送れます）" : "プレビューで要素を選べます"}</span>}
           </div>
           <details className="visual-more visual-fine"><summary>細かく指示する</summary>
             <div className="visual-target">入力先: {edit ? chatId === edit.chat.id ? chatName ?? edit.chat.id : "専用チャットへ切り替えてください" : chatName ?? "チャットを選択してください"}</div>
