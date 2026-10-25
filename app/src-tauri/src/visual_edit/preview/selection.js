@@ -6,7 +6,7 @@
   const describe = e => { const r = e.getBoundingClientRect(); return { tag:max(e.localName,64), id:max(e.id,1024), className:max(e.getAttribute('class'),1024), text:max(e.textContent,1024), selector:selector(e), rect:{x:r.x,y:r.y,width:r.width,height:r.height} }; };
   const post = () => { selected = selected.filter(e => e.isConnected); let items = selected.slice(0,64).map(describe); let value = JSON.stringify({selection:items,truncated:items.length < selected.length}); while (new TextEncoder().encode(value).length > 65000 && items.length) { items.pop(); value = JSON.stringify({selection:items,truncated:items.length < selected.length}); } try { window.chrome.webview.postMessage(value); } catch (_) {} draw(); };
   function draw() { if (!document.documentElement) return; if (!overlay || !overlay.isConnected) { overlay = document.createElement('div'); overlay.style.cssText='position:fixed;inset:0;z-index:2147483647;pointer-events:none;'; overlayRoot=overlay.attachShadow({mode:'closed'}); document.documentElement.appendChild(overlay); } // Draw outside page styles, with no changes to source elements.
-    
+
     const root=overlayRoot; root.replaceChildren();
     for (const e of [...selected, ...(mode && hovered && !selected.includes(hovered) ? [hovered] : [])]) { if (!e.isConnected) continue; const r=e.getBoundingClientRect(), box=document.createElement('div'); box.style.cssText=`position:fixed;pointer-events:none;box-sizing:border-box;left:${r.x}px;top:${r.y}px;width:${r.width}px;height:${r.height}px;border:2px solid ${selected.includes(e)?'#8b5cf6':'#38bdf8'};background:${selected.includes(e)?'#8b5cf612':'transparent'};`; root.appendChild(box); }
   }
