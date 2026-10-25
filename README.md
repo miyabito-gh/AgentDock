@@ -3,7 +3,9 @@
 Windows上でCodex App Serverを操作するTauri 2 + React + Rustクライアント。
 
 ## 現在地
-現行版は fbe67ca / baseline/org-engine-2026-10-24 としてmasterへ保存済み。feature/subagent-migration は、その版を引き継ぐ開発ブランチ。通常改善は0a136a1、新方式は3ac8b9fでコミット済み。関連Rust試験・型生成・画面build・独立レビューを通過し、実Codex受入は未実施。旧組織実行は有効なまま。
+masterは09b00e3へ早送りし、origin/masterへのpushを確認済み（2026-10-25）。通常改善と新サブエージェント方式を含む。実機受入の実績と未確認条件はapp/HANDOFF.mdを参照。旧組織実行は有効なまま。旧基準fbe67ca / baseline/org-engine-2026-10-24は履歴として保持する。
+
+開発ブランチはfeature/visual-editor。Visual Editorは設計と初期技術検証の段階で、製品機能としては未実装。[設計と受入条件](app/DESIGN_VISUAL_EDITOR.md)を参照。
 
 ## 最初に読む資料
 1. [AI共通指示](AGENTS.md)

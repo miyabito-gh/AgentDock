@@ -93,3 +93,17 @@
 - 利用者指定でクイック新規を左ペイン上部の元のアイコンボタンへ戻し、メニュー内の重複を削除。他のUI整理は維持。
 - 簡易確認として差分確認とnpm build(tsc含む)成功。変更は配置復帰のみのため広範テストは反復せず、前節の関連Rust/実機/固定データ確認を再利用。画面buildは既知のesbuildアクセス制限を権限付き再実行で解消。
 - 利用者がpushとリリースビルドを明示承認。feature/subagent-migrationをoriginへpushし、確認済みdistを再利用してdebug指定なしのNSISを生成する。実機へのインストールはしない。生成物のハッシュと対象HEADは配布物のbuild.jsonに記録する。
+
+## 2026-10-25 Visual Editorの設計案
+- 対象: feature/subagent-migration / 調査基点09b00e3。利用者の仕様整理01〜05に基づき、[DESIGN_VISUAL_EDITOR.md](DESIGN_VISUAL_EDITOR.md)を新規作成。設計のみ、アプリ実装・保存schema変更なし。
+- 06は「確認したルート内の関連HTML/CSS/JSを自動検出」を推奨。専用編集用コピー→採用で元へ反映、最新の未採用編集単位を戻す方式は追加提案であり未合意。元仕様の確定事項と区別した。
+- 現行App/CenterPane・通常送信/受理照合・AiBackend・Git基準の変更確認/復元・フォルダ操作ガード・Tauri設定を確認。プレビュー隔離、DOMとソース、停止照合、差分/部分反映/復旧、受入条件を設計。既存Git復元を今回専用の復元保証とは扱わない。
+- 次: 追加提案3点の決定とV0技術検証。専用WebView中央配置、frameの通信/遷移遮断と独自IPC拒否、相対module等、Windowsの並行変更保護は未検証。実Codex・実WebView・ビルド試験は今回実行せず。文書整合確認とgit diff --checkは成功（既存生成ファイル等のLF/CRLF警告あり）。
+- 今回起動した常駐プロセスなし。設計書と本追記は未コミット。調査開始時からの生成IPC型・desktop/windows schemaの未コミット変更は保持。commit/push・実機データ操作は行っていない。
+
+## 2026-10-25 master反映とVisual Editor着手
+- 利用者の明示指示でmasterをfeature/subagent-migrationの09b00e3へ早送りし、origin/masterへpush。git ls-remoteでリモートの同一hashを確認。旧master fbe67caは既存baselineタグと履歴に保持。force pushなし。
+- 続いてfeature/visual-editorを09b00e3から作成。設計書とその引き継ぎは新ブランチへ持ち越した。生成型/schemaの変更表示39件はhash-object --no-filtersとindex blobの比較ですべてバイト一致（内容差分0件）。破棄操作なし。
+- 対象: Visual EditorのV0技術調査と、範囲・編集用コピー・B/E/C競合判定の独立Rust基盤。受入: 元を変えずコピーできる、範囲外/特殊パスを拒否、追加/変更/削除や他作業の競合を検出、上限とバイト保持。安全性未確認のプレビュー/採用を製品IPCから有効化しない。
+- Luna Explorerが専用WebViewと通信/IPC遮断を調査、Sol Workerが新規Rustモジュールを実装。最終確認はLuna Tester、独立レビューはSolを予定。親は統合と文書を担当。必要な確認は関連Rust試験とcargo check --locked。UI/既存送信を変えない段階では画面build/実Codex試験を反復しない。
+- 調査開始時点でAgentDock本体・cargo/rustc・関連開発サーバーは観測されず。Codexアプリ自体のプロセスは稼働。実アプリ保存データ・~/.codexには触れない。新ブランチのpushはまだ行わない。
