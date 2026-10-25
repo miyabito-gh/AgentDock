@@ -59,6 +59,7 @@ import { hms, keyStr, knownValue } from "./ui/format";
 import { pushRecent } from "./ui/skillPick";
 import { SendKeyContext } from "./ui/SendKeyContext";
 import { applyAppearance, watchSystemTheme } from "./ui/appearance";
+import { VisualWorkspace } from "./ui/visual/VisualWorkspace";
 
 type Mode = "live" | "mock";
 const EXE_KEY = "agentdock.codexExe";
@@ -101,6 +102,7 @@ export default function App() {
   const [scope, setScope] = useState<MonitorScope>({ kind: "selectedChat", chat: null });
   const [leftOpen, setLeftOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(true);
+  const [visualMode, setVisualMode] = useState(false);
   const [lNarrow, setLNarrow] = useState(false);
   const [rNarrow, setRNarrow] = useState(false);
   const [mini, setMini] = useState(false);
@@ -544,6 +546,7 @@ export default function App() {
     : "Codex 版を確認できません";
 
   const selectChat = (id: string | null) => {
+    if (id !== selId) setVisualMode(false);
     setOrgScreen(false);
     setSelId(id);
     setQuick((q) => (q.open ? { ...q, open: false } : q)); // 下書きは隠すだけ（文は残る）
@@ -1670,6 +1673,7 @@ ${cur}` : p.text);
   });
 
   // 確認済みの失敗。実接続ではホストの記録（chatLocals）と現在の失敗turnの一致で判定し、左一覧と揃える。モックは画面内の集合。
+  const visualShown = visualMode && !orgScreen && !quick.open;
   const confirmedKeys: Set<string> = live
     ? new Set(snap.agents.filter((a) => {
       if (a.status.state !== "failed") return false;
@@ -1708,7 +1712,12 @@ ${cur}` : p.text);
         <defs><pattern id="hatch" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="2" height="4" style={{ fill: "var(--unk)" }} /></pattern></defs>
       </svg>
       <div className="window" role="application" aria-label="AgentDock" onClick={() => { if (menu) setMenu(null); if (mockOpen) setMockOpen(false); }}>
-        <MenuBar open={menu} setOpen={setMenuOpen} views={cmdViews} onAct={act} tag={modeTag} live={live} />
+        <div className="visual-appbar">
+          <MenuBar open={menu} setOpen={setMenuOpen} views={cmdViews} onAct={act} tag={modeTag} live={live} />
+          <button type="button" className="btn sm visual-entry" aria-pressed={visualShown} onClick={() => {
+            setVisualMode(!visualShown); setOrgScreen(false); setQuick((q) => ({ ...q, open: false })); setRNarrow(false);
+          }}>Visual Editor</button>
+        </div>
         <GlobalBanner source={src} dismissed={snap.settings.dismissedVersionNotice}
           onDismiss={(key) => updateSettings((s) => ({ ...s, dismissedVersionNotice: key }), "版の注意を閉じた記録を保存できませんでした。次回の起動ではまた表示されます")} onAct={act} />
         {live && quit.kind !== "idle" && dialog?.type !== "quit" && dialog?.type !== "force" ? (
@@ -1719,7 +1728,7 @@ ${cur}` : p.text);
         ) : null}
         <SaveBanner failed={failedSaves.filter((s) => !forChat(s))} warnings={warnHidden ? [] : snap.startupWarnings} onDismissWarnings={dismissWarnings} onAct={act} />
         <div
-          className={`body ${leftOpen ? "" : "l-off"} ${rightOpen ? "" : "r-off"} ${lNarrow ? "n-l" : ""} ${rNarrow ? "n-r" : ""}`}
+          className={`body ${visualShown ? "visual-mode" : ""} ${leftOpen ? "" : "l-off"} ${rightOpen ? "" : "r-off"} ${lNarrow ? "n-l" : ""} ${rNarrow ? "n-r" : ""}`}
           data-left-temp={leftTemp ? "" : undefined} data-right-temp={rightTemp ? "" : undefined}
           style={{ ...(!leftTemp && leftOpen ? { "--lw": `${paneW.left}px` } : {}), ...(!rightTemp && rightOpen ? { "--rw": `${paneW.dock}px` } : {}) } as CSSProperties}
         >
@@ -1737,6 +1746,14 @@ ${cur}` : p.text);
               onChatList={(f) => updateSettings((s) => ({ ...s, chatList: f(s.chatList) }), "一覧の表示設定を保存できませんでした。次回の起動では保存されている値に戻ります")} listStatus={listStatus} uiSize={snap.settings.appearance.uiText} />
           </aside>
           <main className="center">
+            <VisualWorkspace key={visualShown ? `visual:${mode}:${selId ?? "none"}` : "normal"} enabled={visualShown}
+              blocked={!!dialog || !!menu || palette || mockOpen || !!(sideId && sideShown) || lNarrow || rNarrow || dragging}
+              chatName={chat ? chatName(chat) : null} canInsert={!!chat && !orgScreen && !quick.open}
+              onInsert={(text) => {
+                if (!chat) return;
+                onDraft(chat, curDraft.length ? `${curDraft}\n\n${text}` : text);
+                window.requestAnimationFrame(() => composerRef.current?.focus());
+              }} onNotice={say}>
             {orgScreen ? (
               <OrgPane snap={snap} org={orgShown} error={orgErr} live={live} timelineTick={orgTlTick} leftShown={leftTemp ? lNarrow : leftOpen} rightShown={rightTemp ? rNarrow : rightOpen}
                 onAct={act} onOpenChat={(k) => selectChat(k.id)} onReload={() => setOrgTick((n) => n + 1)} run={orgRun} onDelete={(id) => setDialog({ type: "orgDelete", workflowId: id })}
@@ -1764,10 +1781,11 @@ ${cur}` : p.text);
                 leftShown={leftTemp ? lNarrow : leftOpen} rightShown={rightTemp ? rNarrow : rightOpen}
               />
             ) : <EmptyCenter onAct={act} />}
+            </VisualWorkspace>
           </main>
           <aside className="right" id="pane-dock" aria-label="エージェントのドック"><DockPane {...dockProps} /></aside>
-          {!leftTemp && leftOpen ? <PaneSplitter kind="left" width={paneW.left} max={paneW.leftMax} onCommit={(w) => onPaneCommit("left", w)} /> : null}
-          {!rightTemp && rightOpen ? <PaneSplitter kind="dock" width={paneW.dock} max={paneW.dockMax} onCommit={(w) => onPaneCommit("dock", w)} /> : null}
+          {!leftTemp && leftOpen && !(visualShown && winW <= 1100) ? <PaneSplitter kind="left" width={paneW.left} max={paneW.leftMax} onCommit={(w) => onPaneCommit("left", w)} /> : null}
+          {!visualShown && !rightTemp && rightOpen ? <PaneSplitter kind="dock" width={paneW.dock} max={paneW.dockMax} onCommit={(w) => onPaneCommit("dock", w)} /> : null}
           {lNarrow || rNarrow ? <div className="panel-scrim" aria-hidden="true" onClick={() => { setLNarrow(false); setRNarrow(false); }} /> : null}
         </div>
       </div>

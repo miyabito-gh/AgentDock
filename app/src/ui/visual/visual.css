@@ -1,0 +1,55 @@
+/* Visual Editor uses the existing AgentDock palette, type scale and controls. */
+.visual-appbar{display:flex;align-items:stretch;background:var(--surface);border-bottom:1px solid var(--line);flex:none;min-width:0}
+.visual-appbar>.menubar{flex:1;min-width:0;border-bottom:0}
+.visual-entry{margin:2px 8px 2px 4px;flex:none;align-self:center}
+.visual-entry[aria-pressed=true],.visual-workspace button[aria-pressed=true]{color:var(--accent-text);background:var(--accent-weak);border-color:var(--accent-line)}
+.body.visual-mode{--rw:0px!important}
+.body.visual-mode>.right{display:none!important}
+.visual-workspace{flex:1;min-width:0;min-height:0;display:grid;grid-template-columns:minmax(230px,1fr) minmax(360px,45%);overflow:hidden}
+.visual-preview,.visual-chat{display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--surface)}
+.visual-preview{border-right:1px solid var(--line)}
+.visual-toolbar{display:flex;gap:4px;align-items:center;flex-wrap:wrap;padding:7px 8px;border-bottom:1px solid var(--line2);flex:none;min-height:41px}
+.visual-tools{display:inline-flex;gap:2px;margin-left:auto}
+.visual-file{padding:5px 10px;background:var(--surface2);border-bottom:1px solid var(--line);font-size:var(--fs-xs);flex:none;min-width:0}
+.visual-file>div{display:flex;align-items:center;gap:7px;min-width:0;min-height:24px}
+.visual-file>div>span:first-child{color:var(--ink2);flex:none;width:5em}
+.visual-file strong,.visual-path{font-weight:400;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1}
+.visual-file button{flex:none}
+.visual-stage{position:relative;flex:1;min-height:100px;min-width:0;overflow:hidden;background:var(--surface)}
+.visual-empty{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;padding:24px;color:var(--ink2);font-size:var(--fs-s);line-height:1.7;overflow:auto}
+.visual-empty strong{color:var(--ink);font-size:var(--fs);font-weight:600}
+.visual-empty p{margin:8px 0 0;max-width:34em}
+.visual-native-note{padding:16px;color:var(--ink3);font-size:var(--fs-s)}
+.visual-status{padding:5px 10px;background:var(--surface2);border-top:1px solid var(--line);font-size:var(--fs-xs);color:var(--ink2);flex:none}
+.visual-selection{padding:8px 12px;border-bottom:1px solid var(--line);background:var(--surface2);flex:none;max-height:42%;overflow:auto}
+.visual-selection-title{display:flex;align-items:baseline;gap:8px;font-size:var(--fs-s)}
+.visual-selection-title>span{color:var(--ink2);font-size:var(--fs-xs)}
+.visual-target{font-size:var(--fs-xs);color:var(--ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin:3px 0 5px}
+.visual-selection-empty{margin:4px 0 6px;color:var(--ink2);font-size:var(--fs-xs)}
+.visual-selected-list{max-height:75px;overflow:auto;border-left:2px solid var(--accent-line);padding-left:8px;margin:4px 0 7px;font-size:var(--fs-xs)}
+.visual-selected-list>div{min-width:0;margin-bottom:4px}
+.visual-selected-list strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+.visual-selected-list span{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;color:var(--ink2);white-space:pre-wrap;overflow-wrap:anywhere}
+.visual-templates{display:flex;flex-wrap:wrap;gap:3px;margin:5px 0}
+.visual-insert{margin-top:1px}
+.visual-draft-note{margin:5px 0 0;font-size:var(--fs-xs);color:var(--ink2);line-height:1.5}
+.visual-error{margin:6px 0 0;font-size:var(--fs-xs);color:var(--fail-ink);overflow-wrap:anywhere}
+.visual-chat-body{display:flex;flex-direction:column;flex:1;min-height:0;min-width:0;overflow:hidden}
+.visual-chat .chead{padding-left:10px;padding-right:10px;flex-wrap:wrap}
+.visual-chat .chead .cwd{min-width:0}
+.visual-chat .ctrl{flex-wrap:wrap}
+@media(max-width:1100px){
+  .body.visual-mode{--lw:180px!important}
+  .body.visual-mode.l-off,.body.visual-mode[data-left-temp]{--lw:0px!important}
+  .visual-workspace{grid-template-columns:minmax(220px,1fr) minmax(350px,47%)}
+  .visual-toolbar{gap:3px;padding:6px}
+  .visual-toolbar .btn{padding-left:6px;padding-right:6px}
+}
+@media(max-width:760px){
+  .visual-workspace{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(180px,40%) minmax(0,1fr);overflow:auto}
+  .visual-preview{border-right:0;border-bottom:1px solid var(--line)}
+  .visual-selection{max-height:45%}
+  .visual-file>div:first-child{display:none}
+  .visual-empty{padding:12px}
+  .visual-empty p:last-child{display:none}
+}
