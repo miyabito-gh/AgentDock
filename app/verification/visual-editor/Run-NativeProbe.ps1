@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param([ValidateSet('Inspect', 'Run')][string]$Mode = 'Inspect',
-    [ValidateSet('NativeOnly', 'Layered')][string]$Policy = 'NativeOnly')
+    [ValidateSet('NativeOnly', 'Layered', 'Offline')][string]$Policy = 'NativeOnly')
 $ErrorActionPreference = 'Stop'
 $repoRoot = 'C:\Users\wmasa\Documents\Rust\AgentDock_next'
 $scriptRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
@@ -104,6 +104,7 @@ Assert-NoReparsePath $exePath
 $startOptions = @{ FilePath = $exePath; WorkingDirectory = $repoRoot; WindowStyle = 'Hidden'
     PassThru = $true; RedirectStandardOutput = $stdoutPath; RedirectStandardError = $stderrPath }
 if ($Policy -eq 'Layered') { $startOptions['ArgumentList'] = '--layered-csp' }
+if ($Policy -eq 'Offline') { $startOptions['ArgumentList'] = '--offline-preview' }
 $probeProcess = Start-Process @startOptions
 $launch = [ordered]@{ pid = $probeProcess.Id; executable = $exePath; policy = $Policy
     launchedUtc = [DateTime]::UtcNow.ToString('o'); state = 'launched'; stdout = $stdoutPath; stderr = $stderrPath }
