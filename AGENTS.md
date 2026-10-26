@@ -1,7 +1,8 @@
 # AgentDock: AI共通の開発指示
 
 ## 読む順序と現在地
-- 最初に README.md → app/HANDOFF.md → app/MIGRATION_SUBAGENTS.md を読む。その後、AgentDock_Requirements.md の該当節と対象コードだけを確認する。
+- 最初に README.md → app/HANDOFF.md（短い現況版）を読む。app/MIGRATION_SUBAGENTS.md は新方式を扱うときだけ読む。AgentDock_Requirements.md は全文を読まず、冒頭の節の索引か `Grep "^#"` で該当節を探し、その節だけ読む。docs/archive/ の履歴は、必要な日付・項目だけ検索して読む。
+- サブエージェントへは、読むファイルと節を指定して渡す（全文読込みを丸投げしない）。小さな修正（数ファイル）は司令塔が直接実装し、分担は大量ログの隔離や自己完結する大きな作業に使う。
 - 現行masterの保存地点は09b00e3（2026-10-25、origin/master反映済み）。旧基準はfbe67ca、タグbaseline/org-engine-2026-10-24として保持。開発ブランチはfeature/visual-editor。新方式は移行中であり、文書に実装済み・検証済みと書かれるまでは未実装。
 - 旧組織実行の要件は旧方式に適用する。新方式の責任分担は移行設計に従う。移行予定を現在の実装と混同しない。
 - 過去の設計・レビュー・検証記録は履歴であり、未着手などの古い記載だけで現状を判断しない。対象コミットとコードで照合する。

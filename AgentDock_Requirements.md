@@ -16,6 +16,15 @@
 状態: **正本**（2026-10-05承認）。実装・新モックの基準。`Agent_Monitor_Requirements.md`（v0.50まで）は経緯・証拠記録。
 元資料: `Agent_Monitor_Requirements.md` v0.50（第1〜52節）、`AgentDock_Responsibility_Technology_Review.md`、`AgentDock_App_Server_Assessment.md`、各Probeレビュー、`probes/app-server/schema/0.160.0/`。
 
+## 節の索引（読む節を絞るため。全文は読まず、該当節だけ読む。位置は `Grep "^## "` で探す）
+- §0 この文書について／§1 目的・範囲・前提／§2 構成と責任境界
+- §3 機能要件（最大。§3.x の小見出しは `Grep "^### 3\."` で探す）
+- §4 状態モデル／§5 論理データ／§6 非機能要件
+- §7 段階計画／§8 技術制約と既知のリスク／§9 実装開始の到達条件／§10 新モックへの入力／§11 設計時に決める事項
+- §12 受入条件の索引／§13 機能追加の検討の入口
+- §14 親Codex＋サブエージェント方式への移行（新方式を扱うときに読む）
+- 末尾「Visual Editorの追加合意」（Visual Editorを扱うときに読む）。UI方針の最新は app/VISUAL_EDITOR_UX_DISCUSSION.md §8
+
 ## 0. この文書について
 
 ### 0.1 位置付け
