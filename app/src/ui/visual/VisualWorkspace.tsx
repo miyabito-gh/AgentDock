@@ -368,7 +368,7 @@ export function VisualWorkspace({ enabled, blocked, chatId, onSendInstruction, c
   const pane = (
     <div className="visual-pane">
       <section className="vp-card vp-edit" aria-label="編集">
-        <header className="vp-head"><strong>編集</strong><span className="vp-sub">{edit ? (edit.mode === "current" ? "この会話で編集中" : "専用チャットで編集中") + " · " + (fileName ?? "") : "未開始"}</span></header>
+        <header className="vp-head"><strong>編集</strong><span className="vp-sub">{edit ? "編集中 · " + (fileName ?? "") : "未開始"}</span></header>
         <div className="vp-body">
           <VisualEditControls enabled={enabled && desktop} chatId={chatId} currentChat={currentChat} onEnded={async (id) => { await leaveEdit(); onEnded(id); }} onCloseDraftPreview={closeDraftPreview} onDiscarded={onDiscarded} preview={session} session={edit} onBind={bindEdit} onUpdate={updateEdit} onLeave={leaveEdit} onBeforeDiff={beforeDiff} onAfterDiff={afterDiff} onKnownEditChats={onKnownEditChats} onNotice={onNotice} />
           {error ? <p className="visual-error" role="alert">{error}</p> : null}
@@ -379,21 +379,18 @@ export function VisualWorkspace({ enabled, blocked, chatId, onSendInstruction, c
         <header className="vp-head"><strong>プレビュー</strong><span className="vp-sub" title={session?.htmlPath}>{fileName ?? "HTMLを開いてください"}</span></header>
         <div className="vp-bar">
           <span className="vp-group" role="group" aria-label="ページ">
-            <button type="button" className="btn primary sm" disabled={!desktop || busy || closeUnconfirmed || !!edit} onClick={() => void pick(false)}>HTMLを開く</button>
-            <button type="button" className="btn sm" disabled={disabled || !reloadAllowed} onClick={() => void action("reload")}>再読み込み</button>
+            <button type="button" className={"btn sm" + (session ? " subtle" : " primary")} disabled={!desktop || busy || closeUnconfirmed || !!edit} onClick={() => void pick(false)}>開く</button>
+            <button type="button" className="btn subtle sm" disabled={disabled || !reloadAllowed} onClick={() => void action("reload")}>再読込</button>
           </span>
-          <span className="vp-group" role="group" aria-label="ページの操作モード">
-            <span className="vp-seg">
-              <button type="button" className="btn sm" aria-pressed={!interaction} disabled={disabled} title="ページ上をドラッグして範囲を選びます（クリックで1つ、Ctrl＋クリックで追加）" onClick={() => void action("select")}>範囲選択</button>
-              <button type="button" className="btn sm" aria-pressed={interaction} disabled={disabled} title="ページのリンクやボタンを実際に操作します" onClick={() => void action("interact")}>ページ操作</button>
-            </span>
+          <span className="vp-seg" role="group" aria-label="ページの操作モード">
+            <button type="button" className="btn sm" aria-pressed={!interaction} disabled={disabled} title="ページ上をドラッグして範囲を選びます（クリックで1つ、Ctrl＋クリックで追加）" onClick={() => void action("select")}>範囲選択</button>
+            <button type="button" className="btn sm" aria-pressed={interaction} disabled={disabled} title="ページのリンクやボタンを実際に操作します" onClick={() => void action("interact")}>ページ操作</button>
           </span>
-          <button type="button" className="btn sm" aria-pressed={whereOpen} title="表示しているファイルの場所" onClick={() => setWhereOpen(!whereOpen)}>場所</button>
-          <span className="vp-group" role="group" aria-label="選択の調整">
-            <label>選択</label>
-            <button type="button" className="btn sm" disabled={disabled || !selection.length} title="選択を、それを含む一つ外側の要素に広げます" onClick={() => void action("parent")}>外側へ広げる</button>
-            <button type="button" className="btn sm" disabled={disabled || !selection.length} onClick={() => void action("clear")}>解除</button>
-          </span>
+          {selection.length ? <span className="vp-group" role="group" aria-label="選択の調整">
+            <button type="button" className="btn subtle sm" disabled={disabled} title="選択を、それを含む一つ外側の要素に広げます" onClick={() => void action("parent")}>外側へ</button>
+            <button type="button" className="btn subtle sm" disabled={disabled} onClick={() => void action("clear")}>解除</button>
+          </span> : null}
+          <button type="button" className="btn subtle sm vp-where-btn" aria-pressed={whereOpen} title="表示しているファイルの場所" onClick={() => setWhereOpen(!whereOpen)}>場所</button>
         </div>
         <div className="visual-stage" ref={stage} aria-label="専用プレビューの表示領域">
           {!session ? <div className="visual-empty"><strong>HTMLを表示して、要素を選択</strong><p>{desktop ? "「HTMLを開く」で、ここにページを表示します。チャットのファイルのメニューからも開けます。" : "デスクトップ版でHTMLを開いてください。"}</p></div>
@@ -405,24 +402,28 @@ export function VisualWorkspace({ enabled, blocked, chatId, onSendInstruction, c
             <div><span>表示ルート</span> <span className="visual-path" title={session?.rootPath}>{session?.rootPath ?? "HTMLの親フォルダを使用"}</span>
               <button type="button" className="btn subtle sm" disabled={disabled || !!edit} onClick={() => void pick(true)}>変更…</button></div>
           </div> : null}
-          {barOn ? <div className="vp-sendbar" role="group" aria-label="選択した範囲への依頼">
-            <div className="vp-sendline">
-              <span className="vp-chip" title={selection.map((item) => item.selector).join("\n")}>選択 {selection.length}件{truncated ? "（一部）" : ""}: {chipLabel}</span>
-              <button type="button" className="btn-line sm" disabled={disabled} onClick={() => void action("clear")} aria-label="選択を解除">×</button>
-              {textEditable ? <button type="button" className="btn sm" aria-pressed={textOpen} title="この要素の文章を、そのまま書き換える" onClick={() => { setTextValue(original); setTextOpen(!textOpen); }}>文章を直す</button> : null}
-              <button type="button" className="btn sm" aria-pressed={tplOpen} title="依頼の書き出しの例を選ぶ" onClick={() => setTplOpen(!tplOpen)}>例文</button>
-              <span className="vp-sendinput"><input type="text" className="vp-input" value={barText} placeholder="この範囲への依頼…" title="例: 青系の配色に / 見出しを短く" aria-label="この範囲への依頼" disabled={sending}
-                onChange={(event) => { setBarText(event.target.value); setSentNote(false); }}
-                onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing) { event.preventDefault(); void sendBar(); } }} />
-              <button type="button" className="btn primary sm" disabled={!barText.trim() || sending || busy || closeUnconfirmed} onClick={() => void sendBar()}>送信</button></span>
+          {barOn ? <div className="vp-composer" role="group" aria-label="選択した範囲への依頼">
+            <div className="vp-ctx">
+              <span className="vp-chip" title={selection.map((item) => item.selector).join(", ")}>{selection.length > 1 ? selection.length + "件 · " : ""}{chipLabel}{truncated ? "（一部）" : ""}</span>
+              <button type="button" className="vp-x" disabled={disabled} onClick={() => void action("clear")} aria-label="選択を解除">×</button>
             </div>
             {textOpen && textEditable ? <div className="vp-textedit">
               <textarea className="vp-input" rows={2} value={textValue} aria-label="変更後の文章" disabled={sending} onChange={(event) => setTextValue(event.target.value)} />
               <button type="button" className="btn primary sm" disabled={sending || !textValue.trim() || textValue.trim() === original} onClick={() => void sendText()}>この文章に直す</button>
             </div> : null}
-            {tplOpen ? <div className="visual-templates" role="group" aria-label="書き出しの例">{quickTemplates.map((item) => <button key={item.name} type="button" className="btn sm" onClick={() => { setBarText((value) => value ? value : item.text); setTplOpen(false); }}>{item.name}</button>)}</div> : null}
+            <div className="vp-inrow">
+              <button type="button" className="vp-plus" aria-pressed={tplOpen} aria-label="書き出しの例・文章の直し" title="書き出しの例・文章の直し" onClick={() => setTplOpen(!tplOpen)}>＋</button>
+              <input type="text" className="vp-input vp-hero" value={barText} placeholder="この範囲に依頼…" title="例: 青系の配色に / 見出しを短く" aria-label="この範囲への依頼" disabled={sending}
+                onChange={(event) => { setBarText(event.target.value); setSentNote(false); }}
+                onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing) { event.preventDefault(); void sendBar(); } }} />
+              <button type="button" className="vp-go" aria-label="送信" title="送信（Enter）" disabled={!barText.trim() || sending || busy || closeUnconfirmed} onClick={() => void sendBar()}>↑</button>
+            </div>
+            {tplOpen ? <div className="vp-menu" role="group" aria-label="書き出しの例">
+              {textEditable ? <button type="button" className="btn subtle sm" aria-pressed={textOpen} title="この要素の文章を、そのまま書き換える" onClick={() => { setTextValue(original); setTextOpen(!textOpen); setTplOpen(false); }}>文章を直す</button> : null}
+              {quickTemplates.map((item) => <button key={item.name} type="button" className="btn subtle sm" onClick={() => { setBarText((value) => value ? value : item.text); setTplOpen(false); }}>{item.name}</button>)}
+            </div> : null}
             {sendError ? <small className="vp-sent visual-error" role="alert">{sendError}</small> : null}
-            {sentNote ?<small className="vp-sent" role="status">送信しました。経過は編集の状態表示とチャットで確認できます。</small> : null}
+            {sentNote ? <small className="vp-sent" role="status">送信しました</small> : null}
           </div> : null}
         </div> : null}
       </section>

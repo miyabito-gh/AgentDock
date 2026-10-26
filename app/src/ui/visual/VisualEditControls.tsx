@@ -242,8 +242,8 @@ export function VisualEditControls({ enabled, chatId, currentChat, onEnded, onCl
     : session.phase === "runningOrReconciling" ? { tone: "wait", text: "AIが作業中、または終了を確認中です", hint: "終わると変更が表示されます。" }
     : session.phase === "preparedUnresolved" || session.phase === "acceptanceUnknown" ? { tone: "warn", text: "依頼が届いたか確認できていません", hint: "チャットの表示を確認してください。自動では再送しません。" }
     : session.phase === "rejected" ? { tone: "warn", text: "依頼が受け付けられませんでした", hint: "チャットの表示を確認してください。" }
-    : visibleChanges.length ? { tone: "ok", text: `AIの編集が${visibleChanges.length}件あります`, hint: "プレビューで確認して、よければ元に反映します。" }
-    : { tone: "ok", text: "編集できます", hint: "プレビューをドラッグして範囲を選ぶと、下の依頼バーから送れます（チャットからも送れます）。" };
+    : visibleChanges.length ? { tone: "ok", text: `AIの編集が${visibleChanges.length}件あります`, hint: "" }
+    : { tone: "ok", text: "編集できます", hint: "" };
   const savedList = (items: VisualEditSession[], label: string) => items.length ? <details className="visual-sessions"><summary>{label} {items.length}件</summary><ul>{items.map((item) => <li key={item.sessionId}>
     <div className="vs-saved">
       {item.ended ? <span>{item.htmlPath}（終了）</span> : <button type="button" className="btn-line sm" disabled={busy || item.sessionId === session?.sessionId} onClick={() => void bind(item)}>{item.htmlPath} · {phaseLabel(item.phase)}</button>}
@@ -270,9 +270,9 @@ export function VisualEditControls({ enabled, chatId, currentChat, onEnded, onCl
         <p className="visual-lead">この会話には、編集の途中のコピーがあります。</p>
         <button type="button" className="btn primary" disabled={busy} onClick={() => void bind(existingEdit)}>編集を開く</button>
       </div> : <div className="vs-start">
-        <p className="visual-lead">元のファイルは変更しません。コピーでAIに編集させ、確認してから元に反映できます。</p>
+        <p className="visual-lead">元のファイルは変えず、コピーで編集して、確認後に反映します。</p>
         {currentChat ? <div className="vm-group" role="radiogroup" aria-label="どの会話で編集しますか">
-          {([["current", "今の会話で続ける", "これまでの内容と修正を、この会話が覚えます"], ["fork", "分岐して続ける", "今の会話は残し、コピーした会話で編集します"], ["new", "新しい会話で始める", "履歴は引き継ぎません"]] as const).map(([mode, title, note]) =>
+          {([["current", "今の会話で続ける", "これまでの内容を引き継ぐ"], ["fork", "分岐して続ける", "今の会話は残す"], ["new", "新しい会話で始める", "履歴は引き継がない"]] as const).map(([mode, title, note]) =>
             <label key={mode} className={"vm-opt" + (startMode === mode ? " on" : "")}><input type="radio" name="visual-start-mode" checked={startMode === mode} onChange={() => setStartMode(mode)} /><span><b>{title}</b><small>{note}</small></span></label>)}
         </div> : null}
         <div className="vs-actions">
@@ -299,9 +299,9 @@ export function VisualEditControls({ enabled, chatId, currentChat, onEnded, onCl
         </div>
         <small>元のファイルの今の内容で編集用コピーを作り直します（新しい専用チャットが作られます）。今のコピーのAI編集は引き継がれませんが、「詳細」の保存された編集に残ります。</small>
       </div> : <div className="vs-actions">
-        <button type="button" className="btn primary" disabled={busy || stale || !session.canAdopt} onClick={() => void write("adopt")}>この内容を元に反映</button>
-        <button type="button" className="btn" disabled={busy || stale || !session.canUndo} onClick={() => void write("undo")}>直前の編集を取り消す</button>
-        {session.mode === "current" ? <button type="button" className="btn-line" disabled={busy} onClick={() => void finish()} title="元の作業場所に戻ります。反映していない変更は元に入りません">編集を終える</button> : null}
+        <button type="button" className="btn primary" disabled={busy || stale || !session.canAdopt} onClick={() => void write("adopt")}>元に反映</button>
+        <button type="button" className="btn" disabled={busy || stale || !session.canUndo} onClick={() => void write("undo")}>取り消す</button>
+        {session.mode === "current" ? <button type="button" className="btn-line" disabled={busy} onClick={() => void finish()} title="元の作業場所に戻ります。反映していない変更は元に入りません">終える</button> : null}
       </div>}
       {operation && operation.revision === session.revision && (operation.id === null || operation.id === session.lastOperation?.id)
         ? <p className="visual-hint" role="status">{operation.outcome === "applied" ? (operation.kind === "adopt" ? "元のファイルに反映しました。" : "直前のAI編集を取り消しました。") : actionLabel(operation.kind) + "の結果は「" + operation.outcome + "」です。"} {operation.message}</p> : null}
