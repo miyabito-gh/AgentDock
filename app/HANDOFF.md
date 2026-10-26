@@ -26,8 +26,8 @@
 - app/ で `npm.cmd run type-check` と `npm.cmd run build`
 
 ## 未コミット・稼働状況
-- 未コミット: `app/HANDOFF.md`、`app/VISUAL_EDITOR_UX_DISCUSSION.md`（新規）、`docs/archive/HANDOFF_visual_editor_2026-10.md`（新規）、`AGENTS.md`・`AgentDock_Requirements.md`（読み順・索引の更新）。`app/src-tauri/gen/schemas/*.json` は既存の変更で保持（触れていない）。
-- 稼働中プロセス: なし。コミット・pushはしていない。
+- 保存済み（未push）: 文書3件（1165c03、f7193d0、4528921）と段階1の試作（8d48569）。未コミットは `app/src-tauri/gen/schemas/*.json` のみ（既存の変更で保持、触れていない）。
+- 稼働中プロセス: なし。pushはしていない。
 
 ## 2026-10-26 段階1: チャットを畳む試作（実装済み・実機未確認）
 - 内容: Visual Editor表示中、上部バーに「チャット」ボタンを追加。畳むと中央列が0になり、右ペイン（プレビュー）が残り幅を使う（`.body.v-chat-off`、`--rw: calc(100% - var(--lw))`、0.16秒の列幅トランジション、reduced-motion時は無効）。チャットは非表示にするだけでアンマウントしない。既定は従来どおり表示。承認・質問のバッジは未実装のため、既定を畳む状態にしていない。
