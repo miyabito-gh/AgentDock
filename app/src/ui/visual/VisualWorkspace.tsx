@@ -409,12 +409,12 @@ export function VisualWorkspace({ enabled, blocked, chatId, onSendInstruction, c
             <div className="vp-sendline">
               <span className="vp-chip" title={selection.map((item) => item.selector).join("\n")}>選択 {selection.length}件{truncated ? "（一部）" : ""}: {chipLabel}</span>
               <button type="button" className="btn-line sm" disabled={disabled} onClick={() => void action("clear")} aria-label="選択を解除">×</button>
-              {textEditable ? <button type="button" className="btn sm" aria-pressed={textOpen} title="この要素の文章を直す" onClick={() => { setTextValue(original); setTextOpen(!textOpen); }}>文章</button> : null}
-              <button type="button" className="btn sm" aria-pressed={tplOpen} title="書き出しの例を選ぶ" onClick={() => setTplOpen(!tplOpen)}>＋</button>
-              <input type="text" className="vp-input" value={barText} placeholder="この範囲への依頼（例: 青系の配色に）" aria-label="この範囲への依頼" disabled={sending}
+              {textEditable ? <button type="button" className="btn sm" aria-pressed={textOpen} title="この要素の文章を、そのまま書き換える" onClick={() => { setTextValue(original); setTextOpen(!textOpen); }}>文章を直す</button> : null}
+              <button type="button" className="btn sm" aria-pressed={tplOpen} title="依頼の書き出しの例を選ぶ" onClick={() => setTplOpen(!tplOpen)}>例文</button>
+              <span className="vp-sendinput"><input type="text" className="vp-input" value={barText} placeholder="この範囲への依頼…" title="例: 青系の配色に / 見出しを短く" aria-label="この範囲への依頼" disabled={sending}
                 onChange={(event) => { setBarText(event.target.value); setSentNote(false); }}
                 onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing) { event.preventDefault(); void sendBar(); } }} />
-              <button type="button" className="btn primary sm" disabled={!barText.trim() || sending || busy || closeUnconfirmed} onClick={() => void sendBar()}>送信</button>
+              <button type="button" className="btn primary sm" disabled={!barText.trim() || sending || busy || closeUnconfirmed} onClick={() => void sendBar()}>送信</button></span>
             </div>
             {textOpen && textEditable ? <div className="vp-textedit">
               <textarea className="vp-input" rows={2} value={textValue} aria-label="変更後の文章" disabled={sending} onChange={(event) => setTextValue(event.target.value)} />

@@ -178,3 +178,10 @@
 .vc-badge{display:inline-block;min-width:16px;margin-left:5px;padding:0 5px;border-radius:999px;background:var(--fail);color:var(--surface);font-weight:600;font-size:var(--fs-xs);line-height:16px;text-align:center}
 .vp-textedit{display:flex;gap:6px;align-items:flex-end}
 .vp-textedit .vp-input{resize:vertical;min-height:2.6em}
+/* 編集開始後は、状態の1行と操作ボタンを同じ段に並べて縦を節約する（狭ければ折り返す）。 */
+.visual-edit:has(>.vs-row){display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px}
+.visual-edit:has(>.vs-row)>*{flex:1 1 100%;margin-top:0;margin-bottom:0}
+.visual-edit:has(>.vs-row)>.vs-row{flex:1 1 260px;min-width:0}
+.visual-edit:has(>.vs-row)>.vs-actions{flex:0 1 auto;margin:0}
+.vp-sendinput{display:flex;gap:6px;flex:1 1 220px;min-width:0}
+.vp-sendinput .vp-input{flex:1 1 auto}
