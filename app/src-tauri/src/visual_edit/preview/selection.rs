@@ -16,6 +16,9 @@ pub struct Selection {
     pub text: String,
     pub selector: String,
     pub rect: Rect,
+    /// 子要素を持たない要素（文章の直し対象にできる）。古いスクリプトからは来ない。
+    #[serde(default)]
+    pub leaf: bool,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -74,6 +77,7 @@ mod tests {
             assert!(validate(raw).is_none());
         }
         assert!(validate(&" ".repeat(65537)).is_none());
+        assert!(validate(r#"{"selection":[{"tag":"p","id":"","className":"","text":"a","selector":"p","leaf":true,"rect":{"x":0,"y":0,"width":1,"height":1}}]}"#).is_some());
     }
 }
 

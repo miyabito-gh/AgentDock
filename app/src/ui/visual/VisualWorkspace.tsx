@@ -37,6 +37,8 @@ export function VisualWorkspace({ enabled, blocked, chatId, onSendInstruction, c
   const [whereOpen, setWhereOpen] = useState(false);
   const [sending, setSending] = useState(false);
   const [sentNote, setSentNote] = useState(false);
+  const [textOpen, setTextOpen] = useState(false);
+  const [textValue, setTextValue] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [closeUnconfirmed, setCloseUnconfirmed] = useState(false);
   const closeFailed = useRef(false);
@@ -333,6 +335,20 @@ export function VisualWorkspace({ enabled, blocked, chatId, onSendInstruction, c
   }, [hasChip, selection.length, chipLabel]);
   useEffect(() => () => chipRef.current(null), []);
   const barOn = enabled && !!edit && chatId === edit.chat.id && selection.length > 0;
+  // 子要素のない1つの要素だけ、文章をその場で直せる（AIには前後の文章をそのまま渡す）。
+  const only = selection.length === 1 ? selection[0] : null;
+  const original = only ? only.text.replace(/\s+/g, " ").trim() : "";
+  const textEditable = barOn && !!only && only.leaf && original.length > 0 && only.text.length < 1000;
+  useEffect(() => { setTextOpen(false); }, [only?.selector, selection.length]);
+  const sendText = async () => {
+    const after = textValue.trim();
+    if (!only || !textEditable || !after || after === original || sending || closeFailed.current) return;
+    setSending(true);
+    try {
+      const text = ["次の要素の文章だけを、指定どおりに書き換えてください（他の部分は変えないでください）。", "対象: " + only.selector, "変更前: " + original, "変更後: " + after].join("\n");
+      if (await onSendInstruction(text)) { setTextOpen(false); setSentNote(true); }
+    } finally { if (alive.current) setSending(false); }
+  };
   const sendBar = async () => {
     const text = barText.trim();
     if (!text || sending || !barOn || closeFailed.current) return;
@@ -390,12 +406,17 @@ export function VisualWorkspace({ enabled, blocked, chatId, onSendInstruction, c
             <div className="vp-sendline">
               <span className="vp-chip" title={selection.map((item) => item.selector).join("\n")}>選択 {selection.length}件{truncated ? "（一部）" : ""}: {chipLabel}</span>
               <button type="button" className="btn-line sm" disabled={disabled} onClick={() => void action("clear")} aria-label="選択を解除">×</button>
+              {textEditable ? <button type="button" className="btn sm" aria-pressed={textOpen} title="この要素の文章を直す" onClick={() => { setTextValue(original); setTextOpen(!textOpen); }}>文章</button> : null}
               <button type="button" className="btn sm" aria-pressed={tplOpen} title="書き出しの例を選ぶ" onClick={() => setTplOpen(!tplOpen)}>＋</button>
               <input type="text" className="vp-input" value={barText} placeholder="この範囲への依頼（例: 青系の配色に）" aria-label="この範囲への依頼" disabled={sending}
                 onChange={(event) => { setBarText(event.target.value); setSentNote(false); }}
                 onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing) { event.preventDefault(); void sendBar(); } }} />
               <button type="button" className="btn primary sm" disabled={!barText.trim() || sending || busy || closeUnconfirmed} onClick={() => void sendBar()}>送信</button>
             </div>
+            {textOpen && textEditable ? <div className="vp-textedit">
+              <textarea className="vp-input" rows={2} value={textValue} aria-label="変更後の文章" disabled={sending} onChange={(event) => setTextValue(event.target.value)} />
+              <button type="button" className="btn primary sm" disabled={sending || !textValue.trim() || textValue.trim() === original} onClick={() => void sendText()}>この文章に直す</button>
+            </div> : null}
             {tplOpen ? <div className="visual-templates" role="group" aria-label="書き出しの例">{quickTemplates.map((item) => <button key={item.name} type="button" className="btn sm" onClick={() => { setBarText((value) => value ? value : item.text); setTplOpen(false); }}>{item.name}</button>)}</div> : null}
             {sentNote ? <small className="vp-sent" role="status">送信しました。経過は編集の状態表示とチャットで確認できます。</small> : null}
           </div> : null}

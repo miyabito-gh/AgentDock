@@ -5,7 +5,7 @@ import type { ChatKey, ModelChoice } from "../../ipc/types";
 export interface PreviewBounds { x: number; y: number; width: number; height: number }
 export interface PreviewSession { sessionId: string; rootPath: string; htmlPath: string }
 export interface PreviewElement {
-  tag: string; id: string; className: string; text: string; selector: string; rect: PreviewBounds;
+  tag: string; id: string; className: string; text: string; selector: string; rect: PreviewBounds; leaf: boolean;
 }
 export interface PreviewSelection { sessionId: string; selection: PreviewElement[]; truncated: boolean }
 export interface PreviewError { sessionId: string; error: string }
@@ -28,7 +28,7 @@ export function parseSelection(value: unknown): PreviewSelection | null {
     const text = boundedText(item.text, 500), selector = boundedText(item.selector, 1024);
     const x = coordinate(item.rect.x), y = coordinate(item.rect.y), width = coordinate(item.rect.width, true), height = coordinate(item.rect.height, true);
     if (tag === null || id === null || className === null || text === null || selector === null || x === null || y === null || width === null || height === null) return null;
-    selection.push({ tag, id, className, text, selector, rect: { x, y, width, height } });
+    selection.push({ tag, id, className, text, selector, rect: { x, y, width, height }, leaf: item.leaf === true });
   }
   return { sessionId: value.sessionId, selection, truncated: value.truncated === true || value.selection.length > 50 };
 }
