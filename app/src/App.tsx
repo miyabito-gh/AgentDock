@@ -104,7 +104,7 @@ export default function App() {
   const [leftOpen, setLeftOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(true);
   const [visualMode, setVisualMode] = useState(false);
-  /** 段階1の試作: Visual Editor中にチャットを畳み、プレビュー側を広げる（既定は表示のまま）。 */
+  /** Visual Editor中にチャットを畳み、プレビュー側を広げる。編集を始めると既定で畳み、対応が要るものが出たら自動で開く。 */
   const [visualChatOff, setVisualChatOff] = useState(false);
   const [visualCtx, setVisualCtx] = useState<VisualContext | null>(null);
   /** 会話ごとに、送信済みの固定方針（同じ内容は一度だけ送る）。受理を確認できたときだけ控える。 */
@@ -1709,6 +1709,15 @@ ${cur}` : p.text);
 
   // 確認済みの失敗。実接続ではホストの記録（chatLocals）と現在の失敗turnの一致で判定し、左一覧と揃える。モックは画面内の集合。
   const visualShown = visualMode && !orgScreen && !quick.open;
+  // 編集チャットで利用者の対応が要るもの（承認・質問、受理されなかった/確認できない送信）。畳んでいても見逃さない。
+  const visualAttention = visualEditChatId
+    ? snap.requests.filter((r) => r.chat.id === visualEditChatId && r.state.kind === "pending").length
+      + (pendingSends[visualEditChatId] ?? []).filter((p) => p.outcome && p.outcome.kind !== "accepted").length
+    : 0;
+  // 編集を始めたら、既定ではチャットを畳んでプレビューを広く使う。
+  useEffect(() => { if (visualEditChatId) setVisualChatOff(true); }, [visualEditChatId]);
+  // 対応が要るものが増えたら、チャットを自動で開く。
+  useEffect(() => { if (visualAttention > 0) setVisualChatOff(false); }, [visualAttention]);
   const confirmedKeys: Set<string> = live
     ? new Set(snap.agents.filter((a) => {
       if (a.status.state !== "failed") return false;
@@ -1753,7 +1762,7 @@ ${cur}` : p.text);
             setVisualMode(!visualShown); setOrgScreen(false); setQuick((q) => ({ ...q, open: false })); setRNarrow(false);
             if (!visualShown && visualEditChatId && visualEditChatId !== selId) { setSelId(visualEditChatId); if (live) void loadChat(visualEditChatId); }
           }}>Visual Editor</button>
-          {visualShown ? <button type="button" className="btn sm visual-chat-toggle" aria-pressed={!visualChatOff} aria-label={visualChatOff ? "チャットを表示" : "チャットを畳む"} title={visualChatOff ? "チャットを表示してプレビューを狭める" : "チャットを畳んでプレビューを広げる"} onClick={() => setVisualChatOff(!visualChatOff)}>チャット</button> : null}
+          {visualShown ? <button type="button" className="btn sm visual-chat-toggle" aria-pressed={!visualChatOff} aria-label={visualChatOff ? "チャットを表示" : "チャットを畳む"} title={visualChatOff ? "チャットを表示してプレビューを狭める" : "チャットを畳んでプレビューを広げる"} onClick={() => setVisualChatOff(!visualChatOff)}>チャット{visualAttention > 0 ? <span className="vc-badge" aria-label={`対応が必要 ${visualAttention}件`}>{visualAttention}</span> : null}</button> : null}
         </div>
         <GlobalBanner source={src} dismissed={snap.settings.dismissedVersionNotice}
           onDismiss={(key) => updateSettings((s) => ({ ...s, dismissedVersionNotice: key }), "版の注意を閉じた記録を保存できませんでした。次回の起動ではまた表示されます")} onAct={act} />
