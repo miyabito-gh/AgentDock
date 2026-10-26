@@ -104,6 +104,8 @@ export default function App() {
   const [leftOpen, setLeftOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(true);
   const [visualMode, setVisualMode] = useState(false);
+  /** 段階1の試作: Visual Editor中にチャットを畳み、プレビュー側を広げる（既定は表示のまま）。 */
+  const [visualChatOff, setVisualChatOff] = useState(false);
   const [visualCtx, setVisualCtx] = useState<string | null>(null);
   const [visualDedicatedIds, setVisualDedicatedIds] = useState<Set<string>>(() => new Set());
   const [visualW, setVisualW] = useState<number | null>(() => { try { const v = Number(window.localStorage.getItem("agentdock.visualPaneWidth")); return Number.isFinite(v) && v > 0 ? v : null; } catch { return null; } });
@@ -1741,6 +1743,7 @@ ${cur}` : p.text);
             setVisualMode(!visualShown); setOrgScreen(false); setQuick((q) => ({ ...q, open: false })); setRNarrow(false);
             if (!visualShown && visualEditChatId && visualEditChatId !== selId) { setSelId(visualEditChatId); if (live) void loadChat(visualEditChatId); }
           }}>Visual Editor</button>
+          {visualShown ? <button type="button" className="btn sm visual-chat-toggle" aria-pressed={!visualChatOff} aria-label={visualChatOff ? "チャットを表示" : "チャットを畳む"} title={visualChatOff ? "チャットを表示してプレビューを狭める" : "チャットを畳んでプレビューを広げる"} onClick={() => setVisualChatOff(!visualChatOff)}>チャット</button> : null}
         </div>
         <GlobalBanner source={src} dismissed={snap.settings.dismissedVersionNotice}
           onDismiss={(key) => updateSettings((s) => ({ ...s, dismissedVersionNotice: key }), "版の注意を閉じた記録を保存できませんでした。次回の起動ではまた表示されます")} onAct={act} />
@@ -1752,7 +1755,7 @@ ${cur}` : p.text);
         ) : null}
         <SaveBanner failed={failedSaves.filter((s) => !forChat(s))} warnings={warnHidden ? [] : snap.startupWarnings} onDismissWarnings={dismissWarnings} onAct={act} />
         <div
-          className={`body ${visualShown ? "visual-mode" : ""} ${leftOpen ? "" : "l-off"} ${rightOpen || visualShown ? "" : "r-off"} ${lNarrow ? "n-l" : ""} ${rNarrow && !visualShown ? "n-r" : ""}`}
+          className={`body ${visualShown ? "visual-mode" : ""} ${visualShown && visualChatOff ? "v-chat-off" : ""} ${leftOpen ? "" : "l-off"} ${rightOpen || visualShown ? "" : "r-off"} ${lNarrow ? "n-l" : ""} ${rNarrow && !visualShown ? "n-r" : ""}`}
           data-left-temp={leftTemp ? "" : undefined} data-right-temp={rightTemp && !visualShown ? "" : undefined}
           style={{ ...(!leftTemp && leftOpen ? { "--lw": `${paneW.left}px` } : {}), ...(visualShown ? { "--rw": `${visualPx}px` } : !rightTemp && rightOpen ? { "--rw": `${paneW.dock}px` } : {}) } as CSSProperties}
         >

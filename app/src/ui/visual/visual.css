@@ -2,6 +2,13 @@
 .visual-appbar{display:flex;align-items:stretch;background:var(--surface);border-bottom:1px solid var(--line);flex:none;min-width:0}
 .visual-appbar>.menubar{flex:1;min-width:0;border-bottom:0}
 .visual-entry{margin:2px 8px 2px 4px;flex:none;align-self:center}
+.visual-chat-toggle{margin:2px 8px 2px 0;flex:none;align-self:center}
+/* チャットを畳む試作: 中央列を0にし、右ペイン（プレビュー）が残りを使う。幅の変化はネイティブWebViewが追従する。 */
+.body.visual-mode{transition:grid-template-columns .16s ease-out}
+.body.visual-mode.v-chat-off{--rw:calc(100% - var(--lw,0px))}
+.body.visual-mode.v-chat-off>.center{visibility:hidden;overflow:hidden}
+.body.visual-mode.v-chat-off>.splitter.split-r{display:none}
+@media (prefers-reduced-motion:reduce){.body.visual-mode{transition:none}}
 .visual-entry[aria-pressed=true],.visual-workspace button[aria-pressed=true]{color:var(--accent-text);background:var(--accent-weak);border-color:var(--accent-line)}
 .visual-workspace{flex:1;min-width:0;min-height:0;display:grid;grid-template-columns:minmax(230px,1fr) minmax(360px,45%);overflow:hidden}
 .visual-preview,.visual-chat{display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--surface)}
