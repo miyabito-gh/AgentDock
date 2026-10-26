@@ -14,7 +14,7 @@ import { usePathStats } from "./ui/usePathStats";
 import { PROJECTS_ENABLED } from "./ui/features";
 import { MAX_FETCH_PAGES, countFetched, fetchAllPages, loadMoreMessage, projectFetchMessage } from "./ui/listFetch";
 import { addDecision, mergeDecisions, type DecisionItem } from "./ui/decisions";
-import { ACCEPTED_HOLD_MS, hasInFlight, mergeAttempt, outcomeOfAttempt, rebindPending, reconcilePending, setPhase, type PendingOutcome, type PendingSend } from "./ui/pendingSend";
+import { ACCEPTED_HOLD_MS, firstSendLockReason, hasInFlight, mergeAttempt, outcomeOfAttempt, rebindPending, reconcilePending, setPhase, type PendingOutcome, type PendingSend } from "./ui/pendingSend";
 import { withOrgTitles } from "./ui/orgChat";
 import { GAP_GUIDE, GAP_TEXT, shownOrgIds } from "./ui/org";
 import { applyHostEvent, createEventPipeline, emptyBundle, replaceSnapshot, seqAction, UNKNOWN_CAPS } from "./ipc/live";
@@ -28,7 +28,7 @@ const loadMock = async () => {
 import { GlobalBanner, MenuBar, SaveBanner } from "./ui/Chrome";
 import { LeftPane, type ChatOp } from "./ui/LeftPane";
 import { histStart, histOk, histFail, type HistLoad } from "./ui/historyLoad";
-import { CenterPane, EmptyCenter, RequestCard, type FileActions } from "./ui/CenterPane";
+import { CenterPane, EmptyCenter, RequestCard, sendLockReason, type FileActions } from "./ui/CenterPane";
 import { hideClosed, noticeOf } from "./ui/sendNotice";
 import { fenceCode, insertBlock } from "./ui/attach";
 import { DockPane, MiniWindow, type DockActions, type DockFocus } from "./ui/Dock";
@@ -719,6 +719,15 @@ ${visualCtx.sel}${sendFixed ? `
 ${visualCtx.fixed}` : ""}` : text;
     const fixed = visualCtx?.fixed ?? "", chatKeyId = chat.key.id;
     return sendTo(chat, withContext, visualBoundChatIds.has(chat.key.id) && isRunning(snap, chat) ? true : steer, attachments, sendFixed ? () => { visualFixedSent.current[chatKeyId] = fixed; } : undefined);
+  };
+
+  /** プレビュー下の依頼バーからの送信。中央の入力欄と同じ送信不可の判定を通し、送れない理由を返す（成功はnull）。 */
+  const sendInstruction = async (text: string): Promise<string | null> => {
+    if (!chat) return "送る会話がありません。";
+    if (orgScreen || quick.open) return "チャットの画面に戻してから送ってください。";
+    const lock = sendLockReason(snap, chat, snap.chatLocals.find((l) => l.chat.id === chat.key.id)) ?? firstSendLockReason(pendingSends[chat.key.id]);
+    if (lock) return lock;
+    return (await onSend(text, false, [])) ? null : "送信できませんでした。前の送信の結果を確認してください。";
   };
 
   /** 「引き継いで送信」（DESIGN_CONT §7.3）。利用者の送信操作の中だけで呼ぶ。拒否・受理不明で再送しない。 */
@@ -1762,7 +1771,7 @@ ${cur}` : p.text);
             setVisualMode(!visualShown); setOrgScreen(false); setQuick((q) => ({ ...q, open: false })); setRNarrow(false);
             if (!visualShown && visualEditChatId && visualEditChatId !== selId) { setSelId(visualEditChatId); if (live) void loadChat(visualEditChatId); }
           }}>Visual Editor</button>
-          {visualShown ? <button type="button" className="btn sm visual-chat-toggle" aria-pressed={!visualChatOff} aria-label={visualChatOff ? "チャットを表示" : "チャットを畳む"} title={visualChatOff ? "チャットを表示してプレビューを狭める" : "チャットを畳んでプレビューを広げる"} onClick={() => setVisualChatOff(!visualChatOff)}>チャット{visualAttention > 0 ? <span className="vc-badge" aria-label={`対応が必要 ${visualAttention}件`}>{visualAttention}</span> : null}</button> : null}
+          {visualShown ? <button type="button" className="btn sm visual-chat-toggle" aria-pressed={!visualChatOff} title={visualChatOff ? "チャットを表示してプレビューを狭める" : "チャットを畳んでプレビューを広げる"} onClick={() => setVisualChatOff(!visualChatOff)}>チャット{visualAttention > 0 ? <span className="vc-badge" aria-label={`対応が必要 ${visualAttention}件`}>{visualAttention}</span> : null}</button> : null}
         </div>
         <GlobalBanner source={src} dismissed={snap.settings.dismissedVersionNotice}
           onDismiss={(key) => updateSettings((s) => ({ ...s, dismissedVersionNotice: key }), "版の注意を閉じた記録を保存できませんでした。次回の起動ではまた表示されます")} onAct={act} />
@@ -1794,7 +1803,7 @@ ${cur}` : p.text);
           <main className="center">
             <VisualWorkspace key={mode} enabled={visualShown}
               blocked={!!dialog || !!menu || palette || mockOpen || !!(sideId && sideShown) || lNarrow || rNarrow || dragging}
-              chatName={chat ? chatName(chat) : null} chatId={chat?.key.id ?? null} onSendInstruction={(text) => onSend(text, false, [])}
+              chatName={chat ? chatName(chat) : null} chatId={chat?.key.id ?? null} onSendInstruction={sendInstruction}
               onOpenEditChat={(id) => { setVisualEditChatId(id); setVisualBoundChatIds((ids) => new Set(ids).add(id)); setSelId(id); setOrgScreen(false); setQuick((q) => ({ ...q, open: false })); if (live) void loadChat(id); }}
               onLeaveEditChat={() => setVisualEditChatId(null)}
               onKnownEditChats={(ids, dedicated) => { setVisualBoundChatIds((old) => new Set([...old, ...ids])); setVisualDedicatedIds((old) => new Set([...old, ...dedicated])); }}

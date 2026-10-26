@@ -243,7 +243,7 @@ export function VisualEditControls({ enabled, chatId, currentChat, onEnded, onCl
     : session.phase === "preparedUnresolved" || session.phase === "acceptanceUnknown" ? { tone: "warn", text: "依頼が届いたか確認できていません", hint: "チャットの表示を確認してください。自動では再送しません。" }
     : session.phase === "rejected" ? { tone: "warn", text: "依頼が受け付けられませんでした", hint: "チャットの表示を確認してください。" }
     : visibleChanges.length ? { tone: "ok", text: `AIの編集が${visibleChanges.length}件あります`, hint: "プレビューで確認して、よければ元に反映します。" }
-    : { tone: "ok", text: "編集できます", hint: "プレビューをドラッグして範囲を選び、下のチャットに依頼を書いて送信します。" };
+    : { tone: "ok", text: "編集できます", hint: "プレビューをドラッグして範囲を選ぶと、下の依頼バーから送れます（チャットからも送れます）。" };
   const savedList = (items: VisualEditSession[], label: string) => items.length ? <details className="visual-sessions"><summary>{label} {items.length}件</summary><ul>{items.map((item) => <li key={item.sessionId}>
     <div className="vs-saved">
       {item.ended ? <span>{item.htmlPath}（終了）</span> : <button type="button" className="btn-line sm" disabled={busy || item.sessionId === session?.sessionId} onClick={() => void bind(item)}>{item.htmlPath} · {phaseLabel(item.phase)}</button>}
