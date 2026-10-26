@@ -1775,7 +1775,7 @@ ${cur}` : p.text);
           <main className="center">
             <VisualWorkspace key={mode} enabled={visualShown}
               blocked={!!dialog || !!menu || palette || mockOpen || !!(sideId && sideShown) || lNarrow || rNarrow || dragging}
-              chatName={chat ? chatName(chat) : null} chatId={chat?.key.id ?? null} canInsert={!!chat && !orgScreen && !quick.open}
+              chatName={chat ? chatName(chat) : null} chatId={chat?.key.id ?? null} onSendInstruction={(text) => onSend(text, false, [])}
               onOpenEditChat={(id) => { setVisualEditChatId(id); setVisualBoundChatIds((ids) => new Set(ids).add(id)); setSelId(id); setOrgScreen(false); setQuick((q) => ({ ...q, open: false })); if (live) void loadChat(id); }}
               onLeaveEditChat={() => setVisualEditChatId(null)}
               onKnownEditChats={(ids, dedicated) => { setVisualBoundChatIds((old) => new Set([...old, ...ids])); setVisualDedicatedIds((old) => new Set([...old, ...dedicated])); }}
@@ -1783,11 +1783,7 @@ ${cur}` : p.text);
               onEnded={(id) => setVisualBoundChatIds((old) => { const next = new Set(old); next.delete(id); return next; })}
               onDiscarded={(id, mode) => { if (mode === "dedicated") setVisualDedicatedIds((old) => { const next = new Set(old); next.delete(id); return next; }); setVisualBoundChatIds((old) => { const next = new Set(old); next.delete(id); return next; }); }}
               onContext={setVisualCtx} onChip={setVisualChip} openRequest={visualOpen}
-              onInsert={(text) => {
-                if (!chat) return;
-                onDraft(chat, curDraft.length ? `${curDraft}\n\n${text}` : text);
-                window.requestAnimationFrame(() => composerRef.current?.focus());
-              }} onNotice={say}>
+              onNotice={say}>
             {orgScreen ? (
               <OrgPane snap={snap} org={orgShown} error={orgErr} live={live} timelineTick={orgTlTick} leftShown={leftTemp ? lNarrow : leftOpen} rightShown={rightTemp ? rNarrow : rightOpen}
                 onAct={act} onOpenChat={(k) => selectChat(k.id)} onReload={() => setOrgTick((n) => n + 1)} run={orgRun} onDelete={(id) => setDialog({ type: "orgDelete", workflowId: id })}

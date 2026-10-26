@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNo
 import { createPortal } from "react-dom";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import type { ChatKey } from "../../ipc/types";
-import { actOnPreview, closePreview, instructionTemplates, onPreviewError, onPreviewSelection, openPreview, parentFolder, previewAvailable, selectionDraft, updatePreviewBounds, visualSendContext, type PreviewAction, type PreviewBounds, type PreviewElement, type PreviewSession, type VisualEditSession } from "./api";
+import { actOnPreview, closePreview, onPreviewError, onPreviewSelection, openPreview, parentFolder, previewAvailable, quickTemplates, updatePreviewBounds, visualSendContext, type PreviewAction, type PreviewBounds, type PreviewElement, type PreviewSession, type VisualEditSession } from "./api";
 import { VisualEditControls } from "./VisualEditControls";
 import "./visual.css";
 
@@ -15,10 +15,10 @@ function overlayOpen(): boolean {
     .some((node) => node.getClientRects().length > 0 && getComputedStyle(node).visibility !== "hidden");
 }
 
-export function VisualWorkspace({ enabled, blocked, chatId, canInsert, currentChat, onInsert, onContext, onChip, onEnded, onDiscarded, openRequest, onNotice, onOpenEditChat, onLeaveEditChat, onKnownEditChats, children }: {
-  enabled: boolean; blocked: boolean; chatName: string | null; chatId: string | null; canInsert: boolean; currentChat: ChatKey | null; onEnded: (id: string) => void; onDiscarded: (chatId: string, mode: "dedicated" | "current") => void;
+export function VisualWorkspace({ enabled, blocked, chatId, onSendInstruction, currentChat, onContext, onChip, onEnded, onDiscarded, openRequest, onNotice, onOpenEditChat, onLeaveEditChat, onKnownEditChats, children }: {
+  enabled: boolean; blocked: boolean; chatName: string | null; chatId: string | null; onSendInstruction: (text: string) => Promise<boolean>; currentChat: ChatKey | null; onEnded: (id: string) => void; onDiscarded: (chatId: string, mode: "dedicated" | "current") => void;
   onOpenEditChat: (id: string) => void; onLeaveEditChat: () => void; onKnownEditChats: (ids: string[], dedicated: string[]) => void;
-  onInsert: (text: string) => void; onContext: (text: string | null) => void; onChip: (chip: { count: number; label: string; onClear: () => void } | null) => void; openRequest: { path: string; nonce: number } | null; onNotice: (message: string) => void; children: ReactNode;
+  onContext: (text: string | null) => void; onChip: (chip: { count: number; label: string; onClear: () => void } | null) => void; openRequest: { path: string; nonce: number } | null; onNotice: (message: string) => void; children: ReactNode;
 }) {
   const desktop = previewAvailable();
   const stage = useRef<HTMLDivElement>(null);
@@ -32,9 +32,12 @@ export function VisualWorkspace({ enabled, blocked, chatId, canInsert, currentCh
   const [truncated, setTruncated] = useState(false);
   const [busy, setBusy] = useState(false);
   const [interaction, setInteraction] = useState(false);
-  const [template, setTemplate] = useState(0);
+  const [barText, setBarText] = useState("");
+  const [tplOpen, setTplOpen] = useState(false);
+  const [whereOpen, setWhereOpen] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [sentNote, setSentNote] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [inserted, setInserted] = useState(false);
   const [closeUnconfirmed, setCloseUnconfirmed] = useState(false);
   const closeFailed = useRef(false);
   const current = useRef<PreviewSession | null>(null);
@@ -124,7 +127,7 @@ export function VisualWorkspace({ enabled, blocked, chatId, canInsert, currentCh
     let unlisten: (() => void) | undefined;
     void onPreviewSelection((event) => {
       if (!alive.current || !enabledRef.current || current.current?.sessionId !== event.sessionId) return;
-      setSelection(event.selection); setTruncated(event.truncated); setInserted(false);
+      setSelection(event.selection); setTruncated(event.truncated); 
     }).then((off) => { if (disposed) off(); else unlisten = off; })
       .catch((error) => { if (!disposed) setError(`選択情報を受信できませんでした: ${messageOf(error)}`); });
     return () => { disposed = true; unlisten?.(); };
@@ -180,7 +183,7 @@ export function VisualWorkspace({ enabled, blocked, chatId, canInsert, currentCh
     }
     lastBounds.current = "";
     current.current = opened;
-    setSession(opened); setSelection([]); setTruncated(false); setInteraction(false); setInserted(false);
+    setSession(opened); setSelection([]); setTruncated(false); setInteraction(false); 
     await syncBounds();
   };
 
@@ -226,7 +229,7 @@ export function VisualWorkspace({ enabled, blocked, chatId, canInsert, currentCh
       if (!alive.current || current.current?.sessionId !== active.sessionId) return;
       if (action === "select" || action === "interact") setInteraction(action === "interact");
       if (action === "reload") setInteraction(false);
-      if (action === "clear" || action === "reload") { setSelection([]); setTruncated(false); setInserted(false); }
+      if (action === "clear" || action === "reload") { setSelection([]); setTruncated(false); }
     } catch (error) { if (alive.current) setError(`プレビュー操作を確認できませんでした: ${messageOf(error)}`); }
     finally { operationBusy.current = false; if (alive.current) setBusy(false); }
   };
@@ -287,7 +290,7 @@ export function VisualWorkspace({ enabled, blocked, chatId, canInsert, currentCh
     const oldRevision = editRef.current.revision;
     editRef.current = next; setEdit(next);
     if (oldRevision !== next.revision) {
-      setSelection([]); setTruncated(false); setInserted(false);
+      setSelection([]); setTruncated(false); 
       reloadPending.current = true;
       if (current.current && !editBinding.current && !operationBusy.current && ["editable", "changes"].includes(next.phase)) { reloadPending.current = false; void action("reload"); }
     }
@@ -328,6 +331,15 @@ export function VisualWorkspace({ enabled, blocked, chatId, canInsert, currentCh
     chipRef.current(hasChip ? { count: selection.length, label: chipLabel, onClear: () => { void action("clear"); } } : null);
   }, [hasChip, selection.length, chipLabel]);
   useEffect(() => () => chipRef.current(null), []);
+  const barOn = enabled && !!edit && chatId === edit.chat.id && selection.length > 0;
+  const sendBar = async () => {
+    const text = barText.trim();
+    if (!text || sending || !barOn || closeFailed.current) return;
+    setSending(true);
+    try {
+      if (await onSendInstruction(text)) { setBarText(""); setTplOpen(false); setSentNote(true); }
+    } finally { if (alive.current) setSending(false); }
+  };
   if (!enabled) return <>{children}</>;
   const disabled = !session || busy || closeUnconfirmed;
   const reloadAllowed = !edit || edit.phase === "editable" || edit.phase === "changes";
@@ -356,6 +368,7 @@ export function VisualWorkspace({ enabled, blocked, chatId, canInsert, currentCh
               <button type="button" className="btn sm" aria-pressed={interaction} disabled={disabled} title="ページのリンクやボタンを実際に操作します" onClick={() => void action("interact")}>ページ操作</button>
             </span>
           </span>
+          <button type="button" className="btn sm" aria-pressed={whereOpen} title="表示しているファイルの場所" onClick={() => setWhereOpen(!whereOpen)}>場所</button>
           <span className="vp-group" role="group" aria-label="選択の調整">
             <label>選択</label>
             <button type="button" className="btn sm" disabled={disabled || !selection.length} title="選択を、それを含む一つ外側の要素に広げます" onClick={() => void action("parent")}>外側へ広げる</button>
@@ -366,29 +379,26 @@ export function VisualWorkspace({ enabled, blocked, chatId, canInsert, currentCh
           {!session ? <div className="visual-empty"><strong>HTMLを表示して、要素を選択</strong><p>{desktop ? "「HTMLを開く」で、ここにページを表示します。チャットのファイルのメニューからも開けます。" : "デスクトップ版でHTMLを開いてください。"}</p></div>
             : <div className="visual-native-note">{blocked || overlayOpen() ? "メニュー・ダイアログの操作中はプレビューを非表示にします。" : "専用プレビュー領域"}</div>}
         </div>
-        <div className="vp-foot">
-          <footer className="visual-status" role="status">{busy ? "操作を確認しています…" : session ? interaction ? "ページ操作: リンクやボタンを操作できます" : "範囲選択: ドラッグで範囲を選択 · クリックで1つ · Ctrl＋クリックで追加 · Escで解除" : "HTMLを開いて開始"}</footer>
-          <div className="visual-selection-line" role="status">
-            {selection.length
-              ? <><strong>選択中 {selection.length}件{truncated ? "（一部のみ）" : ""}</strong><span title={selection.map((item) => item.selector).join("\n")}>{selection[0].text.replace(/\s+/g, " ").trim().slice(0, 24) || selection[0].selector || selection[0].tag}{selection.length > 1 ? ` ほか${selection.length - 1}件` : ""}</span>
-                {edit && chatId === edit.chat.id ? <small>入力欄の上の札で確認できます。送信すると添付されます</small> : null}</>
-              : <span>{edit ? "ページをドラッグして範囲を選べます（選ばなくても送れます）" : "プレビューで要素を選べます"}</span>}
-          </div>
-          <details className="visual-more visual-fine"><summary>細かく指示する</summary>
-            {selection.length ? <div className="visual-selected-list">{selection.map((item, index) => <div key={`${index}:${item.selector}`}><strong title={item.selector}>{item.selector || item.tag}</strong>{item.text ? <span>{item.text}</span> : null}</div>)}</div> : <p className="visual-selection-empty">要素を選ぶと、ここに詳細が出ます。</p>}
-            <div className="visual-templates" role="group" aria-label="指示のひな形">{instructionTemplates.map((item, index) => <button key={item.name} type="button" className="btn sm" aria-pressed={template === index} onClick={() => { setTemplate(index); setInserted(false); }}>{item.name}</button>)}</div>
-            <button type="button" className="btn-line sm visual-insert" disabled={!session || !selection.length || truncated || !canInsert || busy || closeUnconfirmed || (!!edit && chatId !== edit.chat.id)} onClick={() => {
-              if (!session || !selection.length || truncated || !canInsert || closeFailed.current || (edit && chatId !== edit.chat.id)) return;
-              onInsert(selectionDraft(session, selection, instructionTemplates[template].text)); setInserted(true);
-            }}>セレクタ付きの指示を入力欄に書き出す</button>
-            <p className="visual-draft-note" role="status">{inserted ? "入力欄へ追加しました。内容を編集してから送信できます。" : "通常は不要です。要素を厳密に指定したいときだけ使います。"}</p>
-          </details>
-          <details className="visual-more vp-where"><summary>表示しているファイルの場所</summary>
+        {whereOpen || barOn ? <div className="vp-foot">
+          {whereOpen ? <div className="vp-where">
             <div><span>HTML</span> <span className="visual-path" title={session?.htmlPath}>{session?.htmlPath ?? "未選択"}</span></div>
             <div><span>表示ルート</span> <span className="visual-path" title={session?.rootPath}>{session?.rootPath ?? "HTMLの親フォルダを使用"}</span>
               <button type="button" className="btn subtle sm" disabled={disabled || !!edit} onClick={() => void pick(true)}>変更…</button></div>
-          </details>
-        </div>
+          </div> : null}
+          {barOn ? <div className="vp-sendbar" role="group" aria-label="選択した範囲への依頼">
+            <div className="vp-sendline">
+              <span className="vp-chip" title={selection.map((item) => item.selector).join("\n")}>選択 {selection.length}件{truncated ? "（一部）" : ""}: {chipLabel}</span>
+              <button type="button" className="btn-line sm" disabled={disabled} onClick={() => void action("clear")} aria-label="選択を解除">×</button>
+              <button type="button" className="btn sm" aria-pressed={tplOpen} title="書き出しの例を選ぶ" onClick={() => setTplOpen(!tplOpen)}>＋</button>
+              <input type="text" className="vp-input" value={barText} placeholder="この範囲への依頼（例: 青系の配色に）" aria-label="この範囲への依頼" disabled={sending}
+                onChange={(event) => { setBarText(event.target.value); setSentNote(false); }}
+                onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing) { event.preventDefault(); void sendBar(); } }} />
+              <button type="button" className="btn primary sm" disabled={!barText.trim() || sending || busy || closeUnconfirmed} onClick={() => void sendBar()}>送信</button>
+            </div>
+            {tplOpen ? <div className="visual-templates" role="group" aria-label="書き出しの例">{quickTemplates.map((item) => <button key={item.name} type="button" className="btn sm" onClick={() => { setBarText((value) => value ? value : item.text); setTplOpen(false); }}>{item.name}</button>)}</div> : null}
+            {sentNote ? <small className="vp-sent" role="status">送信しました。経過は編集の状態表示とチャットで確認できます。</small> : null}
+          </div> : null}
+        </div> : null}
       </section>
     </div>
   );
