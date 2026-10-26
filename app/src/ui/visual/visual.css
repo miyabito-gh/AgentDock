@@ -175,6 +175,6 @@
 .vp-input:focus{outline:2px solid var(--accent-line);outline-offset:-1px}
 .vp-sent{color:var(--ink2);font-size:var(--fs-xs)}
 .vctx-body{margin:2px 0 6px;padding:6px 8px;border-left:2px solid var(--accent-line);background:var(--surface2);color:var(--ink2);font-size:var(--fs-xs);white-space:pre-wrap;overflow-wrap:anywhere;max-height:180px;overflow:auto}
-.vc-badge{display:inline-block;min-width:16px;margin-left:5px;padding:0 5px;border-radius:999px;background:var(--fail);color:#fff;font-size:var(--fs-xs);line-height:16px;text-align:center}
+.vc-badge{display:inline-block;min-width:16px;margin-left:5px;padding:0 5px;border-radius:999px;background:var(--fail);color:var(--surface);font-weight:600;font-size:var(--fs-xs);line-height:16px;text-align:center}
 .vp-textedit{display:flex;gap:6px;align-items:flex-end}
 .vp-textedit .vp-input{resize:vertical;min-height:2.6em}

@@ -383,7 +383,6 @@ export function VisualWorkspace({ enabled, blocked, chatId, onSendInstruction, c
             <button type="button" className="btn sm" disabled={disabled || !reloadAllowed} onClick={() => void action("reload")}>再読み込み</button>
           </span>
           <span className="vp-group" role="group" aria-label="ページの操作モード">
-            <label>操作</label>
             <span className="vp-seg">
               <button type="button" className="btn sm" aria-pressed={!interaction} disabled={disabled} title="ページ上をドラッグして範囲を選びます（クリックで1つ、Ctrl＋クリックで追加）" onClick={() => void action("select")}>範囲選択</button>
               <button type="button" className="btn sm" aria-pressed={interaction} disabled={disabled} title="ページのリンクやボタンを実際に操作します" onClick={() => void action("interact")}>ページ操作</button>
