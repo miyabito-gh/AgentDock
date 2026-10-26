@@ -5,7 +5,6 @@
 .visual-chat-toggle{margin:2px 8px 2px 0;flex:none;align-self:center}
 /* チャットを畳む試作: 中央列を0にし、右ペイン（プレビュー）が残りを使う。幅の変化はネイティブWebViewが追従する。 */
 .body.visual-mode{transition:grid-template-columns .16s ease-out}
-.body.visual-mode.v-chat-off{--rw:calc(100% - var(--lw,0px))}
 .body.visual-mode.v-chat-off>.center{visibility:hidden;overflow:hidden}
 .body.visual-mode.v-chat-off>.splitter.split-r{display:none}
 @media (prefers-reduced-motion:reduce){.body.visual-mode{transition:none}}

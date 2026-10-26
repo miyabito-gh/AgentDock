@@ -1757,7 +1757,7 @@ ${cur}` : p.text);
         <div
           className={`body ${visualShown ? "visual-mode" : ""} ${visualShown && visualChatOff ? "v-chat-off" : ""} ${leftOpen ? "" : "l-off"} ${rightOpen || visualShown ? "" : "r-off"} ${lNarrow ? "n-l" : ""} ${rNarrow && !visualShown ? "n-r" : ""}`}
           data-left-temp={leftTemp ? "" : undefined} data-right-temp={rightTemp && !visualShown ? "" : undefined}
-          style={{ ...(!leftTemp && leftOpen ? { "--lw": `${paneW.left}px` } : {}), ...(visualShown ? { "--rw": `${visualPx}px` } : !rightTemp && rightOpen ? { "--rw": `${paneW.dock}px` } : {}) } as CSSProperties}
+          style={{ ...(!leftTemp && leftOpen ? { "--lw": `${paneW.left}px` } : {}), ...(visualShown ? { "--rw": visualChatOff ? "calc(100% - var(--lw, 0px))" : `${visualPx}px` } : !rightTemp && rightOpen ? { "--rw": `${paneW.dock}px` } : {}) } as CSSProperties}
         >
           <aside className="left" id="pane-left" aria-label="チャット一覧">
             <LeftPane org={{ wf: org?.workflow ?? null, selected: orgScreen && !orgHist, onOpen: () => { setOrgSel(null); setOrgScreen(true); setLNarrow(false); setQuick((q) => (q.open ? { ...q, open: false } : q)); }, onStart: () => act("orgStart"), history: org?.history ?? [], deletionOverflow: org?.deletionOverflow ?? 0, archived: org?.archived ?? [], onUnarchive: (id) => void orgRun("アーカイブの解除", async () => { await host.orgUnarchiveWorkflow(id); return "アーカイブを解除しました。"; }), onArchive: (id) => void orgRun("アーカイブ", async () => { await host.orgArchiveWorkflow(id); return "ワークフローをアーカイブしました（アーカイブ一覧から戻せます）。"; }), onArchiveMany: async (ids) => {
