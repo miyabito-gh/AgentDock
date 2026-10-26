@@ -1,4 +1,5 @@
 import { multiFolderMark } from "./workFolders";
+import { splitVisualContext } from "./visual/api";
 import { orgSendLock } from "./orgText";
 import { RequestGapLine } from "./RequestGap";
 import { chatGapRequests } from "./org";
@@ -552,9 +553,20 @@ const foldMem = createFoldMemory(50);
 
 /** ユーザーの吹き出し。長い依頼文（8行超または600文字超）は数行で切り、「展開」で全文を出す。全文はDOMに残るので検索の件数は変わらない。 */
 function UserBubble({ text, forceOpen, open, onToggle }: { text: string; forceOpen: boolean; open: boolean; onToggle: () => void }) {
-  const long = isLongBody(text);
+  const parts = splitVisualContext(text);
+  const long = isLongBody(parts.context ? parts.body : text);
   const id = useId();
   const shown = open || forceOpen;
+  // Visual Editorが自動で添えた参照情報は、本文と分けて折りたたむ（会話を汚さない。全文はDOMに残る）。
+  if (parts.context) {
+    return (
+      <>
+        {parts.body ? <div className="bubble" data-find="body">{parts.body}</div> : null}
+        <button type="button" className="foldmsg" aria-expanded={shown} aria-controls={id} onClick={onToggle}>参照情報{parts.count ? `（選択${parts.count}件）` : ""}を{shown ? "隠す" : "表示"}</button>
+        <pre id={id} className="vctx-body" hidden={!shown} data-find="body">{parts.context}</pre>
+      </>
+    );
+  }
   return (
     <>
       <div id={id} className={`bubble${long && !shown ? " clamp" : ""}`} data-find="body">{text}</div>

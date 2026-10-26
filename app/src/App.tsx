@@ -60,7 +60,7 @@ import { pushRecent } from "./ui/skillPick";
 import { SendKeyContext } from "./ui/SendKeyContext";
 import { applyAppearance, watchSystemTheme } from "./ui/appearance";
 import { VisualWorkspace } from "./ui/visual/VisualWorkspace";
-import { VISUAL_CONTEXT_MARK } from "./ui/visual/api";
+import { VISUAL_CONTEXT_MARK, type VisualContext } from "./ui/visual/api";
 
 type Mode = "live" | "mock";
 const EXE_KEY = "agentdock.codexExe";
@@ -106,7 +106,9 @@ export default function App() {
   const [visualMode, setVisualMode] = useState(false);
   /** 段階1の試作: Visual Editor中にチャットを畳み、プレビュー側を広げる（既定は表示のまま）。 */
   const [visualChatOff, setVisualChatOff] = useState(false);
-  const [visualCtx, setVisualCtx] = useState<string | null>(null);
+  const [visualCtx, setVisualCtx] = useState<VisualContext | null>(null);
+  /** 会話ごとに、送信済みの固定方針（同じ内容は一度だけ送る）。受理を確認できたときだけ控える。 */
+  const visualFixedSent = useRef<Record<string, string>>({});
   const [visualDedicatedIds, setVisualDedicatedIds] = useState<Set<string>>(() => new Set());
   const [visualW, setVisualW] = useState<number | null>(() => { try { const v = Number(window.localStorage.getItem("agentdock.visualPaneWidth")); return Number.isFinite(v) && v > 0 ? v : null; } catch { return null; } });
   const [visualChip, setVisualChip] = useState<{ count: number; label: string; onClear: () => void } | null>(null);
@@ -664,7 +666,7 @@ export default function App() {
   };
 
   /** 送信（対象チャットを引数で受ける。中央の入力欄とドックの指示欄が同じ判定を通る）。 */
-  const sendTo = async (chat: Chat, text: string, steer: boolean, attachments: string[]): Promise<boolean> => {
+  const sendTo = async (chat: Chat, text: string, steer: boolean, attachments: string[], onAccepted?: () => void): Promise<boolean> => {
     if (!live) { void loadMock().then((m) => m.client.sendMessage(chat.key, text, steer ? "steer" : "newTurn")); say("送信を依頼しました（モック）。"); return true; }
     const running = isRunning(snap, chat);
     if (running && !steer && !visualBoundChatIds.has(chat.key.id)) {
@@ -691,6 +693,7 @@ export default function App() {
         const o = outcomeOfAttempt(a);
         if (o) setOutcome(o);
         // 受理を確認できた送信だけを、添付なしも含めて控える（同じ本文の別の発言に他の送信の添付が付かないように）
+        if (a.state.kind === "accepted") onAccepted?.();
         if (a.state.kind === "accepted") setSends((m) => ({ ...m, [chatId]: [...(m[chatId] ?? []), { text, at: a.at, atts: sentAtts, steer: running }].slice(-30) }));
         if (running) {
           setSteerOf((m) => ({ ...m, [chatId]: { attemptId: a.attemptId, text, attachments } }));
@@ -707,8 +710,15 @@ export default function App() {
   const onSend = async (text: string, steer: boolean, attachments: string[]): Promise<boolean> => {
     if (!chat) return false;
     // 編集チャットでは、選択範囲と編集方針を送信文に自動で添える（再送で重複しないよう印で判定）。
-    const withContext = visualShown && visualCtx && chat.key.id === visualEditChatId && !text.includes(VISUAL_CONTEXT_MARK) ? `${text}\n\n${visualCtx}` : text;
-    return sendTo(chat, withContext, visualBoundChatIds.has(chat.key.id) && isRunning(snap, chat) ? true : steer, attachments);
+    const useCtx = visualShown && visualCtx && chat.key.id === visualEditChatId && !text.includes(VISUAL_CONTEXT_MARK);
+    // 固定の方針は、会話で内容が変わるまで一度だけ送る（毎回の発言を汚さない）。受理を確認できたときだけ控える。
+    const sendFixed = useCtx && visualFixedSent.current[chat.key.id] !== visualCtx.fixed;
+    const withContext = useCtx ? `${text}
+
+${visualCtx.sel}${sendFixed ? `
+${visualCtx.fixed}` : ""}` : text;
+    const fixed = visualCtx?.fixed ?? "", chatKeyId = chat.key.id;
+    return sendTo(chat, withContext, visualBoundChatIds.has(chat.key.id) && isRunning(snap, chat) ? true : steer, attachments, sendFixed ? () => { visualFixedSent.current[chatKeyId] = fixed; } : undefined);
   };
 
   /** 「引き継いで送信」（DESIGN_CONT §7.3）。利用者の送信操作の中だけで呼ぶ。拒否・受理不明で再送しない。 */

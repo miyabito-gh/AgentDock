@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNo
 import { createPortal } from "react-dom";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import type { ChatKey } from "../../ipc/types";
-import { actOnPreview, closePreview, onPreviewError, onPreviewSelection, openPreview, parentFolder, previewAvailable, quickTemplates, updatePreviewBounds, visualSendContext, type PreviewAction, type PreviewBounds, type PreviewElement, type PreviewSession, type VisualEditSession } from "./api";
+import { actOnPreview, closePreview, onPreviewError, onPreviewSelection, openPreview, parentFolder, previewAvailable, quickTemplates, updatePreviewBounds, visualSendContext, type PreviewAction, type PreviewBounds, type PreviewElement, type PreviewSession, type VisualContext, type VisualEditSession } from "./api";
 import { VisualEditControls } from "./VisualEditControls";
 import "./visual.css";
 
@@ -18,7 +18,7 @@ function overlayOpen(): boolean {
 export function VisualWorkspace({ enabled, blocked, chatId, onSendInstruction, currentChat, onContext, onChip, onEnded, onDiscarded, openRequest, onNotice, onOpenEditChat, onLeaveEditChat, onKnownEditChats, children }: {
   enabled: boolean; blocked: boolean; chatName: string | null; chatId: string | null; onSendInstruction: (text: string) => Promise<boolean>; currentChat: ChatKey | null; onEnded: (id: string) => void; onDiscarded: (chatId: string, mode: "dedicated" | "current") => void;
   onOpenEditChat: (id: string) => void; onLeaveEditChat: () => void; onKnownEditChats: (ids: string[], dedicated: string[]) => void;
-  onContext: (text: string | null) => void; onChip: (chip: { count: number; label: string; onClear: () => void } | null) => void; openRequest: { path: string; nonce: number } | null; onNotice: (message: string) => void; children: ReactNode;
+  onContext: (ctx: VisualContext | null) => void; onChip: (chip: { count: number; label: string; onClear: () => void } | null) => void; openRequest: { path: string; nonce: number } | null; onNotice: (message: string) => void; children: ReactNode;
 }) {
   const desktop = previewAvailable();
   const stage = useRef<HTMLDivElement>(null);
@@ -320,8 +320,9 @@ export function VisualWorkspace({ enabled, blocked, chatId, onSendInstruction, c
       .catch((failure) => { if (alive.current) setError("HTMLを開けませんでした: " + messageOf(failure)); });
   }, [enabled, desktop, openRequest?.nonce]);
   // 編集チャットへの送信に、選択範囲と編集方針を自動で添える（入力欄は書き換えない）。
-  const contextText = enabled && edit && chatId === edit.chat.id ? visualSendContext(edit.htmlPath, selection, edit.scope) : null;
-  useEffect(() => { onContextRef.current(contextText); }, [contextText]);
+  const visualCtx = enabled && edit && chatId === edit.chat.id ? visualSendContext(edit.htmlPath, selection, edit.scope) : null;
+  const ctxSel = visualCtx?.sel ?? null, ctxFixed = visualCtx?.fixed ?? null;
+  useEffect(() => { onContextRef.current(ctxSel !== null && ctxFixed !== null ? { sel: ctxSel, fixed: ctxFixed } : null); }, [ctxSel, ctxFixed]);
   useEffect(() => () => onContextRef.current(null), []);
   const chipRef = useRef(onChip);
   chipRef.current = onChip;

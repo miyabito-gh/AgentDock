@@ -174,3 +174,4 @@
 .vp-input{flex:1;min-width:0;padding:5px 8px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--ink);font:inherit}
 .vp-input:focus{outline:2px solid var(--accent-line);outline-offset:-1px}
 .vp-sent{color:var(--ink2);font-size:var(--fs-xs)}
+.vctx-body{margin:2px 0 6px;padding:6px 8px;border-left:2px solid var(--accent-line);background:var(--surface2);color:var(--ink2);font-size:var(--fs-xs);white-space:pre-wrap;overflow-wrap:anywhere;max-height:180px;overflow:auto}
