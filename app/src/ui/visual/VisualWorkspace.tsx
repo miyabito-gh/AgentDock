@@ -368,7 +368,7 @@ export function VisualWorkspace({ enabled, blocked, chatId, onSendInstruction, c
   const pane = (
     <div className="visual-pane">
       <section className="vp-card vp-edit" aria-label="編集">
-        <header className="vp-head"><strong>編集</strong><span className="vp-sub">{edit ? "編集中 · " + (fileName ?? "") : "未開始"}</span></header>
+        {edit ? null : <header className="vp-head"><strong>編集</strong><span className="vp-sub">未開始</span></header>}
         <div className="vp-body">
           <VisualEditControls enabled={enabled && desktop} chatId={chatId} currentChat={currentChat} onEnded={async (id) => { await leaveEdit(); onEnded(id); }} onCloseDraftPreview={closeDraftPreview} onDiscarded={onDiscarded} preview={session} session={edit} onBind={bindEdit} onUpdate={updateEdit} onLeave={leaveEdit} onBeforeDiff={beforeDiff} onAfterDiff={afterDiff} onKnownEditChats={onKnownEditChats} onNotice={onNotice} />
           {error ? <p className="visual-error" role="alert">{error}</p> : null}
@@ -423,7 +423,7 @@ export function VisualWorkspace({ enabled, blocked, chatId, onSendInstruction, c
               {quickTemplates.map((item) => <button key={item.name} type="button" className="btn subtle sm" onClick={() => { setBarText((value) => value ? value : item.text); setTplOpen(false); }}>{item.name}</button>)}
             </div> : null}
             {sendError ? <small className="vp-sent visual-error" role="alert">{sendError}</small> : null}
-            {sentNote ? <small className="vp-sent" role="status">送信しました</small> : null}
+            {sentNote ? <small className="vp-sent" role="status">依頼を送りました</small> : null}
           </div> : null}
         </div> : null}
       </section>
