@@ -14,6 +14,9 @@ pub struct VisualCreateArgs { pub root_path:String, pub html_path:String, pub mo
 pub struct VisualSessionArgs { pub session_id:String }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct VisualReleaseArgs { pub chat:ChatKey }
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct VisualWriteArgs { pub session_id:String, pub revision:u64 }
 /// 保存領域の中の、リンクでないフォルダだけを削除する（保存領域そのものや外は削除しない）。
 fn remove_storage_dir(storage:&Path,dir:&Path)->Result<(),String> {
@@ -60,6 +63,11 @@ impl Host {
             let root=crate::rules::work_folders::normalize_path(&root).unwrap_or(root);
             crate::rules::work_folders::is_same_or_under(&cwd,&root)
         })
+    }
+    /// 編集を終えたが、元の作業場所へ戻す送信がまだの会話か（作業場所の表示はまだコピーを指す）。この間の引き継ぎ・分岐・レビュー・作業フォルダ変更は止める。
+    pub fn visual_restore_pending(&self, chat:&ChatKey)->Result<bool,IpcError> {
+        if !self.visual_cwd(chat) {return Ok(false);}
+        Ok(session::restore_for(&self.visual_root(),chat).map_err(visual_err)?.is_some())
     }
     pub fn visual_bound(&self, chat:&ChatKey)->Result<bool,IpcError> {
         if session::binding_id(&self.visual_root(),chat).map_err(visual_err)?.is_some() {return Ok(true);}
@@ -167,6 +175,20 @@ impl Host {
         if self.send_unsettled(&chat) || self.subagent_turn_pending(&chat) {return Err(visual_err("this chat has a send or turn that is not settled"));}
         session::append(&s.folder,&SessionEvent::Ended).map_err(visual_err)?;
         self.visual_loaded(session_id)?.view().map_err(visual_err)
+    }
+    /// 編集用コピーに紐付いたままの既存の会話を、利用者の確認のうえで切り離す（終えられない・コピーが無い・記録が壊れたときの出口）。
+    /// コピーも元のフォルダも削除・変更しない。会話は「終えた」扱いになり、次の通常の送信で元の作業場所へ戻る。
+    /// AIの停止は確認しない（実行中のAIがコピーへ書く可能性は残る）。専用会話は戻し先がないので対象外。
+    pub async fn visual_release(self:&Arc<Self>,chat:&ChatKey)->Result<bool,IpcError> {
+        let _send_guard=self.queue_rt.send_lock(chat).lock_owned().await;
+        let _guard=self.visual_rt.lock.lock().await;
+        let Some(id)=session::binding_id(&self.visual_root(),chat).map_err(visual_err)? else {return Ok(false)};
+        session::validate_id(&id).map_err(visual_err)?;
+        let folder=self.visual_root().join(&id);
+        let meta:SessionMeta=serde_json::from_slice(&fs::read(folder.join("session.json")).map_err(visual_err)?).map_err(visual_err)?;
+        if meta.mode.as_deref()!=Some("current") || meta.restore.is_none() {return Err(visual_err("only an edit on an existing chat can be released"));}
+        session::append(&folder,&SessionEvent::Ended).map_err(visual_err)?;
+        Ok(true)
     }
     /// 編集を破棄する。コピーのファイルを削除し、反映前のバックアップ（元の内容）は `keep_backup` のとき残す。
     /// 反映していない編集は元に影響しないので、すべて削除する。元のフォルダには触れない。
@@ -357,6 +379,7 @@ impl Host {
             if matches!(attempt.state,SendState::Accepted{..}) {
                 if let Ok(Some((sid,_)))=session::restore_for(&self.visual_root(),chat) {
                     if let Ok(s)=self.visual_loaded(&sid) {if s.restore_pending() {let _=session::append(&s.folder,&SessionEvent::Restored);}}
+                    else {let _=session::mark_restored_if_pending(&self.visual_root(),&sid);}
                 }
             }
             return;
@@ -376,7 +399,11 @@ impl Host {
     }    pub(super) async fn visual_after_send(&self,id:Option<&str>,attempt:&SendAttempt) {
         let _guard=self.visual_rt.lock.lock().await;
         let Some(id)=id else {return};
-        let Ok(s)=self.visual_loaded(id) else {return};
+        let Ok(s)=self.visual_loaded(id) else {
+            // 破棄済みなどで読み込めない編集でも、終了後の最初の送信が受理されたら戻し済みの印だけは付ける（付けないと、以後の送信で作業フォルダが元へ上書きされ続ける）。
+            if matches!(attempt.state,SendState::Accepted{..}) {let _=session::mark_restored_if_pending(&self.visual_root(),id);}
+            return
+        };
         if s.restore_pending() {
             if matches!(attempt.state,SendState::Accepted{..}) {let _=session::append(&s.folder,&SessionEvent::Restored);}
             return;

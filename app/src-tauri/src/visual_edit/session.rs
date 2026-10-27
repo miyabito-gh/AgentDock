@@ -256,6 +256,13 @@ pub fn binding_id(root:&Path, chat:&ChatKey)->VisualResult<Option<String>> {
     if unbound_pending {return Err(VisualError::Conflict("unbound pending visual chat; inspect incomplete creation before other sends"));}
     Ok(None)
 }
+/// 終えたが戻し済みの印がない編集に、戻し済みを記録する（破棄済みで読み込めない編集でも、印だけは付けられるように）。
+pub fn mark_restored_if_pending(root: &Path, id: &str) -> VisualResult<()> {
+    validate_id(id)?;
+    let folder = root.join(id);
+    if events_have(&folder, "ended") && !events_have(&folder, "restored") { append(&folder, &SessionEvent::Restored)?; }
+    Ok(())
+}
 fn events_have(folder: &Path, kind: &str) -> bool {
     let needle = format!("\"kind\":\"{kind}\"");
     fs::read_to_string(folder.join("events.jsonl")).map(|t| t.lines().any(|l| l.contains(&needle))).unwrap_or(false)
@@ -288,7 +295,8 @@ pub fn list(root: &Path) -> VisualResult<Vec<LoadedSession>> {
         let id=e.file_name().into_string().map_err(|_| VisualError::Conflict("invalid session folder name"))?;
         if id=="_journals" { ProjectRoot::open(&e.path())?; continue; }
         if events_have(&e.path(), "discarded") { continue; }
-        sessions.push(load(root,&id)?);
+        // 1件の破損（コピーが無い・記録が壊れた）で、他の編集まで一覧から消えないようにする。読めない編集は、会話の「編集から切り離す」で外せる。
+        if let Ok(s)=load(root,&id) { sessions.push(s); }
     }
     Ok(sessions)
 }
@@ -412,6 +420,28 @@ mod session_tests {
         append(&c.folder(),&SessionEvent::Restored).unwrap();
         assert!(restore_for(&c.root,&chat).unwrap().is_none());
         assert!(!c.loaded().restore_pending());
+    }
+    #[test]
+    fn a_discarded_ended_edit_can_still_be_marked_restored_and_a_forced_end_unbinds_without_loading() {
+        let c=Case::new();
+        let chat=ChatKey{backend:BackendKind::Codex,id:ExternalId("thread-1".into())};
+        let mut meta=c.loaded().meta.clone();
+        meta.mode=Some("current".into());
+        meta.restore=Some(RestoreInfo{folders:vec!["C:/original".into()]});
+        fs::remove_file(c.folder().join("session.json")).unwrap();
+        save_meta(&c.folder(),&meta).unwrap();
+        // 強制的に切り離す（終了の記録だけを追記。コピーが読めなくても紐付けは外れ、戻し先が残る）。
+        fs::remove_dir_all(c.folder().join("draft")).unwrap();
+        assert!(load(&c.root,"session-1").is_err());
+        assert_eq!(binding_id(&c.root,&chat).unwrap().as_deref(),Some("session-1"));
+        append(&c.folder(),&SessionEvent::Ended).unwrap();
+        assert_eq!(binding_id(&c.root,&chat).unwrap(),None);
+        assert!(restore_for(&c.root,&chat).unwrap().is_some());
+        // 破棄後でも、戻し済みの印だけは付けられ、以後の送信で戻し先が強制されない。
+        append(&c.folder(),&SessionEvent::Discarded).unwrap();
+        mark_restored_if_pending(&c.root,"session-1").unwrap();
+        assert!(restore_for(&c.root,&chat).unwrap().is_none());
+        mark_restored_if_pending(&c.root,"session-1").unwrap();
     }
     #[test]
     fn accepted_attempt_cannot_be_downgraded_by_late_unknown() {

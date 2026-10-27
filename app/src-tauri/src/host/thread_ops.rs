@@ -204,6 +204,7 @@ impl Host {
     /// レビュー。現在の会話か、新しい会話で実行する。受け付けた事実だけを返し、結果は会話の記録（レビュー結果）の観測で示す。
     pub async fn start_review(self: &Arc<Self>, args: StartReviewArgs, confirmed: &UserConfirmed) -> Result<ReviewOutcome, IpcError> {
         if self.visual_bound(&args.chat)? { return Err(err(IpcErrorCode::Blocked, "Visual Editor chat cannot start review outside edit transactions")); }
+        if self.visual_restore_pending(&args.chat)? { return Err(err(IpcErrorCode::Blocked, "Visual Editor chat has not returned to its original folder yet; send once from this chat first")); }
         self.check_not_org_owned(&args.chat)?;
         let cap_op = match args.delivery {
             ReviewDelivery::CurrentChat => ParityOp::CodeReview,
@@ -279,6 +280,7 @@ impl Host {
     /// `name_suffix` は分岐先の名前「{元の名前}（{suffix}）」。拒否・受理不明は分岐先なしで返す（再送しない）。
     async fn fork_inner(self: &Arc<Self>, chat: &ChatKey, through_turn: Option<ExternalId>, purpose: ForkPurpose, name_suffix: &str, confirmed: &UserConfirmed) -> Result<ForkResult, IpcError> {
         if self.visual_bound(chat)? { return Err(err(IpcErrorCode::Blocked, "Visual Editor chat cannot fork outside edit transactions")); }
+        if self.visual_restore_pending(chat)? { return Err(err(IpcErrorCode::Blocked, "Visual Editor chat has not returned to its original folder yet; send once from this chat first")); }
         self.require_op(ParityOp::Fork)?;
         self.check_op_target(chat)?;
         self.precheck_space()?;

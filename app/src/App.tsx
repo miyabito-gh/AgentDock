@@ -60,7 +60,7 @@ import { pushRecent } from "./ui/skillPick";
 import { SendKeyContext } from "./ui/SendKeyContext";
 import { applyAppearance, watchSystemTheme } from "./ui/appearance";
 import { VisualWorkspace } from "./ui/visual/VisualWorkspace";
-import { VISUAL_CONTEXT_MARK, listVisualEdits, previewAvailable, type VisualContext } from "./ui/visual/api";
+import { VISUAL_CONTEXT_MARK, friendlyVisualError, listVisualEdits, previewAvailable, releaseVisualChat, type VisualContext } from "./ui/visual/api";
 
 type Mode = "live" | "mock";
 const EXE_KEY = "agentdock.codexExe";
@@ -212,7 +212,7 @@ export default function App() {
     window.clearTimeout(toastTimer.current);
     toastTimer.current = window.setTimeout(() => setToast(null), ms);
   }, []);
-  const sayErr = useCallback((prefix: string, e: unknown) => say(`${prefix}: ${host.asIpcError(e).message}`), [say]);
+  const sayErr = useCallback((prefix: string, e: unknown) => say(`${prefix}: ${friendlyVisualError(host.asIpcError(e).message)}`), [say]);
 
   /** 保存履歴から会話本文を読み込む（resumeしない）。 */
   /** プロジェクト一覧を取り直す（読取りのみ。一覧の更新と同時に呼ぶ）。通信などで取れなかったときは「取得できなかった」と記録する。 */
@@ -706,7 +706,7 @@ export default function App() {
         }
       } catch (e) {
         // ホストが送る前に止めた（何も送っていない）。入力した文は仮の行に残し、入力欄へ戻せる。
-        setOutcome({ kind: "failed", message: host.asIpcError(e).message });
+        setOutcome({ kind: "failed", message: friendlyVisualError(host.asIpcError(e).message) });
         sayErr("送信できませんでした", e);
       }
     })();
@@ -1749,11 +1749,21 @@ ${cur}` : p.text);
   const visualOriginChat = visualOriginId ? snap.chats.find((c) => c.key.id === visualOriginId) : undefined;
   const visualFallbackId = snap.chats.find((c) => !visualDedicatedIds.has(c.key.id))?.key.id ?? null;
   /** 編集用コピー絡みの会話の案内。作業中（Visual Editorを閉じているとき）と、編集を終えたが元の作業場所へ戻す送信がまだのとき。 */
+  /** 編集用コピーに紐付いたままの会話を切り離す（終えられないときの出口）。確認のうえ。コピーも元のフォルダも変更・削除しない。 */
+  const releaseFromEdit = async (c: Chat) => {
+    const lines = ["この会話を、編集用コピーから切り離します。", "・元のフォルダと編集用コピーは、変更も削除もしません。", "・AIが止まっているかは確認しません。実行中なら、AIがコピーへ書き込む可能性が残ります。", "・次の送信から、元の作業場所で動きます。", "切り離しますか？"];
+    if (!window.confirm(lines.join("\n"))) return;
+    try {
+      const released = await releaseVisualChat(c.key);
+      setVisualBoundChatIds((old) => { const next = new Set(old); next.delete(c.key.id); return next; });
+      say(released ? "編集から切り離しました。次の送信から、元の作業場所で動きます。" : "この会話は、編集に紐付いていませんでした。", 6000);
+    } catch (e) { sayErr("切り離せませんでした", e); }
+  };
   const visualNoteFor = (c: Chat) => {
     if (visualBoundChatIds.has(c.key.id)) {
-      return visualShown ? null : { text: "この会話は編集用コピーで作業中です。依頼は元のファイルではなく、コピーに反映されます。", action: "Visual Editorを開く", onAction: () => { setVisualMode(true); setOrgScreen(false); setQuick((q) => ({ ...q, open: false })); setRNarrow(false); } };
+      return visualShown ? null : { text: "この会話は編集用コピーで作業中です。依頼は元のファイルではなく、コピーに反映されます。", action: "Visual Editorを開く", onAction: () => { setVisualMode(true); setOrgScreen(false); setQuick((q) => ({ ...q, open: false })); setRNarrow(false); }, secondary: { label: "編集から切り離す…", title: "終えられないときの出口。コピーも元のフォルダも変更しません", onAction: () => { void releaseFromEdit(c); } } };
     }
-    if (/[\\/]visual-editor[\\/]visual-[^\\/]+/i.test(knownValue(c.cwd) ?? "")) return { text: "編集は終わっています。作業フォルダの表示はまだ編集用コピーのままですが、次の送信で元の作業場所に戻ります。", action: "", onAction: () => undefined };
+    if (/[\\/]visual-editor[\\/]visual-[^\\/]+/i.test(knownValue(c.cwd) ?? "")) return { text: "編集は終わっています。作業フォルダの表示はまだ編集用コピーのままですが、次の送信で元の作業場所に戻ります。それまで、引き継ぎ・分岐・作業フォルダの変更はできません。", action: "", onAction: () => undefined };
     return null;
   };
   const visualAttention = visualEditChatId

@@ -211,6 +211,7 @@ impl Host {
     /// UIの確認結果は信用せず、ここで同じ検査を再実行する。
     pub async fn set_next_work_folders(self: &Arc<Self>, args: SetNextWorkFoldersArgs) -> Result<SettingsImpact, IpcError> {
         if self.visual_bound(&args.chat)? {return Err(err(IpcErrorCode::Blocked,"Visual Editor chat must keep its isolated copy as cwd"));}
+        if self.visual_restore_pending(&args.chat)? { return Err(err(IpcErrorCode::Blocked, "Visual Editor chat has not returned to its original folder yet; send once from this chat first")); }
         self.check_not_org_owned(&args.chat)?;
         let info = self.read(|d| {
             d.chat(&args.chat).map(|c| {
