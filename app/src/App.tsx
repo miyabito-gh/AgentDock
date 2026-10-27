@@ -54,7 +54,7 @@ import { resendCtxOf, resendTargetOf, rootTurns, type ResendHandlers, type Resen
 import { resendAvailability } from "./ui/resend";
 import { PaneSplitter } from "./ui/PaneSplitter";
 import { PANE, displayWidths, loadSaved, paneModes, type PaneKind } from "./ui/paneWidth";
-import { chatName, isRunning, isWorkingForDock, stopOpen } from "./ui/derive";
+import { chatName, chatTitle, isRunning, isWorkingForDock, stopOpen } from "./ui/derive";
 import { hms, keyStr, knownValue } from "./ui/format";
 import { pushRecent } from "./ui/skillPick";
 import { SendKeyContext } from "./ui/SendKeyContext";
@@ -386,6 +386,9 @@ export default function App() {
 
   // 組織の役割チャットの表示名だけ上書きする（表示用。保存済みの名前は変えない）
   const snap: HostSnapshot = useMemo(() => [org?.workflow, ...(org?.history ?? []), ...(org?.archived ?? [])].reduce((s, w) => withOrgTitles(s, w), bundle.snapshot), [bundle.snapshot, org]);
+  /** 数秒おきの補完処理が、そのときの最新の一覧を見るための参照。 */
+  const snapLive = useRef(snap);
+  snapLive.current = snap;
   // 過去のワークフローを開いているときは、その1件を画面に出す（なければ実行中の1件）。役割チャットを通常の一覧から隠すかは、出せるワークフローかで決める。
   const orgHist = orgSel ? [...(org?.history ?? []), ...(org?.archived ?? [])].find((w) => w.workflowId === orgSel) ?? null : null;
   const orgShown: OrgSnapshotView | null = org && orgHist ? { ...org, workflow: orgHist } : org;
@@ -738,8 +741,13 @@ ${visualCtx.fixed}` : ""}` : text;
     for (const wait of [800, 2500, 6000, 15000, 30000]) {
       if (pinOk && nameOk) return;
       await new Promise((r) => setTimeout(r, wait));
+      // 待つ間に、すでに引き継げた／利用者が自分で変えたものは、上書きしない（最新の一覧で確かめる）。
+      const cur = snapLive.current.chats.find((c) => c.key.id === to.id);
+      if (cur?.pinned) pinOk = true;
+      const curName = cur ? knownValue(cur.name) : null;
+      if (curName) nameOk = true;
       if (!pinOk) pinOk = await host.setPinned(to, true).then((c) => c.pinned, () => false);
-      if (!nameOk) nameOk = await host.renameChat(to, name).then(() => true, () => false);
+      if (!nameOk) nameOk = await host.renameChat(to, name).then((r) => r.kind === "done", () => false);
     }
     if (!(pinOk && nameOk)) say(`引き継ぎ先の${!pinOk ? "ピン止め" : ""}${!pinOk && !nameOk ? "と" : ""}${!nameOk ? "名前" : ""}を引き継げませんでした。必要なら手動で設定してください。`, 6000);
   };
@@ -764,7 +772,9 @@ ${visualCtx.fixed}` : ""}` : text;
         return false;
       }
       // 引き継ぎ先にも、元のピン止めと名前を引き継ぐ。ホスト側の一度きりの試行が間に合わない／失敗することがあるため、結果を確かめながら数回やり直す。
-      void inheritHandoffAttrs(r.chat.key, chat.pinned, chatName(chat));
+      // 名前は、元の会話に明示の名前があるときだけ引き継ぐ（最初の依頼から作った仮の名前は渡さない）。
+      const srcTitle = chatTitle(chat);
+      void inheritHandoffAttrs(r.chat.key, chat.pinned, srcTitle.confirmed ? srcTitle.text : "");
       noteAttempt(nid, r.send);
       const cur = attemptsRef.current[nid] ?? r.send;
       const row: PendingSend = { id: `ps${++pendingSeq.current}`, text, startedAt: Date.now(), steer: false, phase: null, outcome: outcomeOfAttempt(cur), attemptId: cur.attemptId, first: true };
@@ -1735,6 +1745,9 @@ ${cur}` : p.text);
   // 確認済みの失敗。実接続ではホストの記録（chatLocals）と現在の失敗turnの一致で判定し、左一覧と揃える。モックは画面内の集合。
   const visualShown = visualMode && !orgScreen && !quick.open;
   // 編集チャットで利用者の対応が要るもの（承認・質問、受理されなかった/確認できない送信）。畳んでいても見逃さない。
+  /** 戻り先の会話（今も一覧にあるものだけ）。専用の編集会話から戻れないときの代わりは、一覧に出る最初の会話。 */
+  const visualOriginChat = visualOriginId ? snap.chats.find((c) => c.key.id === visualOriginId) : undefined;
+  const visualFallbackId = snap.chats.find((c) => !visualDedicatedIds.has(c.key.id))?.key.id ?? null;
   const visualAttention = visualEditChatId
     ? snap.requests.filter((r) => r.chat.id === visualEditChatId && r.state.kind === "pending").length
       + (pendingSends[visualEditChatId] ?? []).filter((p) => p.outcome && p.outcome.kind !== "accepted").length
@@ -1787,7 +1800,7 @@ ${cur}` : p.text);
             setVisualMode(!visualShown); setOrgScreen(false); setQuick((q) => ({ ...q, open: false })); setRNarrow(false);
             if (!visualShown && visualEditChatId && visualEditChatId !== selId) { setSelId(visualEditChatId); if (live) void loadChat(visualEditChatId); }
             // 閉じるとき、一覧に出ない専用の編集会話にいたら、元の会話へ戻す（迷子にしない）。編集は残り、開き直すと続けられる。
-            if (visualShown && selId && visualDedicatedIds.has(selId) && visualOriginId) selectChat(visualOriginId);
+            if (visualShown && selId && visualDedicatedIds.has(selId)) { const back = visualOriginChat?.key.id ?? visualFallbackId; if (back) selectChat(back); }
           }}>Visual Editor</button>
           {visualShown ? <button type="button" className="btn sm visual-chat-toggle" aria-pressed={!visualChatOff} title={visualChatOff ? "チャットを表示してプレビューを狭める" : "チャットを畳んでプレビューを広げる"} onClick={() => setVisualChatOff(!visualChatOff)}>チャット{visualAttention > 0 ? <span className="vc-badge" aria-label={`対応が必要 ${visualAttention}件`}>{visualAttention}</span> : null}</button> : null}
         </div>
@@ -1822,10 +1835,10 @@ ${cur}` : p.text);
             <VisualWorkspace key={mode} enabled={visualShown}
               blocked={!!dialog || !!menu || palette || mockOpen || !!(sideId && sideShown) || lNarrow || rNarrow || dragging}
               chatName={chat ? chatName(chat) : null} chatId={chat?.key.id ?? null} onSendInstruction={sendInstruction}
-              onOpenEditChat={(id) => { setVisualOriginId((o) => (selId && selId !== id ? selId : o)); setVisualEditChatId(id); setVisualBoundChatIds((ids) => new Set(ids).add(id)); setSelId(id); setOrgScreen(false); setQuick((q) => ({ ...q, open: false })); if (live) void loadChat(id); }}
+              onOpenEditChat={(id) => { setVisualOriginId((o) => (selId && selId !== id && !visualDedicatedIds.has(selId) ? selId : o)); setVisualEditChatId(id); setVisualBoundChatIds((ids) => new Set(ids).add(id)); setSelId(id); setOrgScreen(false); setQuick((q) => ({ ...q, open: false })); if (live) void loadChat(id); }}
               onLeaveEditChat={() => setVisualEditChatId(null)}
-              originName={visualOriginId ? (() => { const c = snap.chats.find((x) => x.key.id === visualOriginId); return c ? chatName(c) : null; })() : null}
-              onReturnToOrigin={visualOriginId ? () => { const id = visualOriginId; setVisualOriginId(null); selectChat(id); say("元の会話に戻りました。編集は保存されています（Visual Editorの「詳細」から続けられます）。", 6000); } : null}
+              originName={visualOriginChat ? chatName(visualOriginChat) : null}
+              onReturnToOrigin={visualOriginChat ? () => { const id = visualOriginChat.key.id; setVisualOriginId(null); selectChat(id); say("元の会話に戻りました。編集は保存されています（Visual Editorの「詳細」から続けられます）。", 6000); } : null}
               onKnownEditChats={(ids, dedicated) => { setVisualBoundChatIds((old) => new Set([...old, ...ids])); setVisualDedicatedIds((old) => new Set([...old, ...dedicated])); }}
               currentChat={chat && chat.key.backend === "codex" && !visualBoundChatIds.has(chat.key.id) ? chat.key : null}
               onEnded={(id) => setVisualBoundChatIds((old) => { const next = new Set(old); next.delete(id); return next; })}
