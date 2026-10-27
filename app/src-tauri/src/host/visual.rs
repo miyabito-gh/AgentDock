@@ -185,7 +185,11 @@ impl Host {
         let Some(id)=session::binding_id(&self.visual_root(),chat).map_err(visual_err)? else {return Ok(false)};
         session::validate_id(&id).map_err(visual_err)?;
         let folder=self.visual_root().join(&id);
-        let meta:SessionMeta=serde_json::from_slice(&fs::read(folder.join("session.json")).map_err(visual_err)?).map_err(visual_err)?;
+        let meta:SessionMeta=fs::read(folder.join("session.json")).ok().and_then(|b|serde_json::from_slice(&b).ok()).ok_or_else(||visual_err("the edit record is unreadable"))?;
+        // 元への反映・取り消しが途中のものは、状態が見えなくなるので切り離さない（コピーが読めない場合は、守るものが無いので続ける）。
+        if let Ok(s)=self.visual_loaded(&id) {
+            if s.pending_operation() || matches!(s.view().map(|v|v.phase).unwrap_or_default().as_str(),"partial"|"recoveryRequired") {return Err(visual_err("the edit has an unfinished apply or undo; resolve it before releasing"));}
+        }
         if meta.mode.as_deref()!=Some("current") || meta.restore.is_none() {return Err(visual_err("only an edit on an existing chat can be released"));}
         session::append(&folder,&SessionEvent::Ended).map_err(visual_err)?;
         Ok(true)

@@ -192,6 +192,9 @@ const VISUAL_ERRORS: Array<[string, string]> = [
   ["visual chat cannot receive extra work folders", "編集用の会話には、追加の作業フォルダを付けられません。"],
   ["visual chat cwd must remain the isolated copy", "編集中の会話は、作業フォルダを変えられません。先に編集を終えてください。"],
   ["has not returned to its original folder yet", "編集を終えた直後です。先に、この会話で通常の送信を1回行い、元の作業場所へ戻してから、お試しください。"],
+  ["only an edit on an existing chat can be released", "この会話は、専用の編集会話です。切り離しではなく、Visual Editorの「保存された編集」から続けるか、一覧から削除してください。"],
+  ["the edit record is unreadable", "この編集の記録が壊れていて、自動では切り離せません。アプリを終了し、保存領域の visual-editor フォルダ内の該当する編集のフォルダを別の場所へ移してから、もう一度起動してください。"],
+  ["has an unfinished apply or undo", "元への反映または取り消しが途中のため、まだ切り離せません。Visual Editorで状態を確認し、完了させてください。"],
   ["visual session was discarded", "この編集は破棄されています。"],
 ];
 export function friendlyVisualError(message: string): string {
