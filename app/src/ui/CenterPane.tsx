@@ -1050,7 +1050,7 @@ function Composer({ p, running, lock, hu }: { p: CenterProps; running: boolean; 
           </div>
         ) : null}
         {lock ? <div className="lockmsg">{lock}</div> : null}
-        {p.visualNote ? <div className="handoff-note" role="status"><div className="hn-line"><span className="hn-text">{p.visualNote.text}</span><span className="hn-acts"><button className="small" onClick={p.visualNote.onAction}>{p.visualNote.action}</button></span></div></div> : null}
+        {p.visualNote ? <div className="handoff-note" role="status"><div className="hn-line"><span className="hn-text">{p.visualNote.text}</span>{p.visualNote.action ? <span className="hn-acts"><button className="small" onClick={p.visualNote.onAction}>{p.visualNote.action}</button></span> : null}</div></div> : null}
         <HandoffNotice ui={hu} onPreview={() => p.onAct("handoffPreview")} onDraft={() => p.onAct("purposeDraft")} />
         {attachBlock ? <div className="lockmsg">{attachBlock}</div> : null}
         {wmSelected && !wmUsable ? (

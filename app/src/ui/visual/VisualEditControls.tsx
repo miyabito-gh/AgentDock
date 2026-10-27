@@ -11,7 +11,7 @@ const FRIENDLY: Array<[string, string]> = [
   ["could not be forked", "会話を分岐できませんでした。何も変更していません。"],
   ["end the edit first", "先に「編集を終える」を押してください。"],
   ["some files could not be deleted", "破棄しましたが、一部のファイルを削除できませんでした（使用中の可能性があります）。"],
-  ["still running or unresolved", "編集がまだ実行中か、確認が済んでいません。止まって変更が確認できてから、もう一度お試しください。"],
+  ["still running or unresolved", "編集がまだ実行中か、確認が済んでいません。AIの作業が終わるのを待ち、「詳細」の「状態を再確認」を押してから、もう一度お試しください。送信の受理が不明なときは、チャットの履歴を確認してください（自動では再送しません）。"],
   ["only Codex chats", "この会話では使えません（Codexの会話のみ対応）。"],
   ["source and storage overlap", "表示しているのは編集用コピーです。「HTMLを開く」で元のHTMLを開いてください。"],
 ];

@@ -1748,6 +1748,14 @@ ${cur}` : p.text);
   /** 戻り先の会話（今も一覧にあるものだけ）。専用の編集会話から戻れないときの代わりは、一覧に出る最初の会話。 */
   const visualOriginChat = visualOriginId ? snap.chats.find((c) => c.key.id === visualOriginId) : undefined;
   const visualFallbackId = snap.chats.find((c) => !visualDedicatedIds.has(c.key.id))?.key.id ?? null;
+  /** 編集用コピー絡みの会話の案内。作業中（Visual Editorを閉じているとき）と、編集を終えたが元の作業場所へ戻す送信がまだのとき。 */
+  const visualNoteFor = (c: Chat) => {
+    if (visualBoundChatIds.has(c.key.id)) {
+      return visualShown ? null : { text: "この会話は編集用コピーで作業中です。依頼は元のファイルではなく、コピーに反映されます。", action: "Visual Editorを開く", onAction: () => { setVisualMode(true); setOrgScreen(false); setQuick((q) => ({ ...q, open: false })); setRNarrow(false); } };
+    }
+    if (/[\\/]visual-editor[\\/]visual-[^\\/]+/i.test(knownValue(c.cwd) ?? "")) return { text: "編集は終わっています。作業フォルダの表示はまだ編集用コピーのままですが、次の送信で元の作業場所に戻ります。", action: "", onAction: () => undefined };
+    return null;
+  };
   const visualAttention = visualEditChatId
     ? snap.requests.filter((r) => r.chat.id === visualEditChatId && r.state.kind === "pending").length
       + (pendingSends[visualEditChatId] ?? []).filter((p) => p.outcome && p.outcome.kind !== "accepted").length
@@ -1858,7 +1866,7 @@ ${cur}` : p.text);
                 snap={snap} chat={chat} turns={bundle.turns[chat.key.id] ?? []} history={histLoads[chat.key.id]} onReloadHistory={() => void loadChat(chat.key.id)}
                 attachments={draftAttachments} files={files} inputRef={composerRef}
                 visualChip={visualShown && chat.key.id === visualEditChatId ? visualChip : null}
-                visualNote={!visualShown && visualBoundChatIds.has(chat.key.id) ? { text: "この会話は編集用コピーで作業中です。依頼は元のファイルではなく、コピーに反映されます。", action: "Visual Editorを開く", onAction: () => { setVisualMode(true); setOrgScreen(false); setQuick((q) => ({ ...q, open: false })); setRNarrow(false); } } : null}
+                visualNote={visualNoteFor(chat)}
                 visualHint={visualBoundChatIds.has(chat.key.id) ? (visualShown && chat.key.id === visualEditChatId ? "例: この見出しを短く / ここを青系の配色に" : "編集用コピーで作業中の会話です。依頼はコピーに反映されます（Visual Editorで確認・終了）") : undefined}
                 skillPick={live ? { skills: skillLists[chat.key.id], load: () => loadSkills(chat.key), recent: snap.settings.recentSkills ?? [], pick: (sk) => { void pickSkill(chat.key, sk.name, sk.path); } } : null}
                 settings={bundle.modelSettings[chat.key.id]} models={models} save={chatSave}
