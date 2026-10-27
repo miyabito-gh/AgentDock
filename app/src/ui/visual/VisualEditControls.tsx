@@ -29,7 +29,7 @@ const messageOf = (error: unknown): string => {
 const actionLabel = (kind: "adopt" | "undo") => kind === "adopt" ? "採用" : "復元";
 const changeLabel = (kind: string | null) => kind === "add" ? "追加" : kind === "delete" ? "削除" : kind === "change" ? "変更" : "要確認";
 const phaseLabel = (phase: string) => ({
-  editable: "編集可能", preparedUnresolved: "送信の確認待ち", acceptanceUnknown: "受理不明",
+  partial: "反映が途中", recoveryRequired: "復旧が必要", editable: "編集可能", preparedUnresolved: "送信の確認待ち", acceptanceUnknown: "受理不明",
   runningOrReconciling: "実行・停止を確認中", changes: "変更を確認", rejected: "要確認",
 } as Record<string, string>)[phase] ?? "状態: " + phase;
 
@@ -131,7 +131,7 @@ export function VisualEditControls({ originName, onReturnToOrigin, enabled, chat
       const next = await createVisualEdit(rootPath, htmlPath, null, currentChat, mode);
       setSessions((all) => [next, ...all.filter((item) => item.sessionId !== next.sessionId)]);
       await bind(next);
-      onNotice(mode === "current" ? "この会話で編集を始めました。依頼はまだ送信していません。" : mode === "fork" ? "会話を分岐して、編集を始めました。依頼はまだ送信していません。" : "編集用コピーと専用チャットを作成しました。依頼はまだ送信していません。");
+      onNotice(mode === "current" ? "この会話で編集を始めました。依頼はまだ送信していません。" : mode === "fork" ? "会話を分岐して、編集を始めました（元の会話はそのままです）。依頼はまだ送信していません。" : "編集用コピーと専用チャットを作成しました。依頼はまだ送信していません。");
     } catch (e) {
       setError("編集を始められませんでした。" + messageOf(e));
     } finally { writeLock.current = false; setBusy(false); }
@@ -220,7 +220,8 @@ export function VisualEditControls({ originName, onReturnToOrigin, enabled, chat
     try {
       const done = await endVisualEdit(session.sessionId);
       if (!done.ended) throw new Error("終了を確認できませんでした。");
-      await onEnded(session.sessionId);
+      try { await onEnded(session.sessionId); }
+      catch { onNotice("編集は終了しました。表示の切り替えは完了していません。「開く」で元のHTMLを開いてください。"); return; }
       onNotice("編集を終えました。この会話は元の作業場所に戻ります。");
     } catch (e) {
       setError("編集を終えられませんでした: " + messageOf(e));
@@ -247,6 +248,7 @@ export function VisualEditControls({ originName, onReturnToOrigin, enabled, chat
     : stale ? { tone: "wait", text: "状態を確認しています…", hint: "" }
     : session.phase === "runningOrReconciling" ? { tone: "wait", text: "AIが作業中、または終了を確認中です", hint: "終わると変更が表示されます。" }
     : session.phase === "preparedUnresolved" || session.phase === "acceptanceUnknown" ? { tone: "warn", text: "依頼が届いたか確認できていません", hint: "チャットの表示を確認してください。自動では再送しません。" }
+    : session.phase === "partial" || session.phase === "recoveryRequired" ? { tone: "warn", text: "反映が途中で止まっています", hint: "「詳細」の「状態を再確認」を押しても変わらないときは、元のファイルの状態を確認してください。" }
     : session.phase === "rejected" ? { tone: "warn", text: "依頼が受け付けられませんでした", hint: "チャットの表示を確認してください。" }
     : visibleChanges.length ? { tone: "ok", text: `AIの編集が${visibleChanges.length}件あります`, hint: "" }
     : { tone: "ok", text: "編集できます", hint: "" };
@@ -273,7 +275,7 @@ export function VisualEditControls({ originName, onReturnToOrigin, enabled, chat
   return <section className="visual-edit" aria-label="編集用コピー">
     {!session ? <>
       {existingEdit ? <div className="vs-start">
-        <p className="visual-lead">この会話には、編集の途中のコピーがあります。</p>
+        <p className="visual-lead">この会話には、編集の途中のコピーがあります。別のHTMLで始めるには、先にこの編集を開いて、終えるか破棄してください。</p>
         <button type="button" className="btn primary" disabled={busy} onClick={() => void bind(existingEdit)}>編集を開く</button>
       </div> : <div className="vs-start">
         <p className="visual-lead">元のファイルは変えず、コピーで編集して、確認後に反映します。</p>
@@ -302,12 +304,14 @@ export function VisualEditControls({ originName, onReturnToOrigin, enabled, chat
         <div className="vs-actions">
           <button type="button" className="btn primary" disabled={busy} onClick={() => void restart()}>元の最新の内容から、やり直す</button>
           <button type="button" className="btn" disabled={busy} onClick={() => void onLeave().catch((e) => setError("元のHTMLを開けませんでした: " + messageOf(e)))}>まず元のファイルを見る</button>
+          {session.mode === "current" ? <button type="button" className="btn-line" disabled={busy || ["runningOrReconciling", "preparedUnresolved", "acceptanceUnknown", "partial", "recoveryRequired"].includes(session.phase)} onClick={() => void finish()} title="この編集を終えて、会話を元の作業場所に戻します">この編集を終える</button> : <button type="button" className="btn-line" disabled={busy} onClick={() => void leave()} title="編集用の会話から離れます。編集は保存されます">{originName ? "元の会話へ戻る" : "編集をやめる"}</button>}
         </div>
         <small>元のファイルの今の内容で編集用コピーを作り直します（新しい専用チャットが作られます）。今のコピーのAI編集は引き継がれませんが、「詳細」の保存された編集に残ります。</small>
       </div> : <div className="vs-actions">
         <button type="button" className="btn primary" disabled={busy || stale || !session.canAdopt} onClick={() => void write("adopt")}>元に反映</button>
         <button type="button" className="btn" disabled={busy || stale || !session.canUndo} onClick={() => void write("undo")}>取り消す</button>
-        {session.mode === "current" ? <button type="button" className="btn-line" disabled={busy} onClick={() => void finish()} title="元の作業場所に戻ります。反映していない変更は元に入りません">終える</button> : <button type="button" className="btn-line" disabled={busy} onClick={() => void leave()} title="編集用の会話から離れます。編集は保存され、あとで続けられます">{originName ? "元の会話へ戻る" : "編集をやめる"}</button>}
+        {session.mode === "current" ? <button type="button" className="btn-line" disabled={busy || ["runningOrReconciling", "preparedUnresolved", "acceptanceUnknown", "partial", "recoveryRequired"].includes(session.phase)}  onClick={() => void finish()} title="元の作業場所に戻ります。反映していない変更は元に入りません">終える</button> : null}
+        {session.mode !== "current" || originName ? <button type="button" className="btn-line" disabled={busy} onClick={() => void leave()} title="編集用の会話から離れます。編集は保存され、あとで続けられます">{originName ? "元の会話へ戻る" : "編集をやめる"}</button> : null}
       </div>}
       {operation && operation.revision === session.revision && (operation.id === null || operation.id === session.lastOperation?.id)
         ? <p className="visual-hint" role="status">{operation.outcome === "applied" ? (operation.kind === "adopt" ? "元のファイルに反映しました。" : "直前のAI編集を取り消しました。") : actionLabel(operation.kind) + "の結果は「" + operation.outcome + "」です。"} {operation.message}</p> : null}

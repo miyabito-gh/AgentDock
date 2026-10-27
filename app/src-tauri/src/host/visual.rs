@@ -129,7 +129,15 @@ impl Host {
         let (chat_key,restore,superseded)=match existing {
             Some((key,restore,superseded))=>(key,Some(restore),superseded),
             None=>{
-                let started=self.start_chat_in(StartChatArgs { backend:BackendKind::Codex,cwd:None,model:args.model,permission:Some(PermissionPreset::WorkspaceWriteOnRequest),first_message:None,worktree:None,extra_folders:Vec::new(),confirmed_strong:Vec::new() },Some(draft_root.clone()),confirmed).await?;
+                let started=match self.start_chat_in(StartChatArgs { backend:BackendKind::Codex,cwd:None,model:args.model,permission:Some(PermissionPreset::WorkspaceWriteOnRequest),first_message:None,worktree:None,extra_folders:Vec::new(),confirmed_strong:Vec::new() },Some(draft_root.clone()),confirmed).await {
+                    Ok(started)=>started,
+                    Err(e)=>{
+                        // 会話を作れなかったときは、作りかけのコピー（pending.jsonだけが残ると全会話の紐付け確認が失敗する）を片付けてから返す。
+                        drop(manifest_file); drop(pending_file);
+                        let _=remove_storage_dir(&storage_root,draft.storage_path());
+                        return Err(e);
+                    }
+                };
                 (started.chat.key,None,None)
             }
         };

@@ -423,7 +423,7 @@ export function VisualWorkspace({ enabled, blocked, chatId, onSendInstruction, c
               {quickTemplates.map((item) => <button key={item.name} type="button" className="btn subtle sm" onClick={() => { setBarText((value) => value ? value : item.text); setTplOpen(false); }}>{item.name}</button>)}
             </div> : null}
             {sendError ? <small className="vp-sent visual-error" role="alert">{sendError}</small> : null}
-            {sentNote ? <small className="vp-sent" role="status">依頼を送りました</small> : null}
+            {sentNote ? <small className="vp-sent" role="status">送信を依頼しました</small> : null}
           </div> : null}
         </div> : null}
       </section>

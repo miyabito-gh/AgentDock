@@ -60,7 +60,7 @@ import { pushRecent } from "./ui/skillPick";
 import { SendKeyContext } from "./ui/SendKeyContext";
 import { applyAppearance, watchSystemTheme } from "./ui/appearance";
 import { VisualWorkspace } from "./ui/visual/VisualWorkspace";
-import { VISUAL_CONTEXT_MARK, type VisualContext } from "./ui/visual/api";
+import { VISUAL_CONTEXT_MARK, listVisualEdits, previewAvailable, type VisualContext } from "./ui/visual/api";
 
 type Mode = "live" | "mock";
 const EXE_KEY = "agentdock.codexExe";
@@ -1760,6 +1760,18 @@ ${cur}` : p.text);
     ? snap.requests.filter((r) => r.chat.id === visualEditChatId && r.state.kind === "pending").length
       + (pendingSends[visualEditChatId] ?? []).filter((p) => p.outcome && p.outcome.kind !== "accepted").length
     : 0;
+  // 起動直後・会話を選んだときに、保存されている編集中の会話を読み取り、編集用コピーで作業中の会話を正しく案内する（読取りのみ）。
+  useEffect(() => {
+    if (!live || !previewAvailable()) return;
+    let off = false;
+    void listVisualEdits().then((all) => {
+      if (off) return;
+      const found = all.filter((item) => !item.ended);
+      setVisualBoundChatIds((old) => new Set([...old, ...found.map((item) => item.chat.id)]));
+      setVisualDedicatedIds((old) => new Set([...old, ...found.filter((item) => item.mode === "dedicated").map((item) => item.chat.id)]));
+    }).catch(() => undefined);
+    return () => { off = true; };
+  }, [live, selId]);
   // 編集を始めたら、既定ではチャットを畳んでプレビューを広く使う。
   useEffect(() => { if (visualEditChatId) setVisualChatOff(true); }, [visualEditChatId]);
   // 対応が要るものが増えたら、チャットを自動で開く。
