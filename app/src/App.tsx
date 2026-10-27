@@ -106,6 +106,8 @@ export default function App() {
   const [visualMode, setVisualMode] = useState(false);
   /** Visual Editor中にチャットを畳み、プレビュー側を広げる。編集を始めると既定で畳み、対応が要るものが出たら自動で開く。 */
   const [visualChatOff, setVisualChatOff] = useState(false);
+  /** 編集を始めたとき選んでいた会話（専用・分岐の会話から、元の会話へ戻る先）。 */
+  const [visualOriginId, setVisualOriginId] = useState<string | null>(null);
   const [visualCtx, setVisualCtx] = useState<VisualContext | null>(null);
   /** 会話ごとに、送信済みの固定方針（同じ内容は一度だけ送る）。受理を確認できたときだけ控える。 */
   const visualFixedSent = useRef<Record<string, string>>({});
@@ -730,6 +732,18 @@ ${visualCtx.fixed}` : ""}` : text;
     return (await onSend(text, false, [])) ? null : "送信できませんでした。前の送信の結果を確認してください。";
   };
 
+  /** 引き継ぎ先へピン止めと名前を写す（引き継ぎ操作の直後だけ）。成功を確かめるまで、間隔を空けて数回。失敗は黙って続け、最後に1回だけ知らせる。 */
+  const inheritHandoffAttrs = async (to: ChatKey, pinned: boolean, name: string) => {
+    let pinOk = !pinned, nameOk = !name.trim();
+    for (const wait of [800, 2500, 6000, 15000, 30000]) {
+      if (pinOk && nameOk) return;
+      await new Promise((r) => setTimeout(r, wait));
+      if (!pinOk) pinOk = await host.setPinned(to, true).then((c) => c.pinned, () => false);
+      if (!nameOk) nameOk = await host.renameChat(to, name).then(() => true, () => false);
+    }
+    if (!(pinOk && nameOk)) say(`引き継ぎ先の${!pinOk ? "ピン止め" : ""}${!pinOk && !nameOk ? "と" : ""}${!nameOk ? "名前" : ""}を引き継げませんでした。必要なら手動で設定してください。`, 6000);
+  };
+
   /** 「引き継いで送信」（DESIGN_CONT §7.3）。利用者の送信操作の中だけで呼ぶ。拒否・受理不明で再送しない。 */
   const onHandoffSend = async (text: string, attachments: string[]): Promise<boolean> => {
     if (!chat) return false;
@@ -749,6 +763,8 @@ ${visualCtx.fixed}` : ""}` : text;
         say(`新しい thread は作りましたが、依頼は送っていません（${r.message}）。依頼の文は新しい thread の入力欄に入れました${saved ? "" : "（下書きの保存は確認できていません）"}。新しい thread の入力欄の添付を確認してください（付いていなければ付け直してください）。`, 8000);
         return false;
       }
+      // 引き継ぎ先にも、元のピン止めと名前を引き継ぐ。ホスト側の一度きりの試行が間に合わない／失敗することがあるため、結果を確かめながら数回やり直す。
+      void inheritHandoffAttrs(r.chat.key, chat.pinned, chatName(chat));
       noteAttempt(nid, r.send);
       const cur = attemptsRef.current[nid] ?? r.send;
       const row: PendingSend = { id: `ps${++pendingSeq.current}`, text, startedAt: Date.now(), steer: false, phase: null, outcome: outcomeOfAttempt(cur), attemptId: cur.attemptId, first: true };
@@ -1770,6 +1786,8 @@ ${cur}` : p.text);
           <button type="button" className="btn sm visual-entry" aria-pressed={visualShown} onClick={() => {
             setVisualMode(!visualShown); setOrgScreen(false); setQuick((q) => ({ ...q, open: false })); setRNarrow(false);
             if (!visualShown && visualEditChatId && visualEditChatId !== selId) { setSelId(visualEditChatId); if (live) void loadChat(visualEditChatId); }
+            // 閉じるとき、一覧に出ない専用の編集会話にいたら、元の会話へ戻す（迷子にしない）。編集は残り、開き直すと続けられる。
+            if (visualShown && selId && visualDedicatedIds.has(selId) && visualOriginId) selectChat(visualOriginId);
           }}>Visual Editor</button>
           {visualShown ? <button type="button" className="btn sm visual-chat-toggle" aria-pressed={!visualChatOff} title={visualChatOff ? "チャットを表示してプレビューを狭める" : "チャットを畳んでプレビューを広げる"} onClick={() => setVisualChatOff(!visualChatOff)}>チャット{visualAttention > 0 ? <span className="vc-badge" aria-label={`対応が必要 ${visualAttention}件`}>{visualAttention}</span> : null}</button> : null}
         </div>
@@ -1804,8 +1822,10 @@ ${cur}` : p.text);
             <VisualWorkspace key={mode} enabled={visualShown}
               blocked={!!dialog || !!menu || palette || mockOpen || !!(sideId && sideShown) || lNarrow || rNarrow || dragging}
               chatName={chat ? chatName(chat) : null} chatId={chat?.key.id ?? null} onSendInstruction={sendInstruction}
-              onOpenEditChat={(id) => { setVisualEditChatId(id); setVisualBoundChatIds((ids) => new Set(ids).add(id)); setSelId(id); setOrgScreen(false); setQuick((q) => ({ ...q, open: false })); if (live) void loadChat(id); }}
+              onOpenEditChat={(id) => { setVisualOriginId((o) => (selId && selId !== id ? selId : o)); setVisualEditChatId(id); setVisualBoundChatIds((ids) => new Set(ids).add(id)); setSelId(id); setOrgScreen(false); setQuick((q) => ({ ...q, open: false })); if (live) void loadChat(id); }}
               onLeaveEditChat={() => setVisualEditChatId(null)}
+              originName={visualOriginId ? (() => { const c = snap.chats.find((x) => x.key.id === visualOriginId); return c ? chatName(c) : null; })() : null}
+              onReturnToOrigin={visualOriginId ? () => { const id = visualOriginId; setVisualOriginId(null); selectChat(id); say("元の会話に戻りました。編集は保存されています（Visual Editorの「詳細」から続けられます）。", 6000); } : null}
               onKnownEditChats={(ids, dedicated) => { setVisualBoundChatIds((old) => new Set([...old, ...ids])); setVisualDedicatedIds((old) => new Set([...old, ...dedicated])); }}
               currentChat={chat && chat.key.backend === "codex" && !visualBoundChatIds.has(chat.key.id) ? chat.key : null}
               onEnded={(id) => setVisualBoundChatIds((old) => { const next = new Set(old); next.delete(id); return next; })}
@@ -1825,6 +1845,7 @@ ${cur}` : p.text);
                 snap={snap} chat={chat} turns={bundle.turns[chat.key.id] ?? []} history={histLoads[chat.key.id]} onReloadHistory={() => void loadChat(chat.key.id)}
                 attachments={draftAttachments} files={files} inputRef={composerRef}
                 visualChip={visualShown && chat.key.id === visualEditChatId ? visualChip : null}
+                visualNote={!visualShown && visualBoundChatIds.has(chat.key.id) ? { text: "この会話は編集用コピーで作業中です。依頼は元のファイルではなく、コピーに反映されます。", action: "Visual Editorを開く", onAction: () => { setVisualMode(true); setOrgScreen(false); setQuick((q) => ({ ...q, open: false })); setRNarrow(false); } } : null}
                 visualHint={visualBoundChatIds.has(chat.key.id) ? (visualShown && chat.key.id === visualEditChatId ? "例: この見出しを短く / ここを青系の配色に" : "編集用コピーで作業中の会話です。依頼はコピーに反映されます（Visual Editorで確認・終了）") : undefined}
                 skillPick={live ? { skills: skillLists[chat.key.id], load: () => loadSkills(chat.key), recent: snap.settings.recentSkills ?? [], pick: (sk) => { void pickSkill(chat.key, sk.name, sk.path); } } : null}
                 settings={bundle.modelSettings[chat.key.id]} models={models} save={chatSave}

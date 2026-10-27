@@ -1,6 +1,6 @@
 // 継続チャット（DESIGN_CONT §7）の入力欄まわり: 使用率チップ、目的メモの行、引き継ぎの案内行。
 // 規則: 引き継ぎは利用者の送信操作の中だけ（ここは案内と状態の表示。AgentDock から勝手に送らない）。
-//       案内は「資料を確認できた」「止める理由がない」ときだけ送信ボタンを「引き継いで送信」にする。確認できない・止める理由があるときは通常の「送信」のまま。
+//       送信ボタン・送信キーは常に通常の送信。引き継ぎは、送信ボタンの▾メニューの「引き継いで送信」を利用者が選んだときだけ（資料を確認でき、止める理由がないとき選べる）。
 //       閾値の案内は Known かつ live の使用率のときだけ。「この会話で続ける」はメモリだけ（再起動で戻る）。
 import { useEffect, useRef, useState } from "react";
 import type { Chat, ChatKey, ChatLocalView, ContinuationSettings } from "../ipc/types";
@@ -17,12 +17,14 @@ export interface HandoffUi {
   /** 引き継ぎの操作を出せない理由（出せるときは null）。 */
   ineligible: string | null;
   preview: PreviewState;
-  /** 送信ボタン・送信キーを「引き継いで送信」にするか（資料を確認でき、止める理由がなく、作業中でないとき）。 */
+  /** 「引き継いで送信」を選べるか（資料を確認でき、止める理由がなく、作業中でないとき）。送信ボタン・送信キーは常に通常の送信。 */
   armed: boolean;
   percent: number | null;
   rounds: number;
   keep: () => void;
   close: () => void;
+  /** 引き継ぎの案内を開く（資料の確認を始める）。 */
+  open: () => void;
   reload: () => void;
 }
 
@@ -78,6 +80,7 @@ export function useHandoff(a: { chat: Chat; local: ChatLocalView | undefined; se
     rounds: preview.kind === "ok" ? preview.p.roundsIncluded : settings.rounds,
     keep: () => { setDeclined((d) => ({ ...d, [id]: percent ?? 0 })); setManual((m) => ({ ...m, [id]: false })); },
     close: () => setManual((m) => ({ ...m, [id]: false })),
+    open: () => setManual((m) => ({ ...m, [id]: true })),
     reload: () => setTick((t) => t + 1),
   };
 }
@@ -106,11 +109,11 @@ export function HandoffNotice({ ui, onPreview, onDraft }: { ui: HandoffUi; onPre
           {mode === "threshold" ? <button className="small" onClick={ui.keep}>この会話で続ける</button> : <button className="small" aria-label="案内を閉じる" title="案内を閉じる" onClick={ui.close}>×</button>}
         </span>
       </div>
-      {pv.kind === "loading" ? <div className="hn-sub muted">資料を確認しています。確認できるまで、送信は通常の送信です。</div> : null}
-      {pv.kind === "error" ? <div className="hn-sub why">資料を確認できませんでした（{pv.message}）。確認できるまで、送信は通常の送信です。<button className="small" onClick={ui.reload}>再確認</button></div> : null}
+      {pv.kind === "loading" ? <div className="hn-sub muted">資料を確認しています。確認できるまで、「引き継いで送信」は選べません。</div> : null}
+      {pv.kind === "error" ? <div className="hn-sub why">資料を確認できませんでした（{pv.message}）。確認できるまで、「引き継いで送信」は選べません。<button className="small" onClick={ui.reload}>再確認</button></div> : null}
       {blockers.length > 0 ? (
         <div className="hn-sub why">
-          いまは引き継げません。送信は通常の送信です（引き継がずに送るか、待つかを選べます）。
+          いまは引き継げません。通常の送信はそのまま使えます（引き継がずに送るか、待つかを選べます）。
           <ul>{blockers.map((b, i) => <li key={i}>{b.message}</li>)}</ul>
           <button className="small" onClick={ui.reload}>再確認</button>
         </div>

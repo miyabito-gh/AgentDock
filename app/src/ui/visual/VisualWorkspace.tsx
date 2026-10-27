@@ -15,9 +15,9 @@ function overlayOpen(): boolean {
     .some((node) => node.getClientRects().length > 0 && getComputedStyle(node).visibility !== "hidden");
 }
 
-export function VisualWorkspace({ enabled, blocked, chatId, onSendInstruction, currentChat, onContext, onChip, onEnded, onDiscarded, openRequest, onNotice, onOpenEditChat, onLeaveEditChat, onKnownEditChats, children }: {
+export function VisualWorkspace({ enabled, blocked, chatId, onSendInstruction, currentChat, onContext, onChip, onEnded, onDiscarded, openRequest, onNotice, onOpenEditChat, onLeaveEditChat, onKnownEditChats, originName, onReturnToOrigin, children }: {
   enabled: boolean; blocked: boolean; chatName: string | null; chatId: string | null; onSendInstruction: (text: string) => Promise<string | null>; currentChat: ChatKey | null; onEnded: (id: string) => void; onDiscarded: (chatId: string, mode: "dedicated" | "current") => void;
-  onOpenEditChat: (id: string) => void; onLeaveEditChat: () => void; onKnownEditChats: (ids: string[], dedicated: string[]) => void;
+  onOpenEditChat: (id: string) => void; onLeaveEditChat: () => void; originName: string | null; onReturnToOrigin: (() => void) | null; onKnownEditChats: (ids: string[], dedicated: string[]) => void;
   onContext: (ctx: VisualContext | null) => void; onChip: (chip: { count: number; label: string; onClear: () => void } | null) => void; openRequest: { path: string; nonce: number } | null; onNotice: (message: string) => void; children: ReactNode;
 }) {
   const desktop = previewAvailable();
@@ -370,7 +370,7 @@ export function VisualWorkspace({ enabled, blocked, chatId, onSendInstruction, c
       <section className="vp-card vp-edit" aria-label="編集">
         {edit ? null : <header className="vp-head"><strong>編集</strong><span className="vp-sub">未開始</span></header>}
         <div className="vp-body">
-          <VisualEditControls enabled={enabled && desktop} chatId={chatId} currentChat={currentChat} onEnded={async (id) => { await leaveEdit(); onEnded(id); }} onCloseDraftPreview={closeDraftPreview} onDiscarded={onDiscarded} preview={session} session={edit} onBind={bindEdit} onUpdate={updateEdit} onLeave={leaveEdit} onBeforeDiff={beforeDiff} onAfterDiff={afterDiff} onKnownEditChats={onKnownEditChats} onNotice={onNotice} />
+          <VisualEditControls originName={originName} onReturnToOrigin={onReturnToOrigin} enabled={enabled && desktop} chatId={chatId} currentChat={currentChat} onEnded={async (id) => { await leaveEdit(); onEnded(id); }} onCloseDraftPreview={closeDraftPreview} onDiscarded={onDiscarded} preview={session} session={edit} onBind={bindEdit} onUpdate={updateEdit} onLeave={leaveEdit} onBeforeDiff={beforeDiff} onAfterDiff={afterDiff} onKnownEditChats={onKnownEditChats} onNotice={onNotice} />
           {error ? <p className="visual-error" role="alert">{error}</p> : null}
           {closeUnconfirmed ? <button type="button" className="btn-line sm" disabled={busy} onClick={() => void retryClose()}>閉じるを再試行</button> : null}
         </div>

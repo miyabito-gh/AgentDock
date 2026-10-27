@@ -71,6 +71,8 @@ export interface CenterProps {
   visualChip?: { count: number; label: string; onClear: () => void } | null;
   /** 入力欄の例文（編集チャットのとき）。 */
   visualHint?: string;
+  /** 編集用コピーで作業中の会話を、Visual Editorを閉じたまま見ているときの案内（元のファイルではなくコピーに反映される）。 */
+  visualNote?: { text: string; action: string; onAction: () => void } | null;
   /** 入力欄の `$` 候補の窓口（実接続のときだけ。モックは null）。 */
   skillPick: SkillPickApi | null;
   /** 入力欄（選択範囲の貼り付けでカーソル位置を使う）。 */
@@ -946,12 +948,19 @@ function Composer({ p, running, lock, hu }: { p: CenterProps; running: boolean; 
   // 追加指示は送るたびの1回限り（状態を持たない。次の送信は常に設定「実行中の入力」の既定の送り方）
   const empty = !p.draft.trim() && attachments.length === 0;
   const steerWhy = lock ? "いまは送信できません" : attachBlock ? "添付に問題があります" : empty ? "送る内容がありません" : steerBlockReason(running, changed, p.local);
-  const send = async (asSteer = false) => {
+  // 「引き継いで送信」は送信ボタンの▾メニューから選ぶ（作業中は出さない）。選べないときは理由を出す。
+  const handoffMenu = !running && p.snap.settings.continuation.enabled && hu.ineligible === null && !!p.onHandoffSend && !!p.loadHandoffPreview;
+  const handoffWhy = !handoffMenu || hu.armed ? null
+    : hu.mode === null ? "選ぶと引き継ぎ資料の確認を始めます。確認できたら、もう一度選んでください。"
+    : hu.preview.kind === "loading" ? "資料を確認しています…"
+    : hu.preview.kind === "error" ? `資料を確認できません（${hu.preview.message}）`
+    : hu.preview.p.blockers[0]?.message ?? "いまは引き継げません";
+  const send = async (asSteer = false, handoff = false) => {
     if (empty || lock || attachBlock) return;
     if (asSteer && steerWhy) return;
     const ids = attachments.map((a) => a.id);
-    // 引き継ぎの案内中で、資料を確認でき止める理由がないときだけ「引き継いで送信」（送信キーも同じ）。それ以外は通常の送信
-    const ok = hu.armed && !asSteer && !running && p.onHandoffSend ? await p.onHandoffSend(p.draft, ids) : await p.onSend(p.draft, running && asSteer, ids);
+    // 引き継ぎは、送信ボタンの▾メニューで「引き継いで送信」を選んだときだけ。ボタン・送信キーは常に通常の送信
+    const ok = handoff && hu.armed && !asSteer && !running && p.onHandoffSend ? await p.onHandoffSend(p.draft, ids) : await p.onSend(p.draft, running && asSteer, ids);
     if (ok) p.setDraft("");
   };
   const pickModel = (id: string) => {
@@ -1041,6 +1050,7 @@ function Composer({ p, running, lock, hu }: { p: CenterProps; running: boolean; 
           </div>
         ) : null}
         {lock ? <div className="lockmsg">{lock}</div> : null}
+        {p.visualNote ? <div className="handoff-note" role="status"><div className="hn-line"><span className="hn-text">{p.visualNote.text}</span><span className="hn-acts"><button className="small" onClick={p.visualNote.onAction}>{p.visualNote.action}</button></span></div></div> : null}
         <HandoffNotice ui={hu} onPreview={() => p.onAct("handoffPreview")} onDraft={() => p.onAct("purposeDraft")} />
         {attachBlock ? <div className="lockmsg">{attachBlock}</div> : null}
         {wmSelected && !wmUsable ? (
@@ -1077,8 +1087,8 @@ function Composer({ p, running, lock, hu }: { p: CenterProps; running: boolean; 
             }
             if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
             // 実行中は、送信キー＝設定の送り方、Ctrl＋Shift＋Enter＝もう一方。追加指示は条件を満たさないとき何も送らない（理由は▾メニューの項目に出る）
-            const act = sendActionForKey(e, p.enterMode, running, hu.armed ? "queue" : p.runningInput);
-            // 引き継ぎの案内中（armed）は、ボタンと同じく設定の実行中の入力に関わらず従来どおり（送信キー＝完了後に送信／引き継いで送信）;
+            const act = sendActionForKey(e, p.enterMode, running, p.runningInput);
+            // 送信キーは常に通常の送信（引き継ぎは▾メニューで選ぶ）
             if (e.ctrlKey && e.shiftKey) e.preventDefault();
             if (act === null) return;
             e.preventDefault();
@@ -1145,18 +1155,26 @@ function Composer({ p, running, lock, hu }: { p: CenterProps; running: boolean; 
           {running ? <button className="btn-line" aria-label="中断" title="実行中の作業に中断を要求します（停止の確認は別に行います）" onClick={() => p.onAct("interrupt")}><Icon name="stop" /><span className="lbl">中断</span></button> : null}
           <span className="sendgrp">
             {(() => {
-              const steerMain = running && !hu.armed && defAct === "steer";
+              const steerMain = running && defAct === "steer";
               const mainBlock = steerMain ? steerWhy : null;
               return (
-                <button className={`btn-main send${hu.armed ? " handoff" : ""}`} aria-label={hu.armed ? "引き継いで送信" : running ? (steerMain ? "追加指示として送る" : "完了後に送る依頼として登録") : "送信"}
-                  title={hu.armed ? `新しい会話へ引き継いで送信します（目的メモ＋直近${hu.rounds}往復）。${enterHint}` : running ? (steerMain ? `${mainBlock ? `追加指示にできません（${mainBlock}）。` : "追加指示で送る（現在のやりとりへ割り込んで送ります）。"}${runHint}` : `完了後に送信（親とサブエージェントの作業が終わってから送ります）。${runHint}`) : enterHint}
-                  disabled={!!lock || !!attachBlock || empty || !!mainBlock} onClick={() => void send(steerMain)}><Icon name="send" />{hu.armed ? <span className="lbl">引き継いで送信</span> : null}</button>
+                <button className="btn-main send" aria-label={running ? (steerMain ? "追加指示として送る" : "完了後に送る依頼として登録") : "送信"}
+                  title={running ? (steerMain ? `${mainBlock ? `追加指示にできません（${mainBlock}）。` : "追加指示で送る（現在のやりとりへ割り込んで送ります）。"}${runHint}` : `完了後に送信（親とサブエージェントの作業が終わってから送ります）。${runHint}`) : enterHint}
+                  disabled={!!lock || !!attachBlock || empty || !!mainBlock} onClick={() => void send(steerMain)}><Icon name="send" /></button>
               );
             })()}
             {/* 追加指示は送る前に決めず、送る時点で選ぶ（1回限り）。実行中のみ。「既定」は設定の実行中の入力 */}
-            {running ? (
-              <Popover role="menu" align="right" label="送信方法" title="この送信の送り方（完了後に送信／追加指示で送る）" triggerClassName="btn-main sendmore" trigger={<span aria-hidden="true">▾</span>}>
-                {(close) => (
+            {running || handoffMenu ? (
+              <Popover role="menu" align="right" label="送信方法" title={running ? "この送信の送り方（完了後に送信／追加指示で送る）" : "この送信の送り方（通常の送信／引き継いで送信）"} triggerClassName="btn-main sendmore" trigger={<span aria-hidden="true">▾</span>}>
+                {(close) => !running ? (
+                  <>
+                    <button role="menuitem" disabled={!!lock || !!attachBlock || empty} title="今の会話にそのまま送ります" onClick={() => { close(); void send(false); }}><span>送信</span><span className="tag">既定</span><span className="kbd">{sendKeyName}</span></button>
+                    <button role="menuitem" aria-disabled={!hu.armed || !!lock || !!attachBlock || empty ? true : undefined}
+                      title={handoffWhy ?? `新しい会話へ引き継いで送ります（目的メモ＋直近${hu.rounds}往復）。元の会話は、引き継ぎ済みになります`}
+                      onClick={() => { if (!hu.armed) { hu.open(); return; } if (lock || attachBlock || empty) return; close(); void send(false, true); }}><span>引き継いで送信</span></button>
+                    {handoffWhy ? <div className="small muted" style={{ padding: "2px 8px 4px" }}>{handoffWhy}</div> : null}
+                  </>
+                ) : (
                   <>
                     {[defAct, altAct].map((a) => {
                       const isDef = a === defAct;

@@ -33,8 +33,8 @@ const phaseLabel = (phase: string) => ({
   runningOrReconciling: "実行・停止を確認中", changes: "変更を確認", rejected: "要確認",
 } as Record<string, string>)[phase] ?? "状態: " + phase;
 
-export function VisualEditControls({ enabled, chatId, currentChat, onEnded, onCloseDraftPreview, onDiscarded, preview, session, onBind, onUpdate, onLeave, onBeforeDiff, onAfterDiff, onKnownEditChats, onNotice }: {
-  enabled: boolean; chatId: string | null; currentChat: ChatKey | null; onEnded: (id: string) => Promise<void>; onCloseDraftPreview: (draftRoot: string) => Promise<void>; onDiscarded: (chatId: string, mode: "dedicated" | "current") => void; preview: PreviewSession | null; session: VisualEditSession | null;
+export function VisualEditControls({ originName, onReturnToOrigin, enabled, chatId, currentChat, onEnded, onCloseDraftPreview, onDiscarded, preview, session, onBind, onUpdate, onLeave, onBeforeDiff, onAfterDiff, onKnownEditChats, onNotice }: {
+  originName: string | null; onReturnToOrigin: (() => void) | null; enabled: boolean; chatId: string | null; currentChat: ChatKey | null; onEnded: (id: string) => Promise<void>; onCloseDraftPreview: (draftRoot: string) => Promise<void>; onDiscarded: (chatId: string, mode: "dedicated" | "current") => void; preview: PreviewSession | null; session: VisualEditSession | null;
   onBind: (session: VisualEditSession) => Promise<void>; onUpdate: (session: VisualEditSession) => void; onLeave: () => Promise<void>;
   onBeforeDiff: () => Promise<void>; onAfterDiff: () => void; onKnownEditChats: (ids: string[], dedicated: string[]) => void; onNotice: (text: string) => void;
 }) {
@@ -206,6 +206,12 @@ export function VisualEditControls({ enabled, chatId, currentChat, onEnded, onCl
       setError("破棄できませんでした。" + messageOf(e));
     } finally { writeLock.current = false; setBusy(false); void loadList(); }
   };
+  // 専用・分岐の会話での編集をいったんやめる（編集は保存されたまま）。元の会話が分かれば、そこへ戻る。
+  const leave = async () => {
+    if (!session || busy || writeLock.current) return;
+    try { await onLeave(); onReturnToOrigin?.(); }
+    catch (e) { setError("元のHTMLを開けませんでした: " + messageOf(e)); }
+  };
   // 既存の会話での編集を終える。以後この会話は、元の作業場所で動く。反映していない変更は元へ入らない（コピーは残る）。
   const finish = async () => {
     if (!session || busy || writeLock.current || session.mode !== "current") return;
@@ -272,7 +278,7 @@ export function VisualEditControls({ enabled, chatId, currentChat, onEnded, onCl
       </div> : <div className="vs-start">
         <p className="visual-lead">元のファイルは変えず、コピーで編集して、確認後に反映します。</p>
         {currentChat ? <div className="vm-group" role="radiogroup" aria-label="どの会話で編集しますか">
-          {([["current", "今の会話で続ける", "これまでの内容を引き継ぐ"], ["fork", "分岐して続ける", "今の会話は残す"], ["new", "新しい会話で始める", "履歴は引き継がない"]] as const).map(([mode, title, note]) =>
+          {([["current", "今の会話で続ける", "この会話をそのまま使う。終えると元に戻る"], ["fork", "分岐して続ける", "今の会話は残し、コピーした会話で編集する"], ["new", "新しい会話で始める", "履歴なしの専用会話。あとで元の会話へ戻れる"]] as const).map(([mode, title, note]) =>
             <label key={mode} className={"vm-opt" + (startMode === mode ? " on" : "")}><input type="radio" name="visual-start-mode" checked={startMode === mode} onChange={() => setStartMode(mode)} /><span><b>{title}</b><small>{note}</small></span></label>)}
         </div> : null}
         <div className="vs-actions">
@@ -301,7 +307,7 @@ export function VisualEditControls({ enabled, chatId, currentChat, onEnded, onCl
       </div> : <div className="vs-actions">
         <button type="button" className="btn primary" disabled={busy || stale || !session.canAdopt} onClick={() => void write("adopt")}>元に反映</button>
         <button type="button" className="btn" disabled={busy || stale || !session.canUndo} onClick={() => void write("undo")}>取り消す</button>
-        {session.mode === "current" ? <button type="button" className="btn-line" disabled={busy} onClick={() => void finish()} title="元の作業場所に戻ります。反映していない変更は元に入りません">終える</button> : null}
+        {session.mode === "current" ? <button type="button" className="btn-line" disabled={busy} onClick={() => void finish()} title="元の作業場所に戻ります。反映していない変更は元に入りません">終える</button> : <button type="button" className="btn-line" disabled={busy} onClick={() => void leave()} title="編集用の会話から離れます。編集は保存され、あとで続けられます">{originName ? "元の会話へ戻る" : "編集をやめる"}</button>}
       </div>}
       {operation && operation.revision === session.revision && (operation.id === null || operation.id === session.lastOperation?.id)
         ? <p className="visual-hint" role="status">{operation.outcome === "applied" ? (operation.kind === "adopt" ? "元のファイルに反映しました。" : "直前のAI編集を取り消しました。") : actionLabel(operation.kind) + "の結果は「" + operation.outcome + "」です。"} {operation.message}</p> : null}
