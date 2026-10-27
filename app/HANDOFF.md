@@ -93,3 +93,8 @@
 - ホストの英語エラーを日本語の案内に変換（friendlyVisualError）。
 - 検証: `cargo test --lib` 全1570件成功、type-check・build成功。独立検証の指摘のうち、切り離しの安全検査（途中の反映/取り消し）・記録破損の案内・英語エラーは修正済み。
 - 残り（低）: 終了前の古い送信が後から受理照合されると、戻していないのに「戻し済み」になる恐れ（visual_reconciled）。壊れた編集がbinding_idの全体走査で他の会話の送信をブロックし得るが、その案内は未整備。専用会話を破棄すると一覧に出るが送信不可（案内文のみ）。権限・モデルはrestoreされない（推測）。実機未確認: 切り離し後の送信が元のcwdへ戻るか、実行中AIの書込み。
+
+## 2026-10-28 リリースビルド（引き継ぎ送信の明示化・Visual Editor会話経路の修正）
+- 対象: feature/visual-editor d9275b5。`npm.cmd run tauri -- build --bundles nsis`、終了0。
+- app/src-tauri/target/release/bundle/nsis/AgentDock_0.0.1_x64-setup.exe、7369753 bytes、SHA-256 75B80C09F713D3AC6A6C657FC3C7A4EC3F3697E663C53711FE63AFA2B398D3D9。インストールはしていない。未push。
+- 実機未確認: 上の各節の「実機未確認」項目すべて（▾メニューの引き継ぎ、ピン/名前の引き継ぎ、戻る・切り離しの流れ、再起動後の案内）。
