@@ -335,12 +335,15 @@ impl Host {
                 if let Some(turn)=s.accepted_turn(attempt) {
                     let gate=self.queue_gate_input(&s.meta.chat).await;
                     if self.visual_gate_stopped(&gate,turn).is_ok() && !self.send_unsettled(&s.meta.chat) && !self.subagent_turn_pending(&s.meta.chat) {
-                        let scope=s.scope().map_err(visual_err)?;
-                        let adopted=session::load_snapshot(&s.folder.join(adopted_dir),&scope).map_err(visual_err)?;
-                        let source=ProjectRoot::open(Path::new(&s.meta.source_root)).map_err(visual_err)?;
-                        let same=Snapshot::capture(&source,&scope).map_err(visual_err)?==adopted;
-                        view.can_revert=same;
-                        if !same {view.blockers.push("the original files changed after adoption; restoring is unavailable".into());}
+                        // 読めないときは「戻せない」とするだけで、状態確認そのものは失敗させない。
+                        let same=(|| -> Result<bool,String> {
+                            let scope=s.scope().map_err(|e|e.to_string())?;
+                            let adopted=session::load_snapshot(&s.folder.join(adopted_dir),&scope).map_err(|e|e.to_string())?;
+                            let source=ProjectRoot::open(Path::new(&s.meta.source_root)).map_err(|e|e.to_string())?;
+                            Ok(Snapshot::capture(&source,&scope).map_err(|e|e.to_string())?==adopted)
+                        })();
+                        view.can_revert=matches!(same,Ok(true));
+                        if !matches!(same,Ok(true)) {view.blockers.push("the original files changed after adoption; restoring is unavailable".into());}
                     }
                 }
             }

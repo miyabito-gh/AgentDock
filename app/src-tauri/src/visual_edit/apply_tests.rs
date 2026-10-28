@@ -288,3 +288,21 @@ fn an_adoption_can_be_reverted_exactly_and_is_refused_after_an_external_change()
     assert_eq!(fs::read(f.source("a.html")).unwrap(), b"original");
     assert_eq!(fs::read(f.source("b.css")).unwrap(), b"style");
 }
+#[test]
+fn reverting_an_adoption_removes_added_files_and_restores_deleted_ones() {
+    let f = Fixture::new();
+    f.write("a.html", b"page");
+    f.write("old.css", b"old style");
+    let s = scope(&["a.html", "old.css", "new.js"]);
+    let before = Snapshot::capture(&f.root(), &s).unwrap();
+    // 反映: new.js を追加し、old.css を削除する。
+    f.write("new.js", b"script");
+    fs::remove_file(f.source("old.css")).unwrap();
+    let adopted = Snapshot::capture(&f.root(), &s).unwrap();
+    let mut permit = HostWritePermit::after_host_checks();
+    let reverted = apply_checked(&mut permit, &f.root(), &s, &adopted, &before, &f.journals(), "revert-add-del", WritePurpose::RevertAdoption).unwrap();
+    assert!(matches!(reverted, WriteOutcome::Applied { .. }));
+    assert!(!f.source("new.js").exists());
+    assert_eq!(fs::read(f.source("old.css")).unwrap(), b"old style");
+    assert_eq!(fs::read(f.source("a.html")).unwrap(), b"page");
+}
