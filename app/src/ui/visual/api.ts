@@ -9,7 +9,7 @@ export interface PreviewElement {
 }
 export interface PreviewSelection { sessionId: string; selection: PreviewElement[]; truncated: boolean }
 export interface PreviewError { sessionId: string; error: string }
-export type PreviewAction = "select" | "interact" | "parent" | "clear" | "reload";
+export type PreviewAction = "select" | "interact" | "parent" | "child" | "clear" | "reload";
 export const previewAvailable = (): boolean => isTauri();
 
 const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);

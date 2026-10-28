@@ -1,4 +1,6 @@
 const ICON: Record<string, string> = {
+  select: '<rect x="4" y="4" width="16" height="16" rx="2" stroke-dasharray="3 3"/><path d="M11 11l7 3-3 1.5L13.5 19z"/>', interact: '<path d="M7 4l10 7-4.5 1.2L15 17l-2 1-2.5-4.5L7 16z"/>',
+  expand: '<path d="M9 4H5v4M15 4h4v4M9 20H5v-4M15 20h4v-4"/>', collapse: '<path d="M5 9h4V5M19 9h-4V5M5 15h4v4M19 15h-4v4"/>',
   plus: '<path d="M12 5v14M5 12h14"/>', search: '<circle cx="11" cy="11" r="6"/><path d="m20 20-4.5-4.5"/>',
   archive: '<rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v10h14V9M10 13h4"/>',
   send: '<path d="M12 19V5M6 11l6-6 6 6"/>', stop: '<rect x="6" y="6" width="12" height="12" rx="1.5"/>',

@@ -303,7 +303,7 @@ pub async fn visual_preview_action(
                 .map_err(|_| "preview asset lock failed")? = assets;
             s.view.reload().map_err(|e| e.to_string())?;
         }
-        "select" | "interact" | "parent" | "clear" => {
+        "select" | "interact" | "parent" | "child" | "clear" => {
             s.view.eval(format!("window.dispatchEvent(new CustomEvent('agentdock-preview-action',{{detail:{}}}));",serde_json::to_string(&action).unwrap())).map_err(|e|e.to_string())?;
         }
         _ => return Err("invalid preview action".into()),
