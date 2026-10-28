@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ChatKey } from "../../ipc/types";
-import { adoptVisualEdit, createVisualEdit, diffVisualEdit, discardVisualEdit, endVisualEdit, listVisualEdits, statusVisualEdit, undoVisualEdit, type PreviewSession, type VisualDiff, type VisualEditSession, type VisualStartMode } from "./api";
+import { adoptVisualEdit, revertVisualAdoption, createVisualEdit, diffVisualEdit, discardVisualEdit, endVisualEdit, listVisualEdits, statusVisualEdit, undoVisualEdit, type PreviewSession, type VisualDiff, type VisualEditSession, type VisualStartMode } from "./api";
 
 const FRIENDLY: Array<[string, string]> = [
   ["this chat is running, or its stop is not confirmed", "この会話が実行中か、停止を確認できません。作業が終わってから、もう一度お試しください。"],
@@ -26,7 +26,7 @@ const messageOf = (error: unknown): string => {
   }
   return "不明なエラー";
 };
-const actionLabel = (kind: "adopt" | "undo") => kind === "adopt" ? "採用" : "復元";
+const actionLabel = (kind: "adopt" | "undo" | "revert") => kind === "adopt" ? "反映" : kind === "revert" ? "反映の取り消し" : "取り消し";
 const changeLabel = (kind: string | null) => kind === "add" ? "追加" : kind === "delete" ? "削除" : kind === "change" ? "変更" : "要確認";
 const phaseLabel = (phase: string) => ({
   partial: "反映が途中", recoveryRequired: "復旧が必要", editable: "編集可能", preparedUnresolved: "送信の確認待ち", acceptanceUnknown: "受理不明",
@@ -50,7 +50,7 @@ export function VisualEditControls({ originName, onReturnToOrigin, enabled, chat
   const [diff, setDiff] = useState<VisualDiff | null>(null);
   const [diffBusy, setDiffBusy] = useState(false);
   const [diffPath, setDiffPath] = useState<string | null>(null);
-  const [operation, setOperation] = useState<{ kind: "adopt" | "undo"; outcome: string; revision: number; id: string | null; message?: string } | null>(null);
+  const [operation, setOperation] = useState<{ kind: "adopt" | "undo" | "revert"; outcome: string; revision: number; id: string | null; message?: string } | null>(null);
   const writeLock = useRef(false);
   const [startMode, setStartMode] = useState<VisualStartMode>("current");
   const autoBound = useRef<string | null>(null);
@@ -167,13 +167,14 @@ export function VisualEditControls({ originName, onReturnToOrigin, enabled, chat
       if (!opened) onAfterDiff();
     } finally { setDiffBusy(false); }
   };
-  const write = async (kind: "adopt" | "undo") => {
-    if (!session || stale || busy || writeLock.current || (kind === "adopt" ? !session.canAdopt : !session.canUndo)) return;
+  const write = async (kind: "adopt" | "undo" | "revert") => {
+    if (!session || stale || busy || writeLock.current || (kind === "adopt" ? !session.canAdopt : kind === "revert" ? !session.canRevert : !session.canUndo)) return;
+    if (kind === "revert" && !window.confirm(["元のファイルを、反映する前の状態に戻します。", "・反映したファイルだけを戻します。", "・反映したあとに、元のファイルを変更していた場合は、戻せません。", "・編集用コピーのAIの編集は残るので、もう一度反映することもできます。", "戻しますか？"].join("\n"))) return;
     const id = session.sessionId, expectedRevision = session.revision;
     const previousOperationId = session.lastOperation?.id ?? null;
     writeLock.current = true; generation.current++; setPollEpoch((n) => n + 1); setBusy(true); setStale(true); setError(null); setDiff(null); setDiffPath(null);
     try {
-      const result = kind === "adopt" ? await adoptVisualEdit(id, expectedRevision) : await undoVisualEdit(id, expectedRevision);
+      const result = kind === "adopt" ? await adoptVisualEdit(id, expectedRevision) : kind === "revert" ? await revertVisualAdoption(id, expectedRevision) : await undoVisualEdit(id, expectedRevision);
       if (currentId.current !== id) return;
       onUpdate(result);
       const last = result.lastOperation;
@@ -310,11 +311,12 @@ export function VisualEditControls({ originName, onReturnToOrigin, enabled, chat
       </div> : <div className="vs-actions">
         <button type="button" className="btn primary" disabled={busy || stale || !session.canAdopt} onClick={() => void write("adopt")}>元に反映</button>
         <button type="button" className="btn" disabled={busy || stale || !session.canUndo} onClick={() => void write("undo")}>取り消す</button>
+        {session.adopted && session.canRevert ? <button type="button" className="btn-line" disabled={busy || stale} onClick={() => void write("revert")} title="元のファイルを、反映する前の状態に戻します">反映を戻す</button> : null}
         {session.mode === "current" ? <button type="button" className="btn-line" disabled={busy || ["runningOrReconciling", "preparedUnresolved", "acceptanceUnknown", "partial", "recoveryRequired"].includes(session.phase)}  onClick={() => void finish()} title="元の作業場所に戻ります。反映していない変更は元に入りません">終える</button> : null}
         {session.mode !== "current" || originName ? <button type="button" className="btn-line" disabled={busy} onClick={() => void leave()} title="編集用の会話から離れます。編集は保存され、あとで続けられます">{originName ? "元の会話へ戻る" : "編集をやめる"}</button> : null}
       </div>}
       {operation && operation.revision === session.revision && (operation.id === null || operation.id === session.lastOperation?.id)
-        ? <p className="visual-hint" role="status">{operation.outcome === "applied" ? (operation.kind === "adopt" ? "元のファイルに反映しました。" : "直前のAI編集を取り消しました。") : actionLabel(operation.kind) + "の結果は「" + operation.outcome + "」です。"} {operation.message}</p> : null}
+        ? <p className="visual-hint" role="status">{operation.outcome === "applied" ? (operation.kind === "adopt" ? "元のファイルに反映しました。" : operation.kind === "revert" ? "元のファイルを、反映前の状態に戻しました。" : "直前のAI編集を取り消しました。") : actionLabel(operation.kind) + "の結果は「" + operation.outcome + "」です。"} {operation.message}</p> : null}
       <details className="visual-more"><summary>詳細{visibleChanges.length ? `（変更ファイル${visibleChanges.length}件）` : ""}</summary>
         {visibleChanges.length ? <ul className="visual-changes">{visibleChanges.map((item) => <li key={item.path}><button type="button" className="btn-line sm" onClick={() => void readDiff(item.path)}>{item.path} の差分</button><small>{changeLabel(item.change)}{item.conflict ? " · 元のファイルが変更されています" : ""}</small></li>)}</ul> : null}
         <div className="visual-edit-heading">

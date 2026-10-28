@@ -260,3 +260,31 @@ fn hardlinked_target_rejects_entire_plan_before_writing() {
     assert_eq!(fs::read(&outside).unwrap(), b"outside-before");
     assert!(!f.journals().join("reject-link").exists());
 }
+#[test]
+fn an_adoption_can_be_reverted_exactly_and_is_refused_after_an_external_change() {
+    let f = Fixture::new();
+    f.write("a.html", b"original");
+    f.write("b.css", b"style");
+    let s = scope(&["a.html", "b.css"]);
+    let before = Snapshot::capture(&f.root(), &s).unwrap();
+    f.write("a.html", b"edited by ai");
+    f.write("b.css", b"style");
+    let adopted = Snapshot::capture(&f.root(), &s).unwrap();
+    // 反映前の状態へ戻して、反映をやり直せる（元は反映後のまま）。
+    f.write("a.html", b"original");
+    assert!(matches!(apply(&f, &s, &before, &adopted, "adopt-1"), WriteOutcome::Applied { .. }));
+    assert_eq!(fs::read(f.source("a.html")).unwrap(), b"edited by ai");
+    // 反映後に元が変わっていたら、戻さない（その変更を上書きしない）。
+    f.write("a.html", b"changed after adoption");
+    let mut permit = HostWritePermit::after_host_checks();
+    let conflict = apply_checked(&mut permit, &f.root(), &s, &adopted, &before, &f.journals(), "revert-0", WritePurpose::RevertAdoption).unwrap();
+    assert!(matches!(conflict, WriteOutcome::Conflict { .. }));
+    assert_eq!(fs::read(f.source("a.html")).unwrap(), b"changed after adoption");
+    // 元が反映後のままなら、反映前の内容へ正確に戻る。
+    f.write("a.html", b"edited by ai");
+    let mut permit = HostWritePermit::after_host_checks();
+    let reverted = apply_checked(&mut permit, &f.root(), &s, &adopted, &before, &f.journals(), "revert-1", WritePurpose::RevertAdoption).unwrap();
+    assert!(matches!(reverted, WriteOutcome::Applied { .. }));
+    assert_eq!(fs::read(f.source("a.html")).unwrap(), b"original");
+    assert_eq!(fs::read(f.source("b.css")).unwrap(), b"style");
+}

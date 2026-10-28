@@ -290,7 +290,7 @@ impl Host {
             if op.outcome!="applied" {
                 let journal=self.visual_root().join("_journals").join(&s.meta.session_id).join(&op.id);
                 if journal.is_dir() {
-                    let target=if op.kind=="adopt" {&s.meta.source_root} else {&s.meta.draft_root};
+                    let target=if op.kind=="adopt" || op.kind=="revert" {&s.meta.source_root} else {&s.meta.draft_root};
                     match ProjectRoot::open(Path::new(target)).and_then(|root|ve::apply::reconcile(&root,&journal)) {
                         Ok(files)=>{let details=files.iter().map(|f|format!("{}: {:?}",f.path,f.state)).collect::<Vec<_>>().join(", "); op.message=Some(format!("Read-only journal inspection: {details}"));},
                         Err(e)=>{op.message=Some(format!("Journal inspection unavailable: {e}")); view.blockers.push("journal recovery requires manual inspection".into());},
@@ -325,6 +325,22 @@ impl Host {
                                 }
                             } else {view.blockers.push("draft changed after captured revision".into());}
                         } else {view.blockers.push("draft contains files outside reviewed scope".into());}
+                    }
+                }
+            }
+        }
+        // 反映済みなら、反映前へ戻せるかを調べる（元のフォルダが反映後のままで、AIの停止・送信の確定が済んでいるとき）。
+        if !s.pending_operation() && matches!(view.phase.as_str(),"editable"|"changes") {
+            if let (Some(adopted_dir),Some((attempt,_))) = (s.latest_adopted(),s.last_capture()) {
+                if let Some(turn)=s.accepted_turn(attempt) {
+                    let gate=self.queue_gate_input(&s.meta.chat).await;
+                    if self.visual_gate_stopped(&gate,turn).is_ok() && !self.send_unsettled(&s.meta.chat) && !self.subagent_turn_pending(&s.meta.chat) {
+                        let scope=s.scope().map_err(visual_err)?;
+                        let adopted=session::load_snapshot(&s.folder.join(adopted_dir),&scope).map_err(visual_err)?;
+                        let source=ProjectRoot::open(Path::new(&s.meta.source_root)).map_err(visual_err)?;
+                        let same=Snapshot::capture(&source,&scope).map_err(visual_err)?==adopted;
+                        view.can_revert=same;
+                        if !same {view.blockers.push("the original files changed after adoption; restoring is unavailable".into());}
                     }
                 }
             }
@@ -428,7 +444,7 @@ impl Host {
     }
 }
 impl Host {
-    async fn visual_write(self:&Arc<Self>,args:VisualWriteArgs,adopt:bool)->Result<SessionView,IpcError> {
+    async fn visual_write(self:&Arc<Self>,args:VisualWriteArgs,adopt:bool,revert:bool)->Result<SessionView,IpcError> {
         // All send locks precede the visual lock, matching normal send dispatch.
         // Recheck the overlap set after taking the folder operation guard.
         let initial=self.visual_loaded(&args.session_id)?;
@@ -469,7 +485,16 @@ impl Host {
         let current_dir=s.current_dir().ok_or_else(||visual_err("current snapshot unavailable"))?;
         let current_snapshot=session::load_snapshot(&s.folder.join(current_dir),&scope).map_err(visual_err)?;
         if draft_current!=current_snapshot {return Err(visual_err("copy changed after the reviewed revision"));}
-        let (target,expected,desired,purpose)=if adopt {
+        let (target,expected,desired,purpose)=if revert {
+            // 反映した内容を、反映前の状態へ戻す。元のフォルダが反映後のままのときだけ（反映後に元を変えていたら、その変更を上書きしないため戻さない）。
+            let adopted_dir=s.latest_adopted().ok_or_else(||visual_err("nothing was adopted"))?.to_string();
+            let adopted=session::load_snapshot(&s.folder.join(&adopted_dir),&scope).map_err(visual_err)?;
+            let before_adopt=s.baseline_before_latest_adoption().map_err(visual_err)?;
+            let source=ProjectRoot::open(Path::new(&s.meta.source_root)).map_err(visual_err)?;
+            let source_current=Snapshot::capture(&source,&scope).map_err(visual_err)?;
+            if source_current!=adopted {return Err(visual_err("the original files changed after adoption; restoring would overwrite those changes"));}
+            (source,adopted,before_adopt,ve::apply::WritePurpose::RevertAdoption)
+        } else if adopt {
             let baseline=s.baseline().map_err(visual_err)?;
             let source=ProjectRoot::open(Path::new(&s.meta.source_root)).map_err(visual_err)?;
             let source_current=Snapshot::capture(&source,&scope).map_err(visual_err)?;
@@ -487,9 +512,9 @@ impl Host {
         let journal_parent=self.visual_root().join("_journals").join(&s.meta.session_id);
         fs::create_dir_all(&journal_parent).map_err(visual_err)?;
         ProjectRoot::open(&journal_parent).map_err(visual_err)?;
-        let op_id=self.local_id(if adopt {"adopt"} else {"undo"}).0;
-        let purpose_name=if adopt {"adopt"} else {"undo"};
-        session::append(&s.folder,&SessionEvent::OperationIntent{operation_id:op_id.clone(),purpose:purpose_name.into(),revision:args.revision,desired:if adopt {current_dir.to_string()} else {s.events.iter().rev().find_map(|e|match e {SessionEvent::Prepared{attempt_id,before,..} if attempt_id==&attempt=>Some(before.clone()),_=>None}).ok_or_else(||visual_err("before snapshot missing"))?}}).map_err(visual_err)?;
+        let purpose_name=if revert {"revert"} else if adopt {"adopt"} else {"undo"};
+        let op_id=self.local_id(purpose_name).0;
+        session::append(&s.folder,&SessionEvent::OperationIntent{operation_id:op_id.clone(),purpose:purpose_name.into(),revision:args.revision,desired:if revert {s.dir_before_latest_adoption()} else if adopt {current_dir.to_string()} else {s.events.iter().rev().find_map(|e|match e {SessionEvent::Prepared{attempt_id,before,..} if attempt_id==&attempt=>Some(before.clone()),_=>None}).ok_or_else(||visual_err("before snapshot missing"))?}}).map_err(visual_err)?;
         let mut permit=ve::apply::HostWritePermit::after_host_checks();
         let outcome=match ve::apply::apply_checked_classified(&mut permit,&target,&scope,&expected,&desired,&journal_parent,&op_id,purpose) {
             ve::apply::CheckedAttempt::Journaled(outcome)=>outcome,
@@ -503,7 +528,8 @@ impl Host {
         let label=match &outcome {ve::apply::WriteOutcome::Applied{..}=>"applied",ve::apply::WriteOutcome::Partial{..}=>"partial",ve::apply::WriteOutcome::Conflict{..}=>"conflict"};
         session::append(&s.folder,&SessionEvent::OperationResult{operation_id:op_id,outcome:label.into()}).map_err(visual_err)?;
         if label=="applied" {
-            if adopt {session::append(&s.folder,&SessionEvent::Adopted{after:current_dir.into()}).map_err(visual_err)?;}
+            if revert {}
+            else if adopt {session::append(&s.folder,&SessionEvent::Adopted{after:current_dir.into()}).map_err(visual_err)?;}
             else {
                 let before_dir=s.events.iter().rev().find_map(|e|match e {SessionEvent::Prepared{attempt_id,before,..} if attempt_id==&attempt=>Some(before.clone()),_=>None}).ok_or_else(||visual_err("before snapshot missing"))?;
                 session::append(&s.folder,&SessionEvent::UndoApplied{attempt_id:attempt,before:before_dir}).map_err(visual_err)?;
@@ -514,8 +540,9 @@ impl Host {
         if label!="applied" {view.blockers.push(format!("file operation {label}; inspect the durable journal and current files"));}
         Ok(view)
     }
-    pub async fn visual_adopt(self:&Arc<Self>,args:VisualWriteArgs)->Result<SessionView,IpcError> {self.visual_write(args,true).await}
-    pub async fn visual_undo(self:&Arc<Self>,args:VisualWriteArgs)->Result<SessionView,IpcError> {self.visual_write(args,false).await}
+    pub async fn visual_adopt(self:&Arc<Self>,args:VisualWriteArgs)->Result<SessionView,IpcError> {self.visual_write(args,true,false).await}
+    pub async fn visual_undo(self:&Arc<Self>,args:VisualWriteArgs)->Result<SessionView,IpcError> {self.visual_write(args,false,false).await}
+    pub async fn visual_revert(self:&Arc<Self>,args:VisualWriteArgs)->Result<SessionView,IpcError> {self.visual_write(args,false,true).await}
 }
 impl Host {
     pub async fn visual_diff(self:&Arc<Self>,args:VisualDiffArgs)->Result<VisualDiffView,IpcError> {

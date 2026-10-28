@@ -1443,6 +1443,10 @@ pub async fn visual_edit_adopt(host: Hs<'_>, args: crate::host::visual::VisualWr
     host.inner().clone().visual_adopt(args).await
 }
 #[tauri::command]
+pub async fn visual_edit_revert(host: Hs<'_>, args: crate::host::visual::VisualWriteArgs) -> R<crate::visual_edit::session::SessionView> {
+    host.inner().clone().visual_revert(args).await
+}
+#[tauri::command]
 pub async fn visual_edit_undo(host: Hs<'_>, args: crate::host::visual::VisualWriteArgs) -> R<crate::visual_edit::session::SessionView> {
     host.inner().clone().visual_undo(args).await
 }

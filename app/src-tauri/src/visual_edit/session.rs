@@ -59,6 +59,8 @@ pub struct SessionView {
     pub blockers: Vec<String>,
     pub can_adopt: bool,
     pub can_undo: bool,
+    /// 元へ反映した内容を、反映前の状態へ戻せる（元のフォルダが反映後のまま変わっていない）。
+    pub can_revert: bool,
     pub last_operation: Option<LastOperationView>,
     /// "dedicated"（専用チャット）または "current"（既存の会話で続ける）。
     pub mode: String,
@@ -117,8 +119,32 @@ impl LoadedSession {
     fn applied_operation(&self, operation_id:&str, purpose:&str)->Option<&str> {
         self.events.iter().rev().find_map(|e|match e {SessionEvent::OperationIntent{operation_id:id,purpose:p,desired,..} if id==operation_id && p==purpose=>Some(desired.as_str()),_=>None})
     }
+    /// 元へ反映した版の並び（古い順）。反映で積み、「反映前へ戻す」で外す。反映の記録が欠けても、適用済みの操作から復元する。
+    fn adoption_stack(&self)->Vec<&str> {
+        let mut stack:Vec<&str>=Vec::new();
+        for e in &self.events {
+            match e {
+                SessionEvent::Adopted{after}=>{ if stack.last()!=Some(&after.as_str()) {stack.push(after.as_str());} }
+                SessionEvent::OperationResult{operation_id,outcome} if outcome=="applied"=>{
+                    if let Some(dir)=self.applied_operation(operation_id,"adopt") { if stack.last()!=Some(&dir) {stack.push(dir);} }
+                    else if self.applied_operation(operation_id,"revert").is_some() { stack.pop(); }
+                }
+                _=>(),
+            }
+        }
+        stack
+    }
+    /// 最後の反映の直前の版（反映が1回だけなら "initial"）。「反映前へ戻す」の戻し先。
+    pub fn dir_before_latest_adoption(&self)->String {
+        let stack=self.adoption_stack();
+        if stack.len()>=2 {stack[stack.len()-2].to_string()} else {"initial".to_string()}
+    }
+    pub fn baseline_before_latest_adoption(&self)->VisualResult<Snapshot> {
+        let dir=self.dir_before_latest_adoption();
+        if dir=="initial" {self.initial()} else {load_snapshot(&self.folder.join(dir),&self.scope()?)}
+    }
     pub fn latest_adopted(&self)->Option<&str> {
-        self.events.iter().rev().find_map(|e|match e {SessionEvent::Adopted{after}=>Some(after.as_str()),SessionEvent::OperationResult{operation_id,outcome} if outcome=="applied"=>self.applied_operation(operation_id,"adopt"),_=>None})
+        self.adoption_stack().last().copied()
     }
     pub fn baseline(&self)->VisualResult<Snapshot> {
         match self.latest_adopted() {Some(dir)=>load_snapshot(&self.folder.join(dir),&self.scope()?),None=>self.initial()}
@@ -163,7 +189,7 @@ impl LoadedSession {
         if matches!(phase,"changes") && changes.iter().all(|f|f.change.is_none()) {phase="editable";}
         if self.events.iter().rev().find_map(|e|match e {SessionEvent::OperationResult{outcome,..}=>Some(outcome.as_str()),SessionEvent::Adopted{..}|SessionEvent::UndoApplied{..}=>Some("applied"),_=>None}).is_some_and(|x|x=="partial" || x=="conflict") {phase="partial"; blockers.push("file operation is partial or conflicted; inspect journal and current files".into());}
         let last_operation=self.events.iter().rev().find_map(|e|match e {SessionEvent::OperationIntent{operation_id,purpose,..}=>Some(LastOperationView{kind:purpose.clone(),id:operation_id.clone(),outcome:self.outcome(operation_id).unwrap_or("unknown").into(),message:None}),_=>None});
-        Ok(SessionView{session_id:self.meta.session_id.clone(),chat:self.meta.chat.clone(),source_root:self.meta.source_root.clone(),draft_root:self.meta.draft_root.clone(),html_path:self.meta.html_path.clone(),scope:self.meta.scope.clone(),phase:(if self.ended(){"ended"}else{phase}).into(),revision:self.revision(),changes,blockers,can_adopt:false,can_undo:false,last_operation,mode:(if self.is_current_mode(){"current"}else{"dedicated"}).into(),ended:self.ended(),adopted:self.latest_adopted().is_some()})
+        Ok(SessionView{session_id:self.meta.session_id.clone(),chat:self.meta.chat.clone(),source_root:self.meta.source_root.clone(),draft_root:self.meta.draft_root.clone(),html_path:self.meta.html_path.clone(),scope:self.meta.scope.clone(),phase:(if self.ended(){"ended"}else{phase}).into(),revision:self.revision(),changes,blockers,can_adopt:false,can_undo:false,can_revert:false,last_operation,mode:(if self.is_current_mode(){"current"}else{"dedicated"}).into(),ended:self.ended(),adopted:self.latest_adopted().is_some()})
     }
 }
 fn durable_file(path: &Path, bytes: &[u8]) -> VisualResult<()> {
@@ -207,7 +233,7 @@ pub fn load(root: &Path, id: &str) -> VisualResult<LoadedSession> {
             SessionEvent::Prepared{before,..}=>validate_id(before)?,
             SessionEvent::Captured{after,..}|SessionEvent::Adopted{after}=>validate_id(after)?,
             SessionEvent::UndoApplied{before,..}=>validate_id(before)?,
-            SessionEvent::OperationIntent{operation_id,purpose,desired,..}=>{validate_id(operation_id)?; validate_id(desired)?; if purpose!="adopt" && purpose!="undo" {return Err(VisualError::Conflict("invalid operation purpose"));}},
+            SessionEvent::OperationIntent{operation_id,purpose,desired,..}=>{validate_id(operation_id)?; validate_id(desired)?; if purpose!="adopt" && purpose!="undo" && purpose!="revert" {return Err(VisualError::Conflict("invalid operation purpose"));}},
             SessionEvent::OperationResult{operation_id,..}=>validate_id(operation_id)?,
             _=>(),
         }
@@ -420,6 +446,32 @@ mod session_tests {
         append(&c.folder(),&SessionEvent::Restored).unwrap();
         assert!(restore_for(&c.root,&chat).unwrap().is_none());
         assert!(!c.loaded().restore_pending());
+    }
+    #[test]
+    fn reverting_an_adoption_pops_the_adoption_stack_and_survives_a_lost_adopted_event() {
+        let c=Case::new();
+        assert_eq!(c.loaded().latest_adopted(),None);
+        append(&c.folder(),&SessionEvent::Adopted{after:"tx-a".into()}).unwrap();
+        append(&c.folder(),&SessionEvent::Adopted{after:"tx-b".into()}).unwrap();
+        let s=c.loaded();
+        assert_eq!((s.latest_adopted(),s.dir_before_latest_adoption().as_str()),(Some("tx-b"),"tx-a"));
+        let revert=|op:&str|{
+            append(&c.folder(),&SessionEvent::OperationIntent{operation_id:op.into(),purpose:"revert".into(),revision:1,desired:"tx-a".into()}).unwrap();
+            append(&c.folder(),&SessionEvent::OperationResult{operation_id:op.into(),outcome:"applied".into()}).unwrap();
+        };
+        revert("op-r1");
+        let s=c.loaded();
+        assert_eq!((s.latest_adopted(),s.dir_before_latest_adoption().as_str()),(Some("tx-a"),"initial"));
+        revert("op-r2");
+        assert_eq!(c.loaded().latest_adopted(),None);
+        // 反映の記録（Adopted）が欠けても、適用済みの操作から復元される。
+        append(&c.folder(),&SessionEvent::OperationIntent{operation_id:"op-a1".into(),purpose:"adopt".into(),revision:2,desired:"tx-c".into()}).unwrap();
+        append(&c.folder(),&SessionEvent::OperationResult{operation_id:"op-a1".into(),outcome:"applied".into()}).unwrap();
+        assert_eq!(c.loaded().latest_adopted(),Some("tx-c"));
+        // 欠けていた記録が後から追記されても、二重に積まない。
+        append(&c.folder(),&SessionEvent::Adopted{after:"tx-c".into()}).unwrap();
+        let s=c.loaded();
+        assert_eq!((s.latest_adopted(),s.dir_before_latest_adoption().as_str()),(Some("tx-c"),"initial"));
     }
     #[test]
     fn a_discarded_ended_edit_can_still_be_marked_restored_and_a_forced_end_unbinds_without_loading() {

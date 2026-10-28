@@ -31,6 +31,8 @@ impl HostWritePermit {
 pub(crate) enum WritePurpose {
     AdoptSource,
     UndoLatestDraft,
+    /// 元へ反映した内容を、反映前の状態へ戻す（元のフォルダへの書込み）。
+    RevertAdoption,
 }
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum WriteOutcome {

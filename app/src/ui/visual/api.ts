@@ -104,7 +104,7 @@ export function splitVisualContext(text: string): { body: string; context: strin
 
 export interface VisualFileScope { path: string; access: "edit" | "readOnly" }
 export interface VisualChange { path: string; change: "add" | "change" | "delete" | null; conflict: string | null }
-export interface VisualLastOperation { kind: "adopt" | "undo"; id: string; outcome: "applied" | "partial" | "conflict" | "unknown" | "rejected"; message?: string }
+export interface VisualLastOperation { kind: "adopt" | "undo" | "revert"; id: string; outcome: "applied" | "partial" | "conflict" | "unknown" | "rejected"; message?: string }
 export interface VisualEditSession {
   sessionId: string; chat: ChatKey; sourceRoot: string; draftRoot: string;
   htmlPath: string; scope: VisualFileScope[]; phase: string; revision: number;
@@ -112,7 +112,7 @@ export interface VisualEditSession {
   mode: "dedicated" | "current"; ended: boolean;
   /** 元のフォルダへ反映したことがある（反映前のバックアップが残っている）。 */
   adopted: boolean;
-  changes: VisualChange[]; blockers: string[]; canAdopt: boolean; canUndo: boolean;
+  changes: VisualChange[]; blockers: string[]; canAdopt: boolean; canUndo: boolean; canRevert: boolean;
   lastOperation?: VisualLastOperation;
 }
 export interface VisualDiff { path: string; before: string | null; after: string | null; truncated: boolean; binary: boolean }
@@ -133,7 +133,7 @@ function parseVisualSession(value: unknown): VisualEditSession {
       || !Array.isArray(value.changes) || !Array.isArray(value.blockers)
       || value.scope.length > 512 || value.changes.length > 512 || value.blockers.length > 100
       || typeof value.revision !== "number" || !Number.isSafeInteger(value.revision) || value.revision < 0
-      || typeof value.canAdopt !== "boolean" || typeof value.canUndo !== "boolean") {
+      || typeof value.canAdopt !== "boolean" || typeof value.canUndo !== "boolean" || typeof value.canRevert !== "boolean") {
     throw new Error("編集セッションの応答を確認できませんでした。");
   }
   const scope = value.scope.map((entry): VisualFileScope => {
@@ -148,7 +148,7 @@ function parseVisualSession(value: unknown): VisualEditSession {
   let lastOperation: VisualLastOperation | undefined;
   if (value.lastOperation !== null && value.lastOperation !== undefined) {
     const item = value.lastOperation;
-    if (!record(item) || (item.kind !== "adopt" && item.kind !== "undo")
+    if (!record(item) || (item.kind !== "adopt" && item.kind !== "undo" && item.kind !== "revert")
         || !["applied", "partial", "conflict", "unknown", "rejected"].includes(item.outcome as string)) {
       throw new Error("操作結果を確認できませんでした。");
     }
@@ -163,7 +163,7 @@ function parseVisualSession(value: unknown): VisualEditSession {
     htmlPath: requiredText(value.htmlPath, 2048, "HTML"),
     scope, phase: requiredText(value.phase, 100, "編集状態"), revision: value.revision,
     mode: value.mode === "current" ? "current" : "dedicated", ended: value.ended === true, adopted: value.adopted === true,
-    changes, blockers, canAdopt: value.canAdopt, canUndo: value.canUndo, lastOperation,
+    changes, blockers, canAdopt: value.canAdopt, canUndo: value.canUndo, canRevert: value.canRevert, lastOperation,
   };
 }
 function parseVisualDiff(value: unknown): VisualDiff {
@@ -195,6 +195,7 @@ const VISUAL_ERRORS: Array<[string, string]> = [
   ["only an edit on an existing chat can be released", "この会話は、専用の編集会話です。切り離しではなく、Visual Editorの「保存された編集」から続けるか、一覧から削除してください。"],
   ["the edit record is unreadable", "この編集の記録が壊れていて、自動では切り離せません。アプリを終了し、保存領域の visual-editor フォルダ内の該当する編集のフォルダを別の場所へ移してから、もう一度起動してください。"],
   ["has an unfinished apply or undo", "元への反映または取り消しが途中のため、まだ切り離せません。Visual Editorで状態を確認し、完了させてください。"],
+  ["the original files changed after adoption", "反映したあとに、元のファイルが変更されているため、戻せません（戻すと、その変更を上書きしてしまいます）。"],
   ["visual session was discarded", "この編集は破棄されています。"],
 ];
 export function friendlyVisualError(message: string): string {
@@ -211,6 +212,10 @@ export async function listVisualEdits(): Promise<VisualEditSession[]> {
 }
 export async function statusVisualEdit(sessionId: string): Promise<VisualEditSession> {
   return parseVisualSession(await invoke<unknown>("visual_edit_status", { args: { sessionId } }));
+}
+/** 元へ反映した内容を、反映前の状態へ戻す。元のフォルダが反映後のままのときだけ（変わっていれば拒否）。 */
+export async function revertVisualAdoption(sessionId: string, revision: number): Promise<VisualEditSession> {
+  return parseVisualSession(await invoke<unknown>("visual_edit_revert", { args: { sessionId, revision } }));
 }
 export async function adoptVisualEdit(sessionId: string, revision: number): Promise<VisualEditSession> {
   return parseVisualSession(await invoke<unknown>("visual_edit_adopt", { args: { sessionId, revision } }));

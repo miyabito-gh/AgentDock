@@ -98,3 +98,9 @@
 - 対象: feature/visual-editor d9275b5。`npm.cmd run tauri -- build --bundles nsis`、終了0。
 - app/src-tauri/target/release/bundle/nsis/AgentDock_0.0.1_x64-setup.exe、7369753 bytes、SHA-256 75B80C09F713D3AC6A6C657FC3C7A4EC3F3697E663C53711FE63AFA2B398D3D9。インストールはしていない。未push。
 - 実機未確認: 上の各節の「実機未確認」項目すべて（▾メニューの引き継ぎ、ピン/名前の引き継ぎ、戻る・切り離しの流れ、再起動後の案内）。
+
+## 2026-10-28 反映後に元を反映前へ戻す（実装済み・自動検証済み・実機未確認）
+- 他社比較（設計文書 §9）で、反映後に元を戻す操作が無いのが最大の穴と分かり、先に実装。編集の操作行に、反映済みで戻せるときだけ「反映を戻す」（確認つき）。
+- 仕様: 元のフォルダが反映後のままのときだけ戻せる（変わっていれば拒否して日本語で案内）。戻し先は直前の反映の前の版（1回なら最初の内容）。既存の書込みエンジン（期待内容を照合してから書く・操作の記録つき）に新しい種別 `RevertAdoption` / 操作名 `revert` を追加。戻したあと、コピーのAI編集は残り、もう一度反映できる。
+- 実装: session.rs（adoption_stack で反映を積み・外す。`latest_adopted`/baseline/`dir_before_latest_adoption`、SessionViewに can_revert）、host/visual.rs（visual_write に revert、visual_status で can_revert 判定）、commands/lib（visual_edit_revert）、api.ts・VisualEditControls.tsx。記録の読込検証が purpose を adopt/undo に限っていたため revert を追加（テストで発見）。
+- 検証: `cargo test --lib` 全件、追加テスト（反映の積み外し・欠けた記録の復元・書込みの往復と競合拒否）、type-check・build成功。実機未確認: 実際の反映→戻す→再反映、反映後に元を変えたときの拒否表示。
