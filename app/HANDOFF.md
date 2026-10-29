@@ -118,3 +118,8 @@
 - 迷子防止: 「プレビュー」見出しの右に「元は未変更／反映済み」。空状態は4つの手順（開く→選ぶ→依頼→反映）を小さな丸数字で。
 - 検証: type-check・build、`cargo test --lib` 全1573件成功。静的ページでライト/ダークを800x450で撮影確認。実機（ネイティブWebView・Alt+矢印・IME）は未確認。
 - 未着手（実機で見てから）: 「元／変更後」の切替表示、AI作業中の中断・完了バッジのバー内表示。
+
+## 2026-10-29 リリースビルド（静かなUI整理を含む）
+- 対象: feature/visual-editor 8f6d322。`npm.cmd run tauri -- build --bundles nsis`、終了0。
+- app/src-tauri/target/release/bundle/nsis/AgentDock_0.0.1_x64-setup.exe、7367698 bytes、SHA-256 D6900D43CC9D2DA98ECFE644895E7C4999A4EE4FC9ADCBDDEBAED947396602F6。インストールはしていない。未push。
+- 実機未確認: 上の各節の実機未確認項目（アイコン化したツールバー、提案チップ、Alt+矢印、作業中の輪、反映を戻す、引き継ぎ・戻り導線）。
