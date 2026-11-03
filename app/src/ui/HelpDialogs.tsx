@@ -73,7 +73,7 @@ export function AboutBody({ source, live }: { source: SourceInfo | undefined; li
   }, [live]);
   const v = source?.version;
   const codex = !source ? "接続していません（取得できません）"
-    : v?.kind === "match" ? v.version
+    : v?.kind === "match" || v?.kind === "checked" ? v.version
       : v?.kind === "mismatch" ? `${v.actual}（対象版は ${v.expected}）`
         : `取得できません${v?.kind === "unknown" ? `（${v.message}）` : ""}`;
   return (

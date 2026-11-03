@@ -282,7 +282,7 @@ export function makeBundle(name: string): Bundle {
     s.queues[0].run = { kind: "stopped", cause: { kind: "descendantFailed", agent: ak("a3") }, at: ago(20) };
   }
   if (name === "launch") {
-    s.sources = [source({ kind: "launchFailed", reason: "notFound", message: "指定のパスに codex.exe がありません: C:\\Tools\\codex\\codex.exe" }, { kind: "mismatch", expected: "0.162.1", actual: "0.161.0" })];
+    s.sources = [source({ kind: "launchFailed", reason: "notFound", message: "指定のパスに codex.exe がありません: C:\\Tools\\codex\\codex.exe" }, { kind: "mismatch", expected: "0.162.1", actual: "0.161.0", direction: "newer" })];
     s.agents.forEach((v) => {
       v.freshness = "disconnected";
       if (v.status.state === "running" || v.status.state === "waiting") v.status = status("unknown", "disconnected", 10); // 通信断をdone/failedにしない

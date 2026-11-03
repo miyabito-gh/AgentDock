@@ -1261,3 +1261,9 @@ button.uchip:hover{background:var(--accent-weak)}
 .conn-bar::before{content:"";position:absolute;top:0;bottom:0;width:30%;background:linear-gradient(90deg,transparent,var(--run),transparent);animation:connSlide 1.3s ease-in-out infinite}
 @keyframes connSlide{from{left:-30%}to{left:100%}}
 @media (prefers-reduced-motion:reduce){.conn.wait .conn-dot{animation:none}.conn-bar::before{animation:none;left:0;width:100%;opacity:.5}}
+/* 版の状態の小さな記号（確認済みは出さない）。琥珀＝未確認の新しい版・比べられない版、灰＝古い版 */
+.vmark{margin-left:5px;font-size:9px;line-height:1;vertical-align:1px}
+.vmark.warn{color:#B26A00}
+.vmark.mute{color:var(--ink3)}
+:root[data-theme="dark"] .vmark.warn{color:#F0B35A}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .vmark.warn{color:#F0B35A}}

@@ -158,7 +158,8 @@ pub fn version_check_kind(v: &crate::backend::model::VersionCheck) -> String {
     use crate::backend::model::VersionCheck as V;
     match v {
         V::Match { version } => format!("match({version})"),
-        V::Mismatch { actual, .. } => format!("mismatch({})", actual.chars().take(24).collect::<String>()),
+        V::Checked { version, basis } => format!("checked({version},{basis})"),
+        V::Mismatch { actual, direction, .. } => format!("mismatch({},{direction})", actual.chars().take(24).collect::<String>()),
         V::Unknown { .. } => "unknown".into(),
     }
 }

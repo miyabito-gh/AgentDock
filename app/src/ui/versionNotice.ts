@@ -4,7 +4,7 @@
 export const UNKNOWN_VERSION_KEY = "unknown";
 
 type Conn = { kind: string };
-type Ver = { kind: "match"; version: string } | { kind: "mismatch"; expected: string; actual: string } | { kind: "unknown"; message: string };
+type Ver = { kind: "match"; version: string } | { kind: "checked"; version: string; basis: string } | { kind: "mismatch"; expected: string; actual: string; direction?: string } | { kind: "unknown"; message: string };
 
 /** 閉じられる版の注意の識別子。版が一致（注意なし）なら null。版不明は専用の値。 */
 export function versionNoticeKey(version: Ver): string | null {
@@ -33,10 +33,10 @@ export function globalBannerView(c: { kind: string; message?: string | null }, v
     return { text: `Codex との接続が切れています${c.message ? `（${c.message}）` : ""}。表示は最後に受信した内容のままで、完了や失敗を意味しません。`, cls: "err", role: "alert" };
   }
   if (version.kind === "mismatch") {
-    return { text: `Codex の版が対象と異なります（動作は続けますが、一部が正しく動かない可能性があります）。使用中 ${version.actual}／対象 ${version.expected}`, cls: "warn", role: "status" };
+    return { text: `Codex ${version.actual} は未確認の版です（動作は続けますが、一部が動かない可能性があります）。`, cls: "warn", role: "status" };
   }
   if (version.kind === "unknown") {
-    return { text: `Codex の版を確認できません（動作は続けますが、一部が正しく動かない可能性があります）。${version.message}`, cls: "warn", role: "status" };
+    return { text: "Codex の版を確認できません（動作は続けますが、一部が動かない可能性があります）。", cls: "warn", role: "status" };
   }
   return null;
 }

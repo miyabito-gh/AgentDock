@@ -336,8 +336,12 @@ pub enum LaunchFailure {
 #[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum VersionCheck {
+    /// 対象版と一致。
     Match { version: String },
-    Mismatch { expected: String, actual: String },
+    /// 確認済みの版（対象版ではないが、確認の記録がある）。basis は "live"（実Codexで確認）か "schema"（スキーマ差分で後方互換を確認。実機は未確認）。
+    Checked { version: String, basis: String },
+    /// 未確認の版。direction は "newer"（対象より新しい）／"older"（古い）／"unknown"（比べられない）。
+    Mismatch { expected: String, actual: String, direction: String },
     Unknown { message: String },
 }
 

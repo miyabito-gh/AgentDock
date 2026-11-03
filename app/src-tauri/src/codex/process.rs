@@ -20,6 +20,9 @@ use tokio::sync::mpsc;
 /// initialize の clientInfo.name。App Serverはこの名前を thread の `source`（`{"custom": name}`）に記録する。
 pub const CLIENT_NAME: &str = "agentdock";
 pub const TARGET_VERSION: &str = "0.162.1";
+/// 確認済みの版（対象版以外）。basis="live" は実Codexで確認、"schema" は `probes/app-server/schema-diff.mjs` のスキーマ差分で後方互換を確認（実機は未確認）。
+/// 古い版の行は消さない（下位互換を残す）。新しい版は、差分レポートと使用箇所の確認のあとで足す。
+pub const CHECKED_VERSIONS: &[(&str, &str)] = &[("0.160.0", "live"), ("0.163.0", "schema"), ("0.166.0", "schema")];
 const STDERR_KEEP_LINES: usize = 500;
 const VERSION_TIMEOUT: Duration = Duration::from_secs(10);
 const INIT_TIMEOUT: Duration = Duration::from_secs(30);
@@ -66,12 +69,26 @@ pub fn parse_version(output: &str) -> Option<String> {
         .map(|t| t.to_string())
 }
 
+/// 版の新旧（x.y.z の数値部分で比べる。接尾辞は無視）。比べられなければ "unknown"。
+fn compare_versions(actual: &str, expected: &str) -> &'static str {
+    let core = |s: &str| -> Option<Vec<u64>> { s.split('-').next()?.split('.').map(|p| p.parse::<u64>().ok()).collect() };
+    match (core(actual), core(expected)) {
+        (Some(a), Some(e)) if a > e => "newer",
+        (Some(a), Some(e)) if a < e => "older",
+        (Some(_), Some(_)) => "unknown",
+        _ => "unknown",
+    }
+}
+
 /// 版を判定する。取得できなければ `Unknown`（`Match`にしない）。`expected`が空なら[`TARGET_VERSION`]。
 pub fn classify_version(output: &str, expected: Option<&str>) -> VersionCheck {
     let expected = expected.unwrap_or(TARGET_VERSION);
     match parse_version(output) {
         Some(v) if v == expected => VersionCheck::Match { version: v },
-        Some(v) => VersionCheck::Mismatch { expected: expected.to_string(), actual: v },
+        Some(v) => match CHECKED_VERSIONS.iter().find(|(c, _)| *c == v) {
+            Some((_, basis)) => VersionCheck::Checked { version: v, basis: (*basis).to_string() },
+            None => { let direction = compare_versions(&v, expected).to_string(); VersionCheck::Mismatch { expected: expected.to_string(), actual: v, direction } }
+        },
         None => VersionCheck::Unknown { message: format!("cannot parse version from {:?}", output.trim()) },
     }
 }
@@ -221,7 +238,11 @@ mod tests {
     #[test]
     fn classifies_version() {
         assert!(matches!(classify_version("codex-cli 0.162.1", None), VersionCheck::Match { .. }));
-        assert!(matches!(classify_version("codex-cli 0.159.0-alpha.3", None), VersionCheck::Mismatch { .. }));
+        assert!(matches!(classify_version("codex-cli 0.159.0-alpha.3", None), VersionCheck::Mismatch { ref direction, .. } if direction == "older"));
+        assert!(matches!(classify_version("codex-cli 0.170.0", None), VersionCheck::Mismatch { ref direction, .. } if direction == "newer"));
+        // 確認済みの版は、対象版でなくても注意にしない（古い確認の行も残す）。
+        assert!(matches!(classify_version("codex-cli 0.163.0", None), VersionCheck::Checked { ref basis, .. } if basis == "schema"));
+        assert!(matches!(classify_version("codex-cli 0.160.0", None), VersionCheck::Checked { ref basis, .. } if basis == "live"));
         assert!(matches!(classify_version("", None), VersionCheck::Unknown { .. }));
     }
 }

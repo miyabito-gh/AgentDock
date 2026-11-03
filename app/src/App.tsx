@@ -573,10 +573,18 @@ export default function App() {
     : !src || src.connection.kind !== "connected" ? { state: "wait", label: "接続中…", title: "Codexに接続しています。完了するまで、会話の操作はできません" }
     : booting ? { state: "wait", label: "読み込み中…", title: "会話の一覧とモデルを読み込んでいます" }
     : { state: "ok", label: "", title: "Codexに接続済みです" };
+  // 版の状態は、文字でなく小さな記号で示す（確認済みは何も付けない。詳しい説明はツールチップ）。
+  const versionMark: { glyph: string; tone: "warn" | "mute" | "ok"; title: string } | null = !live ? null
+    : v?.kind === "mismatch" ? (v.direction === "newer" ? { glyph: "▲", tone: "warn", title: `未確認の新しい版です（対象 ${v.expected}）。一部が動かない可能性があります` }
+      : v.direction === "older" ? { glyph: "▼", tone: "mute", title: `対象より古い版です（対象 ${v.expected}）。一部が動かない可能性があります` }
+      : { glyph: "?", tone: "warn", title: "対象版と比べられない版です。一部が動かない可能性があります" })
+    : v?.kind === "unknown" ? { glyph: "?", tone: "warn", title: "Codexの版を確認できません" }
+    : v?.kind === "checked" ? { glyph: "", tone: "ok", title: v.basis === "live" ? "確認済みの版です（実Codexで確認）" : "確認済みの版です（スキーマ差分で後方互換を確認し、起動・読み取りの試験に合格。送信を含む実機確認はこれから）" }
+    : null;
   const modeTag = !live ? "モック（仮データ）"
     : !src ? "Codex 未接続"
-    : v?.kind === "match" ? `Codex ${v.version}`
-    : v?.kind === "mismatch" ? `Codex ${v.actual}（対象版外）`
+    : v?.kind === "match" || v?.kind === "checked" ? `Codex ${v.version}`
+    : v?.kind === "mismatch" ? `Codex ${v.actual}`
     : "Codex 版を確認できません";
 
   const selectChat = (id: string | null) => {
@@ -1839,7 +1847,7 @@ ${cur}` : p.text);
       <div className="window" role="application" aria-label="AgentDock" onClick={() => { if (menu) setMenu(null); if (mockOpen) setMockOpen(false); }}>
         {connUi?.state === "wait" ? <div className="conn-bar" aria-hidden="true" /> : null}
         <div className="visual-appbar">
-          <MenuBar open={menu} setOpen={setMenuOpen} views={cmdViews} onAct={act} tag={modeTag} live={live} conn={connUi} />
+          <MenuBar open={menu} setOpen={setMenuOpen} views={cmdViews} onAct={act} tag={modeTag} tagMark={versionMark} live={live} conn={connUi} />
           <button type="button" className="btn sm visual-entry" aria-pressed={visualShown} onClick={() => {
             setVisualMode(!visualShown); setOrgScreen(false); setQuick((q) => ({ ...q, open: false })); setRNarrow(false);
             if (!visualShown && visualEditChatId && visualEditChatId !== selId) { setSelId(visualEditChatId); if (live) void loadChat(visualEditChatId); }

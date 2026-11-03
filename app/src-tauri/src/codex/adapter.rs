@@ -754,6 +754,7 @@ impl AiBackend for CodexBackend {
         );
         let actual_version = match &version {
             VersionCheck::Match { version } => Some(version.as_str()),
+            VersionCheck::Checked { version, .. } => Some(version.as_str()),
             VersionCheck::Mismatch { actual, .. } => Some(actual.as_str()),
             VersionCheck::Unknown { .. } => None,
         };

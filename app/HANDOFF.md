@@ -135,3 +135,12 @@
 - 実装: メニューバー右端（版タグの左）に、点と短い文字で常時表示。接続中…（青・脈動、Codexの接続が始まる前〜接続完了まで）／読み込み中…（青・脈動、接続後の会話一覧・モデル読込の間）／接続済み（緑の点のみ。文字はスクリーンリーダー用）／接続できません・起動できません・切断されました（赤）。接続中・読み込み中は、ウィンドウ最上部に細い進行線も出る。「視覚効果を減らす」では動きを止める。ツールチップに詳しい説明。
 - 実装箇所: App.tsx（`booting` 状態、`connUi` の導出、`boot` を前後で印を付ける形に）、ui/Chrome.tsx（`ConnUi`、MenuBarの `conn`）、styles.css。接続の状態は `SourceInfo.connection`（notStarted/starting/connected/launchFailed/disconnected）から導く。
 - 確認: type-check・build成功。静的ページで4状態を撮影確認。実機（起動直後の遷移・エラー時）は未確認。
+
+## 2026-11-03 Codexの版の扱い（下位互換を残したまま新しい版へ）と最新版の調査（実装済み・自動検証済み）
+- 最新の安定版は 0.166.0（2026-10-29）。0.163.0→0.166.0 の差は、安定版は `feedback/save` の追加のみ。深い比較で見つかった互換を壊しうる変更は2件（`ReviewDelivery` の `detached` 削除、`ThreadItem`(imageGeneration) の `result` 削除）だが、AgentDockは review を常に `inline` で送り、imageGeneration は `status` だけ読むため影響なし。詳細は probes/app-server/schema/0.166.0/DIFF-from-0.163.0.md。
+- 新ツール: `probes/app-server/schema-diff.mjs <旧> <新> [--write-methods]`（メソッド・型・深い比較・AgentDockの使用メソッドへの影響）、`probes/app-server/handshake-smoke.mjs <exe>`（隔離した空のCODEX_HOMEで initialize／thread/list／skills/list／model/list を確認。ログイン・推論なし。config.toml不変を確認）。0.166.0と0.163.0の両方で合格、応答の形も同じ。
+- 版の判定を3段階に: 対象版（一致）／確認済みの版（`CHECKED_VERSIONS`: 0.160.0=live、0.163.0・0.166.0=schema）／未確認（新しい▲・古い▼・比べられない?）。確認済みの版では全体バナーを出さない。古い版の行は残す（下位互換）。新しい版は、差分レポートと使用箇所の確認のあとで足す。
+- 表示: メニューバー右端のタグは「Codex x.y.z」と小さな記号のみ（確認済みは記号なし、日本語の説明はツールチップと設定）。全体バナーは未確認の版・版不明のときだけ、短い文言。
+- 実装: backend/model.rs（`VersionCheck::Checked`、`Mismatch.direction`）、codex/process.rs（`CHECKED_VERSIONS`、`compare_versions`）、diag.rs、adapter.rs、App.tsx・ui/Chrome.tsx・versionNotice.ts・Dialogs/HelpDialogs・styles.css。`cargo test --lib` 全1573件、`node --test versionNotice.test.ts`、type-check・build成功。
+- Codexの更新: npmのグローバルを 0.162.1→0.166.0 に更新（利用者の許可済み）。PATH先頭の `Programs\OpenAI\Codex\bin\codex.exe`（デスクトップ版）は 0.163.0 のまま。AgentDockで0.166.0を使うには、設定のcodex.exeの場所を `C:\Users\wmasa\AppData\Roaming\npm\codex.cmd` 側（実体は @openai\codex-win32-x64\vendor\...\codex.exe）に向ける。
+- 残り: 0.166.0での送信・承認を含む実機確認（済んだら CHECKED_VERSIONS の basis を "live" にする）。操作ごとの確認表（parity_table）は 0.160.0 のみ。互換と確認した版への引き継ぎは未実装。0.164〜0.166の新機能（会話中の推論変更、thread/items/list 等）の取り込みは未着手。

@@ -3,4 +3,4 @@
 /**
  * 版確認の結果（§3.1）。対象版以外は警告だが接続は止めない設計。
  */
-export type VersionCheck = { "kind": "match", version: string, } | { "kind": "mismatch", expected: string, actual: string, } | { "kind": "unknown", message: string, };
+export type VersionCheck = { "kind": "match", version: string, } | { "kind": "checked", version: string, basis: string, } | { "kind": "mismatch", expected: string, actual: string, direction: string, } | { "kind": "unknown", message: string, };
