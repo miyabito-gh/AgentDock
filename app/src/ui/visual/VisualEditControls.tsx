@@ -183,7 +183,7 @@ export function VisualEditControls({ originName, onReturnToOrigin, enabled, chat
       const result = await diffVisualEdit(expectedId, path, expectedRevision);
       if (currentId.current === expectedId && revision.current === expectedRevision && result.path === path) setDiff(result);
     } catch (e) {
-      if (currentId.current === expectedId) setError("差分を読めませんでした: " + messageOf(e));
+      if (currentId.current === expectedId) setError("変更内容を読めませんでした: " + messageOf(e));
       if (!opened) onAfterDiff();
     } finally { setDiffBusy(false); }
   };

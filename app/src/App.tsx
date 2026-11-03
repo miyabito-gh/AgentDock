@@ -1780,7 +1780,9 @@ ${cur}` : p.text);
   /** 編集用コピー絡みの会話の案内。作業中（Visual Editorを閉じているとき）と、編集を終えたが元の作業場所へ戻す送信がまだのとき。 */
   /** 編集用コピーに紐付いたままの会話を切り離す（終えられないときの出口）。確認のうえ。コピーも元のフォルダも変更・削除しない。 */
   const releaseFromEdit = async (c: Chat) => {
-    const lines = ["編集を中断します。", "・元のファイルは変わりません。編集用コピーも消しません。", "・AIが作業中だと、コピーが書き換わる場合があります。", "・次にメッセージを送ると、元の作業フォルダに戻ります。", "中断しますか？"];
+    // 未反映の変更の件数（編集の記録から読み取るだけ）。読めなければ件数なしで確認する。
+    const unreflected = await listVisualEdits().then((all) => all.find((s) => s.chat.id === c.key.id && !s.ended)?.changes.filter((x) => x.change !== null).length ?? 0, () => 0);
+    const lines = [unreflected ? `反映していない変更が${unreflected}件あります。中断すると、元のファイルには入りません（先に「元に反映」できます）。` : "編集を中断します。", "・元のファイルは変わりません。編集用コピーも消しません。", "・AIが作業中だと、コピーが書き換わる場合があります。", "・次にメッセージを送ると、元の作業フォルダに戻ります。", "中断しますか？"];
     if (!window.confirm(lines.join("\n"))) return;
     try {
       const released = await releaseVisualChat(c.key);
