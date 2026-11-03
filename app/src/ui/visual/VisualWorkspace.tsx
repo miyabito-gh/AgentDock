@@ -16,8 +16,16 @@ function overlayOpen(): boolean {
     .some((node) => node.getClientRects().length > 0 && getComputedStyle(node).visibility !== "hidden");
 }
 
-export function VisualWorkspace({ enabled, blocked, chatId, onSendInstruction, currentChat, onContext, onChip, onEnded, onDiscarded, openRequest, onNotice, onOpenEditChat, onLeaveEditChat, onKnownEditChats, originName, onReturnToOrigin, children }: {
-  enabled: boolean; blocked: boolean; chatName: string | null; chatId: string | null; onSendInstruction: (text: string) => Promise<string | null>; currentChat: ChatKey | null; onEnded: (id: string) => void; onDiscarded: (chatId: string, mode: "dedicated" | "current") => void;
+/** AIへ伝える、元のファイルへの反映の状態（反映は利用者がボタンで行う操作で、AIは知らないため）。 */
+function reflectedState(edit: VisualEditSession): string {
+  const n = edit.changes.filter((x) => x.change !== null).length;
+  if (edit.adopted) return n ? `前回までは反映済み。その後の変更${n}件は未反映` : "最新の内容まで反映済み";
+  if (edit.lastOperation?.kind === "revert" && edit.lastOperation.outcome === "applied") return `反映を元に戻しました（元のファイルは反映前の状態）${n ? `。変更${n}件は未反映` : ""}`;
+  return n ? `まだ反映していません（変更${n}件）` : "変更なし";
+}
+
+export function VisualWorkspace({ enabled, blocked, chatId, onSendInstruction, currentChat, onContext, onChip, onEnded, onDiscarded, onAdopted, openRequest, onNotice, onOpenEditChat, onLeaveEditChat, onKnownEditChats, originName, onReturnToOrigin, children }: {
+  enabled: boolean; blocked: boolean; chatName: string | null; chatId: string | null; onSendInstruction: (text: string) => Promise<string | null>; currentChat: ChatKey | null; onEnded: (id: string) => void; onAdopted: (session: VisualEditSession, paths: string[]) => void; onDiscarded: (chatId: string, mode: "dedicated" | "current") => void;
   onOpenEditChat: (id: string) => void; onLeaveEditChat: () => void; originName: string | null; onReturnToOrigin: (() => void) | null; onKnownEditChats: (ids: string[], dedicated: string[]) => void;
   onContext: (ctx: VisualContext | null) => void; onChip: (chip: { count: number; label: string; onClear: () => void } | null) => void; openRequest: { path: string; nonce: number } | null; onNotice: (message: string) => void; children: ReactNode;
 }) {
@@ -325,7 +333,7 @@ export function VisualWorkspace({ enabled, blocked, chatId, onSendInstruction, c
       .catch((failure) => { if (alive.current) setError("HTMLを開けませんでした: " + messageOf(failure)); });
   }, [enabled, desktop, openRequest?.nonce]);
   // 編集チャットへの送信に、選択範囲と編集方針を自動で添える（入力欄は書き換えない）。
-  const visualCtx = enabled && edit && chatId === edit.chat.id ? visualSendContext(edit.htmlPath, selection, edit.scope, edit.adopted ? (edit.changes.some((x) => x.change !== null) ? `前回までは反映済み。その後の変更${edit.changes.filter((x) => x.change !== null).length}件は未反映` : "最新の内容まで反映済み") : (edit.changes.some((x) => x.change !== null) ? `まだ反映していません（変更${edit.changes.filter((x) => x.change !== null).length}件）` : "変更なし")) : null;
+  const visualCtx = enabled && edit && chatId === edit.chat.id ? visualSendContext(edit.htmlPath, selection, edit.scope, reflectedState(edit)) : null;
   const ctxSel = visualCtx?.sel ?? null, ctxFixed = visualCtx?.fixed ?? null;
   useEffect(() => { onContextRef.current(ctxSel !== null && ctxFixed !== null ? { sel: ctxSel, fixed: ctxFixed } : null); }, [ctxSel, ctxFixed]);
   useEffect(() => () => onContextRef.current(null), []);
@@ -373,7 +381,7 @@ export function VisualWorkspace({ enabled, blocked, chatId, onSendInstruction, c
       <section className="vp-card vp-edit" aria-label="編集">
         {edit ? null : <header className="vp-head"><strong>編集</strong><span className="vp-sub">未開始</span></header>}
         <div className="vp-body">
-          <VisualEditControls originName={originName} onReturnToOrigin={onReturnToOrigin} enabled={enabled && desktop} chatId={chatId} currentChat={currentChat} onEnded={async (id) => { try { await leaveEdit(); } finally { onEnded(id); } }} onCloseDraftPreview={closeDraftPreview} onDiscarded={onDiscarded} preview={session} session={edit} onBind={bindEdit} onUpdate={updateEdit} onLeave={leaveEdit} onBeforeDiff={beforeDiff} onAfterDiff={afterDiff} onKnownEditChats={onKnownEditChats} onNotice={onNotice} />
+          <VisualEditControls onAdopted={onAdopted} originName={originName} onReturnToOrigin={onReturnToOrigin} enabled={enabled && desktop} chatId={chatId} currentChat={currentChat} onEnded={async (id) => { try { await leaveEdit(); } finally { onEnded(id); } }} onCloseDraftPreview={closeDraftPreview} onDiscarded={onDiscarded} preview={session} session={edit} onBind={bindEdit} onUpdate={updateEdit} onLeave={leaveEdit} onBeforeDiff={beforeDiff} onAfterDiff={afterDiff} onKnownEditChats={onKnownEditChats} onNotice={onNotice} />
           {error ? <p className="visual-error" role="alert">{error}</p> : null}
           {closeUnconfirmed ? <button type="button" className="btn-line sm" disabled={busy} onClick={() => void retryClose()}>閉じるを再試行</button> : null}
         </div>

@@ -60,10 +60,16 @@ import { pushRecent } from "./ui/skillPick";
 import { SendKeyContext } from "./ui/SendKeyContext";
 import { applyAppearance, watchSystemTheme } from "./ui/appearance";
 import { VisualWorkspace } from "./ui/visual/VisualWorkspace";
-import { VISUAL_CONTEXT_MARK, friendlyVisualError, listVisualEdits, previewAvailable, releaseVisualChat, type VisualContext } from "./ui/visual/api";
+import { VISUAL_CONTEXT_MARK, friendlyVisualError, listVisualEdits, previewAvailable, releaseVisualChat, type VisualContext, type VisualEditSession } from "./ui/visual/api";
 
 type Mode = "live" | "mock";
 const EXE_KEY = "agentdock.codexExe";
+const NL = String.fromCharCode(10);
+/** 次の送信へ一度だけ添える状況の説明（編集の終了・別の会話での反映）。再起動しても消えないよう、この端末に覚える。 */
+const NOTES_KEY = "agentdock.visualNotes";
+interface NoteBag { end?: string; peers?: string[] }
+const readNotes = (): Record<string, NoteBag> => { try { const v = JSON.parse(window.localStorage.getItem(NOTES_KEY) ?? "{}"); return v && typeof v === "object" ? v : {}; } catch { return {}; } };
+const writeNotes = (n: Record<string, NoteBag>) => { try { window.localStorage.setItem(NOTES_KEY, JSON.stringify(n)); } catch { /* 保存できなくても動く */ } };
 /** 編集用の会話 → 編集を始めたときの元の会話（再起動しても戻れるよう、この端末に覚える）。 */
 const ORIGIN_KEY = "agentdock.visualOrigins";
 const readOrigins = (): Record<string, string> => { try { const v = JSON.parse(window.localStorage.getItem(ORIGIN_KEY) ?? "{}"); return v && typeof v === "object" ? v : {}; } catch { return {}; } };
@@ -117,7 +123,12 @@ export default function App() {
   /** 会話ごとに、送信済みの固定方針（同じ内容は一度だけ送る）。受理を確認できたときだけ控える。 */
   const visualFixedSent = useRef<Record<string, string>>({});
   /** 編集を終えた会話ごとに、次の送信へ一度だけ添える状況の説明（受理を確認できたら消す）。 */
-  const visualEndNotes = useRef<Record<string, string>>({});
+  const visualNotes = useRef<Record<string, NoteBag>>(readNotes());
+  const addEndNote = (id: string, text: string) => { visualNotes.current[id] = { ...visualNotes.current[id], end: text }; writeNotes(visualNotes.current); };
+  const clearEndNote = (id: string) => { const bag = visualNotes.current[id]; if (!bag?.end) return; delete bag.end; if (!bag.peers?.length) delete visualNotes.current[id]; writeNotes(visualNotes.current); };
+  const addPeerNote = (id: string, text: string) => { const bag = visualNotes.current[id] ?? {}; visualNotes.current[id] = { ...bag, peers: (bag.peers ?? []).filter((p) => p !== text).concat(text).slice(-5) }; writeNotes(visualNotes.current); };
+  const takeNotes = (id: string): string => { const bag = visualNotes.current[id]; const parts = [...(bag?.end ? [bag.end] : []), ...(bag?.peers ?? [])]; return parts.length ? [VISUAL_CONTEXT_MARK, ...parts].join(NL) : ""; };
+  const dropNotes = (id: string) => { if (!(id in visualNotes.current)) return; delete visualNotes.current[id]; writeNotes(visualNotes.current); };
   const [visualDedicatedIds, setVisualDedicatedIds] = useState<Set<string>>(() => new Set());
   const [visualW, setVisualW] = useState<number | null>(() => { try { const v = Number(window.localStorage.getItem("agentdock.visualPaneWidth")); return Number.isFinite(v) && v > 0 ? v : null; } catch { return null; } });
   const [visualChip, setVisualChip] = useState<{ count: number; label: string; onClear: () => void } | null>(null);
@@ -749,10 +760,11 @@ export default function App() {
     // 固定の方針は、会話で内容が変わるまで一度だけ送る（毎回の発言を汚さない）。受理を確認できたときだけ控える。
     const sendFixed = useCtx && visualFixedSent.current[chat.key.id] !== visualCtx.fixed;
     // 編集を終えた直後の最初の送信には、状況の変化（作業フォルダが元に戻った・反映の有無）を一度だけ添える。AIは前の編集の案内（コピーで作業中）を覚えているため。
-    const endNote = !useCtx && !text.includes(VISUAL_CONTEXT_MARK) ? visualEndNotes.current[chat.key.id] : undefined;
-    const withContext = useCtx ? `${text}\n\n${visualCtx.sel}${sendFixed ? `\n${visualCtx.fixed}` : ""}` : endNote ? `${text}\n\n${endNote}` : text;
+    // 編集中の会話に通常画面から送るときは付けない（まだコピーで作業中のため、終了の説明は誤りになる）。別の会話での反映の説明は、元の会話の次の送信に付く。
+    const notes = !useCtx && !text.includes(VISUAL_CONTEXT_MARK) && !visualBoundChatIds.has(chat.key.id) ? takeNotes(chat.key.id) : "";
+    const withContext = useCtx ? `${text}\n\n${visualCtx.sel}${sendFixed ? `\n${visualCtx.fixed}` : ""}` : notes ? `${text}\n\n${notes}` : text;
     const fixed = visualCtx?.fixed ?? "", chatKeyId = chat.key.id;
-    const onAccepted = sendFixed || endNote ? () => { if (sendFixed) visualFixedSent.current[chatKeyId] = fixed; if (endNote) delete visualEndNotes.current[chatKeyId]; } : undefined;
+    const onAccepted = sendFixed || notes ? () => { if (sendFixed) visualFixedSent.current[chatKeyId] = fixed; if (notes) dropNotes(chatKeyId); } : undefined;
     return sendTo(chat, withContext, visualBoundChatIds.has(chat.key.id) && isRunning(snap, chat) ? true : steer, attachments, onAccepted);
   };
 
@@ -1788,6 +1800,7 @@ ${cur}` : p.text);
     if (!window.confirm(lines.join("\n"))) return;
     try {
       const released = await releaseVisualChat(c.key);
+      if (released) addEndNote(c.key.id, ["Visual Editorでの編集を中断しました。この会話の作業フォルダは、元のフォルダに戻っています（編集用コピーでは作業しません）。", unreflected ? `編集用コピーの変更${unreflected}件は、元のファイルには入っていません。` : "元のファイルは変わっていません。"].join(NL));
       setVisualBoundChatIds((old) => { const next = new Set(old); next.delete(c.key.id); return next; });
       say(released ? "編集を中断しました。次にメッセージを送ると、元の作業フォルダに戻ります。" : "この会話は、編集中ではありませんでした。", 6000);
     } catch (e) { sayErr("中断できませんでした", e); }
@@ -1800,7 +1813,21 @@ ${cur}` : p.text);
     if (!s) return;
     const n = s.changes.filter((x) => x.change !== null).length;
     const state = s.adopted ? "編集の内容は、元のファイルに反映済みです。" : n ? `編集用コピーの変更${n}件は、元のファイルにはまだ反映されていません。` : "元のファイルは変わっていません。";
-    visualEndNotes.current[chatId] = [VISUAL_CONTEXT_MARK, "Visual Editorでの編集は終了しました。この会話の作業フォルダは、元のフォルダに戻っています（編集用コピーでは作業しません）。", state].join("\n");
+    addEndNote(chatId, ["Visual Editorでの編集は終了しました。この会話の作業フォルダは、元のフォルダに戻っています（編集用コピーでは作業しません）。", state].join(NL));
+  };
+  /** 破棄した編集の、戻り先と終了メモの記憶を片付ける（この端末の記憶だけ。会話や保存領域は消さない）。 */
+  const forgetEdit = (id: string) => {
+    clearEndNote(id);
+    setVisualOrigins((m) => { if (!(id in m)) return m; const n = { ...m }; delete n[id]; try { window.localStorage.setItem(ORIGIN_KEY, JSON.stringify(n)); } catch { /* 保存できなくても動く */ } return n; });
+  };
+  /** 別の会話での編集を元のフォルダへ反映したとき、元の会話の次の送信へ、状況を一度だけ添える（元の会話のAIは、変更を知らないため）。 */
+  const onAdopted = (s: VisualEditSession, paths: string[]) => {
+    const editId = s.chat.id;
+    const originId = visualOrigins[editId] ?? (editId === visualEditChatId ? visualOriginId : null);
+    if (!originId || originId === editId) return;
+    const editChat = snap.chats.find((c) => c.key.id === editId);
+    const files = paths.length ? `（${paths.slice(0, 5).join("、")}${paths.length > 5 ? " ほか" : ""}）` : "";
+    addPeerNote(originId, `別の会話「${editChat ? chatName(editChat) : "編集用の会話"}」で、Visual Editorの編集が元のフォルダに反映されました${files}。この会話で作業する前に、対象のファイルを必ず読み直してください。以前の内容のまま、全文を書き換えないでください。`);
   };
   const rememberOrigin = (editId: string) => {
     const origin = selId && selId !== editId && !visualDedicatedIds.has(selId) ? selId : null;
@@ -1921,14 +1948,15 @@ ${cur}` : p.text);
             <VisualWorkspace key={mode} enabled={visualShown}
               blocked={!!dialog || !!menu || palette || mockOpen || !!(sideId && sideShown) || lNarrow || rNarrow || dragging}
               chatName={chat ? chatName(chat) : null} chatId={chat?.key.id ?? null} onSendInstruction={sendInstruction}
-              onOpenEditChat={(id) => { rememberOrigin(id); setVisualOriginId((o) => (selId && selId !== id && !visualDedicatedIds.has(selId) ? selId : o)); setVisualEditChatId(id); setVisualBoundChatIds((ids) => new Set(ids).add(id)); setSelId(id); setOrgScreen(false); setQuick((q) => ({ ...q, open: false })); if (live) void loadChat(id); }}
+              onOpenEditChat={(id) => { rememberOrigin(id); clearEndNote(id); setVisualOriginId((o) => (selId && selId !== id && !visualDedicatedIds.has(selId) ? selId : o)); setVisualEditChatId(id); setVisualBoundChatIds((ids) => new Set(ids).add(id)); setSelId(id); setOrgScreen(false); setQuick((q) => ({ ...q, open: false })); if (live) void loadChat(id); }}
               onLeaveEditChat={() => setVisualEditChatId(null)}
               originName={visualOriginChat ? chatName(visualOriginChat) : null}
               onReturnToOrigin={visualOriginChat ? () => { const id = visualOriginChat.key.id; setVisualOriginId(null); selectChat(id); say("元の会話に戻りました。編集は保存されています（Visual Editorの「詳細」から続けられます）。", 6000); } : null}
               onKnownEditChats={(ids, dedicated) => { setVisualBoundChatIds((old) => new Set([...old, ...ids])); setVisualDedicatedIds((old) => new Set([...old, ...dedicated])); }}
               currentChat={chat && chat.key.backend === "codex" && !visualBoundChatIds.has(chat.key.id) ? chat.key : null}
+              onAdopted={onAdopted}
               onEnded={(id) => { setVisualBoundChatIds((old) => { const next = new Set(old); next.delete(id); return next; }); void rememberEndNote(id); }}
-              onDiscarded={(id, mode) => { if (mode === "dedicated") setVisualDedicatedIds((old) => { const next = new Set(old); next.delete(id); return next; }); setVisualBoundChatIds((old) => { const next = new Set(old); next.delete(id); return next; }); }}
+              onDiscarded={(id, mode) => { forgetEdit(id); if (mode === "dedicated") setVisualDedicatedIds((old) => { const next = new Set(old); next.delete(id); return next; }); setVisualBoundChatIds((old) => { const next = new Set(old); next.delete(id); return next; }); }}
               onContext={setVisualCtx} onChip={setVisualChip} openRequest={visualOpen}
               onNotice={say}>
             {orgScreen ? (

@@ -50,8 +50,8 @@ const phaseLabel = (phase: string) => ({
   runningOrReconciling: "実行・停止を確認中", changes: "変更を確認", rejected: "要確認",
 } as Record<string, string>)[phase] ?? "状態: " + phase;
 
-export function VisualEditControls({ originName, onReturnToOrigin, enabled, chatId, currentChat, onEnded, onCloseDraftPreview, onDiscarded, preview, session, onBind, onUpdate, onLeave, onBeforeDiff, onAfterDiff, onKnownEditChats, onNotice }: {
-  originName: string | null; onReturnToOrigin: (() => void) | null; enabled: boolean; chatId: string | null; currentChat: ChatKey | null; onEnded: (id: string) => Promise<void>; onCloseDraftPreview: (draftRoot: string) => Promise<void>; onDiscarded: (chatId: string, mode: "dedicated" | "current") => void; preview: PreviewSession | null; session: VisualEditSession | null;
+export function VisualEditControls({ onAdopted, originName, onReturnToOrigin, enabled, chatId, currentChat, onEnded, onCloseDraftPreview, onDiscarded, preview, session, onBind, onUpdate, onLeave, onBeforeDiff, onAfterDiff, onKnownEditChats, onNotice }: {
+  onAdopted: (session: VisualEditSession, paths: string[]) => void; originName: string | null; onReturnToOrigin: (() => void) | null; enabled: boolean; chatId: string | null; currentChat: ChatKey | null; onEnded: (id: string) => Promise<void>; onCloseDraftPreview: (draftRoot: string) => Promise<void>; onDiscarded: (chatId: string, mode: "dedicated" | "current") => void; preview: PreviewSession | null; session: VisualEditSession | null;
   onBind: (session: VisualEditSession) => Promise<void>; onUpdate: (session: VisualEditSession) => void; onLeave: () => Promise<void>;
   onBeforeDiff: () => Promise<void>; onAfterDiff: () => void; onKnownEditChats: (ids: string[], dedicated: string[]) => void; onNotice: (text: string) => void;
 }) {
@@ -192,6 +192,7 @@ export function VisualEditControls({ originName, onReturnToOrigin, enabled, chat
     if (kind === "revert" && !window.confirm(["元のファイルを、反映する前の状態に戻します。", "・反映したファイルだけを戻します。", "・反映したあとに、元のファイルを変更していた場合は、戻せません。", "・編集用コピーのAIの編集は残るので、もう一度反映することもできます。", "戻しますか？"].join("\n"))) return;
     const id = session.sessionId, expectedRevision = session.revision;
     const previousOperationId = session.lastOperation?.id ?? null;
+    const changedPaths = session.changes.filter((c) => c.change !== null).map((c) => c.path);
     setWriteError(null);
     writeLock.current = true; generation.current++; setPollEpoch((n) => n + 1); setBusy(true); setStale(true); setError(null); setDiff(null); setDiffPath(null);
     try {
@@ -201,6 +202,7 @@ export function VisualEditControls({ originName, onReturnToOrigin, enabled, chat
       const last = result.lastOperation;
       if (last?.kind === kind && last.id !== previousOperationId && last.outcome === "applied") {
         setOperation({ kind, outcome: "applied", revision: result.revision, id: last.id });
+        if (kind === "adopt") onAdopted(session, changedPaths);
       } else {
         setOperation({ kind, outcome: last?.kind === kind && last.id !== previousOperationId ? last.outcome : "unknown", revision: result.revision, id: last?.id ?? null, message: last?.message ?? undefined });
         setWriteError(actionLabel(kind) + "の完了を確認できません。状態と保留理由を再確認してください。");
@@ -289,7 +291,7 @@ export function VisualEditControls({ originName, onReturnToOrigin, enabled, chat
         <button type="button" className="btn sm danger" disabled={busy} onClick={() => void discard(item, false)}>バックアップも含めて削除</button>
         <small>バックアップも削除すると、元のファイルを反映前の内容に戻せなくなります。</small>
       </> : <>
-        <p>コピーを削除します。元のファイルは変わりません。</p>
+        <p>コピーを削除します。元のファイルは変わりません。編集用の会話は残ります（不要なら、会話の一覧から削除できます）。</p>
         <button type="button" className="btn sm" disabled={busy} onClick={() => void discard(item, false)}>破棄する</button>
       </>}
       <button type="button" className="btn-line sm" disabled={busy} onClick={() => setDiscarding(null)}>やめる</button>
