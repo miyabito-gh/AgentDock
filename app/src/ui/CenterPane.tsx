@@ -494,10 +494,10 @@ function CopyAct({ text }: { text: string }) {
   return <button onClick={() => copy(text)} aria-live="polite"><Icon name="copy" />{state === "idle" ? COPY_LABEL.idle : COPY_LABEL[state]}</button>;
 }
 
-interface FindState { open: boolean; query: string; setQuery: (q: string) => void; tick: number; partial: boolean; close: () => void }
+export interface FindState { open: boolean; query: string; setQuery: (q: string) => void; tick: number; partial: boolean; close: () => void }
 
 /** 依頼・応答の操作「編集して分岐」「もう一度」。無効でも押せて（aria-disabled）、押すと理由をダイアログで示す。 */
-interface ResendView { ctx: ResendCtx; rootAgentId: string | undefined }
+export interface ResendView { ctx: ResendCtx; rootAgentId: string | undefined }
 
 /** 画像のプレビューは、画面に入るまで読み込まない（古い発言のチップで重い読込みをしない）。 */
 function LazyThumb(props: Parameters<typeof Thumb>[0]) {
@@ -589,8 +589,9 @@ function HistoryNotice({ view, onReload }: { view: HistView; onReload: () => voi
   return null;
 }
 
-function Messages({ orgBound, headKey, threads, chatId, turns, reqs, gaps, running, onRespond, onAct, extra, find, resend, locals, files, sends, agentName, decisions, pending, onPendingRestore, onPendingDismiss }: {
-  orgBound: boolean; headKey: ChatKey; threads: ThreadSegmentView[]; agentName?: (a: AgentKey) => string; decisions: DecisionItem[];
+export function Messages({ mini, orgBound, headKey, threads, chatId, turns, reqs, gaps, running, onRespond, onAct, extra, find, resend, locals, files, sends, agentName, decisions, pending, onPendingRestore, onPendingDismiss }: {
+  /** 右ペインのミニチャット。分岐・再生成は中央のチャットが対象になるため出さない。 */
+  mini?: boolean; orgBound: boolean; headKey: ChatKey; threads: ThreadSegmentView[]; agentName?: (a: AgentKey) => string; decisions: DecisionItem[];
   pending: PendingSend[]; onPendingRestore: (p: PendingSend) => void; onPendingDismiss: (p: PendingSend) => void;
   turns: TurnRecord[]; reqs: PendingRequest[]; /** 回答を届けられなかった要求（理由を常設表示する） */ gaps: PendingRequest[]; running: boolean; onRespond: CenterProps["onRespond"]; onAct: (a: string) => void; extra?: ReactNode; find: FindState; resend: ResendView;
   locals: AttachmentEntry[]; files: FileActions; sends: SentLocal[]; chatId: string;
@@ -631,7 +632,7 @@ function Messages({ orgBound, headKey, threads, chatId, turns, reqs, gaps, runni
   return (
     <div className="msgs-wrap">
     {find.open ? <FindBar root={ref} query={find.query} setQuery={find.setQuery} focusTick={find.tick} partial={find.partial} unloadedPrev={prev.unloaded} onClose={find.close} /> : null}
-    <div className="msgs" id="msgs" aria-live="polite" ref={ref} onScroll={onScroll}>
+    <div className="msgs" id={mini ? undefined : "msgs"} aria-live="polite" ref={ref} onScroll={onScroll}>
       <PreviousThreads threads={threads} prev={prev} />
       {placed.head.map((it) => <DecisionRow key={it.record.id} it={it} agentName={agentName} />)}
       {turns.map((t) => {
@@ -695,7 +696,7 @@ function Messages({ orgBound, headKey, threads, chatId, turns, reqs, gaps, runni
                     {atts.length ? <MsgChips atts={atts} locals={locals} files={files} /> : null}
                     <div className="acts">
                       {noBody ? null : <CopyAct text={utext} />}
-                      {mine ? <button aria-disabled={blocked("editResend", e.key.itemId) || undefined} onClick={() => onAct(`resend:editResend|${t.key.turnId}|${e.key.itemId}`)}><Icon name="branch" />編集して分岐…</button> : null}
+                      {mine && !mini ? <button aria-disabled={blocked("editResend", e.key.itemId) || undefined} onClick={() => onAct(`resend:editResend|${t.key.turnId}|${e.key.itemId}`)}><Icon name="branch" />編集して分岐…</button> : null}
                     </div>
                   </div>);
               }
@@ -705,8 +706,8 @@ function Messages({ orgBound, headKey, threads, chatId, turns, reqs, gaps, runni
                 <div className="msg ai">
                   <div className="who">Codex</div>
                   <div className="bubble" data-find="body">{e.text.kind !== "value" && !(t.end === null && e === lastAi) ? <span className="muted">{BODY_MISSING}</span> : (() => { const rep = orgBound && !(t.end === null && e === lastAi) ? parseOrgReport(text) : null; return rep ? <OrgReportView report={rep} raw={text} /> : <Markdown text={text} streaming={t.end === null && e === lastAi} />; })()}</div>
-                  <div className="acts">{e.text.kind === "value" ? <CopyAct text={text} /> : null}<button onClick={() => onAct(`fork:${t.key.turnId}`)}><Icon name="branch" />ここから分岐</button>
-                    {mine && e === lastAi ? <button aria-disabled={blocked("regenerate", null) || undefined} onClick={() => onAct(`resend:regenerate|${t.key.turnId}|`)}><Icon name="refresh" />もう一度…</button> : null}</div>
+                  <div className="acts">{e.text.kind === "value" ? <CopyAct text={text} /> : null}{mini ? null : <button onClick={() => onAct(`fork:${t.key.turnId}`)}><Icon name="branch" />ここから分岐</button>}
+                    {mine && !mini && e === lastAi ? <button aria-disabled={blocked("regenerate", null) || undefined} onClick={() => onAct(`resend:regenerate|${t.key.turnId}|`)}><Icon name="refresh" />もう一度…</button> : null}</div>
                 </div>
                 </Fragment>
               );

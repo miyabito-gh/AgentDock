@@ -23,7 +23,7 @@ import type { OrgWorkflowView } from "../ipc/types";
 import { UNKNOWN_KEY, collapseAll, flattenGroups, groupChats, shortNames, worktreeOf, type FlatItem, type FolderGroup } from "./folderGroups";
 
 /** 行の「…」メニューで選べる操作（App.tsx の onChatAct が対象チャットIDつきで受ける）。 */
-export type ChatOp = "rename" | "pin" | "archive" | "unarchive" | "export" | "delete" | "sameFolderNew";
+export type ChatOp = "rename" | "pin" | "archive" | "unarchive" | "export" | "delete" | "sameFolderNew" | "peek";
 
 /** 一覧の状態文字（chatStatusText）から状態チップの色クラスを引く。対応が無い文言（履歴なし等）は色なしの控えめな文字。 */
 function statusClass(text: string): string {
@@ -293,6 +293,7 @@ export function LeftPane({ org, snap, sel, onSelect, onAct, onAcknowledge, onCha
       return {
         label: `「${titleOf(c).text}」の操作`,
         items: [
+          { act: "peek", label: "右に表示", sub: "中央を替えずに、右で見る・返信する" },
           { act: "rename", label: "名前を変更…" },
           { act: "pin", label: c.pinned ? "ピン留めを外す" : "ピン留め" },
           { act: archived(c) ? "unarchive" : "archive", label: archived(c) ? "アーカイブを解除" : "アーカイブ" },

@@ -32,6 +32,7 @@ import { CenterPane, EmptyCenter, RequestCard, sendLockReason, type FileActions 
 import { hideClosed, noticeOf } from "./ui/sendNotice";
 import { fenceCode, insertBlock } from "./ui/attach";
 import { DockPane, MiniWindow, type DockActions, type DockFocus } from "./ui/Dock";
+import { MiniChat, RightTabs, peekCandidates } from "./ui/MiniChat";
 import { commandViews } from "./ui/commandViews";
 import { cwdOpenWhy } from "./ui/commands";
 import { matchShortcut } from "./ui/shortcuts";
@@ -135,6 +136,14 @@ export default function App() {
   const [visualOpen, setVisualOpen] = useState<{ path: string; nonce: number } | null>(null);
   const [visualEditChatId, setVisualEditChatId] = useState<string | null>(null);
   const [visualBoundChatIds, setVisualBoundChatIds] = useState<Set<string>>(() => new Set());
+  /** 右ペインに出す別のチャット（中央を替えずに見る・返信する）。ドックとの切替。 */
+  const [peek, setPeek] = useState<{ id: string | null; view: "dock" | "chat" }>(() => {
+    try {
+      const v = JSON.parse(window.localStorage.getItem("agentdock.peek") ?? "null");
+      return v && (v.view === "chat" || v.view === "dock") ? { id: typeof v.id === "string" ? v.id : null, view: v.view } : { id: null, view: "dock" };
+    } catch { return { id: null, view: "dock" }; }
+  });
+  useEffect(() => { try { window.localStorage.setItem("agentdock.peek", JSON.stringify(peek)); } catch { /* 保存できなくても動く */ } }, [peek]);
   const [lNarrow, setLNarrow] = useState(false);
   const [rNarrow, setRNarrow] = useState(false);
   const [mini, setMini] = useState(false);
@@ -782,6 +791,30 @@ export default function App() {
     const lock = sendLockReason(snap, chat, snap.chatLocals.find((l) => l.chat.id === chat.key.id)) ?? firstSendLockReason(pendingSends[chat.key.id]);
     if (lock) return lock;
     return (await onSend(text, false, [])) ? null : "送信できませんでした。前の送信の結果を確認してください。";
+  };
+
+  /** 右ペインのミニチャットからの送信。中央の入力欄と同じ送信経路（sendTo）で、終了の案内（notes）も同じく添える。 */
+  const sendPeek = async (c: Chat, text: string): Promise<boolean> => {
+    const bound = visualBoundChatIds.has(c.key.id);
+    const notes = !text.includes(VISUAL_CONTEXT_MARK) && !bound ? takeNotes(c.key.id) : "";
+    return sendTo(c, notes ? `${text}\n\n${notes}` : text, bound && isRunning(snap, c), [], notes ? () => dropNotes(c.key.id) : undefined);
+  };
+  /** 「右に表示」。中央と同じチャットは出さない（同じ会話を2か所で操作しない）。 */
+  const openPeek = (id: string | null) => {
+    if (id === null) { setPeek({ id: null, view: "dock" }); return; }
+    if (id === selId) { say("中央で開いているチャットです。別のチャットを選んでください。"); return; }
+    setPeek({ id, view: "chat" });
+    setRightOpen(true);
+    if (rightTemp) setRNarrow(true);
+    if (live && !snap.chats.find((c) => c.key.id === id)?.noHistory && !bundle.turns[id]) void loadChat(id);
+    if (visualShown) say("右に表示を切り替えました。Visual Editorを閉じると見えます。", 5000);
+  };
+  /** 右のチャットを中央へ移す。中央にあったチャットは右へ入れ替わる。 */
+  const peekToCenter = (id: string) => {
+    const prev = selId;
+    selectChat(id);
+    setPeek({ id: prev, view: "chat" });
+    if (live && prev && !bundle.turns[prev]) void loadChat(prev);
   };
 
   /** 引き継ぎ先へピン止めと名前を写す（引き継ぎ操作の直後だけ）。成功を確かめるまで、間隔を空けて数回。失敗は黙って続け、最後に1回だけ知らせる。 */
@@ -1644,6 +1677,7 @@ ${cur}` : p.text);
       case "export": openExport(chatId); break;
       case "delete": openDelete(chatId); break;
       case "sameFolderNew": void sameFolderNew(chatId); break;
+      case "peek": openPeek(chatId); break;
     }
   };
 
@@ -1998,7 +2032,23 @@ ${cur}` : p.text);
             ) : <EmptyCenter onAct={act} />}
             </VisualWorkspace>
           </main>
-          <aside className="right" id="pane-dock" aria-label={visualShown ? "Visual Editor" : "エージェントのドック"}>{visualShown ? null : <DockPane {...dockProps} />}</aside>
+          <aside className="right" id="pane-dock" aria-label={visualShown ? "Visual Editor" : peek.view === "chat" ? "チャット" : "エージェントのドック"}>
+            {visualShown ? null : (
+              <>
+                {peek.id ? <RightTabs view={peek.view} onView={(v) => setPeek((p) => ({ ...p, view: v }))} waiting={peekCandidates(snap, selId).wait.length > 0} /> : null}
+                {peek.view === "chat" && peek.id ? (() => {
+                  const pc = snap.chats.find((c) => c.key.id === peek.id) ?? null;
+                  const pl = pc ? snap.chatLocals.find((l) => l.chat.id === pc.key.id) : undefined;
+                  return (
+                    <MiniChat snap={snap} chat={pc} centerId={selId} turns={pc ? bundle.turns[pc.key.id] ?? [] : []} history={pc ? histLoads[pc.key.id] : undefined} onReload={() => { if (pc) void loadChat(pc.key.id); }}
+                      local={pl} pending={pc ? markRetryable(pendingSends[pc.key.id], attempts[pc.key.id]) : []} decisions={pc ? decisions[pc.key.id] ?? NO_DECISIONS : NO_DECISIONS} sends={pc ? sends[pc.key.id] ?? NO_SENDS : NO_SENDS} files={files}
+                      draft={pc ? drafts[pc.key.id] ?? pl?.draft.text ?? pc.draft ?? "" : ""} setDraft={(v) => { if (pc) onDraft(pc, v); }} enterMode={enterMode} connected={!live || connected}
+                      onSend={sendPeek} onRespond={(r, a) => void onRespond(r, a)} onPick={openPeek} onOpenCenter={peekToCenter} />
+                  );
+                })() : <DockPane {...dockProps} />}
+              </>
+            )}
+          </aside>
           {!leftTemp && leftOpen && !(visualShown && winW <= 1100) ? <PaneSplitter kind="left" width={paneW.left} max={paneW.leftMax} onCommit={(w) => onPaneCommit("left", w)} /> : null}
           {visualShown ? <PaneSplitter kind="visual" width={visualPx} max={visualMax} onCommit={(w) => { setVisualW(w); try { if (w === null) window.localStorage.removeItem("agentdock.visualPaneWidth"); else window.localStorage.setItem("agentdock.visualPaneWidth", String(w)); } catch { /* 保存できなくても動く */ } }} /> : !rightTemp && rightOpen ? <PaneSplitter kind="dock" width={paneW.dock} max={paneW.dockMax} onCommit={(w) => onPaneCommit("dock", w)} /> : null}
           {lNarrow || rNarrow ? <div className="panel-scrim" aria-hidden="true" onClick={() => { setLNarrow(false); setRNarrow(false); }} /> : null}

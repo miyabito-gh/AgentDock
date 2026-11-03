@@ -1267,3 +1267,23 @@ button.uchip:hover{background:var(--accent-weak)}
 .vmark.mute{color:var(--ink3)}
 :root[data-theme="dark"] .vmark.warn{color:#F0B35A}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .vmark.warn{color:#F0B35A}}
+
+/* 右ペインのミニチャット（別のチャットを、中央を替えずに見る・返信する） */
+.rp-tabs{padding:6px 8px;border-bottom:1px solid var(--line2);display:flex}
+.rp-tabs .seg button{position:relative;padding:0 10px}
+.rp-dot{display:inline-block;width:6px;height:6px;margin-left:5px;border-radius:50%;background:var(--accent);vertical-align:middle}
+.rp-chat{flex:1;min-height:0;display:flex;flex-direction:column}
+.rp-head{position:relative;display:flex;align-items:center;gap:4px;padding:6px 8px;border-bottom:1px solid var(--line2);min-width:0}
+.rp-pick{flex:1 1 0;min-width:0;display:flex;align-items:center;justify-content:space-between;gap:6px;height:28px;padding:0 8px;border:1px solid var(--line);border-radius:var(--r2);background:var(--surface);text-align:left}
+.rp-pick .nm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+.rp-ico{flex:none;width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;padding:0;border:0;background:transparent;border-radius:var(--r2);color:var(--ink2)}
+.rp-ico:hover{background:var(--hover)}
+.rp-menu.dropdown{left:8px;right:8px;top:calc(100% - 2px);min-width:0;max-width:none;padding:4px;display:flex;flex-direction:column;gap:2px}
+.rp-h{padding:6px 8px 2px;font-size:var(--fs-xs);color:var(--ink3);font-weight:700}
+.rp-item{display:flex;align-items:center;justify-content:space-between;gap:6px;width:100%;height:auto;min-height:28px;padding:3px 8px;border:0;background:transparent;border-radius:var(--r1);text-align:left}
+.rp-item:hover{background:var(--hover)}
+.rp-item .nm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rp-empty{padding:14px 12px;color:var(--ink3);font-size:var(--fs-s);line-height:1.6}
+.rp-chat .msgs{padding:10px 10px 6px}
+.rp-compose{display:flex;align-items:flex-end;gap:6px;padding:8px;border-top:1px solid var(--line2)}
+.rp-compose textarea{width:auto;padding:6px 8px;border:1px solid var(--line);border-radius:var(--r2);background:var(--surface);flex:1 1 0;min-width:0;resize:none;max-height:120px}
