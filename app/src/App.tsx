@@ -116,6 +116,8 @@ export default function App() {
   const [visualCtx, setVisualCtx] = useState<VisualContext | null>(null);
   /** 会話ごとに、送信済みの固定方針（同じ内容は一度だけ送る）。受理を確認できたときだけ控える。 */
   const visualFixedSent = useRef<Record<string, string>>({});
+  /** 編集を終えた会話ごとに、次の送信へ一度だけ添える状況の説明（受理を確認できたら消す）。 */
+  const visualEndNotes = useRef<Record<string, string>>({});
   const [visualDedicatedIds, setVisualDedicatedIds] = useState<Set<string>>(() => new Set());
   const [visualW, setVisualW] = useState<number | null>(() => { try { const v = Number(window.localStorage.getItem("agentdock.visualPaneWidth")); return Number.isFinite(v) && v > 0 ? v : null; } catch { return null; } });
   const [visualChip, setVisualChip] = useState<{ count: number; label: string; onClear: () => void } | null>(null);
@@ -746,12 +748,12 @@ export default function App() {
     const useCtx = visualShown && visualCtx && chat.key.id === visualEditChatId && !text.includes(VISUAL_CONTEXT_MARK);
     // 固定の方針は、会話で内容が変わるまで一度だけ送る（毎回の発言を汚さない）。受理を確認できたときだけ控える。
     const sendFixed = useCtx && visualFixedSent.current[chat.key.id] !== visualCtx.fixed;
-    const withContext = useCtx ? `${text}
-
-${visualCtx.sel}${sendFixed ? `
-${visualCtx.fixed}` : ""}` : text;
+    // 編集を終えた直後の最初の送信には、状況の変化（作業フォルダが元に戻った・反映の有無）を一度だけ添える。AIは前の編集の案内（コピーで作業中）を覚えているため。
+    const endNote = !useCtx && !text.includes(VISUAL_CONTEXT_MARK) ? visualEndNotes.current[chat.key.id] : undefined;
+    const withContext = useCtx ? `${text}\n\n${visualCtx.sel}${sendFixed ? `\n${visualCtx.fixed}` : ""}` : endNote ? `${text}\n\n${endNote}` : text;
     const fixed = visualCtx?.fixed ?? "", chatKeyId = chat.key.id;
-    return sendTo(chat, withContext, visualBoundChatIds.has(chat.key.id) && isRunning(snap, chat) ? true : steer, attachments, sendFixed ? () => { visualFixedSent.current[chatKeyId] = fixed; } : undefined);
+    const onAccepted = sendFixed || endNote ? () => { if (sendFixed) visualFixedSent.current[chatKeyId] = fixed; if (endNote) delete visualEndNotes.current[chatKeyId]; } : undefined;
+    return sendTo(chat, withContext, visualBoundChatIds.has(chat.key.id) && isRunning(snap, chat) ? true : steer, attachments, onAccepted);
   };
 
   /** プレビュー下の依頼バーからの送信。中央の入力欄と同じ送信不可の判定を通し、送れない理由を返す（成功はnull）。 */
@@ -1790,6 +1792,16 @@ ${cur}` : p.text);
       say(released ? "編集を中断しました。次にメッセージを送ると、元の作業フォルダに戻ります。" : "この会話は、編集中ではありませんでした。", 6000);
     } catch (e) { sayErr("中断できませんでした", e); }
   };
+  /** 編集を終えたとき、AIへ伝える状況の説明を用意する（編集の記録から、反映の有無と未反映の件数を読み取るだけ）。 */
+  const rememberEndNote = async (chatId: string) => {
+    const all = await listVisualEdits().catch(() => []);
+    const mine = all.filter((x) => x.chat.id === chatId && x.ended);
+    const s = mine[mine.length - 1];
+    if (!s) return;
+    const n = s.changes.filter((x) => x.change !== null).length;
+    const state = s.adopted ? "編集の内容は、元のファイルに反映済みです。" : n ? `編集用コピーの変更${n}件は、元のファイルにはまだ反映されていません。` : "元のファイルは変わっていません。";
+    visualEndNotes.current[chatId] = [VISUAL_CONTEXT_MARK, "Visual Editorでの編集は終了しました。この会話の作業フォルダは、元のフォルダに戻っています（編集用コピーでは作業しません）。", state].join("\n");
+  };
   const rememberOrigin = (editId: string) => {
     const origin = selId && selId !== editId && !visualDedicatedIds.has(selId) ? selId : null;
     if (!origin) return;
@@ -1915,7 +1927,7 @@ ${cur}` : p.text);
               onReturnToOrigin={visualOriginChat ? () => { const id = visualOriginChat.key.id; setVisualOriginId(null); selectChat(id); say("元の会話に戻りました。編集は保存されています（Visual Editorの「詳細」から続けられます）。", 6000); } : null}
               onKnownEditChats={(ids, dedicated) => { setVisualBoundChatIds((old) => new Set([...old, ...ids])); setVisualDedicatedIds((old) => new Set([...old, ...dedicated])); }}
               currentChat={chat && chat.key.backend === "codex" && !visualBoundChatIds.has(chat.key.id) ? chat.key : null}
-              onEnded={(id) => setVisualBoundChatIds((old) => { const next = new Set(old); next.delete(id); return next; })}
+              onEnded={(id) => { setVisualBoundChatIds((old) => { const next = new Set(old); next.delete(id); return next; }); void rememberEndNote(id); }}
               onDiscarded={(id, mode) => { if (mode === "dedicated") setVisualDedicatedIds((old) => { const next = new Set(old); next.delete(id); return next; }); setVisualBoundChatIds((old) => { const next = new Set(old); next.delete(id); return next; }); }}
               onContext={setVisualCtx} onChip={setVisualChip} openRequest={visualOpen}
               onNotice={say}>
