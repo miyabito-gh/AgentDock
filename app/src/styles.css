@@ -1247,3 +1247,17 @@ button.uchip:hover{background:var(--accent-weak)}
   .subagent-preview{padding:8px}
   .subagent-actions>.btn{height:auto;min-height:var(--ctl);white-space:normal;text-align:left}
 }
+
+/* ---- アプリの接続状態（接続中・読み込み中・接続済み・エラー）。点と短い文字、接続中は最上部に細い進行線 ---- */
+.conn{display:inline-flex;align-items:center;gap:6px;margin-right:6px;font-size:var(--fs-xs);color:var(--ink2);white-space:nowrap}
+.conn-dot{width:8px;height:8px;border-radius:50%;background:var(--ink3);flex:none}
+.conn.ok .conn-dot{background:#2E9E5B}
+.conn.wait{color:var(--run)}
+.conn.wait .conn-dot{background:var(--run);animation:connPulse 1.2s ease-in-out infinite}
+.conn.bad{color:var(--fail-ink)}
+.conn.bad .conn-dot{background:var(--fail)}
+@keyframes connPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.8)}}
+.conn-bar{position:absolute;top:0;left:0;right:0;height:2px;z-index:60;overflow:hidden;pointer-events:none}
+.conn-bar::before{content:"";position:absolute;top:0;bottom:0;width:30%;background:linear-gradient(90deg,transparent,var(--run),transparent);animation:connSlide 1.3s ease-in-out infinite}
+@keyframes connSlide{from{left:-30%}to{left:100%}}
+@media (prefers-reduced-motion:reduce){.conn.wait .conn-dot{animation:none}.conn-bar::before{animation:none;left:0;width:100%;opacity:.5}}

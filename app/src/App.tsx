@@ -25,7 +25,7 @@ const loadMock = async () => {
   const [client, data] = await Promise.all([import("./mock/client"), import("./mock/data")]);
   return { client, scenarios: data.SCENARIOS };
 };
-import { GlobalBanner, MenuBar, SaveBanner } from "./ui/Chrome";
+import { GlobalBanner, MenuBar, SaveBanner, type ConnUi } from "./ui/Chrome";
 import { LeftPane, type ChatOp } from "./ui/LeftPane";
 import { histStart, histOk, histFail, type HistLoad } from "./ui/historyLoad";
 import { CenterPane, EmptyCenter, RequestCard, sendLockReason, type FileActions } from "./ui/CenterPane";
@@ -103,6 +103,7 @@ export default function App() {
   const [scope, setScope] = useState<MonitorScope>({ kind: "selectedChat", chat: null });
   const [leftOpen, setLeftOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(true);
+  const [booting, setBooting] = useState(true);
   const [visualMode, setVisualMode] = useState(false);
   /** Visual Editor中にチャットを畳み、プレビュー側を広げる。編集を始めると既定で畳み、対応が要るものが出たら自動で開く。 */
   const [visualChatOff, setVisualChatOff] = useState(false);
@@ -252,7 +253,7 @@ export default function App() {
   }, []);
 
   /** 接続し、一覧とモデルを取得する。起動失敗は接続エラーとして表示する（作業の失敗にしない）。 */
-  const boot = useCallback(async (exe: string | null): Promise<boolean> => {
+  const bootCore = useCallback(async (exe: string | null): Promise<boolean> => {
     try {
       const info = await host.connectBackend(exe);
       setConnectError(null);
@@ -279,6 +280,11 @@ export default function App() {
     void refreshProjects();
     return true;
   }, [loadChat, sayErr, refreshProjects]);
+  /** 起動・接続の間は「接続中／読み込み中」を見せるため、処理の前後で印を付ける。 */
+  const boot = useCallback(async (exe: string | null): Promise<boolean> => {
+    setBooting(true);
+    try { return await bootCore(exe); } finally { setBooting(false); }
+  }, [bootCore]);
 
   // 実接続: 購読 → スナップショット → 接続。seqが飛んだらスナップショットを取り直す。
   useEffect(() => {
@@ -560,6 +566,13 @@ export default function App() {
   const sideShown = chat && sideId ? snap.sideSessions.find((x) => x.id === sideId && x.main.id === chat.key.id) : undefined;
   const v = src?.version;
   // 現在の接続先を示す。実接続では接続中のCodexの版を出す（版が取れなければ、そう表示する）。
+  const connUi: ConnUi | null = !live ? null
+    : connectError ? { state: "bad", label: "接続できません", title: `Codexに接続できません: ${connectError}` }
+    : src?.connection.kind === "launchFailed" ? { state: "bad", label: "起動できません", title: "Codexを起動できませんでした。設定の実行ファイルを確認してください" }
+    : src?.connection.kind === "disconnected" ? { state: "bad", label: "切断されました", title: "Codexとの接続が切れています。再接続してください" }
+    : !src || src.connection.kind !== "connected" ? { state: "wait", label: "接続中…", title: "Codexに接続しています。完了するまで、会話の操作はできません" }
+    : booting ? { state: "wait", label: "読み込み中…", title: "会話の一覧とモデルを読み込んでいます" }
+    : { state: "ok", label: "", title: "Codexに接続済みです" };
   const modeTag = !live ? "モック（仮データ）"
     : !src ? "Codex 未接続"
     : v?.kind === "match" ? `Codex ${v.version}`
@@ -1824,8 +1837,9 @@ ${cur}` : p.text);
         <defs><pattern id="hatch" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="2" height="4" style={{ fill: "var(--unk)" }} /></pattern></defs>
       </svg>
       <div className="window" role="application" aria-label="AgentDock" onClick={() => { if (menu) setMenu(null); if (mockOpen) setMockOpen(false); }}>
+        {connUi?.state === "wait" ? <div className="conn-bar" aria-hidden="true" /> : null}
         <div className="visual-appbar">
-          <MenuBar open={menu} setOpen={setMenuOpen} views={cmdViews} onAct={act} tag={modeTag} live={live} />
+          <MenuBar open={menu} setOpen={setMenuOpen} views={cmdViews} onAct={act} tag={modeTag} live={live} conn={connUi} />
           <button type="button" className="btn sm visual-entry" aria-pressed={visualShown} onClick={() => {
             setVisualMode(!visualShown); setOrgScreen(false); setQuick((q) => ({ ...q, open: false })); setRNarrow(false);
             if (!visualShown && visualEditChatId && visualEditChatId !== selId) { setSelId(visualEditChatId); if (live) void loadChat(visualEditChatId); }

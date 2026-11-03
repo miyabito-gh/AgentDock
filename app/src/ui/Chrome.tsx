@@ -25,12 +25,16 @@ export function TitleBar({ title, tag, mini, top, onAct }: { title: string; tag?
   );
 }
 
-export function MenuBar({ open, setOpen, views, onAct, tag, live }: {
+export interface ConnUi { state: "wait" | "ok" | "bad"; label: string; title: string }
+
+export function MenuBar({ open, setOpen, views, onAct, tag, live, conn }: {
   open: string | null; setOpen: (m: string | null) => void; views: CommandView[]; onAct: (a: string) => void;
   /** 接続先の版タグ（右端。押すと接続先の切替）。 */
   tag?: string;
   /** 実接続か。実接続では版タグが利用状況のポップオーバーを開く（接続先の切替はその中）。 */
   live?: boolean;
+  /** アプリの接続状態（接続中・読み込み中・接続済み・エラー）。点と短い文字で常に見せる。 */
+  conn?: ConnUi | null;
 }) {
   const bar = useRef<HTMLElement>(null);
   const drop = useRef<HTMLDivElement>(null);
@@ -75,6 +79,7 @@ export function MenuBar({ open, setOpen, views, onAct, tag, live }: {
         </div>
       ))}
       <span className="grow" />
+      {conn ? <span className={`conn ${conn.state}`} role="status" aria-live="polite" title={conn.title}><i className="conn-dot" aria-hidden="true" />{conn.label ? <span>{conn.label}</span> : <span className="sr">{conn.title}</span>}</span> : null}
       {tag && live ? (
         <Popover trigger={tag} label="利用状況" title="利用状況を見る（読取りのみ）" align="right" triggerClassName="mock-tag">
           {(close) => (
