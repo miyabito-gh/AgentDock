@@ -1817,8 +1817,9 @@ ${cur}` : p.text);
     void listVisualEdits().then((all) => {
       if (off) return;
       const found = all.filter((item) => !item.ended);
-      setVisualBoundChatIds((old) => new Set([...old, ...found.map((item) => item.chat.id)]));
-      setVisualDedicatedIds((old) => new Set([...old, ...found.filter((item) => item.mode === "dedicated").map((item) => item.chat.id)]));
+      // ホストの記録（終えていない編集）に合わせる。終えた編集の会話に「作業中」の案内が残らないよう、足すだけでなく外す。
+      setVisualBoundChatIds(new Set(found.map((item) => item.chat.id)));
+      setVisualDedicatedIds(new Set(found.filter((item) => item.mode === "dedicated").map((item) => item.chat.id)));
     }).catch(() => undefined);
     return () => { off = true; };
   }, [live, selId]);

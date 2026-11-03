@@ -373,7 +373,7 @@ export function VisualWorkspace({ enabled, blocked, chatId, onSendInstruction, c
       <section className="vp-card vp-edit" aria-label="編集">
         {edit ? null : <header className="vp-head"><strong>編集</strong><span className="vp-sub">未開始</span></header>}
         <div className="vp-body">
-          <VisualEditControls originName={originName} onReturnToOrigin={onReturnToOrigin} enabled={enabled && desktop} chatId={chatId} currentChat={currentChat} onEnded={async (id) => { await leaveEdit(); onEnded(id); }} onCloseDraftPreview={closeDraftPreview} onDiscarded={onDiscarded} preview={session} session={edit} onBind={bindEdit} onUpdate={updateEdit} onLeave={leaveEdit} onBeforeDiff={beforeDiff} onAfterDiff={afterDiff} onKnownEditChats={onKnownEditChats} onNotice={onNotice} />
+          <VisualEditControls originName={originName} onReturnToOrigin={onReturnToOrigin} enabled={enabled && desktop} chatId={chatId} currentChat={currentChat} onEnded={async (id) => { try { await leaveEdit(); } finally { onEnded(id); } }} onCloseDraftPreview={closeDraftPreview} onDiscarded={onDiscarded} preview={session} session={edit} onBind={bindEdit} onUpdate={updateEdit} onLeave={leaveEdit} onBeforeDiff={beforeDiff} onAfterDiff={afterDiff} onKnownEditChats={onKnownEditChats} onNotice={onNotice} />
           {error ? <p className="visual-error" role="alert">{error}</p> : null}
           {closeUnconfirmed ? <button type="button" className="btn-line sm" disabled={busy} onClick={() => void retryClose()}>閉じるを再試行</button> : null}
         </div>
