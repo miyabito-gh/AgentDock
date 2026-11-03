@@ -1093,6 +1093,11 @@ button.uchip:hover{background:var(--accent-weak)}
 .threadsep{display:flex;align-items:center;gap:8px;margin:14px 0;color:var(--ink2);font-size:var(--fs-s)}
 .threadsep::before,.threadsep::after{content:"";flex:1;border-top:1px solid var(--line)}
 .envfold{align-self:flex-end;max-width:100%}
+/* 本文の前に置く折りたたみ行（資料・参照情報）が、ホバー時の操作（コピー等）の下に隠れて押せなくならないよう、上に余白を取る */
+.msg.user:has(> .envfold),.msg.user:has(> .sr + .foldmsg){padding-top:28px}
+/* 資料の枠の中の「コピー」は、メッセージ右上ではなく、資料の下に常時出す */
+.envbody{position:relative}
+.envbody .acts{position:static;opacity:1;pointer-events:auto;margin-top:2px;border:0;box-shadow:none;background:none;justify-content:flex-end}
 .envbody{margin:4px 0 6px;max-width:100%}
 .envbody pre{margin:0;padding:8px 10px;border:1px solid var(--line);border-radius:var(--r2);background:var(--surface);white-space:pre-wrap;overflow-wrap:anywhere;max-height:320px;overflow:auto}
 
