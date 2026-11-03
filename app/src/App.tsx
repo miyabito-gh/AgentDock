@@ -389,6 +389,9 @@ export default function App() {
       } catch (e) {
         setConnectError(host.asIpcError(e).message);
         ready = true;
+      } finally {
+        // 接続済みのまま起動した場合（boot を通らない経路）でも、必ず「読み込み中」を終える。
+        setBooting(false);
       }
     })();
     return () => { alive = false; unlisten?.(); pipe.dispose(); };
