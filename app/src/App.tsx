@@ -1780,13 +1780,13 @@ ${cur}` : p.text);
   /** 編集用コピー絡みの会話の案内。作業中（Visual Editorを閉じているとき）と、編集を終えたが元の作業場所へ戻す送信がまだのとき。 */
   /** 編集用コピーに紐付いたままの会話を切り離す（終えられないときの出口）。確認のうえ。コピーも元のフォルダも変更・削除しない。 */
   const releaseFromEdit = async (c: Chat) => {
-    const lines = ["この会話を、編集用コピーから切り離します。", "・元のフォルダと編集用コピーは、変更も削除もしません。", "・AIが止まっているかは確認しません。実行中なら、AIがコピーへ書き込む可能性が残ります。反映や取り消しが途中のときは、切り離せません。", "・次の送信から、元の作業場所で動きます。", "切り離しますか？"];
+    const lines = ["編集を中断します。", "・元のファイルは変わりません。編集用コピーも消しません。", "・AIが作業中だと、コピーが書き換わる場合があります。", "・次にメッセージを送ると、元の作業フォルダに戻ります。", "中断しますか？"];
     if (!window.confirm(lines.join("\n"))) return;
     try {
       const released = await releaseVisualChat(c.key);
       setVisualBoundChatIds((old) => { const next = new Set(old); next.delete(c.key.id); return next; });
-      say(released ? "編集から切り離しました。次の送信から、元の作業場所で動きます。" : "この会話は、編集に紐付いていませんでした。", 6000);
-    } catch (e) { sayErr("切り離せませんでした", e); }
+      say(released ? "編集を中断しました。次にメッセージを送ると、元の作業フォルダに戻ります。" : "この会話は、編集中ではありませんでした。", 6000);
+    } catch (e) { sayErr("中断できませんでした", e); }
   };
   const rememberOrigin = (editId: string) => {
     const origin = selId && selId !== editId && !visualDedicatedIds.has(selId) ? selId : null;
@@ -1801,9 +1801,9 @@ ${cur}` : p.text);
       const back = originChat
         ? { label: "元の会話へ戻る", title: `「${chatName(originChat)}」へ移ります。編集は保存されています`, onAction: () => selectChat(originChat.key.id) }
         : { label: "会話一覧を開く", title: "左の会話一覧を開いて、元の会話を選びます", onAction: () => { if (leftTemp) setLNarrow(true); else setLeftOpen(true); } };
-      return visualShown ? null : { back, text: "この会話は編集用コピーで作業中です。依頼は元のファイルではなく、コピーに反映されます。", action: "Visual Editorを開く", onAction: () => { setVisualMode(true); setOrgScreen(false); setQuick((q) => ({ ...q, open: false })); setRNarrow(false); }, secondary: { label: "編集から切り離す…", title: "終えられないときの出口。コピーも元のフォルダも変更しません", onAction: () => { void releaseFromEdit(c); } } };
+      return visualShown ? null : { back, text: "この会話は編集用コピーで作業中です。依頼は元のファイルではなく、コピーに反映されます。", action: "Visual Editorを開く", onAction: () => { setVisualMode(true); setOrgScreen(false); setQuick((q) => ({ ...q, open: false })); setRNarrow(false); }, secondary: { label: "編集を中断…", title: "終えられないときの出口。コピーも元のフォルダも変更しません", onAction: () => { void releaseFromEdit(c); } } };
     }
-    if (/[\\/]visual-editor[\\/]visual-[^\\/]+/i.test(knownValue(c.cwd) ?? "")) return { text: "編集は終わっています。作業フォルダの表示はまだ編集用コピーのままですが、次の送信で元の作業場所に戻ります。それまで、引き継ぎ・分岐・作業フォルダの変更はできません。", action: "", onAction: () => undefined };
+    if (/[\\/]visual-editor[\\/]visual-[^\\/]+/i.test(knownValue(c.cwd) ?? "")) return { text: "編集は終わりました。次にメッセージを送ると、元の作業フォルダに戻ります（それまで、分岐と引き継ぎは使えません）。", action: "", onAction: () => undefined };
     return null;
   };
   const visualAttention = visualEditChatId

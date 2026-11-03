@@ -97,7 +97,7 @@ export function VisualEditControls({ originName, onReturnToOrigin, enabled, chat
       // 別の会話を選んだとき、編集中の表示を引きずらない（その会話が自分の編集を持たなければ、元のHTMLの表示へ戻す）。
       else if (!mine && chatId && sessionChatId.current && sessionChatId.current !== chatId) void onLeave().catch(() => undefined);
     }
-    catch (e) { setListError("編集セッション一覧を取得できませんでした: " + messageOf(e)); }
+    catch (e) { setListError("編集の一覧を取得できませんでした: " + messageOf(e)); }
     finally { setListBusy(false); }
   };
   useEffect(() => { autoBound.current = null; }, [chatId]);
@@ -118,7 +118,7 @@ export function VisualEditControls({ originName, onReturnToOrigin, enabled, chat
       } catch (e) {
         if (!cancelled && generation.current === token && !writeLock.current) {
           setStale(true);
-          setError("状態を確認できませんでした。採用と復元を止めています: " + messageOf(e));
+          setError("状態を確認できませんでした。反映と取り消しを止めています: " + messageOf(e));
         }
       } finally {
         if (!cancelled && generation.current === token) timer = window.setTimeout(() => void poll(), 1500);
@@ -237,7 +237,9 @@ export function VisualEditControls({ originName, onReturnToOrigin, enabled, chat
   // 既存の会話での編集を終える。以後この会話は、元の作業場所で動く。反映していない変更は元へ入らない（コピーは残る）。
   const finish = async () => {
     if (!session || busy || writeLock.current || session.mode !== "current") return;
-    if (!window.confirm("編集を終えます。\n・元へ反映していない変更は、元のファイルに入りません（コピーは残ります）。\n・この会話の次の送信から、元の作業場所で動きます。\n終えますか？")) return;
+    const unreflected = session.changes.filter((item) => item.change !== null).length;
+    const lines = [unreflected ? `反映していない変更が${unreflected}件あります。このまま終えると、元のファイルには入りません（先に「元に反映」できます）。` : "編集を終えます。", "編集用コピーは残ります。次にメッセージを送ると、元の作業フォルダに戻ります。", "終えますか？"];
+    if (!window.confirm(lines.join("\n"))) return;
     writeLock.current = true; setBusy(true); setError(null);
     try {
       const done = await endVisualEdit(session.sessionId);
@@ -302,7 +304,7 @@ export function VisualEditControls({ originName, onReturnToOrigin, enabled, chat
       </div> : <div className="vs-start">
         <p className="visual-lead">元のファイルは変えず、コピーで編集して、確認後に反映します。</p>
         {currentChat ? <div className="vm-group" role="radiogroup" aria-label="どの会話で編集しますか">
-          {([["current", "今の会話で続ける", "この会話をそのまま使う。終えると元に戻る"], ["fork", "分岐して続ける", "今の会話は残し、コピーした会話で編集する"], ["new", "新しい会話で始める", "履歴なしの専用会話。あとで元の会話へ戻れる"]] as const).map(([mode, title, note]) =>
+          {([["current", "今の会話で続ける", "履歴を引き継ぐ。終えると元に戻る"], ["fork", "コピーした会話で続ける", "今の会話は変わらない"], ["new", "新しい会話で始める", "履歴なし。あとで元の会話へ戻れる"]] as const).map(([mode, title, note]) =>
             <label key={mode} className={"vm-opt" + (startMode === mode ? " on" : "")}><input type="radio" name="visual-start-mode" checked={startMode === mode} onChange={() => setStartMode(mode)} /><span><b>{title}</b><small>{note}</small></span></label>)}
         </div> : null}
         <div className="vs-actions">
@@ -319,6 +321,7 @@ export function VisualEditControls({ originName, onReturnToOrigin, enabled, chat
       <div className={"vs-row " + (status?.tone ?? "")} role="status">
         <span className="vs-dot" aria-hidden="true" />
         <span className="vs-text"><strong>{status?.text}</strong>{status?.hint ? <small>{status.hint}</small> : null}</span>
+        {visibleChanges.length && !cannotApply ? <button type="button" className="btn-line sm" onClick={() => void readDiff(visibleChanges[0].path)} title="AIが直した内容を、変更前と並べて見ます">変更を見る</button> : null}
       </div>
       {cannotApply ? <div className="visual-recovery">
         <strong>どうすればいい？</strong>
@@ -328,20 +331,20 @@ export function VisualEditControls({ originName, onReturnToOrigin, enabled, chat
           <button type="button" className="btn" disabled={busy} onClick={() => void onLeave().catch((e) => setError("元のHTMLを開けませんでした: " + messageOf(e)))}>まず元のファイルを見る</button>
           {session.mode === "current" ? <button type="button" className="btn-line" disabled={busy || ["runningOrReconciling", "preparedUnresolved", "acceptanceUnknown", "partial", "recoveryRequired"].includes(session.phase)} onClick={() => void finish()} title="この編集を終えて、会話を元の作業場所に戻します">この編集を終える</button> : <button type="button" className="btn-line" disabled={busy} onClick={() => void leave()} title="編集用の会話から離れます。編集は保存されます">{originName ? "元の会話へ戻る" : "編集をやめる"}</button>}
         </div>
-        <small>元のファイルの今の内容で編集用コピーを作り直します（新しい専用チャットが作られます）。今のコピーのAI編集は引き継がれませんが、「詳細」の保存された編集に残ります。</small>
+        <small>元のファイルの今の内容で編集用コピーを作り直します（新しい編集用の会話が作られます）。今のコピーのAI編集は引き継がれませんが、「詳細」の保存された編集に残ります。</small>
       </div> : <div className="vs-actions">
         <button type="button" className="btn primary" disabled={busy || stale || !session.canAdopt} onClick={() => void write("adopt")}>元に反映</button>
-        <button type="button" className="btn" disabled={busy || stale || !session.canUndo} onClick={() => void write("undo")}>取り消す</button>
-        {session.adopted && session.canRevert ? <button type="button" className="btn-line" disabled={busy || stale} onClick={() => void write("revert")} title="元のファイルを、反映する前の状態に戻します">反映を戻す</button> : null}
-        {session.mode === "current" ? <button type="button" className="btn-line" disabled={busy || ["runningOrReconciling", "preparedUnresolved", "acceptanceUnknown", "partial", "recoveryRequired"].includes(session.phase)}  onClick={() => void finish()} title="元の作業場所に戻ります。反映していない変更は元に入りません">終える</button> : null}
+        <button type="button" className="btn" disabled={busy || stale || !session.canUndo} title="AIの直前の編集を取り消します（編集用コピーの中だけ。元のファイルは変わりません）" onClick={() => void write("undo")}>編集を取り消す</button>
+        {session.adopted && session.canRevert ? <button type="button" className="btn-line" disabled={busy || stale} onClick={() => void write("revert")} title="元のファイルを、反映する前の状態に戻します">反映を元に戻す</button> : null}
+        {session.mode === "current" ? <button type="button" className="btn-line" disabled={busy || ["runningOrReconciling", "preparedUnresolved", "acceptanceUnknown", "partial", "recoveryRequired"].includes(session.phase)}  onClick={() => void finish()} title="元の作業場所に戻ります。反映していない変更は元に入りません">編集を終える</button> : null}
         {session.mode !== "current" || originName ? <button type="button" className="btn-line" disabled={busy} onClick={() => void leave()} title="編集用の会話から離れます。編集は保存され、あとで続けられます">{originName ? "元の会話へ戻る" : "編集をやめる"}</button> : null}
       </div>}
       {operation && operation.revision === session.revision && (operation.id === null || operation.id === session.lastOperation?.id)
         ? <p className="visual-hint" role="status">{operation.outcome === "applied" ? (operation.kind === "adopt" ? "元のファイルに反映しました。" : operation.kind === "revert" ? "元のファイルを、反映前の状態に戻しました。" : "直前のAI編集を取り消しました。") : actionLabel(operation.kind) + "は" + (({ partial: "途中で止まりました", conflict: "元のファイルと食い違いました", rejected: "受け付けられませんでした", unknown: "結果を確認できませんでした" } as Record<string, string>)[operation.outcome] ?? operation.outcome) + "。"} {operation.message}</p> : null}
       <details className="visual-more"><summary>詳細{visibleChanges.length ? `（変更ファイル${visibleChanges.length}件）` : ""}</summary>
-        {visibleChanges.length ? <ul className="visual-changes">{visibleChanges.map((item) => <li key={item.path}><button type="button" className="btn-line sm" onClick={() => void readDiff(item.path)}>{item.path} の差分</button><small>{changeLabel(item.change)}{item.conflict ? " · 元のファイルが変更されています" : ""}</small></li>)}</ul> : null}
+        {visibleChanges.length ? <ul className="visual-changes">{visibleChanges.map((item) => <li key={item.path}><button type="button" className="btn-line sm" onClick={() => void readDiff(item.path)}>{item.path} の変更内容</button><small>{changeLabel(item.change)}{item.conflict ? " · 元のファイルが変更されています" : ""}</small></li>)}</ul> : null}
         <div className="visual-edit-heading">
-          <span>{phaseLabel(session.phase)} · 版 {session.revision} · {stale ? "状態未確認" : "状態確認済み"}</span>
+          <span>{phaseLabel(session.phase)} · {stale ? "状態未確認" : "状態確認済み"}</span>
           <button type="button" className="btn-line sm" disabled={busy} onClick={() => void recheck()}>状態を再確認</button>
         </div>
         <div className="visual-edit-heading">
@@ -356,8 +359,8 @@ export function VisualEditControls({ originName, onReturnToOrigin, enabled, chat
       </details>
     </>}
     {listError ? <p className="visual-error" role="alert">{listError}</p> : null}
-    {error ? <p className="visual-error" role="alert">{error}</p> : null}
+    {error ? <p className="visual-error" role="alert">{error}{stale ? <> <button type="button" className="btn-line sm" disabled={busy} onClick={() => void recheck()}>状態を再確認</button></> : null}</p> : null}
     {writeError ? <p className="visual-error" role="alert">{writeError}</p> : null}
-    {diffPath ? <div className="visual-diff-scrim" role="presentation"><div className="visual-diff" role="dialog" aria-modal="true" aria-label="ファイル差分"><header><strong>{diffPath}</strong><button type="button" className="btn sm" onClick={() => { setDiff(null); setDiffPath(null); onAfterDiff(); }}>閉じる</button></header>{diffBusy ? <p>差分を読み込んでいます…</p> : diff ? <><p>{diff.binary ? "バイナリファイルのため本文を表示できません。" : diff.truncated ? "本文は一部のみ表示しています。" : "元とコピーの内容"}</p>{!diff.binary ? <div className="visual-diff-columns"><section><h3>元・直前</h3><pre>{diff.before ?? "（ファイルなし）"}</pre></section><section><h3>コピー・現在</h3><pre>{diff.after ?? "（ファイルなし）"}</pre></section></div> : null}</> : <p>差分を表示できませんでした。状態を再確認してください。</p>}</div></div> : null}
+    {diffPath ? <div className="visual-diff-scrim" role="presentation"><div className="visual-diff" role="dialog" aria-modal="true" aria-label="ファイル差分"><header><strong>{diffPath}</strong><button type="button" className="btn sm" onClick={() => { setDiff(null); setDiffPath(null); onAfterDiff(); }}>閉じる</button></header>{diffBusy ? <p>差分を読み込んでいます…</p> : diff ? <><p>{diff.binary ? "バイナリファイルのため本文を表示できません。" : diff.truncated ? "本文は一部のみ表示しています。" : "元とコピーの内容"}</p>{!diff.binary ? <div className="visual-diff-columns"><section><h3>変更前</h3><pre>{diff.before ?? "（ファイルなし）"}</pre></section><section><h3>変更後</h3><pre>{diff.after ?? "（ファイルなし）"}</pre></section></div> : null}</> : <p>差分を表示できませんでした。状態を再確認してください。</p>}</div></div> : null}
   </section>;
 }

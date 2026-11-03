@@ -564,7 +564,7 @@ function UserBubble({ text, forceOpen, open, onToggle }: { text: string; forceOp
     return (
       <>
         {parts.body ? <div className="bubble" data-find="body">{parts.body}</div> : null}
-        <button type="button" className="foldmsg" aria-expanded={shown} aria-controls={id} onClick={onToggle}>参照情報{parts.count ? `（選択${parts.count}件）` : ""}を{shown ? "隠す" : "表示"}</button>
+        <button type="button" className="foldmsg" aria-expanded={shown} aria-controls={id} onClick={onToggle}>選んだ範囲の情報{parts.count ? `（${parts.count}件）` : ""}を{shown ? "隠す" : "表示"}</button>
         <pre id={id} className="vctx-body" hidden={!shown} data-find="body">{parts.context}</pre>
       </>
     );

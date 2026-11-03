@@ -383,7 +383,7 @@ export function VisualWorkspace({ enabled, blocked, chatId, onSendInstruction, c
         <div className="vp-bar">
           <span className="vp-group" role="group" aria-label="ページ">
             {session ? <button type="button" className="btn subtle sm vp-ico" aria-label="HTMLを開く" title="HTMLを開く" disabled={!desktop || busy || closeUnconfirmed || !!edit} onClick={() => void pick(false)}><Icon name="folderOpen" /></button>
-              : <button type="button" className="btn primary sm" disabled={!desktop || busy || closeUnconfirmed} onClick={() => void pick(false)}>開く</button>}
+              : <button type="button" className="btn primary sm" disabled={!desktop || busy || closeUnconfirmed} onClick={() => void pick(false)}>HTMLを開く</button>}
             <button type="button" className="btn subtle sm vp-ico" aria-label="再読み込み" title="再読み込み" disabled={disabled || !reloadAllowed} onClick={() => void action("reload")}><Icon name="refresh" /></button>
           </span>
           <span className="vp-seg" role="group" aria-label="ページの操作モード">
@@ -399,7 +399,7 @@ export function VisualWorkspace({ enabled, blocked, chatId, onSendInstruction, c
         </div>
         <div className="visual-stage" ref={stage} aria-label="専用プレビューの表示領域">
           {!session ? <div className="visual-empty"><strong>HTMLを開いて、直したい所をクリック</strong>{desktop ? <ol className="vp-steps" aria-label="使い方"><li>HTMLを開く</li><li>要素を選ぶ</li><li>依頼を書く</li><li>確認して反映</li></ol> : <p>デスクトップ版でHTMLを開いてください。</p>}</div>
-            : <div className="visual-native-note">{blocked || overlayOpen() ? "メニュー・ダイアログの操作中はプレビューを非表示にします。" : "専用プレビュー領域"}</div>}
+            : <div className="visual-native-note">{blocked || overlayOpen() ? "メニュー・ダイアログの操作中はプレビューを非表示にします。" : "プレビュー"}</div>}
         </div>
         {whereOpen || barOn ? <div className="vp-foot">
           {whereOpen ? <div className="vp-where">
@@ -427,7 +427,7 @@ export function VisualWorkspace({ enabled, blocked, chatId, onSendInstruction, c
               <button type="button" className={"vp-go" + (working ? " working" : "")} aria-label="送信" title={working ? "送信（作業中でも続けて依頼できます）" : "送信（Enter）"} disabled={!barText.trim() || sending || busy || closeUnconfirmed} onClick={() => void sendBar()}>↑</button>
             </div>
             {sendError ? <small className="vp-sent visual-error" role="alert">{sendError}</small> : null}
-            {sentNote ? <small className="vp-sent" role="status">送信を依頼しました</small> : null}
+            {sentNote ? <small className="vp-sent" role="status">送信しました（作業の状況は上の状態表示に出ます）</small> : null}
           </div> : null}
         </div> : null}
       </section>
