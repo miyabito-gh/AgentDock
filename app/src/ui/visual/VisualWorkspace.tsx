@@ -325,7 +325,7 @@ export function VisualWorkspace({ enabled, blocked, chatId, onSendInstruction, c
       .catch((failure) => { if (alive.current) setError("HTMLを開けませんでした: " + messageOf(failure)); });
   }, [enabled, desktop, openRequest?.nonce]);
   // 編集チャットへの送信に、選択範囲と編集方針を自動で添える（入力欄は書き換えない）。
-  const visualCtx = enabled && edit && chatId === edit.chat.id ? visualSendContext(edit.htmlPath, selection, edit.scope) : null;
+  const visualCtx = enabled && edit && chatId === edit.chat.id ? visualSendContext(edit.htmlPath, selection, edit.scope, edit.adopted ? (edit.changes.some((x) => x.change !== null) ? `前回までは反映済み。その後の変更${edit.changes.filter((x) => x.change !== null).length}件は未反映` : "最新の内容まで反映済み") : (edit.changes.some((x) => x.change !== null) ? `まだ反映していません（変更${edit.changes.filter((x) => x.change !== null).length}件）` : "変更なし")) : null;
   const ctxSel = visualCtx?.sel ?? null, ctxFixed = visualCtx?.fixed ?? null;
   useEffect(() => { onContextRef.current(ctxSel !== null && ctxFixed !== null ? { sel: ctxSel, fixed: ctxFixed } : null); }, [ctxSel, ctxFixed]);
   useEffect(() => () => onContextRef.current(null), []);
