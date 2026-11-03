@@ -144,3 +144,8 @@
 - 実装: backend/model.rs（`VersionCheck::Checked`、`Mismatch.direction`）、codex/process.rs（`CHECKED_VERSIONS`、`compare_versions`）、diag.rs、adapter.rs、App.tsx・ui/Chrome.tsx・versionNotice.ts・Dialogs/HelpDialogs・styles.css。`cargo test --lib` 全1573件、`node --test versionNotice.test.ts`、type-check・build成功。
 - Codexの更新: npmのグローバルを 0.162.1→0.166.0 に更新（利用者の許可済み）。PATH先頭の `Programs\OpenAI\Codex\bin\codex.exe`（デスクトップ版）は 0.163.0 のまま。AgentDockで0.166.0を使うには、設定のcodex.exeの場所を `C:\Users\wmasa\AppData\Roaming\npm\codex.cmd` 側（実体は @openai\codex-win32-x64\vendor\...\codex.exe）に向ける。
 - 残り: 0.166.0での送信・承認を含む実機確認（済んだら CHECKED_VERSIONS の basis を "live" にする）。操作ごとの確認表（parity_table）は 0.160.0 のみ。互換と確認した版への引き継ぎは未実装。0.164〜0.166の新機能（会話中の推論変更、thread/items/list 等）の取り込みは未着手。
+
+## 2026-11-03 編集用の会話から元の会話へ戻れない（修正済み・実機未確認）
+- 症状（利用者の画面）: 編集用コピーで作業中の会話（例「こんにちは（編集）」）を通常画面で見ていると、案内に「Visual Editorを開く」「編集から切り離す…」しかなく、元の会話へ戻る手段が分からない。戻り先の記憶は再起動で消えていた。
+- 修正: 編集を始めたときの元の会話を `localStorage`（`agentdock.visualOrigins`: 編集用の会話ID→元の会話ID）に覚える。案内に「元の会話へ戻る」を先頭に追加（元の会話が分からない古い編集では「会話一覧を開く」）。Visual Editor側の「元の会話へ戻る」も、覚えた戻り先を使う。
+- 注意: この修正より前に作った編集用の会話は戻り先が分からないので「会話一覧を開く」になる。

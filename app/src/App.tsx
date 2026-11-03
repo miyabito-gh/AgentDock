@@ -64,6 +64,9 @@ import { VISUAL_CONTEXT_MARK, friendlyVisualError, listVisualEdits, previewAvail
 
 type Mode = "live" | "mock";
 const EXE_KEY = "agentdock.codexExe";
+/** 編集用の会話 → 編集を始めたときの元の会話（再起動しても戻れるよう、この端末に覚える）。 */
+const ORIGIN_KEY = "agentdock.visualOrigins";
+const readOrigins = (): Record<string, string> => { try { const v = JSON.parse(window.localStorage.getItem(ORIGIN_KEY) ?? "{}"); return v && typeof v === "object" ? v : {}; } catch { return {}; } };
 const DEFAULT_EXE = String.raw`C:\Users\wmasa\AppData\Local\Programs\OpenAI\Codex\bin\codex.exe`;
 
 const readExe = (): string => {
@@ -109,6 +112,7 @@ export default function App() {
   const [visualChatOff, setVisualChatOff] = useState(false);
   /** 編集を始めたとき選んでいた会話（専用・分岐の会話から、元の会話へ戻る先）。 */
   const [visualOriginId, setVisualOriginId] = useState<string | null>(null);
+  const [visualOrigins, setVisualOrigins] = useState<Record<string, string>>(readOrigins);
   const [visualCtx, setVisualCtx] = useState<VisualContext | null>(null);
   /** 会話ごとに、送信済みの固定方針（同じ内容は一度だけ送る）。受理を確認できたときだけ控える。 */
   const visualFixedSent = useRef<Record<string, string>>({});
@@ -1767,7 +1771,8 @@ ${cur}` : p.text);
   const visualShown = visualMode && !orgScreen && !quick.open;
   // 編集チャットで利用者の対応が要るもの（承認・質問、受理されなかった/確認できない送信）。畳んでいても見逃さない。
   /** 戻り先の会話（今も一覧にあるものだけ）。専用の編集会話から戻れないときの代わりは、一覧に出る最初の会話。 */
-  const visualOriginChat = visualOriginId ? snap.chats.find((c) => c.key.id === visualOriginId) : undefined;
+  const originIdNow = visualOriginId ?? (visualEditChatId ? visualOrigins[visualEditChatId] ?? null : null);
+  const visualOriginChat = originIdNow ? snap.chats.find((c) => c.key.id === originIdNow) : undefined;
   const visualFallbackId = snap.chats.find((c) => !visualDedicatedIds.has(c.key.id))?.key.id ?? null;
   /** 編集用コピー絡みの会話の案内。作業中（Visual Editorを閉じているとき）と、編集を終えたが元の作業場所へ戻す送信がまだのとき。 */
   /** 編集用コピーに紐付いたままの会話を切り離す（終えられないときの出口）。確認のうえ。コピーも元のフォルダも変更・削除しない。 */
@@ -1780,9 +1785,20 @@ ${cur}` : p.text);
       say(released ? "編集から切り離しました。次の送信から、元の作業場所で動きます。" : "この会話は、編集に紐付いていませんでした。", 6000);
     } catch (e) { sayErr("切り離せませんでした", e); }
   };
+  const rememberOrigin = (editId: string) => {
+    const origin = selId && selId !== editId && !visualDedicatedIds.has(selId) ? selId : null;
+    if (!origin) return;
+    setVisualOrigins((m) => { const n = { ...m, [editId]: origin }; try { window.localStorage.setItem(ORIGIN_KEY, JSON.stringify(n)); } catch { /* 保存できなくても動く */ } return n; });
+  };
   const visualNoteFor = (c: Chat) => {
     if (visualBoundChatIds.has(c.key.id)) {
-      return visualShown ? null : { text: "この会話は編集用コピーで作業中です。依頼は元のファイルではなく、コピーに反映されます。", action: "Visual Editorを開く", onAction: () => { setVisualMode(true); setOrgScreen(false); setQuick((q) => ({ ...q, open: false })); setRNarrow(false); }, secondary: { label: "編集から切り離す…", title: "終えられないときの出口。コピーも元のフォルダも変更しません", onAction: () => { void releaseFromEdit(c); } } };
+      // 元の会話へ戻る導線: 覚えている元の会話があればそこへ、なければ会話一覧を開く。
+      const originId = visualOrigins[c.key.id] ?? (c.key.id === visualEditChatId ? visualOriginId : null);
+      const originChat = originId ? snap.chats.find((x) => x.key.id === originId) : undefined;
+      const back = originChat
+        ? { label: "元の会話へ戻る", title: `「${chatName(originChat)}」へ移ります。編集は保存されています`, onAction: () => selectChat(originChat.key.id) }
+        : { label: "会話一覧を開く", title: "左の会話一覧を開いて、元の会話を選びます", onAction: () => { if (leftTemp) setLNarrow(true); else setLeftOpen(true); } };
+      return visualShown ? null : { back, text: "この会話は編集用コピーで作業中です。依頼は元のファイルではなく、コピーに反映されます。", action: "Visual Editorを開く", onAction: () => { setVisualMode(true); setOrgScreen(false); setQuick((q) => ({ ...q, open: false })); setRNarrow(false); }, secondary: { label: "編集から切り離す…", title: "終えられないときの出口。コピーも元のフォルダも変更しません", onAction: () => { void releaseFromEdit(c); } } };
     }
     if (/[\\/]visual-editor[\\/]visual-[^\\/]+/i.test(knownValue(c.cwd) ?? "")) return { text: "編集は終わっています。作業フォルダの表示はまだ編集用コピーのままですが、次の送信で元の作業場所に戻ります。それまで、引き継ぎ・分岐・作業フォルダの変更はできません。", action: "", onAction: () => undefined };
     return null;
@@ -1887,7 +1903,7 @@ ${cur}` : p.text);
             <VisualWorkspace key={mode} enabled={visualShown}
               blocked={!!dialog || !!menu || palette || mockOpen || !!(sideId && sideShown) || lNarrow || rNarrow || dragging}
               chatName={chat ? chatName(chat) : null} chatId={chat?.key.id ?? null} onSendInstruction={sendInstruction}
-              onOpenEditChat={(id) => { setVisualOriginId((o) => (selId && selId !== id && !visualDedicatedIds.has(selId) ? selId : o)); setVisualEditChatId(id); setVisualBoundChatIds((ids) => new Set(ids).add(id)); setSelId(id); setOrgScreen(false); setQuick((q) => ({ ...q, open: false })); if (live) void loadChat(id); }}
+              onOpenEditChat={(id) => { rememberOrigin(id); setVisualOriginId((o) => (selId && selId !== id && !visualDedicatedIds.has(selId) ? selId : o)); setVisualEditChatId(id); setVisualBoundChatIds((ids) => new Set(ids).add(id)); setSelId(id); setOrgScreen(false); setQuick((q) => ({ ...q, open: false })); if (live) void loadChat(id); }}
               onLeaveEditChat={() => setVisualEditChatId(null)}
               originName={visualOriginChat ? chatName(visualOriginChat) : null}
               onReturnToOrigin={visualOriginChat ? () => { const id = visualOriginChat.key.id; setVisualOriginId(null); selectChat(id); say("元の会話に戻りました。編集は保存されています（Visual Editorの「詳細」から続けられます）。", 6000); } : null}

@@ -72,7 +72,7 @@ export interface CenterProps {
   /** 入力欄の例文（編集チャットのとき）。 */
   visualHint?: string;
   /** 編集用コピーで作業中の会話を、Visual Editorを閉じたまま見ているときの案内（元のファイルではなくコピーに反映される）。 */
-  visualNote?: { text: string; action: string; onAction: () => void; secondary?: { label: string; title: string; onAction: () => void } } | null;
+  visualNote?: { text: string; action: string; onAction: () => void; back?: { label: string; title: string; onAction: () => void }; secondary?: { label: string; title: string; onAction: () => void } } | null;
   /** 入力欄の `$` 候補の窓口（実接続のときだけ。モックは null）。 */
   skillPick: SkillPickApi | null;
   /** 入力欄（選択範囲の貼り付けでカーソル位置を使う）。 */
@@ -1050,7 +1050,7 @@ function Composer({ p, running, lock, hu }: { p: CenterProps; running: boolean; 
           </div>
         ) : null}
         {lock ? <div className="lockmsg">{lock}</div> : null}
-        {p.visualNote ? <div className="handoff-note" role="status"><div className="hn-line"><span className="hn-text">{p.visualNote.text}</span>{p.visualNote.action ? <span className="hn-acts"><button className="small" onClick={p.visualNote.onAction}>{p.visualNote.action}</button>{p.visualNote.secondary ? <button className="small" title={p.visualNote.secondary.title} onClick={p.visualNote.secondary.onAction}>{p.visualNote.secondary.label}</button> : null}</span> : null}</div></div> : null}
+        {p.visualNote ? <div className="handoff-note" role="status"><div className="hn-line"><span className="hn-text">{p.visualNote.text}</span>{p.visualNote.action ? <span className="hn-acts">{p.visualNote.back ? <button className="small" title={p.visualNote.back.title} onClick={p.visualNote.back.onAction}>{p.visualNote.back.label}</button> : null}<button className="small" onClick={p.visualNote.onAction}>{p.visualNote.action}</button>{p.visualNote.secondary ? <button className="small" title={p.visualNote.secondary.title} onClick={p.visualNote.secondary.onAction}>{p.visualNote.secondary.label}</button> : null}</span> : null}</div></div> : null}
         <HandoffNotice ui={hu} onPreview={() => p.onAct("handoffPreview")} onDraft={() => p.onAct("purposeDraft")} />
         {attachBlock ? <div className="lockmsg">{attachBlock}</div> : null}
         {wmSelected && !wmUsable ? (
