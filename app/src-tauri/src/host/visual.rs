@@ -477,9 +477,9 @@ impl Host {
         if self.send_unsettled(&s.meta.chat) || self.subagent_turn_pending(&s.meta.chat) {return Err(visual_err("visual chat send or turn is unsettled"));}
         for chat in &overlapping {
             if chat==&s.meta.chat {continue;}
-            if self.send_unsettled(chat) || self.subagent_turn_pending(chat) {return Err(visual_err("overlapping chat has unsettled send or turn"));}
-            let other=self.queue_gate_input(chat).await;
-            if !Self::visual_overlap_stopped(&other) {return Err(visual_err("overlapping chat stop or descendant scan is unconfirmed"));}
+            if self.send_unsettled(chat) || self.subagent_turn_pending(chat) {return Err(visual_err(format!("overlapping chat has unsettled send or turn: {}",self.chat_title(chat))));}
+            // 一度も再開していない会話は、履歴の終端（読取りのみ）で停止を確認する。確認できなければ止める（会話名を添えて理由を返す）。
+            if !self.visual_chat_stopped(chat).await {return Err(visual_err(format!("overlapping chat stop or descendant scan is unconfirmed: {}",self.chat_title(chat))));}
         }
         let scope=s.scope().map_err(visual_err)?;
         let draft=ProjectRoot::open(Path::new(&s.meta.draft_root)).map_err(visual_err)?;

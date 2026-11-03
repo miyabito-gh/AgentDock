@@ -15,7 +15,24 @@ const FRIENDLY: Array<[string, string]> = [
   ["only Codex chats", "この会話では使えません（Codexの会話のみ対応）。"],
   ["source and storage overlap", "表示しているのは編集用コピーです。「HTMLを開く」で元のHTMLを開いてください。"],
 ];
-const friendly = (message: string): string => FRIENDLY.find(([key]) => message.includes(key))?.[1] ?? message;
+// 会話名などが後ろに付く理由（ホストは「理由: 会話名」の形で返す）。
+const NAMED: Array<[string, (name: string) => string]> = [
+  ["overlapping chat stop or descendant scan is unconfirmed: ", (n) => `元のフォルダを使っている別の会話「${n}」の停止を確認できないため、反映できません。その会話を開くか再開して、状態を確認してから、もう一度お試しください。`],
+  ["overlapping chat has unsettled send or turn: ", (n) => `別の会話「${n}」に、結果の確認が済んでいない送信があります。その会話の状態を確認してから、もう一度お試しください。`],
+];
+const FRIENDLY_MORE: Array<[string, string]> = [
+  ["reviewed revision expired", "画面の内容が古くなりました。「詳細」の「状態を再確認」を押してから、もう一度お試しください。"],
+  ["copy changed after the reviewed revision", "確認したあとに、編集用コピーが変わりました。「状態を再確認」を押してください。"],
+  ["adoption conflict", "元のファイルが、編集を始めたあとに変更されたため、反映できません（上書きしないために止めています）。「元の最新の内容から、やり直す」を選んでください。"],
+  ["previous file operation or snapshot is unresolved", "前の反映・取り消しが途中です。「詳細」で状態を確認してください。"],
+  ["stop, scan, send, or operation is unresolved", "AIの作業の停止を、まだ確認できていません。作業が終わるのを待ち、「状態を再確認」を押してください。"],
+  ["latest send has no settled after snapshot", "最新の依頼の結果を、まだ確認できていません。「状態を再確認」を押してください。"],
+  ["a new overlapping chat appeared", "操作の準備中に、同じフォルダを使う会話が増えました。もう一度お試しください。"],
+];
+const friendly = (message: string): string => {
+  for (const [key, make] of NAMED) { const at = message.indexOf(key); if (at >= 0) return make(message.slice(at + key.length).trim()); }
+  return FRIENDLY.concat(FRIENDLY_MORE).find(([key]) => message.includes(key))?.[1] ?? message;
+};
 const messageOf = (error: unknown): string => {
   if (error instanceof Error) return friendly(error.message);
   if (typeof error === "string") return friendly(error);
@@ -43,6 +60,8 @@ export function VisualEditControls({ originName, onReturnToOrigin, enabled, chat
   const [discarding, setDiscarding] = useState<string | null>(null);
   const [listError, setListError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** 反映・取り消しの失敗の理由。状態の再確認（1.5秒ごと）で消えないよう、別に持つ。次の操作・状態の変化で消す。 */
+  const [writeError, setWriteError] = useState<string | null>(null);
   const [stale, setStale] = useState(true);
   const [busy, setBusy] = useState(false);
   const [pollEpoch, setPollEpoch] = useState(0);
@@ -63,6 +82,7 @@ export function VisualEditControls({ originName, onReturnToOrigin, enabled, chat
   revision.current = session?.revision ?? -1;
 
   useEffect(() => () => { onAfterDiff(); }, []);
+  useEffect(() => { setWriteError(null); }, [session?.sessionId, session?.revision]);
   useEffect(() => {
     if (diffPath !== null) { setDiffPath(null); setDiff(null); onAfterDiff(); }
   }, [session?.revision]);
@@ -172,6 +192,7 @@ export function VisualEditControls({ originName, onReturnToOrigin, enabled, chat
     if (kind === "revert" && !window.confirm(["元のファイルを、反映する前の状態に戻します。", "・反映したファイルだけを戻します。", "・反映したあとに、元のファイルを変更していた場合は、戻せません。", "・編集用コピーのAIの編集は残るので、もう一度反映することもできます。", "戻しますか？"].join("\n"))) return;
     const id = session.sessionId, expectedRevision = session.revision;
     const previousOperationId = session.lastOperation?.id ?? null;
+    setWriteError(null);
     writeLock.current = true; generation.current++; setPollEpoch((n) => n + 1); setBusy(true); setStale(true); setError(null); setDiff(null); setDiffPath(null);
     try {
       const result = kind === "adopt" ? await adoptVisualEdit(id, expectedRevision) : kind === "revert" ? await revertVisualAdoption(id, expectedRevision) : await undoVisualEdit(id, expectedRevision);
@@ -182,12 +203,12 @@ export function VisualEditControls({ originName, onReturnToOrigin, enabled, chat
         setOperation({ kind, outcome: "applied", revision: result.revision, id: last.id });
       } else {
         setOperation({ kind, outcome: last?.kind === kind && last.id !== previousOperationId ? last.outcome : "unknown", revision: result.revision, id: last?.id ?? null, message: last?.message ?? undefined });
-        setError(actionLabel(kind) + "の完了を確認できません。状態と保留理由を再確認してください。");
+        setWriteError(actionLabel(kind) + "の完了を確認できません。状態と保留理由を再確認してください。");
       }
     } catch (e) {
       if (currentId.current === id) {
         setOperation({ kind, outcome: "unknown", revision: expectedRevision, id: null });
-        setError(actionLabel(kind) + "の結果を確認できませんでした: " + messageOf(e) + " 自動で再実行しません。");
+        setWriteError(actionLabel(kind) + "の結果を確認できませんでした: " + messageOf(e) + " 自動で再実行しません。");
       }
     } finally { writeLock.current = false; setBusy(false); }
   };
@@ -316,7 +337,7 @@ export function VisualEditControls({ originName, onReturnToOrigin, enabled, chat
         {session.mode !== "current" || originName ? <button type="button" className="btn-line" disabled={busy} onClick={() => void leave()} title="編集用の会話から離れます。編集は保存され、あとで続けられます">{originName ? "元の会話へ戻る" : "編集をやめる"}</button> : null}
       </div>}
       {operation && operation.revision === session.revision && (operation.id === null || operation.id === session.lastOperation?.id)
-        ? <p className="visual-hint" role="status">{operation.outcome === "applied" ? (operation.kind === "adopt" ? "元のファイルに反映しました。" : operation.kind === "revert" ? "元のファイルを、反映前の状態に戻しました。" : "直前のAI編集を取り消しました。") : actionLabel(operation.kind) + "の結果は「" + operation.outcome + "」です。"} {operation.message}</p> : null}
+        ? <p className="visual-hint" role="status">{operation.outcome === "applied" ? (operation.kind === "adopt" ? "元のファイルに反映しました。" : operation.kind === "revert" ? "元のファイルを、反映前の状態に戻しました。" : "直前のAI編集を取り消しました。") : actionLabel(operation.kind) + "は" + (({ partial: "途中で止まりました", conflict: "元のファイルと食い違いました", rejected: "受け付けられませんでした", unknown: "結果を確認できませんでした" } as Record<string, string>)[operation.outcome] ?? operation.outcome) + "。"} {operation.message}</p> : null}
       <details className="visual-more"><summary>詳細{visibleChanges.length ? `（変更ファイル${visibleChanges.length}件）` : ""}</summary>
         {visibleChanges.length ? <ul className="visual-changes">{visibleChanges.map((item) => <li key={item.path}><button type="button" className="btn-line sm" onClick={() => void readDiff(item.path)}>{item.path} の差分</button><small>{changeLabel(item.change)}{item.conflict ? " · 元のファイルが変更されています" : ""}</small></li>)}</ul> : null}
         <div className="visual-edit-heading">
@@ -336,6 +357,7 @@ export function VisualEditControls({ originName, onReturnToOrigin, enabled, chat
     </>}
     {listError ? <p className="visual-error" role="alert">{listError}</p> : null}
     {error ? <p className="visual-error" role="alert">{error}</p> : null}
+    {writeError ? <p className="visual-error" role="alert">{writeError}</p> : null}
     {diffPath ? <div className="visual-diff-scrim" role="presentation"><div className="visual-diff" role="dialog" aria-modal="true" aria-label="ファイル差分"><header><strong>{diffPath}</strong><button type="button" className="btn sm" onClick={() => { setDiff(null); setDiffPath(null); onAfterDiff(); }}>閉じる</button></header>{diffBusy ? <p>差分を読み込んでいます…</p> : diff ? <><p>{diff.binary ? "バイナリファイルのため本文を表示できません。" : diff.truncated ? "本文は一部のみ表示しています。" : "元とコピーの内容"}</p>{!diff.binary ? <div className="visual-diff-columns"><section><h3>元・直前</h3><pre>{diff.before ?? "（ファイルなし）"}</pre></section><section><h3>コピー・現在</h3><pre>{diff.after ?? "（ファイルなし）"}</pre></section></div> : null}</> : <p>差分を表示できませんでした。状態を再確認してください。</p>}</div></div> : null}
   </section>;
 }
