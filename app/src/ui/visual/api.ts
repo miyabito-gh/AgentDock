@@ -203,6 +203,10 @@ export function friendlyVisualError(message: string): string {
   return VISUAL_ERRORS.find(([key]) => message.includes(key))?.[1] ?? message;
 }
 /** 編集用コピーに紐付いたままの既存の会話を、確認のうえで切り離す（終えられないときの出口）。コピー・元のフォルダには触れない。切り離したらtrue。 */
+/** 古い編集の自動整理（反映済みで終えた編集と、破棄した編集の殻だけ。保持期間のあと）。整理した件数を返す。 */
+export async function cleanupVisualEdits(minAgeDays: number): Promise<number> {
+  return invoke<number>("visual_edit_cleanup", { args: { minAgeDays } });
+}
 export async function releaseVisualChat(chat: ChatKey): Promise<boolean> {
   return invoke<boolean>("visual_edit_release", { args: { chat } });
 }

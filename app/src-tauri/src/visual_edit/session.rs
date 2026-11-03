@@ -312,6 +312,31 @@ pub fn restore_for(root: &Path, chat: &ChatKey) -> VisualResult<Option<(String, 
     }
     Ok(None)
 }
+/// 自動で整理してよい編集（利用者の許可、2026-11-03）。保持期間（記録の最終更新からの経過）を過ぎた、次のものだけ:
+/// (1) 破棄した編集の殻、(2) 終えていて、元へ戻す送信も済み、取り込んだ編集がすべて元へ反映済み（または編集なし）のもの。
+/// 終えていない編集、未反映の変更が残る編集、元へ戻す送信がまだの編集は、対象にしない（失うと取り返しがつかない）。読み込めない記録も対象にしない。
+pub fn cleanup_candidates(root: &Path, min_age: std::time::Duration) -> VisualResult<Vec<String>> {
+    let mut out = Vec::new();
+    if !root.exists() { return Ok(out); }
+    for entry in fs::read_dir(root)? {
+        let entry = entry?;
+        if !entry.file_type()?.is_dir() { continue; }
+        let Ok(id) = entry.file_name().into_string() else { continue };
+        if id == "_journals" || validate_id(&id).is_err() { continue; }
+        let folder = entry.path();
+        let stamp = fs::metadata(folder.join("events.jsonl")).or_else(|_| fs::metadata(&folder)).and_then(|m| m.modified());
+        let Ok(age) = stamp.map(|t| t.elapsed().unwrap_or_default()) else { continue };
+        if age < min_age { continue; }
+        if events_have(&folder, "discarded") { out.push(id); continue; }
+        if !events_have(&folder, "ended") { continue; }
+        let Ok(s) = load(root, &id) else { continue };
+        if s.restore_pending() { continue; }
+        let last = s.last_capture().map(|(_, dir)| dir);
+        if last.is_none() || s.latest_adopted() == last { out.push(id); }
+    }
+    out.sort();
+    Ok(out)
+}
 pub fn list(root: &Path) -> VisualResult<Vec<LoadedSession>> {
     if !root.exists() { return Ok(Vec::new()); }
     let mut sessions=Vec::new();
@@ -446,6 +471,44 @@ mod session_tests {
         append(&c.folder(),&SessionEvent::Restored).unwrap();
         assert!(restore_for(&c.root,&chat).unwrap().is_none());
         assert!(!c.loaded().restore_pending());
+    }
+    #[test]
+    fn cleanup_only_picks_finished_reflected_edits_and_discarded_shells() {
+        use std::time::Duration;
+        let c=Case::new();
+        let none=Duration::ZERO;
+        // 終えていない編集は対象外。
+        assert!(cleanup_candidates(&c.root,none).unwrap().is_empty());
+        let mut meta=c.loaded().meta.clone();
+        meta.mode=Some("current".into());
+        meta.restore=Some(RestoreInfo{folders:vec!["C:/original".into()]});
+        fs::remove_file(c.folder().join("session.json")).unwrap();
+        save_meta(&c.folder(),&meta).unwrap();
+        // 未反映の変更が残る編集は、終えても対象外（失うと取り返しがつかない）。
+        c.captured_edit();
+        append(&c.folder(),&SessionEvent::Ended).unwrap();
+        append(&c.folder(),&SessionEvent::Restored).unwrap();
+        assert!(cleanup_candidates(&c.root,none).unwrap().is_empty());
+        // 反映済みなら対象。ただし保持期間が過ぎていなければ対象外。
+        append(&c.folder(),&SessionEvent::Adopted{after:"e1".into()}).unwrap();
+        assert_eq!(cleanup_candidates(&c.root,none).unwrap(),vec![c.id.clone()]);
+        assert!(cleanup_candidates(&c.root,Duration::from_secs(14*86_400)).unwrap().is_empty());
+    }
+    #[test]
+    fn cleanup_skips_an_edit_whose_restore_send_is_still_pending_and_takes_discarded_shells() {
+        use std::time::Duration;
+        let c=Case::new();
+        let mut meta=c.loaded().meta.clone();
+        meta.mode=Some("current".into());
+        meta.restore=Some(RestoreInfo{folders:vec!["C:/original".into()]});
+        fs::remove_file(c.folder().join("session.json")).unwrap();
+        save_meta(&c.folder(),&meta).unwrap();
+        append(&c.folder(),&SessionEvent::Ended).unwrap();
+        // 元の作業場所へ戻す送信がまだなら、反映済みでも対象外。
+        assert!(cleanup_candidates(&c.root,Duration::ZERO).unwrap().is_empty());
+        // 破棄した編集の殻は対象。
+        append(&c.folder(),&SessionEvent::Discarded).unwrap();
+        assert_eq!(cleanup_candidates(&c.root,Duration::ZERO).unwrap(),vec![c.id.clone()]);
     }
     #[test]
     fn reverting_an_adoption_pops_the_adoption_stack_and_survives_a_lost_adopted_event() {

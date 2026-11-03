@@ -60,7 +60,7 @@ import { pushRecent } from "./ui/skillPick";
 import { SendKeyContext } from "./ui/SendKeyContext";
 import { applyAppearance, watchSystemTheme } from "./ui/appearance";
 import { VisualWorkspace } from "./ui/visual/VisualWorkspace";
-import { VISUAL_CONTEXT_MARK, friendlyVisualError, listVisualEdits, previewAvailable, releaseVisualChat, type VisualContext, type VisualEditSession } from "./ui/visual/api";
+import { VISUAL_CONTEXT_MARK, cleanupVisualEdits, friendlyVisualError, listVisualEdits, previewAvailable, releaseVisualChat, type VisualContext, type VisualEditSession } from "./ui/visual/api";
 
 type Mode = "live" | "mock";
 const EXE_KEY = "agentdock.codexExe";
@@ -481,6 +481,13 @@ export default function App() {
   const src: SourceInfo | undefined = snap.sources[0] ?? (live && connectError ? failedSource(connectError) : undefined);
   const chat = snap.chats.find((c) => c.key.id === selId) ?? null;
   const connected = src?.connection.kind === "connected";
+  // 起動して接続できたら1回だけ、古い編集用コピーを自動で整理する（反映済みで終えた編集と破棄した編集の殻。14日経過後。利用者の許可による）。
+  const cleaned = useRef(false);
+  useEffect(() => {
+    if (!live || !connected || booting || cleaned.current || !previewAvailable()) return;
+    cleaned.current = true;
+    void cleanupVisualEdits(14).then((n) => { if (n > 0) say(`古い編集用コピー（反映済みで終えたもの）を${n}件、自動で整理しました。`, 6000); }, () => undefined);
+  }, [live, connected, booting, say]);
   /** 主要ボタン・メニュー「作業」・Ctrl+K が共有する操作の可否（台帳から導く）。 */
   // 選択中チャットの作業フォルダがGitリポジトリか（`git_info` の読取りだけ。チャット選択時と作業フォルダ変更時に1回）。確認できていないときは無効にしない。
   const gitCwd = chat?.cwd.kind === "value" ? chat.cwd.value : null;

@@ -27,6 +27,20 @@ fn remove_storage_dir(storage:&Path,dir:&Path)->Result<(),String> {
     if target==root || !target.starts_with(&root) {return Err("outside the visual storage".into());}
     fs::remove_dir_all(dir).map_err(|e|e.to_string())
 }
+/// 編集の記録フォルダを、途中で止まっても「紐付いているように見える」状態を残さない順に消す。
+fn remove_session_folder(storage:&Path,folder:&Path)->Result<(),String> {
+    let mut dirs=Vec::new(); let mut files=Vec::new();
+    for e in fs::read_dir(folder).map_err(|x|x.to_string())? {
+        let e=e.map_err(|x|x.to_string())?;
+        let name=e.file_name().to_string_lossy().into_owned();
+        if e.file_type().map_err(|x|x.to_string())?.is_dir() {dirs.push(e.path());} else {files.push(name);}
+    }
+    for d in dirs {remove_storage_dir(storage,&d)?;}
+    let keep=["session.json","events.jsonl"];
+    for f in files.iter().filter(|f|!keep.contains(&f.as_str())) {fs::remove_file(folder.join(f)).map_err(|x|x.to_string())?;}
+    for f in keep {if folder.join(f).exists() {fs::remove_file(folder.join(f)).map_err(|x|x.to_string())?;}}
+    fs::remove_dir(folder).map_err(|x|x.to_string())
+}
 fn visual_err(e:impl std::fmt::Display)->IpcError { err(IpcErrorCode::Blocked,format!("Visual Editor: {e}")) }
 fn path_string(path:&Path)->Result<String,IpcError> { Ok(ve::preview::normal_drive_path(path).map_err(visual_err)?.to_string_lossy().into_owned()) }
 fn known_access(ext:&str)->Option<FileAccess> {
@@ -193,6 +207,23 @@ impl Host {
         if meta.mode.as_deref()!=Some("current") || meta.restore.is_none() {return Err(visual_err("only an edit on an existing chat can be released"));}
         session::append(&folder,&SessionEvent::Ended).map_err(visual_err)?;
         Ok(true)
+    }
+    /// 古い編集の自動整理（利用者の許可、2026-11-03）。対象は `session::cleanup_candidates`（反映済みで終えた編集と、破棄した編集の殻。既定は14日経過後）。
+    /// 途中で失敗しても、紐付けの確認が壊れない順に消す（先に「破棄」を記録し、中身→識別ファイル→記録の順）。失敗した分は残して次回に回す。
+    pub async fn visual_cleanup(self:&Arc<Self>,min_age_days:u64)->Result<usize,IpcError> {
+        let _guard=self.visual_rt.lock.lock().await;
+        let root=self.visual_root();
+        let ids=session::cleanup_candidates(&root,std::time::Duration::from_secs(min_age_days.saturating_mul(86_400))).map_err(visual_err)?;
+        let mut removed=0usize;
+        for id in ids {
+            let folder=root.join(&id);
+            if !fs::read_to_string(folder.join("events.jsonl")).map(|t|t.contains("\"kind\":\"discarded\"")).unwrap_or(false) {
+                if session::append(&folder,&SessionEvent::Discarded).is_err() {continue;}
+            }
+            let _=remove_storage_dir(&root,&root.join("_journals").join(&id));
+            if remove_session_folder(&root,&folder).is_ok() {removed+=1;}
+        }
+        Ok(removed)
     }
     /// 編集を破棄する。コピーのファイルを削除し、反映前のバックアップ（元の内容）は `keep_backup` のとき残す。
     /// 反映していない編集は元に影響しないので、すべて削除する。元のフォルダには触れない。

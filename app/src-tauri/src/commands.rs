@@ -1443,6 +1443,13 @@ pub async fn visual_edit_adopt(host: Hs<'_>, args: crate::host::visual::VisualWr
     host.inner().clone().visual_adopt(args).await
 }
 #[tauri::command]
+pub async fn visual_edit_cleanup(host: Hs<'_>, args: VisualCleanupArgs) -> R<usize> {
+    host.inner().clone().visual_cleanup(args.min_age_days).await
+}
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VisualCleanupArgs { pub min_age_days: u64 }
+#[tauri::command]
 pub async fn visual_edit_revert(host: Hs<'_>, args: crate::host::visual::VisualWriteArgs) -> R<crate::visual_edit::session::SessionView> {
     host.inner().clone().visual_revert(args).await
 }

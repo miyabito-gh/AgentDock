@@ -169,6 +169,7 @@ pub fn run() {
             commands::visual_edit_adopt,
             commands::visual_edit_undo,
             commands::visual_edit_revert,
+            commands::visual_edit_cleanup,
             commands::visual_edit_diff,
             commands::get_snapshot,
             commands::subagent_start,
