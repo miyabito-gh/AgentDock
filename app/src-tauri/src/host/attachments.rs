@@ -452,9 +452,16 @@ impl Host {
         self.read(|d| d.chats.iter().find(|c| &c.key == chat).and_then(|c| c.cwd.value().cloned()))
     }
 
+    /// そのパスを含む作業フォルダ（編集を終えたあと、元へ戻す送信がまだの会話は、元の作業フォルダも含む）。どれにも含まれなければ現在の作業フォルダ。
+    fn link_root_for(&self, chat: &ChatKey, path: &Path) -> Option<String> {
+        let roots = self.chat_link_roots(chat);
+        roots.iter().find(|root| attach::is_inside_project_resolved(path, root)).cloned().or_else(|| roots.into_iter().next())
+    }
+
     /// パスの実在とメタデータだけを確認する（内容は読まない）。遅い・失敗は `Unconfirmed`。
     pub async fn stat_paths(self: &Arc<Self>, args: StatPathsArgs) -> Vec<PathInfo> {
         let cwd = self.chat_cwd(&args.chat);
+        let roots = self.chat_link_roots(&args.chat);
         let deadline = tokio::time::Instant::now() + Duration::from_millis(pathref::STAT_TIMEOUT_MS);
         let unconfirmed = |input: &str| PathInfo { input: input.to_string(), kind: PathKind::Unconfirmed, absolute: None, relative: None };
         let mut jobs = Vec::new();
@@ -476,7 +483,7 @@ impl Host {
                 Ok(Ok((kind, canon))) => {
                     let (absolute, relative) = if matches!(kind, PathKind::File | PathKind::Folder) {
                         let absolute = canon.unwrap_or(abs.clone());
-                        let relative = cwd.as_deref().and_then(|root| pathref::relative_to(&abs, root).or_else(|| pathref::relative_to(&absolute, root)));
+                        let relative = roots.iter().find_map(|root| pathref::relative_to(&abs, root).or_else(|| pathref::relative_to(&absolute, root)));
                         (Some(absolute), relative)
                     } else {
                         (None, None)
@@ -506,14 +513,14 @@ impl Host {
     pub async fn open_path_target(self: &Arc<Self>, args: &OpenPathArgs) -> Result<PathBuf, IpcError> {
         let path = self.resolve_chat_path(&args.chat, &args.path).await?;
         if args.workspace_only {
-            workspace_link_verdict(&path, self.chat_cwd(&args.chat).as_deref(), true).map_err(|m| err(IpcErrorCode::InvalidArgs, m))?;
+            workspace_link_verdict(&path, self.link_root_for(&args.chat, &path).as_deref(), true).map_err(|m| err(IpcErrorCode::InvalidArgs, m))?;
             return Ok(path);
         }
         if args.risk_confirmed {
             return Ok(path);
         }
         let executable = attach::is_executable_path(&path);
-        let outside_project = !self.chat_cwd(&args.chat).is_some_and(|root| attach::is_inside_project_resolved(&path, &root));
+        let outside_project = !self.link_root_for(&args.chat, &path).is_some_and(|root| attach::is_inside_project_resolved(&path, &root));
         if !executable && !outside_project {
             return Ok(path);
         }
@@ -525,7 +532,7 @@ impl Host {
     pub async fn reveal_path_target(self: &Arc<Self>, args: &RevealPathArgs) -> Result<PathBuf, IpcError> {
         let path = self.resolve_chat_path(&args.chat, &args.path).await?;
         if args.workspace_only {
-            workspace_link_verdict(&path, self.chat_cwd(&args.chat).as_deref(), false).map_err(|m| err(IpcErrorCode::InvalidArgs, m))?;
+            workspace_link_verdict(&path, self.link_root_for(&args.chat, &path).as_deref(), false).map_err(|m| err(IpcErrorCode::InvalidArgs, m))?;
         }
         Ok(path)
     }

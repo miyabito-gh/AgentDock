@@ -89,6 +89,13 @@ impl Host {
         if self.visual_cwd(chat) {return Ok(session::restore_for(&self.visual_root(),chat).map_err(visual_err)?.is_none());}
         Ok(false)
     }
+    /// 会話中のリンクの基準にする作業フォルダ（先頭が現在の作業フォルダ）。編集を終えて、元の作業場所へ戻す送信がまだの会話は、
+    /// 作業フォルダがまだ編集用コピーを指しているため、戻し先（元の作業フォルダ）も内側として扱う。読めないときは現在の作業フォルダだけ。
+    pub(super) fn chat_link_roots(&self,chat:&ChatKey)->Vec<String> {
+        let mut roots:Vec<String>=self.read(|d|d.chats.iter().find(|c|&c.key==chat).and_then(|c|c.cwd.value().cloned())).into_iter().collect();
+        if let Ok(Some((_,info)))=session::restore_for(&self.visual_root(),chat) {roots.extend(info.folders);}
+        roots
+    }
     fn visual_loaded(&self,id:&str)->Result<LoadedSession,IpcError> { session::load(&self.visual_root(),id).map_err(visual_err) }
     /// 既存の会話で続ける・分岐して続ける場合の、対象の会話と戻し先。専用チャットを新規に作る場合は None。
     /// 会話が止まっていると確認できるか。ライブで終了を観測済みのturnは通常の経路では履歴を読まないため、ここで読取り専用に履歴の終端を確認する。
