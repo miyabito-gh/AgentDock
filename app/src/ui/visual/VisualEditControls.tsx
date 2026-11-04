@@ -190,12 +190,24 @@ export function VisualEditControls({ onAdopted, originName, onReturnToOrigin, en
   const write = async (kind: "adopt" | "undo" | "revert") => {
     if (!session || stale || busy || writeLock.current || (kind === "adopt" ? !session.canAdopt : kind === "revert" ? !session.canRevert : !session.canUndo)) return;
     if (kind === "revert" && !window.confirm(["元のファイルを、反映する前の状態に戻します。", "・反映したファイルだけを戻します。", "・反映したあとに、元のファイルを変更していた場合は、戻せません。", "・編集用コピーのAIの編集は残るので、もう一度反映することもできます。", "戻しますか？"].join("\n"))) return;
-    const id = session.sessionId, expectedRevision = session.revision;
+    const id = session.sessionId;
+    let expectedRevision = session.revision;
     const previousOperationId = session.lastOperation?.id ?? null;
     const changedPaths = session.changes.filter((c) => c.change !== null).map((c) => c.path);
     setWriteError(null);
     writeLock.current = true; generation.current++; setPollEpoch((n) => n + 1); setBusy(true); setStale(true); setError(null); setDiff(null); setDiffPath(null);
     try {
+      // 押した時点の最新の状態で確かめる。AIの編集の取り込みが画面の更新より先に進んでいると、ホストが「内容が古い」と断り、もう一度押すことになるため。
+      // 表示している変更と同じなら、最新の版で続ける。変わっていたら、確認していない内容を入れないよう、更新して止める。
+      let fresh: VisualEditSession;
+      try { fresh = await statusVisualEdit(id); }
+      catch (e) { if (currentId.current === id) setWriteError(actionLabel(kind) + "できませんでした。状態を確認できません: " + messageOf(e)); return; }
+      if (currentId.current !== id) return;
+      if (fresh.revision !== expectedRevision) {
+        onUpdate(fresh);
+        if (JSON.stringify(fresh.changes) !== JSON.stringify(session.changes)) { setStale(false); setWriteError("AIの編集が更新されました。変更を確認してから、もう一度押してください。"); return; }
+        expectedRevision = fresh.revision;
+      }
       const result = kind === "adopt" ? await adoptVisualEdit(id, expectedRevision) : kind === "revert" ? await revertVisualAdoption(id, expectedRevision) : await undoVisualEdit(id, expectedRevision);
       if (currentId.current !== id) return;
       onUpdate(result);
@@ -246,7 +258,7 @@ export function VisualEditControls({ onAdopted, originName, onReturnToOrigin, en
     try {
       const done = await endVisualEdit(session.sessionId);
       if (!done.ended) throw new Error("終了を確認できませんでした。");
-      try { await onEnded(session.sessionId); }
+      try { await onEnded(session.chat.id); }
       catch { onNotice("編集は終了しました。表示の切り替えは完了していません。「開く」で元のHTMLを開いてください。"); return; }
       onNotice("編集を終えました。この会話は元の作業場所に戻ります。");
     } catch (e) {
