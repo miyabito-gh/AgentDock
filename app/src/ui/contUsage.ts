@@ -97,10 +97,15 @@ export function purposeSaveBlock(text: string, original: string, orgOwned: boole
   return null;
 }
 
-/** 案内行の文。使用率の行（threshold）と手動（manual）で冒頭だけ変える。rounds は資料に入れる往復数。 */
-export function noticeText(mode: "threshold" | "manual", percent: number | null, rounds: number): string {
-  const body = `新しい thread へ引き継ぎます（目的メモ＋直近${rounds}往復）`;
-  return mode === "threshold" && percent !== null ? `文脈が ${percent}% です。次の送信で${body}` : `次の送信で${body}`;
+/** 案内行の文。使用率の行（threshold）と手動（manual）で冒頭だけ変える。引き継ぎは送信ボタンの▾から選んだときだけなので、そう書く（通常の送信では引き継がない）。 */
+export function noticeText(mode: "threshold" | "manual", percent: number | null): string {
+  const body = "新しい会話へ引き継ぐなら、送信の ▾ →「引き継いで送信」";
+  return mode === "threshold" && percent !== null ? `文脈 ${percent}%。${body}` : body;
+}
+
+/** 案内行のツールチップ。rounds は資料に入れる往復数。 */
+export function noticeTip(rounds: number): string {
+  return `目的メモ＋直近${rounds}往復を添えて、新しい thread へ引き継ぎます。送信ボタン・送信キーは、いつも通常の送信です。`;
 }
 
 /** 資料の統計行（確認ダイアログ）。 */

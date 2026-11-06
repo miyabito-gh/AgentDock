@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Chat, ChatKey, ChatLocalView, ContinuationSettings } from "../ipc/types";
 import type { HandoffPreview } from "../ipc/types";
 import * as host from "../ipc/client";
-import { handoffIneligible, noticeText, purposeFirstLine, shouldSuggest, statsText, usageChip } from "./contUsage";
+import { handoffIneligible, noticeText, noticeTip, purposeFirstLine, shouldSuggest, usageChip } from "./contUsage";
 
 export type PreviewState = { kind: "loading" } | { kind: "error"; message: string } | { kind: "ok"; p: HandoffPreview };
 
@@ -102,28 +102,23 @@ export function HandoffNotice({ ui, onPreview, onDraft }: { ui: HandoffUi; onPre
   return (
     <div className="handoff-note" role="status">
       <div className="hn-line">
-        <span className="hn-text">{noticeText(mode, ui.percent, ui.rounds)}</span>
+        <span className="hn-text" title={noticeTip(ui.rounds)}>{noticeText(mode, ui.percent)}</span>
         <span className="hn-acts">
-          <button className="small" onClick={onPreview}>資料を見る</button>
-          {mode === "threshold" && onDraft ? <button className="small" title="更新案のダイアログを開きます（作成は、ダイアログの「作成する」を押したときだけ）" onClick={onDraft}>目的メモを更新</button> : null}
-          {mode === "threshold" ? <button className="small" onClick={ui.keep}>この会話で続ける</button> : <button className="small" aria-label="案内を閉じる" title="案内を閉じる" onClick={ui.close}>×</button>}
+          <button className="linkish" onClick={onPreview}>資料</button>
+          {mode === "threshold" && onDraft ? <button className="linkish" title="更新案のダイアログを開きます（作成は、ダイアログの「作成する」を押したときだけ）" onClick={onDraft}>目的メモ</button> : null}
+          <button className="linkish" aria-label={mode === "threshold" ? "この会話で続ける（案内を閉じる）" : "案内を閉じる"} title={mode === "threshold" ? "この会話で続ける（案内を閉じる）" : "案内を閉じる"} onClick={mode === "threshold" ? ui.keep : ui.close}>×</button>
         </span>
       </div>
-      {pv.kind === "loading" ? <div className="hn-sub muted">資料を確認しています。確認できるまで、「引き継いで送信」は選べません。</div> : null}
-      {pv.kind === "error" ? <div className="hn-sub why">資料を確認できませんでした（{pv.message}）。確認できるまで、「引き継いで送信」は選べません。<button className="small" onClick={ui.reload}>再確認</button></div> : null}
+      {pv.kind === "loading" ? <div className="hn-sub muted">資料を確認しています。確認できるまで、引き継ぎは選べません。</div> : null}
+      {pv.kind === "error" ? <div className="hn-sub why">資料を確認できませんでした（{pv.message}）。<button className="linkish" onClick={ui.reload}>再確認</button></div> : null}
       {blockers.length > 0 ? (
         <div className="hn-sub why">
-          いまは引き継げません。通常の送信はそのまま使えます（引き継がずに送るか、待つかを選べます）。
+          いまは引き継げません（通常の送信は使えます）。
           <ul>{blockers.map((b, i) => <li key={i}>{b.message}</li>)}</ul>
-          <button className="small" onClick={ui.reload}>再確認</button>
+          <button className="linkish" onClick={ui.reload}>再確認</button>
         </div>
       ) : null}
-      {pv.kind === "ok" ? (
-        <>
-          {pv.p.notes.length > 0 ? <ul className="hn-sub muted">{pv.p.notes.map((t, i) => <li key={i}>{t}</li>)}</ul> : null}
-          <div className="hn-sub muted">{statsText(pv.p)}</div>
-        </>
-      ) : null}
+      {pv.kind === "ok" && pv.p.notes.length > 0 ? <ul className="hn-sub muted">{pv.p.notes.map((t, i) => <li key={i}>{t}</li>)}</ul> : null}
     </div>
   );
 }

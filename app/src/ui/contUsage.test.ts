@@ -65,8 +65,8 @@ test("purposeFirstLine skips blank lines and truncates", () => {
 });
 
 test("noticeText and observedText", () => {
-  assert.equal(noticeText("threshold", 72, 3), "文脈が 72% です。次の送信で新しい thread へ引き継ぎます（目的メモ＋直近3往復）");
-  assert.equal(noticeText("manual", null, 3), "次の送信で新しい thread へ引き継ぎます（目的メモ＋直近3往復）");
+  assert.equal(noticeText("threshold", 72), "文脈 72%。新しい会話へ引き継ぐなら、送信の ▾ →「引き継いで送信」");
+  assert.equal(noticeText("manual", null), "新しい会話へ引き継ぐなら、送信の ▾ →「引き継いで送信」");
   assert.equal(observedText(new Date(2026, 9, 17, 9, 5).getTime(), NOW), "10/17 09:05");
   assert.equal(observedText(0, NOW), null);
 });

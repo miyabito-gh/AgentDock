@@ -17,8 +17,8 @@ const FRIENDLY: Array<[string, string]> = [
 ];
 // 会話名などが後ろに付く理由（ホストは「理由: 会話名」の形で返す）。
 const NAMED: Array<[string, (name: string) => string]> = [
-  ["overlapping chat stop or descendant scan is unconfirmed: ", (n) => `元のフォルダを使っている別の会話「${n}」の停止を確認できないため、反映できません。その会話を開くか再開して、状態を確認してから、もう一度お試しください。`],
-  ["overlapping chat has unsettled send or turn: ", (n) => `別の会話「${n}」に、結果の確認が済んでいない送信があります。その会話の状態を確認してから、もう一度お試しください。`],
+  ["overlapping chat stop or descendant scan is unconfirmed: ", (n) => `元のフォルダを使っている別の会話（${n}）の停止を、数秒待っても確認できないため、反映できません。その会話を開くか再開して、状態を確認してから、もう一度お試しください。`],
+  ["overlapping chat has unsettled send or turn: ", (n) => `別の会話（${n}）に、結果の確認が済んでいない送信があります。その会話の状態を確認してから、もう一度お試しください。`],
 ];
 const FRIENDLY_MORE: Array<[string, string]> = [
   ["reviewed revision expired", "画面の内容が古くなりました。「詳細」の「状態を再確認」を押してから、もう一度お試しください。"],

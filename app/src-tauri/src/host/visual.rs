@@ -96,6 +96,31 @@ impl Host {
         if let Ok(Some((_,info)))=session::restore_for(&self.visual_root(),chat) {roots.extend(info.folders);}
         roots
     }
+    /// 反映を止めた会話の表示（会話名と、重なっているフォルダ）。
+    fn overlap_detail(&self,chat:&ChatKey,folders:&[String])->String {
+        let path=self.chat_operation_folders(chat).into_iter().find(|p|folders.iter().any(|f|super::cloud::paths_overlap(p,f))).unwrap_or_default();
+        if path.is_empty() {self.chat_title(chat)} else {format!("{} @ {}",self.chat_title(chat),path)}
+    }
+    /// 一覧から外れている（アーカイブ・一覧から外した・削除保留）会話か。
+    fn visual_chat_hidden(&self,chat:&ChatKey)->bool {
+        self.read(|d|d.locals.get(chat).is_some_and(|l|!matches!(l.visibility,crate::backend::local::ListVisibility::Visible) || l.delete_pending.is_some()))
+    }
+    /// 停止を確認できなかった会話（確認できたものは含めない）。一覧から外れた会話は、動いている兆しがなければ確認済みとして扱う。
+    async fn visual_unconfirmed_overlaps(self:&Arc<Self>,chats:&[ChatKey])->Vec<ChatKey> {
+        let mut out=Vec::new();
+        for chat in chats {
+            if self.visual_chat_stopped(chat).await {continue;}
+            if self.visual_chat_hidden(chat) {
+                let gate=self.queue_gate_input(chat).await;
+                let active=gate.root.as_ref().is_some_and(|r|matches!(r.state,crate::backend::model::AgentState::Running|crate::backend::model::AgentState::Waiting|crate::backend::model::AgentState::Initializing))
+                    || gate.descendants.iter().any(|f|matches!(f.state,crate::backend::model::AgentState::Running|crate::backend::model::AgentState::Waiting|crate::backend::model::AgentState::Initializing))
+                    || gate.open_stop.is_some() || gate.unresolved_attempt.is_some() || gate.unresolved_op.is_some() || gate.manual_turn_pending;
+                if !active {continue;}
+            }
+            out.push(chat.clone());
+        }
+        out
+    }
     fn visual_loaded(&self,id:&str)->Result<LoadedSession,IpcError> { session::load(&self.visual_root(),id).map_err(visual_err) }
     /// 既存の会話で続ける・分岐して続ける場合の、対象の会話と戻し先。専用チャットを新規に作る場合は None。
     /// 会話が止まっていると確認できるか。ライブで終了を観測済みのturnは通常の経路では履歴を読まないため、ここで読取り専用に履歴の終端を確認する。
@@ -513,11 +538,24 @@ impl Host {
         let gate=self.queue_gate_input(&s.meta.chat).await;
         self.visual_gate_stopped(&gate,&turn)?;
         if self.send_unsettled(&s.meta.chat) || self.subagent_turn_pending(&s.meta.chat) {return Err(visual_err("visual chat send or turn is unsettled"));}
+        // 重なる会話を、1件ずつ止まらず全部まとめて調べる（押すたびに別の会話で止まらないように）。止めるときは、会話名と重なっているフォルダを全件返す。
+        let mut unsettled=Vec::new();
+        let mut to_check=Vec::new();
         for chat in &overlapping {
             if chat==&s.meta.chat {continue;}
-            if self.send_unsettled(chat) || self.subagent_turn_pending(chat) {return Err(visual_err(format!("overlapping chat has unsettled send or turn: {}",self.chat_title(chat))));}
-            // 一度も再開していない会話は、履歴の終端（読取りのみ）で停止を確認する。確認できなければ止める（会話名を添えて理由を返す）。
-            if !self.visual_chat_stopped(chat).await {return Err(visual_err(format!("overlapping chat stop or descendant scan is unconfirmed: {}",self.chat_title(chat))));}
+            if self.send_unsettled(chat) || self.subagent_turn_pending(chat) {unsettled.push(self.overlap_detail(chat,&folders));} else {to_check.push(chat.clone());}
+        }
+        if !unsettled.is_empty() {return Err(visual_err(format!("overlapping chat has unsettled send or turn: {}",unsettled.join(" / "))));}
+        // 一度も再開していない会話は、履歴の終端（読取りのみ）で停止を確認する。確認の走査は呼ぶたびに始まるので、短く待って確認できたものを外しながら数回調べる。
+        let mut unconfirmed=self.visual_unconfirmed_overlaps(&to_check).await;
+        for _ in 0..8 {
+            if unconfirmed.is_empty() {break;}
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            unconfirmed=self.visual_unconfirmed_overlaps(&unconfirmed).await;
+        }
+        if !unconfirmed.is_empty() {
+            let detail:Vec<String>=unconfirmed.iter().map(|c|self.overlap_detail(c,&folders)).collect();
+            return Err(visual_err(format!("overlapping chat stop or descendant scan is unconfirmed: {}",detail.join(" / "))));
         }
         let scope=s.scope().map_err(visual_err)?;
         let draft=ProjectRoot::open(Path::new(&s.meta.draft_root)).map_err(visual_err)?;

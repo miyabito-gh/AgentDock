@@ -1058,11 +1058,13 @@ button.uchip:hover{background:var(--accent-weak)}
 .ctxchip.dim{color:var(--ink3)}
 .ctxchip.warn{color:var(--wait-ink)}
 .ctxchip.strong{color:var(--fail-ink);font-weight:600}
-.handoff-note{border:1px solid var(--wait-line);background:var(--wait-bg);color:var(--wait-ink);border-radius:var(--r2);padding:4px 8px;margin-bottom:4px;font-size:var(--fs-s)}
-.handoff-note.muted{border-color:var(--line);background:var(--surface2);color:var(--ink2)}
+.handoff-note{color:var(--ink2);padding:2px 6px;margin-bottom:2px;font-size:var(--fs-s)}
+.handoff-note.muted{color:var(--ink3)}
+.handoff-note .hn-acts .linkish{color:var(--ink3)}
+.handoff-note .hn-acts .linkish:hover{color:var(--ink)}
 .handoff-note .hn-line{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .handoff-note .hn-text{flex:1 1 14em;min-width:0}
-.handoff-note .hn-acts{display:flex;gap:6px;flex-wrap:wrap}
+.handoff-note .hn-acts{display:flex;gap:10px;flex-wrap:wrap}
 .handoff-note .hn-sub{margin-top:2px;overflow-wrap:anywhere}
 .handoff-note .hn-sub ul,.handoff-note ul.hn-sub{margin:2px 0 2px 1.2em;padding:0}
 .handoff-note .hn-sub.why{color:var(--fail-ink)}
