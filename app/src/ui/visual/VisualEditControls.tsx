@@ -21,6 +21,7 @@ const NAMED: Array<[string, (name: string) => string]> = [
   ["overlapping chat has unsettled send or turn: ", (n) => `別の会話（${n}）に、結果の確認が済んでいない送信があります。その会話の状態を確認してから、もう一度お試しください。`],
 ];
 const FRIENDLY_MORE: Array<[string, string]> = [
+  ["incomplete visual session binding", "編集用コピーとの紐付けが不完全なため、送信を止めました。「編集を終える」を押すか、「詳細」の保存された編集から破棄または解除してください。"],
   ["reviewed revision expired", "画面の内容が古くなりました。「詳細」の「状態を再確認」を押してから、もう一度お試しください。"],
   ["copy changed after the reviewed revision", "確認したあとに、編集用コピーが変わりました。「状態を再確認」を押してください。"],
   ["adoption conflict", "元のファイルが、編集を始めたあとに変更されたため、反映できません（上書きしないために止めています）。「元の最新の内容から、やり直す」を選んでください。"],
@@ -33,6 +34,11 @@ const friendly = (message: string): string => {
   for (const [key, make] of NAMED) { const at = message.indexOf(key); if (at >= 0) return make(message.slice(at + key.length).trim()); }
   return FRIENDLY.concat(FRIENDLY_MORE).find(([key]) => message.includes(key))?.[1] ?? message;
 };
+/** ホストが返した元の文（日本語への置き換え前）。接頭辞などの判定用。 */
+const rawMessageOf = (error: unknown): string => error instanceof Error ? error.message : typeof error === "string" ? error
+  : error && typeof error === "object" && "message" in error && typeof (error as { message: unknown }).message === "string" ? (error as { message: string }).message : "";
+/** ホストが書き込み前に拒否したエラーの接頭辞（何も書き込んでいない）。 */
+const NOTHING_WRITTEN = "nothing written: ";
 const messageOf = (error: unknown): string => {
   if (error instanceof Error) return friendly(error.message);
   if (typeof error === "string") return friendly(error);
@@ -51,8 +57,8 @@ const phaseLabel = (phase: string) => ({
 } as Record<string, string>)[phase] ?? "状態: " + phase;
 
 export function VisualEditControls({ onAdopted, originName, onReturnToOrigin, enabled, chatId, currentChat, onEnded, onCloseDraftPreview, onDiscarded, preview, session, onBind, onUpdate, onLeave, onBeforeDiff, onAfterDiff, onKnownEditChats, onNotice }: {
-  onAdopted: (session: VisualEditSession, paths: string[]) => void; originName: string | null; onReturnToOrigin: (() => void) | null; enabled: boolean; chatId: string | null; currentChat: ChatKey | null; onEnded: (id: string) => Promise<void>; onCloseDraftPreview: (draftRoot: string) => Promise<void>; onDiscarded: (chatId: string, mode: "dedicated" | "current") => void; preview: PreviewSession | null; session: VisualEditSession | null;
-  onBind: (session: VisualEditSession) => Promise<void>; onUpdate: (session: VisualEditSession) => void; onLeave: () => Promise<void>;
+  onAdopted: (session: VisualEditSession, paths: string[]) => void; originName: string | null; onReturnToOrigin: (() => void) | null; enabled: boolean; chatId: string | null; currentChat: ChatKey | null; onEnded: (chatId: string, sessionId: string) => Promise<void>; onCloseDraftPreview: (draftRoot: string) => Promise<void>; onDiscarded: (chatId: string, mode: "dedicated" | "current") => void; preview: PreviewSession | null; session: VisualEditSession | null;
+  onBind: (session: VisualEditSession, originId?: string | null) => Promise<void>; onUpdate: (session: VisualEditSession) => void; onLeave: () => Promise<void>;
   onBeforeDiff: () => Promise<void>; onAfterDiff: () => void; onKnownEditChats: (ids: string[], dedicated: string[]) => void; onNotice: (text: string) => void;
 }) {
   const [sessions, setSessions] = useState<VisualEditSession[]>([]);
@@ -75,6 +81,11 @@ export function VisualEditControls({ onAdopted, originName, onReturnToOrigin, en
   const autoBound = useRef<string | null>(null);
   const sessionChatId = useRef<string | null>(null);
   sessionChatId.current = session?.chat.id ?? null;
+  /** 最新の会話ID。非同期の途中で会話が切り替わっても、古い値で編集を開かないために参照する。 */
+  const chatIdRef = useRef(chatId);
+  chatIdRef.current = chatId;
+  /** 差分の取得が「内容が古い」で失敗し、状態を取り直したあとに一度だけ読み直すファイル。 */
+  const retryDiff = useRef<string | null>(null);
   const generation = useRef(0);
   const currentId = useRef(session?.sessionId ?? null);
   const revision = useRef(session?.revision ?? -1);
@@ -82,9 +93,15 @@ export function VisualEditControls({ onAdopted, originName, onReturnToOrigin, en
   revision.current = session?.revision ?? -1;
 
   useEffect(() => () => { onAfterDiff(); }, []);
-  useEffect(() => { setWriteError(null); }, [session?.sessionId, session?.revision]);
+  /** 版の更新を伴う案内（「確認してからもう一度」）は、その更新で消さない。 */
+  const keepWriteError = useRef(false);
+  useEffect(() => { if (keepWriteError.current) { keepWriteError.current = false; return; } setWriteError(null); }, [session?.sessionId, session?.revision]);
   useEffect(() => {
-    if (diffPath !== null) { setDiffPath(null); setDiff(null); onAfterDiff(); }
+    if (diffPath !== null) {
+      setDiffPath(null); setDiff(null); onAfterDiff();
+      const again = retryDiff.current;
+      if (again) { retryDiff.current = null; void readDiff(again, true); }
+    }
   }, [session?.revision]);
   const loadList = async () => {
     if (listBusy) return;
@@ -92,10 +109,12 @@ export function VisualEditControls({ onAdopted, originName, onReturnToOrigin, en
     try {
       const all = await listVisualEdits(); const found = all.filter((item) => !item.ended); setSessions(found); setEndedSessions(all.filter((item) => item.ended)); onKnownEditChats(found.map((item) => item.chat.id), found.filter((item) => item.mode === "dedicated").map((item) => item.chat.id));
       // 再起動後などで専用チャットを開いたときは、その編集コピーを自動で開き直す。
-      const mine = chatId && !currentId.current ? found.find((item) => item.chat.id === chatId) : undefined;
+      // 取得の間に会話が切り替わっていることがあるため、最新の会話IDで判断する。
+      const nowChat = chatIdRef.current;
+      const mine = nowChat && !currentId.current ? found.find((item) => item.chat.id === nowChat) : undefined;
       if (mine && autoBound.current !== mine.sessionId) { autoBound.current = mine.sessionId; void bind(mine); }
       // 別の会話を選んだとき、編集中の表示を引きずらない（その会話が自分の編集を持たなければ、元のHTMLの表示へ戻す）。
-      else if (!mine && chatId && sessionChatId.current && sessionChatId.current !== chatId) void onLeave().catch(() => undefined);
+      else if (!mine && nowChat && sessionChatId.current && sessionChatId.current !== nowChat) void onLeave().catch(() => undefined);
     }
     catch (e) { setListError("編集の一覧を取得できませんでした: " + messageOf(e)); }
     finally { setListBusy(false); }
@@ -128,16 +147,18 @@ export function VisualEditControls({ onAdopted, originName, onReturnToOrigin, en
     return () => { cancelled = true; generation.current++; if (timer) window.clearTimeout(timer); };
   }, [enabled, session?.sessionId, pollEpoch]);
 
-  const bind = async (next: VisualEditSession) => {
+  /** コピーのプレビューへ切り替える。切り替えられたときだけ true（失敗の理由は画面に出す）。 */
+  const bind = async (next: VisualEditSession, originId?: string | null): Promise<boolean> => {
     if (diffPath !== null) onAfterDiff();
     setBusy(true); setStale(true); setError(null); setDiff(null); setDiffPath(null); setOperation(null);
-    try { await onBind(next); }
-    catch (e) { setError("コピーのプレビューを開けませんでした: " + messageOf(e)); }
+    try { await onBind(next, originId); return true; }
+    catch (e) { setError("コピーのプレビューを開けませんでした: " + messageOf(e)); return false; }
     finally { setBusy(false); }
   };
   const create = async () => {
     if (!preview || session || busy || writeLock.current) return;
     writeLock.current = true; setBusy(true); setError(null);
+    const originAtStart = chatIdRef.current;
     try {
       const mode: VisualStartMode = currentChat ? startMode : "new";
       // 表示中が前の編集のコピーのままなら、その持ち主の編集から本当の元のフォルダを求める（コピーを元にして作らない）。
@@ -150,7 +171,8 @@ export function VisualEditControls({ onAdopted, originName, onReturnToOrigin, en
       }
       const next = await createVisualEdit(rootPath, htmlPath, null, currentChat, mode);
       setSessions((all) => [next, ...all.filter((item) => item.sessionId !== next.sessionId)]);
-      await bind(next);
+      // 起点の会話は作成を始めた時点のもの（待っている間に別の会話へ移っても取り違えない）。
+      if (!(await bind(next, originAtStart))) { setError((m) => (m ?? "") + " 編集は作成済みです。「詳細」の保存された編集から開けます。"); return; }
       onNotice(mode === "current" ? "この会話で編集を始めました。依頼はまだ送信していません。" : mode === "fork" ? "会話を分岐して、編集を始めました（元の会話はそのままです）。依頼はまだ送信していません。" : "編集用コピーと専用チャットを作成しました。依頼はまだ送信していません。");
     } catch (e) {
       setError("編集を始められませんでした。" + messageOf(e));
@@ -171,8 +193,9 @@ export function VisualEditControls({ onAdopted, originName, onReturnToOrigin, en
       }
     } finally { setBusy(false); }
   };
-  const readDiff = async (path: string) => {
+  const readDiff = async (path: string, retried = false) => {
     if (!session || diffBusy) return;
+    if (!retried) retryDiff.current = null;
     const expectedId = session.sessionId, expectedRevision = session.revision;
     setDiffBusy(true); setError(null);
     let opened = false;
@@ -183,6 +206,13 @@ export function VisualEditControls({ onAdopted, originName, onReturnToOrigin, en
       const result = await diffVisualEdit(expectedId, path, expectedRevision);
       if (currentId.current === expectedId && revision.current === expectedRevision && result.path === path) setDiff(result);
     } catch (e) {
+      // 確認した版が古くなっていたら、状態を取り直し、版が変わったときだけ（変更一覧が更新されるため）一度だけ読み直す。
+      if (!retried && currentId.current === expectedId && rawMessageOf(e).includes("reviewed revision expired")) {
+        try {
+          const fresh = await statusVisualEdit(expectedId);
+          if (currentId.current === expectedId && fresh.revision > expectedRevision) { retryDiff.current = path; onUpdate(fresh); return; }
+        } catch { /* 取り直せなければ、下の通常の失敗表示にする */ }
+      }
       if (currentId.current === expectedId) setError("変更内容を読めませんでした: " + messageOf(e));
       if (!opened) onAfterDiff();
     } finally { setDiffBusy(false); }
@@ -191,22 +221,23 @@ export function VisualEditControls({ onAdopted, originName, onReturnToOrigin, en
     if (!session || stale || busy || writeLock.current || (kind === "adopt" ? !session.canAdopt : kind === "revert" ? !session.canRevert : !session.canUndo)) return;
     if (kind === "revert" && !window.confirm(["元のファイルを、反映する前の状態に戻します。", "・反映したファイルだけを戻します。", "・反映したあとに、元のファイルを変更していた場合は、戻せません。", "・編集用コピーのAIの編集は残るので、もう一度反映することもできます。", "戻しますか？"].join("\n"))) return;
     const id = session.sessionId;
-    let expectedRevision = session.revision;
+    const expectedRevision = session.revision;
     const previousOperationId = session.lastOperation?.id ?? null;
     const changedPaths = session.changes.filter((c) => c.change !== null).map((c) => c.path);
+    keepWriteError.current = false;
     setWriteError(null);
     writeLock.current = true; generation.current++; setPollEpoch((n) => n + 1); setBusy(true); setStale(true); setError(null); setDiff(null); setDiffPath(null);
     try {
       // 押した時点の最新の状態で確かめる。AIの編集の取り込みが画面の更新より先に進んでいると、ホストが「内容が古い」と断り、もう一度押すことになるため。
-      // 表示している変更と同じなら、最新の版で続ける。変わっていたら、確認していない内容を入れないよう、更新して止める。
+      // 版が表示と違っていたら、確認していない内容を入れないよう、画面を最新にして止める（次に押したときは最新の版で通る）。
       let fresh: VisualEditSession;
       try { fresh = await statusVisualEdit(id); }
       catch (e) { if (currentId.current === id) setWriteError(actionLabel(kind) + "できませんでした。状態を確認できません: " + messageOf(e)); return; }
       if (currentId.current !== id) return;
       if (fresh.revision !== expectedRevision) {
+        keepWriteError.current = true;
         onUpdate(fresh);
-        if (JSON.stringify(fresh.changes) !== JSON.stringify(session.changes)) { setStale(false); setWriteError("AIの編集が更新されました。変更を確認してから、もう一度押してください。"); return; }
-        expectedRevision = fresh.revision;
+        setStale(false); setWriteError("AIの編集が更新されました。変更を確認してから、もう一度押してください。"); return;
       }
       const result = kind === "adopt" ? await adoptVisualEdit(id, expectedRevision) : kind === "revert" ? await revertVisualAdoption(id, expectedRevision) : await undoVisualEdit(id, expectedRevision);
       if (currentId.current !== id) return;
@@ -221,8 +252,14 @@ export function VisualEditControls({ onAdopted, originName, onReturnToOrigin, en
       }
     } catch (e) {
       if (currentId.current === id) {
-        setOperation({ kind, outcome: "unknown", revision: expectedRevision, id: null });
-        setWriteError(actionLabel(kind) + "の結果を確認できませんでした: " + messageOf(e) + " 自動で再実行しません。");
+        // ホストが書き込み前に拒否したときは、何も書いていないと分かる。結果不明にはしない。
+        const raw = rawMessageOf(e);
+        const at = raw.indexOf(NOTHING_WRITTEN);
+        if (at >= 0) setWriteError(actionLabel(kind) + "していません（何も書き込んでいません）。理由: " + friendly(raw.slice(at + NOTHING_WRITTEN.length)));
+        else {
+          setOperation({ kind, outcome: "unknown", revision: expectedRevision, id: null });
+          setWriteError(actionLabel(kind) + "の結果を確認できませんでした: " + messageOf(e) + " 自動で再実行しません。");
+        }
       }
     } finally { writeLock.current = false; setBusy(false); }
   };
@@ -239,7 +276,12 @@ export function VisualEditControls({ onAdopted, originName, onReturnToOrigin, en
       onDiscarded(item.chat.id, item.mode);
       onNotice("編集を破棄しました。");
     } catch (e) {
-      setError("破棄できませんでした。" + messageOf(e));
+      if (rawMessageOf(e).includes("some files could not be deleted")) {
+        // 破棄は済んでいて、一部のファイルだけ残った。「破棄できませんでした」とは言わない。
+        setDiscarding(null);
+        onDiscarded(item.chat.id, item.mode);
+        setError(messageOf(e));
+      } else setError("破棄できませんでした。" + messageOf(e));
     } finally { writeLock.current = false; setBusy(false); void loadList(); }
   };
   // 専用・分岐の会話での編集をいったんやめる（編集は保存されたまま）。元の会話が分かれば、そこへ戻る。
@@ -258,7 +300,7 @@ export function VisualEditControls({ onAdopted, originName, onReturnToOrigin, en
     try {
       const done = await endVisualEdit(session.sessionId);
       if (!done.ended) throw new Error("終了を確認できませんでした。");
-      try { await onEnded(session.chat.id); }
+      try { await onEnded(session.chat.id, done.sessionId); }
       catch { onNotice("編集は終了しました。表示の切り替えは完了していません。「開く」で元のHTMLを開いてください。"); return; }
       onNotice("編集を終えました。この会話は元の作業場所に戻ります。");
     } catch (e) {
@@ -272,7 +314,7 @@ export function VisualEditControls({ onAdopted, originName, onReturnToOrigin, en
     try {
       const next = await createVisualEdit(session.sourceRoot, session.sourceRoot + "/" + session.htmlPath);
       setSessions((all) => [next, ...all.filter((item) => item.sessionId !== next.sessionId)]);
-      await bind(next);
+      if (!(await bind(next))) { setError((m) => (m ?? "") + " 作り直したコピーは「詳細」の保存された編集から開けます。"); return; }
       onNotice("元の最新の内容から、編集用コピーを作り直しました。依頼はまだ送信していません。");
     } catch (e) {
       setError("作り直せませんでした: " + messageOf(e));

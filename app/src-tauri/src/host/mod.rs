@@ -1247,6 +1247,8 @@ impl Host {
             } else if let Some(cwd) = sent_cwd {
                 self.apply_cwd_after_accept(&chat, cwd);
             }
+            // 作業場所を元へ直したあとで、戻し済みの印を付ける（逆順だと、その間の再起動で「戻し済みなのに作業場所がコピーのまま」になる）。
+            self.visual_mark_restored(visual_id.as_deref(), &attempt).await;
             // ユーザーの利用として最近利用時刻を更新する（背景活動では更新しない、§3.6）。組織実行の送信は利用者の利用ではない。
             if matches!(auth, SendAuth::User) {
                 self.touch_chat_used(&chat);

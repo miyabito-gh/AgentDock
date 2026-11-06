@@ -27,6 +27,15 @@ fn remove_storage_dir(storage:&Path,dir:&Path)->Result<(),String> {
     if target==root || !target.starts_with(&root) {return Err("outside the visual storage".into());}
     fs::remove_dir_all(dir).map_err(|e|e.to_string())
 }
+/// visual_create の途中で失敗（早期return）したとき、作りかけの保存先を削除する。完了時は dir を None にして無効にする。
+struct CreateCleanup { storage:PathBuf, dir:Option<PathBuf> }
+impl Drop for CreateCleanup {
+    fn drop(&mut self) {
+        if let Some(dir)=self.dir.take() {
+            if let Err(e)=remove_storage_dir(&self.storage,&dir) {crate::diag::log("visual-create",&format!("could not clean up an incomplete edit copy: {e}"));}
+        }
+    }
+}
 /// 編集の記録フォルダを、途中で止まっても「紐付いているように見える」状態を残さない順に消す。
 fn remove_session_folder(storage:&Path,folder:&Path)->Result<(),String> {
     let mut dirs=Vec::new(); let mut files=Vec::new();
@@ -42,6 +51,10 @@ fn remove_session_folder(storage:&Path,folder:&Path)->Result<(),String> {
     fs::remove_dir(folder).map_err(|x|x.to_string())
 }
 fn visual_err(e:impl std::fmt::Display)->IpcError { err(IpcErrorCode::Blocked,format!("Visual Editor: {e}")) }
+/// OperationIntent を追記する前（元のフォルダにもコピーにも何も書いていない）に止めたときのエラー。UIが「反映していません」と出せるよう、先頭に印を付ける。
+const NOTHING_WRITTEN:&str="nothing written: ";
+fn nw_err(e:impl std::fmt::Display)->IpcError { err(IpcErrorCode::Blocked,format!("{NOTHING_WRITTEN}Visual Editor: {e}")) }
+fn nw_ipc(mut e:IpcError)->IpcError { if !e.message.starts_with(NOTHING_WRITTEN) {e.message=format!("{NOTHING_WRITTEN}{}",e.message);} e }
 fn path_string(path:&Path)->Result<String,IpcError> { Ok(ve::preview::normal_drive_path(path).map_err(visual_err)?.to_string_lossy().into_owned()) }
 fn known_access(ext:&str)->Option<FileAccess> {
     match ext { "html"|"htm"|"css"|"js"|"mjs"|"svg"=>Some(FileAccess::Edit), "png"|"jpg"|"jpeg"|"gif"|"webp"|"avif"|"ico"|"woff"|"woff2"|"ttf"|"otf"|"json"=>Some(FileAccess::ReadOnly), _=>None }
@@ -170,7 +183,10 @@ impl Host {
         let storage_root=self.visual_root(); fs::create_dir_all(&storage_root).map_err(visual_err)?;
         let id=self.local_id("visual").0;
         session::validate_id(&id).map_err(visual_err)?;
+        // 作成の途中で失敗したら、作りかけの保存先（pending.json だけの殻は全会話の送信を止める）を片付ける。draft（フォルダを掴む）より後に落ちるよう、先に宣言する。
+        let mut cleanup=CreateCleanup{storage:storage_root.clone(),dir:None};
         let draft=ve::create_isolated_draft(&source,scope.clone(),&storage_root,&id).map_err(visual_err)?;
+        cleanup.dir=Some(draft.storage_path().to_path_buf());
         let initial_manifest=serde_json::to_vec_pretty(&draft.initial().manifest()).map_err(visual_err)?;
         let initial_manifest_path=draft.storage_path().join("initial").join("manifest.json");
         let mut manifest_file=fs::OpenOptions::new().write(true).create_new(true).open(initial_manifest_path).map_err(visual_err)?;
@@ -185,12 +201,8 @@ impl Host {
             None=>{
                 let started=match self.start_chat_in(StartChatArgs { backend:BackendKind::Codex,cwd:None,model:args.model,permission:Some(PermissionPreset::WorkspaceWriteOnRequest),first_message:None,worktree:None,extra_folders:Vec::new(),confirmed_strong:Vec::new() },Some(draft_root.clone()),confirmed).await {
                     Ok(started)=>started,
-                    Err(e)=>{
-                        // 会話を作れなかったときは、作りかけのコピー（pending.jsonだけが残ると全会話の紐付け確認が失敗する）を片付けてから返す。
-                        drop(manifest_file); drop(pending_file);
-                        let _=remove_storage_dir(&storage_root,draft.storage_path());
-                        return Err(e);
-                    }
+                    // 会話を作れなかったときの作りかけのコピーは、cleanup が片付ける。
+                    Err(e)=>return Err(e),
                 };
                 (started.chat.key,None,None)
             }
@@ -200,6 +212,7 @@ impl Host {
         let meta=SessionMeta {version:1,session_id:id,chat:chat_key,source_root:path_string(source.path())?,draft_root,html_path:html.as_str().into(),scope:scope.selected(),mode:restore.as_ref().map(|_|"current".to_string()),restore};
         session::save_meta(draft.storage_path(),&meta).map_err(visual_err)?;
         fs::OpenOptions::new().write(true).create_new(true).open(draft.storage_path().join("events.jsonl")).and_then(|f|f.sync_all()).map_err(visual_err)?;
+        cleanup.dir=None;
         // 戻し先は新しい編集が引き継いだので、前の編集の戻し待ちは置き換え済みとして閉じる。
         if let Some(old)=superseded {if let Ok(s)=self.visual_loaded(&old) {if s.restore_pending() {let _=session::append(&s.folder,&SessionEvent::Restored);}}}
         self.visual_loaded(&meta.session_id)?.view().map_err(visual_err)
@@ -233,8 +246,10 @@ impl Host {
         let folder=self.visual_root().join(&id);
         let meta:SessionMeta=fs::read(folder.join("session.json")).ok().and_then(|b|serde_json::from_slice(&b).ok()).ok_or_else(||visual_err("the edit record is unreadable"))?;
         // 元への反映・取り消しが途中のものは、状態が見えなくなるので切り離さない（コピーが読めない場合は、守るものが無いので続ける）。
+        // 一部だけ書いた(partial)編集も切り離さない（原本が一部書き換わっていて、戻すための journal を失わせないため）。何も書いていない衝突(conflict)は partial にしないので、ここでは止まらない。
         if let Ok(s)=self.visual_loaded(&id) {
-            if s.pending_operation() || matches!(s.view().map(|v|v.phase).unwrap_or_default().as_str(),"partial"|"recoveryRequired") {return Err(visual_err("the edit has an unfinished apply or undo; resolve it before releasing"));}
+            let _=session::remove_orphan_snapshots(&s);
+            if s.pending_operation() || matches!(s.view().map(|v|v.phase).unwrap_or_default().as_str(),"recoveryRequired"|"partial") {return Err(visual_err("the edit has an unfinished apply or undo; resolve it before releasing"));}
         }
         if meta.mode.as_deref()!=Some("current") || meta.restore.is_none() {return Err(visual_err("only an edit on an existing chat can be released"));}
         session::append(&folder,&SessionEvent::Ended).map_err(visual_err)?;
@@ -315,6 +330,12 @@ impl Host {
         };
         terminal(root) && gate.descendants.iter().all(&terminal)
     }    async fn visual_refresh(self:&Arc<Self>,s:&mut LoadedSession)->Result<(),IpcError> {
+        // スナップショット作成の途中で止まった残り（参照されない tx-*）は、作り直せるので先に片付ける（残ると回復待ちで固定される）。
+        match session::remove_orphan_snapshots(s) {
+            Ok(n) if n>0=>crate::diag::log("visual-session",&format!("removed {n} unreferenced snapshot folder(s) left by an interrupted save")),
+            Ok(_)=>(),
+            Err(e)=>crate::diag::log("visual-session",&format!("could not remove unreferenced snapshots: {e}")),
+        }
         let Some((attempt,_,_))=s.latest() else {return Ok(())};
         let attempt=attempt.to_string();
         if s.after(&attempt).is_some() || s.latest_rejected(&attempt) {return Ok(())}
@@ -358,7 +379,7 @@ impl Host {
                         Ok(files)=>{let details=files.iter().map(|f|format!("{}: {:?}",f.path,f.state)).collect::<Vec<_>>().join(", "); op.message=Some(format!("Read-only journal inspection: {details}"));},
                         Err(e)=>{op.message=Some(format!("Journal inspection unavailable: {e}")); view.blockers.push("journal recovery requires manual inspection".into());},
                     }
-                } else {op.message=Some("No writer journal exists yet; operation intent is unresolved".into());}
+                } else {op.message=Some("No writer journal exists: this operation wrote nothing to the files".into());}
             }
         }
         if view.phase=="changes" && view.changes.iter().any(|f|f.change.is_some()) && !s.pending_operation() {
@@ -426,7 +447,7 @@ impl Host {
                     return Ok(Some(sid));
                 }
             }
-            if self.visual_cwd(&request.chat) {return Err(visual_err("incomplete visual session binding; send blocked"));}
+            if self.visual_cwd(&request.chat) {return Err(visual_err("incomplete visual session binding; send blocked: この会話の作業場所が、編集用コピーのままです（編集が破棄されたか、記録が見つかりません）。送信しても元のフォルダへは自動で戻せません。作業フォルダを選び直すか、新しい会話で続けてください。"));}
             return Ok(None)
         };
         let mut s=self.visual_loaded(&id)?;
@@ -482,18 +503,24 @@ impl Host {
                 let _=session::append(&s.folder,&e);
             }
         }
-    }    pub(super) async fn visual_after_send(&self,id:Option<&str>,attempt:&SendAttempt) {
+    }
+    /// 終了後の最初の送信が受理されたら、戻し済みの印を付ける。作業場所を元へ直したあとに呼ぶ（呼び出し側の順序が前提）。
+    pub(super) async fn visual_mark_restored(&self,id:Option<&str>,attempt:&SendAttempt) {
         let _guard=self.visual_rt.lock.lock().await;
         let Some(id)=id else {return};
-        let Ok(s)=self.visual_loaded(id) else {
-            // 破棄済みなどで読み込めない編集でも、終了後の最初の送信が受理されたら戻し済みの印だけは付ける（付けないと、以後の送信で作業フォルダが元へ上書きされ続ける）。
-            if matches!(attempt.state,SendState::Accepted{..}) {let _=session::mark_restored_if_pending(&self.visual_root(),id);}
-            return
-        };
-        if s.restore_pending() {
-            if matches!(attempt.state,SendState::Accepted{..}) {let _=session::append(&s.folder,&SessionEvent::Restored);}
-            return;
+        if !matches!(attempt.state,SendState::Accepted{..}) {return;}
+        match self.visual_loaded(id) {
+            Ok(s)=>{if s.restore_pending() {let _=session::append(&s.folder,&SessionEvent::Restored);}},
+            // 破棄済みなどで読み込めない編集でも、印だけは付ける（付けないと、以後の送信で作業フォルダが元へ上書きされ続ける）。
+            Err(_)=>{let _=session::mark_restored_if_pending(&self.visual_root(),id);},
         }
+    }
+    pub(super) async fn visual_after_send(&self,id:Option<&str>,attempt:&SendAttempt) {
+        let _guard=self.visual_rt.lock.lock().await;
+        let Some(id)=id else {return};
+        // 戻し済みの印は visual_mark_restored（作業場所を直したあと）で付けるので、ここでは何もしない。
+        let Ok(s)=self.visual_loaded(id) else {return};
+        if s.restore_pending() {return;}
         let event=match &attempt.state {
             SendState::Accepted{turn}=>Some(SessionEvent::Accepted{attempt_id:attempt.attempt_id.0.clone(),turn_id:turn.turn_id.0.clone()}),
             SendState::Rejected{..}=>Some(SessionEvent::Rejected{attempt_id:attempt.attempt_id.0.clone()}),
@@ -513,31 +540,31 @@ impl Host {
     async fn visual_write(self:&Arc<Self>,args:VisualWriteArgs,adopt:bool,revert:bool)->Result<SessionView,IpcError> {
         // All send locks precede the visual lock, matching normal send dispatch.
         // Recheck the overlap set after taking the folder operation guard.
-        let initial=self.visual_loaded(&args.session_id)?;
+        let initial=self.visual_loaded(&args.session_id).map_err(nw_ipc)?;
         let folders=vec![initial.meta.source_root.clone(),initial.meta.draft_root.clone()];
         let _folder_op=self.begin_folder_op(folders.clone());
         let overlapping=self.chats_overlapping_folders(&folders);
         let mut send_guards=Vec::new();
         for chat in &overlapping {send_guards.push(self.queue_rt.send_lock(chat).lock_owned().await);}
         let _visual_guard=self.visual_rt.lock.lock().await;
-        let mut s=self.visual_loaded(&args.session_id)?;
-        if s.meta.source_root!=initial.meta.source_root || s.meta.draft_root!=initial.meta.draft_root {return Err(visual_err("visual session root changed during operation setup"));}
+        let mut s=self.visual_loaded(&args.session_id).map_err(nw_ipc)?;
+        if s.meta.source_root!=initial.meta.source_root || s.meta.draft_root!=initial.meta.draft_root {return Err(nw_err("visual session root changed during operation setup"));}
         let overlap_now=self.chats_overlapping_folders(&folders);
-        if overlap_now.iter().any(|chat| !overlapping.contains(chat)) {return Err(visual_err("a new overlapping chat appeared during operation setup"));}
-        self.visual_refresh(&mut s).await?;
-        if s.revision()!=args.revision {return Err(visual_err("reviewed revision expired"));}
-        if s.pending_operation() || matches!(s.view().map_err(visual_err)?.phase.as_str(),"partial"|"recoveryRequired") {return Err(visual_err("previous file operation or snapshot is unresolved"));}
+        if overlap_now.iter().any(|chat| !overlapping.contains(chat)) {return Err(nw_err("a new overlapping chat appeared during operation setup"));}
+        self.visual_refresh(&mut s).await.map_err(nw_ipc)?;
+        if s.revision()!=args.revision {return Err(nw_err("reviewed revision expired: AIの編集が更新されました。変更を確認してから、もう一度押してください。"));}
+        if s.pending_operation() || matches!(s.view().map_err(nw_err)?.phase.as_str(),"partial"|"recoveryRequired") {return Err(nw_err("previous file operation or snapshot is unresolved"));}
         if let Some((attempt,_,_))=s.latest() {
-            if s.after(attempt).is_none() && !s.latest_rejected(attempt) {return Err(visual_err("latest send has no settled after snapshot"));}
+            if s.after(attempt).is_none() && !s.latest_rejected(attempt) {return Err(nw_err("latest send has no settled after snapshot"));}
         }
-        let (attempt,after_dir)=s.last_capture().ok_or_else(||visual_err("there is no captured edit to review"))?;
+        let (attempt,after_dir)=s.last_capture().ok_or_else(||nw_err("there is no captured edit to review"))?;
         let attempt=attempt.to_string();
         let after_dir=after_dir.to_string();
-        let turn=s.accepted_turn(&attempt).ok_or_else(||visual_err("captured edit has no accepted turn"))?.to_string();
+        let turn=s.accepted_turn(&attempt).ok_or_else(||nw_err("captured edit has no accepted turn"))?.to_string();
 
         let gate=self.queue_gate_input(&s.meta.chat).await;
-        self.visual_gate_stopped(&gate,&turn)?;
-        if self.send_unsettled(&s.meta.chat) || self.subagent_turn_pending(&s.meta.chat) {return Err(visual_err("visual chat send or turn is unsettled"));}
+        self.visual_gate_stopped(&gate,&turn).map_err(nw_ipc)?;
+        if self.send_unsettled(&s.meta.chat) || self.subagent_turn_pending(&s.meta.chat) {return Err(nw_err("visual chat send or turn is unsettled"));}
         // 重なる会話を、1件ずつ止まらず全部まとめて調べる（押すたびに別の会話で止まらないように）。止めるときは、会話名と重なっているフォルダを全件返す。
         let mut unsettled=Vec::new();
         let mut to_check=Vec::new();
@@ -545,7 +572,7 @@ impl Host {
             if chat==&s.meta.chat {continue;}
             if self.send_unsettled(chat) || self.subagent_turn_pending(chat) {unsettled.push(self.overlap_detail(chat,&folders));} else {to_check.push(chat.clone());}
         }
-        if !unsettled.is_empty() {return Err(visual_err(format!("overlapping chat has unsettled send or turn: {}",unsettled.join(" / "))));}
+        if !unsettled.is_empty() {return Err(nw_err(format!("overlapping chat has unsettled send or turn: {}",unsettled.join(" / "))));}
         // 一度も再開していない会話は、履歴の終端（読取りのみ）で停止を確認する。確認の走査は呼ぶたびに始まるので、短く待って確認できたものを外しながら数回調べる。
         let mut unconfirmed=self.visual_unconfirmed_overlaps(&to_check).await;
         for _ in 0..8 {
@@ -555,54 +582,59 @@ impl Host {
         }
         if !unconfirmed.is_empty() {
             let detail:Vec<String>=unconfirmed.iter().map(|c|self.overlap_detail(c,&folders)).collect();
-            return Err(visual_err(format!("overlapping chat stop or descendant scan is unconfirmed: {}",detail.join(" / "))));
+            return Err(nw_err(format!("overlapping chat stop or descendant scan is unconfirmed: {}",detail.join(" / "))));
         }
-        let scope=s.scope().map_err(visual_err)?;
-        let draft=ProjectRoot::open(Path::new(&s.meta.draft_root)).map_err(visual_err)?;
-        ve::audit_draft_scope(&draft,&scope).map_err(visual_err)?;
-        let draft_current=Snapshot::capture(&draft,&scope).map_err(visual_err)?;
-        let current_dir=s.current_dir().ok_or_else(||visual_err("current snapshot unavailable"))?;
-        let current_snapshot=session::load_snapshot(&s.folder.join(current_dir),&scope).map_err(visual_err)?;
-        if draft_current!=current_snapshot {return Err(visual_err("copy changed after the reviewed revision"));}
+        let scope=s.scope().map_err(nw_err)?;
+        let draft=ProjectRoot::open(Path::new(&s.meta.draft_root)).map_err(nw_err)?;
+        ve::audit_draft_scope(&draft,&scope).map_err(nw_err)?;
+        let draft_current=Snapshot::capture(&draft,&scope).map_err(nw_err)?;
+        let current_dir=s.current_dir().ok_or_else(||nw_err("current snapshot unavailable"))?;
+        let current_snapshot=session::load_snapshot(&s.folder.join(current_dir),&scope).map_err(nw_err)?;
+        if draft_current!=current_snapshot {return Err(nw_err("copy changed after the reviewed revision"));}
         let (target,expected,desired,purpose)=if revert {
             // 反映した内容を、反映前の状態へ戻す。元のフォルダが反映後のままのときだけ（反映後に元を変えていたら、その変更を上書きしないため戻さない）。
-            let adopted_dir=s.latest_adopted().ok_or_else(||visual_err("nothing was adopted"))?.to_string();
-            let adopted=session::load_snapshot(&s.folder.join(&adopted_dir),&scope).map_err(visual_err)?;
-            let before_adopt=s.baseline_before_latest_adoption().map_err(visual_err)?;
-            let source=ProjectRoot::open(Path::new(&s.meta.source_root)).map_err(visual_err)?;
-            let source_current=Snapshot::capture(&source,&scope).map_err(visual_err)?;
-            if source_current!=adopted {return Err(visual_err("the original files changed after adoption; restoring would overwrite those changes"));}
+            let adopted_dir=s.latest_adopted().ok_or_else(||nw_err("nothing was adopted"))?.to_string();
+            let adopted=session::load_snapshot(&s.folder.join(&adopted_dir),&scope).map_err(nw_err)?;
+            let before_adopt=s.baseline_before_latest_adoption().map_err(nw_err)?;
+            let source=ProjectRoot::open(Path::new(&s.meta.source_root)).map_err(nw_err)?;
+            let source_current=Snapshot::capture(&source,&scope).map_err(nw_err)?;
+            if source_current!=adopted {return Err(nw_err("the original files changed after adoption; restoring would overwrite those changes"));}
             (source,adopted,before_adopt,ve::apply::WritePurpose::RevertAdoption)
         } else if adopt {
-            let baseline=s.baseline().map_err(visual_err)?;
-            let source=ProjectRoot::open(Path::new(&s.meta.source_root)).map_err(visual_err)?;
-            let source_current=Snapshot::capture(&source,&scope).map_err(visual_err)?;
-            let review=ve::review_adoption(&baseline,&current_snapshot,&source_current,ve::ReviewEvidence{stopped:true,draft_scope_audited:true}).map_err(visual_err)?;
-            if review.has_conflicts(){return Err(visual_err(format!("adoption conflict: {review:?}")));}
+            let baseline=s.baseline().map_err(nw_err)?;
+            let source=ProjectRoot::open(Path::new(&s.meta.source_root)).map_err(nw_err)?;
+            let source_current=Snapshot::capture(&source,&scope).map_err(nw_err)?;
+            let review=ve::review_adoption(&baseline,&current_snapshot,&source_current,ve::ReviewEvidence{stopped:true,draft_scope_audited:true}).map_err(nw_err)?;
+            if review.has_conflicts(){return Err(nw_err(format!("adoption conflict: {review:?}")));}
             (source,baseline,current_snapshot,ve::apply::WritePurpose::AdoptSource)
         } else {
-            if s.latest_adopted()==Some(after_dir.as_str()) {return Err(visual_err("latest edit was already adopted"));}
-            let before_dir=s.latest().filter(|(a,_,_)| *a==attempt).map(|(_,_,b)|b.to_string()).or_else(||s.events.iter().rev().find_map(|e|match e {SessionEvent::Prepared{attempt_id,before,..} if attempt_id==&attempt=>Some(before.clone()),_=>None})).ok_or_else(||visual_err("before snapshot missing"))?;
-            let before=session::load_snapshot(&s.folder.join(&before_dir),&scope).map_err(visual_err)?;
-            let review=ve::review_latest_undo(&before,&current_snapshot,&draft_current,true,false,ve::ReviewEvidence{stopped:true,draft_scope_audited:true}).map_err(visual_err)?;
-            if review.has_conflicts(){return Err(visual_err(format!("undo conflict: {review:?}")));}
+            if s.latest_adopted()==Some(after_dir.as_str()) {return Err(nw_err("latest edit was already adopted"));}
+            let before_dir=s.latest().filter(|(a,_,_)| *a==attempt).map(|(_,_,b)|b.to_string()).or_else(||s.events.iter().rev().find_map(|e|match e {SessionEvent::Prepared{attempt_id,before,..} if attempt_id==&attempt=>Some(before.clone()),_=>None})).ok_or_else(||nw_err("before snapshot missing"))?;
+            let before=session::load_snapshot(&s.folder.join(&before_dir),&scope).map_err(nw_err)?;
+            let review=ve::review_latest_undo(&before,&current_snapshot,&draft_current,true,false,ve::ReviewEvidence{stopped:true,draft_scope_audited:true}).map_err(nw_err)?;
+            if review.has_conflicts(){return Err(nw_err(format!("undo conflict: {review:?}")));}
             (draft,current_snapshot,before,ve::apply::WritePurpose::UndoLatestDraft)
         };
         let journal_parent=self.visual_root().join("_journals").join(&s.meta.session_id);
-        fs::create_dir_all(&journal_parent).map_err(visual_err)?;
-        ProjectRoot::open(&journal_parent).map_err(visual_err)?;
+        fs::create_dir_all(&journal_parent).map_err(nw_err)?;
+        ProjectRoot::open(&journal_parent).map_err(nw_err)?;
         let purpose_name=if revert {"revert"} else if adopt {"adopt"} else {"undo"};
         let op_id=self.local_id(purpose_name).0;
-        session::append(&s.folder,&SessionEvent::OperationIntent{operation_id:op_id.clone(),purpose:purpose_name.into(),revision:args.revision,desired:if revert {s.dir_before_latest_adoption()} else if adopt {current_dir.to_string()} else {s.events.iter().rev().find_map(|e|match e {SessionEvent::Prepared{attempt_id,before,..} if attempt_id==&attempt=>Some(before.clone()),_=>None}).ok_or_else(||visual_err("before snapshot missing"))?}}).map_err(visual_err)?;
+        session::append(&s.folder,&SessionEvent::OperationIntent{operation_id:op_id.clone(),purpose:purpose_name.into(),revision:args.revision,desired:if revert {s.dir_before_latest_adoption()} else if adopt {current_dir.to_string()} else {s.events.iter().rev().find_map(|e|match e {SessionEvent::Prepared{attempt_id,before,..} if attempt_id==&attempt=>Some(before.clone()),_=>None}).ok_or_else(||nw_err("before snapshot missing"))?}}).map_err(nw_err)?;
         let mut permit=ve::apply::HostWritePermit::after_host_checks();
         let outcome=match ve::apply::apply_checked_classified(&mut permit,&target,&scope,&expected,&desired,&journal_parent,&op_id,purpose) {
-            ve::apply::CheckedAttempt::Journaled(outcome)=>outcome,
             ve::apply::CheckedAttempt::PrewriteRejected(e)=>{
                 // The writer only returns Err before creating its journal or mutating a target.
                 // Once a journal exists, it returns Partial and keeps the intent blocked.
                 session::append(&s.folder,&SessionEvent::OperationResult{operation_id:op_id,outcome:"rejected".into()}).map_err(visual_err)?;
-                return Err(visual_err(e));
+                return Err(nw_err(e));
             }
+            // 比較で食い違いが見つかった場合: writer は journal を作る前に返すので、何も書いていない。拒否と同じく確定させ、会話を「一部だけ書いた」状態にしない。
+            ve::apply::CheckedAttempt::Journaled(ve::apply::WriteOutcome::Conflict{paths})=>{
+                session::append(&s.folder,&SessionEvent::OperationResult{operation_id:op_id,outcome:"rejected".into()}).map_err(visual_err)?;
+                return Err(nw_err(format!("files changed since the review ({}); reload and review again",paths.join(", "))));
+            }
+            ve::apply::CheckedAttempt::Journaled(outcome)=>outcome,
         };
         let label=match &outcome {ve::apply::WriteOutcome::Applied{..}=>"applied",ve::apply::WriteOutcome::Partial{..}=>"partial",ve::apply::WriteOutcome::Conflict{..}=>"conflict"};
         session::append(&s.folder,&SessionEvent::OperationResult{operation_id:op_id,outcome:label.into()}).map_err(visual_err)?;
@@ -636,8 +668,10 @@ impl Host {
         }
         let _guard=self.visual_rt.lock.lock().await;
         let mut s=self.visual_loaded(&args.session_id)?;
+        // refresh が Captured を追記して revision を進めても、利用者が見ていた版(更新前)と一致していれば、読み取り専用の差分は現在の版で返す（書き込みは別途 revision を要求する）。
+        let seen=s.revision();
         self.visual_refresh(&mut s).await?;
-        if s.revision()!=args.revision {return Err(visual_err("reviewed revision expired"));}
+        if args.revision!=seen && args.revision!=s.revision() {return Err(visual_err("reviewed revision expired: AIの編集が更新されました。変更を確認してから、もう一度押してください。"));}
         if !s.meta.scope.iter().any(|f|f.path==args.path) {return Err(visual_err("file is outside reviewed visual scope"));}
         let baseline=s.baseline().map_err(visual_err)?;
         let current=match s.current_dir(){Some(dir)=>session::load_snapshot(&s.folder.join(dir),&s.scope().map_err(visual_err)?).map_err(visual_err)?,None=>s.initial().map_err(visual_err)?};

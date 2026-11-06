@@ -159,7 +159,8 @@ impl LoadedSession {
             if name.starts_with("tx-") && entry.file_type()?.is_dir() && !expected.contains(name.as_str()) {orphan.push(name);}
         }
         Ok(orphan)
-    }    pub fn revision(&self)->u64 { self.events.iter().filter(|e|matches!(e,SessionEvent::Captured{..}|SessionEvent::Adopted{..}|SessionEvent::UndoApplied{..})).count() as u64 }
+    }
+    pub fn revision(&self)->u64 { self.events.iter().filter(|e|matches!(e,SessionEvent::Captured{..}|SessionEvent::Adopted{..}|SessionEvent::UndoApplied{..})).count() as u64 }
     pub fn view(&self)->VisualResult<SessionView> {
         let scope=self.scope()?;
         let baseline=self.baseline()?;
@@ -187,7 +188,7 @@ impl LoadedSession {
             changes.push(FileDecision{path:file.path.clone(),change,conflict:None});
         }
         if matches!(phase,"changes") && changes.iter().all(|f|f.change.is_none()) {phase="editable";}
-        if self.events.iter().rev().find_map(|e|match e {SessionEvent::OperationResult{outcome,..}=>Some(outcome.as_str()),SessionEvent::Adopted{..}|SessionEvent::UndoApplied{..}=>Some("applied"),_=>None}).is_some_and(|x|x=="partial" || x=="conflict") {phase="partial"; blockers.push("file operation is partial or conflicted; inspect journal and current files".into());}
+        if self.events.iter().rev().find_map(|e|match e {SessionEvent::OperationResult{outcome,..}=>Some(outcome.as_str()),SessionEvent::Adopted{..}|SessionEvent::UndoApplied{..}=>Some("applied"),_=>None}).is_some_and(|x|x=="partial") {phase="partial"; blockers.push("file operation is partial; inspect journal and current files".into());}
         let last_operation=self.events.iter().rev().find_map(|e|match e {SessionEvent::OperationIntent{operation_id,purpose,..}=>Some(LastOperationView{kind:purpose.clone(),id:operation_id.clone(),outcome:self.outcome(operation_id).unwrap_or("unknown").into(),message:None}),_=>None});
         Ok(SessionView{session_id:self.meta.session_id.clone(),chat:self.meta.chat.clone(),source_root:self.meta.source_root.clone(),draft_root:self.meta.draft_root.clone(),html_path:self.meta.html_path.clone(),scope:self.meta.scope.clone(),phase:(if self.ended(){"ended"}else{phase}).into(),revision:self.revision(),changes,blockers,can_adopt:false,can_undo:false,can_revert:false,last_operation,mode:(if self.is_current_mode(){"current"}else{"dedicated"}).into(),ended:self.ended(),adopted:self.latest_adopted().is_some()})
     }
@@ -255,21 +256,16 @@ pub fn binding_id(root:&Path, chat:&ChatKey)->VisualResult<Option<String>> {
         if id=="_journals" {continue}
         validate_id(&id)?;
         ProjectRoot::open(&entry.path())?;
-        let binding_path=entry.path().join("binding.json");
-        let binding=match fs::symlink_metadata(&binding_path) {
-            Ok(m) if m.file_type().is_symlink()=>return Err(VisualError::Conflict("linked visual binding")),
-            Ok(_)=>Some(serde_json::from_slice::<PendingBinding>(&fs::read(&binding_path)?)?),
-            Err(e) if e.kind()==std::io::ErrorKind::NotFound=>None,
-            Err(e)=>return Err(e.into()),
-        };
+        let binding=read_optional::<PendingBinding>(&entry.path().join("binding.json"),"linked visual binding");
+        let meta=read_optional::<SessionMeta>(&entry.path().join("session.json"),"linked visual session metadata");
+        // 片方が読めなくても、もう片方でこの会話のものではないと分かる編集は、関係ないので飛ばす（1件の壊れた記録で全会話を止めない）。誰のものか分からないときは止める。
+        if binding.is_err() || meta.is_err() {
+            let known=binding.as_ref().ok().and_then(|b|b.as_ref().map(|b|&b.chat)).or_else(||meta.as_ref().ok().and_then(|m|m.as_ref().map(|m|&m.chat)));
+            if known.is_some_and(|c|c!=chat) {crate::diag::log("visual-session",&format!("skip unreadable record of another chat's edit: {id}")); continue;}
+            return Err(binding.err().or_else(||meta.err()).unwrap_or(VisualError::Conflict("unreadable visual record")));
+        }
+        let (binding,meta)=(binding?,meta?);
         if let Some(b)=&binding {if b.version!=1 || b.session_id!=id {return Err(VisualError::Conflict("visual pending binding mismatch"));}}
-        let meta_path=entry.path().join("session.json");
-        let meta=match fs::symlink_metadata(&meta_path) {
-            Ok(m) if m.file_type().is_symlink()=>return Err(VisualError::Conflict("linked visual session metadata")),
-            Ok(_)=>Some(serde_json::from_slice::<SessionMeta>(&fs::read(&meta_path)?)?),
-            Err(e) if e.kind()==std::io::ErrorKind::NotFound=>None,
-            Err(e)=>return Err(e.into()),
-        };
         if let Some(m)=&meta {if m.version!=1 || m.session_id!=id {return Err(VisualError::Conflict("visual binding metadata mismatch"));}}
         if let (Some(b),Some(m))=(&binding,&meta) {if b.chat!=m.chat || b.draft_root!=m.draft_root {return Err(VisualError::Conflict("visual binding changed during creation"));}}
         if meta.as_ref().is_some_and(|m|&m.chat==chat) || binding.as_ref().is_some_and(|b|&b.chat==chat) {
@@ -281,6 +277,28 @@ pub fn binding_id(root:&Path, chat:&ChatKey)->VisualResult<Option<String>> {
     }
     if unbound_pending {return Err(VisualError::Conflict("unbound pending visual chat; inspect incomplete creation before other sends"));}
     Ok(None)
+}
+/// 無ければ None。リンク・読めない・壊れた記録は Err。
+fn read_optional<T:serde::de::DeserializeOwned>(path:&Path,linked:&'static str)->VisualResult<Option<T>> {
+    match fs::symlink_metadata(path) {
+        Ok(m) if m.file_type().is_symlink()=>Err(VisualError::Conflict(linked)),
+        Ok(_)=>Ok(Some(serde_json::from_slice::<T>(&fs::read(path)?)?)),
+        Err(e) if e.kind()==std::io::ErrorKind::NotFound=>Ok(None),
+        Err(e)=>Err(e.into()),
+    }
+}
+/// どの記録からも参照されない `tx-*` のスナップショット（作成の途中で止まった残り）を削除する。
+/// 参照されないものは、まだ送信も取り込みもされていないコピーの写しなので、失っても情報は減らない（次回は作り直せる）。リンク・ファイルは触らない。
+pub fn remove_orphan_snapshots(s:&LoadedSession)->VisualResult<usize> {
+    let mut removed=0;
+    for name in s.orphan_snapshots()? {
+        validate_id(&name)?;
+        let path=s.folder.join(&name);
+        let meta=fs::symlink_metadata(&path)?;
+        if meta.file_type().is_symlink() || !meta.is_dir() {continue;}
+        fs::remove_dir_all(&path)?; removed+=1;
+    }
+    Ok(removed)
 }
 /// 終えたが戻し済みの印がない編集に、戻し済みを記録する（破棄済みで読み込めない編集でも、印だけは付けられるように）。
 pub fn mark_restored_if_pending(root: &Path, id: &str) -> VisualResult<()> {
@@ -297,14 +315,18 @@ fn events_have(folder: &Path, kind: &str) -> bool {
 pub fn restore_for(root: &Path, chat: &ChatKey) -> VisualResult<Option<(String, RestoreInfo)>> {
     if !root.exists() { return Ok(None); }
     for entry in fs::read_dir(root)? {
-        let entry = entry?;
-        if !entry.file_type()?.is_dir() { continue; }
-        let id = entry.file_name().into_string().map_err(|_| VisualError::Conflict("invalid session folder"))?;
-        if id == "_journals" { continue; }
-        validate_id(&id)?;
+        let Ok(entry) = entry else { continue };
+        if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) { continue; }
+        let Ok(id) = entry.file_name().into_string() else { continue };
+        if id == "_journals" || validate_id(&id).is_err() { continue; }
         let meta_path = entry.path().join("session.json");
         if !meta_path.exists() { continue; }
-        let meta: SessionMeta = serde_json::from_slice(&fs::read(&meta_path)?)?;
+        // 1件の読めない記録（書き込み途中・削除中・壊れた）で、関係ない会話の処理まで止めない。その会話自身の戻し先が読めない場合は、
+        // 戻し先なしになるが、作業場所がコピーのままの送信は別の検査（visual_before_send）で止まる。
+        let meta: SessionMeta = match fs::read(&meta_path).map_err(VisualError::from).and_then(|b| serde_json::from_slice(&b).map_err(VisualError::from)) {
+            Ok(m) => m,
+            Err(_) => { crate::diag::log("visual-session", &format!("skip unreadable session record: {id}")); continue; }
+        };
         if &meta.chat != chat || meta.mode.as_deref() != Some("current") { continue; }
         if events_have(&entry.path(), "ended") && !events_have(&entry.path(), "restored") {
             if let Some(info) = meta.restore { return Ok(Some((id, info))); }
@@ -327,7 +349,11 @@ pub fn cleanup_candidates(root: &Path, min_age: std::time::Duration) -> VisualRe
         let stamp = fs::metadata(folder.join("events.jsonl")).or_else(|_| fs::metadata(&folder)).and_then(|m| m.modified());
         let Ok(age) = stamp.map(|t| t.elapsed().unwrap_or_default()) else { continue };
         if age < min_age { continue; }
-        if events_have(&folder, "discarded") { out.push(id); continue; }
+        if events_have(&folder, "discarded") {
+            // 終えたが元へ戻す送信がまだの編集は、破棄していても殻（session.json）を残す（消すと戻し先が失われ、会話の作業場所がコピーのまま詰む）。
+            if events_have(&folder, "ended") && !events_have(&folder, "restored") { continue; }
+            out.push(id); continue;
+        }
         if !events_have(&folder, "ended") { continue; }
         let Ok(s) = load(root, &id) else { continue };
         if s.restore_pending() { continue; }
@@ -506,9 +532,44 @@ mod session_tests {
         append(&c.folder(),&SessionEvent::Ended).unwrap();
         // 元の作業場所へ戻す送信がまだなら、反映済みでも対象外。
         assert!(cleanup_candidates(&c.root,Duration::ZERO).unwrap().is_empty());
-        // 破棄した編集の殻は対象。
+        // 破棄していても、戻す送信がまだなら殻（戻し先）を残す。
         append(&c.folder(),&SessionEvent::Discarded).unwrap();
+        assert!(cleanup_candidates(&c.root,Duration::ZERO).unwrap().is_empty());
+        // 戻し済みになれば、破棄した編集の殻は対象。
+        append(&c.folder(),&SessionEvent::Restored).unwrap();
         assert_eq!(cleanup_candidates(&c.root,Duration::ZERO).unwrap(),vec![c.id.clone()]);
+    }
+    #[test]
+    fn unreadable_record_of_another_session_does_not_stop_restore_or_binding_lookup() {
+        let c=Case::new();
+        let chat=c.loaded().meta.chat;
+        // 別の編集: 壊れた session.json だけ（誰のものか分からない）は restore_for では飛ばす。
+        let broken=c.root.join("broken-1"); fs::create_dir(&broken).unwrap(); fs::write(broken.join("session.json"),b"{").unwrap();
+        assert!(restore_for(&c.root,&chat).unwrap().is_none());
+        // 別の会話のものと分かる(binding.jsonが読める)なら、壊れた session.json があっても自分の会話の確認は続けられる。
+        let other=ChatKey{backend:BackendKind::Codex,id:ExternalId("other-thread".into())};
+        save_pending_binding(&broken,&PendingBinding{version:1,session_id:"broken-1".into(),chat:other.clone(),draft_root:"x".into()}).unwrap();
+        assert_eq!(binding_id(&c.root,&chat).unwrap(),Some(c.id.clone()));
+        // その会話自身の確認は、壊れた記録で止まる。
+        assert!(binding_id(&c.root,&other).is_err());
+    }
+    #[test]
+    fn unreferenced_snapshot_left_by_an_interrupted_save_is_removed_and_can_be_recreated() {
+        let c=Case::new();
+        let s=c.loaded();
+        // 作成の途中で止まった残り（参照されない tx-*）は recoveryRequired を固定する。
+        fs::create_dir(c.folder().join("tx-a1-after")).unwrap();
+        assert_eq!(s.view().unwrap().phase,"recoveryRequired");
+        assert_eq!(remove_orphan_snapshots(&s).unwrap(),1);
+        assert_eq!(s.view().unwrap().phase,"editable");
+        save_snapshot(&c.folder().join("tx-a1-after"),&s.initial().unwrap()).unwrap();
+    }
+    #[test]
+    fn a_recorded_conflict_with_nothing_written_does_not_make_the_edit_partial() {
+        let c=Case::new(); c.captured_edit();
+        append(&c.folder(),&SessionEvent::OperationIntent{operation_id:"op1".into(),purpose:"adopt".into(),revision:1,desired:"e1".into()}).unwrap();
+        append(&c.folder(),&SessionEvent::OperationResult{operation_id:"op1".into(),outcome:"conflict".into()}).unwrap();
+        assert_eq!(c.loaded().view().unwrap().phase,"changes");
     }
     #[test]
     fn reverting_an_adoption_pops_the_adoption_stack_and_survives_a_lost_adopted_event() {

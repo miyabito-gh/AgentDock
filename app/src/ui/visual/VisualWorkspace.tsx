@@ -2,9 +2,11 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNo
 import { createPortal } from "react-dom";
 import { Icon } from "../Icon";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import type { ChatKey } from "../../ipc/types";
+import type { ChatKey, PendingRequest } from "../../ipc/types";
 import { actOnPreview, closePreview, onPreviewError, onPreviewSelection, openPreview, parentFolder, previewAvailable, quickTemplates, updatePreviewBounds, visualSendContext, type PreviewAction, type PreviewBounds, type PreviewElement, type PreviewSession, type VisualContext, type VisualEditSession } from "./api";
 import { VisualEditControls } from "./VisualEditControls";
+import { composerPlaceholder } from "./composerHint";
+import { isSendKey, sendKeyName, type EnterMode } from "../sendKeys";
 import "./visual.css";
 
 const messageOf = (error: unknown): string => error instanceof Error ? error.message
@@ -24,9 +26,10 @@ function reflectedState(edit: VisualEditSession): string {
   return n ? `まだ反映していません（変更${n}件）` : "変更なし";
 }
 
-export function VisualWorkspace({ enabled, blocked, chatId, onSendInstruction, currentChat, onContext, onChip, onEnded, onDiscarded, onAdopted, openRequest, onNotice, onOpenEditChat, onLeaveEditChat, onKnownEditChats, originName, onReturnToOrigin, children }: {
-  enabled: boolean; blocked: boolean; chatName: string | null; chatId: string | null; onSendInstruction: (text: string) => Promise<string | null>; currentChat: ChatKey | null; onEnded: (id: string) => void; onAdopted: (session: VisualEditSession, paths: string[]) => void; onDiscarded: (chatId: string, mode: "dedicated" | "current") => void;
-  onOpenEditChat: (id: string) => void; onLeaveEditChat: () => void; originName: string | null; onReturnToOrigin: (() => void) | null; onKnownEditChats: (ids: string[], dedicated: string[]) => void;
+export function VisualWorkspace({ enabled, blocked, chatId, onSendInstruction, sendLock, chatRunning, enterMode, chatOff, latestReply, requests, renderRequest, onOpenChat, currentChat, onContext, onChip, onEnded, onDiscarded, onAdopted, openRequest, onNotice, onOpenEditChat, onLeaveEditChat, onKnownEditChats, originName, onReturnToOrigin, children }: {
+  enabled: boolean; blocked: boolean; chatName: string | null; chatId: string | null; onSendInstruction: (text: string) => Promise<string | null>; /** 通常チャットと同じ送信不可の理由（送れるときはnull）と、実行中か（送ると追加指示になる）。 */ sendLock: string | null; chatRunning: boolean; enterMode: EnterMode;
+  /** 中央チャットが畳まれている間の、最新の返答（切り詰め済み）・承認/質問の待ち（回答は中央と同じ経路）・チャットを開く操作。 */ chatOff: boolean; latestReply: string | null; requests: PendingRequest[]; renderRequest: (r: PendingRequest) => ReactNode; onOpenChat: () => void; currentChat: ChatKey | null; /** chatId＝会話のID、sessionId＝終えた編集のID（別物）。 */ onEnded: (chatId: string, sessionId: string) => void; onAdopted: (session: VisualEditSession, paths: string[]) => void; onDiscarded: (chatId: string, mode: "dedicated" | "current") => void;
+  /** from＝編集の作成を始めたときの会話（作成待ち中に利用者が移っても取り違えないため）。未指定なら今の選択。 */ onOpenEditChat: (id: string, from?: string | null) => void; onLeaveEditChat: () => void; originName: string | null; onReturnToOrigin: (() => void) | null; onKnownEditChats: (ids: string[], dedicated: string[]) => void;
   onContext: (ctx: VisualContext | null) => void; onChip: (chip: { count: number; label: string; onClear: () => void } | null) => void; openRequest: { path: string; nonce: number } | null; onNotice: (message: string) => void; children: ReactNode;
 }) {
   const desktop = previewAvailable();
@@ -48,7 +51,7 @@ export function VisualWorkspace({ enabled, blocked, chatId, onSendInstruction, c
   const [sentNote, setSentNote] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [textOpen, setTextOpen] = useState(false);
-  const barInput = useRef<HTMLInputElement>(null);
+  const barInput = useRef<HTMLTextAreaElement>(null);
   const [textValue, setTextValue] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [closeUnconfirmed, setCloseUnconfirmed] = useState(false);
@@ -263,18 +266,20 @@ export function VisualWorkspace({ enabled, blocked, chatId, onSendInstruction, c
   // 破棄するコピーを表示しているプレビューを閉じる（表示中のフォルダは削除できないため）。
   const closeDraftPreview = async (draftRoot: string) => {
     const active = current.current;
-    if (!active || operationBusy.current) return;
+    if (!active) return;
     const norm = (value: string) => value.replace(/\\/g, "/").replace(/\/$/, "").toLowerCase();
     if (!norm(active.rootPath).startsWith(norm(draftRoot))) return;
+    // 操作中にプレビューを閉じずに先へ進むと、使用中のコピーを消そうとして失敗する。止めて、やり直してもらう。
+    if (operationBusy.current) throw new Error("プレビューの操作中です。少し待ってからもう一度お試しください。");
     await enqueue(() => closePreview(active.sessionId));
     if (current.current?.sessionId === active.sessionId) { current.current = null; setSession(null); setSelection([]); setTruncated(false); }
   };
-  const bindEdit = async (next: VisualEditSession) => {
+  const bindEdit = async (next: VisualEditSession, originId?: string | null) => {
     if (editBinding.current || operationBusy.current || closeFailed.current) throw new Error("プレビューの操作中です。");
     editBinding.current = true;
     const token = ++generation.current;
     editRef.current = next; setEdit(next); setError(null);
-    onOpenEditChat(next.chat.id);
+    onOpenEditChat(next.chat.id, originId);
     try { await replacePreview(next.draftRoot + "/" + next.htmlPath, next.draftRoot, token); }
     finally { editBinding.current = false; }
   };
@@ -297,6 +302,13 @@ export function VisualWorkspace({ enabled, blocked, chatId, onSendInstruction, c
       await replacePreview(active.sourceRoot + "/" + active.htmlPath, active.sourceRoot, ++generation.current);
       editRef.current = null; setEdit(null); onLeaveEditChat();
     } finally { editBinding.current = false; }
+  };
+  // 編集の終了はホストで済んでいる。プレビューを元へ戻せなかった（操作中・閉じられない）ときも、画面側の編集状態と編集中の会話は外す。
+  // 外さないと、終えた編集の文脈が送信に付き続ける。失敗は呼び出し側へ返し、利用者に案内する（「HTMLを開く」で元のHTMLを開ける）。
+  const endedEdit = async (chatId: string, sessionId: string) => {
+    try { await leaveEdit(); }
+    catch (failure) { editRef.current = null; setEdit(null); onLeaveEditChat(); onEnded(chatId, sessionId); throw failure; }
+    onEnded(chatId, sessionId);
   };
   const updateEdit = (next: VisualEditSession) => {
     if (editRef.current?.sessionId !== next.sessionId || next.revision < editRef.current.revision) return;
@@ -346,7 +358,15 @@ export function VisualWorkspace({ enabled, blocked, chatId, onSendInstruction, c
   }, [hasChip, selection.length, chipLabel]);
   useEffect(() => () => chipRef.current(null), []);
   const working = !!edit && ["runningOrReconciling", "preparedUnresolved"].includes(edit.phase);
-  const barOn = enabled && !!edit && chatId === edit.chat.id && selection.length > 0;
+  const composerOn = enabled && !!edit && chatId === edit.chat.id;
+  const barOn = composerOn && selection.length > 0;
+  // 依頼欄は最大4行まで伸びる（既定は1行）。
+  useLayoutEffect(() => {
+    const el = barInput.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = Math.min(el.scrollHeight, 96) + "px";
+  }, [barText, composerOn]);
   // 子要素のない1つの要素だけ、文章をその場で直せる（AIには前後の文章をそのまま渡す）。
   const only = selection.length === 1 ? selection[0] : null;
   const original = only ? only.text.replace(/\s+/g, " ").trim() : "";
@@ -365,7 +385,7 @@ export function VisualWorkspace({ enabled, blocked, chatId, onSendInstruction, c
   };
   const sendBar = async () => {
     const text = barText.trim();
-    if (!text || sending || !barOn || closeFailed.current) return;
+    if (!text || sending || !composerOn || sendLock || closeFailed.current) return;
     setSending(true);
     try {
       const reason = await onSendInstruction(text);
@@ -381,7 +401,7 @@ export function VisualWorkspace({ enabled, blocked, chatId, onSendInstruction, c
       <section className="vp-card vp-edit" aria-label="編集">
         {edit ? null : <header className="vp-head"><strong>編集</strong><span className="vp-sub">未開始</span></header>}
         <div className="vp-body">
-          <VisualEditControls onAdopted={onAdopted} originName={originName} onReturnToOrigin={onReturnToOrigin} enabled={enabled && desktop} chatId={chatId} currentChat={currentChat} onEnded={async (id) => { try { await leaveEdit(); } finally { onEnded(id); } }} onCloseDraftPreview={closeDraftPreview} onDiscarded={onDiscarded} preview={session} session={edit} onBind={bindEdit} onUpdate={updateEdit} onLeave={leaveEdit} onBeforeDiff={beforeDiff} onAfterDiff={afterDiff} onKnownEditChats={onKnownEditChats} onNotice={onNotice} />
+          <VisualEditControls onAdopted={onAdopted} originName={originName} onReturnToOrigin={onReturnToOrigin} enabled={enabled && desktop} chatId={chatId} currentChat={currentChat} onEnded={endedEdit} onCloseDraftPreview={closeDraftPreview} onDiscarded={onDiscarded} preview={session} session={edit} onBind={bindEdit} onUpdate={updateEdit} onLeave={leaveEdit} onBeforeDiff={beforeDiff} onAfterDiff={afterDiff} onKnownEditChats={onKnownEditChats} onNotice={onNotice} />
           {error ? <p className="visual-error" role="alert">{error}</p> : null}
           {closeUnconfirmed ? <button type="button" className="btn-line sm" disabled={busy} onClick={() => void retryClose()}>閉じるを再試行</button> : null}
         </div>
@@ -409,30 +429,32 @@ export function VisualWorkspace({ enabled, blocked, chatId, onSendInstruction, c
           {!session ? <div className="visual-empty"><strong>HTMLを開いて、直したい所をクリック</strong>{desktop ? <ol className="vp-steps" aria-label="使い方"><li>HTMLを開く</li><li>要素を選ぶ</li><li>依頼を書く</li><li>確認して反映</li></ol> : <p>デスクトップ版でHTMLを開いてください。</p>}</div>
             : <div className="visual-native-note">{blocked || overlayOpen() ? "メニュー・ダイアログの操作中はプレビューを非表示にします。" : "プレビュー"}</div>}
         </div>
-        {whereOpen || barOn ? <div className="vp-foot">
+        {whereOpen || composerOn ? <div className="vp-foot">
           {whereOpen ? <div className="vp-where">
             <div><span>HTML</span> <span className="visual-path" title={session?.htmlPath}>{session?.htmlPath ?? "未選択"}</span></div>
             <div><span>表示ルート</span> <span className="visual-path" title={session?.rootPath}>{session?.rootPath ?? "HTMLの親フォルダを使用"}</span>
               <button type="button" className="btn subtle sm" disabled={disabled || !!edit} onClick={() => void pick(true)}>変更…</button></div>
           </div> : null}
-          {barOn ? <div className="vp-composer" role="group" aria-label="選択した範囲への依頼">
-            <div className="vp-ctx">
+          {composerOn && chatOff && requests.length ? <div className="vp-reqs" aria-label="対応が必要な依頼">{requests.map((r) => <div key={r.key.requestId}>{renderRequest(r)}</div>)}</div>
+            : composerOn && chatOff && latestReply ? <button type="button" className="vp-reply" title="チャットを開く" onClick={onOpenChat}>{latestReply}</button> : null}
+          {composerOn ? <div className="vp-composer" role="group" aria-label={barOn ? "選択した範囲への依頼" : "全体への依頼"}>
+            {barOn ? <div className="vp-ctx">
               <span className="vp-chip" title={selection.map((item) => item.selector).join(", ")}>{selection.length > 1 ? selection.length + "件 · " : ""}{chipLabel}{truncated ? "（一部）" : ""}</span>
               <button type="button" className="vp-x" disabled={disabled} onClick={() => void action("clear")} aria-label="選択を解除">×</button>
               {!barText && !textOpen && !sending ? <span className="vp-sugs" role="group" aria-label="依頼の書き出し">
                 {textEditable ? <button type="button" className="vp-sug" onClick={() => { setTextValue(original); setTextOpen(true); }}>文章を直す</button> : null}
                 {quickTemplates.map((item) => <button key={item.name} type="button" className="vp-sug" onClick={() => { setBarText(item.text); barInput.current?.focus(); }}>{item.name}</button>)}
               </span> : null}
-            </div>
+            </div> : null}
             {textOpen && textEditable ? <div className="vp-textedit">
               <textarea className="vp-input" rows={2} value={textValue} aria-label="変更後の文章" disabled={sending} onChange={(event) => setTextValue(event.target.value)} />
               <button type="button" className="btn primary sm" disabled={sending || !textValue.trim() || textValue.trim() === original} onClick={() => void sendText()}>この文章に直す</button>
             </div> : null}
             <div className="vp-inrow">
-              <input ref={barInput} type="text" className="vp-input vp-hero" value={barText} placeholder={working ? "作業中… 続けて依頼できます" : "この範囲に依頼…"} title="例: 青系の配色に / 見出しを短く" aria-label="この範囲への依頼" disabled={sending}
+              <textarea ref={barInput} rows={1} className="vp-input vp-hero" value={barText} placeholder={composerPlaceholder(sendLock, chatRunning, barOn)} title={sendLock ?? "例: 青系の配色に / 見出しを短く"} aria-label={barOn ? "この範囲への依頼" : "全体への依頼"} disabled={sending}
                 onChange={(event) => { setBarText(event.target.value); setSentNote(false); }}
-                onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing) { event.preventDefault(); void sendBar(); } }} />
-              <button type="button" className={"vp-go" + (working ? " working" : "")} aria-label="送信" title={working ? "送信（作業中でも続けて依頼できます）" : "送信（Enter）"} disabled={!barText.trim() || sending || busy || closeUnconfirmed} onClick={() => void sendBar()}>↑</button>
+                onKeyDown={(event) => { if (isSendKey({ key: event.key, ctrlKey: event.ctrlKey, shiftKey: event.shiftKey, metaKey: event.metaKey, isComposing: event.nativeEvent.isComposing }, enterMode)) { event.preventDefault(); void sendBar(); } }} />
+              <button type="button" className={"vp-go" + (working ? " working" : "")} aria-label="送信" title={sendLock ?? (chatRunning ? "追加指示として送信（" + sendKeyName(enterMode) + "）" : "送信（" + sendKeyName(enterMode) + "）")} disabled={!barText.trim() || sending || busy || closeUnconfirmed || !!sendLock} onClick={() => void sendBar()}>↑</button>
             </div>
             {sendError ? <small className="vp-sent visual-error" role="alert">{sendError}</small> : null}
             {sentNote ? <small className="vp-sent" role="status">送信しました（作業の状況は上の状態表示に出ます）</small> : null}
