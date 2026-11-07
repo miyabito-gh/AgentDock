@@ -7,6 +7,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { readText } from "@tauri-apps/plugin-clipboard-manager";
 import type { RepoRecordChoice, AgentKey, AppSettings, AttachmentEntry, Chat, ChatKey, Goal, GoalUpdate, Known, WorkMode, WorkModeInfo, WorkFoldersView, DeleteOutcome, DeletePreview, UsageReport, ForceKillPreview, HostEvent, HostEventEnvelope, HostSnapshot, ModelInfo, PathInfo, ProjectsOutcome, MonitorScope, PendingRequest, PermissionPreset, QuitDecision, QuitPhase, RequestAnswer, SendAttempt, SettingsImpact, SkillInfo, SourceInfo, OrgSnapshotView, IntakeBeginMode } from "./ipc/types";
+import type { PlanView } from "./ui/PrefsDialogs";
 import * as host from "./ipc/client";
 import { LinkContext, RefContext, type PathAction, type RefActions } from "./ui/Markdown";
 import { copyText } from "./ui/markdown/parts";
@@ -194,6 +195,8 @@ export default function App() {
   const [steerOf, setSteerOf] = useState<Record<string, { attemptId: string; text: string; attachments: string[] }>>({});
   const [dragging, setDragging] = useState(false);
   const [changesTick, setChangesTick] = useState(0);
+  // 計画（チェックリスト）。表示用の一時情報で、保存・履歴からの復元はしない。
+  const [plans, setPlans] = useState<Record<string, PlanView>>({});
   // 目標（Goal）の表示。読取りで得た値と、更新通知で置き換えた値（ホストが持つ値のコピー。保存はしない）。
   const [goals, setGoals] = useState<Record<string, Known<Goal>>>({});
   // 応答した承認・質問・MCP許可の記録（項目51。ホストが保存したものと、このセッションで受けた通知。チャット別）
@@ -335,6 +338,7 @@ export default function App() {
       else if (e.kind === "sendPhaseUpdated") setPendingSends((m) => { const cur = m[e.chat.id]; if (!cur) return m; const next = setPhase(cur, e.phase); return next === cur ? m : { ...m, [e.chat.id]: next }; }); // 送信中の段階（表示だけ）
       else if (e.kind === "changesUpdated") setChangesTick((n) => n + 1); // 開いている差分表示が取り直す（読取りのみ）
       else if (e.kind === "decisionRecorded") setDecisions((m) => ({ ...m, [e.record.chat.id]: addDecision(m[e.record.chat.id] ?? [], { record: e.record, save: e.save }) })); // 応答の記録（表示だけ。応答の代行・再送はしない）
+      else if (e.kind === "planUpdated") setPlans((m) => ({ ...m, [e.agent.id]: { turn: e.turn, explanation: e.explanation, steps: e.steps } })); // 計画は毎回全体で置き換える
       else if (e.kind === "goalUpdated") setGoals((m) => ({ ...m, [e.chat.id]: e.goal ? { kind: "value", value: e.goal, basis: "direct" } : { kind: "missing" } })); // 目標の表示を置き換える（エージェント状態には使わない）
       else if (e.kind === "navigateToChat") { setOrgScreen(false); setSelId(e.chat.id); setQuick((q) => (q.open ? { ...q, open: false } : q)); void loadChat(e.chat.id); setDockFocus((f) => ({ id: e.chat.id, tick: (f?.tick ?? 0) + 1 })); } // 通知を開いた操作。表示だけで、回答・再実行はしない
       else if (e.kind === "quitPrompt") { quitKindRef.current = e.phase.kind; setQuit(e.phase); setDialog((d) => (d?.type === "force" ? d : { type: "quit" })); } // もう一度「終了」が要求された。確認画面を開き直す
@@ -1957,7 +1961,7 @@ ${cur}` : p.text);
                 draft={curDraft} setDraft={(v) => onDraft(chat, v)}
                 onAct={act} commands={cmdViews} onRespond={(r, a) => void onRespond(r, a)}
                 onSend={onSend} loadHandoffPreview={loadHandoffPreview} onHandoffSend={onHandoffSend} onModel={onModel} onWorkMode={onWorkMode} workModes={workModes}
-                decisions={decisions[chat.key.id] ?? NO_DECISIONS} pending={markRetryable(pendingSends[chat.key.id], attempts[chat.key.id])} onPendingRestore={(p) => pendingRestore(chat, p)} onPendingDismiss={(p) => pendingDismiss(chat, p)} goal={goals[chat.key.id]} goalBusy={goalBusy} onGoalReload={() => void loadGoal(chat.key)} onGoalClear={clearGoal}
+                decisions={decisions[chat.key.id] ?? NO_DECISIONS} pending={markRetryable(pendingSends[chat.key.id], attempts[chat.key.id])} onPendingRestore={(p) => pendingRestore(chat, p)} onPendingDismiss={(p) => pendingDismiss(chat, p)} goal={goals[chat.key.id]} plans={plans} goalBusy={goalBusy} onGoalReload={() => void loadGoal(chat.key)} onGoalClear={clearGoal}
                 notice={live ? hideClosed(noticeOf(attempts[chat.key.id], steerOf[chat.key.id] ? { attemptId: steerOf[chat.key.id].attemptId, queueInstead: () => { void onSend(steerOf[chat.key.id].text, false, steerOf[chat.key.id].attachments); } } : null), noticeClosed[chat.key.id]) : null} onCloseNotice={(key) => setNoticeClosed((m) => ({ ...m, [chat.key.id]: key }))} onRetrySend={() => void onRetrySend()}
                 queue={snap.queues.find((q) => q.chat.id === chat.key.id)} local={snap.chatLocals.find((l) => l.chat.id === chat.key.id)}
                 qact={qact} onPermission={onPermission} wf={wf} sends={sends[chat.key.id] ?? NO_SENDS}

@@ -1215,6 +1215,9 @@ impl HostData {
             }
             // 目標の更新・解除はUIが表示している分を置き換えるだけ。エージェント状態（§4.1）には流用しない。
             BackendEvent::GoalUpdated { chat, goal } => out.push(HostEvent::GoalUpdated { chat: chat.clone(), goal: goal.clone() }),
+            BackendEvent::PlanUpdated { agent, turn, explanation, steps } => {
+                out.push(HostEvent::PlanUpdated { agent: agent.clone(), turn: turn.clone(), explanation: explanation.clone(), steps: steps.clone() })
+            }
             BackendEvent::OpCapabilitiesChanged { ops } => out.push(HostEvent::OpCapabilitiesUpdated { ops: ops.clone() }),
             BackendEvent::WorkspaceRootsSupportChanged { support } => out.push(HostEvent::WorkspaceRootsSupportUpdated { support: *support }),
             // ツールサーバーの通知は、ホストの拡張管理（`extensions.rs`）が見る。エージェントの状態には使わない。

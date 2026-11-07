@@ -178,6 +178,7 @@ export function applyHostEvent(b: Bundle, e: HostEvent): Bundle {
     case "orgDeleteProgress": // 削除の進行（画面側Appが表示用に保持する。状態は変えない）
     case "orgUpdated": // 組織実行の状態の合図（画面側が取り直す。P-ORG-7。状態は変えない）
     case "decisionRecorded": // 応答記録の追記。画面側（App）が会話の行として保持する（状態は変えない）
+    case "planUpdated": // 画面側（App）が計画の表示を置き換える（表示用の一時情報。状態は変えない）
     case "goalUpdated": // 画面側（App）が目標の表示を置き換える（状態は変えない）
     case "changesUpdated": // 開いている差分表示が画面側で取り直す（状態は変えない）
     case "sendUpdated":

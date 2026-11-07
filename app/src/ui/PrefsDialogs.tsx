@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useState } from "react";
 import * as host from "../ipc/client";
 import type {
-  BackendStatus, Chat, ChatLocalView, ChatModelSettings, Goal, GoalStatus, GoalUpdate, Known, MemoryStatus, ModelChoice, OpAck, OpCapability, ResetMemoryResult, WorkMode,
+  BackendStatus, Chat, ChatLocalView, ChatModelSettings, Goal, GoalStatus, GoalUpdate, Known, MemoryStatus, ModelChoice, OpAck, OpCapability, PlanStep, ResetMemoryResult, WorkMode,
 } from "../ipc/types";
 import { chatName } from "./derive";
 import { showKnown } from "./format";
@@ -37,6 +37,24 @@ export function UnverifiedTag({ cap }: { cap: OpCapability | undefined }) {
 }
 
 // ───────────────────────────── Goal ─────────────────────────────
+
+/** 計画（チェックリスト）の表示用の値。 */
+export type PlanView = { turn: string; explanation: string | null; steps: PlanStep[] };
+
+const PLAN_MARK: Record<PlanStep["status"], string> = { completed: "✔", inProgress: "▶", pending: "○" };
+
+/** 入力欄の上の計画欄。実行中turnの計画だけを出し、空なら出さない。 */
+export function PlanBar({ plan }: { plan: PlanView | undefined }) {
+  if (!plan || plan.steps.length === 0) return null;
+  const done = plan.steps.filter((s) => s.status === "completed").length;
+  return (
+    <details className="plan" open>
+      <summary><b>計画</b> {done}/{plan.steps.length}</summary>
+      {plan.explanation && <div className="muted plan-note">{plan.explanation}</div>}
+      <ul>{plan.steps.map((s, i) => <li key={i} className={`plan-${s.status}`}><span aria-hidden>{PLAN_MARK[s.status]}</span> {s.step}</li>)}</ul>
+    </details>
+  );
+}
 
 /** 入力欄の上の常設欄。目標の取得は読取りだけで、表示のために会話を再開しない。 */
 export function GoalBar({ goal, live, cap, busy, onEdit, onClear, onReload }: {

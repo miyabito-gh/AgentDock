@@ -30,7 +30,8 @@ import { HEADER_MORE, resolveEntries } from "./menuModel";
 import { MenuList } from "./MenuList";
 import { tipWithKey } from "./shortcuts";
 import { defaultRunningAction, otherRunningAction, enterHint as enterHintOf, sendActionForKey, sendKeyName as sendKeyNameOf, type EnterMode, type RunningInputMode } from "./sendKeys";
-import { GoalBar, UnverifiedTag, WORK_MODE_TEXT } from "./PrefsDialogs";
+import { GoalBar, PlanBar, UnverifiedTag, WORK_MODE_TEXT } from "./PrefsDialogs";
+import type { PlanView } from "./PrefsDialogs";
 import { resendCtxOf, resendTargetOf } from "./ResendDialog";
 import { SkillSuggest, type SkillPickApi } from "./SkillPicker";
 import { filterSkills, isDisabled, originLabel, queryTerms, removeTrigger, skillTrigger } from "./skillPick";
@@ -103,6 +104,8 @@ export interface CenterProps {
   /** 目標（Goal）の表示。undefined＝まだ読んでいない。 */
   goal: Known<Goal> | undefined;
   goalBusy: boolean;
+  /** 計画（チェックリスト）。エージェントID別。 */
+  plans: Record<string, PlanView>;
   onGoalReload: () => void;
   onGoalClear: () => void;
   /** 直近の送信の受理状態の案内（受理なし・受理不明・照合の結果）。 */
@@ -1313,6 +1316,7 @@ export function CenterPane(p: CenterProps) {
         resend={{ ctx: resendCtxOf(snap, chat, snap.sources.some((x) => x.connection.kind === "connected"), p.turns), rootAgentId: rootView(snap, chat)?.agent.key.id }}
         extra={<FilesBlock chatId={chat.key.id} sent={snap.attachments.filter((a) => keyStr(a.chat) === keyStr(chat.key) && a.usedBy.length > 0)} artifacts={snap.artifacts.filter((a) => keyStr(a.chat) === keyStr(chat.key))} files={p.files} />} />
       <Queue q={snap.queues.find((q) => keyStr(q.chat) === keyStr(chat.key))} nameOf={nameOf} qact={p.qact} steerWhy={steerBlockReason(running, modelChanged(p.settings), p.local)} />
+      <PlanBar plan={(() => { const r = rootView(snap, chat); const pl = r && p.plans[r.agent.key.id]; return pl && pl.turn === r.status.turn ? pl : undefined; })()} />
       <GoalBar goal={p.goal} live={rootView(snap, chat)?.freshness === "live"} cap={snap.opCapabilities.find((o) => o.op === "goal")} busy={p.goalBusy}
         onEdit={() => p.onAct("goal")} onClear={p.onGoalClear} onReload={p.onGoalReload} />
       <SendStatusBar input={{

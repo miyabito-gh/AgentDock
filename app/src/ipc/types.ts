@@ -116,6 +116,7 @@ export type { RevertVerdict } from "./gen/RevertVerdict";
 export type { UnifiedDiff } from "./gen/UnifiedDiff";
 export type { BackendStatus } from "./gen/BackendStatus";
 export type { Goal } from "./gen/Goal";
+export type { PlanStep } from "./gen/PlanStep";
 export type { GoalStatus } from "./gen/GoalStatus";
 export type { GoalUpdate } from "./gen/GoalUpdate";
 export type { LimitWindowRole } from "./gen/LimitWindowRole";

@@ -10,6 +10,7 @@ use super::id::RpcId;
 use super::wire::{WireThread, WireTurn, WireTurnStatus};
 use crate::backend::backend::{BackendError, BackendEvent, ChatMetaChange, FailureClass, GapScope};
 use crate::backend::model::*;
+use crate::backend::parity::{PlanStep, PlanStepStatus};
 use serde_json::{json, Value};
 
 /// 変換の文脈。`chat_of` はエージェントの所属チャット解決（キャッシュ）。
@@ -290,6 +291,22 @@ fn convert_known(method: &str, p: &Value, ctx: &EventCtx, live: &dyn Fn(Option<U
                 Some(goal) => vec![BackendEvent::GoalUpdated { chat: chat_key(tid), goal: Some(goal) }],
                 None => return missing("goal.objective/status"),
             }
+        }
+        "turn/plan/updated" => {
+            let (Some(tid), Some(turn), Some(plan)) = (s(p, "threadId"), s(p, "turnId"), p.get("plan").and_then(Value::as_array)) else { return missing("threadId/turnId/plan") };
+            let mut steps = Vec::with_capacity(plan.len());
+            for e in plan {
+                let status = match s(e, "status") {
+                    Some("pending") => PlanStepStatus::Pending,
+                    Some("inProgress") => PlanStepStatus::InProgress,
+                    Some("completed") => PlanStepStatus::Completed,
+                    _ => return missing("plan[].status"),
+                };
+                let Some(step) = s(e, "step") else { return missing("plan[].step") };
+                steps.push(PlanStep { step: step.to_string(), status });
+            }
+            let explanation = s(p, "explanation").filter(|x| !x.is_empty()).map(str::to_string);
+            vec![BackendEvent::PlanUpdated { agent: agent_key(tid), turn: ext(turn), explanation, steps }]
         }
         "thread/goal/cleared" => {
             let Some(tid) = s(p, "threadId") else { return missing("threadId") };
@@ -727,6 +744,22 @@ mod tests {
         assert!(matches!(run("account/rateLimits/updated", json!({})).as_slice(), [BackendEvent::RateLimitsUpdated]));
         let ev = run("configWarning", json!({"message": "bad config"}));
         assert!(matches!(&ev[0], BackendEvent::Unrecognized { note: Some(n), .. } if n == "bad config"));
+    }
+
+    #[test]
+    fn plan_updated_maps_steps_and_rejects_unknown_status() {
+        let ev = run("turn/plan/updated", json!({"threadId": "a", "turnId": "t1", "explanation": "", "plan": [{"step": "調べる", "status": "completed"}, {"step": "直す", "status": "inProgress"}]}));
+        match ev.as_slice() {
+            [BackendEvent::PlanUpdated { turn, explanation, steps, .. }] => {
+                assert_eq!(turn.0, "t1");
+                assert_eq!(*explanation, None);
+                assert_eq!(steps.iter().map(|x| x.status).collect::<Vec<_>>(), [PlanStepStatus::Completed, PlanStepStatus::InProgress]);
+            }
+            x => panic!("{x:?}"),
+        }
+        let bad = run("turn/plan/updated", json!({"threadId": "a", "turnId": "t1", "plan": [{"step": "x", "status": "later"}]}));
+        assert!(matches!(bad.as_slice(), [BackendEvent::Unrecognized { .. }]));
+        assert!(matches!(run("turn/plan/updated", json!({"threadId": "a", "plan": []})).as_slice(), [BackendEvent::Unrecognized { .. }]));
     }
 
     #[test]
