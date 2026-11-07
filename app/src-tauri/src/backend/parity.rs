@@ -83,6 +83,27 @@ pub struct Goal {
     pub updated_at: Known<UnixMillis>,
 }
 
+/// 計画（チェックリスト）の1手順の進み具合。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub enum PlanStepStatus {
+    Pending,
+    InProgress,
+    Completed,
+}
+
+/// 計画の1手順。表示用の一時情報で、保存しない。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct PlanStep {
+    pub step: String,
+    pub status: PlanStepStatus,
+}
+
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]

@@ -17,7 +17,7 @@ use super::backend::{
 use super::local::{RepoRecordChoice, AppSettings, ArtifactEntry, AttachmentEntry, ChatLocalView, ChatQueue, ContextUsageView, HandoffBlock, QuitPhase, SaveScope, SaveStatus};
 use super::model::*;
 use super::changes::ListStatus;
-use super::parity::{ExtensionOp, ExtensionOpResult, Goal, GoalUpdate, MemoryStatus, ReviewTarget, ToolServerView};
+use super::parity::{ExtensionOp, ExtensionOpResult, Goal, GoalUpdate, MemoryStatus, PlanStep, ReviewTarget, ToolServerView};
 
 /// ホスト→UIのイベント名（Tauri `emit` のチャネル）。
 pub const HOST_EVENT_CHANNEL: &str = "agentdock://host-event";
@@ -1331,6 +1331,8 @@ pub enum HostEvent {
     CloudTaskUpdated { record: CloudTaskRecord },
     /// 目標（Goal）の更新・解除（`goal=None` は解除）。UIが表示している分だけ置き換える。エージェント状態には使わない。
     GoalUpdated { chat: ChatKey, goal: Option<Goal> },
+    /// 計画（チェックリスト）の更新（全体で置き換える）。表示用の一時情報で、保存・履歴からの復元はしない。
+    PlanUpdated { agent: AgentKey, turn: ExternalId, explanation: Option<String>, steps: Vec<PlanStep> },
     /// ツールサーバー（MCP）の起動状態が変わった通知（UIは表示中の一覧を取り直す。会話への反映の確認ではない）。
     ToolServersChanged { name: String },
     /// 利用上限の更新通知（中身なし）。開いている利用状況の表示だけが読み直す。通知・警告は出さない。
