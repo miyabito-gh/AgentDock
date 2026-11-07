@@ -596,7 +596,6 @@ export function Messages({ mini, orgBound, headKey, threads, chatId, turns, reqs
   turns: TurnRecord[]; reqs: PendingRequest[]; /** 回答を届けられなかった要求（理由を常設表示する） */ gaps: PendingRequest[]; running: boolean; onRespond: CenterProps["onRespond"]; onAct: (a: string) => void; extra?: ReactNode; find: FindState; resend: ResendView;
   locals: AttachmentEntry[]; files: FileActions; sends: SentLocal[]; chatId: string;
 }) {
-  const autoApi = useContext(AutoAllowContext);
   const ref = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   const prev = usePrevThreads(headKey, threads);
@@ -728,9 +727,6 @@ export function Messages({ mini, orgBound, headKey, threads, chatId, turns, reqs
       {pending.filter((x) => !appearsInTurns(x, turns)).map((x) => <PendingSendRow key={x.id} p={x} onRestore={onPendingRestore} onDismiss={onPendingDismiss} />)}
       {extra}
       {gaps.map((r) => <RequestGapLine key={`gap:${r.key.source}/${r.key.requestId}`} r={r} guide={orgBound ? "org" : "plain"} />)}
-      {autoApi?.on(chatId) ? (
-        <div className="req-auto small muted" role="status">この会話の承認は、確認せずに許可しています（質問は対象外）。<button className="linkish" onClick={() => autoApi.disable(chatId)}>やめる</button></div>
-      ) : null}
       {reqs.map((r) => <RequestCard key={keyStr({ backend: r.key.backend, id: r.key.requestId })} r={r} onRespond={onRespond} agentName={agentName} />)}
       {running && reqs.length === 0 ? <div className="msg ai"><div className="who">Codex</div><div className="activity">作業中…</div></div> : null}
     </div>
@@ -973,6 +969,7 @@ function skillOrigin(f: AttachmentEntry, api: SkillPickApi | null): string | nul
 
 function Composer({ p, running, lock, hu }: { p: CenterProps; running: boolean; lock: string | null; hu: HandoffUi }) {
   const { settings, models, attachments } = p;
+  const autoApi = useContext(AutoAllowContext);
   const dflt = models.find((m) => m.isDefault) ?? models[0];
   // 保存結果・再開通知を含む同一チャットの更新も反映する。送信側と同じホストの選択値を正とする。
   const model = settings?.selected?.model ?? dflt?.id ?? "";
@@ -1186,6 +1183,7 @@ function Composer({ p, running, lock, hu }: { p: CenterProps; running: boolean; 
             </div>
           </Popover>
           <UsageChip local={p.local} settings={p.snap.settings.continuation} />
+          {autoApi?.on(p.chat.key.id) ? <button className="small autochip" title="この会話の承認（コマンド・ファイル変更・追加権限）を、確認せずに許可しています。質問は対象外です。押すとやめます" onClick={() => autoApi.disable(p.chat.key.id)}>承認を自動許可中 ×</button> : null}
           {permOff ? <span className={`small acc ${perm === "fullAccess" ? "danger" : ""}`} title={`権限は既定から外れています: ${PERMISSION_FULL[perm]}（次の送信から適用。変更は「…」）`}>権限: {PERMISSION_LABEL[perm]}</span> : null}
           {speedName ? <span className="small muted" title="速度の指定（次の送信から適用）">速度 {speedName}</span> : null}
           {wmSelected ? <span className="small muted" title={`計画／実行の指定: ${WORK_MODE_TEXT[wmSelected]}（次の送信から適用）`}>{wmShort(wmSelected)}</span> : null}

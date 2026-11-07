@@ -297,7 +297,7 @@ label{display:inline-flex;align-items:center;gap:6px}
 .req-menu button:hover{background:var(--hover-solid)}
 .req-menu button small{display:block;font-size:11px;color:var(--ink3)}
 .req-menu button.warn span{color:var(--fail-ink)}
-.req-auto{display:flex;justify-content:space-between;gap:8px;max-width:760px;margin:0 auto 8px;padding:4px 10px;border-radius:var(--r1);background:var(--accent-weak)}
+.autochip{border:1px solid var(--accent-line);background:var(--accent-weak);color:var(--accent-text);border-radius:var(--r1);padding:0 8px;height:auto;cursor:pointer}
 
 /* composer */
 .queue{max-width:792px;width:100%;margin:0 auto;padding:0 16px}
