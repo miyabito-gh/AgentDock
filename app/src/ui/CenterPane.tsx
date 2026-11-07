@@ -3,7 +3,9 @@ import { splitVisualContext } from "./visual/api";
 import { orgSendLock } from "./orgText";
 import { RequestGapLine } from "./RequestGap";
 import { chatGapRequests } from "./org";
-import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { Fragment, createContext, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { autoAllowOption } from "./autoAllow";
+import { isPersistent, requestChoices } from "./requestChoices";
 import type {
   AgentKey, AgentView, ArtifactEntry, AttachmentEntry, EntryAttachment, Chat, ChatKey, ChatLocalView, ChatModelSettings, ChatQueue, DecisionOption, FileRef, Goal, HostSnapshot, Known, ModelInfo, PendingRequest, PathInfo, SkillInfo, ThreadSegmentView,
   PermissionPreset, QueueEntry, RequestAnswer, ActivityKind, SaveState, StopRecord, TurnRecord, WorkMode, WorkModeInfo,
@@ -594,6 +596,7 @@ export function Messages({ mini, orgBound, headKey, threads, chatId, turns, reqs
   turns: TurnRecord[]; reqs: PendingRequest[]; /** 回答を届けられなかった要求（理由を常設表示する） */ gaps: PendingRequest[]; running: boolean; onRespond: CenterProps["onRespond"]; onAct: (a: string) => void; extra?: ReactNode; find: FindState; resend: ResendView;
   locals: AttachmentEntry[]; files: FileActions; sends: SentLocal[]; chatId: string;
 }) {
+  const autoApi = useContext(AutoAllowContext);
   const ref = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   const prev = usePrevThreads(headKey, threads);
@@ -725,6 +728,9 @@ export function Messages({ mini, orgBound, headKey, threads, chatId, turns, reqs
       {pending.filter((x) => !appearsInTurns(x, turns)).map((x) => <PendingSendRow key={x.id} p={x} onRestore={onPendingRestore} onDismiss={onPendingDismiss} />)}
       {extra}
       {gaps.map((r) => <RequestGapLine key={`gap:${r.key.source}/${r.key.requestId}`} r={r} guide={orgBound ? "org" : "plain"} />)}
+      {autoApi?.on(chatId) ? (
+        <div className="req-auto small muted" role="status">この会話の承認は、確認せずに許可しています（質問は対象外）。<button className="linkish" onClick={() => autoApi.disable(chatId)}>やめる</button></div>
+      ) : null}
       {reqs.map((r) => <RequestCard key={keyStr({ backend: r.key.backend, id: r.key.requestId })} r={r} onRespond={onRespond} agentName={agentName} />)}
       {running && reqs.length === 0 ? <div className="msg ai"><div className="who">Codex</div><div className="activity">作業中…</div></div> : null}
     </div>
@@ -750,42 +756,85 @@ function optClass(o: DecisionOption, first: boolean): string {
   return first ? "btn-main" : "btn-line";
 }
 
+/** 「この会話の以降の承認もすべて許可」モード（App が渡す。無いところ＝モックなどでは出さない）。 */
+export interface AutoAllowApi { on: (chatId: string) => boolean; /** 入れられる会話か（組織実行が所有する会話は不可）。 */ can: (chatId: string) => boolean; enable: (r: PendingRequest) => void; disable: (chatId: string) => void }
+export const AutoAllowContext = createContext<AutoAllowApi | null>(null);
+
+/** 承認・確認カードの選択肢。主ボタン（許可）・このセッション中・辞退は常に見せ、永続の許可や中止は「その他」へ。 */
+function RequestChoices({ r, onRespond, onPrimary }: { r: PendingRequest; onRespond: CenterProps["onRespond"]; onPrimary?: (o: DecisionOption) => void }) {
+  const c = requestChoices(r.options);
+  const send = (o: DecisionOption) => onRespond(r, { kind: "decision", optionId: o.id });
+  const tip = (o: DecisionOption) => [o.label, o.description, SCOPE_TEXT[o.scope]].filter(Boolean).join("／");
+  return (
+    <div className="opts">
+      {c.primary ? <button className="btn-main" title={tip(c.primary)} onClick={() => (onPrimary ?? send)(c.primary!)}>許可</button> : null}
+      {c.session ? <button className="btn-line" title={tip(c.session)} onClick={() => send(c.session!)}>{c.session.label}</button> : null}
+      {c.decline ? <button className="btn-text" title={tip(c.decline)} onClick={() => send(c.decline!)}>辞退</button> : null}
+      <span className="sp" />
+      {c.inline ? <button className="btn-text" title={tip(c.inline)} onClick={() => send(c.inline!)}>{c.inline.label}</button> : null}
+      {c.more.length > 1 ? (
+        <Popover trigger="その他 ▾" label="その他の選択肢" role="menu" align="right" triggerClassName="btn-text">
+          {(close) => (
+            <div className="req-menu">
+              {c.more.map((o) => (
+                <button key={o.id} role="menuitem" className={isPersistent(o) ? "warn" : undefined} onClick={() => { close(); send(o); }}>
+                  <span>{o.label}</span><small>{[o.description, SCOPE_TEXT[o.scope]].filter(Boolean).join("／")}</small>
+                </button>
+              ))}
+            </div>
+          )}
+        </Popover>
+      ) : null}
+    </div>
+  );
+}
+
+/** カード上部の小さな補足行（子のエージェントの要求のときだけ要求元、作業フォルダが分かれば作業フォルダ）。 */
+function RequestMeta({ r, agentName }: { r: PendingRequest; agentName?: (a: AgentKey) => string }) {
+  const cwd = r.detail.cwd.kind === "value" ? r.detail.cwd.value : null;
+  const child = agentName && r.agent.id !== r.chat.id;
+  if (!child && !cwd) return null;
+  return (
+    <div className="meta">
+      {child ? <span title={`ID: ${r.agent.id}`}>要求元: {agentName!(r.agent)}</span> : null}
+      {cwd ? <span>作業フォルダ: <span className="mono">{cwd}</span></span> : null}
+    </div>
+  );
+}
+
 /** MCPの許可確認（elicitation）。承諾は「入力項目なし」の型だけ（ホストが選択肢に出す）。出せないものは灰色の破線で理由と案内を示す。 */
 function ElicitationCard({ r, onRespond, agentName }: { r: PendingRequest; onRespond: CenterProps["onRespond"]; agentName?: (a: AgentKey) => string }) {
   const d = r.detail;
   const server = d.server.kind === "value" ? d.server.value : null;
   const canAccept = r.options.some((o) => o.id === "accept");
-  const who = agentName ? agentName(r.agent) : "エージェント";
   return (
     <div className="req" role="group" aria-label="MCPの許可確認">
-      <div className="h"><Icon name="alert" />{server ? `MCPサーバー「${server}」からの許可の確認です` : "MCPサーバーからの許可の確認です"}</div>
-      <div className="t">要求元: <span title={`ID: ${r.agent.id}`}>{who}</span>（この確認が終わるまで、一覧の子の表示は「承認待ち」、ヘッダーは「対応待ち」になります）</div>
-      <div className="t small muted" lang="en" title="MCPサーバーが示した原文です">原文: {d.summary}</div>
+      <div className="q">{server ? `MCPサーバー「${server}」からの許可の確認です` : "MCPサーバーからの許可の確認です"}</div>
+      <RequestMeta r={r} agentName={agentName} />
+      <div className="meta" lang="en" title="MCPサーバーが示した原文です">{d.summary}</div>
       {d.url.kind === "value" ? <code>{d.url.value}</code> : null}
-      <div className="opts">
-        {r.options.map((o, i) => (
-          <button key={o.id} className={optClass(o, i === 0)} title={o.description ?? undefined} onClick={() => onRespond(r, { kind: "decision", optionId: o.id })}>{o.label}</button>
-        ))}
-      </div>
+      <RequestChoices r={r} onRespond={onRespond} />
       {!canAccept ? (
         <div className="req-na" role="note">
           <b>許可する: ここでは選べません</b>
           <div>入力項目のある確認、またはURLを開く確認のため、AgentDockでは許可できません。許可するときは、Codexのアプリ／CLIで許可してください。</div>
         </div>
       ) : null}
-      <div className="scope">辞退は「今回は許可しない」（明示的に拒否）、取りやめは「許可も拒否もせず取りやめる」です。どちらもこの確認にだけ作用します。</div>
     </div>
   );
 }
 
 export function RequestCard({ r, onRespond, agentName }: { r: PendingRequest; onRespond: CenterProps["onRespond"]; agentName?: (a: AgentKey) => string }) {
+  const auto = useContext(AutoAllowContext);
+  const [all, setAll] = useState(false);
   if (r.kind.kind === "toolElicitation") return <ElicitationCard r={r} onRespond={onRespond} agentName={agentName} />;
   const isQuestion = r.kind.kind === "userInput";
   const d = r.detail;
+  const canAll = !isQuestion && !!auto && auto.can(r.chat.id) && !auto.on(r.chat.id) && autoAllowOption(r) !== null;
   return (
     <div className="req" role="group" aria-label={isQuestion ? "質問" : "承認要求"}>
-      <div className="h"><Icon name={isQuestion ? "chat" : "alert"} />{d.summary}</div>
-      <div className="t">要求元: <span title={`ID: ${r.agent.id}`}>{agentName ? agentName(r.agent) : "エージェント"}</span>　作業フォルダ: <span className="mono">{showKnown(d.cwd)}</span></div>
+      <div className="q">{d.summary}</div>
+      <RequestMeta r={r} agentName={agentName} />
       {d.command.kind === "value" ? <code>{d.command.value}</code> : null}
       {d.files.kind === "value" ? <code>{d.files.value.join("\n")}</code> : null}
       {isQuestion ? d.questions.map((q) => (
@@ -797,15 +846,13 @@ export function RequestCard({ r, onRespond, agentName }: { r: PendingRequest; on
             ))}
           </div>
         </div>
-      )) : null}
-      {!isQuestion ? (
-        <div className="opts">
-          {r.options.map((o, i) => (
-            <button key={o.id} className={optClass(o, i === 0)} title={SCOPE_TEXT[o.scope]} onClick={() => onRespond(r, { kind: "decision", optionId: o.id })}>{o.label}</button>
-          ))}
-        </div>
+      )) : <RequestChoices r={r} onRespond={onRespond} onPrimary={(o) => { if (all && auto && canAll) auto.enable(r); else onRespond(r, { kind: "decision", optionId: o.id }); }} />}
+      {canAll ? (
+        <label className="all" title="コマンド・ファイル変更・追加権限の承認が対象です。質問は対象外です。いつでもやめられます。アプリを再起動すると解除されます">
+          <input type="checkbox" checked={all} onChange={(e) => setAll(e.target.checked)} />
+          <span>この会話のこれ以降の承認を、<b>内容を見ずにすべて</b>許可する（「許可」を押したときに有効）</span>
+        </label>
       ) : null}
-      {!isQuestion ? <div className="scope" title="選択肢と効力範囲は Codex が示したものを表示します。">効力範囲: {r.options.map((o) => `${o.label}=${SCOPE_TEXT[o.scope]}`).join("／")}</div> : null}
     </div>
   );
 }

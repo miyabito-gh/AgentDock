@@ -28,7 +28,8 @@ const loadMock = async () => {
 import { GlobalBanner, MenuBar, SaveBanner, type ConnUi } from "./ui/Chrome";
 import { LeftPane, type ChatOp } from "./ui/LeftPane";
 import { histStart, histOk, histFail, type HistLoad } from "./ui/historyLoad";
-import { CenterPane, EmptyCenter, RequestCard, sendLockReason, type FileActions } from "./ui/CenterPane";
+import { AutoAllowContext, CenterPane, EmptyCenter, RequestCard, sendLockReason, type AutoAllowApi, type FileActions } from "./ui/CenterPane";
+import { autoAllowOption, dueAutoAllows, requestKey } from "./ui/autoAllow";
 import { hideClosed, noticeOf } from "./ui/sendNotice";
 import { fenceCode, insertBlock } from "./ui/attach";
 import { DockPane, MiniWindow, type DockActions, type DockFocus } from "./ui/Dock";
@@ -700,6 +701,40 @@ export default function App() {
         : `回答の受理を確認できません（${out.message}）。再送はしません。`);
     } catch (e) { sayErr("回答を送れませんでした", e); }
   };
+
+  // 「この会話の以降の承認もすべて許可」。利用者がカードで選んだ会話だけ・メモリだけ（再起動で戻る）。実接続のみ。
+  const [autoAllowChats, setAutoAllowChats] = useState<ReadonlySet<string>>(() => new Set());
+  const autoAllowDone = useRef(new Set<string>());
+  const orgOwnedChat = (id: string) => { const o = snap.chatLocals.find((l) => l.chat.id === id)?.org; return !!o && !o.released; };
+  const autoAllowOff = (id: string) => setAutoAllowChats((s) => { const n = new Set(s); n.delete(id); return n; });
+  const autoAllowApi: AutoAllowApi | null = live ? {
+    on: (id) => autoAllowChats.has(id),
+    can: (id) => !orgOwnedChat(id),
+    enable: (r) => {
+      const o = autoAllowOption(r);
+      if (!o || orgOwnedChat(r.chat.id)) return;
+      const k = requestKey(r);
+      setAutoAllowChats((s) => new Set(s).add(r.chat.id));
+      autoAllowDone.current.add(k);
+      // 最初の1件が届かなかったときは、モードを戻す（帯だけ「許可しています」と出る状態にしない）
+      host.respondRequest(r.key, { kind: "decision", optionId: o.id }).then((out) => {
+        if (out.kind === "delivered") { say("回答を送りました。以降の承認は、この会話では確認せずに許可します。"); return; }
+        autoAllowOff(r.chat.id); autoAllowDone.current.delete(k);
+        say(out.kind === "alreadyResolved" ? "すでに解決済みでした。自動許可は入れていません。" : "回答を届けられなかったため、自動許可は入れていません。承認カードから応答してください。");
+      }).catch((e) => { autoAllowOff(r.chat.id); autoAllowDone.current.delete(k); sayErr("回答を送れませんでした", e); });
+    },
+    disable: autoAllowOff,
+  } : null;
+  useEffect(() => {
+    if (!live || autoAllowChats.size === 0) return;
+    for (const { r, option } of dueAutoAllows(snap.requests, autoAllowChats, autoAllowDone.current, orgOwnedChat)) {
+      autoAllowDone.current.add(requestKey(r));
+      host.respondRequest(r.key, { kind: "decision", optionId: option.id }).then((out) => {
+        if (out.kind === "alreadyResolved") return;
+        if (out.kind !== "delivered") say("自動で許可できませんでした。承認カードから応答してください。");
+      }).catch((e) => sayErr("自動の許可を送れませんでした", e));
+    }
+  }, [live, autoAllowChats, snap.requests]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** 送信（対象チャットを引数で受ける。中央の入力欄とドックの指示欄が同じ判定を通る）。 */
   const sendTo = async (chat: Chat, text: string, steer: boolean, attachments: string[], onAccepted?: () => void, onRejected?: () => void): Promise<boolean> => {
@@ -1848,6 +1883,7 @@ ${cur}` : p.text);
   };
 
   return (
+    <AutoAllowContext.Provider value={autoAllowApi}>
     <SendKeyContext.Provider value={enterMode}>
     <LinkContext.Provider value={linkActions}>
     <RefContext.Provider value={refActions}>
@@ -2035,5 +2071,6 @@ ${cur}` : p.text);
     </RefContext.Provider>
     </LinkContext.Provider>
     </SendKeyContext.Provider>
+    </AutoAllowContext.Provider>
   );
 }

@@ -50,7 +50,8 @@ export function VisualWorkspace({ enabled, blocked, chatId, chatKey, chatCwd, on
   const [selection, setSelection] = useState<PreviewElement[]>([]);
   const [truncated, setTruncated] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [interaction, setInteraction] = useState(false);
+  // 最初はページ操作（ページの表示のまま触れる）。範囲選択は利用者が切り替える。再読み込み後も選んだモードを保つ（プレビュー側が覚える）。
+  const [interaction, setInteraction] = useState(true);
   const [barText, setBarText] = useState("");
 
   const [whereOpen, setWhereOpen] = useState(false);
@@ -206,7 +207,7 @@ export function VisualWorkspace({ enabled, blocked, chatId, chatKey, chatCwd, on
     }
     lastBounds.current = "";
     current.current = opened;
-    setSession(opened); setSelection([]); setTruncated(false); setInteraction(false); 
+    setSession(opened); setSelection([]); setTruncated(false); setInteraction(true); 
     await syncBounds();
   };
 
@@ -250,7 +251,6 @@ export function VisualWorkspace({ enabled, blocked, chatId, chatKey, chatCwd, on
       await enqueue(() => actOnPreview(active.sessionId, action));
       if (!alive.current || current.current?.sessionId !== active.sessionId) return false;
       if (action === "select" || action === "interact") setInteraction(action === "interact");
-      if (action === "reload") setInteraction(false);
       if (action === "clear" || action === "reload") { setSelection([]); setTruncated(false); }
       return true;
     } catch (error) { if (alive.current) setError(`プレビュー操作を確認できませんでした: ${messageOf(error)}`); return false; }
