@@ -4,7 +4,7 @@ use super::{
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::{collections::BTreeMap, io::Read};
+use std::{collections::BTreeMap, fs::{self, OpenOptions}, io::{Read, Write}, path::Path};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "camelCase")]
@@ -109,13 +109,43 @@ impl Snapshot {
     pub fn bytes(&self, path: &str) -> Option<&[u8]> {
         self.files.get(path).and_then(|b| b.as_deref())
     }
-    pub(crate) fn same_scope(&self, other: &Self) -> bool {
-        self.selected == other.selected
-    }
     pub(crate) fn selected(&self) -> &[SelectedFile] {
         &self.selected
     }
-    pub(crate) fn state(&self, path: &str) -> &Option<Vec<u8>> {
-        &self.files[path]
+}
+
+
+fn durable_file(path: &Path, bytes: &[u8]) -> VisualResult<()> {
+    let mut f = OpenOptions::new().write(true).create_new(true).open(path)?;
+    f.write_all(bytes)?;
+    f.sync_all()?;
+    Ok(())
+}
+
+/// スナップショットを新しいフォルダへ保存する（既存のフォルダは拒否）。manifest で読み戻し時に検証する。
+pub fn save_snapshot(dir: &Path, snapshot: &Snapshot) -> VisualResult<()> {
+    fs::create_dir(dir)?;
+    for file in snapshot.selected() {
+        let rel = super::RelativePath::parse(&file.path)?;
+        if let Some(bytes) = snapshot.bytes(&file.path) {
+            let path = rel.join(dir);
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            durable_file(&path, bytes)?;
+        }
     }
+    durable_file(&dir.join("manifest.json"), &serde_json::to_vec_pretty(&snapshot.manifest())?)?;
+    Ok(())
+}
+
+/// 保存したスナップショットを読み戻す。中身が manifest と違えば拒否する。
+pub fn load_snapshot(dir: &Path, scope: &FileScope) -> VisualResult<Snapshot> {
+    let root = ProjectRoot::open(dir)?;
+    let snapshot = Snapshot::capture(&root, scope)?;
+    let saved: SnapshotManifest = serde_json::from_slice(&fs::read(dir.join("manifest.json"))?)?;
+    if snapshot.manifest() != saved {
+        return Err(VisualError::Conflict("snapshot bytes do not match manifest"));
+    }
+    Ok(snapshot)
 }

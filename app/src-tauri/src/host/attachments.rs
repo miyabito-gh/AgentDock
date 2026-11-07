@@ -452,7 +452,12 @@ impl Host {
         self.read(|d| d.chats.iter().find(|c| &c.key == chat).and_then(|c| c.cwd.value().cloned()))
     }
 
-    /// そのパスを含む作業フォルダ（編集を終えたあと、元へ戻す送信がまだの会話は、元の作業フォルダも含む）。どれにも含まれなければ現在の作業フォルダ。
+    /// 会話中のリンクの基準にする作業フォルダ（現在の作業フォルダ）。
+    fn chat_link_roots(&self, chat: &ChatKey) -> Vec<String> {
+        self.chat_cwd(chat).into_iter().collect()
+    }
+
+    /// そのパスを含む作業フォルダ。どれにも含まれなければ現在の作業フォルダ。
     fn link_root_for(&self, chat: &ChatKey, path: &Path) -> Option<String> {
         let roots = self.chat_link_roots(chat);
         roots.iter().find(|root| attach::is_inside_project_resolved(path, root)).cloned().or_else(|| roots.into_iter().next())

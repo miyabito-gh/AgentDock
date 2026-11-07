@@ -17,9 +17,8 @@ const NO_THREADS: never[] = [];
 const RECENT_MAX = 8;
 
 /** 右ペインに出すチャットの候補（待ち→作業中→最近の順。中央のチャットは除く）。 */
-export function peekCandidates(snap: HostSnapshot, centerId: string | null, excludeIds?: ReadonlySet<string>): { wait: Chat[]; run: Chat[]; recent: Chat[] } {
+export function peekCandidates(snap: HostSnapshot, centerId: string | null): { wait: Chat[]; run: Chat[]; recent: Chat[] } {
   const hidden = (c: Chat) => {
-    if (excludeIds?.has(c.key.id)) return true; // 専用の編集会話は左の一覧と同じく出さない
     const l = snap.chatLocals.find((x) => x.chat.id === c.key.id);
     return l?.visibility.kind === "archived" || knownValue(c.archived) === true || !!l?.org || !!l?.deletePending;
   };
@@ -43,13 +42,12 @@ export function RightTabs({ view, onView, waiting }: { view: "dock" | "chat"; on
   );
 }
 
-export function MiniChat({ snap, chat, centerId, excludeIds, turns, history, onReload, local, pending, decisions, sends, files, draft, setDraft, enterMode, connected, onSend, onRespond, onPick, onOpenCenter }: {
+export function MiniChat({ snap, chat, centerId, turns, history, onReload, local, pending, decisions, sends, files, draft, setDraft, enterMode, connected, onSend, onRespond, onPick, onOpenCenter }: {
   snap: HostSnapshot;
   chat: Chat | null;
   /** 中央に出ているチャット（同じ会話を2か所で開かない）。 */
   centerId: string | null;
   /** 候補に出さない会話（専用の編集会話）。 */
-  excludeIds?: ReadonlySet<string>;
   turns: TurnRecord[];
   history: HistLoad | undefined;
   onReload: () => void;
@@ -79,7 +77,7 @@ export function MiniChat({ snap, chat, centerId, excludeIds, turns, history, onR
     document.addEventListener("keydown", esc);
     return () => { document.removeEventListener("mousedown", out); document.removeEventListener("keydown", esc); };
   }, [menu]);
-  const cand = useMemo(() => peekCandidates(snap, centerId, excludeIds), [snap, centerId, excludeIds]);
+  const cand = useMemo(() => peekCandidates(snap, centerId), [snap, centerId]);
   const same = !!chat && chat.key.id === centerId;
   const shown = chat && !same ? chat : null;
 

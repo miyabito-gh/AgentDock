@@ -71,8 +71,6 @@ export interface CenterProps {
   visualChip?: { count: number; label: string; onClear: () => void } | null;
   /** 入力欄の例文（編集チャットのとき）。 */
   visualHint?: string;
-  /** 編集用コピーで作業中の会話を、Visual Editorを閉じたまま見ているときの案内（元のファイルではなくコピーに反映される）。 */
-  visualNote?: { text: string; action: string; onAction: () => void; back?: { label: string; title: string; onAction: () => void }; secondary?: { label: string; title: string; onAction: () => void } } | null;
   /** 入力欄の `$` 候補の窓口（実接続のときだけ。モックは null）。 */
   skillPick: SkillPickApi | null;
   /** 入力欄（選択範囲の貼り付けでカーソル位置を使う）。 */
@@ -139,7 +137,7 @@ export interface FileActions {
   open: (t: FileRef) => void;
   /** 保存先を選んで保存する（同名は上書き確認）。 */
   save: (t: FileRef, name: string) => void;
-  /** HTMLをVisual Editorで開く（見るだけ。編集は編集用コピーを作ってから）。 */
+  /** HTMLをVisual Editorで開く（表示し、依頼を送ると元のファイルを直接編集する）。 */
   openVisual?: (path: string) => void;
   /** 画像のアプリ内プレビュー用のバイト列。 */
   preview: (t: FileRef) => Promise<ArrayBuffer>;
@@ -1045,13 +1043,12 @@ function Composer({ p, running, lock, hu }: { p: CenterProps; running: boolean; 
         {p.visualChip ? (
           <div className="chips">
             <span className="chip visual-chip" title="ページ上で選んだ範囲です。送信すると依頼に自動で添付されます">
-              <Icon name="diff" /><span>ページの選択 {p.visualChip.count}件</span><span className="st">{p.visualChip.label}・送信すると添付されます</span>
+              <Icon name="diff" /><span>ページの選択 {p.visualChip.count}件</span><span className="st">{p.visualChip.label}</span>
               <button aria-label="ページの選択を外す" onClick={p.visualChip.onClear}><Icon name="x" /></button>
             </span>
           </div>
         ) : null}
         {lock ? <div className="lockmsg">{lock}</div> : null}
-        {p.visualNote ? <div className="handoff-note" role="status"><div className="hn-line"><span className="hn-text">{p.visualNote.text}</span>{p.visualNote.action ? <span className="hn-acts">{p.visualNote.back ? <button className="small" title={p.visualNote.back.title} onClick={p.visualNote.back.onAction}>{p.visualNote.back.label}</button> : null}<button className="small" onClick={p.visualNote.onAction}>{p.visualNote.action}</button>{p.visualNote.secondary ? <button className="small" title={p.visualNote.secondary.title} onClick={p.visualNote.secondary.onAction}>{p.visualNote.secondary.label}</button> : null}</span> : null}</div></div> : null}
         <HandoffNotice ui={hu} onPreview={() => p.onAct("handoffPreview")} onDraft={() => p.onAct("purposeDraft")} />
         {attachBlock ? <div className="lockmsg">{attachBlock}</div> : null}
         {wmSelected && !wmUsable ? (

@@ -3,125 +3,37 @@
 .visual-appbar>.menubar{flex:1;min-width:0;border-bottom:0}
 .visual-entry{margin:2px 8px 2px 4px;flex:none;align-self:center}
 .visual-chat-toggle{margin:2px 8px 2px 0;flex:none;align-self:center}
-/* チャットを畳む試作: 中央列を0にし、右ペイン（プレビュー）が残りを使う。幅の変化はネイティブWebViewが追従する。 */
+/* チャットを畳む: 中央列を0にし、右ペイン（プレビュー）が残りを使う。幅の変化はネイティブWebViewが追従する。 */
 .body.visual-mode{transition:grid-template-columns .16s ease-out}
 .body.visual-mode.v-chat-off>.center{visibility:hidden;overflow:hidden}
 .body.visual-mode.v-chat-off>.splitter.split-r{display:none}
 @media (prefers-reduced-motion:reduce){.body.visual-mode{transition:none}}
-.visual-entry[aria-pressed=true],.visual-workspace button[aria-pressed=true]{color:var(--accent-text);background:var(--accent-weak);border-color:var(--accent-line)}
-.visual-workspace{flex:1;min-width:0;min-height:0;display:grid;grid-template-columns:minmax(230px,1fr) minmax(360px,45%);overflow:hidden}
-.visual-preview,.visual-chat{display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--surface)}
-.visual-preview{border-right:1px solid var(--line)}
-.visual-toolbar{display:flex;gap:4px;align-items:center;flex-wrap:wrap;padding:7px 8px;border-bottom:1px solid var(--line2);flex:none;min-height:41px}
-.visual-tools{display:inline-flex;gap:2px;margin-left:auto}
-.visual-file{padding:5px 10px;background:var(--surface2);border-bottom:1px solid var(--line);font-size:var(--fs-xs);flex:none;min-width:0}
-.visual-file>div{display:flex;align-items:center;gap:7px;min-width:0;min-height:24px}
-.visual-file>div>span:first-child{color:var(--ink2);flex:none;width:5em}
-.visual-file strong,.visual-path{font-weight:400;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1}
-.visual-file button{flex:none}
+.visual-entry[aria-pressed=true],.visual-chat-toggle[aria-pressed=true],.visual-pane .btn[aria-pressed=true]{color:var(--accent-text);background:var(--accent-weak);border-color:var(--accent-line)}
+.visual-path{font-weight:400;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1}
 .visual-stage{position:relative;flex:1;min-height:100px;min-width:0;overflow:hidden;background:var(--surface)}
 .visual-empty{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;padding:24px;color:var(--ink2);font-size:var(--fs-s);line-height:1.7;overflow:auto}
 .visual-empty strong{color:var(--ink);font-size:var(--fs);font-weight:600}
 .visual-empty p{margin:8px 0 0;max-width:34em}
 .visual-native-note{padding:16px;color:var(--ink3);font-size:var(--fs-s)}
-.visual-status{padding:5px 10px;background:var(--surface2);border-top:1px solid var(--line);font-size:var(--fs-xs);color:var(--ink2);flex:none}
-.visual-selection{padding:8px 12px;border-bottom:1px solid var(--line);background:var(--surface2);flex:none;max-height:42%;overflow:auto}
-.visual-selection-title{display:flex;align-items:baseline;gap:8px;font-size:var(--fs-s)}
-.visual-selection-title>span{color:var(--ink2);font-size:var(--fs-xs)}
-.visual-target{font-size:var(--fs-xs);color:var(--ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin:3px 0 5px}
-.visual-selection-empty{margin:4px 0 6px;color:var(--ink2);font-size:var(--fs-xs)}
-.visual-selected-list{max-height:75px;overflow:auto;border-left:2px solid var(--accent-line);padding-left:8px;margin:4px 0 7px;font-size:var(--fs-xs)}
-.visual-selected-list>div{min-width:0;margin-bottom:4px}
-.visual-selected-list strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
-.visual-selected-list span{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;color:var(--ink2);white-space:pre-wrap;overflow-wrap:anywhere}
-.visual-templates{display:flex;flex-wrap:wrap;gap:3px;margin:5px 0}
-.visual-insert{margin-top:1px}
-.visual-draft-note{margin:5px 0 0;font-size:var(--fs-xs);color:var(--ink2);line-height:1.5}
 .visual-error{margin:6px 0 0;font-size:var(--fs-xs);color:var(--fail-ink);overflow-wrap:anywhere}
-.visual-chat-body{display:flex;flex-direction:column;flex:1;min-height:0;min-width:0;overflow:hidden}
-.visual-chat .chead{padding-left:10px;padding-right:10px;flex-wrap:wrap}
-.visual-chat .chead .cwd{min-width:0}
-.visual-chat .ctrl{flex-wrap:wrap}
 @media(max-width:1100px){
   .body.visual-mode{--lw:180px!important}
   .body.visual-mode.l-off,.body.visual-mode[data-left-temp]{--lw:0px!important}
-  .visual-workspace{grid-template-columns:minmax(220px,1fr) minmax(350px,47%)}
-  .visual-toolbar{gap:3px;padding:6px}
-  .visual-toolbar .btn{padding-left:6px;padding-right:6px}
 }
 @media(max-width:760px){
-  .visual-workspace{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(180px,40%) minmax(0,1fr);overflow:auto}
-  .visual-preview{border-right:0;border-bottom:1px solid var(--line)}
-  .visual-selection{max-height:45%}
-  .visual-file>div:first-child{display:none}
   .visual-empty{padding:12px}
   .visual-empty p:last-child{display:none}
 }
-
-.visual-edit{padding:0 0 9px;margin:0 0 8px;border-bottom:1px solid var(--line);font-size:var(--fs-xs);line-height:1.5}
-.visual-edit>p{margin:5px 0;overflow-wrap:anywhere}
-.visual-edit-heading{display:flex;align-items:center;gap:7px;justify-content:space-between;margin:2px 0 4px}
-.visual-edit-heading strong{font-size:var(--fs-s)}
-.visual-edit-heading>span{color:var(--ink2)}
-.visual-edit-actions{display:flex;gap:5px;flex-wrap:wrap;margin:7px 0}
-.visual-scope-line{color:var(--ink2);overflow-wrap:anywhere;max-height:80px;overflow:auto}
-.visual-scope,.visual-sessions{margin:6px 0}
-.visual-scope summary,.visual-sessions summary{cursor:pointer;color:var(--ink2)}
-.visual-scope ul,.visual-sessions ul,.visual-changes,.visual-blockers{margin:5px 0;padding-left:15px;max-height:120px;overflow:auto;overflow-wrap:anywhere}
-.visual-scope li span{color:var(--ink2)}
-.visual-sessions li,.visual-changes li{margin:3px 0}
-.visual-sessions small,.visual-changes small{display:block;color:var(--ink2);overflow-wrap:anywhere}
-.visual-blockers{color:var(--fail-ink)}
-.visual-diff-scrim{position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:24px}
-.visual-diff{display:flex;flex-direction:column;width:min(1000px,100%);max-height:min(80vh,760px);min-height:180px;background:var(--surface);color:var(--ink);border:1px solid var(--line);box-shadow:0 16px 40px rgba(0,0,0,.25);padding:12px;overflow:hidden}
-.visual-diff>header{display:flex;justify-content:space-between;gap:12px;align-items:center;overflow-wrap:anywhere}
-.visual-diff>p{flex:none}
-.visual-diff-columns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;min-height:0;flex:1}
-.visual-diff-columns section{min-width:0;min-height:0;display:flex;flex-direction:column}
-.visual-diff-columns h3{font-size:var(--fs-s);margin:3px 0}
-.visual-diff-columns pre{flex:1;overflow:auto;border:1px solid var(--line);padding:8px;margin:0;background:var(--surface2);white-space:pre-wrap;overflow-wrap:anywhere;font-size:var(--fs-xs)}
-@media(max-width:760px){.visual-diff-scrim{padding:8px}.visual-diff-columns{grid-template-columns:minmax(0,1fr);overflow:auto}.visual-diff-columns section{min-height:160px}}
-
-/* 右ペイン上部: 状態を一目で、次の操作を1つ目立たせる。技術的な情報は「詳細」へ。 */
-.visual-lead,.visual-hint{margin:4px 0 8px;color:var(--ink2);font-size:var(--fs-s);line-height:1.6}
-.visual-hint{font-size:var(--fs-xs);margin:6px 0}
-.visual-start{width:100%;padding:9px 12px;font-size:var(--fs)}
-.visual-status-card{display:flex;flex-direction:column;gap:2px;padding:9px 11px;border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:6px;background:var(--surface);margin:0 0 8px}
-.visual-status-card strong{font-size:var(--fs);font-weight:600}
-.visual-status-card span{color:var(--ink2);font-size:var(--fs-xs);line-height:1.5}
-.visual-status-card.warn{border-left-color:var(--fail);background:var(--fail-bg)}
-.visual-status-card.wait{border-left-color:var(--line);color:var(--ink2)}
-.visual-edit-actions .btn{flex:1 1 auto;padding:8px 10px}
-.visual-more{margin:8px 0 0;font-size:var(--fs-xs)}
-.visual-more>summary{cursor:pointer;color:var(--ink2);padding:2px 0}
-.visual-more[open]>summary{margin-bottom:4px}
-.visual-selection-line{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px;padding:6px 9px;border:1px dashed var(--accent-line);border-radius:6px;background:var(--accent-weak);font-size:var(--fs-xs);line-height:1.5}
-.visual-selection-line strong{font-size:var(--fs-s);color:var(--accent-text)}
-.visual-selection-line span{color:var(--ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;max-width:100%}
-.visual-selection-line small{color:var(--ink2);flex-basis:100%}
-.visual-fine{margin-top:6px}
-.visual-selection{padding:10px 12px}
-
-.visual-recovery{display:flex;flex-direction:column;gap:6px;align-items:flex-start;padding:10px 11px;border:1px solid var(--line);border-radius:6px;background:var(--surface);margin:0 0 8px}
-.visual-recovery strong{font-size:var(--fs-s)}
-.visual-recovery p{margin:0;color:var(--ink2);font-size:var(--fs-xs)}
-.visual-recovery small{color:var(--ink2);line-height:1.5}
-.visual-recovery .btn.primary{align-self:stretch;padding:8px 10px}
-
-.visual-banner{display:flex;align-items:baseline;gap:6px;padding:6px 10px;margin:0 0 8px;border-radius:6px;background:var(--accent-weak);color:var(--accent-text);font-size:var(--fs-xs);line-height:1.4}
-.visual-banner small{margin-left:auto;color:var(--ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .visual-chip{border-color:var(--accent-line)!important;background:var(--accent-weak)}
 
-.vm-group{display:flex;flex-direction:column;gap:5px;margin:0 0 9px}
-.vm-group>strong{font-size:var(--fs-s);font-weight:600}
-.vm-opt{display:flex;gap:8px;align-items:flex-start;padding:7px 9px;border:1px solid var(--line);border-radius:6px;cursor:pointer;background:var(--surface)}
-.vm-opt.on{border-color:var(--accent-line);background:var(--accent-weak)}
-.vm-opt input{margin-top:3px;flex:none}
-.vm-opt b{display:block;font-weight:600;font-size:var(--fs-s)}
-.vm-opt small{display:block;color:var(--ink2);font-size:var(--fs-xs);line-height:1.5}
-.visual-finish{margin:2px 0 6px}
+/* 差分は既存の .scrim/.dialog に載せる。 */
+.dialog .visual-diff-columns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;min-height:0}
+.dialog .visual-diff-columns section{min-width:0;display:flex;flex-direction:column}
+.dialog .visual-diff-columns h3{font-size:var(--fs-s);margin:3px 0}
+.dialog .visual-diff-columns pre{max-height:50vh;overflow:auto;border:1px solid var(--line);border-radius:var(--r2);padding:8px;margin:0;background:var(--surface2);white-space:pre-wrap;overflow-wrap:anywhere;font-size:var(--fs-xs)}
+@media(max-width:760px){.dialog .visual-diff-columns{grid-template-columns:minmax(0,1fr)}}
 
-/* ── 右ペイン: 編集(状態と操作) と プレビュー を、見出し付きの2区画に分ける ── */
+/* ── 右ペイン: 編集(状態と操作) と プレビュー の2区画 ── */
 .visual-pane{display:flex;flex-direction:column;flex:1;min-height:0;min-width:0;background:var(--surface)}
 .vp-card{display:flex;flex-direction:column;min-height:0;min-width:0}
 .vp-card+.vp-card{border-top:2px solid var(--line)}
@@ -129,108 +41,70 @@
 .vp-head>strong{font-weight:600;letter-spacing:.02em}
 .vp-sub{color:var(--ink2);font-size:var(--fs-xs);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .vp-edit{flex:0 1 auto;max-height:52%}
-.vp-edit>.vp-body{overflow:auto;padding:10px 12px;min-height:0}
+.vp-edit>.vp-body{overflow:auto;padding:8px 12px;min-height:0}
 .vp-preview{flex:1 1 0;min-height:240px}
-.vp-bar{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:6px 10px;border-bottom:1px solid var(--line2);flex:none}
+.vp-bar{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;padding:6px 10px;border-bottom:1px solid var(--line2);flex:none}
 .vp-group{display:inline-flex;align-items:center;gap:4px}
-.vp-group>label{color:var(--ink2);font-size:var(--fs-xs);margin-right:2px}
 .vp-seg{display:inline-flex}
 .vp-seg .btn{border-radius:0}.vp-seg .btn:first-child{border-radius:6px 0 0 6px}.vp-seg .btn:last-child{border-radius:0 6px 6px 0;margin-left:-1px}
+.vp-where-btn{margin-left:auto}
 .vp-foot{flex:none;border-top:1px solid var(--line);background:var(--surface2)}
-.vp-foot .visual-status{border-top:0}
-.vp-foot .visual-selection-line{margin:6px 10px}
-.vp-foot .visual-more{margin:0 10px 6px}
 .vp-where{margin:0 10px 6px;font-size:var(--fs-xs);color:var(--ink2)}
 .vp-where .visual-path{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .visual-pane .visual-stage{flex:1;min-height:120px}
+.vp-needchat{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:6px 10px;font-size:var(--fs-xs);color:var(--ink2);line-height:1.5}
 
-/* ── 編集区画を低くする: 状態と操作を1〜2行にまとめる ── */
-.vp-edit>.vp-body{padding:8px 12px}
-.vp-edit .visual-edit{padding:0;margin:0;border-bottom:0}
-.vs-row{display:flex;gap:8px;align-items:flex-start}
-.vs-dot{width:9px;height:9px;border-radius:50%;background:var(--accent);margin-top:5px;flex:none}
-.vs-row.wait .vs-dot{background:var(--ink3,#999)}
-.vs-row.warn .vs-dot{background:var(--fail)}
-.vs-text strong{font-size:var(--fs);font-weight:600}
-.vs-text small{display:block;color:var(--ink2);font-size:var(--fs-xs);line-height:1.5}
-.vs-actions{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:8px 0 2px}
-.vs-start{display:flex;flex-direction:column;gap:6px}
-.vs-start .visual-lead{margin:0}
-.vm-group{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:6px;margin:0}
-.vm-opt{height:auto}
-.vp-edit .visual-recovery{margin:6px 0 0}
-.vp-edit .visual-more{margin:6px 0 0}
-
-.vs-saved{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
-.vs-saved>span{font-size:var(--fs-xs);color:var(--ink2)}
-.vs-confirm{display:flex;flex-direction:column;align-items:flex-start;gap:5px;margin:5px 0;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--surface2)}
-.vs-confirm p{margin:0;font-size:var(--fs-xs)}
-.vs-confirm .btn.danger{color:var(--fail-ink);border-color:var(--fail-line)}
-
-/* 下部は選択時だけ出る1行の依頼バー。選択がなければ高さを持たない。 */
-.vp-sendbar{padding:6px 10px 8px;display:flex;flex-direction:column;gap:4px}
-.vp-sendline{display:flex;flex-wrap:wrap;align-items:center;gap:6px;min-width:0}
-.vp-chip{flex:0 1 38%;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:3px 8px;border:1px solid var(--accent-line);border-radius:999px;background:var(--accent-weak);color:var(--accent-text);font-size:var(--fs-xs)}
+/* 依頼欄: 静かな面、入力欄を主役に、操作は控えめに。 */
+.vp-composer{margin:8px 10px 10px;padding:8px 10px;border:1px solid var(--line);border-radius:14px;background:var(--surface);box-shadow:var(--sh-1);display:flex;flex-direction:column;gap:6px}
+.vp-composer:focus-within{border-color:var(--accent-line);box-shadow:0 0 0 3px var(--accent-weak)}
+.vp-ctx{display:flex;align-items:center;gap:4px;min-width:0;flex-wrap:nowrap;overflow:hidden}
+.vp-chip{flex:0 1 auto;max-width:100%;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:2px 9px;border:1px solid var(--accent-line);border-radius:999px;background:var(--accent-weak);color:var(--accent-text);font-size:var(--fs-xs)}
 .vp-input{flex:1 1 160px;min-width:0;padding:5px 8px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--ink);font:inherit}
 .vp-input:focus{outline:2px solid var(--accent-line);outline-offset:-1px}
-.vp-sent{color:var(--ink2);font-size:var(--fs-xs)}
-.vctx-body{margin:2px 0 6px;padding:6px 8px;border-left:2px solid var(--accent-line);background:var(--surface2);color:var(--ink2);font-size:var(--fs-xs);white-space:pre-wrap;overflow-wrap:anywhere;max-height:180px;overflow:auto}
-.vc-badge{display:inline-block;min-width:16px;margin-left:5px;padding:0 5px;border-radius:999px;background:var(--fail);color:var(--surface);font-weight:600;font-size:var(--fs-xs);line-height:16px;text-align:center}
-.vp-textedit{display:flex;gap:6px;align-items:flex-end}
-.vp-textedit .vp-input{resize:vertical;min-height:2.6em}
-/* 編集開始後は、状態の1行と操作ボタンを同じ段に並べて縦を節約する（狭ければ折り返す）。 */
-.visual-edit:has(>.vs-row){display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px}
-.visual-edit:has(>.vs-row)>*{flex:1 1 100%;margin-top:0;margin-bottom:0}
-.visual-edit:has(>.vs-row)>.vs-row{flex:1 1 260px;min-width:0}
-.visual-edit:has(>.vs-row)>.vs-actions{flex:0 1 auto;margin:0}
-.vp-sendinput{display:flex;gap:6px;flex:1 1 220px;min-width:0}
-.vp-sendinput .vp-input{flex:1 1 auto}
-
-/* Claudeアプリ寄せ: 静かな面、入力欄を主役に、操作は控えめに。 */
-.vp-bar{align-items:center;gap:6px 8px}
-.vp-where-btn{margin-left:auto}
-.vp-composer{margin:8px 10px 10px;padding:8px 10px;border:1px solid var(--line);border-radius:14px;background:var(--surface);box-shadow:0 1px 3px rgba(0,0,0,.06);display:flex;flex-direction:column;gap:6px}
-.vp-ctx{display:flex;align-items:center;gap:4px;min-width:0}
-.vp-chip{flex:0 1 auto;max-width:100%;padding:2px 9px}
-.vp-x{border:0;background:none;color:var(--ink2);font-size:16px;line-height:1;padding:2px 6px;border-radius:6px;cursor:pointer}
-.vp-x:hover{background:var(--surface2)}
 .vp-inrow{display:flex;align-items:flex-end;gap:6px}
 .vp-hero{flex:1 1 auto;border:0;background:transparent;padding:6px 4px;outline:none;resize:none;max-height:96px;line-height:1.4}
 .vp-hero:focus{outline:none}
-.vp-composer:focus-within{border-color:var(--accent-line);box-shadow:0 0 0 3px var(--accent-weak)}
-.vp-plus,.vp-go{flex:none;width:30px;height:30px;border-radius:50%;border:1px solid var(--line);background:var(--surface);color:var(--ink2);font-size:16px;line-height:1;cursor:pointer;display:grid;place-items:center}
-.vp-plus[aria-pressed=true],.vp-plus:hover{background:var(--surface2)}
-.vp-go{border-color:transparent;background:var(--accent);color:var(--surface);font-weight:700}
-.vp-go:disabled{background:var(--surface2);color:var(--ink3,#999);cursor:default}
-.vp-menu{display:flex;flex-wrap:wrap;gap:2px}
-@keyframes vsPulse{0%,100%{opacity:1}50%{opacity:.35}}
-.vs-row.wait .vs-dot{animation:vsPulse 1.2s ease-in-out infinite}
-@media (prefers-reduced-motion:reduce){.vs-row.wait .vs-dot{animation:none}}
+.vp-sent{color:var(--ink2);font-size:var(--fs-xs)}
+.vp-textedit{display:flex;gap:6px;align-items:flex-end}
+.vp-textedit .vp-input{resize:vertical;min-height:2.6em}
+.vp-go{flex:none;width:30px;height:30px;border-radius:50%;border:1px solid transparent;background:var(--accent);color:var(--accent-ink);font-size:16px;line-height:1;font-weight:700;cursor:pointer;display:grid;place-items:center;transition:background .12s,transform .12s}
+.vp-go:disabled{background:var(--surface2);color:var(--ink3);cursor:default}
+.vp-go:not(:disabled):active{transform:scale(.94)}
+.vp-go:focus-visible,.vp-sug:focus-visible{outline:2px solid var(--accent-line);outline-offset:2px}
+.vp-go.working{position:relative}
+.vp-go.working::after{content:"";position:absolute;inset:-4px;border-radius:50%;border:2px solid transparent;border-top-color:var(--accent);animation:vpSpin 1s linear infinite}
+@keyframes vpSpin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.vp-go.working::after{animation:none;border-color:var(--accent-line)}}
+.vctx-body{margin:2px 0 6px;padding:6px 8px;border-left:2px solid var(--accent-line);background:var(--surface2);color:var(--ink2);font-size:var(--fs-xs);white-space:pre-wrap;overflow-wrap:anywhere;max-height:180px;overflow:auto}
+.vc-badge{display:inline-block;min-width:16px;margin-left:5px;padding:0 5px;border-radius:999px;background:var(--fail);color:var(--fail-on);font-weight:600;font-size:var(--fs-xs);line-height:16px;text-align:center}
 
-/* ---- 静かな見た目への整理（アイコン化・提案チップ・作業中の輪） ---- */
+/* ツールバーのアイコンボタン・提案チップ・手順 */
 .vp-ico{display:inline-flex;align-items:center;justify-content:center;padding:5px 7px;min-width:28px}
 .vp-ico svg.i{width:15px;height:15px}
 .vp-bar .vp-seg .vp-ico{padding:5px 9px}
 .vp-bar .btn.subtle.vp-ico{color:var(--ink2)}
 .vp-bar .btn.subtle.vp-ico:hover:not(:disabled){color:var(--ink);background:var(--surface2)}
-.vp-state{margin-left:auto;padding:1px 8px;border-radius:999px;background:var(--surface2);color:var(--ink2);font-size:var(--fs-xs);white-space:nowrap}
-.vp-ctx{flex-wrap:nowrap;overflow:hidden}
-.vp-sugs{display:flex;gap:4px;margin-left:6px;min-width:0;overflow:hidden;-webkit-mask-image:linear-gradient(90deg,#000 85%,transparent);mask-image:linear-gradient(90deg,#000 85%,transparent)}
+/* 狭い幅でも右へスクロールして届く（スクロールバーは出さない） */
+.vp-sugs{display:flex;gap:4px;margin-left:6px;min-width:0;overflow-x:auto;scrollbar-width:none}
+.vp-sugs::-webkit-scrollbar{display:none}
 .vp-sug{flex:none;border:1px solid var(--line);background:transparent;color:var(--ink2);border-radius:999px;padding:2px 9px;font:inherit;font-size:var(--fs-xs);cursor:pointer;transition:background .12s,color .12s,border-color .12s}
 .vp-sug:hover{background:var(--accent-weak);color:var(--accent-text);border-color:var(--accent-line)}
-.vp-sug:focus-visible,.vp-plus:focus-visible,.vp-go:focus-visible,.vp-x:focus-visible{outline:2px solid var(--accent-line);outline-offset:2px}
-.vp-go{transition:background .12s,transform .12s}
-.vp-go:not(:disabled):active{transform:scale(.94)}
-.vp-go.working{position:relative}
-.vp-go.working::after{content:"";position:absolute;inset:-4px;border-radius:50%;border:2px solid transparent;border-top-color:var(--accent);animation:vpSpin 1s linear infinite}
-@keyframes vpSpin{to{transform:rotate(360deg)}}
-@media (prefers-reduced-motion:reduce){.vp-go.working::after{animation:none;border-color:var(--accent-line)}}
 .vp-steps{display:flex;flex-wrap:wrap;justify-content:center;gap:6px;margin:10px 0 0;padding:0;list-style:none;counter-reset:s}
 .vp-steps li{counter-increment:s;display:inline-flex;align-items:center;gap:6px;padding:3px 10px 3px 4px;border-radius:999px;background:var(--surface2);color:var(--ink2);font-size:var(--fs-xs)}
 .vp-steps li::before{content:counter(s);display:grid;place-items:center;width:18px;height:18px;border-radius:50%;background:var(--surface);color:var(--ink2);font-size:11px;font-weight:600}
 
-/* 畳んでいる間の最新返答（2行固定）と、承認・質問の軽量回答（高さ上限つき） */
-.vp-reply{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;box-sizing:content-box;height:2.8em;line-height:1.4;margin:6px 10px 0;padding:0;border:0;background:none;color:var(--ink2);font:inherit;font-size:var(--fs-s);text-align:left;cursor:pointer;width:calc(100% - 20px)}
-.vp-reply:hover{color:var(--ink)}
+/* 畳んでいる間の最新返答（押すとチャットを開く）と、承認・質問の軽量回答（高さ上限つき） */
+.vp-reply{display:grid;grid-template-columns:1fr auto;grid-template-areas:"h ." "b c";align-items:center;column-gap:6px;box-sizing:border-box;margin:6px 10px 0;padding:4px 6px;border:1px solid var(--line2);border-radius:var(--r2);background:none;color:var(--ink2);font:inherit;font-size:var(--fs-s);text-align:left;cursor:pointer;width:calc(100% - 20px)}
+.vp-reply-h{grid-area:h;font-size:var(--fs-xs);color:var(--ink3)}
+.vp-reply-b{grid-area:b;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;line-height:1.4;min-width:0}
+.vp-reply>svg.i{grid-area:c;width:14px;height:14px}
+.vp-reply:hover{color:var(--ink);background:var(--surface2)}
 .vp-reply:focus-visible{outline:2px solid var(--accent-line);outline-offset:2px}
-.vp-reqs{margin:6px 10px 0;max-height:40vh;overflow-y:auto}
+.vp-reqs{margin:6px 10px 0;max-height:min(40vh,240px);overflow-y:auto}
+
+/* 直接編集の状態バー（落ち着いた低テキスト。画面は狭めない） */
+.vd-bar{font-size:var(--fs-xs)}
+.vd-row{display:flex;align-items:center;gap:8px;justify-content:space-between;min-width:0}
+.vd-text{color:var(--ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.vd-acts{display:inline-flex;gap:4px;flex:none}
+.vd-files{display:flex;flex-wrap:wrap;gap:4px;margin:0 0 6px}

@@ -1411,53 +1411,38 @@ pub async fn subagent_verify_import(host: Hs<'_>, args: crate::backend::subagent
 }
 
 #[tauri::command]
-pub async fn visual_edit_create(host: Hs<'_>, args: crate::host::visual::VisualCreateArgs) -> R<crate::visual_edit::session::SessionView> {
-    let confirmed = UserConfirmed::from_user_command();
-    host.inner().clone().visual_create(args, &confirmed).await
+pub async fn visual_direct_open(host: Hs<'_>, args: crate::host::visual_direct::DirectTargetArgs) -> R<crate::host::visual_direct::DirectOpened> {
+    host.inner().clone().visual_direct_open(args).await
 }
 #[tauri::command]
-pub async fn visual_edit_list(host: Hs<'_>) -> R<Vec<crate::visual_edit::session::SessionView>> {
-    host.inner().clone().visual_list().await
+pub async fn visual_direct_turn_begin(host: Hs<'_>, args: crate::host::visual_direct::DirectBeginArgs) -> R<crate::visual_edit::direct::TurnView> {
+    host.inner().clone().visual_direct_turn_begin(args).await
 }
 #[tauri::command]
-pub async fn visual_edit_end(host: Hs<'_>, args: crate::host::visual::VisualSessionArgs) -> R<crate::visual_edit::session::SessionView> {
-    host.inner().clone().visual_end(&args.session_id).await
+pub async fn visual_direct_turn_end(host: Hs<'_>, args: crate::host::visual_direct::DirectEndArgs) -> R<Option<crate::visual_edit::direct::TurnView>> {
+    host.inner().clone().visual_direct_turn_end(args).await
 }
 #[tauri::command]
-pub async fn visual_edit_release(host: Hs<'_>, args: crate::host::visual::VisualReleaseArgs) -> R<bool> {
-    host.inner().clone().visual_release(&args.chat).await
-}
-#[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct VisualDiscardArgs { pub session_id: String, pub keep_backup: bool }
-#[tauri::command]
-pub async fn visual_edit_discard(host: Hs<'_>, args: VisualDiscardArgs) -> R<()> {
-    host.inner().clone().visual_discard(&args.session_id, args.keep_backup).await
+pub async fn visual_direct_turns(host: Hs<'_>, args: crate::host::visual_direct::DirectTargetArgs) -> R<Vec<crate::visual_edit::direct::TurnView>> {
+    host.inner().clone().visual_direct_turns(args).await
 }
 #[tauri::command]
-pub async fn visual_edit_status(host: Hs<'_>, args: crate::host::visual::VisualSessionArgs) -> R<crate::visual_edit::session::SessionView> {
-    host.inner().clone().visual_status(&args.session_id).await
+pub async fn visual_direct_undo(host: Hs<'_>, args: crate::host::visual_direct::DirectUndoArgs) -> R<Vec<crate::visual_edit::direct::TurnView>> {
+    host.inner().clone().visual_direct_undo(args).await
 }
 #[tauri::command]
-pub async fn visual_edit_adopt(host: Hs<'_>, args: crate::host::visual::VisualWriteArgs) -> R<crate::visual_edit::session::SessionView> {
-    host.inner().clone().visual_adopt(args).await
+pub async fn visual_direct_redo(host: Hs<'_>, args: crate::host::visual_direct::DirectUndoArgs) -> R<Vec<crate::visual_edit::direct::TurnView>> {
+    host.inner().clone().visual_direct_redo(args).await
 }
 #[tauri::command]
-pub async fn visual_edit_cleanup(host: Hs<'_>, args: VisualCleanupArgs) -> R<usize> {
-    host.inner().clone().visual_cleanup(args.min_age_days).await
-}
-#[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct VisualCleanupArgs { pub min_age_days: u64 }
-#[tauri::command]
-pub async fn visual_edit_revert(host: Hs<'_>, args: crate::host::visual::VisualWriteArgs) -> R<crate::visual_edit::session::SessionView> {
-    host.inner().clone().visual_revert(args).await
+pub async fn visual_direct_stamp(host: Hs<'_>, args: crate::host::visual_direct::DirectTargetArgs) -> R<String> {
+    host.inner().clone().visual_direct_stamp(args).await
 }
 #[tauri::command]
-pub async fn visual_edit_undo(host: Hs<'_>, args: crate::host::visual::VisualWriteArgs) -> R<crate::visual_edit::session::SessionView> {
-    host.inner().clone().visual_undo(args).await
+pub async fn visual_direct_source_hint(host: Hs<'_>, args: crate::host::visual_direct::DirectHintArgs) -> R<String> {
+    host.inner().clone().visual_direct_source_hint(args).await
 }
 #[tauri::command]
-pub async fn visual_edit_diff(host: Hs<'_>, args: crate::host::visual::VisualDiffArgs) -> R<crate::host::visual::VisualDiffView> {
-    host.inner().clone().visual_diff(args).await
+pub async fn visual_direct_diff(host: Hs<'_>, args: crate::host::visual_direct::DirectDiffArgs) -> R<crate::host::visual_direct::DirectDiff> {
+    host.inner().clone().visual_direct_diff(args).await
 }

@@ -37,6 +37,7 @@ pub mod thread_ops;
 pub mod worktree;
 pub mod work_folders;
 pub mod visual;
+pub mod visual_direct;
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -227,6 +228,7 @@ pub struct Host {
     /// Gitの準備・プッシュの実行中のフォルダ（二重実行の防止。`gitprep.rs`）。
     gitprep_rt: gitprep::GitPrepRuntime,
     subagent_rt: subagents::SubagentRuntime,
+    /// Visual Editor 直接編集のターン操作の直列化（`visual_direct.rs`）。
     visual_rt: visual::VisualRuntime,
 }
 
@@ -1146,7 +1148,7 @@ impl Host {
 
     /// `dispatch_send` の本体。試行IDと開始時刻を呼び出し側が先に決めたもの（`Sending`）で送る（最初の依頼を後続タスクで送るため）。
     /// `auth` は送信の根拠。利用者の送信は組織が所有するチャットへ送らない（二重の保護）。組織の送信は許可の宛先と一致するものだけ。
-    pub(super) async fn dispatch_send_as(self: &Arc<Self>, mut request: SendRequest, mut attempt: SendAttempt, auth: SendAuth<'_>) -> SendAttempt {
+    pub(super) async fn dispatch_send_as(self: &Arc<Self>, request: SendRequest, mut attempt: SendAttempt, auth: SendAuth<'_>) -> SendAttempt {
         let attempt_id = attempt.attempt_id.clone();
         let chat = request.chat.clone();
         let refusal = match &auth {
@@ -1167,15 +1169,6 @@ impl Host {
             self.emit_send(&chat, &attempt);
             return attempt;
         }
-        let visual_id = match self.visual_before_send(&mut request, &attempt, &auth).await {
-            Ok(id) => id,
-            Err(e) => {
-                self.rejected.lock().unwrap().insert(attempt_id.clone(), NotAccepted::new(request));
-                attempt.state = SendState::Rejected { message: e.message };
-                self.emit_send(&chat, &attempt);
-                return attempt;
-            }
-        };
         self.emit_send(&chat, &attempt);
         self.emit_send_phase(&chat, SendPhase::Preparing);
         // 目的メモの資料を含む利用者の送信は、受理を確認できたときだけ「届いた版」を記録する（本文の見出しから読むので再送も同じ）。
@@ -1188,7 +1181,6 @@ impl Host {
             if let Err(message) = self.recheck_send_folders(folders).await {
                 self.rejected.lock().unwrap().insert(attempt_id.clone(), NotAccepted::new(request));
                 attempt.state = SendState::Rejected { message };
-                self.visual_after_send(visual_id.as_deref(), &attempt).await;
                 self.emit_send(&chat, &attempt);
                 return attempt;
             }
@@ -1197,7 +1189,6 @@ impl Host {
         if let Err(message) = self.record_presend(&chat, &attempt_id, &request, attempt.at).await {
             self.rejected.lock().unwrap().insert(attempt_id.clone(), NotAccepted::new(request));
             attempt.state = SendState::Rejected { message };
-            self.visual_after_send(visual_id.as_deref(), &attempt).await;
             self.emit_send(&chat, &attempt);
             return attempt;
         }
@@ -1231,7 +1222,6 @@ impl Host {
             }
         };
         attempt.state = state;
-        self.visual_after_send(visual_id.as_deref(), &attempt).await;
         self.emit_send(&chat, &attempt);
         if let SendState::Accepted { turn } = &attempt.state {
             // 受理からそのturnの開始・終端を観測するまで、キューは親が作業中として保留する。
@@ -1247,8 +1237,6 @@ impl Host {
             } else if let Some(cwd) = sent_cwd {
                 self.apply_cwd_after_accept(&chat, cwd);
             }
-            // 作業場所を元へ直したあとで、戻し済みの印を付ける（逆順だと、その間の再起動で「戻し済みなのに作業場所がコピーのまま」になる）。
-            self.visual_mark_restored(visual_id.as_deref(), &attempt).await;
             // ユーザーの利用として最近利用時刻を更新する（背景活動では更新しない、§3.6）。組織実行の送信は利用者の利用ではない。
             if matches!(auth, SendAuth::User) {
                 self.touch_chat_used(&chat);
