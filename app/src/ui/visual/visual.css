@@ -48,7 +48,7 @@
 .vp-seg{display:inline-flex}
 .vp-seg .btn{border-radius:0}.vp-seg .btn:first-child{border-radius:6px 0 0 6px}.vp-seg .btn:last-child{border-radius:0 6px 6px 0;margin-left:-1px}
 .vp-where-btn{margin-left:auto}
-.vp-foot{flex:none;min-width:0;border-top:1px solid var(--line);background:var(--surface2)}
+.vp-foot{flex:none;min-width:0;border-top:1px solid var(--line);background:var(--surface)}
 .vp-where{margin:0 10px 6px;font-size:var(--fs-xs);color:var(--ink2)}
 .vp-where .visual-path{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .visual-pane .visual-stage{flex:1;min-height:120px}
@@ -102,6 +102,8 @@
 .vp-reply:focus-visible{outline:2px solid var(--accent-line);outline-offset:2px}
 .vp-reqs{margin:6px 10px 0;max-height:min(40vh,240px);overflow-y:auto;overflow-x:hidden;min-width:0;overflow-wrap:anywhere}
 .vp-reqs>div{min-width:0;max-width:100%}
+/* 承認・質問カードはチャット欄と同じ見た目（明るい地の上の.req）。幅は欄いっぱい。 */
+.vp-reqs .req{max-width:none;margin:0 0 6px}
 
 /* 直接編集の状態バー（落ち着いた低テキスト。画面は狭めない） */
 .vd-bar{font-size:var(--fs-xs)}
