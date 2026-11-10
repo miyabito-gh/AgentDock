@@ -15,4 +15,8 @@ visible: boolean,
 /**
  * 大きさの倍率（%。50〜150）。
  */
-scalePercent: number, };
+scalePercent: number, 
+/**
+ * 待機中の目線がカーソルを追うか（既定オン。古い設定もオンで読む）。
+ */
+followGaze: boolean, };

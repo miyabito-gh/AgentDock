@@ -51,9 +51,15 @@ pub struct OpenResult {
 pub fn application_invoke_allowed(label: &str) -> bool {
     matches!(label, "main" | "monitor")
 }
-/// ペット窓（表示だけ）が呼べるコマンド。承認・送信・停止などは含めない。
+/// ペット窓が呼べるコマンド。表示・ペット自身の設定に加え、利用者の操作による「送信」と「承認・質問への回答」だけ。
+/// 停止（中断）・削除・取り込み・設定全体の更新などは含めない。
+pub const PET_COMMANDS: &[&str] = &[
+    "get_snapshot", "show_main_window",
+    "pet_list", "pet_sprite", "pet_set_settings", "pet_set_hit_regions", "pet_cursor", "pet_set_card", "pet_pause", "pet_pause_get",
+    "send_message", "respond_request",
+];
 pub fn pet_command_allowed(command: &str) -> bool {
-    matches!(command, "get_snapshot" | "show_main_window" | "pet_list" | "pet_sprite" | "pet_set_hit_regions" | "pet_cursor")
+    PET_COMMANDS.contains(&command)
 }
 pub fn guarded_invoke_handler<F: Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static>(
     handler: F,
@@ -352,13 +358,21 @@ mod tests {
         assert!(application_invoke_allowed("monitor"));
     }
     #[test]
-    fn pet_webview_gets_only_display_commands() {
+    fn pet_webview_gets_only_display_send_and_answer_commands() {
         assert!(!application_invoke_allowed("pet"));
-        for c in ["get_snapshot", "show_main_window", "pet_list", "pet_sprite", "pet_set_hit_regions", "pet_cursor"] {
+        for c in PET_COMMANDS {
             assert!(pet_command_allowed(c));
         }
-        for c in ["respond_request", "interrupt_chat", "send_message", "pet_set_settings", "set_app_settings"] {
-            assert!(!pet_command_allowed(c));
+        for c in ["send_message", "respond_request"] {
+            assert!(pet_command_allowed(c));
+        }
+        // 停止・削除・取り込み・再送・設定全体・終了などは呼べない。
+        for c in [
+            "interrupt_chat", "force_kill", "preview_force_kill", "quit_decision", "request_quit", "resume_chat", "retry_send", "reconcile_send",
+            "delete_chat", "archive_chat", "set_app_settings", "subagent_import", "org_import", "org_cancel", "org_pause", "revert_changes",
+            "enqueue", "send_queue_entry_now", "open_chat", "start_chat", "fork_chat", "manage_chat", "pet_toggle", "set_always_on_top",
+        ] {
+            assert!(!pet_command_allowed(c), "{c}");
         }
     }
     #[cfg(windows)]

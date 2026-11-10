@@ -14,7 +14,7 @@ use crate::backend::local::{
     AddAttachmentFileArgs, AttachmentArgs, AttachmentEntry, OpenFileArgs, SaveFileAsArgs,
     AcknowledgeFailureArgs, AppSettings, ChatArgs, ChatLocalView, ChatQueue, DeleteOutcome, DeletePreview, ExportMarkdownArgs, GetUsageArgs, UsageReport, EditQueueEntryArgs, EnqueueArgs, ForceKillArgs, ForceKillPreview, QueueEntry, QueueEntryArgs, QuitDecisionArgs, QuitPhase,
     GetWorkFoldersArgs, CheckWorkFolderArgs, SetNextWorkFoldersArgs,
-    ReconcileSendArgs, RetrySaveArgs, SaveStatus, SetAlwaysOnTopArgs, SetAppSettingsArgs, SetChatCwdArgs, SetChatPermissionArgs, SetDraftArgs, SetMonitorWindowScopeArgs, SetSelectedChatArgs, PetCursor, PetHitRegionsArgs, PetSettings, PetSpriteArgs, SetPetSettingsArgs,
+    ReconcileSendArgs, RetrySaveArgs, SaveStatus, SetAlwaysOnTopArgs, SetAppSettingsArgs, SetChatCwdArgs, SetChatPermissionArgs, SetDraftArgs, SetMonitorWindowScopeArgs, SetSelectedChatArgs, PetCardArgs, PetCursor, PetHitRegionsArgs, PetPauseArgs, PetSettings, PetSpriteArgs, SetPetSettingsArgs,
     SettingsImpact, ShowMainWindowArgs,
 };
 use crate::backend::model::*;
@@ -428,6 +428,25 @@ pub async fn pet_toggle(app: tauri::AppHandle, host: Hs<'_>) -> R<bool> {
 pub async fn pet_set_hit_regions(rt: State<'_, Arc<crate::win::pet::PetRuntime>>, args: PetHitRegionsArgs) -> R<()> {
     rt.set_regions(args.regions);
     Ok(())
+}
+
+/// ペット窓のカード（簡易チャット・回答・メニュー）の開閉に合わせて窓の大きさを変える。
+#[tauri::command]
+pub async fn pet_set_card(app: tauri::AppHandle, host: Hs<'_>, args: PetCardArgs) -> R<()> {
+    crate::win::pet::set_card(&app, host.inner(), args.open);
+    Ok(())
+}
+
+/// 通知の一時停止（`minutes` なしで再開）。終わりの時刻（UNIXミリ秒）を返す。吹き出し・OS通知を止める（承認・質問は止めない）。
+#[tauri::command]
+pub async fn pet_pause(app: tauri::AppHandle, args: PetPauseArgs) -> R<Option<i64>> {
+    Ok(crate::win::pet::pause_notifications(&app, args.minutes))
+}
+
+/// 通知の一時停止の終わり（停止中でなければ None）。
+#[tauri::command]
+pub async fn pet_pause_get(app: tauri::AppHandle) -> R<Option<i64>> {
+    Ok(crate::win::pet::paused_until(&app))
 }
 
 /// ペット窓から見たカーソル位置（目線用。窓の外も取れる。取れなければ None）。

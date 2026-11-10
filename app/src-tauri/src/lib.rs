@@ -138,6 +138,10 @@ pub fn run() {
                 let handle = app.handle().clone();
                 host.attach_notifier(Arc::new(move |n| {
                     // ペットが表示中なら吹き出しで知らせ、OS通知は出さない（二重にしない）。隠れているときだけOS通知。
+                    // 通知の一時停止中は、承認・質問以外を出さない（吹き出しもOS通知も）。
+                    if win::pet::suppressed_by_pause(&handle, &n) {
+                        return;
+                    }
                     if win::pet::emit_bubble(&handle, &n) {
                         return;
                     }
@@ -258,6 +262,9 @@ pub fn run() {
             commands::pet_toggle,
             commands::pet_set_hit_regions,
             commands::pet_cursor,
+            commands::pet_set_card,
+            commands::pet_pause,
+            commands::pet_pause_get,
             commands::show_main_window,
             commands::touch_chat_used,
             commands::preview_delete,

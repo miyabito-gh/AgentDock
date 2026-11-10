@@ -6,7 +6,7 @@
 //! - 隠す＝窓を閉じる（描画・監視スレッドも止まる）。表示＝作り直す。アプリの終了時は他の窓と一緒に閉じる。
 //! - 吹き出しは、ペットが表示中のときだけ OS通知の代わりに送る（`emit_bubble`）。
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -27,12 +27,16 @@ const FRAME_W: f64 = 192.0;
 const FRAME_H: f64 = 208.0;
 const BUBBLE_W: f64 = 240.0;
 const BUBBLE_H: f64 = 96.0;
+/// カード（簡易チャット・回答・メニュー）を開いているときの上側の領域。TS側 `PetApp.tsx` の `CARD_ZONE_*` と同じ数値。
+const CARD_W: f64 = 316.0;
+const CARD_H: f64 = 420.0;
 const POLL_MS: u64 = 33;
 
-/// 窓の大きさ（論理px）。幅は1コマと吹き出しの広いほう、高さは1コマ＋吹き出し。
-pub fn window_size(scale_percent: u32) -> (f64, f64) {
+/// 窓の大きさ（論理px）。幅は1コマと吹き出し（カード）の広いほう、高さは1コマ＋吹き出し（カード）。
+pub fn window_size(scale_percent: u32, card: bool) -> (f64, f64) {
     let s = scale_percent as f64 / 100.0;
-    ((FRAME_W * s).max(BUBBLE_W), FRAME_H * s + BUBBLE_H)
+    let (w, h) = if card { (CARD_W, CARD_H) } else { (BUBBLE_W, BUBBLE_H) };
+    ((FRAME_W * s).max(w), FRAME_H * s + h)
 }
 
 /// 画面側から受け取った不透明領域と、監視スレッドの世代。
@@ -40,6 +44,10 @@ pub fn window_size(scale_percent: u32) -> (f64, f64) {
 pub struct PetRuntime {
     regions: Mutex<Vec<PetRect>>,
     generation: AtomicU64,
+    /// カードを開いている（窓を広げている）か。
+    card: AtomicBool,
+    /// 通知の一時停止の終わり（UNIXミリ秒）。保存しない（アプリを閉じれば解除）。
+    paused_until: Mutex<Option<i64>>,
 }
 
 impl PetRuntime {
@@ -100,7 +108,7 @@ pub fn open_pet(app: &AppHandle, host: &Arc<Host>) -> Result<(), String> {
     if let Some(w) = app.get_webview_window(PET_LABEL) {
         return w.show().map_err(|e| e.to_string());
     }
-    let (lw, lh) = window_size(host.get_app_settings().pet.scale_percent);
+    let (lw, lh) = window_size(host.get_app_settings().pet.scale_percent, false);
     let saved = host.saved_bounds(WindowKind::Pet);
     let w = WebviewWindowBuilder::new(app, PET_LABEL, WebviewUrl::App("index.html?view=pet".into()))
         .title("AgentDock ペット")
@@ -125,6 +133,7 @@ pub fn open_pet(app: &AppHandle, host: &Arc<Host>) -> Result<(), String> {
     let Some(rt) = app.try_state::<Arc<PetRuntime>>() else { return Err("pet runtime missing".into()) };
     let generation = rt.generation.fetch_add(1, Ordering::SeqCst) + 1;
     rt.set_regions(Vec::new());
+    rt.card.store(false, Ordering::SeqCst);
     spawn_hit_watcher(app, generation);
     Ok(())
 }
@@ -141,9 +150,10 @@ pub fn close_pet(app: &AppHandle) -> Result<(), String> {
 
 /// 倍率に合わせて窓の大きさを変える。足元（下端の中央）を動かさない。
 fn resize(app: &AppHandle, scale_percent: u32) {
+    let card = app.try_state::<Arc<PetRuntime>>().is_some_and(|rt| rt.card.load(Ordering::SeqCst));
     let Some(w) = app.get_webview_window(PET_LABEL) else { return };
     let (Ok(old), Ok(pos)) = (w.inner_size(), w.outer_position()) else { return };
-    let (lw, lh) = window_size(scale_percent);
+    let (lw, lh) = window_size(scale_percent, card);
     if w.set_size(LogicalSize::new(lw, lh)).is_err() {
         return;
     }
@@ -151,6 +161,42 @@ fn resize(app: &AppHandle, scale_percent: u32) {
     let x = pos.x + (old.width as i32 - new.width as i32) / 2;
     let y = pos.y + old.height as i32 - new.height as i32;
     let _ = w.set_position(fit_position(app, x, y, new));
+}
+
+/// カードの開閉に合わせて窓の大きさを変える（足元固定）。
+pub fn set_card(app: &AppHandle, host: &Arc<Host>, open: bool) {
+    if let Some(rt) = app.try_state::<Arc<PetRuntime>>() {
+        rt.card.store(open, Ordering::SeqCst);
+    }
+    resize(app, host.get_app_settings().pet.scale_percent);
+}
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
+}
+
+/// 通知の一時停止（`minutes` が None なら再開）。終わりの時刻（UNIXミリ秒）を返す。
+pub fn pause_notifications(app: &AppHandle, minutes: Option<u32>) -> Option<i64> {
+    let until = minutes.map(|m| now_ms() + m as i64 * 60_000);
+    if let Some(rt) = app.try_state::<Arc<PetRuntime>>() {
+        *rt.paused_until.lock().unwrap() = until;
+    }
+    until
+}
+
+/// 一時停止中なら終わりの時刻。期限が過ぎていれば解除して None。
+pub fn paused_until(app: &AppHandle) -> Option<i64> {
+    let rt = app.try_state::<Arc<PetRuntime>>()?;
+    let mut g = rt.paused_until.lock().unwrap();
+    if g.is_some_and(|t| t <= now_ms()) {
+        *g = None;
+    }
+    *g
+}
+
+/// 一時停止中に出さない通知か。承認・質問待ち（回答が必要なもの）は止めない。
+pub fn suppressed_by_pause(app: &AppHandle, n: &OsNotification) -> bool {
+    !matches!(n.kind, NotificationKind::AwaitingAnswer | NotificationKind::OrgAttention) && paused_until(app).is_some()
 }
 
 /// 保存したペット設定を窓へ反映する（表示・非表示・大きさ）。
@@ -219,9 +265,11 @@ mod tests {
 
     #[test]
     fn window_fits_the_frame_and_the_bubble() {
-        assert_eq!(window_size(100), (240.0, 304.0));
-        assert_eq!(window_size(150), (288.0, 408.0));
-        assert_eq!(window_size(50), (240.0, 200.0));
+        assert_eq!(window_size(100, false), (240.0, 304.0));
+        assert_eq!(window_size(150, false), (288.0, 408.0));
+        assert_eq!(window_size(50, false), (240.0, 200.0));
+        assert_eq!(window_size(100, true), (316.0, 628.0));
+        assert_eq!(window_size(150, true), (316.0, 732.0));
     }
 
     #[test]

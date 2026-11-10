@@ -683,6 +683,9 @@ pub struct PetSettings {
     /// 大きさの倍率（%。50〜150）。
     #[serde(default = "default_pet_scale")]
     pub scale_percent: u32,
+    /// 待機中の目線がカーソルを追うか（既定オン。古い設定もオンで読む）。
+    #[serde(default = "default_true")]
+    pub follow_gaze: bool,
 }
 
 pub const PET_SCALE_MIN: u32 = 50;
@@ -694,7 +697,7 @@ fn default_pet_scale() -> u32 {
 
 impl Default for PetSettings {
     fn default() -> Self {
-        PetSettings { selected: None, visible: false, scale_percent: default_pet_scale() }
+        PetSettings { selected: None, visible: false, scale_percent: default_pet_scale(), follow_gaze: true }
     }
 }
 
@@ -712,6 +715,24 @@ impl PetSettings {
 #[serde(rename_all = "camelCase")]
 pub struct SetPetSettingsArgs {
     pub pet: PetSettings,
+}
+
+/// 小窓のカード（簡易チャット・回答・メニュー）を開くか。窓の大きさだけを変える。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct PetCardArgs {
+    pub open: bool,
+}
+
+/// 通知の一時停止。`minutes` が None なら再開。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct PetPauseArgs {
+    pub minutes: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
