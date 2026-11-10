@@ -1823,6 +1823,7 @@ ${cur}` : p.text);
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       if (matchShortcut(e, "toggleMonitor")) { e.preventDefault(); act("toggleMonitor"); return; }
+      if (matchShortcut(e, "togglePet")) { e.preventDefault(); act("togglePet"); return; }
       if (matchShortcut(e, "palette")) {
         e.preventDefault();
         if (dialog) return;
