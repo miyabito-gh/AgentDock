@@ -10,7 +10,7 @@ import type {
 export const DEFAULT_SETTINGS: AppSettings = {
   executables: {}, externalTools: { editor: "vsCode", editorExecutable: "", terminal: "windowsTerminal", terminalExecutable: "" }, autostart: false,
   notifications: { enabled: true, approvalAndQuestion: true, completed: true, failed: true, sound: true, showChatName: true, orgAttention: true, orgFinished: true },
-  mainWindow: { alwaysOnTop: false, bounds: null }, monitorWindow: { alwaysOnTop: false, bounds: null }, pet: { selected: null, visible: false, scalePercent: 100 },
+  mainWindow: { alwaysOnTop: false, bounds: null }, monitorWindow: { alwaysOnTop: false, bounds: null }, pet: { selected: null, visible: false, scalePercent: 100, followGaze: true },
   monitorScope: "selectedChat", defaultModel: null, sendKey: "enter", runningInput: "queue", acknowledgedWarnings: [], tools: { git: null }, cloudEnvByRepo: {}, baselines: { enabled: true, repos: [] }, layout: { leftWidth: null, dockWidth: null },
   chatList: { view: "Recent", pinnedFolders: [], collapsedFolders: [] }, appearance: { theme: "System", uiText: "Normal", bodyText: "Normal" },
   dismissedVersionNotice: null, recentSkills: [], workFolderSets: [], lastNewChat: null, sandboxWorkaround: false, orgStallMinutes: 30, continuation: { enabled: false, suggestAtPercent: 70, rounds: 3 },

@@ -10,11 +10,16 @@ import { applyHostEvent, createEventPipeline, emptyBundle, replaceSnapshot, seqA
 import type { Bundle } from "./mock/data";
 import { keyStr } from "./ui/format";
 import { applyAppearance, watchSystemTheme } from "./ui/appearance";
+import { ChatPane, MenuPane, RequestPane } from "./pet/PetCard";
+import { chooseTarget, pendingRequests } from "./pet/cardLogic";
 import { cellOf, choosePose, emptyTracker, FRAME_H, FRAME_W, gazeIndex, isActive, isIdlePose, SHEET_H, SHEET_W, trackAgents, type AgentLite, type PetTracker } from "./pet/motion";
 
 // ホスト `win::pet` の窓サイズと同じ数値（吹き出しの領域の大きさ）。
 const BUBBLE_ZONE_H = 96;
 const BUBBLE_MAX_W = 240;
+// カードを開いているときの窓の上側の領域（ホスト `win::pet` の CARD_W / CARD_H と同じ数値）。
+const CARD_ZONE_H = 420;
+const CARD_MAX_W = 300;
 /** 吹き出しを出しておく時間。承認・質問は長めにする。押す・次の吹き出しで入れ替わる。 */
 const BUBBLE_MS = 10_000;
 const BUBBLE_ATTENTION_MS = 20_000;
@@ -27,11 +32,13 @@ const GAZE_HOLD_MS = 2500;
 const GAZE_POLL_MS = 120;
 const GAZE_DEAD_ZONE_PX = 24;
 
-interface Bubble extends PetBubbleMessage { id: number; until: number }
+type BubbleKind = PetBubbleMessage["kind"] | "info";
+interface Bubble extends Omit<PetBubbleMessage, "kind"> { kind: BubbleKind; id: number; until: number }
+type Panel = null | { kind: "card"; mode: "request" | "chat" } | { kind: "menu" };
 type Sprite = { state: "none" } | { state: "loading" } | { state: "error"; text: string } | { state: "ready"; url: string };
 
-const KIND_CLASS: Record<PetBubbleMessage["kind"], string> = {
-  awaitingAnswer: "wait", orgAttention: "wait", completed: "done", orgCompleted: "done", failed: "fail", orgFailed: "fail",
+const KIND_CLASS: Record<BubbleKind, string> = {
+  info: "done", awaitingAnswer: "wait", orgAttention: "wait", completed: "done", orgCompleted: "done", failed: "fail", orgFailed: "fail",
 };
 
 export default function PetApp() {
@@ -46,6 +53,12 @@ export default function PetApp() {
   const [doneAt, setDoneAt] = useState<number | null>(null);
   const [lost, setLost] = useState(false);
   const [gaze, setGaze] = useState<number | null>(null);
+  const [panel, setPanel] = useState<Panel>(null);
+  const [notified, setNotified] = useState<string | null>(null);
+  const [selectedChat, setSelectedChat] = useState<string | null>(null);
+  const [picked, setPicked] = useState<string | null>(null);
+  const [pausedUntil, setPausedUntil] = useState<number | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const spriteRef = useRef<HTMLDivElement>(null);
   const bubbleRef = useRef<HTMLButtonElement>(null);
   const trackerRef = useRef<PetTracker>(emptyTracker());
@@ -86,11 +99,17 @@ export default function PetApp() {
         unlisten.push(un);
         const unBubble = await host.subscribePetBubble((m) => {
           const t = Date.now();
+          if (m.chat) setNotified(m.chat.id);
           const b: Bubble = { ...m, id: ++bubbleId.current, until: t + (m.kind === "awaitingAnswer" || m.kind === "orgAttention" ? BUBBLE_ATTENTION_MS : BUBBLE_MS) };
           setBubbles((list) => [...list, b].slice(-BUBBLE_MAX_KEPT));
         });
         if (!alive) { unBubble(); return; }
         unlisten.push(unBubble);
+        const unSel = await host.subscribeSelectedChat((id) => setSelectedChat(id));
+        if (!alive) { unSel(); return; }
+        unlisten.push(unSel);
+        void host.requestSelectedChat();
+        host.petPauseGet().then(setPausedUntil).catch(() => undefined);
         const snap = await host.getSnapshot();
         if (!alive) return;
         last = snap.seq;
@@ -182,8 +201,9 @@ export default function PetApp() {
   }, [now, cell.remaining]);
 
   // ときどき目線がカーソルを向く（待機中だけ。カーソル位置が取れなければ向かない）。
+  const followGaze = snap.settings.pet.followGaze;
   useEffect(() => {
-    if (reduced) { setGaze(null); return; }
+    if (reduced || !followGaze) { setGaze(null); return; }
     let alive = true;
     let timer: number | undefined;
     const schedule = () => { timer = window.setTimeout(start, GAZE_MIN_GAP_MS + Math.random() * GAZE_RANGE_MS); };
@@ -209,12 +229,12 @@ export default function PetApp() {
     };
     schedule();
     return () => { alive = false; window.clearTimeout(timer); setGaze(null); };
-  }, [reduced]);
+  }, [reduced, followGaze]);
 
   // クリックを受ける領域（スプライトと吹き出し）をホストへ知らせる。それ以外の透明部分はクリックが下の窓へ通る。
   const lastRegions = useRef("");
   useEffect(() => {
-    const rs = [spriteRef.current, bubbleRef.current].flatMap((el) => {
+    const rs = [spriteRef.current, bubbleRef.current, panelRef.current].flatMap((el) => {
       if (!el) return [];
       const r = el.getBoundingClientRect();
       return [{ x: r.x, y: r.y, width: r.width, height: r.height }];
@@ -261,16 +281,59 @@ export default function PetApp() {
   const onPointerUp = () => {
     const p = press.current;
     press.current = null;
-    if (p && !p.moved) setJumpAt(Date.now());
+    if (p && !p.moved) { setJumpAt(Date.now()); toggleCard(); }
     endDragSession();
   };
+  // カード（簡易チャット・回答・メニュー）。開くときは先に窓を広げ、閉じるときは先に描画を畳んでから窓を戻す。
+  const panelOpen = useRef(false);
+  const showPanel = useCallback((p: NonNullable<Panel>) => {
+    const wasOpen = panelOpen.current;
+    panelOpen.current = true;
+    if (wasOpen) { setPanel(p); return; }
+    host.petSetCard(true).catch(() => undefined).finally(() => { if (panelOpen.current) setPanel(p); });
+  }, []);
+  const hidePanel = useCallback(() => {
+    if (!panelOpen.current) return;
+    panelOpen.current = false;
+    setPanel(null);
+    window.setTimeout(() => { if (!panelOpen.current) host.petSetCard(false).catch(() => undefined); }, 120);
+  }, []);
+  const pendingReqs = useMemo(() => pendingRequests(snap.requests), [snap.requests]);
+  const pendingRef = useRef(pendingReqs);
+  pendingRef.current = pendingReqs;
+  const panelRefState = useRef<Panel>(null);
+  panelRefState.current = panel;
+  const toggleCard = () => {
+    if (panelRefState.current?.kind === "card") hidePanel();
+    else showPanel({ kind: "card", mode: pendingRef.current.length > 0 ? "request" : "chat" });
+  };
+  const pushInfo = useCallback((title: string) => {
+    setBubbles((l) => [...l, { kind: "info" as const, title, body: "", chat: null, id: ++bubbleId.current, until: Date.now() + 3500 }].slice(-BUBBLE_MAX_KEPT));
+  }, []);
+  // 回答待ちが無くなったら（回答済み・他の経路で解決済み）、回答のカードをすぐ閉じる。
+  useEffect(() => {
+    if (panel?.kind === "card" && panel.mode === "request" && pendingReqs.length === 0) hidePanel();
+  }, [panel, pendingReqs.length, hidePanel]);
+  // Esc でカード・メニューを閉じる。
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => { if (e.key === "Escape") hidePanel(); };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [hidePanel]);
   const openMain = useCallback((chat: ChatKey | null) => { host.showMainWindow(chat).catch(() => undefined); }, []);
 
-  const top = bubbles.length > 0 ? bubbles[bubbles.length - 1] : null;
+  const top = bubbles.length > 0 && !panel ? bubbles[bubbles.length - 1] : null;
   const clickBubble = (b: Bubble) => {
     setBubbles((l) => l.filter((x) => x.id !== b.id));
+    if (b.kind === "info") return;
+    // 承認・質問の吹き出しは、その場で回答できるカードを開く（回答待ちが見つからなければ通常画面）。
+    if ((b.kind === "awaitingAnswer") && pendingRef.current.length > 0) { showPanel({ kind: "card", mode: "request" }); return; }
     openMain(b.chat);
   };
+  const knownIds = useMemo(() => new Set(snap.chats.map((c) => c.key.id)), [snap.chats]);
+  const target = chooseTarget({ picked, notified, selected: selectedChat }, knownIds);
+  const setPet = (p: typeof snap.settings.pet) => { host.petSetSettings(p).catch(() => pushInfo("設定を保存できませんでした")); };
+  const pause = (minutes: number | null) => { host.petPause(minutes).then(setPausedUntil).catch(() => pushInfo("通知の設定を変えられませんでした")); };
 
   const s = snap.settings.pet.scalePercent / 100;
   const w = FRAME_W * s;
@@ -283,8 +346,23 @@ export default function PetApp() {
   const showLost = lost && isIdlePose(pose);
 
   return (
-    <div className="pet-root" aria-label="AgentDock ペット" onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onContextMenu={(e) => e.preventDefault()}>
-      <div className="pet-bubble-zone" style={{ height: BUBBLE_ZONE_H }}>
+    <div className="pet-root" aria-label="AgentDock ペット" onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onContextMenu={(e) => { e.preventDefault(); if (panelRefState.current?.kind === "menu") hidePanel(); else showPanel({ kind: "menu" }); }}>
+      <div className={`pet-bubble-zone${panel ? " open" : ""}`} style={{ height: panel ? CARD_ZONE_H : BUBBLE_ZONE_H }}>
+        {panel && (
+          <div ref={panelRef} className="pet-panel" style={{ maxWidth: CARD_MAX_W }}>
+            <button type="button" className="pet-panel-x" aria-label="閉じる" onClick={hidePanel}>×</button>
+            {panel.kind === "menu" ? (
+              <MenuPane pet={snap.settings.pet} pausedUntil={pausedUntil} onSet={setPet} onPause={pause}
+                onHide={() => setPet({ ...snap.settings.pet, visible: false })} onOpenMain={() => { hidePanel(); openMain(null); }} />
+            ) : panel.mode === "request" && pendingReqs.length > 0 ? (
+              <RequestPane r={pendingReqs[0]} chats={snap.chats} onOpenChat={(k) => { hidePanel(); openMain(k); }}
+                onFinished={(t) => { hidePanel(); pushInfo(t); }} onToChat={() => showPanel({ kind: "card", mode: "chat" })} />
+            ) : (
+              <ChatPane snap={snap} turns={bundle.turns} targetId={target} onPick={setPicked} onOpenChat={(k) => { hidePanel(); openMain(k); }}
+                pendingCount={pendingReqs.length} onToRequest={() => showPanel({ kind: "card", mode: "request" })} />
+            )}
+          </div>
+        )}
         {top && (
           <button ref={bubbleRef} type="button" className={`pet-bubble ${KIND_CLASS[top.kind]}`} style={{ maxWidth: BUBBLE_MAX_W }} onClick={() => clickBubble(top)}
             title={top.chat ? "押すと該当のチャットを開きます" : "押すとAgentDockを開きます"}>

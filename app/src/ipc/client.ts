@@ -134,6 +134,11 @@ export const petToggle = (): Promise<boolean> => invokeCmd("pet_toggle", {});
 export const petSetHitRegions = (regions: PetRect[]): Promise<null> => invokeCmd("pet_set_hit_regions", { regions });
 /** ペット窓の左上から見たカーソル位置（目線用。窓の外も取れる）。 */
 export const petCursor = (): Promise<PetCursor | null> => invokeCmd("pet_cursor", {});
+/** カード（簡易チャット・回答・メニュー）の開閉に合わせてペット窓の大きさを変える（足元固定）。 */
+export const petSetCard = (open: boolean): Promise<null> => invokeCmd("pet_set_card", { open });
+/** 通知の一時停止（minutes なしで再開）。終わりの時刻（UNIXミリ秒）を返す。承認・質問は止めない。 */
+export const petPause = (minutes: number | null): Promise<number | null> => invokeCmd("pet_pause", { minutes });
+export const petPauseGet = (): Promise<number | null> => invokeCmd("pet_pause_get", {});
 /** ペットの吹き出し（ホストが、ペット表示中のOS通知の代わりに送る）。名前はホスト `win::pet::PET_BUBBLE_EVENT` と同じ。 */
 export const PET_BUBBLE_EVENT = "agentdock://pet-bubble";
 export interface PetBubbleMessage { kind: "awaitingAnswer" | "completed" | "failed" | "orgAttention" | "orgCompleted" | "orgFailed"; title: string; body: string; chat: ChatKey | null }
