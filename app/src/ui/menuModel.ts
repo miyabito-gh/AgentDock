@@ -31,7 +31,7 @@ export const MENUBAR: MenuSpec[] = [
   {
     title: "表示",
     entries: [
-      h("画面"), id("toggleLeft"), id("toggleRight"), id("toggleMonitor"),
+      h("画面"), id("toggleLeft"), id("toggleRight"), id("toggleMonitor"), id("togglePet"),
       "-", h("最前面"), id("toggleMainTop"), id("toggleMiniTop"),
       "-", h("ドック"), id("toggleDone"),
       "-", h("検索"), id("find"), id("palette"),

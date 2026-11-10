@@ -1,6 +1,7 @@
 import { ExternalToolsBody, type ExternalToolsProps } from "./ExternalToolsSettings";
 import { isNewChatSubmitKey, pickQuickModel } from "./quickNew";
 import { ModelSettingsBody, type ModelDefaultProps } from "./ModelSettings";
+import { PetSettingsField, type PetProps } from "./PetSettings";
 import type { EnterMode, RunningInputMode } from "./sendKeys";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { IntakeBeginMode, OrgRunningNote } from "../ipc/types";
@@ -176,12 +177,12 @@ const UI_SIZE_CHOICES: Array<[UiTextSize, string]> = [["Small", "小"], ["Normal
 const BODY_SIZE_CHOICES: Array<[BodyTextSize, string]> = [["Small", "小"], ["Normal", "標準"], ["Large", "大"], ["XLarge", "特大"]];
 const LIST_VIEW_CHOICES: Array<[ChatListView, string]> = [["Recent", "最近使った順"], ["ByFolder", "作業フォルダごと"]];
 
-function SettingsBody({ externalTools, tab, enterMode, setEnterMode, runningInput, setRunningInput, top, source, models, modelDefault, exe, notify, autostart, appearance, manage, chats, compose, opCaps, org, cont }: {
+function SettingsBody({ externalTools, tab, enterMode, setEnterMode, runningInput, setRunningInput, top, source, models, modelDefault, exe, notify, autostart, pet, appearance, manage, chats, compose, opCaps, org, cont }: {
   externalTools: ExternalToolsProps;
   modelDefault: ModelDefaultProps;
   org: OrgSettingsProps; cont: ContinuityDialogProps;
   manage: ManageProps; chats: Chat[]; compose: ComposeDialogProps; opCaps: OpCapability[];
-  autostart: AutostartProps;
+  autostart: AutostartProps; pet: PetProps;
   appearance: AppearanceProps;
   notify: NotifyProps;
   tab: string; enterMode: EnterMode; setEnterMode: (m: EnterMode) => void; runningInput: RunningInputMode; setRunningInput: (m: RunningInputMode) => void; top: { main: boolean; mini: boolean; setMain: (b: boolean) => void; setMini: (b: boolean) => void };
@@ -192,6 +193,7 @@ function SettingsBody({ externalTools, tab, enterMode, setEnterMode, runningInpu
       <>
         <div className="field"><span>ログイン時に起動</span><label><input type="checkbox" checked={autostart.value} onChange={(e) => autostart.set(e.target.checked)} />Windows にサインインしたら起動する</label><span className="note">オンにすると、通常画面は開かずトレイに入った状態で起動します。起動しただけで過去の依頼を再実行しません。</span></div>
         <div className="field"><span>最前面</span><div><label><input type="checkbox" checked={top.main} onChange={(e) => top.setMain(e.target.checked)} />通常画面</label>　<label><input type="checkbox" checked={top.mini} onChange={(e) => top.setMini(e.target.checked)} />監視窓</label></div><span className="note">最前面にしても入力フォーカスは奪いません。</span></div>
+        <PetSettingsField {...pet} />
         <div className="field"><span>閉じるボタン</span><span>トレイに格納して作業を続ける（終了はメニューの「AgentDock を終了」）</span></div>
       </>);
     case "display": return (
@@ -458,7 +460,7 @@ function RenameDialog({ chat, onClose, run }: { chat: Chat | undefined; onClose:
 /** isolate は「分離」（worktreeを作成してから開始）。worktree は既存のAgentDock作成worktreeの記録ID（チャットに結び付ける）。 */
 export interface NewChatInput { cwd: string | null; model: string; firstMessage: string | null; isolate: boolean; worktree: string | null; /** 追加の作業フォルダ（プライマリ以外）。 */ extraFolders: string[]; /** 強い確認を済ませたパス（ホストが再検査する）。 */ confirmedStrong: string[] }
 
-export function Dialogs({ externalTools, modelDefault, cont, org, folderTools, workspaceRoots, d, onClose, chats, source, models, enterMode, setEnterMode, runningInput, setRunningInput, top, setTab, onAct, exe, onCreateChat, notify, autostart, appearance, quit, force, manage, onRename, opCaps, live, changesTick, turnRecords, onRevertDone, prefs, threadOps, worktree, cloudTasks, compose, resend }: {
+export function Dialogs({ externalTools, modelDefault, cont, org, folderTools, workspaceRoots, d, onClose, chats, source, models, enterMode, setEnterMode, runningInput, setRunningInput, top, setTab, onAct, exe, onCreateChat, notify, autostart, pet, appearance, quit, force, manage, onRename, opCaps, live, changesTick, turnRecords, onRevertDone, prefs, threadOps, worktree, cloudTasks, compose, resend }: {
   org: OrgDialogProps;
   /** 設定「モデル」: 新しいチャットの既定（AppSettings.defaultModel）。 */
   externalTools: ExternalToolsProps;
@@ -487,7 +489,7 @@ export function Dialogs({ externalTools, modelDefault, cont, org, folderTools, w
   turnRecords: TurnRecord[];
   onRevertDone: (r: RevertResult | null) => void;
   onRename: (chatId: string, name: string) => Promise<string | null>;
-  autostart: AutostartProps; appearance: AppearanceProps; quit: QuitProps; force: ForceProps; manage: ManageProps;
+  autostart: AutostartProps; pet: PetProps; appearance: AppearanceProps; quit: QuitProps; force: ForceProps; manage: ManageProps;
   notify: NotifyProps;
   d: DialogState; onClose: () => void; chats: Chat[]; source: SourceInfo | undefined; models: ModelInfo[];
   exe: CodexExe; onCreateChat: (i: NewChatInput) => Promise<void>;
@@ -599,7 +601,7 @@ export function Dialogs({ externalTools, modelDefault, cont, org, folderTools, w
     case "settings": return (
       <Shell title="設定" wide onClose={onClose} close="閉じる">
         <div className="tabs vt" role="tablist" aria-orientation="vertical">{TABS.map(([k, t]) => <button key={k} role="tab" aria-selected={d.tab === k} onClick={() => setTab(k)}>{t}</button>)}</div>
-        <div className="content"><SettingsBody externalTools={externalTools} tab={d.tab} enterMode={enterMode} setEnterMode={setEnterMode} runningInput={runningInput} setRunningInput={setRunningInput} top={top} source={source} models={models} modelDefault={modelDefault} exe={exe} notify={notify} autostart={autostart} appearance={appearance} manage={manage} chats={chats} compose={compose} opCaps={opCaps} org={org.settings} cont={cont} /></div>
+        <div className="content"><SettingsBody externalTools={externalTools} tab={d.tab} enterMode={enterMode} setEnterMode={setEnterMode} runningInput={runningInput} setRunningInput={setRunningInput} top={top} source={source} models={models} modelDefault={modelDefault} exe={exe} notify={notify} autostart={autostart} pet={pet} appearance={appearance} manage={manage} chats={chats} compose={compose} opCaps={opCaps} org={org.settings} cont={cont} /></div>
       </Shell>);
     case "orgStart": return (
       <Shell title="組織実行を始める" onClose={onClose} close="キャンセル">

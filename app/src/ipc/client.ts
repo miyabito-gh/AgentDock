@@ -10,7 +10,7 @@ import {
   type RequestAnswer, type RequestKey, type RespondOutcome, type SendAttempt, type SendIntent, type SourceInfo,
   type StartChatResult, type ResumeOutcome, type SaveScope, type SaveStatus, type ChatQueue, type QueueEntry, type SettingsImpact,
   type AttachmentEntry, type FileRef, type BaselineSettings, type RepoRecordChoice,
-  type ForceKillPreview, type MonitorWindowScope, type QuitDecision, type QuitPhase, type StopRecord, type WindowKind,
+  type ForceKillPreview, type PetCursor, type PetEntry, type PetRect, type PetSettings, type MonitorWindowScope, type QuitDecision, type QuitPhase, type StopRecord, type WindowKind,
   type ChatLocalView, type DeleteOutcome, type DeletePreview, type UsageReport, type ManageOutcome,
   type ChangeList, type ChangeScope, type ChangeSource, type ExternalId, type RevertPlan, type RevertResult, type SegmentStatus, type UnifiedDiff,
   type PathInfo, type BackendStatus, type Goal, type GoalUpdate, type Known, type MemoryStatus, type OpAck, type ResetMemoryResult, type WorkMode, type WorkModeInfo,
@@ -123,6 +123,23 @@ export const MONITOR_WINDOW_EVENT = "agentdock://monitor-window";
 export const subscribeMonitorWindow = (handler: (open: boolean) => void): Promise<UnlistenFn> =>
   listen<boolean>(MONITOR_WINDOW_EVENT, (ev) => handler(ev.payload));
 export const setMonitorWindowScope = (scope: MonitorWindowScope): Promise<null> => invokeCmd("set_monitor_window_scope", { scope });
+// ── ペット（DESIGN_PET）。ペットのデータは ~/.codex/pets を読むだけ。 ──
+export const petList = (): Promise<PetEntry[]> => invokeCmd("pet_list", {});
+/** 選んだペットの画像（バイト列そのまま。MIMEは一覧の mime）。pet_sprite は生バイトを返すので invokeCmd の型表には載せない。 */
+export const petSprite = async (folder: string): Promise<ArrayBuffer> => invoke<ArrayBuffer>("pet_sprite", { args: { folder } });
+export const petSetSettings = (pet: PetSettings): Promise<PetSettings> => invokeCmd("pet_set_settings", { pet });
+/** ペットの表示・非表示を切り替える。操作後に表示中かを返す。 */
+export const petToggle = (): Promise<boolean> => invokeCmd("pet_toggle", {});
+/** クリックを受ける領域（窓内のCSS px）。これ以外の透明部分は下の窓へクリックを通す。 */
+export const petSetHitRegions = (regions: PetRect[]): Promise<null> => invokeCmd("pet_set_hit_regions", { regions });
+/** ペット窓の左上から見たカーソル位置（目線用。窓の外も取れる）。 */
+export const petCursor = (): Promise<PetCursor | null> => invokeCmd("pet_cursor", {});
+/** ペットの吹き出し（ホストが、ペット表示中のOS通知の代わりに送る）。名前はホスト `win::pet::PET_BUBBLE_EVENT` と同じ。 */
+export const PET_BUBBLE_EVENT = "agentdock://pet-bubble";
+export interface PetBubbleMessage { kind: "awaitingAnswer" | "completed" | "failed" | "orgAttention" | "orgCompleted" | "orgFailed"; title: string; body: string; chat: ChatKey | null }
+export const subscribePetBubble = (handler: (m: PetBubbleMessage) => void): Promise<UnlistenFn> =>
+  listen<PetBubbleMessage>(PET_BUBBLE_EVENT, (ev) => handler(ev.payload));
+
 /** 通常画面を前面に出す。chat があればそのチャットを開く（表示だけ）。 */
 export const showMainWindow = (chat: ChatKey | null): Promise<null> => invokeCmd("show_main_window", { chat });
 /** このウィンドウを閉じる。通常画面はトレイへ格納され、監視窓はその窓だけ閉じる（作業は続く）。 */

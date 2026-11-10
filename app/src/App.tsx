@@ -1346,7 +1346,7 @@ ${cur}` : p.text);
 
   // メニュー・ヘッダー・Ctrl+K が使う可否（台帳から。✓ と「作業フォルダを開けない理由」もここで渡す）。
   const checked = {
-    toggleLeft: leftTemp ? lNarrow : leftOpen, toggleRight: rightTemp ? rNarrow : rightOpen, toggleMonitor: live ? monitorOpen : mini,
+    toggleLeft: leftTemp ? lNarrow : leftOpen, toggleRight: rightTemp ? rNarrow : rightOpen, toggleMonitor: live ? monitorOpen : mini, togglePet: snap.settings.pet.visible,
     toggleDone: scope.kind === "allChats" && scope.showFinished, toggleMainTop: mainTop, toggleMiniTop: miniTop,
     workMode: !!chat && bundle.modelSettings[chat.key.id]?.workMode === "plan",
   };
@@ -1799,6 +1799,10 @@ ${cur}` : p.text);
         // 実接続では別窓の監視窓を開閉する（開いていれば閉じる。開くときフォーカスは奪わない）。モックでは画面内の仮の窓。
         if (live) host.toggleMonitorWindow().then(setMonitorOpen).catch((e) => sayErr("監視窓を開閉できませんでした", e)); else setMini((v) => !v);
         break;
+      case "togglePet":
+        // 実接続でペット窓（別窓）を開閉する。表示の設定も一緒に保存される。
+        if (live) host.petToggle().catch((e) => sayErr("ペットを開閉できませんでした", e)); else say("ペットは実接続のときだけ使えます。");
+        break;
       case "cwdChange": if (chat && chat.kind === "development") window.dispatchEvent(new Event("agentdock:cwd-toggle")); else say("開発チャットだけで使えます。"); break;
       case "shortcuts": setDialog({ type: "shortcuts" }); break;
       case "howto": setDialog({ type: "howto" }); break;
@@ -2030,6 +2034,10 @@ ${cur}` : p.text);
           runningInput={snap.settings.runningInput ?? "queue"} setRunningInput={(m) => { void updateSettings((st) => ({ ...st, runningInput: m }), "実行中の入力の設定を保存できませんでした。次回の起動では保存されている値に戻ります"); }}
           notify={{ value: snap.settings.notifications, set: onNotifySettings }}
           top={{ main: mainTop, mini: miniTop, setMain: (b) => setTop("main", b), setMini: (b) => setTop("monitor", b) }}
+          pet={{
+            value: snap.settings.pet, live,
+            set: async (p) => { try { await host.petSetSettings(p); } catch (e) { sayErr("ペットの設定を保存できませんでした", e); } },
+          }}
           autostart={{
             value: snap.settings.autostart,
             set: (on) => updateSettings((s) => ({ ...s, autostart: on }), "自動起動の設定を変更できませんでした"),

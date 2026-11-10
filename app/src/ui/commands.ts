@@ -258,6 +258,7 @@ export const APP_COMMANDS: Command[] = [
   app("toggleLeft", "toggleLeft", { label: "チャット一覧", group: "表示", checked: (ctx) => !!ctx.checked.toggleLeft }),
   app("toggleRight", "toggleRight", { label: "エージェントのドック", group: "表示", checked: (ctx) => !!ctx.checked.toggleRight }),
   app("toggleMonitor", "toggleMonitor", { label: "監視窓", group: "表示", checked: (ctx) => !!ctx.checked.toggleMonitor, keywords: ["コンパクト", "ミニ"] }),
+  app("togglePet", "togglePet", { label: "ペット", group: "表示", checked: (ctx) => !!ctx.checked.togglePet, keywords: ["マスコット", "キャラ", "通知"] }),
   app("toggleMainTop", "toggleMainTop", { label: "通常画面を最前面に", group: "表示", checked: (ctx) => !!ctx.checked.toggleMainTop }),
   app("toggleMiniTop", "toggleMiniTop", { label: "監視窓を最前面に", group: "表示", checked: (ctx) => !!ctx.checked.toggleMiniTop }),
   app("toggleDone", "toggleDone", { label: "終了済みも表示（完了・停止・確認済みの失敗）", group: "表示", checked: (ctx) => !!ctx.checked.toggleDone }),

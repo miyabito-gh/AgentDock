@@ -552,6 +552,13 @@ export type { WaitInfo } from "./gen/WaitInfo";
 export type { WaitReason } from "./gen/WaitReason";
 export type { WindowBounds } from "./gen/WindowBounds";
 export type { WindowKind } from "./gen/WindowKind";
+export type { PetSettings } from "./gen/PetSettings";
+export type { PetEntry } from "./gen/PetEntry";
+export type { PetRect } from "./gen/PetRect";
+export type { PetCursor } from "./gen/PetCursor";
+export type { PetSpriteArgs } from "./gen/PetSpriteArgs";
+export type { PetHitRegionsArgs } from "./gen/PetHitRegionsArgs";
+export type { SetPetSettingsArgs } from "./gen/SetPetSettingsArgs";
 export type { WindowPrefs } from "./gen/WindowPrefs";
 
 import type { AgentHistory } from "./gen/AgentHistory";
@@ -702,6 +709,11 @@ import type { SetMonitorWindowScopeArgs } from "./gen/SetMonitorWindowScopeArgs"
 import type { SetSelectedChatArgs } from "./gen/SetSelectedChatArgs";
 import type { SettingsImpact } from "./gen/SettingsImpact";
 import type { ShowMainWindowArgs } from "./gen/ShowMainWindowArgs";
+import type { PetSettings } from "./gen/PetSettings";
+import type { PetEntry } from "./gen/PetEntry";
+import type { PetCursor } from "./gen/PetCursor";
+import type { PetHitRegionsArgs } from "./gen/PetHitRegionsArgs";
+import type { SetPetSettingsArgs } from "./gen/SetPetSettingsArgs";
 import type { StopRecord } from "./gen/StopRecord";
 import type { UsageReport } from "./gen/UsageReport";
 import type { PickSaveFileArgs } from "./gen/PickSaveFileArgs";
@@ -841,6 +853,11 @@ export interface CommandMap {
   close_monitor_window: { args: Record<string, never>; result: null };
   set_monitor_window_scope: { args: SetMonitorWindowScopeArgs; result: null };
   show_main_window: { args: ShowMainWindowArgs; result: null };
+  pet_list: { args: Record<string, never>; result: PetEntry[] };
+  pet_set_settings: { args: SetPetSettingsArgs; result: PetSettings };
+  pet_toggle: { args: Record<string, never>; result: boolean };
+  pet_set_hit_regions: { args: PetHitRegionsArgs; result: null };
+  pet_cursor: { args: Record<string, never>; result: PetCursor | null };
   touch_chat_used: { args: ChatArgs; result: null };
   preview_delete: { args: ChatArgs; result: DeletePreview };
   delete_chat: { args: ChatArgs; result: DeleteOutcome };
