@@ -630,6 +630,8 @@ pub enum WindowKind {
     Main,
     /// コンパクト監視窓（別Tauri窓）。
     Monitor,
+    /// ペット窓（別Tauri窓。位置だけ使う）。
+    Pet,
 }
 
 /// コンパクト監視窓の表示範囲（初期値は選択中チャット）。
@@ -664,6 +666,91 @@ pub struct WindowPrefs {
     /// 最前面（窓ごとに独立、初期値オフ、M37）。
     pub always_on_top: bool,
     pub bounds: Option<WindowBounds>,
+}
+
+/// ペット（DESIGN_PET）。ペットのデータは `~/.codex/pets` を読むだけで、ここにはフォルダ名だけを持つ。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct PetSettings {
+    /// 選んだペットのフォルダ名（`pets/<フォルダ>`）。None＝未選択。
+    #[serde(default)]
+    pub selected: Option<String>,
+    /// ペット窓を表示するか（初期値オフ）。
+    #[serde(default)]
+    pub visible: bool,
+    /// 大きさの倍率（%。50〜150）。
+    #[serde(default = "default_pet_scale")]
+    pub scale_percent: u32,
+}
+
+pub const PET_SCALE_MIN: u32 = 50;
+pub const PET_SCALE_MAX: u32 = 150;
+
+fn default_pet_scale() -> u32 {
+    100
+}
+
+impl Default for PetSettings {
+    fn default() -> Self {
+        PetSettings { selected: None, visible: false, scale_percent: default_pet_scale() }
+    }
+}
+
+impl PetSettings {
+    /// 倍率を範囲内へ丸める。
+    pub fn clamped(mut self) -> Self {
+        self.scale_percent = self.scale_percent.clamp(PET_SCALE_MIN, PET_SCALE_MAX);
+        self
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct SetPetSettingsArgs {
+    pub pet: PetSettings,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct PetSpriteArgs {
+    pub folder: String,
+}
+
+/// ペット窓内の矩形（CSS px、窓の左上が原点）。
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct PetRect {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+/// クリックを受ける（不透明な）領域。これ以外の透明部分は下の窓へクリックを通す。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct PetHitRegionsArgs {
+    pub regions: Vec<PetRect>,
+}
+
+/// ペット窓から見たカーソル位置（CSS px。窓の外も取れる）。
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct PetCursor {
+    pub x: f64,
+    pub y: f64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -711,6 +798,9 @@ pub struct AppSettings {
     pub main_window: WindowPrefs,
     pub monitor_window: WindowPrefs,
     pub monitor_scope: MonitorWindowScope,
+    /// ペット（選択・表示・大きさ）。古い `settings.json`（この項目なし）は既定値（非表示）で読む。変更は専用の操作だけ。
+    #[serde(default)]
+    pub pet: PetSettings,
     /// 新しいチャットの既定モデル（既存チャットに波及させない）。
     pub default_model: Option<ModelChoice>,
     /// 送信キー。古い `settings.json`（この項目なし）は Enter で読む。保存済みの値はそのまま尊重する。
@@ -988,6 +1078,7 @@ impl Default for AppSettings {
             main_window: WindowPrefs::default(),
             monitor_window: WindowPrefs::default(),
             monitor_scope: MonitorWindowScope::default(),
+            pet: PetSettings::default(),
             default_model: None,
             send_key: SendKey::Enter,
             running_input: RunningInput::Queue,

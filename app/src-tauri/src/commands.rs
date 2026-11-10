@@ -14,7 +14,7 @@ use crate::backend::local::{
     AddAttachmentFileArgs, AttachmentArgs, AttachmentEntry, OpenFileArgs, SaveFileAsArgs,
     AcknowledgeFailureArgs, AppSettings, ChatArgs, ChatLocalView, ChatQueue, DeleteOutcome, DeletePreview, ExportMarkdownArgs, GetUsageArgs, UsageReport, EditQueueEntryArgs, EnqueueArgs, ForceKillArgs, ForceKillPreview, QueueEntry, QueueEntryArgs, QuitDecisionArgs, QuitPhase,
     GetWorkFoldersArgs, CheckWorkFolderArgs, SetNextWorkFoldersArgs,
-    ReconcileSendArgs, RetrySaveArgs, SaveStatus, SetAlwaysOnTopArgs, SetAppSettingsArgs, SetChatCwdArgs, SetChatPermissionArgs, SetDraftArgs, SetMonitorWindowScopeArgs, SetSelectedChatArgs,
+    ReconcileSendArgs, RetrySaveArgs, SaveStatus, SetAlwaysOnTopArgs, SetAppSettingsArgs, SetChatCwdArgs, SetChatPermissionArgs, SetDraftArgs, SetMonitorWindowScopeArgs, SetSelectedChatArgs, PetCursor, PetHitRegionsArgs, PetSettings, PetSpriteArgs, SetPetSettingsArgs,
     SettingsImpact, ShowMainWindowArgs,
 };
 use crate::backend::model::*;
@@ -389,6 +389,51 @@ pub async fn close_monitor_window(app: tauri::AppHandle) -> R<()> {
 #[tauri::command]
 pub async fn set_monitor_window_scope(host: Hs<'_>, args: SetMonitorWindowScopeArgs) -> R<()> {
     host.inner().clone().set_monitor_window_scope(args.scope)
+}
+
+// ── ペット（DESIGN_PET）。ペットのデータ（~/.codex/pets）は読むだけ。 ──
+
+/// ペットの一覧（非対応は理由つき）。`pets` がなければ空。
+#[tauri::command]
+pub async fn pet_list() -> R<Vec<crate::pets::PetEntry>> {
+    Ok(crate::pets::pets_root().map(|r| crate::pets::list_pets(&r)).unwrap_or_default())
+}
+
+/// 選んだペットの画像（バイト列そのまま。MIMEは一覧の `mime`）。
+#[tauri::command]
+pub async fn pet_sprite(args: PetSpriteArgs) -> Result<tauri::ipc::Response, IpcError> {
+    let invalid = |m: String| IpcError { code: IpcErrorCode::InvalidArgs, message: m, blocked: None };
+    let root = crate::pets::pets_root().ok_or_else(|| invalid("ペットのフォルダを特定できません".into()))?;
+    let (bytes, _) = crate::pets::load_sprite(&root, &args.folder).map_err(invalid)?;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+/// ペットの設定（選択・表示・大きさ）を保存して窓へ反映する。
+#[tauri::command]
+pub async fn pet_set_settings(app: tauri::AppHandle, host: Hs<'_>, args: SetPetSettingsArgs) -> R<PetSettings> {
+    let host = host.inner().clone();
+    let pet = host.set_pet_settings(args.pet)?;
+    crate::win::pet::apply_settings(&app, &host, &pet).map_err(|m| IpcError { code: IpcErrorCode::Io, message: m, blocked: None })?;
+    Ok(pet)
+}
+
+/// ペットの表示・非表示を切り替える。操作後に表示中かを返す。
+#[tauri::command]
+pub async fn pet_toggle(app: tauri::AppHandle, host: Hs<'_>) -> R<bool> {
+    crate::win::pet::toggle_pet(&app, host.inner()).map_err(|m| IpcError { code: IpcErrorCode::Io, message: m, blocked: None })
+}
+
+/// ペット窓の「クリックを受ける領域」を更新する（これ以外の透明部分はクリックを通す）。
+#[tauri::command]
+pub async fn pet_set_hit_regions(rt: State<'_, Arc<crate::win::pet::PetRuntime>>, args: PetHitRegionsArgs) -> R<()> {
+    rt.set_regions(args.regions);
+    Ok(())
+}
+
+/// ペット窓から見たカーソル位置（目線用。窓の外も取れる。取れなければ None）。
+#[tauri::command]
+pub async fn pet_cursor(app: tauri::AppHandle) -> R<Option<PetCursor>> {
+    Ok(crate::win::pet::cursor(&app))
 }
 
 /// 通常画面を前面に出す。`chat` があればそのチャットを開く（表示だけで、回答・再実行はしない）。

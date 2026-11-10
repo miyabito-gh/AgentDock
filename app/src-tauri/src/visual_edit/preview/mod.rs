@@ -51,11 +51,17 @@ pub struct OpenResult {
 pub fn application_invoke_allowed(label: &str) -> bool {
     matches!(label, "main" | "monitor")
 }
+/// ペット窓（表示だけ）が呼べるコマンド。承認・送信・停止などは含めない。
+pub fn pet_command_allowed(command: &str) -> bool {
+    matches!(command, "get_snapshot" | "show_main_window" | "pet_list" | "pet_sprite" | "pet_set_hit_regions" | "pet_cursor")
+}
 pub fn guarded_invoke_handler<F: Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static>(
     handler: F,
 ) -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
     move |invoke| {
-        if !application_invoke_allowed(invoke.message.webview_ref().label()) {
+        let label = invoke.message.webview_ref().label();
+        let allowed = application_invoke_allowed(label) || (label == "pet" && pet_command_allowed(invoke.message.command()));
+        if !allowed {
             invoke
                 .resolver
                 .reject("application commands are unavailable to this webview");
@@ -344,6 +350,16 @@ mod tests {
         }
         assert!(application_invoke_allowed("main"));
         assert!(application_invoke_allowed("monitor"));
+    }
+    #[test]
+    fn pet_webview_gets_only_display_commands() {
+        assert!(!application_invoke_allowed("pet"));
+        for c in ["get_snapshot", "show_main_window", "pet_list", "pet_sprite", "pet_set_hit_regions", "pet_cursor"] {
+            assert!(pet_command_allowed(c));
+        }
+        for c in ["respond_request", "interrupt_chat", "send_message", "pet_set_settings", "set_app_settings"] {
+            assert!(!pet_command_allowed(c));
+        }
     }
     #[cfg(windows)]
     #[test]

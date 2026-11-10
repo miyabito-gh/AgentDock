@@ -76,6 +76,12 @@ pub mod command_names {
     pub const MONITOR_WINDOW_OPEN: &str = "monitor_window_open";
     pub const CLOSE_MONITOR_WINDOW: &str = "close_monitor_window";
     pub const SET_MONITOR_WINDOW_SCOPE: &str = "set_monitor_window_scope";
+    pub const PET_LIST: &str = "pet_list";
+    pub const PET_SPRITE: &str = "pet_sprite";
+    pub const PET_SET_SETTINGS: &str = "pet_set_settings";
+    pub const PET_TOGGLE: &str = "pet_toggle";
+    pub const PET_SET_HIT_REGIONS: &str = "pet_set_hit_regions";
+    pub const PET_CURSOR: &str = "pet_cursor";
     pub const SHOW_MAIN_WINDOW: &str = "show_main_window";
     pub const TOUCH_CHAT_USED: &str = "touch_chat_used";
     pub const PREVIEW_DELETE: &str = "preview_delete";

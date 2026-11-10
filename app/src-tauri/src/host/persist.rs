@@ -673,6 +673,8 @@ impl Host {
             settings.cloud_env_by_repo = d.settings.cloud_env_by_repo.clone();
             // リポジトリ別の選択（記録する／しない・git操作の許可）は専用の操作（set_repo_baseline）だけが変える。
             settings.baselines.repos = d.settings.baselines.repos.clone();
+            // ペット設定は専用の操作（set_pet_settings）だけが変える（窓の開閉と一緒に扱うため）。
+            settings.pet = d.settings.pet.clone();
             d.settings = settings.clone();
             ((), vec![HostEvent::SettingsUpdated { settings: settings.clone() }])
         });

@@ -1,0 +1,236 @@
+//! ペット窓（DESIGN_PET）。透明・枠なし・最前面・タスクバー非表示の2つ目の窓 `pet`。
+//!
+//! - 大きさは「1コマ（192×208）×倍率」に吹き出しの領域を足したもの（TS側 `pet/layout.ts` と同じ数値）。位置は `windows.json` に保存し、起動時に画面外なら戻す。
+//! - 透明部分のクリックを下の窓へ通す: Windowsでは窓単位の切替（`set_ignore_cursor_events`）しかないので、短い間隔で
+//!   カーソル位置を見て、画面側が通知した「不透明な領域」の上にいるときだけ入力を受ける（無効化中は窓がマウスイベントを受けないため、前面側では判定できない）。
+//! - 隠す＝窓を閉じる（描画・監視スレッドも止まる）。表示＝作り直す。アプリの終了時は他の窓と一緒に閉じる。
+//! - 吹き出しは、ペットが表示中のときだけ OS通知の代わりに送る（`emit_bubble`）。
+
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use serde::Serialize;
+use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindowBuilder};
+
+use super::window::{work_areas, PET_LABEL};
+use crate::backend::local::{PetCursor, PetRect, PetSettings, WindowBounds, WindowKind};
+use crate::backend::model::ChatKey;
+use crate::host::Host;
+use crate::rules::notify::{NotificationKind, OsNotification};
+use crate::rules::window::fit_to_monitors;
+
+/// 吹き出しの表示（payload: [`PetBubble`]）。UI側の名前は `ipc/client.ts` の `PET_BUBBLE_EVENT` と同じ。
+pub const PET_BUBBLE_EVENT: &str = "agentdock://pet-bubble";
+
+const FRAME_W: f64 = 192.0;
+const FRAME_H: f64 = 208.0;
+const BUBBLE_W: f64 = 240.0;
+const BUBBLE_H: f64 = 96.0;
+const POLL_MS: u64 = 33;
+
+/// 窓の大きさ（論理px）。幅は1コマと吹き出しの広いほう、高さは1コマ＋吹き出し。
+pub fn window_size(scale_percent: u32) -> (f64, f64) {
+    let s = scale_percent as f64 / 100.0;
+    ((FRAME_W * s).max(BUBBLE_W), FRAME_H * s + BUBBLE_H)
+}
+
+/// 画面側から受け取った不透明領域と、監視スレッドの世代。
+#[derive(Default)]
+pub struct PetRuntime {
+    regions: Mutex<Vec<PetRect>>,
+    generation: AtomicU64,
+}
+
+impl PetRuntime {
+    pub fn set_regions(&self, regions: Vec<PetRect>) {
+        *self.regions.lock().unwrap() = regions;
+    }
+}
+
+fn hit(regions: &[PetRect], x: f64, y: f64) -> bool {
+    regions.iter().any(|r| x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height)
+}
+
+/// ペット窓が開いている（表示中）か。
+pub fn is_open(app: &AppHandle) -> bool {
+    app.get_webview_window(PET_LABEL).is_some_and(|w| w.is_visible().unwrap_or(false))
+}
+
+/// カーソルの、ペット窓の左上からの位置（CSS px）。窓がない・取得できないときは None。
+pub fn cursor(app: &AppHandle) -> Option<PetCursor> {
+    let w = app.get_webview_window(PET_LABEL)?;
+    let c = w.cursor_position().ok()?;
+    let p = w.outer_position().ok()?;
+    let f = w.scale_factor().ok()?;
+    Some(PetCursor { x: (c.x - p.x as f64) / f, y: (c.y - p.y as f64) / f })
+}
+
+/// 位置を画面内へ収める（大きさは変えない）。
+fn fit_position(app: &AppHandle, x: i32, y: i32, size: PhysicalSize<u32>) -> PhysicalPosition<i32> {
+    let b = fit_to_monitors(WindowBounds { x, y, width: size.width, height: size.height, maximized: false }, &work_areas(app), (size.width, size.height));
+    PhysicalPosition::new(b.x, b.y)
+}
+
+fn spawn_hit_watcher(app: &AppHandle, generation: u64) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let mut ignoring: Option<bool> = None;
+        loop {
+            std::thread::sleep(Duration::from_millis(POLL_MS));
+            let Some(rt) = app.try_state::<Arc<PetRuntime>>() else { return };
+            if rt.generation.load(Ordering::SeqCst) != generation {
+                return;
+            }
+            let Some(w) = app.get_webview_window(PET_LABEL) else { return };
+            // 取得できないときは、クリックを受けない側（通す）に倒す。
+            let want_ignore = match cursor(&app) {
+                Some(c) => !hit(&rt.regions.lock().unwrap(), c.x, c.y),
+                None => true,
+            };
+            if ignoring != Some(want_ignore) && w.set_ignore_cursor_events(want_ignore).is_ok() {
+                ignoring = Some(want_ignore);
+            }
+        }
+    });
+}
+
+/// ペット窓を開く（なければ作る）。フォーカスは奪わない。位置は保存値（画面外なら補正）。
+pub fn open_pet(app: &AppHandle, host: &Arc<Host>) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window(PET_LABEL) {
+        return w.show().map_err(|e| e.to_string());
+    }
+    let (lw, lh) = window_size(host.get_app_settings().pet.scale_percent);
+    let saved = host.saved_bounds(WindowKind::Pet);
+    let w = WebviewWindowBuilder::new(app, PET_LABEL, WebviewUrl::App("index.html?view=pet".into()))
+        .title("AgentDock ペット")
+        .inner_size(lw, lh)
+        .decorations(false)
+        .transparent(true)
+        .shadow(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .resizable(false)
+        .maximizable(false)
+        .minimizable(false)
+        .focused(false)
+        .build()
+        .map_err(|e| e.to_string())?;
+    // 領域が届くまでは、クリックを通す。
+    let _ = w.set_ignore_cursor_events(true);
+    if let (Some(b), Ok(size)) = (saved, w.inner_size()) {
+        let p = fit_position(app, b.x, b.y, size);
+        let _ = w.set_position(p);
+    }
+    let Some(rt) = app.try_state::<Arc<PetRuntime>>() else { return Err("pet runtime missing".into()) };
+    let generation = rt.generation.fetch_add(1, Ordering::SeqCst) + 1;
+    rt.set_regions(Vec::new());
+    spawn_hit_watcher(app, generation);
+    Ok(())
+}
+
+pub fn close_pet(app: &AppHandle) -> Result<(), String> {
+    if let Some(rt) = app.try_state::<Arc<PetRuntime>>() {
+        rt.generation.fetch_add(1, Ordering::SeqCst);
+    }
+    if let Some(w) = app.get_webview_window(PET_LABEL) {
+        w.close().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// 倍率に合わせて窓の大きさを変える。足元（下端の中央）を動かさない。
+fn resize(app: &AppHandle, scale_percent: u32) {
+    let Some(w) = app.get_webview_window(PET_LABEL) else { return };
+    let (Ok(old), Ok(pos)) = (w.inner_size(), w.outer_position()) else { return };
+    let (lw, lh) = window_size(scale_percent);
+    if w.set_size(LogicalSize::new(lw, lh)).is_err() {
+        return;
+    }
+    let Ok(new) = w.inner_size() else { return };
+    let x = pos.x + (old.width as i32 - new.width as i32) / 2;
+    let y = pos.y + old.height as i32 - new.height as i32;
+    let _ = w.set_position(fit_position(app, x, y, new));
+}
+
+/// 保存したペット設定を窓へ反映する（表示・非表示・大きさ）。
+pub fn apply_settings(app: &AppHandle, host: &Arc<Host>, pet: &PetSettings) -> Result<(), String> {
+    if pet.visible {
+        open_pet(app, host)?;
+        resize(app, pet.scale_percent);
+        Ok(())
+    } else {
+        close_pet(app)
+    }
+}
+
+/// 表示と非表示を切り替える。操作後に表示中かを返す。
+pub fn toggle_pet(app: &AppHandle, host: &Arc<Host>) -> Result<bool, String> {
+    let mut pet = host.get_app_settings().pet;
+    pet.visible = !is_open(app);
+    let pet = host.set_pet_settings(pet).map_err(|e| e.message)?;
+    apply_settings(app, host, &pet)?;
+    Ok(pet.visible)
+}
+
+/// 起動時に、保存した設定が表示ならペット窓を開く。
+pub fn restore_pet(app: &AppHandle, host: &Arc<Host>) {
+    let pet = host.get_app_settings().pet;
+    if pet.visible {
+        if let Err(e) = open_pet(app, host) {
+            crate::diag::log("pet", &format!("open failed: {e}"));
+        }
+    }
+}
+
+/// 吹き出し1件（画面側の型 `PetBubbleMessage` と同じ形）。
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PetBubble {
+    pub kind: &'static str,
+    pub title: String,
+    pub body: String,
+    pub chat: Option<ChatKey>,
+}
+
+pub fn bubble_of(n: &OsNotification) -> PetBubble {
+    let kind = match n.kind {
+        NotificationKind::AwaitingAnswer => "awaitingAnswer",
+        NotificationKind::Completed => "completed",
+        NotificationKind::Failed => "failed",
+        NotificationKind::OrgAttention => "orgAttention",
+        NotificationKind::OrgCompleted => "orgCompleted",
+        NotificationKind::OrgFailed => "orgFailed",
+    };
+    PetBubble { kind, title: n.title.trim_start_matches("AgentDock: ").to_string(), body: n.body.clone(), chat: n.chat.clone() }
+}
+
+/// ペットが表示中なら吹き出しとして送り、true を返す（OS通知は出さない）。隠れているときは false（呼び出し側がOS通知を出す）。
+pub fn emit_bubble(app: &AppHandle, n: &OsNotification) -> bool {
+    if !is_open(app) {
+        return false;
+    }
+    app.emit_to(PET_LABEL, PET_BUBBLE_EVENT, bubble_of(n)).is_ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn window_fits_the_frame_and_the_bubble() {
+        assert_eq!(window_size(100), (240.0, 304.0));
+        assert_eq!(window_size(150), (288.0, 408.0));
+        assert_eq!(window_size(50), (240.0, 200.0));
+    }
+
+    #[test]
+    fn hit_test_uses_only_the_reported_regions() {
+        let r = [PetRect { x: 10.0, y: 20.0, width: 100.0, height: 50.0 }];
+        assert!(hit(&r, 10.0, 20.0));
+        assert!(hit(&r, 109.9, 69.9));
+        assert!(!hit(&r, 110.0, 30.0));
+        assert!(!hit(&r, 50.0, 70.0));
+        assert!(!hit(&[], 50.0, 30.0));
+    }
+}

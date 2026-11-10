@@ -45,7 +45,7 @@ pub struct Lifecycle {
     quit: Mutex<QuitState>,
     exit: OnceLock<ExitFn>,
     /// 窓ごとの位置・サイズ（`windows.json`）。
-    windows: Mutex<(Option<WindowBounds>, Option<WindowBounds>)>,
+    windows: Mutex<(Option<WindowBounds>, Option<WindowBounds>, Option<WindowBounds>)>,
     last_resume: Mutex<Option<i64>>,
     power: Mutex<Option<PowerWatcher>>,
 }
@@ -55,7 +55,7 @@ impl Default for Lifecycle {
         Lifecycle {
             quit: Mutex::new(QuitState { phase: QuitPhase::Idle, gen: 0 }),
             exit: OnceLock::new(),
-            windows: Mutex::new((None, None)),
+            windows: Mutex::new((None, None, None)),
             last_resume: Mutex::new(None),
             power: Mutex::new(None),
         }
@@ -187,7 +187,7 @@ impl Host {
     /// 保存済みの窓の位置（復元前に `windows.json` から読んだもの）。
     pub(super) fn restore_windows(&self, file: Option<WindowsFile>) {
         if let Some(f) = file {
-            *self.lifecycle.windows.lock().unwrap() = (f.main, f.monitor);
+            *self.lifecycle.windows.lock().unwrap() = (f.main, f.monitor, f.pet);
         }
     }
 
@@ -196,6 +196,7 @@ impl Host {
         match kind {
             WindowKind::Main => w.0,
             WindowKind::Monitor => w.1,
+            WindowKind::Pet => w.2,
         }
     }
 
@@ -206,6 +207,7 @@ impl Host {
             let slot = match kind {
                 WindowKind::Main => &mut w.0,
                 WindowKind::Monitor => &mut w.1,
+                WindowKind::Pet => &mut w.2,
             };
             if *slot == Some(bounds) {
                 return;
@@ -218,7 +220,7 @@ impl Host {
     /// 保存用の内容（`persist::write_scope`）。
     pub(super) fn windows_file(&self) -> WindowsFile {
         let w = self.lifecycle.windows.lock().unwrap();
-        WindowsFile { schema_version: SCHEMA_VERSION, main: w.0, monitor: w.1 }
+        WindowsFile { schema_version: SCHEMA_VERSION, main: w.0, monitor: w.1, pet: w.2 }
     }
 
     pub(in crate::host) fn update_settings(self: &Arc<Self>, f: impl FnOnce(&mut AppSettings)) -> Result<(), IpcError> {
@@ -236,12 +238,21 @@ impl Host {
         self.update_settings(|s| match kind {
             WindowKind::Main => s.main_window.always_on_top = on,
             WindowKind::Monitor => s.monitor_window.always_on_top = on,
+            // ペットは常に最前面（設定項目なし）。
+            WindowKind::Pet => {}
         })
     }
 
     /// 監視窓の表示範囲（選択中／全チャット）を記録する。表示範囲だけで、送信先・中断・承認は変えない。
     pub fn set_monitor_window_scope(self: &Arc<Self>, scope: MonitorWindowScope) -> Result<(), IpcError> {
         self.update_settings(|s| s.monitor_scope = scope)
+    }
+
+    /// ペット設定を記録する（窓への適用はコマンド層）。倍率は範囲内へ丸める。
+    pub fn set_pet_settings(self: &Arc<Self>, pet: PetSettings) -> Result<PetSettings, IpcError> {
+        let pet = pet.clamped();
+        self.update_settings(|s| s.pet = pet.clone())?;
+        Ok(pet)
     }
 
     // ── 完全終了（§3.4） ──

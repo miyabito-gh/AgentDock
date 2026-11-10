@@ -23,6 +23,9 @@ pub struct WindowsFile {
     pub schema_version: u32,
     pub main: Option<WindowBounds>,
     pub monitor: Option<WindowBounds>,
+    /// ペット窓の位置。古い `windows.json` にはない。
+    #[serde(default)]
+    pub pet: Option<WindowBounds>,
 }
 
 /// worktree台帳（ルートの `worktrees.json`、P3-7）。AgentDockが作った（作ろうとした）ものだけ。外部のworktreeは持たない。

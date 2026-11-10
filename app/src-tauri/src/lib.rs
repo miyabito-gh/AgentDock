@@ -8,6 +8,7 @@ pub mod external_tools;
 pub mod gitops;
 pub mod host;
 pub mod pathref;
+pub mod pets;
 pub mod rules;
 pub mod store;
 pub mod win;
@@ -28,9 +29,10 @@ use store::Store;
 fn setup_tray(app: &tauri::App, host: Arc<Host>) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, "open", "AgentDockを開く", true, None::<&str>)?;
     let monitor = MenuItem::with_id(app, "monitor", "監視窓を開く", true, None::<&str>)?;
+    let pet = MenuItem::with_id(app, "pet", "ペットを表示/隠す", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "AgentDockを終了", true, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
-    let menu = Menu::with_items(app, &[&open, &monitor, &sep, &quit])?;
+    let menu = Menu::with_items(app, &[&open, &monitor, &pet, &sep, &quit])?;
     let icon = Image::from_bytes(include_bytes!("../icons/32x32.png"))?;
     TrayIconBuilder::with_id("main")
         .icon(icon)
@@ -42,6 +44,11 @@ fn setup_tray(app: &tauri::App, host: Arc<Host>) -> tauri::Result<()> {
             "monitor" => {
                 if let Err(e) = win::window::open_monitor(app, &host) {
                     diag::log("tray", &format!("open monitor failed: {e}"));
+                }
+            }
+            "pet" => {
+                if let Err(e) = win::pet::toggle_pet(app, &host) {
+                    diag::log("tray", &format!("toggle pet failed: {e}"));
                 }
             }
             "quit" => {
@@ -88,6 +95,13 @@ pub fn run() {
                 if window.label() == win::window::MAIN_LABEL {
                     api.prevent_close();
                     let _ = window.hide();
+                } else if window.label() == win::window::PET_LABEL {
+                    // ペット窓を直接閉じた（Alt+F4等）ときは「隠す」と同じ扱い。アプリは終了しない（終了時はこのイベントは来ない）。
+                    if let Some(host) = window.app_handle().try_state::<Arc<Host>>() {
+                        let mut pet = host.get_app_settings().pet;
+                        pet.visible = false;
+                        let _ = host.set_pet_settings(pet);
+                    }
                 }
             }
             // 監視窓が破棄されたら開閉状態を通知する（×・Ctrl+Shift+M・トレイ以外の閉じ方も含む）。
@@ -123,6 +137,10 @@ pub fn run() {
                 let weak = Arc::downgrade(&host);
                 let handle = app.handle().clone();
                 host.attach_notifier(Arc::new(move |n| {
+                    // ペットが表示中なら吹き出しで知らせ、OS通知は出さない（二重にしない）。隠れているときだけOS通知。
+                    if win::pet::emit_bubble(&handle, &n) {
+                        return;
+                    }
                     let weak = weak.clone();
                     let handle = handle.clone();
                     // 表示が遅くてもイベント処理を止めないよう、別スレッドで出す。
@@ -149,9 +167,11 @@ pub fn run() {
             });
             app.manage(host.clone());
             app.manage(visual_edit::preview::PreviewManager::default());
+            app.manage(Arc::new(win::pet::PetRuntime::default()));
             // 通常画面の位置を復元して表示する。自動起動（--autostart）なら通常画面は開かず、トレイ格納で起動する。
             let start_hidden = std::env::args().any(|a| a == "--autostart");
             win::window::restore_main(app.handle(), &host, start_hidden);
+            win::pet::restore_pet(app.handle(), &host);
             setup_tray(app, host).map_err(|e| format!("tray: {e}"))?;
             Ok(())
         })
@@ -232,6 +252,12 @@ pub fn run() {
             commands::monitor_window_open,
             commands::close_monitor_window,
             commands::set_monitor_window_scope,
+            commands::pet_list,
+            commands::pet_sprite,
+            commands::pet_set_settings,
+            commands::pet_toggle,
+            commands::pet_set_hit_regions,
+            commands::pet_cursor,
             commands::show_main_window,
             commands::touch_chat_used,
             commands::preview_delete,

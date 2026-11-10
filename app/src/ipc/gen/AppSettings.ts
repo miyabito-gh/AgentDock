@@ -9,6 +9,7 @@ import type { ModelChoice } from "./ModelChoice";
 import type { MonitorWindowScope } from "./MonitorWindowScope";
 import type { NewChatDefaults } from "./NewChatDefaults";
 import type { NotificationSettings } from "./NotificationSettings";
+import type { PetSettings } from "./PetSettings";
 import type { RecentSkill } from "./RecentSkill";
 import type { RunningInput } from "./RunningInput";
 import type { SendKey } from "./SendKey";
@@ -32,6 +33,10 @@ externalTools: ExternalToolsSettings,
  * Windowsログイン時に起動（初期値オフ）。オンならトレイ格納で起動する。
  */
 autostart: boolean, notifications: NotificationSettings, mainWindow: WindowPrefs, monitorWindow: WindowPrefs, monitorScope: MonitorWindowScope, 
+/**
+ * ペット（選択・表示・大きさ）。古い `settings.json`（この項目なし）は既定値（非表示）で読む。変更は専用の操作だけ。
+ */
+pet: PetSettings, 
 /**
  * 新しいチャットの既定モデル（既存チャットに波及させない）。
  */

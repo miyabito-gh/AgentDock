@@ -14,6 +14,7 @@ use crate::rules::window::{fit_to_monitors, WorkArea};
 
 pub const MAIN_LABEL: &str = "main";
 pub const MONITOR_LABEL: &str = "monitor";
+pub const PET_LABEL: &str = "pet";
 /// 監視窓の開閉通知（payload: bool）。UI側の名前は `ipc/client.ts` の `MONITOR_WINDOW_EVENT` と同じ。
 pub const MONITOR_WINDOW_EVENT: &str = "agentdock://monitor-window";
 const MAIN_MIN: (u32, u32) = (960, 600);
@@ -23,6 +24,7 @@ pub fn kind_of(label: &str) -> Option<WindowKind> {
     match label {
         MAIN_LABEL => Some(WindowKind::Main),
         MONITOR_LABEL => Some(WindowKind::Monitor),
+        PET_LABEL => Some(WindowKind::Pet),
         _ => None,
     }
 }
@@ -31,6 +33,7 @@ pub fn label_of(kind: WindowKind) -> &'static str {
     match kind {
         WindowKind::Main => MAIN_LABEL,
         WindowKind::Monitor => MONITOR_LABEL,
+        WindowKind::Pet => PET_LABEL,
     }
 }
 
@@ -38,11 +41,12 @@ fn min_of(kind: WindowKind) -> (u32, u32) {
     match kind {
         WindowKind::Main => MAIN_MIN,
         WindowKind::Monitor => MONITOR_MIN,
+        WindowKind::Pet => (1, 1),
     }
 }
 
 /// 各モニターの作業領域（物理ピクセル）。主モニターを先頭にする。
-fn work_areas(app: &AppHandle) -> Vec<WorkArea> {
+pub(super) fn work_areas(app: &AppHandle) -> Vec<WorkArea> {
     let primary = app.primary_monitor().ok().flatten();
     let mut monitors = app.available_monitors().unwrap_or_default();
     if let Some(p) = &primary {
