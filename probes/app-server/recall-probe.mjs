@@ -32,6 +32,8 @@ const METHODS = flag('methods', 'a,b,c,d').split(',').map(s => s.trim()).filter(
 const TRIAL = process.argv.includes('--trial');
 const LONG = process.argv.includes('--long'); // 実際の長さの議事録（1往復 約1,400字・紛れの数値多数）。圧縮で実際に情報が落ちる量にする
 const SEED = Number(flag('seed', 42));
+// --source=file: 議事録メモはファイルに置き、AIに読ませて清書させる。事実は依頼文に入らず、ツール出力とAIの応答の側にだけ入る（圧縮で要約される側）。
+const FROM_FILE = flag('source', 'chat') === 'file';
 const TURN_TIMEOUT = Number(flag('turn-timeout-ms', 240000));
 const PURPOSE = '請求システム刷新プロジェクト「ミナト」の定例会議で決まった事項・数値・担当・期限を正確に把握し、後続の質問に答える。';
 
@@ -107,6 +109,13 @@ function buildScenario(rounds, factsN) {
   }
   // 1行目は見出しだけにする（目次は依頼の先頭1行を載せるため、事実が目次に漏れないように）。
   const rand = rng(SEED);
+  if (FROM_FILE) {
+    const dir = join(work, 'minutes'); mkdirSync(dir, { recursive: true });
+    perRound.forEach((s, i) => writeFileSync(join(dir, `R${i + 1}.txt`), `\uFEFF定例${i + 1}回目のメモ\n${longMinutes(s, facts, rand)}\n`));
+    const userTexts = perRound.map((_, i) => `【定例${i + 1}回目】\nメモは minutes/R${i + 1}.txt にあります。読み取って議事録として清書してください（ファイルはUTF-8）。` +
+      '決定事項・数値・担当者・期限は一つも漏らさないこと。前回までの値を変更する項目は、変更後の値を明記すること。議事録以外の前置きは不要です。');
+    return { facts, userTexts, factRounds };
+  }
   const userTexts = perRound.map((s, i) => LONG
     ? `【定例${i + 1}回目】\n${longMinutes(s, facts, rand)}\n${FILLERS[i % FILLERS.length]}\n内容は覚えておいてください。返答は「了解」の一言だけで。`
     : `【定例${i + 1}回目】\n${s.join(' ')} ${FILLERS[i % FILLERS.length]}\n内容は覚えておいてください。返答は「了解」の一言だけで。`);
@@ -324,6 +333,15 @@ async function chatMethod(rec, withCompactPrompt) {
     if (compactAfter.has(i + 1)) { await compact(threadId, rec); rec.compactions.at(-1).afterRound = i + 1; }
   }
   if (!withCompactPrompt && replies.length === userTexts.length) aReplies = replies;
+  if (!withCompactPrompt && FROM_FILE) {
+    // AIの清書に事実が残ったか（本文は保存せず、有無だけ）。訂正のある事実は訂正の往復で新しい値を見る。
+    rec.minutesKept = Object.fromEntries(facts.map(f => {
+      const fr = scenario.factRounds[f.id];
+      const said = norm(replies[fr.said]); const first = (f.origAny ?? f.any).every(g => g.some(k => said.includes(norm(k))));
+      const fixed = fr.fixed === null ? null : f.any.every(g => g.some(k => norm(replies[fr.fixed]).includes(norm(k))));
+      return [f.id, { said: first, fixed }];
+    }));
+  }
   const text = await runTurn(threadId, questionPrompt(facts, 'memory'), rec);
   await finish(rec, threadId, facts, text);
   // e は a の回答の直後に、同じ会話で台帳を使って答え直す（ephemeral thread は thread/fork できないため）。
@@ -337,9 +355,7 @@ async function handoffMethod(rec, mode) {
   rec.handoff = { ...handoff.meta, aiSource: handoff.aiSource };
   const text = await runTurn(threadId, `${handoff.envelope}\n\n${questionPrompt(facts, mode)}`, rec);
   await finish(rec, threadId, facts, text);
-  const readLedger = rec.commands.filter(c => /会話台帳|台帳|ledger/i.test(c.command));
-  rec.ledger = { commandAttempts: rec.commands.length, ledgerReadAttempts: readLedger.length,
-    ledgerReadSucceeded: readLedger.some(c => c.status === 'completed' && (c.exitCode === 0 || c.exitCode === null) && c.outputChars > 0) };
+  ledgerStats(rec);
 }
 
 function ledgerStats(rec) {
@@ -378,7 +394,7 @@ const COMPACT_PROMPT = [
 
 // ───────────── 本体 ─────────────
 const out = { kind: 'recall-probe', version, codexHome: codexHome === join(process.env.USERPROFILE, '.codex') ? '%USERPROFILE%\\.codex (shared default, read-only use)' : 'custom',
-  startedAt: new Date().toISOString(), params: { rounds: ROUNDS, facts: FACTS_N, compactions: COMPACTIONS, model: MODEL, handoffRounds: HANDOFF_ROUNDS, methods: METHODS, trial: TRIAL, long: LONG, seed: SEED, budgetUncached: Number(flag('budget-uncached', 300000)) },
+  startedAt: new Date().toISOString(), params: { rounds: ROUNDS, facts: FACTS_N, compactions: COMPACTIONS, model: MODEL, handoffRounds: HANDOFF_ROUNDS, methods: METHODS, trial: TRIAL, long: LONG, seed: SEED, source: FROM_FILE ? 'file' : 'chat', budgetUncached: Number(flag('budget-uncached', 300000)) },
   results: [], approvalRequests: [], fatalError: null };
 const t0 = Date.now();
 const save = () => {
@@ -389,6 +405,15 @@ const save = () => {
 
 try {
   scenario = buildScenario(ROUNDS, FACTS_N);
+  const reuse = flag('replies-from', '');
+  if (reuse) {
+    // 前回の実行（同じ seed・往復数・事実数・source）の台帳から、方式aの応答を復元する。a を流し直さずに b/c/s を測るため。
+    const lines = readFileSync(join(reuse, 'work', '会話台帳.txt'), 'utf8').split(/\r?\n/);
+    const rep = [];
+    for (const l of lines) { const m = l.match(/^R(\d+) 応答 \| (.*)$/); if (m) { const k = Number(m[1]) - 1; rep[k] = rep[k] === undefined ? m[2] : rep[k] + '\n' + m[2]; } }
+    if (rep.length !== scenario.userTexts.length) throw new Error(`replies-from: ${rep.length} rounds, expected ${scenario.userTexts.length}`);
+    aReplies = rep; out.repliesFrom = reuse.split(/[\\/]/).filter(Boolean).at(-1);
+  }
   writeFileSync(join(run, 'scenario.json'), JSON.stringify({ userTexts: scenario.userTexts, facts: scenario.facts, factRounds: scenario.factRounds }, null, 2));
   await ok('initialize', { clientInfo: { name: 'agentdock_recall_probe', title: 'AgentDock Recall Probe', version: '0.1' }, capabilities: { experimentalApi: false } });
   send({ method: 'initialized', params: {} });
@@ -450,6 +475,7 @@ try {
     `- 往復 ${ROUNDS} / 事実 ${FACTS_N} / 圧縮 ${COMPACTIONS} / 引継ぎ直近 ${HANDOFF_ROUNDS}往復${TRIAL ? ' / 試行モード' : ''}${LONG && scenario ? ' / 長文モード（seed ' + SEED + '、1往復 平均' + Math.round(scenario.userTexts.reduce((a, u) => a + u.length, 0) / scenario.userTexts.length) + '字）' : ''}`,
     ...res.filter(r => r.ledger).map(r => `- ${r.method} の台帳: コマンド${r.ledger.commandAttempts}回、うち台帳${r.ledger.ledgerReadAttempts}回、コマンド出力${r.ledger.outputChars}字、成功 ${r.ledger.ledgerReadSucceeded}`),
     forkError ? `- 分岐の失敗: ${forkError}` : '',
+    FROM_FILE ? `- 事実の置き場所: ファイル→AIの清書（依頼文には無い）。清書に残った事実: ${(() => { const m = res.find(r => r.minutesKept)?.minutesKept; return m ? Object.values(m).filter(v => v.said && v.fixed !== false).length + '/' + Object.keys(m).length + '（欠け: ' + (Object.entries(m).filter(([, v]) => !(v.said && v.fixed !== false)).map(([k]) => k).join(',') || 'なし') + '）' : '-'; })()}` : '',
     `- b/c の往復記録のAI側: ${handoff?.aiSource ?? '-'}`,
     `- config.toml 不変: ${out.configUnchanged} / auth.json 不変: ${out.authUnchanged} / 承認要求: ${approvals.length}件`,
     out.budgetExceeded ? `- 非キャッシュ上限超過で中断: ${JSON.stringify(out.budgetExceeded)}` : '',

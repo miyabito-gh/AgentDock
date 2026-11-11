@@ -1,0 +1,748 @@
+{
+  "kind": "recall-probe",
+  "version": "codex-cli 0.167.0",
+  "codexHome": "%USERPROFILE%\\.codex (shared default, read-only use)",
+  "startedAt": "2026-11-11T16:00:33.006Z",
+  "params": {
+    "rounds": 20,
+    "facts": 20,
+    "compactions": 2,
+    "model": "gpt-6.1-sol",
+    "handoffRounds": 3,
+    "methods": [
+      "a",
+      "e",
+      "s"
+    ],
+    "trial": false,
+    "long": true,
+    "seed": 42,
+    "source": "file",
+    "budgetUncached": 300000
+  },
+  "results": [
+    {
+      "method": "a",
+      "label": "同一thread＋圧縮任せ",
+      "status": "done",
+      "turns": [
+        {
+          "status": "completed",
+          "ms": 38591,
+          "replyChars": 1468,
+          "error": null
+        },
+        {
+          "status": "completed",
+          "ms": 38102,
+          "replyChars": 2079,
+          "error": null
+        },
+        {
+          "status": "completed",
+          "ms": 47374,
+          "replyChars": 2894,
+          "error": null
+        },
+        {
+          "status": "completed",
+          "ms": 35465,
+          "replyChars": 2043,
+          "error": null
+        },
+        {
+          "status": "completed",
+          "ms": 42949,
+          "replyChars": 2516,
+          "error": null
+        },
+        {
+          "status": "completed",
+          "ms": 46296,
+          "replyChars": 2741,
+          "error": null
+        },
+        {
+          "status": "completed",
+          "ms": 47592,
+          "replyChars": 2878,
+          "error": null
+        },
+        {
+          "status": "completed",
+          "ms": 35424,
+          "replyChars": 1768,
+          "error": null
+        },
+        {
+          "status": "completed",
+          "ms": 32248,
+          "replyChars": 1791,
+          "error": null
+        },
+        {
+          "status": "completed",
+          "ms": 34469,
+          "replyChars": 1828,
+          "error": null
+        },
+        {
+          "status": "completed",
+          "ms": 35480,
+          "replyChars": 1970,
+          "error": null
+        },
+        {
+          "status": "completed",
+          "ms": 35181,
+          "replyChars": 1924,
+          "error": null
+        },
+        {
+          "status": "completed",
+          "ms": 36430,
+          "replyChars": 1993,
+          "error": null
+        },
+        {
+          "status": "completed",
+          "ms": 35504,
+          "replyChars": 2094,
+          "error": null
+        },
+        {
+          "status": "completed",
+          "ms": 36764,
+          "replyChars": 2117,
+          "error": null
+        },
+        {
+          "status": "completed",
+          "ms": 38979,
+          "replyChars": 2137,
+          "error": null
+        },
+        {
+          "status": "completed",
+          "ms": 36522,
+          "replyChars": 2084,
+          "error": null
+        },
+        {
+          "status": "completed",
+          "ms": 38245,
+          "replyChars": 2199,
+          "error": null
+        },
+        {
+          "status": "completed",
+          "ms": 43724,
+          "replyChars": 2162,
+          "error": null
+        },
+        {
+          "status": "completed",
+          "ms": 40009,
+          "replyChars": 2145,
+          "error": null
+        },
+        {
+          "status": "completed",
+          "ms": 11343,
+          "replyChars": 678,
+          "error": null
+        }
+      ],
+      "compactions": [
+        {
+          "beforeContextTokens": 69002,
+          "beforeUncachedCum": 57935,
+          "requested": true,
+          "rpcAccepted": true,
+          "itemObserved": true,
+          "legacyNotificationObserved": false,
+          "turnCompleted": true,
+          "ms": 84952,
+          "error": null,
+          "notificationMethods": [
+            "item/completed",
+            "item/started",
+            "thread/status/changed",
+            "thread/tokenUsage/updated",
+            "turn/completed",
+            "turn/started"
+          ],
+          "compactCallTokens": 27639,
+          "compactUncached": 0,
+          "afterRound": 7,
+          "nextTurnContextTokens": 30976
+        },
+        {
+          "beforeContextTokens": 68403,
+          "beforeUncachedCum": 128561,
+          "requested": true,
+          "rpcAccepted": true,
+          "itemObserved": true,
+          "legacyNotificationObserved": false,
+          "turnCompleted": true,
+          "ms": 43958,
+          "error": null,
+          "notificationMethods": [
+            "item/completed",
+            "item/started",
+            "thread/status/changed",
+            "thread/tokenUsage/updated",
+            "turn/completed",
+            "turn/started"
+          ],
+          "compactCallTokens": 26683,
+          "compactUncached": 0,
+          "afterRound": 14,
+          "nextTurnContextTokens": 29711
+        }
+      ],
+      "commands": [
+        {
+          "command": "\"C:\\\\WINDOWS\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command 'Get-Content -LiteralPath minutes/R1.txt -Encoding UTF8'",
+          "status": "completed",
+          "exitCode": 0,
+          "outputChars": 2008
+        },
+        {
+          "command": "\"C:\\\\WINDOWS\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command '$bytes = [System.IO.File]::ReadAllBytes((Join-Path (Get-Location) '\"'minutes/R1.txt')); [System.Text.Encoding]::GetEncoding(9",
+          "status": "failed",
+          "exitCode": 1,
+          "outputChars": 833
+        },
+        {
+          "command": "\"C:\\\\WINDOWS\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command \"python -c \\\"import pathlib,json; p=pathlib.Path('minutes/R1.txt'); print(json.dumps(p.read_text(encoding='utf-8'),ensure_asci",
+          "status": "completed",
+          "exitCode": 0,
+          "outputChars": 6485
+        },
+        {
+          "command": "\"C:\\\\WINDOWS\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command \"python -c \\\"import pathlib,json; print(json.dumps(pathlib.Path('minutes/R2.txt').read_text(encoding='utf-8-sig'),ensure_ascii",
+          "status": "completed",
+          "exitCode": 0,
+          "outputChars": 6609
+        },
+        {
+          "command": "\"C:\\\\WINDOWS\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command \"python -c \\\"import pathlib,json; print(json.dumps(pathlib.Path('minutes/R3.txt').read_text(encoding='utf-8-sig'),ensure_ascii",
+          "status": "completed",
+          "exitCode": 0,
+          "outputChars": 6525
+        },
+        {
+          "command": "\"C:\\\\WINDOWS\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command \"python -c \\\"import pathlib,json; print(json.dumps(pathlib.Path('minutes/R4.txt').read_text(encoding='utf-8-sig'),ensure_ascii",
+          "status": "completed",
+          "exitCode": 0,
+          "outputChars": 6467
+        },
+        {
+          "command": "\"C:\\\\WINDOWS\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command \"python -c \\\"import pathlib,json; print(json.dumps(pathlib.Path('minutes/R5.txt').read_text(encoding='utf-8-sig'),ensure_ascii",
+          "status": "completed",
+          "exitCode": 0,
+          "outputChars": 6494
+        },
+        {
+          "command": "\"C:\\\\WINDOWS\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command \"python -c \\\"import pathlib,json; print(json.dumps(pathlib.Path('minutes/R6.txt').read_text(encoding='utf-8-sig'),ensure_ascii",
+          "status": "completed",
+          "exitCode": 0,
+          "outputChars": 6582
+        },
+        {
+          "command": "\"C:\\\\WINDOWS\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command \"python -c \\\"import pathlib,json; print(json.dumps(pathlib.Path('minutes/R7.txt').read_text(encoding='utf-8-sig'),ensure_ascii",
+          "status": "completed",
+          "exitCode": 0,
+          "outputChars": 6588
+        },
+        {
+          "command": "\"C:\\\\WINDOWS\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command \"python -c \\\"import pathlib,json; print(json.dumps(pathlib.Path('minutes/R8.txt').read_text(encoding='utf-8-sig'),ensure_ascii",
+          "status": "completed",
+          "exitCode": 0,
+          "outputChars": 6498
+        },
+        {
+          "command": "\"C:\\\\WINDOWS\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command \"python -c \\\"import pathlib,json; print(json.dumps(pathlib.Path('minutes/R9.txt').read_text(encoding='utf-8-sig'),ensure_ascii",
+          "status": "completed",
+          "exitCode": 0,
+          "outputChars": 6539
+        },
+        {
+          "command": "\"C:\\\\WINDOWS\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command \"python -c \\\"import pathlib,json; print(json.dumps(pathlib.Path('minutes/R10.txt').read_text(encoding='utf-8-sig'),ensure_asci",
+          "status": "completed",
+          "exitCode": 0,
+          "outputChars": 6652
+        },
+        {
+          "command": "\"C:\\\\WINDOWS\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command \"python -c \\\"import pathlib,json; print(json.dumps(pathlib.Path('minutes/R11.txt').read_text(encoding='utf-8-sig'),ensure_asci",
+          "status": "completed",
+          "exitCode": 0,
+          "outputChars": 6667
+        },
+        {
+          "command": "\"C:\\\\WINDOWS\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command \"python -c \\\"import pathlib,json; print(json.dumps(pathlib.Path('minutes/R12.txt').read_text(encoding='utf-8-sig'),ensure_asci",
+          "status": "completed",
+          "exitCode": 0,
+          "outputChars": 6511
+        },
+        {
+          "command": "\"C:\\\\WINDOWS\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command \"python -c \\\"import pathlib,json; print(json.dumps(pathlib.Path('minutes/R13.txt').read_text(encoding='utf-8-sig'),ensure_asci",
+          "status": "completed",
+          "exitCode": 0,
+          "outputChars": 6517
+        },
+        {
+          "command": "\"C:\\\\WINDOWS\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command \"python -c \\\"import pathlib,json; print(json.dumps(pathlib.Path('minutes/R14.txt').read_text(encoding='utf-8-sig'),ensure_asci",
+          "status": "completed",
+          "exitCode": 0,
+          "outputChars": 6674
+        },
+        {
+          "command": "\"C:\\\\WINDOWS\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command \"python -c \\\"import pathlib,json; print(json.dumps(pathlib.Path('minutes/R15.txt').read_text(encoding='utf-8-sig'),ensure_asci",
+          "status": "completed",
+          "exitCode": 0,
+          "outputChars": 6520
+        },
+        {
+          "command": "\"C:\\\\WINDOWS\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command \"python -c \\\"import pathlib,json; print(json.dumps(pathlib.Path('minutes/R16.txt').read_text(encoding='utf-8-sig'),ensure_asci",
+          "status": "completed",
+          "exitCode": 0,
+          "outputChars": 6572
+        },
+        {
+          "command": "\"C:\\\\WINDOWS\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command \"python -c \\\"import pathlib,json; print(json.dumps(pathlib.Path('minutes/R17.txt').read_text(encoding='utf-8-sig'),ensure_asci",
+          "status": "completed",
+          "exitCode": 0,
+          "outputChars": 6499
+        },
+        {
+          "command": "\"C:\\\\WINDOWS\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command \"python -c \\\"import pathlib,json; print(json.dumps(pathlib.Path('minutes/R18.txt').read_text(encoding='utf-8-sig'),ensure_asci",
+          "status": "completed",
+          "exitCode": 0,
+          "outputChars": 6685
+        },
+        {
+          "command": "\"C:\\\\WINDOWS\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command \"python -c \\\"import pathlib,json; print(json.dumps(pathlib.Path('minutes/R19.txt').read_text(encoding='utf-8-sig'),ensure_asci",
+          "status": "completed",
+          "exitCode": 0,
+          "outputChars": 6483
+        },
+        {
+          "command": "\"C:\\\\WINDOWS\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command \"python -c \\\"import pathlib,json; print(json.dumps(pathlib.Path('minutes/R20.txt').read_text(encoding='utf-8-sig'),ensure_asci",
+          "status": "completed",
+          "exitCode": 0,
+          "outputChars": 6572
+        }
+      ],
+      "itemTypes": {
+        "userMessage": 21,
+        "agentMessage": 41,
+        "commandExecution": 22,
+        "reasoning": 3
+      },
+      "errors": [],
+      "approvalRequests": 0,
+      "thread": {
+        "model": "gpt-6.1-sol",
+        "reasoningEffort": "medium",
+        "sandbox": "readOnly",
+        "approvalPolicy": "never",
+        "ephemeral": true
+      },
+      "threadId": "01a1cb56-e9e0-7a11-871c-d3d97e979284",
+      "usage": {
+        "total": {
+          "totalTokens": 1901714,
+          "inputTokens": 1869339,
+          "cachedInputTokens": 1722496,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 32375,
+          "reasoningOutputTokens": 146
+        },
+        "lastCall": {
+          "totalTokens": 62398,
+          "inputTokens": 61976,
+          "cachedInputTokens": 61440,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 422,
+          "reasoningOutputTokens": 0
+        },
+        "peakContextTokens": 69002,
+        "modelContextWindow": 475000,
+        "updates": 45
+      },
+      "minutesKept": {
+        "F1": {
+          "said": true,
+          "fixed": null
+        },
+        "F2": {
+          "said": true,
+          "fixed": true
+        },
+        "F3": {
+          "said": true,
+          "fixed": null
+        },
+        "F4": {
+          "said": true,
+          "fixed": null
+        },
+        "F5": {
+          "said": true,
+          "fixed": null
+        },
+        "F6": {
+          "said": true,
+          "fixed": null
+        },
+        "F7": {
+          "said": true,
+          "fixed": null
+        },
+        "F8": {
+          "said": true,
+          "fixed": true
+        },
+        "F9": {
+          "said": true,
+          "fixed": null
+        },
+        "F10": {
+          "said": true,
+          "fixed": null
+        },
+        "F11": {
+          "said": true,
+          "fixed": true
+        },
+        "F12": {
+          "said": true,
+          "fixed": null
+        },
+        "F13": {
+          "said": true,
+          "fixed": true
+        },
+        "F14": {
+          "said": true,
+          "fixed": null
+        },
+        "F15": {
+          "said": true,
+          "fixed": null
+        },
+        "F16": {
+          "said": true,
+          "fixed": true
+        },
+        "F17": {
+          "said": true,
+          "fixed": null
+        },
+        "F18": {
+          "said": true,
+          "fixed": null
+        },
+        "F19": {
+          "said": true,
+          "fixed": null
+        },
+        "F20": {
+          "said": true,
+          "fixed": null
+        }
+      },
+      "answerFormat": "json",
+      "answers": {
+        "Q1": "4,280万円",
+        "C1": "高",
+        "Q2": "2027年3月26日",
+        "C2": "高",
+        "Q3": "営業部の森田",
+        "C3": "高",
+        "Q4": "毎週木曜日10:45開始",
+        "C4": "高",
+        "Q5": "ハルカペイ社",
+        "C5": "高",
+        "Q6": "シンガポール拠点対応",
+        "C6": "高",
+        "Q7": "2027年4月30日",
+        "C7": "高",
+        "Q8": "2,400件",
+        "C8": "高",
+        "Q9": "7342",
+        "C9": "高",
+        "Q10": "全面クラウド移行案（コスト超過のため）",
+        "C10": "高",
+        "Q11": "5名、6月開始",
+        "C11": "高",
+        "Q12": "TSUBAME-9",
+        "C12": "高",
+        "Q13": "6%",
+        "C13": "高",
+        "Q14": "9月15日",
+        "C14": "高",
+        "Q15": "B棟4階402号室",
+        "C15": "高",
+        "Q16": "月120時間",
+        "C16": "高",
+        "Q17": "2027年2月5日",
+        "C17": "高",
+        "Q18": "技術部の高瀬",
+        "C18": "高",
+        "Q19": "大阪会場、2回",
+        "C19": "高",
+        "Q20": "96万円",
+        "C20": "高"
+      },
+      "score": {
+        "correct": 20,
+        "total": 20,
+        "wrong": []
+      }
+    },
+    {
+      "method": "e",
+      "label": "aの回答後に同じ会話で台帳検索して答え直す",
+      "status": "done",
+      "turns": [
+        {
+          "status": "completed",
+          "ms": 11565,
+          "replyChars": 678,
+          "error": null
+        }
+      ],
+      "compactions": [],
+      "commands": [],
+      "itemTypes": {
+        "userMessage": 1,
+        "agentMessage": 1
+      },
+      "errors": [],
+      "approvalRequests": 0,
+      "thread": {
+        "sameThreadAs": "a",
+        "afterAnswer": true
+      },
+      "baseUsage": {
+        "total": {
+          "totalTokens": 1901714,
+          "inputTokens": 1869339,
+          "cachedInputTokens": 1722496,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 32375,
+          "reasoningOutputTokens": 146
+        },
+        "lastCall": {
+          "totalTokens": 62398,
+          "inputTokens": 61976,
+          "cachedInputTokens": 61440,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 422,
+          "reasoningOutputTokens": 0
+        },
+        "peakContextTokens": 69002,
+        "modelContextWindow": 475000,
+        "updates": 45
+      },
+      "threadId": "01a1cb56-e9e0-7a11-871c-d3d97e979284",
+      "usage": {
+        "total": {
+          "totalTokens": 63403,
+          "inputTokens": 62981,
+          "cachedInputTokens": 62208,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 422,
+          "reasoningOutputTokens": 0
+        },
+        "lastCall": {
+          "totalTokens": 63403,
+          "inputTokens": 62981,
+          "cachedInputTokens": 62208,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 422,
+          "reasoningOutputTokens": 0
+        },
+        "peakContextTokens": 69002,
+        "modelContextWindow": 475000,
+        "updates": 46
+      },
+      "answerFormat": "json",
+      "answers": {
+        "Q1": "4,280万円",
+        "C1": "高",
+        "Q2": "2027年3月26日",
+        "C2": "高",
+        "Q3": "営業部の森田",
+        "C3": "高",
+        "Q4": "毎週木曜日10:45開始",
+        "C4": "高",
+        "Q5": "ハルカペイ社",
+        "C5": "高",
+        "Q6": "シンガポール拠点対応",
+        "C6": "高",
+        "Q7": "2027年4月30日",
+        "C7": "高",
+        "Q8": "2,400件",
+        "C8": "高",
+        "Q9": "7342",
+        "C9": "高",
+        "Q10": "全面クラウド移行案（コスト超過のため）",
+        "C10": "高",
+        "Q11": "5名、6月開始",
+        "C11": "高",
+        "Q12": "TSUBAME-9",
+        "C12": "高",
+        "Q13": "6%",
+        "C13": "高",
+        "Q14": "9月15日",
+        "C14": "高",
+        "Q15": "B棟4階402号室",
+        "C15": "高",
+        "Q16": "月120時間",
+        "C16": "高",
+        "Q17": "2027年2月5日",
+        "C17": "高",
+        "Q18": "技術部の高瀬",
+        "C18": "高",
+        "Q19": "大阪会場、2回",
+        "C19": "高",
+        "Q20": "96万円",
+        "C20": "高"
+      },
+      "score": {
+        "correct": 20,
+        "total": 20,
+        "wrong": []
+      },
+      "ledger": {
+        "commandAttempts": 0,
+        "ledgerReadAttempts": 0,
+        "outputChars": 0,
+        "ledgerReadSucceeded": false
+      }
+    },
+    {
+      "method": "s",
+      "label": "検索型の引継ぎ（1行1内容の台帳）",
+      "status": "done",
+      "turns": [
+        {
+          "status": "completed",
+          "ms": 12094,
+          "replyChars": 683,
+          "error": null
+        }
+      ],
+      "compactions": [],
+      "commands": [],
+      "itemTypes": {
+        "userMessage": 1,
+        "reasoning": 1,
+        "agentMessage": 1
+      },
+      "errors": [],
+      "approvalRequests": 0,
+      "thread": {
+        "model": "gpt-6.1-sol",
+        "reasoningEffort": "medium",
+        "sandbox": "readOnly",
+        "approvalPolicy": "never",
+        "ephemeral": true
+      },
+      "handoff": {
+        "envelopeChars": 7219,
+        "recentRounds": 3,
+        "ledgerFormat": "one-line-per-item"
+      },
+      "threadId": "01a1cb65-107e-7522-951d-849fa20d31f2",
+      "usage": {
+        "total": {
+          "totalTokens": 26070,
+          "inputTokens": 25621,
+          "cachedInputTokens": 0,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 449,
+          "reasoningOutputTokens": 21
+        },
+        "lastCall": {
+          "totalTokens": 26070,
+          "inputTokens": 25621,
+          "cachedInputTokens": 0,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 449,
+          "reasoningOutputTokens": 21
+        },
+        "peakContextTokens": 26070,
+        "modelContextWindow": 475000,
+        "updates": 1
+      },
+      "answerFormat": "json",
+      "answers": {
+        "Q1": "4,280万円",
+        "C1": "高",
+        "Q2": "2027年3月26日",
+        "C2": "高",
+        "Q3": "営業部の森田",
+        "C3": "高",
+        "Q4": "毎週木曜日10:45開始",
+        "C4": "高",
+        "Q5": "ハルカペイ社",
+        "C5": "高",
+        "Q6": "シンガポール拠点対応",
+        "C6": "高",
+        "Q7": "2027年4月30日",
+        "C7": "高",
+        "Q8": "2,400件",
+        "C8": "高",
+        "Q9": "内線7342",
+        "C9": "高",
+        "Q10": "全面クラウド移行案（コスト超過のため）",
+        "C10": "高",
+        "Q11": "6月から5名投入",
+        "C11": "高",
+        "Q12": "TSUBAME-9",
+        "C12": "高",
+        "Q13": "6%",
+        "C13": "高",
+        "Q14": "9月15日",
+        "C14": "高",
+        "Q15": "B棟4階402号室",
+        "C15": "高",
+        "Q16": "月120時間",
+        "C16": "高",
+        "Q17": "2027年2月5日",
+        "C17": "高",
+        "Q18": "技術部の高瀬",
+        "C18": "高",
+        "Q19": "大阪会場で2回",
+        "C19": "高",
+        "Q20": "月額96万円",
+        "C20": "高"
+      },
+      "score": {
+        "correct": 20,
+        "total": 20,
+        "wrong": []
+      },
+      "ledger": {
+        "commandAttempts": 0,
+        "ledgerReadAttempts": 0,
+        "outputChars": 0,
+        "ledgerReadSucceeded": false
+      }
+    }
+  ],
+  "approvalRequests": [],
+  "fatalError": null,
+  "durationMs": 940136,
+  "configUnchanged": true,
+  "authUnchanged": true,
+  "stderrTail": [
+    ""
+  ],
+  "totalTokens": 1991187
+}

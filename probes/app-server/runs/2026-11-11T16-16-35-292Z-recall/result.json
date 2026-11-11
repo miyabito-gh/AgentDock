@@ -1,0 +1,154 @@
+{
+  "kind": "recall-probe",
+  "version": "codex-cli 0.167.0",
+  "codexHome": "%USERPROFILE%\\.codex (shared default, read-only use)",
+  "startedAt": "2026-11-11T16:16:35.359Z",
+  "params": {
+    "rounds": 20,
+    "facts": 20,
+    "compactions": 1,
+    "model": "gpt-6.1-sol",
+    "handoffRounds": 3,
+    "methods": [
+      "c"
+    ],
+    "trial": false,
+    "long": true,
+    "seed": 42,
+    "source": "chat",
+    "budgetUncached": 150000
+  },
+  "results": [
+    {
+      "method": "c",
+      "label": "引継ぎ資料＋台帳を読む指示",
+      "status": "done",
+      "turns": [
+        {
+          "status": "completed",
+          "ms": 17710,
+          "replyChars": 689,
+          "error": null
+        }
+      ],
+      "compactions": [],
+      "commands": [
+        {
+          "command": "\"C:\\\\WINDOWS\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command 'rg -n \"予算|リリース|顧客データ|定例レビュー|決済連携|第2期|旧システム|同時接続|一次連絡|却下|追加要員|契約管理|値引き|更新期限|合宿|稼働上限|中間報告|品質管理|研修|月額費用\" \"会話台帳.md\"'",
+          "status": "completed",
+          "exitCode": 0,
+          "outputChars": 3215
+        }
+      ],
+      "itemTypes": {
+        "userMessage": 1,
+        "agentMessage": 2,
+        "commandExecution": 1
+      },
+      "errors": [],
+      "approvalRequests": 0,
+      "thread": {
+        "model": "gpt-6.1-sol",
+        "reasoningEffort": "medium",
+        "sandbox": "readOnly",
+        "approvalPolicy": "never",
+        "ephemeral": true
+      },
+      "handoff": {
+        "envelopeChars": 5499,
+        "ledgerChars": 31539,
+        "ledgerRounds": 20,
+        "roundsAvailable": 20,
+        "roundsIncluded": 3,
+        "tocRounds": 20,
+        "truncated": false,
+        "aiSource": "方式aの実際の応答"
+      },
+      "threadId": "01a1cb66-280c-75f3-b248-20dcbb2af28f",
+      "usage": {
+        "total": {
+          "totalTokens": 52202,
+          "inputTokens": 51620,
+          "cachedInputTokens": 38272,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 582,
+          "reasoningOutputTokens": 0
+        },
+        "lastCall": {
+          "totalTokens": 27575,
+          "inputTokens": 27145,
+          "cachedInputTokens": 24448,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 430,
+          "reasoningOutputTokens": 0
+        },
+        "peakContextTokens": 27575,
+        "modelContextWindow": 475000,
+        "updates": 2
+      },
+      "answerFormat": "json",
+      "answers": {
+        "Q1": "4,280万円",
+        "C1": "高",
+        "Q2": "2027年3月26日",
+        "C2": "高",
+        "Q3": "営業部の森田さん",
+        "C3": "高",
+        "Q4": "毎週木曜日10:45開始",
+        "C4": "高",
+        "Q5": "ハルカペイ社",
+        "C5": "高",
+        "Q6": "シンガポール拠点への対応",
+        "C6": "高",
+        "Q7": "2027年4月30日",
+        "C7": "高",
+        "Q8": "2,400件",
+        "C8": "高",
+        "Q9": "内線7342",
+        "C9": "高",
+        "Q10": "全面クラウド移行案（コスト超過のため）",
+        "C10": "高",
+        "Q11": "5名、6月開始",
+        "C11": "高",
+        "Q12": "TSUBAME-9",
+        "C12": "高",
+        "Q13": "6%",
+        "C13": "高",
+        "Q14": "9月15日",
+        "C14": "高",
+        "Q15": "B棟4階の402号室",
+        "C15": "高",
+        "Q16": "月120時間",
+        "C16": "高",
+        "Q17": "2027年2月5日",
+        "C17": "高",
+        "Q18": "技術部の高瀬さん",
+        "C18": "高",
+        "Q19": "大阪会場で2回",
+        "C19": "高",
+        "Q20": "月額96万円",
+        "C20": "高"
+      },
+      "score": {
+        "correct": 20,
+        "total": 20,
+        "wrong": []
+      },
+      "ledger": {
+        "commandAttempts": 1,
+        "ledgerReadAttempts": 1,
+        "ledgerReadSucceeded": true
+      }
+    }
+  ],
+  "approvalRequests": [],
+  "fatalError": null,
+  "repliesFrom": "2026-11-11T15-44-13-639Z-recall",
+  "durationMs": 54951,
+  "configUnchanged": true,
+  "authUnchanged": true,
+  "stderrTail": [
+    ""
+  ],
+  "totalTokens": 52202
+}
