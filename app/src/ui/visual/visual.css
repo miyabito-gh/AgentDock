@@ -78,7 +78,8 @@
 .vp-steps li::before{content:counter(s);display:grid;place-items:center;width:18px;height:18px;border-radius:50%;background:var(--surface);color:var(--ink2);font-size:11px;font-weight:600}
 
 /* 畳んでいる間の最新返答（押すとチャットを開く）と、承認・質問の軽量回答（高さ上限つき） */
-.vp-reply{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"h ." "b c";align-items:center;column-gap:6px;box-sizing:border-box;margin:6px 10px 0;padding:4px 6px;border:1px solid var(--line2);border-radius:var(--r2);background:none;color:var(--ink2);font:inherit;font-size:var(--fs-s);text-align:left;cursor:pointer;width:calc(100% - 20px)}
+/* button の共通指定（高さ固定・折り返しなし）を外す。外さないと本文が1行のまま枠の外へ出る。 */
+.vp-reply{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"h ." "b c";align-items:center;column-gap:6px;box-sizing:border-box;height:auto;white-space:normal;margin:6px 10px 0;padding:4px 6px;border:1px solid var(--line2);border-radius:var(--r2);background:none;color:var(--ink2);font:inherit;font-size:var(--fs-s);text-align:left;cursor:pointer;width:calc(100% - 20px)}
 .vp-reply-h{grid-area:h;font-size:var(--fs-xs);color:var(--ink3)}
 .vp-reply-b{grid-area:b;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;line-height:1.4;min-width:0;overflow-wrap:anywhere}
 .vp-reply>svg.i{grid-area:c;width:14px;height:14px}
