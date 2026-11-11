@@ -83,3 +83,5 @@ node probes/app-server/live-smoke.mjs 'C:\Users\wmasa\AppData\Local\Programs\Ope
 - 記録: 採点用の回答、トークン（`thread/tokenUsage/updated`）、圧縮の観測、実行されたコマンド（台帳の読取り可否）。モデルの自由文本文は保存しない。目次が事実を漏らさないよう各依頼の1行目は見出しだけにしてある。
 - 費用の目安: 1回の呼び出しで約2万トークン（大半はキャッシュ）。既定（10往復・事実12・圧縮1）で thread累計の合計 約57万、非キャッシュ入力＋出力は約6万。往復数に概ね比例（a/d）。
 - 実行: `node probes/app-server/recall-probe.mjs [codex.exe] [--rounds=10 --facts=12 --compactions=1 --methods=a,b,c,d --model=gpt-6.1-sol --handoff-rounds=3 --trial]`（`--trial` は1往復だけの規模確認）。結果は `runs/<日時>-recall/result.json` と `summary.md`。
+
+本番規模の実行（30往復・事実20〈訂正3件〉・圧縮3回、`--rounds=30 --facts=20 --compactions=3`）: 結果は `runs/2026-11-11T14-11-54-939Z-recall/`。最終質問は各事実に確信度（高/中/低）も答えさせる。b/c の資料はaの実応答から作る（aを先に実行）。非キャッシュ累計が `--budget-uncached`（既定30万）を超えたら中断して保存する。圧縮は圧縮turnの完了まで待ってから次のturnを送る（待たないと `ActiveTurnNotSteerable` で拒否される）。
