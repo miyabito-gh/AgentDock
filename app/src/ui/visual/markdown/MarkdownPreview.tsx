@@ -75,15 +75,40 @@ export const MarkdownPreview = forwardRef<PreviewHandle, {
     }
   }, [html, selection, currentLine]);
 
+  // Shift+クリックの起点（最後に普通のクリック・Ctrl+クリック・↑↓で選んだブロックの行範囲）。
+  const rangeFrom = useRef<{ start: number; end: number } | null>(null);
+  const itemOf = (el: HTMLElement): PreviewElement => {
+    const start = num(el, "data-src-start"), end = num(el, "data-src-end");
+    return blockElement(start, end, el.tagName.toLowerCase(), excerptOf(text, start, end));
+  };
+
   const pick = (el: HTMLElement, additive: boolean) => {
     const start = num(el, "data-src-start"), end = num(el, "data-src-end");
-    const item = blockElement(start, end, el.tagName.toLowerCase(), excerptOf(text, start, end));
+    const item = itemOf(el);
     const cur = selectionRef.current;
     const has = cur.some((s) => s.selector === item.selector);
     if (additive) onSelect(has ? cur.filter((s) => s.selector !== item.selector) : [...cur, item].sort((a, b) => num0(a) - num0(b)));
     else onSelect(has && cur.length === 1 ? [] : [item]);
+    rangeFrom.current = { start, end };
     onBlockPick?.(start);
   };
+
+  // 起点から押したブロックまでを、まとめて選ぶ（範囲内のブロックのうち、親も範囲内にあるものは親にまとめる）。起点が無ければ普通の選択。
+  const pickRange = (el: HTMLElement) => {
+    const root = box.current;
+    const from = rangeFrom.current;
+    if (!root || !from) { pick(el, false); return; }
+    const lo = Math.min(from.start, num(el, "data-src-start")), hi = Math.max(from.end, num(el, "data-src-end"));
+    const inRange = Array.from(root.querySelectorAll<HTMLElement>(SELECTABLE)).filter((b) => num(b, "data-src-start") >= lo && num(b, "data-src-end") <= hi);
+    const set = new Set(inRange);
+    const top = inRange.filter((b) => { const p = b.parentElement?.closest<HTMLElement>(SELECTABLE); return !(p && set.has(p)); });
+    if (top.length === 0) { pick(el, false); return; }
+    onSelect(top.map(itemOf).sort((a, b) => num0(a) - num0(b)));
+    onBlockPick?.(num(el, "data-src-start"));
+  };
+
+  // Shift+クリックで文字の選択が広がらないようにする（広がるとブロックの選択として扱えない）。
+  const onMouseDown = (event: React.MouseEvent<HTMLDivElement>) => { if (event.shiftKey) event.preventDefault(); };
 
   const onClick = (event: React.MouseEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement;
@@ -98,7 +123,8 @@ export const MarkdownPreview = forwardRef<PreviewHandle, {
     if (picked && !picked.isCollapsed && box.current?.contains(picked.anchorNode)) return; // 文字をドラッグで選んだだけのときは、ブロックの選択を変えない
     const el = target.closest<HTMLElement>(SELECTABLE);
     if (!el) { if (!(event.ctrlKey || event.metaKey || event.shiftKey)) onSelect([]); return; }
-    pick(el, event.ctrlKey || event.metaKey || event.shiftKey);
+    if (event.shiftKey) pickRange(el); // Shift: 起点からここまでをまとめて選ぶ
+    else pick(el, event.ctrlKey || event.metaKey); // Ctrl: 1つずつ追加・解除
   };
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -117,8 +143,9 @@ export const MarkdownPreview = forwardRef<PreviewHandle, {
     next.scrollIntoView({ block: "nearest" });
   };
 
-  return <div ref={box} className="md md-doc md-preview" tabIndex={0} role="document" aria-label="Markdownのプレビュー（クリックでブロックを選択、↑↓で移動、Escで解除）"
-    onClick={onClick} onKeyDown={onKeyDown} dangerouslySetInnerHTML={{ __html: html }} />;
+  return <div ref={box} className="md md-doc md-preview" tabIndex={0} role="document" aria-label="Markdownのプレビュー（クリックでブロックを選択、Ctrl+クリックで1つずつ追加、Shift+クリックで範囲をまとめて選択、↑↓で移動、Escで解除）"
+    title="クリックで選択／Ctrl+クリックで1つずつ追加／Shift+クリックで範囲をまとめて選択"
+    onMouseDown={onMouseDown} onClick={onClick} onKeyDown={onKeyDown} dangerouslySetInnerHTML={{ __html: html }} />;
 });
 
 const num0 = (item: PreviewElement): number => Number(/^L(\d+)/.exec(item.selector)?.[1] ?? 0);
