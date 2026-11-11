@@ -45,7 +45,8 @@ export default function PetApp() {
   const [bundle, setBundle] = useState<Bundle>(() => emptyBundle());
   const [now, setNow] = useState(() => Date.now());
   const [reduced, setReduced] = useState(() => window.matchMedia("(prefers-reduced-motion: reduce)").matches);
-  const [sprite, setSprite] = useState<Sprite>({ state: "none" });
+  const [sprite, setSprite] = useState<Sprite>({ state: "loading" });
+  const [loaded, setLoaded] = useState(false);
   const [bubbles, setBubbles] = useState<Bubble[]>([]);
   const [drag, setDrag] = useState<"left" | "right" | null>(null);
   const [jumpAt, setJumpAt] = useState<number | null>(null);
@@ -115,6 +116,7 @@ export default function PetApp() {
         last = snap.seq;
         pipe.flushAll();
         setBundle((b) => replaceSnapshot(b, snap));
+        setLoaded(true);
         ready = true;
         for (const env of pending.splice(0)) handle(env);
       } catch { ready = true; }
@@ -123,7 +125,8 @@ export default function PetApp() {
   }, []);
 
   const snap = bundle.snapshot;
-  const settingsReady = snap.seq > 0;
+  // 最初のスナップショットを受け取ったら設定を使える（起動直後は seq が 0 のことがあるので seq だけでは判定しない）。
+  const settingsReady = loaded || snap.seq > 0;
   const appearance = snap.settings.appearance;
   useEffect(() => {
     if (!settingsReady) return;
