@@ -72,3 +72,14 @@ node probes/app-server/live-smoke.mjs 'C:\Users\wmasa\AppData\Local\Programs\Ope
 ## 生成schema
 
 `schema/0.160.0/` に `generate-json-schema`／`generate-ts` の通常版と `--experimental` 版を保存。`methods-*.txt` はClientRequest／ServerRequest／ServerNotificationのメソッド一覧。
+
+## 想起比較試験（recall-probe.mjs、2026-11-11、実Codex使用は利用者許可済み）
+
+継続チャットの方式比較（`app/REVIEW_CONT2.md` K1/K2/K4、`app/DESIGN_CONT.md`）。固定の架空業務シナリオ（N往復に事実を分散、途中で1件を訂正）を流し、最後に全事実を1回の turn でJSON回答させてキーワード一致で採点する。
+
+- a: 同じ thread のまま `thread/compact/start` を数回。b: 引継ぎ資料（目的メモ＋直近3往復＋目次＋台帳パス）を付けて新 thread、台帳は読まない指示。c: b と同じ資料で台帳ファイルを読む指示（read-only sandbox で読めるか＝K4）。d: a ＋ thread/start の `config.compact_prompt`（業務向け）。
+- b/c の資料と台帳は製品の純関数で作る: `app/src-tauri/examples/handoff_material.rs`（`cargo run --example handoff_material -- <transcript.json> <out_dir> <ledger_path> <purpose> [rounds]`）。スクリプトが自動で呼ぶ（cargo が必要）。b/c の往復記録のAI側は固定の「了解」。
+- 隔離: 既存CODEX_HOME（config.toml/auth.jsonはsha256を前後照合、書き換えない）を共有、API鍵系の環境変数は除去。全threadは ephemeral・read-only・approvalPolicy never。承認要求は拒否して記録のみ。作業フォルダは `runs/<日時>-recall/work`（ここに台帳を置く。gitignore済み）。
+- 記録: 採点用の回答、トークン（`thread/tokenUsage/updated`）、圧縮の観測、実行されたコマンド（台帳の読取り可否）。モデルの自由文本文は保存しない。目次が事実を漏らさないよう各依頼の1行目は見出しだけにしてある。
+- 費用の目安: 1回の呼び出しで約2万トークン（大半はキャッシュ）。既定（10往復・事実12・圧縮1）で thread累計の合計 約57万、非キャッシュ入力＋出力は約6万。往復数に概ね比例（a/d）。
+- 実行: `node probes/app-server/recall-probe.mjs [codex.exe] [--rounds=10 --facts=12 --compactions=1 --methods=a,b,c,d --model=gpt-6.1-sol --handoff-rounds=3 --trial]`（`--trial` は1往復だけの規模確認）。結果は `runs/<日時>-recall/result.json` と `summary.md`。

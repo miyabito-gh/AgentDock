@@ -1,0 +1,549 @@
+{
+  "kind": "recall-probe",
+  "version": "codex-cli 0.167.0",
+  "codexHome": "%USERPROFILE%\\.codex (shared default, read-only use)",
+  "startedAt": "2026-11-11T14:00:09.941Z",
+  "params": {
+    "rounds": 10,
+    "facts": 12,
+    "compactions": 1,
+    "model": "gpt-6.1-sol",
+    "handoffRounds": 3,
+    "methods": [
+      "a",
+      "b",
+      "c",
+      "d"
+    ],
+    "trial": false
+  },
+  "results": [
+    {
+      "method": "a",
+      "label": "同一thread＋圧縮任せ",
+      "status": "done",
+      "turns": [
+        {
+          "status": "completed",
+          "ms": 4483,
+          "replyChars": 2,
+          "error": null
+        },
+        {
+          "status": "completed",
+          "ms": 3160,
+          "replyChars": 2,
+          "error": null
+        },
+        {
+          "status": "completed",
+          "ms": 2966,
+          "replyChars": 2,
+          "error": null
+        },
+        {
+          "status": "completed",
+          "ms": 2861,
+          "replyChars": 2,
+          "error": null
+        },
+        {
+          "status": "completed",
+          "ms": 4702,
+          "replyChars": 2,
+          "error": null
+        },
+        {
+          "status": "completed",
+          "ms": 2971,
+          "replyChars": 2,
+          "error": null
+        },
+        {
+          "status": "completed",
+          "ms": 2305,
+          "replyChars": 2,
+          "error": null
+        },
+        {
+          "status": "completed",
+          "ms": 4597,
+          "replyChars": 2,
+          "error": null
+        },
+        {
+          "status": "completed",
+          "ms": 2730,
+          "replyChars": 2,
+          "error": null
+        },
+        {
+          "status": "completed",
+          "ms": 2541,
+          "replyChars": 2,
+          "error": null
+        },
+        {
+          "status": "completed",
+          "ms": 4924,
+          "replyChars": 197,
+          "error": null
+        }
+      ],
+      "compactions": [
+        {
+          "requested": true,
+          "rpcAccepted": true,
+          "itemObserved": true,
+          "legacyNotificationObserved": false,
+          "turnCompleted": true,
+          "ms": 17336,
+          "error": null,
+          "notificationMethods": [
+            "item/completed",
+            "item/started",
+            "thread/status/changed",
+            "thread/tokenUsage/updated",
+            "turn/completed",
+            "turn/started"
+          ]
+        }
+      ],
+      "commands": [],
+      "itemTypes": {
+        "userMessage": 11,
+        "agentMessage": 11
+      },
+      "errors": [],
+      "approvalRequests": 0,
+      "thread": {
+        "model": "gpt-6.1-sol",
+        "reasoningEffort": "medium",
+        "sandbox": "readOnly",
+        "approvalPolicy": "never",
+        "ephemeral": true
+      },
+      "answerFormat": "json",
+      "answers": {
+        "Q1": "4,280万円",
+        "Q2": "2027年3月26日",
+        "Q3": "営業部の森田さん",
+        "Q4": "毎週木曜10:45",
+        "Q5": "ハルカペイ社",
+        "Q6": "シンガポール拠点への対応",
+        "Q7": "2027年4月30日",
+        "Q8": "1,800件",
+        "Q9": "7342",
+        "Q10": "全面クラウド移行案",
+        "Q11": "3名、6月から",
+        "Q12": "TSUBAME-9"
+      },
+      "score": {
+        "correct": 12,
+        "total": 12,
+        "wrong": []
+      },
+      "usage": {
+        "total": {
+          "totalTokens": 228064,
+          "inputTokens": 227890,
+          "cachedInputTokens": 206080,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 174,
+          "reasoningOutputTokens": 0
+        },
+        "lastCall": {
+          "totalTokens": 21606,
+          "inputTokens": 21482,
+          "cachedInputTokens": 20992,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 124,
+          "reasoningOutputTokens": 0
+        },
+        "peakContextTokens": 24352,
+        "modelContextWindow": 475000,
+        "updates": 12
+      }
+    },
+    {
+      "method": "b",
+      "label": "引継ぎ資料（台帳は読まない）",
+      "status": "done",
+      "turns": [
+        {
+          "status": "completed",
+          "ms": 5348,
+          "replyChars": 145,
+          "error": null
+        }
+      ],
+      "compactions": [],
+      "commands": [],
+      "itemTypes": {
+        "userMessage": 1,
+        "agentMessage": 1
+      },
+      "errors": [],
+      "approvalRequests": 0,
+      "thread": {
+        "model": "gpt-6.1-sol",
+        "reasoningEffort": "medium",
+        "sandbox": "readOnly",
+        "approvalPolicy": "never",
+        "ephemeral": true
+      },
+      "handoff": {
+        "envelopeChars": 1102,
+        "ledgerChars": 1525,
+        "ledgerRounds": 10,
+        "roundsAvailable": 10,
+        "roundsIncluded": 3,
+        "tocRounds": 10,
+        "truncated": false
+      },
+      "answerFormat": "json",
+      "answers": {
+        "Q1": "",
+        "Q2": "2027年3月26日",
+        "Q3": "",
+        "Q4": "",
+        "Q5": "",
+        "Q6": "",
+        "Q7": "",
+        "Q8": "",
+        "Q9": "",
+        "Q10": "全面クラウド移行案（コスト超過のため）",
+        "Q11": "3名、6月から",
+        "Q12": "TSUBAME-9"
+      },
+      "score": {
+        "correct": 4,
+        "total": 12,
+        "wrong": [
+          {
+            "id": "F1",
+            "reason": "empty"
+          },
+          {
+            "id": "F3",
+            "reason": "empty"
+          },
+          {
+            "id": "F4",
+            "reason": "empty"
+          },
+          {
+            "id": "F5",
+            "reason": "empty"
+          },
+          {
+            "id": "F6",
+            "reason": "empty"
+          },
+          {
+            "id": "F7",
+            "reason": "empty"
+          },
+          {
+            "id": "F8",
+            "reason": "empty"
+          },
+          {
+            "id": "F9",
+            "reason": "empty"
+          }
+        ]
+      },
+      "usage": {
+        "total": {
+          "totalTokens": 21130,
+          "inputTokens": 21052,
+          "cachedInputTokens": 13824,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 78,
+          "reasoningOutputTokens": 0
+        },
+        "lastCall": {
+          "totalTokens": 21130,
+          "inputTokens": 21052,
+          "cachedInputTokens": 13824,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 78,
+          "reasoningOutputTokens": 0
+        },
+        "peakContextTokens": 21130,
+        "modelContextWindow": 475000,
+        "updates": 1
+      },
+      "ledger": {
+        "commandAttempts": 0,
+        "ledgerReadAttempts": 0,
+        "ledgerReadSucceeded": false
+      }
+    },
+    {
+      "method": "c",
+      "label": "引継ぎ資料＋台帳を読む指示",
+      "status": "done",
+      "turns": [
+        {
+          "status": "completed",
+          "ms": 25321,
+          "replyChars": 263,
+          "error": null
+        }
+      ],
+      "compactions": [],
+      "commands": [
+        {
+          "command": "\"C:\\\\WINDOWS\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command \"Get-Content -LiteralPath '会話台帳.md' -Encoding UTF8\"",
+          "status": "completed",
+          "exitCode": 0,
+          "outputChars": 2294
+        },
+        {
+          "command": "\"C:\\\\WINDOWS\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command \"[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Get-Content -LiteralPath '会話台帳.md' -Encoding Default\"",
+          "status": "completed",
+          "exitCode": 0,
+          "outputChars": 2201
+        },
+        {
+          "command": "\"C:\\\\WINDOWS\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command \"python -c \\\"import pathlib,json; print(json.dumps(pathlib.Path('会話台帳.md').read_text(encoding='utf-8'),ensure_ascii=True))\\\"\"",
+          "status": "completed",
+          "exitCode": 0,
+          "outputChars": 5947
+        }
+      ],
+      "itemTypes": {
+        "userMessage": 1,
+        "agentMessage": 2,
+        "commandExecution": 3,
+        "reasoning": 1
+      },
+      "errors": [],
+      "approvalRequests": 0,
+      "thread": {
+        "model": "gpt-6.1-sol",
+        "reasoningEffort": "medium",
+        "sandbox": "readOnly",
+        "approvalPolicy": "never",
+        "ephemeral": true
+      },
+      "handoff": {
+        "envelopeChars": 1102,
+        "ledgerChars": 1525,
+        "ledgerRounds": 10,
+        "roundsAvailable": 10,
+        "roundsIncluded": 3,
+        "tocRounds": 10,
+        "truncated": false
+      },
+      "answerFormat": "json",
+      "answers": {
+        "Q1": "4,280万円",
+        "Q2": "2027年3月26日",
+        "Q3": "営業部の森田さん",
+        "Q4": "毎週木曜日10:45",
+        "Q5": "ハルカペイ社",
+        "Q6": "シンガポール拠点への対応",
+        "Q7": "2027年4月30日",
+        "Q8": "同時接続1,800件",
+        "Q9": "内線7342",
+        "Q10": "全面クラウド移行案（コスト超過のため）",
+        "Q11": "3名、6月から",
+        "Q12": "TSUBAME-9"
+      },
+      "score": {
+        "correct": 12,
+        "total": 12,
+        "wrong": []
+      },
+      "usage": {
+        "total": {
+          "totalTokens": 97752,
+          "inputTokens": 97369,
+          "cachedInputTokens": 85248,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 383,
+          "reasoningOutputTokens": 17
+        },
+        "lastCall": {
+          "totalTokens": 29123,
+          "inputTokens": 28948,
+          "cachedInputTokens": 24448,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 175,
+          "reasoningOutputTokens": 0
+        },
+        "peakContextTokens": 29123,
+        "modelContextWindow": 475000,
+        "updates": 4
+      },
+      "ledger": {
+        "commandAttempts": 3,
+        "ledgerReadAttempts": 3,
+        "ledgerReadSucceeded": true
+      }
+    },
+    {
+      "method": "d",
+      "label": "同一thread＋compact_prompt",
+      "status": "done",
+      "turns": [
+        {
+          "status": "completed",
+          "ms": 4174,
+          "replyChars": 2,
+          "error": null
+        },
+        {
+          "status": "completed",
+          "ms": 2737,
+          "replyChars": 2,
+          "error": null
+        },
+        {
+          "status": "completed",
+          "ms": 2660,
+          "replyChars": 2,
+          "error": null
+        },
+        {
+          "status": "completed",
+          "ms": 4264,
+          "replyChars": 2,
+          "error": null
+        },
+        {
+          "status": "completed",
+          "ms": 3415,
+          "replyChars": 2,
+          "error": null
+        },
+        {
+          "status": "completed",
+          "ms": 3619,
+          "replyChars": 2,
+          "error": null
+        },
+        {
+          "status": "completed",
+          "ms": 2630,
+          "replyChars": 2,
+          "error": null
+        },
+        {
+          "status": "completed",
+          "ms": 3306,
+          "replyChars": 2,
+          "error": null
+        },
+        {
+          "status": "completed",
+          "ms": 3511,
+          "replyChars": 2,
+          "error": null
+        },
+        {
+          "status": "completed",
+          "ms": 3632,
+          "replyChars": 2,
+          "error": null
+        },
+        {
+          "status": "completed",
+          "ms": 5066,
+          "replyChars": 197,
+          "error": null
+        }
+      ],
+      "compactions": [
+        {
+          "requested": true,
+          "rpcAccepted": true,
+          "itemObserved": true,
+          "legacyNotificationObserved": false,
+          "turnCompleted": true,
+          "ms": 12696,
+          "error": null,
+          "notificationMethods": [
+            "item/completed",
+            "item/started",
+            "thread/status/changed",
+            "thread/tokenUsage/updated",
+            "turn/completed",
+            "turn/started"
+          ]
+        }
+      ],
+      "commands": [],
+      "itemTypes": {
+        "userMessage": 11,
+        "agentMessage": 11
+      },
+      "errors": [],
+      "approvalRequests": 0,
+      "thread": {
+        "model": "gpt-6.1-sol",
+        "reasoningEffort": "medium",
+        "sandbox": "readOnly",
+        "approvalPolicy": "never",
+        "ephemeral": true
+      },
+      "compactPrompt": {
+        "passedVia": "thread/start config.compact_prompt",
+        "threadStartAccepted": true
+      },
+      "answerFormat": "json",
+      "answers": {
+        "Q1": "4,280万円",
+        "Q2": "2027年3月26日",
+        "Q3": "営業部の森田さん",
+        "Q4": "毎週木曜10:45",
+        "Q5": "ハルカペイ社",
+        "Q6": "シンガポール拠点への対応",
+        "Q7": "2027年4月30日",
+        "Q8": "1,800件",
+        "Q9": "7342",
+        "Q10": "全面クラウド移行案",
+        "Q11": "3名、6月から",
+        "Q12": "TSUBAME-9"
+      },
+      "score": {
+        "correct": 12,
+        "total": 12,
+        "wrong": []
+      },
+      "usage": {
+        "total": {
+          "totalTokens": 227002,
+          "inputTokens": 226828,
+          "cachedInputTokens": 207616,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 174,
+          "reasoningOutputTokens": 0
+        },
+        "lastCall": {
+          "totalTokens": 21429,
+          "inputTokens": 21305,
+          "cachedInputTokens": 20608,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 124,
+          "reasoningOutputTokens": 0
+        },
+        "peakContextTokens": 24176,
+        "modelContextWindow": 475000,
+        "updates": 12
+      }
+    }
+  ],
+  "approvalRequests": [],
+  "fatalError": null,
+  "durationMs": 139755,
+  "configUnchanged": true,
+  "authUnchanged": true,
+  "stderrTail": [
+    ""
+  ],
+  "totalTokens": 573948
+}
