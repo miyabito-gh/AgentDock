@@ -65,6 +65,7 @@ import { SendKeyContext } from "./ui/SendKeyContext";
 import { applyAppearance, watchSystemTheme } from "./ui/appearance";
 import { VisualGate } from "./ui/visual/VisualGate";
 import type { VisualSendHandle } from "./ui/visual/VisualWorkspace";
+import { confirmLeaveMarkdown } from "./ui/visual/markdown/guard";
 import { VISUAL_CONTEXT_MARK, friendlyVisualError } from "./ui/visual/api";
 
 type Mode = "live" | "mock";
@@ -1905,7 +1906,9 @@ ${cur}` : p.text);
         <div className="visual-appbar">
           <MenuBar open={menu} setOpen={setMenuOpen} views={cmdViews} onAct={act} tag={modeTag} tagMark={versionMark} live={live} conn={connUi} />
           <button type="button" className="btn sm visual-entry" aria-pressed={visualShown} onClick={() => {
-            setVisualMode(!visualShown); setOrgScreen(false); setQuick((q) => ({ ...q, open: false })); setRNarrow(false);
+            const toggle = () => { setVisualMode(!visualShown); setOrgScreen(false); setQuick((q) => ({ ...q, open: false })); setRNarrow(false); };
+            // 閉じるとき、Markdownに未保存の編集があれば確かめる（保存して閉じる・保存せず閉じる・やめる）。
+            if (visualShown) void confirmLeaveMarkdown().then((ok) => { if (ok) toggle(); }); else toggle();
           }}>Visual Editor</button>
           {visualShown ? <button type="button" className="btn sm visual-chat-toggle" aria-pressed={!visualChatOff} title={visualChatOff ? "チャットを表示してプレビューを狭める" : "チャットを畳んでプレビューを広げる"} onClick={() => setVisualChatOff(!visualChatOff)}>チャット{visualAttention > 0 ? <span className="vc-badge" aria-label={`対応が必要 ${visualAttention}件`}>{visualAttention}</span> : null}</button> : null}
         </div>

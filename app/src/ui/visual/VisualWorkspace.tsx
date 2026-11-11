@@ -7,6 +7,7 @@ import { actOnPreview, closePreview, onPreviewError, onPreviewSelection, openPre
 import { VisualEditControls } from "./VisualEditControls";
 import { composerPlaceholder, folderContains, runStopped } from "./composerHint";
 import { confirmLeaveMarkdown } from "./markdown/guard";
+import type { MarkdownHandle } from "./markdown/MarkdownPane";
 import { markdownSendContext, markdownTemplates } from "./markdown/context";
 import { NO_STAMP, afterStep, pollStep, type StampState } from "./stampSync";
 import { isSendKey, sendKeyName, type EnterMode } from "../sendKeys";
@@ -46,6 +47,7 @@ export function VisualWorkspace({ enabled, blocked, chatId, chatKey, chatCwd, on
   /** 開いているMarkdown（プレビューのWebViewは作らない。HTMLを開いている間は null）。 */
   const [mdDoc, setMdDoc] = useState<PreviewSession | null>(null);
   const mdCurrent = useRef<PreviewSession | null>(null);
+  const mdHandle = useRef<MarkdownHandle | null>(null);
   const doc = session ?? mdDoc;
   const activeDoc = () => current.current ?? mdCurrent.current;
   const [turns, setTurns] = useState<DirectTurn[]>([]);
@@ -231,6 +233,11 @@ export function VisualWorkspace({ enabled, blocked, chatId, chatKey, chatCwd, on
     await syncBounds();
   };
 
+  /** 別名で保存したMarkdownなど、指定したファイルへ切り替える。 */
+  const openPath = (path: string) => {
+    const token = ++generation.current;
+    void replacePreview(path, parentFolder(path), token).catch((failure) => { if (alive.current) setError("ファイルを開けませんでした: " + messageOf(failure)); });
+  };
   const pick = async (folder: boolean) => {
     if (!desktop || operationBusy.current || closeFailed.current) return;
     operationBusy.current = true;
@@ -336,6 +343,8 @@ export function VisualWorkspace({ enabled, blocked, chatId, chatKey, chatCwd, on
   const beginTurn = async (): Promise<{ id: string; fresh: boolean }> => {
     const active = activeDoc();
     if (!active || !direct || direct.sessionId !== active.sessionId) throw new Error("プレビューの準備ができていません。");
+    // Markdown: AIはファイルに保存された内容を読むので、未保存の編集があれば保存を求める（保存しないなら送らない）。
+    if (mdCurrent.current && mdHandle.current && !(await mdHandle.current.ensureSaved())) throw new Error("未保存の編集を保存しなかったため、依頼は送っていません。");
     const key = `${chatKey?.id ?? ""}|${active.rootPath}|${active.htmlPath}`;
     const prior = openTurns.current.get(key);
     // 同じ会話・同じHTMLで実行中、前の依頼が開いたままなら、追加指示としてその依頼に含める。別のHTMLの依頼には触れない。
@@ -529,7 +538,7 @@ export function VisualWorkspace({ enabled, blocked, chatId, chatKey, chatCwd, on
       </section> : null}
       {mdDoc && !session ? <section className="vp-card vp-preview" aria-label="Markdownプレビュー">
         <Suspense fallback={<div className="visual-empty"><strong>Markdownの画面を読み込んでいます…</strong></div>}>
-          <MarkdownPane rootPath={mdDoc.rootPath} path={mdDoc.htmlPath} aiBusy={chatRunning} selection={selection} onSelect={setSelection}
+          <MarkdownPane key={mdDoc.sessionId} rootPath={mdDoc.rootPath} path={mdDoc.htmlPath} aiBusy={chatRunning} sending={sending} selection={selection} onSelect={setSelection} onOpenPath={openPath} handleRef={mdHandle}
             barStart={<button type="button" className="btn subtle sm vp-ico" aria-label="HTML／Markdownを開く" title="HTML／Markdownを開く" disabled={!desktop || busy} onClick={() => void pick(false)}><Icon name="folderOpen" /></button>}
             barEnd={<button type="button" className="btn subtle sm vp-ico" aria-pressed={whereOpen} aria-label="表示しているファイルの場所" title="表示しているファイルの場所" onClick={() => setWhereOpen(!whereOpen)}><Icon name="more" /></button>} />
         </Suspense>

@@ -123,3 +123,22 @@
 .md-doc li>input[type=checkbox]{margin-right:6px}
 .md-link-off{color:var(--accent-text);text-decoration:underline;cursor:default}
 .md-img-off{display:inline-block;padding:0 6px;border:1px dashed var(--line-strong);border-radius:var(--r1);color:var(--ink2);font-size:var(--fs-s)}
+
+/* 編集欄・状態・外部変更の確認 */
+.md-state.warn{color:var(--wait-ink)}
+.md-alert{padding:8px 10px;border-bottom:1px solid var(--wait-line);background:var(--wait-bg);color:var(--wait-ink);font-size:var(--fs-s);flex:none}
+.md-alert p{margin:0 0 6px;overflow-wrap:anywhere}
+.md-alert-acts{display:flex;flex-wrap:wrap;gap:6px}
+.md-pane{container-type:inline-size}
+.md-edit{flex:1 1 0;min-width:0;min-height:0;display:flex;flex-direction:column}
+.md-edit+.md-prev{border-left:1px solid var(--line2)}
+.md-lock{margin:0;padding:4px 12px;background:var(--accent-weak);color:var(--accent-text);border-bottom:1px solid var(--accent-line);font-size:var(--fs-xs);flex:none}
+.md-editor{flex:1 1 0;min-height:0;width:100%;box-sizing:border-box;resize:none;border:0;border-radius:0;padding:12px 16px 16px;background:var(--surface);color:var(--ink);font-family:var(--mono);font-size:var(--fs-body);line-height:1.65;tab-size:2;white-space:pre-wrap;overflow-wrap:anywhere}
+.md-editor:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+.md-editor[readonly]{background:var(--surface2);color:var(--ink2);cursor:default}
+.md-foot{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:3px 12px;border-top:1px solid var(--line2);background:var(--surface2);color:var(--ink2);font-size:var(--fs-xs);flex:none}
+.md-pane:focus{outline:none}
+@container (max-width:560px){
+  .md-body.md-view-split{flex-direction:column}
+  .md-body.md-view-split .md-edit+.md-prev{border-left:0;border-top:1px solid var(--line2)}
+}
