@@ -1310,22 +1310,24 @@ button.uchip:hover{background:var(--accent-weak)}
 /* ==== ペット窓（?view=pet。DESIGN_PET）。窓は透明で、スプライトと吹き出しの領域だけがクリックを受ける ==== */
 html.pet-view,html.pet-view body,html.pet-view #root{background:transparent;overflow:hidden}
 .pet-root{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;user-select:none;-webkit-user-select:none;overflow:hidden}
-.pet-bubble-zone{width:100%;display:flex;align-items:flex-end;justify-content:center;padding-bottom:4px;box-sizing:border-box}
-.pet-bubble{display:flex;flex-direction:column;gap:2px;text-align:left;font:inherit;font-size:var(--fs-s);padding:6px 10px;border-radius:var(--r3);border:1px solid var(--line-strong);background:var(--surface);color:var(--ink);box-shadow:var(--sh-3);cursor:pointer;overflow:hidden}
+/* ペットの窓は中身とほぼ同じ大きさなので、影は窓の余白（左右・上 14px）に収まる小さな影だけを使う。大きな影は窓の端で切れて枠が欠けて見える。 */
+.pet-root{--pet-sh:0 3px 10px rgba(0,0,0,.14),0 1px 3px rgba(0,0,0,.08)}
+.pet-bubble-zone{width:100%;display:flex;align-items:flex-end;justify-content:center;padding:14px 14px 4px;box-sizing:border-box}
+.pet-bubble{display:flex;flex-direction:column;gap:2px;text-align:left;font:inherit;font-size:var(--fs-s);padding:6px 10px;border-radius:var(--r3);border:1px solid var(--line-strong);background:var(--surface);color:var(--ink);box-shadow:var(--pet-sh);cursor:pointer;overflow:hidden}
 .pet-bubble-title{font-weight:600}
 .pet-bubble-body{overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-all}
 .pet-bubble.wait{background:var(--wait-bg);color:var(--wait-ink);border-color:var(--wait-line)}
 .pet-bubble.done{background:var(--done-bg);color:var(--done);border-color:var(--done)}
 .pet-bubble.fail{background:var(--fail-bg);color:var(--fail-ink);border-color:var(--fail-line)}
 .pet-sprite{position:relative;flex:none;background-repeat:no-repeat;cursor:grab;max-width:100%}
-.pet-note{display:block;padding:6px 10px;border-radius:var(--r3);border:1px solid var(--line-strong);background:var(--surface);color:var(--ink2);font-size:var(--fs-s);box-shadow:var(--sh-3)}
+.pet-note{display:block;padding:6px 10px;border-radius:var(--r3);border:1px solid var(--line-strong);background:var(--surface);color:var(--ink2);font-size:var(--fs-s);box-shadow:var(--pet-sh)}
 .pet-unknown{position:absolute;top:4px;right:4px;width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:var(--fs-s);font-weight:700;background:var(--surface);color:var(--unk);border:1px solid var(--unv-line)}
 /* ---- ペットのカード（簡易チャット・回答・メニュー）。やわらかい角丸・淡い面・ピル型ボタン。色はトークンだけ ---- */
 .pet-bubble-zone.open{padding-bottom:10px}
 .pet-bubble{border-radius:18px;position:relative}
 .pet-bubble::after{content:"";position:absolute;left:50%;bottom:-7px;width:12px;height:12px;margin-left:-6px;background:inherit;border-right:1px solid;border-bottom:1px solid;border-color:inherit;transform:rotate(45deg) skew(10deg,10deg);border-radius:0 0 4px 0}
 .pet-bubble{margin-bottom:8px}
-.pet-panel{position:relative;width:100%;max-height:100%;display:flex;flex-direction:column;box-sizing:border-box;padding:14px 14px 12px;border-radius:18px;background:var(--surface);color:var(--ink);border:1px solid var(--line);box-shadow:0 8px 28px rgba(0,0,0,.18),0 2px 6px rgba(0,0,0,.08);font-size:var(--fs-s);line-height:1.5;margin-bottom:8px}
+.pet-panel{position:relative;width:100%;max-height:100%;display:flex;flex-direction:column;box-sizing:border-box;padding:14px 14px 12px;border-radius:18px;background:var(--surface);color:var(--ink);border:1px solid var(--line);box-shadow:var(--pet-sh);font-size:var(--fs-s);line-height:1.5;margin-bottom:8px}
 .pet-panel::after{content:"";position:absolute;left:50%;bottom:-8px;width:14px;height:14px;margin-left:-7px;background:var(--surface);border-right:1px solid var(--line);border-bottom:1px solid var(--line);transform:rotate(45deg);border-radius:0 0 5px 0}
 .pet-panel-x{position:absolute;top:8px;right:10px;width:28px;height:28px;border-radius:50%;border:0;background:transparent;color:var(--ink3);font-size:16px;line-height:1;cursor:pointer}
 .pet-panel-x:hover{background:var(--hover)}
@@ -1386,7 +1388,8 @@ html.pet-view,html.pet-view body,html.pet-view #root{background:transparent;over
 .pc-status.ok{background:var(--done-bg);color:var(--done)}
 .pc-status.warn{background:var(--wait-bg);color:var(--wait-ink)}
 .pc-status.busy,.pc-status.info{background:var(--accent-weak);color:var(--accent-text)}
-.pc-compose-body{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:12px;padding:0 2px}
+/* スクロール領域は中身のフォーカス枠（外側3px）を切らないよう、四方に4pxの余白を取る（外側は負の余白で揃える）。 */
+.pc-compose-body{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:12px;padding:4px;margin:-4px}
 .pc-block{display:flex;flex-direction:column;gap:6px}
 .pc-block-head,.pc-block-foot{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
 .pc-badge{margin-left:8px;padding:1px 8px;border-radius:999px;background:var(--accent-weak);color:var(--accent-text);font-size:var(--fs-xs)}

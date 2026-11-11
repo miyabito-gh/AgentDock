@@ -17,10 +17,11 @@ import { cellOf, choosePose, emptyTracker, FRAME_H, FRAME_W, gazeIndex, isActive
 
 // ホスト `win::pet` の窓サイズと同じ数値（吹き出しの領域の大きさ）。
 const BUBBLE_ZONE_H = 96;
-const BUBBLE_MAX_W = 240;
+// 最大幅は「窓の幅 − 左右の余白 14px×2」以下にする（影が窓の端で切れないように。styles.css の .pet-bubble-zone）。
+const BUBBLE_MAX_W = 212;
 // カードを開いているときの窓の上側の領域（ホスト `win::pet` の CARD_W / CARD_H と同じ数値）。
 const CARD_ZONE_H = 420;
-const CARD_MAX_W = 300;
+const CARD_MAX_W = 288;
 // 返信・推敲のパネル（ホスト `win::pet` の COMPOSE_H と同じ数値。幅は読みやすい360〜420pxの範囲）。
 const COMPOSE_ZONE_H = 560;
 const COMPOSE_MAX_W = 400;
