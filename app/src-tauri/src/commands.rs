@@ -15,7 +15,7 @@ use crate::backend::local::{
     AcknowledgeFailureArgs, AppSettings, ChatArgs, ChatLocalView, ChatQueue, DeleteOutcome, DeletePreview, ExportMarkdownArgs, GetUsageArgs, UsageReport, EditQueueEntryArgs, EnqueueArgs, ForceKillArgs, ForceKillPreview, QueueEntry, QueueEntryArgs, QuitDecisionArgs, QuitPhase,
     GetWorkFoldersArgs, CheckWorkFolderArgs, SetNextWorkFoldersArgs,
     ReconcileSendArgs, RetrySaveArgs, SaveStatus, SetAlwaysOnTopArgs, SetAppSettingsArgs, SetChatCwdArgs, SetChatPermissionArgs, SetDraftArgs, SetMonitorWindowScopeArgs, SetSelectedChatArgs, PetCardArgs, PetCursor, PetHitRegionsArgs, PetPauseArgs, PetSettings, PetSpriteArgs, SetPetSettingsArgs,
-    SettingsImpact, ShowMainWindowArgs, ComposeAdjustArgs, ComposeOpenArgs, ComposeOrigin, ComposeStartArgs, ComposeView,
+    SettingsImpact, ShowMainWindowArgs, ComposeAdjustArgs, ComposeOpenArgs, ComposeOrigin, ComposeStartArgs, ComposeView, SetComposeSettingsArgs,
 };
 use crate::backend::model::*;
 use crate::host::Host;
@@ -494,6 +494,43 @@ pub async fn compose_close(app: tauri::AppHandle, host: Hs<'_>) -> R<ComposeView
         let _ = crate::win::pet::close_pet(&app);
     }
     Ok(view)
+}
+
+/// 返信・推敲の設定（ショートカット・文章ルール・モデル）を保存する。ショートカットが変わるとき（または登録できていないとき）は、
+/// 登録し直し、登録できなければ理由を返して何も保存しない（元のキーの登録へ戻す）。通常画面だけが呼べる。
+#[tauri::command]
+pub async fn set_compose_settings(
+    app: tauri::AppHandle,
+    host: Hs<'_>,
+    shortcut: State<'_, Arc<crate::win::compose_shortcut::ComposeShortcut>>,
+    args: SetComposeSettingsArgs,
+) -> R<crate::win::compose_shortcut::ComposeShortcutStatus> {
+    let current = host.get_app_settings().compose;
+    let wanted = args.compose.shortcut.trim().to_string();
+    let registered = shortcut.status().registered;
+    let mut status = shortcut.status();
+    if wanted != current.shortcut.trim() || registered.as_deref() != Some(wanted.as_str()) && !wanted.is_empty() {
+        status = crate::win::compose_shortcut::apply(&app, &wanted);
+        if let Some(message) = status.error.clone() {
+            // 登録できなかった。元のキーの登録へ戻し、設定は保存しない。
+            if wanted != current.shortcut.trim() {
+                crate::win::compose_shortcut::apply(&app, &current.shortcut);
+            }
+            return Err(IpcError { code: IpcErrorCode::InvalidArgs, message, blocked: None });
+        }
+    }
+    if let Err(e) = host.inner().clone().set_compose_settings(args.compose) {
+        // 保存できなかったので、登録も元へ戻す。
+        crate::win::compose_shortcut::apply(&app, &current.shortcut);
+        return Err(e);
+    }
+    Ok(status)
+}
+
+/// ショートカットの登録の状態（設定画面が、登録できているか・できなかった理由を表示する）。
+#[tauri::command]
+pub async fn compose_shortcut_status(shortcut: State<'_, Arc<crate::win::compose_shortcut::ComposeShortcut>>) -> R<crate::win::compose_shortcut::ComposeShortcutStatus> {
+    Ok(shortcut.status())
 }
 
 /// ショートカット（利用者のキー操作）で取り込んだ文章でパネルを開く。利用者の確認の証票はこの層でだけ作る。

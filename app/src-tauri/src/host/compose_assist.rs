@@ -108,6 +108,14 @@ impl Host {
         self.mutate(|_| ((), vec![HostEvent::ComposeUpdated]));
     }
 
+    /// 設定を保存する（ショートカットの再登録はコマンド層）。
+    pub fn set_compose_settings(self: &Arc<Self>, compose: ComposeSettings) -> Result<ComposeSettings, IpcError> {
+        let current = self.read(|d| d.settings.compose.clone());
+        let compose = ca::sanitize_settings(compose, &current).map_err(|m| err(IpcErrorCode::InvalidArgs, m))?;
+        self.update_settings(|s| s.compose = compose.clone())?;
+        Ok(compose)
+    }
+
     /// 現在の表示内容。
     pub fn compose_view(&self) -> ComposeView {
         self.compose_rt.live.lock().unwrap().view.clone()

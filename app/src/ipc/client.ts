@@ -21,7 +21,7 @@ import {
   type CloudApplyResult, type CloudCommandOutput, type CloudEnvHint, type CloudTaskList, type CloudTaskRecord,
   type CompactChatResult, type CompactionSnapshot, type ForkPurpose, type ForkReconcile, type ForkResult, type RecheckAgentsResult, type ResendAsForkResult, type OpReconcile, type ParityOp, type ReviewChoices, type ReviewDelivery, type ReviewOutcome, type ReviewTarget,
 } from "./types";
-import type { HandoffPreview, HandoffResult, PurposeDraftEstimate, PurposeDraftView, ComposeMode, ComposeView } from "./types";
+import type { HandoffPreview, HandoffResult, PurposeDraftEstimate, PurposeDraftView, ComposeMode, ComposeSettings, ComposeShortcutStatus, ComposeView } from "./types";
 
 /** 型付きinvoke。引数は `args` 1個で渡す（types.ts CommandMap の規約）。 */
 export function invokeCmd<K extends CommandName>(name: K, args: CommandMap[K]["args"]): Promise<CommandMap[K]["result"]> {
@@ -148,6 +148,9 @@ export const composeAdjust = (instruction: string): Promise<ComposeView> => invo
 /** パネルを閉じる（会話を閉じる。作成中なら中止）。 */
 export const composeClose = (): Promise<ComposeView> => invokeCmd("compose_close", {});
 /** 結果をクリップボードへコピーする（貼り付け・送信はしない）。 */
+/** 返信・推敲の設定を保存する（ショートカットが変わるときは登録し直す。登録できなければ理由つきで失敗し、何も保存しない）。 */
+export const setComposeSettings = (compose: ComposeSettings): Promise<ComposeShortcutStatus> => invokeCmd("set_compose_settings", { compose });
+export const composeShortcutStatus = (): Promise<ComposeShortcutStatus> => invokeCmd("compose_shortcut_status", {});
 export const composeCopy = (): Promise<null> => invokeCmd("compose_copy", {});
 /** ペットの吹き出し（ホストが、ペット表示中のOS通知の代わりに送る）。名前はホスト `win::pet::PET_BUBBLE_EVENT` と同じ。 */
 export const PET_BUBBLE_EVENT = "agentdock://pet-bubble";

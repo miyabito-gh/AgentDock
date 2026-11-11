@@ -86,6 +86,20 @@ pub fn adjust_prompt(instruction: &str) -> String {
     format!("直前の結果を、次の指示に沿って直してください。直した文だけを出力してください。\n\n【指示】\n{}", instruction.trim())
 }
 
+/// 設定の検査と整え（保存の前）。キーの書式の検査は呼び出し側（登録のとき）。`last_mode` は画面から変えさせないので、いまの値を引き継ぐ。
+pub fn sanitize_settings(mut s: ComposeSettings, current: &ComposeSettings) -> Result<ComposeSettings, String> {
+    for (name, rules) in [("共通", &s.common_rules), ("返信用", &s.reply_rules), ("推敲用", &s.polish_rules)] {
+        if rules.chars().count() > COMPOSE_RULES_MAX_CHARS {
+            return Err(format!("文章ルール（{name}）が長すぎます（{COMPOSE_RULES_MAX_CHARS}文字まで）"));
+        }
+    }
+    s.shortcut = s.shortcut.trim().to_string();
+    s.model = s.model.map(|m| m.trim().to_string()).filter(|m| !m.is_empty());
+    s.effort = s.effort.map(|e| e.trim().to_string()).filter(|e| !e.is_empty());
+    s.last_mode = current.last_mode;
+    Ok(s)
+}
+
 /// 結果の整形（前後の空白だけ。中身は変えない）。
 pub fn clean_result(text: &str) -> String {
     text.trim().to_string()
@@ -186,6 +200,16 @@ mod tests {
         assert_eq!(resolve_choice(&s, &[]), None);
         let unknown = ComposeSettings { model: Some("zzz".into()), ..Default::default() };
         assert_eq!(resolve_choice(&unknown, &models), Some(ModelChoice { model: "zzz".into(), effort: None, speed_tier: None }));
+    }
+
+    #[test]
+    fn settings_are_checked_and_tidied_before_saving() {
+        let current = ComposeSettings { last_mode: ComposeMode::Polish, ..Default::default() };
+        let s = ComposeSettings { shortcut: " Ctrl+Alt+K ".into(), model: Some("  ".into()), effort: Some(" low ".into()), last_mode: ComposeMode::Reply, ..Default::default() };
+        let t = sanitize_settings(s, &current).unwrap();
+        assert_eq!((t.shortcut.as_str(), t.model, t.effort.as_deref(), t.last_mode), ("Ctrl+Alt+K", None, Some("low"), ComposeMode::Polish));
+        let long = ComposeSettings { polish_rules: "あ".repeat(COMPOSE_RULES_MAX_CHARS + 1), ..Default::default() };
+        assert!(sanitize_settings(long, &current).unwrap_err().contains("推敲用"));
     }
 
     #[test]

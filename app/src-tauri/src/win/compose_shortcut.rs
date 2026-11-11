@@ -8,7 +8,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
@@ -16,10 +16,12 @@ use super::{capture, pet};
 use crate::backend::local::{ComposeOrigin, ComposeState};
 use crate::host::Host;
 
-/// 登録の状態（画面側の型 `ComposeShortcutStatus` と同じ形）。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+/// 登録の状態。設定画面が読んで、登録できているか・できなかった理由を表示する。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
-pub struct ShortcutStatus {
+pub struct ComposeShortcutStatus {
     /// 登録できているキー（なければ None）。
     pub registered: Option<String>,
     /// 登録できなかった理由（平易な日本語）。
@@ -28,14 +30,14 @@ pub struct ShortcutStatus {
 
 #[derive(Default)]
 pub struct ComposeShortcut {
-    status: Mutex<Option<ShortcutStatus>>,
+    status: Mutex<Option<ComposeShortcutStatus>>,
     /// 取り込み中（連打で重ねない）。
     capturing: AtomicBool,
 }
 
 impl ComposeShortcut {
-    pub fn status(&self) -> ShortcutStatus {
-        self.status.lock().unwrap().clone().unwrap_or(ShortcutStatus { registered: None, error: None })
+    pub fn status(&self) -> ComposeShortcutStatus {
+        self.status.lock().unwrap().clone().unwrap_or(ComposeShortcutStatus { registered: None, error: None })
     }
 }
 
@@ -56,13 +58,13 @@ pub fn parse(text: &str) -> Result<Option<Shortcut>, String> {
 }
 
 /// 設定のキーで登録し直す（前の登録は外す）。失敗しても状態に理由を残すだけで、アプリは続ける。
-pub fn apply(app: &AppHandle, shortcut: &str) -> ShortcutStatus {
+pub fn apply(app: &AppHandle, shortcut: &str) -> ComposeShortcutStatus {
     let gs = app.global_shortcut();
     let status = match parse(shortcut) {
-        Err(e) => ShortcutStatus { registered: None, error: Some(e) },
+        Err(e) => ComposeShortcutStatus { registered: None, error: Some(e) },
         Ok(None) => {
             let _ = gs.unregister_all();
-            ShortcutStatus { registered: None, error: None }
+            ComposeShortcutStatus { registered: None, error: None }
         }
         Ok(Some(sc)) => {
             let _ = gs.unregister_all();
@@ -71,8 +73,8 @@ pub fn apply(app: &AppHandle, shortcut: &str) -> ShortcutStatus {
                     on_pressed(app);
                 }
             }) {
-                Ok(()) => ShortcutStatus { registered: Some(shortcut.trim().to_string()), error: None },
-                Err(e) => ShortcutStatus { registered: None, error: Some(register_error_text(shortcut.trim(), &e.to_string())) },
+                Ok(()) => ComposeShortcutStatus { registered: Some(shortcut.trim().to_string()), error: None },
+                Err(e) => ComposeShortcutStatus { registered: None, error: Some(register_error_text(shortcut.trim(), &e.to_string())) },
             }
         }
     };

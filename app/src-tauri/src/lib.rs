@@ -281,6 +281,8 @@ pub fn run() {
             commands::compose_adjust,
             commands::compose_close,
             commands::compose_copy,
+            commands::set_compose_settings,
+            commands::compose_shortcut_status,
             commands::show_main_window,
             commands::touch_chat_used,
             commands::preview_delete,

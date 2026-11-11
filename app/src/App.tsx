@@ -2039,6 +2039,11 @@ ${cur}` : p.text);
             value: snap.settings.pet, live,
             set: async (p) => { try { await host.petSetSettings(p); } catch (e) { sayErr("ペットの設定を保存できませんでした", e); } },
           }}
+          reply={{
+            value: snap.settings.compose, models, live,
+            save: async (c) => { try { await host.setComposeSettings(c); return null; } catch (e) { return host.asIpcError(e).message; } },
+            status: host.composeShortcutStatus,
+          }}
           autostart={{
             value: snap.settings.autostart,
             set: (on) => updateSettings((s) => ({ ...s, autostart: on }), "自動起動の設定を変更できませんでした"),
