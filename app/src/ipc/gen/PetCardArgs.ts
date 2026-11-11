@@ -3,4 +3,8 @@
 /**
  * 小窓のカード（簡易チャット・回答・メニュー）を開くか。窓の大きさだけを変える。
  */
-export type PetCardArgs = { open: boolean, };
+export type PetCardArgs = { open: boolean, 
+/**
+ * 返信・推敲のパネル（幅広）を開くか。古い呼び出し（この項目なし）はふつうのカード。
+ */
+compose: boolean, };

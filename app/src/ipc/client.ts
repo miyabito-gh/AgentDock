@@ -21,7 +21,7 @@ import {
   type CloudApplyResult, type CloudCommandOutput, type CloudEnvHint, type CloudTaskList, type CloudTaskRecord,
   type CompactChatResult, type CompactionSnapshot, type ForkPurpose, type ForkReconcile, type ForkResult, type RecheckAgentsResult, type ResendAsForkResult, type OpReconcile, type ParityOp, type ReviewChoices, type ReviewDelivery, type ReviewOutcome, type ReviewTarget,
 } from "./types";
-import type { HandoffPreview, HandoffResult, PurposeDraftEstimate, PurposeDraftView } from "./types";
+import type { HandoffPreview, HandoffResult, PurposeDraftEstimate, PurposeDraftView, ComposeMode, ComposeView } from "./types";
 
 /** 型付きinvoke。引数は `args` 1個で渡す（types.ts CommandMap の規約）。 */
 export function invokeCmd<K extends CommandName>(name: K, args: CommandMap[K]["args"]): Promise<CommandMap[K]["result"]> {
@@ -135,10 +135,20 @@ export const petSetHitRegions = (regions: PetRect[]): Promise<null> => invokeCmd
 /** ペット窓の左上から見たカーソル位置（目線用。窓の外も取れる）。 */
 export const petCursor = (): Promise<PetCursor | null> => invokeCmd("pet_cursor", {});
 /** カード（簡易チャット・回答・メニュー）の開閉に合わせてペット窓の大きさを変える（足元固定）。 */
-export const petSetCard = (open: boolean): Promise<null> => invokeCmd("pet_set_card", { open });
+export const petSetCard = (open: boolean, compose = false): Promise<null> => invokeCmd("pet_set_card", { open, compose });
 /** 通知の一時停止（minutes なしで再開）。終わりの時刻（UNIXミリ秒）を返す。承認・質問は止めない。 */
 export const petPause = (minutes: number | null): Promise<number | null> => invokeCmd("pet_pause", { minutes });
 export const petPauseGet = (): Promise<number | null> => invokeCmd("pet_pause_get", {});
+// ── 返信・推敲（DESIGN_COMPOSE）。取り込んだ文章・結果はホストのメモリ上だけ。出力はコピーまで。 ──
+/** パネルを開く（文章はクリップボードから取り込む。取り込み直しもこれ）。mode なしは前回使った方。 */
+export const composeOpen = (mode: ComposeMode | null): Promise<ComposeView> => invokeCmd("compose_open", { mode });
+export const composeView = (): Promise<ComposeView> => invokeCmd("compose_view", {});
+export const composeStart = (mode: ComposeMode, source: string, instruction: string): Promise<ComposeView> => invokeCmd("compose_start", { mode, source, instruction });
+export const composeAdjust = (instruction: string): Promise<ComposeView> => invokeCmd("compose_adjust", { instruction });
+/** パネルを閉じる（会話を閉じる。作成中なら中止）。 */
+export const composeClose = (): Promise<ComposeView> => invokeCmd("compose_close", {});
+/** 結果をクリップボードへコピーする（貼り付け・送信はしない）。 */
+export const composeCopy = (): Promise<null> => invokeCmd("compose_copy", {});
 /** ペットの吹き出し（ホストが、ペット表示中のOS通知の代わりに送る）。名前はホスト `win::pet::PET_BUBBLE_EVENT` と同じ。 */
 export const PET_BUBBLE_EVENT = "agentdock://pet-bubble";
 export interface PetBubbleMessage { kind: "awaitingAnswer" | "completed" | "failed" | "orgAttention" | "orgCompleted" | "orgFailed"; title: string; body: string; chat: ChatKey | null }

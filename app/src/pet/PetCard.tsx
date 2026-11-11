@@ -1,7 +1,7 @@
 // ペットの小さなカード（簡易チャット・承認/質問への回答・右クリックメニュー）。通常チャットの部品は使わず、やわらかい見た目で作る。
 // 回答・送信は通常画面と同じホストのコマンド（respond_request / send_message）を、利用者が押したときだけ呼ぶ。自動回答・自動再送はしない。
 import { useEffect, useState } from "react";
-import type { Chat, ChatKey, Known, HostSnapshot, PendingRequest, PetEntry, PetSettings, QuestionAnswer, RequestAnswer, TurnRecord } from "../ipc/types";
+import type { Chat, ChatKey, ComposeMode, Known, HostSnapshot, PendingRequest, PetEntry, PetSettings, QuestionAnswer, RequestAnswer, TurnRecord } from "../ipc/types";
 import * as host from "../ipc/client";
 import { chatName, isRunning } from "../ui/derive";
 import { sendLockReason } from "../ui/CenterPane";
@@ -117,7 +117,7 @@ export function RequestPane({ r, chats, onOpenChat, onFinished, onToChat }: {
         </div>
       )}
       {!armed && !locked ? <div className="pc-hint">内容を確認してください（{Math.ceil(ARM_MS / 100) / 10}秒ほどで押せます）</div> : null}
-      <div className="pc-foot"><button type="button" className="pc-link" onClick={onToChat}>チャットに送る</button></div>
+      <div className="pc-foot"><button type="button" className="pc-link" onClick={onToChat} title="回答はせずに、チャットへひとこと送る画面へ移ります">ひとこと送る画面へ</button></div>
     </div>
   );
 }
@@ -170,7 +170,7 @@ export function ChatPane({ snap, turns, targetId, onPick, onOpenChat, pendingCou
           {options.map((c) => <option key={c.key.id} value={c.key.id}>{clip(chatName(c), 24)}</option>)}
         </select>
       </div>
-      {pendingCount > 0 ? <button type="button" className="pc-banner" onClick={onToRequest}>回答待ちが{pendingCount}件あります</button> : null}
+      {pendingCount > 0 ? <button type="button" className="pc-banner" onClick={onToRequest}>回答待ちが{pendingCount}件あります（押して回答）</button> : null}
       <div className="pc-reply" aria-label="最新の返答">
         {reply ? <><div className="pc-reply-text">{clip(reply.text, 280)}</div>{reply.inProgress ? <div className="pc-hint">書いている途中です</div> : null}</>
           : <div className="pc-hint">{chat ? "このウィンドウで受け取った返答はまだありません" : "送り先を選ぶと、返答がここに出ます"}</div>}
@@ -179,7 +179,7 @@ export function ChatPane({ snap, turns, targetId, onPick, onOpenChat, pendingCou
       <textarea className="pc-input pc-text" rows={2} value={text} disabled={!!lock || busy} placeholder={lock ?? (running ? "追加の指示を書く" : "ひとこと送る")} aria-label="送る内容"
         onChange={(e) => setText(e.target.value)} onKeyDown={onKey} />
       <div className="pc-actions">
-        {running && !lock ? <span className="pc-hint">作業中なので、追加指示として送ります</span> : <span />}
+        {running && !lock ? <span className="pc-hint">作業中なので、追加指示として送ります</span> : <span className="pc-hint">{snap.settings.sendKey === "ctrlEnter" ? "Ctrl+Enter で送る" : "Enter で送る（Shift+Enter で改行）"}</span>}
         <button type="button" className="pc-pill primary" disabled={!chat || !text.trim() || busy || !!lock} onClick={() => void send()}>{running ? "追加で送る" : "送る"}</button>
       </div>
       {status ? <div className={`pc-note ${status.tone}`} role="status">{status.text}</div> : null}
@@ -190,8 +190,10 @@ export function ChatPane({ snap, turns, targetId, onPick, onOpenChat, pendingCou
 // ── 右クリックメニュー ──
 const SIZES = [50, 75, 100, 125, 150];
 
-export function MenuPane({ pet, pausedUntil, onSet, onPause, onHide, onOpenMain }: {
+export function MenuPane({ pet, pausedUntil, onSet, onPause, onHide, onOpenMain, onCompose }: {
   pet: PetSettings; pausedUntil: number | null; onSet: (p: PetSettings) => void; onPause: (minutes: number | null) => void; onHide: () => void; onOpenMain: () => void;
+  /** 返信・推敲のパネルを開く（クリップボードの文字を取り込む）。 */
+  onCompose: (mode: ComposeMode) => void;
 }) {
   const [list, setList] = useState<PetEntry[] | null>(null);
   useEffect(() => { host.petList().then(setList).catch(() => setList([])); }, []);
@@ -201,6 +203,11 @@ export function MenuPane({ pet, pausedUntil, onSet, onPause, onHide, onOpenMain 
     <div className="pc-menu" role="menu" aria-label="ペットのメニュー">
       <div className="pc-scroll">
         <button type="button" role="menuitem" className="pc-item" onClick={onOpenMain}>AgentDockを開く</button>
+        <div className="pc-sec">文章を整える（コピーした文章を使います）</div>
+        <div className="pc-opts">
+          <button type="button" role="menuitem" className="pc-pill quiet" onClick={() => onCompose("reply")}>返信</button>
+          <button type="button" role="menuitem" className="pc-pill quiet" onClick={() => onCompose("polish")}>推敲</button>
+        </div>
         <div className="pc-sec">通知</div>
         {left ? <div className="pc-hint">一時停止中（{left}）。承認・質問は届きます</div> : null}
         <div className="pc-opts">

@@ -15,7 +15,7 @@ use crate::backend::local::{
     AcknowledgeFailureArgs, AppSettings, ChatArgs, ChatLocalView, ChatQueue, DeleteOutcome, DeletePreview, ExportMarkdownArgs, GetUsageArgs, UsageReport, EditQueueEntryArgs, EnqueueArgs, ForceKillArgs, ForceKillPreview, QueueEntry, QueueEntryArgs, QuitDecisionArgs, QuitPhase,
     GetWorkFoldersArgs, CheckWorkFolderArgs, SetNextWorkFoldersArgs,
     ReconcileSendArgs, RetrySaveArgs, SaveStatus, SetAlwaysOnTopArgs, SetAppSettingsArgs, SetChatCwdArgs, SetChatPermissionArgs, SetDraftArgs, SetMonitorWindowScopeArgs, SetSelectedChatArgs, PetCardArgs, PetCursor, PetHitRegionsArgs, PetPauseArgs, PetSettings, PetSpriteArgs, SetPetSettingsArgs,
-    SettingsImpact, ShowMainWindowArgs,
+    SettingsImpact, ShowMainWindowArgs, ComposeAdjustArgs, ComposeOpenArgs, ComposeOrigin, ComposeStartArgs, ComposeView,
 };
 use crate::backend::model::*;
 use crate::host::Host;
@@ -433,7 +433,7 @@ pub async fn pet_set_hit_regions(rt: State<'_, Arc<crate::win::pet::PetRuntime>>
 /// ペット窓のカード（簡易チャット・回答・メニュー）の開閉に合わせて窓の大きさを変える。
 #[tauri::command]
 pub async fn pet_set_card(app: tauri::AppHandle, host: Hs<'_>, args: PetCardArgs) -> R<()> {
-    crate::win::pet::set_card(&app, host.inner(), args.open);
+    crate::win::pet::set_card(&app, host.inner(), args.open, args.compose);
     Ok(())
 }
 
@@ -447,6 +447,58 @@ pub async fn pet_pause(app: tauri::AppHandle, args: PetPauseArgs) -> R<Option<i6
 #[tauri::command]
 pub async fn pet_pause_get(app: tauri::AppHandle) -> R<Option<i64>> {
     Ok(crate::win::pet::paused_until(&app))
+}
+
+// ── 返信・推敲（DESIGN_COMPOSE）。取り込んだ文章・結果は保存せず、診断ログにも書かない。出力はコピーまで。 ──
+
+/// パネルを開く。文章はクリップボードから取り込む（取り込み直しもこれ）。空なら、パネルで貼り付けてもらう。前の会話は閉じる。
+#[tauri::command]
+pub async fn compose_open(app: tauri::AppHandle, host: Hs<'_>, args: ComposeOpenArgs) -> R<ComposeView> {
+    use tauri_plugin_clipboard_manager::ClipboardExt;
+    let confirmed = UserConfirmed::from_user_command();
+    // 文字以外（画像など）は読めないので、空として扱う（パネルに「文字がありません」と出す）。
+    let (source, origin) = match app.clipboard().read_text() {
+        Ok(t) if !t.trim().is_empty() => (t, ComposeOrigin::Clipboard),
+        _ => (String::new(), ComposeOrigin::None),
+    };
+    Ok(host.inner().clone().compose_begin(args.mode, source, origin, None, &confirmed).await)
+}
+
+/// 返信・推敲のパネルの今の内容。
+#[tauri::command]
+pub async fn compose_view(host: Hs<'_>) -> R<ComposeView> {
+    Ok(host.compose_view())
+}
+
+/// 作成する（取り込んだ文章＋追加の指示）。一時の会話を新しく作って1回だけ送る。
+#[tauri::command]
+pub async fn compose_start(host: Hs<'_>, args: ComposeStartArgs) -> R<ComposeView> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().compose_start(args, &confirmed).await
+}
+
+/// 同じ会話へ追加で再調整を送る（「短く」「柔らかく」「丁寧に」・自由入力）。
+#[tauri::command]
+pub async fn compose_adjust(host: Hs<'_>, args: ComposeAdjustArgs) -> R<ComposeView> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().compose_adjust(args, &confirmed).await
+}
+
+/// パネルを閉じる（会話を閉じる。作成中なら中止する）。
+#[tauri::command]
+pub async fn compose_close(host: Hs<'_>) -> R<ComposeView> {
+    let confirmed = UserConfirmed::from_user_command();
+    Ok(host.inner().clone().compose_close(&confirmed).await)
+}
+
+/// 結果をクリップボードへコピーする（貼り付け・送信はしない）。
+#[tauri::command]
+pub async fn compose_copy(app: tauri::AppHandle, host: Hs<'_>) -> R<()> {
+    use tauri_plugin_clipboard_manager::ClipboardExt;
+    let Some(text) = host.compose_result() else {
+        return Err(IpcError { code: IpcErrorCode::InvalidArgs, message: "コピーする結果がありません".into(), blocked: None });
+    };
+    app.clipboard().write_text(text).map_err(|e| io_err(format!("コピーできませんでした: {e}")))
 }
 
 /// ペット窓から見たカーソル位置（目線用。窓の外も取れる。取れなければ None）。

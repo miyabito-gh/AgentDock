@@ -14,6 +14,7 @@ pub mod changes;
 pub mod chat_prefs;
 pub mod cloud;
 pub mod compose;
+pub mod compose_assist;
 pub mod continuity;
 pub mod continuity_handoff;
 pub mod extensions;
@@ -211,6 +212,8 @@ pub struct Host {
     side_rt: side::SideRuntime,
     /// 目的メモの下書き（一時 thread・結果。`purpose_draft.rs`）。
     draft_rt: purpose_draft::DraftRuntime,
+    /// 返信・推敲（一時の会話・取り込んだ文章・結果。メモリ上だけ。`compose_assist.rs`）。
+    compose_rt: compose_assist::ComposeRuntime,
     /// MCP・Pluginsの管理操作の直列化と、認可の進行（`extensions.rs`）。
     ext_rt: extensions::ExtensionsRuntime,
     /// クラウド委任・取込みの直列化（`cloud.rs`）。
@@ -268,6 +271,7 @@ impl Host {
             worktree_rt: worktree::WorktreeRuntime::default(),
             side_rt: side::SideRuntime::default(),
             draft_rt: purpose_draft::DraftRuntime::default(),
+            compose_rt: compose_assist::ComposeRuntime::default(),
             ext_rt: extensions::ExtensionsRuntime::default(),
             cloud_rt: cloud::CloudRuntime::default(),
             read_limit: read_limit::ReadLimiter::default(),
@@ -402,6 +406,8 @@ impl Host {
         self.side_observe(&env.event);
         // 目的メモの下書き（一時 thread の最終回答の収集・終端の検査・切断で結果不明）。待たない・送らない。
         self.draft_observe(&env.event);
+        // 返信・推敲（一時の会話の最終回答の収集・終端で結果・切断で結果不明）。待たない・送らない。
+        self.compose_observe(&env.event);
         // ツールサーバー（MCP）の認可の完了・起動状態の通知（UIが取り直す合図）。
         self.ext_observe(&env.event);
         // 利用上限の更新通知（画面が開いているときだけ読み直す合図。状態は変えない）。

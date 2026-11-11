@@ -53,10 +53,12 @@ pub fn application_invoke_allowed(label: &str) -> bool {
 }
 /// ペット窓が呼べるコマンド。表示・ペット自身の設定に加え、利用者の操作による「送信」と「承認・質問への回答」だけ。
 /// 停止（中断）・削除・取り込み・設定全体の更新などは含めない。
+/// 返信・推敲のパネルの操作（取り込み・作成・再調整・閉じる・コピー）は、パネルが自分で作る一時の会話だけを扱うので足す。
 pub const PET_COMMANDS: &[&str] = &[
     "get_snapshot", "show_main_window",
     "pet_list", "pet_sprite", "pet_set_settings", "pet_set_hit_regions", "pet_cursor", "pet_set_card", "pet_pause", "pet_pause_get",
     "send_message", "respond_request",
+    "compose_open", "compose_view", "compose_start", "compose_adjust", "compose_close", "compose_copy",
 ];
 pub fn pet_command_allowed(command: &str) -> bool {
     PET_COMMANDS.contains(&command)
@@ -366,11 +368,18 @@ mod tests {
         for c in ["send_message", "respond_request"] {
             assert!(pet_command_allowed(c));
         }
+        // 返信・推敲のパネルの操作だけが足されている（設定の変更はペット窓からは呼べない）。
+        for c in ["compose_open", "compose_view", "compose_start", "compose_adjust", "compose_close", "compose_copy"] {
+            assert!(pet_command_allowed(c), "{c}");
+        }
+        assert_eq!(PET_COMMANDS.len(), 18);
+        assert!(!pet_command_allowed("set_compose_settings"));
         // 停止・削除・取り込み・再送・設定全体・終了などは呼べない。
         for c in [
             "interrupt_chat", "force_kill", "preview_force_kill", "quit_decision", "request_quit", "resume_chat", "retry_send", "reconcile_send",
             "delete_chat", "archive_chat", "set_app_settings", "subagent_import", "org_import", "org_cancel", "org_pause", "revert_changes",
             "enqueue", "send_queue_entry_now", "open_chat", "start_chat", "fork_chat", "manage_chat", "pet_toggle", "set_always_on_top",
+            "cancel_purpose_draft", "close_side", "open_side", "send_side",
         ] {
             assert!(!pet_command_allowed(c), "{c}");
         }

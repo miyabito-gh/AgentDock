@@ -11,6 +11,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   executables: {}, externalTools: { editor: "vsCode", editorExecutable: "", terminal: "windowsTerminal", terminalExecutable: "" }, autostart: false,
   notifications: { enabled: true, approvalAndQuestion: true, completed: true, failed: true, sound: true, showChatName: true, orgAttention: true, orgFinished: true },
   mainWindow: { alwaysOnTop: false, bounds: null }, monitorWindow: { alwaysOnTop: false, bounds: null }, pet: { selected: null, visible: false, scalePercent: 100, followGaze: true },
+  compose: { shortcut: "Ctrl+Alt+R", commonRules: "", replyRules: "", polishRules: "", model: null, effort: "low", lastMode: "reply" },
   monitorScope: "selectedChat", defaultModel: null, sendKey: "enter", runningInput: "queue", acknowledgedWarnings: [], tools: { git: null }, cloudEnvByRepo: {}, baselines: { enabled: true, repos: [] }, layout: { leftWidth: null, dockWidth: null },
   chatList: { view: "Recent", pinnedFolders: [], collapsedFolders: [] }, appearance: { theme: "System", uiText: "Normal", bodyText: "Normal" },
   dismissedVersionNotice: null, recentSkills: [], workFolderSets: [], lastNewChat: null, sandboxWorkaround: false, orgStallMinutes: 30, continuation: { enabled: false, suggestAtPercent: 70, rounds: 3 },
@@ -172,6 +173,7 @@ export function applyHostEvent(b: Bundle, e: HostEvent): Bundle {
     case "toolServersChanged": // 開いているMCP・Pluginsの表示が画面側で取り直す（状態は変えない）
     case "toolServerLoginUpdated":
     case "extensionOpUpdated":
+    case "composeUpdated": // 返信・推敲のパネルの合図（ペット窓が compose_view で取り直す。状態は変えない）
     case "purposeDraftUpdated": // 目的メモの更新案の合図（開いている画面が read_purpose_draft で取り直す。状態は変えない）
     case "intakeUpdated": // 依頼整理の更新の合図（画面側が org_intake_view で取り直す。状態は変えない）
     case "orgTimelineUpdated": // 進行タイムラインの合図（画面側が org_timeline で差分を取り直す。状態は変えない）

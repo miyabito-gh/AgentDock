@@ -724,6 +724,185 @@ pub struct SetPetSettingsArgs {
 #[serde(rename_all = "camelCase")]
 pub struct PetCardArgs {
     pub open: bool,
+    /// 返信・推敲のパネル（幅広）を開くか。古い呼び出し（この項目なし）はふつうのカード。
+    #[serde(default)]
+    pub compose: bool,
+}
+
+// ───────────────────────────── 返信・推敲（DESIGN_COMPOSE） ─────────────────────────────
+
+/// 返信か推敲か。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub enum ComposeMode {
+    #[default]
+    Reply,
+    Polish,
+}
+
+/// 返信・推敲の設定。古い `settings.json`（この項目なし）は既定値で読む。変更は専用の操作（`set_compose_settings`）だけ。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct ComposeSettings {
+    /// グローバルショートカット（例 `Ctrl+Alt+R`）。空＝登録しない。
+    #[serde(default = "default_compose_shortcut")]
+    pub shortcut: String,
+    /// 文章ルール（共通・返信用・推敲用）。空なら標準の書き方。
+    #[serde(default)]
+    pub common_rules: String,
+    #[serde(default)]
+    pub reply_rules: String,
+    #[serde(default)]
+    pub polish_rules: String,
+    /// モデル（None＝Codexの既定）。
+    #[serde(default)]
+    pub model: Option<String>,
+    /// 推論強度（既定は速さ重視の `low`。None＝モデルの既定）。
+    #[serde(default = "default_compose_effort")]
+    pub effort: Option<String>,
+    /// 前回使った方（ショートカットで開いたときの既定）。
+    #[serde(default)]
+    pub last_mode: ComposeMode,
+}
+
+pub const COMPOSE_DEFAULT_SHORTCUT: &str = "Ctrl+Alt+R";
+/// 文章ルール1欄の上限（文字数）。
+pub const COMPOSE_RULES_MAX_CHARS: usize = 4_000;
+
+fn default_compose_shortcut() -> String {
+    COMPOSE_DEFAULT_SHORTCUT.to_string()
+}
+
+fn default_compose_effort() -> Option<String> {
+    Some("low".to_string())
+}
+
+impl Default for ComposeSettings {
+    fn default() -> Self {
+        ComposeSettings {
+            shortcut: default_compose_shortcut(),
+            common_rules: String::new(),
+            reply_rules: String::new(),
+            polish_rules: String::new(),
+            model: None,
+            effort: default_compose_effort(),
+            last_mode: ComposeMode::Reply,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct SetComposeSettingsArgs {
+    pub compose: ComposeSettings,
+}
+
+/// 取り込んだ文章の出どころ。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub enum ComposeOrigin {
+    /// クリップボードの文字。
+    Clipboard,
+    /// 選択していた文字（Ctrl+C で取り込んだ）。
+    Selection,
+    /// 取り込めていない（利用者が貼り付ける）。
+    #[default]
+    None,
+}
+
+/// 作成の状態。完了を断定できないとき（受理不明・切断）は `Unknown`。
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum ComposeState {
+    /// 取り込み済み・まだ作成していない。
+    #[default]
+    Idle,
+    Generating,
+    Done,
+    Failed { message: String },
+    /// 結果は不明（受理を確認できない・接続が切れた）。自動では再送しない。
+    Unknown { message: String },
+}
+
+/// 返信・推敲パネルの表示内容。ホストのメモリ上だけにあり、保存しない・診断ログに書かない。
+#[derive(Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct ComposeView {
+    /// パネルを開くか（閉じると取り込んだ文章も結果も消える）。
+    pub open: bool,
+    pub mode: ComposeMode,
+    /// 取り込んだ文章。
+    pub source: String,
+    pub origin: ComposeOrigin,
+    /// 取り込みの補足（元のクリップボードを戻せなかった、など）。
+    pub notice: Option<String>,
+    pub state: ComposeState,
+    /// 最後に得た結果（作成・再調整が失敗しても前の結果は残す）。
+    pub result: Option<String>,
+    /// 同じ会話へ追加で再調整できるか。
+    pub can_adjust: bool,
+    /// 作成・再調整を行った回数。
+    pub round: u32,
+    /// 取り込みの通し番号（新しく取り込むたびに増える。画面が入力欄を作り直す印）。
+    pub capture: u32,
+}
+
+impl std::fmt::Debug for ComposeView {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // 本文・結果は出さない。
+        f.debug_struct("ComposeView").field("open", &self.open).field("mode", &self.mode).field("state", &self.state).field("round", &self.round).finish_non_exhaustive()
+    }
+}
+
+/// パネルを開く（取り込み直しを含む）。文章はホストがクリップボードから読む。`mode` が None なら前回使った方。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct ComposeOpenArgs {
+    pub mode: Option<ComposeMode>,
+}
+
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct ComposeStartArgs {
+    pub mode: ComposeMode,
+    pub source: String,
+    pub instruction: String,
+}
+
+impl std::fmt::Debug for ComposeStartArgs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ComposeStartArgs { <redacted> }")
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct ComposeAdjustArgs {
+    pub instruction: String,
+}
+
+impl std::fmt::Debug for ComposeAdjustArgs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ComposeAdjustArgs { <redacted> }")
+    }
 }
 
 /// 通知の一時停止。`minutes` が None なら再開。
@@ -822,6 +1001,9 @@ pub struct AppSettings {
     /// ペット（選択・表示・大きさ）。古い `settings.json`（この項目なし）は既定値（非表示）で読む。変更は専用の操作だけ。
     #[serde(default)]
     pub pet: PetSettings,
+    /// 返信・推敲（ショートカット・文章ルール・モデル）。古い `settings.json` は既定値で読む。変更は専用の操作だけ。
+    #[serde(default)]
+    pub compose: ComposeSettings,
     /// 新しいチャットの既定モデル（既存チャットに波及させない）。
     pub default_model: Option<ModelChoice>,
     /// 送信キー。古い `settings.json`（この項目なし）は Enter で読む。保存済みの値はそのまま尊重する。
@@ -1100,6 +1282,7 @@ impl Default for AppSettings {
             monitor_window: WindowPrefs::default(),
             monitor_scope: MonitorWindowScope::default(),
             pet: PetSettings::default(),
+            compose: ComposeSettings::default(),
             default_model: None,
             send_key: SendKey::Enter,
             running_input: RunningInput::Queue,
@@ -1693,6 +1876,24 @@ mod settings_tests {
         v.as_object_mut().unwrap().remove("runningInput");
         let s: AppSettings = serde_json::from_value(v).unwrap();
         assert_eq!(s.running_input, RunningInput::Queue);
+    }
+
+    #[test]
+    fn settings_without_compose_load_with_defaults_and_partial_compose_fills_the_rest() {
+        let mut v = serde_json::to_value(AppSettings::default()).unwrap();
+        v.as_object_mut().unwrap().remove("compose");
+        let s: AppSettings = serde_json::from_value(v).unwrap();
+        assert_eq!(s.compose, ComposeSettings::default());
+        assert_eq!((s.compose.shortcut.as_str(), s.compose.effort.as_deref(), s.compose.last_mode), ("Ctrl+Alt+R", Some("low"), ComposeMode::Reply));
+        // 一部の項目だけ保存されていても、残りは既定値で読む
+        let mut v = serde_json::to_value(AppSettings::default()).unwrap();
+        v["compose"] = serde_json::json!({ "replyRules": "署名は付けない", "lastMode": "polish" });
+        let s: AppSettings = serde_json::from_value(v).unwrap();
+        assert_eq!((s.compose.reply_rules.as_str(), s.compose.last_mode, s.compose.shortcut.as_str()), ("署名は付けない", ComposeMode::Polish, "Ctrl+Alt+R"));
+        // 保存済みの「モデルの既定の強度」（null）は尊重する
+        let mut v = serde_json::to_value(AppSettings::default()).unwrap();
+        v["compose"] = serde_json::json!({ "effort": null });
+        assert_eq!(serde_json::from_value::<AppSettings>(v).unwrap().compose.effort, None);
     }
 
     #[test]

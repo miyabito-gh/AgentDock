@@ -3,7 +3,7 @@
 // 透明部分のクリックは下の窓へ通す（ホストがカーソル位置を見て切り替える。ここでは「クリックを受ける領域」を知らせる）。
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import type { ChatKey, HostEvent, HostEventEnvelope } from "./ipc/types";
+import type { ChatKey, ComposeMode, ComposeView, HostEvent, HostEventEnvelope } from "./ipc/types";
 import * as host from "./ipc/client";
 import type { PetBubbleMessage } from "./ipc/client";
 import { applyHostEvent, createEventPipeline, emptyBundle, replaceSnapshot, seqAction } from "./ipc/live";
@@ -11,6 +11,7 @@ import type { Bundle } from "./mock/data";
 import { keyStr } from "./ui/format";
 import { applyAppearance, watchSystemTheme } from "./ui/appearance";
 import { ChatPane, MenuPane, RequestPane } from "./pet/PetCard";
+import { ComposePane } from "./pet/ComposePane";
 import { chooseTarget, pendingRequests } from "./pet/cardLogic";
 import { cellOf, choosePose, emptyTracker, FRAME_H, FRAME_W, gazeIndex, isActive, isIdlePose, SHEET_H, SHEET_W, trackAgents, type AgentLite, type PetTracker } from "./pet/motion";
 
@@ -20,6 +21,9 @@ const BUBBLE_MAX_W = 240;
 // カードを開いているときの窓の上側の領域（ホスト `win::pet` の CARD_W / CARD_H と同じ数値）。
 const CARD_ZONE_H = 420;
 const CARD_MAX_W = 300;
+// 返信・推敲のパネル（ホスト `win::pet` の COMPOSE_H と同じ数値。幅は読みやすい360〜420pxの範囲）。
+const COMPOSE_ZONE_H = 560;
+const COMPOSE_MAX_W = 400;
 /** 吹き出しを出しておく時間。承認・質問は長めにする。押す・次の吹き出しで入れ替わる。 */
 const BUBBLE_MS = 10_000;
 const BUBBLE_ATTENTION_MS = 20_000;
@@ -34,7 +38,7 @@ const GAZE_DEAD_ZONE_PX = 24;
 
 type BubbleKind = PetBubbleMessage["kind"] | "info";
 interface Bubble extends Omit<PetBubbleMessage, "kind"> { kind: BubbleKind; id: number; until: number }
-type Panel = null | { kind: "card"; mode: "request" | "chat" } | { kind: "menu" };
+type Panel = null | { kind: "card"; mode: "request" | "chat" } | { kind: "menu" } | { kind: "compose" };
 type Sprite = { state: "none" } | { state: "loading" } | { state: "error"; text: string } | { state: "ready"; url: string };
 
 const KIND_CLASS: Record<BubbleKind, string> = {
@@ -59,6 +63,9 @@ export default function PetApp() {
   const [selectedChat, setSelectedChat] = useState<string | null>(null);
   const [picked, setPicked] = useState<string | null>(null);
   const [pausedUntil, setPausedUntil] = useState<number | null>(null);
+  const [compose, setCompose] = useState<ComposeView | null>(null);
+  const closingCompose = useRef(false);
+  const refreshCompose = useCallback(() => { host.composeView().then(setCompose).catch(() => undefined); }, []);
   const panelRef = useRef<HTMLDivElement>(null);
   const spriteRef = useRef<HTMLDivElement>(null);
   const bubbleRef = useRef<HTMLButtonElement>(null);
@@ -95,7 +102,11 @@ export default function PetApp() {
     };
     void (async () => {
       try {
-        const un = await host.subscribeHostEvents((env) => { if (ready) handle(env); else pending.push(env); });
+        const un = await host.subscribeHostEvents((env) => {
+          // 返信・推敲のパネルの合図は、状態の順序（seq）とは別に、いつでも取り直す（本文はイベントに載らない）。
+          if (env.event.kind === "composeUpdated") refreshCompose();
+          if (ready) handle(env); else pending.push(env);
+        });
         if (!alive) { un(); return; }
         unlisten.push(un);
         const unBubble = await host.subscribePetBubble((m) => {
@@ -111,6 +122,7 @@ export default function PetApp() {
         unlisten.push(unSel);
         void host.requestSelectedChat();
         host.petPauseGet().then(setPausedUntil).catch(() => undefined);
+        refreshCompose();
         const snap = await host.getSnapshot();
         if (!alive) return;
         last = snap.seq;
@@ -289,15 +301,20 @@ export default function PetApp() {
   };
   // カード（簡易チャット・回答・メニュー）。開くときは先に窓を広げ、閉じるときは先に描画を畳んでから窓を戻す。
   const panelOpen = useRef(false);
+  const panelWide = useRef(false);
   const showPanel = useCallback((p: NonNullable<Panel>) => {
     const wasOpen = panelOpen.current;
+    const wide = p.kind === "compose";
+    const sameSize = panelWide.current === wide;
     panelOpen.current = true;
-    if (wasOpen) { setPanel(p); return; }
-    host.petSetCard(true).catch(() => undefined).finally(() => { if (panelOpen.current) setPanel(p); });
+    panelWide.current = wide;
+    if (wasOpen && sameSize) { setPanel(p); return; }
+    host.petSetCard(true, wide).catch(() => undefined).finally(() => { if (panelOpen.current) setPanel(p); });
   }, []);
   const hidePanel = useCallback(() => {
     if (!panelOpen.current) return;
     panelOpen.current = false;
+    panelWide.current = false;
     setPanel(null);
     window.setTimeout(() => { if (!panelOpen.current) host.petSetCard(false).catch(() => undefined); }, 120);
   }, []);
@@ -306,7 +323,28 @@ export default function PetApp() {
   pendingRef.current = pendingReqs;
   const panelRefState = useRef<Panel>(null);
   panelRefState.current = panel;
+  // 返信・推敲のパネルを閉じる（会話を閉じる。作成中なら中止）。ほかのカードは畳むだけ。
+  const closePanel = useCallback(() => {
+    if (panelRefState.current?.kind === "compose") {
+      closingCompose.current = true;
+      hidePanel();
+      host.composeClose().then(setCompose).catch(() => undefined).finally(() => { closingCompose.current = false; });
+      return;
+    }
+    hidePanel();
+  }, [hidePanel]);
+  // ホストがパネルを開いた（ペットのメニュー・ショートカット）／閉じた合図に合わせて表示する。
+  useEffect(() => {
+    if (!compose) return;
+    if (compose.open) {
+      if (!closingCompose.current && panelRefState.current?.kind !== "compose") showPanel({ kind: "compose" });
+    } else if (panelRefState.current?.kind === "compose") hidePanel();
+  }, [compose, showPanel, hidePanel]);
+  const openCompose = (mode: ComposeMode) => {
+    host.composeOpen(mode).then(setCompose).catch((e) => pushInfo(`開けませんでした: ${host.asIpcError(e).message}`));
+  };
   const toggleCard = () => {
+    if (panelRefState.current?.kind === "compose") return; // 作成中の結果を、うっかり消さない（×・Esc・「閉じる」で閉じる）
     if (panelRefState.current?.kind === "card") hidePanel();
     else showPanel({ kind: "card", mode: pendingRef.current.length > 0 ? "request" : "chat" });
   };
@@ -319,10 +357,10 @@ export default function PetApp() {
   }, [panel, pendingReqs.length, hidePanel]);
   // Esc でカード・メニューを閉じる。
   useEffect(() => {
-    const h = (e: KeyboardEvent) => { if (e.key === "Escape") hidePanel(); };
+    const h = (e: KeyboardEvent) => { if (e.key === "Escape" && !e.isComposing) closePanel(); };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
-  }, [hidePanel]);
+  }, [closePanel]);
   const openMain = useCallback((chat: ChatKey | null) => { host.showMainWindow(chat).catch(() => undefined); }, []);
 
   const top = bubbles.length > 0 && !panel ? bubbles[bubbles.length - 1] : null;
@@ -349,13 +387,15 @@ export default function PetApp() {
   const showLost = lost && isIdlePose(pose);
 
   return (
-    <div className="pet-root" aria-label="AgentDock ペット" onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onContextMenu={(e) => { e.preventDefault(); if (panelRefState.current?.kind === "menu") hidePanel(); else showPanel({ kind: "menu" }); }}>
-      <div className={`pet-bubble-zone${panel ? " open" : ""}`} style={{ height: panel ? CARD_ZONE_H : BUBBLE_ZONE_H }}>
+    <div className="pet-root" aria-label="AgentDock ペット" onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onContextMenu={(e) => { e.preventDefault(); if (panelRefState.current?.kind === "compose") return; if (panelRefState.current?.kind === "menu") hidePanel(); else showPanel({ kind: "menu" }); }}>
+      <div className={`pet-bubble-zone${panel ? " open" : ""}`} style={{ height: panel ? (panel.kind === "compose" ? COMPOSE_ZONE_H : CARD_ZONE_H) : BUBBLE_ZONE_H }}>
         {panel && (
-          <div ref={panelRef} className="pet-panel" style={{ maxWidth: CARD_MAX_W }}>
-            <button type="button" className="pet-panel-x" aria-label="閉じる" onClick={hidePanel}>×</button>
-            {panel.kind === "menu" ? (
-              <MenuPane pet={snap.settings.pet} pausedUntil={pausedUntil} onSet={setPet} onPause={pause}
+          <div ref={panelRef} className={`pet-panel${panel.kind === "compose" ? " compose" : ""}`} style={{ maxWidth: panel.kind === "compose" ? COMPOSE_MAX_W : CARD_MAX_W }}>
+            <button type="button" className="pet-panel-x" aria-label="閉じる" title="閉じる（Esc）" onClick={closePanel}>×</button>
+            {panel.kind === "compose" ? (
+              compose ? <ComposePane view={compose} onView={setCompose} onClose={closePanel} /> : <div className="pc-hint">読み込み中…</div>
+            ) : panel.kind === "menu" ? (
+              <MenuPane pet={snap.settings.pet} pausedUntil={pausedUntil} onSet={setPet} onPause={pause} onCompose={openCompose}
                 onHide={() => setPet({ ...snap.settings.pet, visible: false })} onOpenMain={() => { hidePanel(); openMain(null); }} />
             ) : panel.mode === "request" && pendingReqs.length > 0 ? (
               <RequestPane r={pendingReqs[0]} chats={snap.chats} onOpenChat={(k) => { hidePanel(); openMain(k); }}

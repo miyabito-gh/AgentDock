@@ -2,6 +2,7 @@
 import type { AppearanceSettings } from "./AppearanceSettings";
 import type { BaselineSettings } from "./BaselineSettings";
 import type { ChatListSettings } from "./ChatListSettings";
+import type { ComposeSettings } from "./ComposeSettings";
 import type { ContinuationSettings } from "./ContinuationSettings";
 import type { ExternalToolsSettings } from "./ExternalToolsSettings";
 import type { LayoutSettings } from "./LayoutSettings";
@@ -37,6 +38,10 @@ autostart: boolean, notifications: NotificationSettings, mainWindow: WindowPrefs
  * ペット（選択・表示・大きさ）。古い `settings.json`（この項目なし）は既定値（非表示）で読む。変更は専用の操作だけ。
  */
 pet: PetSettings, 
+/**
+ * 返信・推敲（ショートカット・文章ルール・モデル）。古い `settings.json` は既定値で読む。変更は専用の操作だけ。
+ */
+compose: ComposeSettings, 
 /**
  * 新しいチャットの既定モデル（既存チャットに波及させない）。
  */

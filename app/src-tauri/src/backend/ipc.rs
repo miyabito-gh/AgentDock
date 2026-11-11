@@ -1359,6 +1359,8 @@ pub enum HostEvent {
     SideUpdated { side: SideSessionMeta },
     /// 目的メモの下書きの更新の合図（作成の進行・結果・破棄）。画面は `read_purpose_draft` で読み直す。
     PurposeDraftUpdated { chat: ChatKey },
+    /// 返信・推敲のパネルの更新の合図（開閉・作成の進行・結果）。本文は運ばない。画面は `compose_view` で読み直す。
+    ComposeUpdated,
     /// 組織実行の状態が変わった合図（UIは状態を取り直す。型の詳細は P-ORG-7）。
     OrgUpdated { workflow_id: String },
     /// 組織ワークフローの削除の進行（`done`／`total` 段。表示だけ。結果は `org_delete_workflow` の応答）。

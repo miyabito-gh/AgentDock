@@ -30,12 +30,26 @@ const BUBBLE_H: f64 = 96.0;
 /// カード（簡易チャット・回答・メニュー）を開いているときの上側の領域。TS側 `PetApp.tsx` の `CARD_ZONE_*` と同じ数値。
 const CARD_W: f64 = 316.0;
 const CARD_H: f64 = 420.0;
+/// 返信・推敲のパネルを開いているときの上側の領域。TS側 `PetApp.tsx` の `COMPOSE_ZONE_H` と同じ数値。
+const COMPOSE_W: f64 = 440.0;
+const COMPOSE_H: f64 = 560.0;
 const POLL_MS: u64 = 33;
 
 /// 窓の大きさ（論理px）。幅は1コマと吹き出し（カード）の広いほう、高さは1コマ＋吹き出し（カード）。
 pub fn window_size(scale_percent: u32, card: bool) -> (f64, f64) {
+    window_size_for(scale_percent, card, false)
+}
+
+/// `compose`（返信・推敲のパネル）は幅広・縦長で、`card` より優先する。
+pub fn window_size_for(scale_percent: u32, card: bool, compose: bool) -> (f64, f64) {
     let s = scale_percent as f64 / 100.0;
-    let (w, h) = if card { (CARD_W, CARD_H) } else { (BUBBLE_W, BUBBLE_H) };
+    let (w, h) = if compose {
+        (COMPOSE_W, COMPOSE_H)
+    } else if card {
+        (CARD_W, CARD_H)
+    } else {
+        (BUBBLE_W, BUBBLE_H)
+    };
     ((FRAME_W * s).max(w), FRAME_H * s + h)
 }
 
@@ -46,6 +60,8 @@ pub struct PetRuntime {
     generation: AtomicU64,
     /// カードを開いている（窓を広げている）か。
     card: AtomicBool,
+    /// 返信・推敲のパネルを開いているか（このとき `card` も true）。
+    compose: AtomicBool,
     /// 通知の一時停止の終わり（UNIXミリ秒）。保存しない（アプリを閉じれば解除）。
     paused_until: Mutex<Option<i64>>,
 }
@@ -134,6 +150,7 @@ pub fn open_pet(app: &AppHandle, host: &Arc<Host>) -> Result<(), String> {
     let generation = rt.generation.fetch_add(1, Ordering::SeqCst) + 1;
     rt.set_regions(Vec::new());
     rt.card.store(false, Ordering::SeqCst);
+    rt.compose.store(false, Ordering::SeqCst);
     spawn_hit_watcher(app, generation);
     Ok(())
 }
@@ -150,10 +167,12 @@ pub fn close_pet(app: &AppHandle) -> Result<(), String> {
 
 /// 倍率に合わせて窓の大きさを変える。足元（下端の中央）を動かさない。
 fn resize(app: &AppHandle, scale_percent: u32) {
-    let card = app.try_state::<Arc<PetRuntime>>().is_some_and(|rt| rt.card.load(Ordering::SeqCst));
+    let rt = app.try_state::<Arc<PetRuntime>>();
+    let card = rt.as_ref().is_some_and(|rt| rt.card.load(Ordering::SeqCst));
+    let compose = rt.as_ref().is_some_and(|rt| rt.compose.load(Ordering::SeqCst));
     let Some(w) = app.get_webview_window(PET_LABEL) else { return };
     let (Ok(old), Ok(pos)) = (w.inner_size(), w.outer_position()) else { return };
-    let (lw, lh) = window_size(scale_percent, card);
+    let (lw, lh) = window_size_for(scale_percent, card, compose);
     if w.set_size(LogicalSize::new(lw, lh)).is_err() {
         return;
     }
@@ -164,9 +183,10 @@ fn resize(app: &AppHandle, scale_percent: u32) {
 }
 
 /// カードの開閉に合わせて窓の大きさを変える（足元固定）。
-pub fn set_card(app: &AppHandle, host: &Arc<Host>, open: bool) {
+pub fn set_card(app: &AppHandle, host: &Arc<Host>, open: bool, compose: bool) {
     if let Some(rt) = app.try_state::<Arc<PetRuntime>>() {
         rt.card.store(open, Ordering::SeqCst);
+        rt.compose.store(open && compose, Ordering::SeqCst);
     }
     resize(app, host.get_app_settings().pet.scale_percent);
 }
@@ -270,6 +290,10 @@ mod tests {
         assert_eq!(window_size(50, false), (240.0, 200.0));
         assert_eq!(window_size(100, true), (316.0, 628.0));
         assert_eq!(window_size(150, true), (316.0, 732.0));
+        // 返信・推敲のパネルは幅広・縦長（足元の1コマ分は同じ）
+        assert_eq!(window_size_for(100, true, true), (440.0, 768.0));
+        assert_eq!(window_size_for(100, false, true), (440.0, 768.0));
+        assert_eq!(window_size_for(150, true, false), window_size(150, true));
     }
 
     #[test]

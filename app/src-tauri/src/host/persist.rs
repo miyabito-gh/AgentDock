@@ -675,6 +675,8 @@ impl Host {
             settings.baselines.repos = d.settings.baselines.repos.clone();
             // ペット設定は専用の操作（set_pet_settings）だけが変える（窓の開閉と一緒に扱うため）。
             settings.pet = d.settings.pet.clone();
+            // 返信・推敲の設定も専用の操作（set_compose_settings）だけが変える（ショートカットの再登録と一緒に扱うため）。
+            settings.compose = d.settings.compose.clone();
             d.settings = settings.clone();
             ((), vec![HostEvent::SettingsUpdated { settings: settings.clone() }])
         });
