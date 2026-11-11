@@ -3,6 +3,7 @@
 // リンクは移動させない（href を外し data-href に退避）。スクリプト・フォーム・埋め込み・style は除く。
 import DOMPurify from "dompurify";
 import { safeDataImageSource, safeLinkTarget } from "./lumarkSecurity.ts";
+import { anchorKey } from "./anchor.ts";
 
 let installed = false;
 function install(): void {
@@ -27,7 +28,7 @@ function install(): void {
       node.removeAttribute("target");
       if (href === null) return;
       const safe = safeLinkTarget(href);
-      if (safe?.startsWith("#")) { node.setAttribute("data-anchor", safe.slice(1)); node.setAttribute("tabindex", "0"); node.setAttribute("role", "link"); }
+      if (safe?.startsWith("#")) { node.setAttribute("data-anchor", anchorKey(safe.slice(1))); node.setAttribute("tabindex", "0"); node.setAttribute("role", "link"); }
       else node.setAttribute("title", `リンク先: ${href}（プレビューでは開きません）`);
       node.classList.add("md-link-off");
     } else if (tag === "INPUT") {
