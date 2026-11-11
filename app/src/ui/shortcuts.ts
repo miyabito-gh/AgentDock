@@ -2,7 +2,7 @@
 // メニューの .kbd 表示・ツールチップ・ヘルプの一覧・キー判定は、すべてここを引く。ハンドラーがあるものだけを載せる。
 // 規則: 日本語入力の変換中（isComposing）は、どのショートカットも反応しない。
 
-export type ShortcutWhere = "全体" | "通常画面" | "入力欄" | "検索" | "一覧" | "監視窓" | "ダイアログ";
+export type ShortcutWhere = "全体" | "通常画面" | "入力欄" | "検索" | "一覧" | "監視窓" | "ダイアログ" | "Markdown編集欄";
 
 export interface Shortcut {
   id: string;
@@ -31,6 +31,17 @@ export const SHORTCUTS: Shortcut[] = [
   { id: "sendDialog", keys: "Enter／Ctrl+Enter（送信キーの設定による）", label: "送信（side相談・編集して再送・組織の割り込み指示）", where: "ダイアログ" },
   { id: "rowMenu", keys: "Shift+F10／アプリケーションキー", label: "行の操作メニュー", where: "一覧" },
   { id: "paneWidth", keys: "←→／Home／End／Enter", label: "ペイン幅の調整／既定に戻す", where: "一覧" },
+  // Markdown編集欄（Visual Editor）。編集欄にフォーカスがあるときだけ、上の全体のキー（Ctrl+K・Ctrl+F・Ctrl+B）より優先される（inMarkdownEditor）。
+  { id: "mdSave", keys: "Ctrl+S", label: "保存", where: "Markdown編集欄" },
+  { id: "mdBold", keys: "Ctrl+B", label: "太字にする／戻す（選択範囲を ** で囲む）", where: "Markdown編集欄" },
+  { id: "mdItalic", keys: "Ctrl+I", label: "斜体にする／戻す（選択範囲を * で囲む）", where: "Markdown編集欄" },
+  { id: "mdLink", keys: "Ctrl+K", label: "リンクの挿入・編集", where: "Markdown編集欄" },
+  { id: "mdHeading", keys: "Alt+Shift+←／→", label: "見出しを大きく（#を減らす）／小さく（#を増やす）", where: "Markdown編集欄" },
+  { id: "mdFind", keys: "Ctrl+F／F3／Shift+F3", label: "文書内を検索／次／前", where: "Markdown編集欄" },
+  { id: "mdReplace", keys: "Ctrl+H", label: "置換", where: "Markdown編集欄" },
+  { id: "mdIndent", keys: "Tab／Shift+Tab", label: "インデント／戻す（選択した複数行にも）", where: "Markdown編集欄" },
+  { id: "mdEnter", keys: "Enter", label: "リスト・番号・引用・チェックリストの続き入力（空の項目で終了）", where: "Markdown編集欄" },
+  { id: "mdEsc", keys: "Esc", label: "検索欄を閉じる／編集欄から出る（Tab で他の操作へ移れる）", where: "Markdown編集欄" },
   { id: "close", keys: "Esc", label: "メニュー・検索・ダイアログを閉じる", where: "全体" },
 ];
 
@@ -77,7 +88,22 @@ const MATCHERS: Record<string, Matcher> = {
   toggleMonitor: (e) => plain(e, true, false) && e.code === "KeyM",
   monitorClose: (e) => plain(e, true, false) && e.code === "KeyM",
   togglePet: (e) => plain(e, true, false) && e.code === "KeyP",
+  // Markdown編集欄（編集欄にフォーカスがあるときだけ、編集欄が判定する）
+  mdSave: (e) => plain(e, false, false) && letter(e, "s"),
+  mdBold: (e) => plain(e, false, false) && letter(e, "b"),
+  mdItalic: (e) => plain(e, false, false) && letter(e, "i"),
+  mdLink: (e) => plain(e, false, false) && letter(e, "k"),
+  mdFind: (e) => plain(e, false, false) && letter(e, "f"),
+  mdReplace: (e) => plain(e, false, false) && letter(e, "h"),
+  mdHeadingDown: (e) => !e.ctrlKey && e.shiftKey && e.altKey && !e.metaKey && e.key === "ArrowLeft",
+  mdHeadingUp: (e) => !e.ctrlKey && e.shiftKey && e.altKey && !e.metaKey && e.key === "ArrowRight",
 };
+
+/** キーの対象が Markdown 編集欄（またはその検索・リンク欄）の中か。中なら、アプリ全体のキー（Ctrl+K・Ctrl+F・Ctrl+B）より編集欄を優先する。 */
+export function inMarkdownEditor(target: EventTarget | null): boolean {
+  const el = target as { closest?: (selector: string) => unknown } | null;
+  return !!el && typeof el.closest === "function" && !!el.closest("[data-md-editor]");
+}
 
 /** キー入力が、そのショートカットか。変換中は常に false。判定を持たない id（ペイン幅など個別実装のもの）も false。 */
 export function matchShortcut(e: KeyLike, id: string): boolean {

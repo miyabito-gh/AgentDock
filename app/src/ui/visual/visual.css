@@ -133,12 +133,36 @@
 .md-edit{flex:1 1 0;min-width:0;min-height:0;display:flex;flex-direction:column}
 .md-edit+.md-prev{border-left:1px solid var(--line2)}
 .md-lock{margin:0;padding:4px 12px;background:var(--accent-weak);color:var(--accent-text);border-bottom:1px solid var(--accent-line);font-size:var(--fs-xs);flex:none}
-.md-editor{flex:1 1 0;min-height:0;width:100%;box-sizing:border-box;resize:none;border:0;border-radius:0;padding:12px 16px 16px;background:var(--surface);color:var(--ink);font-family:var(--mono);font-size:var(--fs-body);line-height:1.65;tab-size:2;white-space:pre-wrap;overflow-wrap:anywhere}
+.md-edit-wrap{position:relative;flex:1 1 0;min-height:0;background:var(--surface)}
+.md-edit-wrap.ro{background:var(--surface2)}
+/* 検索の強調は、編集欄の背面に同じ文字・同じ折り返しで重ねた見えない複製に描く（編集欄の文字は透けて見える） */
+.md-hl,.md-editor{position:absolute;inset:0;margin:0;width:100%;height:100%;box-sizing:border-box;border:0;border-radius:0;padding:12px 16px 16px;font-family:var(--mono);font-size:var(--fs-body);line-height:1.65;letter-spacing:normal;tab-size:2;white-space:pre-wrap;overflow-wrap:anywhere;overflow-y:auto;scrollbar-gutter:stable}
+/* 全体の textarea の既定（高さの上限160px・最小56px）を打ち消す */
+.md-editor{resize:none;background:transparent;color:var(--ink);min-height:0;max-height:none}
 .md-editor:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
-.md-editor[readonly]{background:var(--surface2);color:var(--ink2);cursor:default}
+.md-editor[readonly]{color:var(--ink2);cursor:default}
+.md-hl{color:transparent;pointer-events:none}
+.md-hl mark{background:var(--wait-bg);color:transparent;border-radius:2px;box-shadow:0 0 0 1px var(--wait-line)}
+.md-hl mark.cur{background:var(--wait-solid);opacity:.55}
+.md-tools{display:flex;flex-wrap:wrap;align-items:center;gap:2px;padding:4px 8px;border-bottom:1px solid var(--line2);flex:none}
+.md-tool{min-width:28px}
+.md-tools .btn[aria-pressed=true]{color:var(--accent-text);background:var(--accent-weak);border-color:var(--accent-line)}
+.md-find{display:flex;flex-direction:column;gap:4px;padding:6px 8px;border-bottom:1px solid var(--line2);background:var(--surface2);flex:none}
+.md-find-row{display:flex;flex-wrap:wrap;align-items:center;gap:4px;min-width:0}
+.md-find-row .vp-input{flex:1 1 120px;min-width:0}
+.md-find-row .btn[aria-pressed=true]{color:var(--accent-text);background:var(--accent-weak);border-color:var(--accent-line)}
+.md-find-count{min-width:5em;text-align:right;font-size:var(--fs-xs);color:var(--ink2)}
+.md-outline{flex:0 0 190px;min-width:0;overflow:auto;padding:8px;border-right:1px solid var(--line2);font-size:var(--fs-s)}
+.md-outline ul{list-style:none;margin:0;padding:0}
+.md-outline p{margin:0;padding:4px;color:var(--ink3);font-size:var(--fs-xs)}
+.md-outline-item{display:block;width:100%;padding:3px 6px;border:0;border-radius:var(--r1);background:none;color:var(--ink2);font:inherit;text-align:left;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.md-outline-item:hover{background:var(--surface2);color:var(--ink)}
+.md-outline-item.on{background:var(--accent-weak);color:var(--accent-text)}
+.md-outline-item:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
 .md-foot{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:3px 12px;border-top:1px solid var(--line2);background:var(--surface2);color:var(--ink2);font-size:var(--fs-xs);flex:none}
 .md-pane:focus{outline:none}
 @container (max-width:560px){
-  .md-body.md-view-split{flex-direction:column}
-  .md-body.md-view-split .md-edit+.md-prev{border-left:0;border-top:1px solid var(--line2)}
+  .md-body{flex-direction:column}
+  .md-body .md-edit+.md-prev{border-left:0;border-top:1px solid var(--line2)}
+  .md-outline{flex:0 0 auto;max-height:30%;border-right:0;border-bottom:1px solid var(--line2)}
 }

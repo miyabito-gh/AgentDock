@@ -1,16 +1,20 @@
 // Visual Editor の Markdown 画面（遅延読み込み）。開いている間だけ動く: 文書を読み、ファイルの変化を見て、編集欄とプレビューを描く。
 // 保存・外部変更の検出・AI実行中の読み取り専用はここが持ち、依頼の送信・ターンの戻す/やり直しは Visual Editor 側（既存の仕組み）が持つ。
-import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MutableRefObject, type ReactNode } from "react";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { Icon } from "../../Icon";
 import { askConfirm } from "../../appConfirm";
+import { matchShortcut, type KeyLike } from "../../shortcuts";
 import { useDialogFocus } from "../../useDialogFocus";
 import { directRefusal, errorText, isMarkdownPath, parentFolder, visualMarkdownRead, visualMarkdownSave, visualMarkdownStamp, type MarkdownDoc, type PreviewElement } from "../api";
 import { dropDraft, stashDraft, takeDraft } from "./draftStash";
+import { continueList, FIND_LIMIT, findRanges, pickMatch, replaceAllText, type TextEdit } from "./editing";
 import { registerMarkdownGuard } from "./guard";
+import { createHeadingLevelEdit, createInlineFormatEdit, createMarkdownLinkEdit, findMarkdownLink, type MarkdownLink } from "./lumark/markdownFormatting.js";
+import { createIndentEdit } from "./lumark/markdownStructure.js";
 import { lineCol, lineOfOffset, offsetOfLine } from "./lineMap";
 import { MarkdownPreview, type PreviewHandle } from "./MarkdownPreview";
-import { renderMarkdown } from "./render";
+import { outlineOf, renderMarkdown } from "./render";
 import { sanitizeMarkdownHtml } from "./sanitize";
 
 const POLL_MS = 1000;
@@ -62,6 +66,30 @@ function caretTop(ta: HTMLTextAreaElement, offset: number): number {
   return top;
 }
 
+/** 編集位置が見える範囲に入るよう、編集欄をスクロールする（すでに見えていれば動かさない）。 */
+function ensureVisible(ta: HTMLTextAreaElement, offset: number): void {
+  const top = caretTop(ta, offset);
+  const line = parseFloat(getComputedStyle(ta).lineHeight) || 20;
+  if (top < ta.scrollTop + line || top > ta.scrollTop + ta.clientHeight - line * 2) ta.scrollTop = Math.max(0, top - ta.clientHeight * 0.3);
+}
+const keyOf = (e: ReactKeyboardEvent): KeyLike => ({ key: e.key, code: e.code, ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, altKey: e.altKey, metaKey: e.metaKey, isComposing: e.nativeEvent.isComposing });
+const FIND_CAP_TEXT = FIND_LIMIT + "件以上";
+/** 検索の一致を、編集欄の背面に重ねる見えない複製の中で強調する（編集欄と同じ文字・折り返しで描く）。 */
+function highlighted(text: string, ranges: { start: number; end: number }[], cur: number): ReactNode[] {
+  const parts: ReactNode[] = [];
+  let at = 0;
+  ranges.forEach((r, i) => {
+    parts.push(text.slice(at, r.start));
+    parts.push(<mark key={i} className={i === cur ? "cur" : undefined}>{text.slice(r.start, r.end)}</mark>);
+    at = r.end;
+  });
+  parts.push(text.slice(at) + "\n");
+  return parts;
+}
+const OUTLINE_KEY = "agentdock.markdownOutline";
+const readOutline = (): boolean => { try { return window.localStorage.getItem(OUTLINE_KEY) === "1"; } catch { return false; } };
+interface LinkBar { label: string; url: string; link: MarkdownLink | null; start: number; end: number }
+
 export default function MarkdownPane({ rootPath, path, aiBusy, sending, selection, onSelect, onOpenPath, handleRef, barStart, barEnd }: MarkdownPaneProps) {
   const draftKey = rootPath + "|" + path;
   const [base, setBase] = useState<MarkdownDoc | null>(null);
@@ -78,6 +106,14 @@ export default function MarkdownPane({ rootPath, path, aiBusy, sending, selectio
   const [prompt, setPrompt] = useState<Prompt | null>(null);
   const [caret, setCaret] = useState({ line: 1, col: 1 });
   const [followLine, setFollowLine] = useState<number | null>(null);
+  const [outlineOpen, setOutlineOpen] = useState(readOutline);
+  const [find, setFind] = useState({ open: false, replace: false });
+  const [query, setQuery] = useState("");
+  const [repl, setRepl] = useState("");
+  const [caseSens, setCaseSens] = useState(false);
+  const [findIdx, setFindIdx] = useState(0);
+  const [findFocus, setFindFocus] = useState(0);
+  const [linkBar, setLinkBar] = useState<LinkBar | null>(null);
 
   const textRef = useRef(""); textRef.current = text;
   const savedRef = useRef(""); savedRef.current = saved;
@@ -94,6 +130,9 @@ export default function MarkdownPane({ rootPath, path, aiBusy, sending, selectio
   const ta = useRef<HTMLTextAreaElement>(null);
   const pane = useRef<HTMLDivElement>(null);
   const preview = useRef<PreviewHandle>(null);
+  const hl = useRef<HTMLDivElement>(null);
+  const findInput = useRef<HTMLInputElement>(null);
+  const linkInput = useRef<HTMLInputElement>(null);
   const dirty = text !== saved;
   const dirtyRef = useRef(false); dirtyRef.current = dirty;
 
@@ -106,6 +145,7 @@ export default function MarkdownPane({ rootPath, path, aiBusy, sending, selectio
     try {
       const next = await visualMarkdownRead(rootPath, path);
       if (!aliveRef.current) return;
+      if (mode === "auto" && next.stamp === stampRef.current) return; // 変わっていない（AIの作業が終わっただけ、など）
       if (mode === "auto" && dirtyRef.current) { setExternal("changed"); return; }
       stampRef.current = next.stamp;
       let initial = next.text;
@@ -166,6 +206,18 @@ export default function MarkdownPane({ rootPath, path, aiBusy, sending, selectio
   }, [text]);
   const rendered = useMemo(() => view === "edit" ? null : renderMarkdown(shown), [shown, view]);
   const html = useMemo(() => rendered ? sanitizeMarkdownHtml(rendered.html) : "", [rendered]);
+  const outline = useMemo(() => outlineOpen ? (rendered?.outline ?? outlineOf(shown)) : [], [outlineOpen, rendered, shown]);
+  // 「保存しました」などの通知は数秒で消す。AIが編集を始めたら古い通知は消す。
+  useEffect(() => {
+    if (!note) return;
+    const timer = window.setTimeout(() => setNote(null), 5000);
+    return () => window.clearTimeout(timer);
+  }, [note]);
+  useEffect(() => { if (aiBusy) setNote(null); }, [aiBusy]);
+  // 検索の強調（背面の複製）は、編集欄と同じ位置までスクロールしておく（描くたびに合わせる）。
+  useLayoutEffect(() => { if (hl.current && ta.current) hl.current.scrollTop = ta.current.scrollTop; });
+  const found = useMemo(() => find.open ? findRanges(text, query, caseSens) : { ranges: [], capped: false }, [find.open, text, query, caseSens]);
+  const curMatch = found.ranges.length ? Math.min(Math.max(findIdx, 0), found.ranges.length - 1) : -1;
 
   const save = useCallback(async (force = false): Promise<boolean> => {
     const b = baseRef.current;
@@ -245,13 +297,150 @@ export default function MarkdownPane({ rootPath, path, aiBusy, sending, selectio
     setCaret(lineCol(textRef.current, offset));
   };
 
-  const onEditorKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.nativeEvent.isComposing) return;
-    const ctrl = event.ctrlKey || event.metaKey;
-    if (ctrl && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "s") { event.preventDefault(); event.stopPropagation(); void save(); return; }
-    // Esc: 編集欄から出る（Tab を文字として使うため、キーボードだけでも他の操作へ移れるようにする）
-    if (event.key === "Escape") { event.preventDefault(); pane.current?.focus(); }
+  /** 編集を編集欄へ反映する。元に戻す・やり直す（Ctrl+Z/Y）が使えるよう、入力欄の標準の編集命令で行う。 */
+  const applyEdit = (edit: TextEdit, restoreFocus = false) => {
+    const el = ta.current;
+    if (!el || el.readOnly || (edit.start === edit.end && edit.text === "")) return;
+    const prev = document.activeElement as HTMLElement | null;
+    const expected = el.value.slice(0, edit.start) + edit.text + el.value.slice(edit.end);
+    el.focus({ preventScroll: true });
+    el.setSelectionRange(edit.start, edit.end);
+    let ok = false;
+    try { ok = edit.text === "" ? document.execCommand("delete") : document.execCommand("insertText", false, edit.text); } catch { ok = false; }
+    if (!ok || el.value !== expected) {
+      // 標準の命令が使えないときの代替（元に戻す履歴は残らない）
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(el, expected);
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    el.setSelectionRange(edit.selectionStart, edit.selectionEnd);
+    if (restoreFocus && prev && prev !== el) prev.focus({ preventScroll: true });
+    syncCaret();
   };
+  const withSelection = (make: (t: string, s: number, e: number) => TextEdit | null): boolean => {
+    const el = ta.current;
+    if (!el || el.readOnly) return false;
+    const edit = make(textRef.current, el.selectionStart, el.selectionEnd);
+    if (!edit) return false;
+    applyEdit(edit);
+    return true;
+  };
+  const format = (mark: string) => withSelection((t, s, e) => createInlineFormatEdit(t, s, e, mark));
+  const heading = (direction: 1 | -1) => withSelection((t, s, e) => createHeadingLevelEdit(t, s, e, direction));
+  const indent = (outdent: boolean) => withSelection((t, s, e) => createIndentEdit(t, s, e, 2, outdent));
+
+  const openLink = () => {
+    const el = ta.current;
+    if (!el || el.readOnly) return;
+    const t = textRef.current, s = el.selectionStart, e = el.selectionEnd;
+    const link = findMarkdownLink(t, s, e);
+    setFind((f) => ({ ...f, open: false }));
+    setLinkBar({ label: link?.label ?? t.slice(s, e), url: link?.url ?? "", link, start: s, end: e });
+  };
+  useEffect(() => { if (linkBar) linkInput.current?.focus(); }, [!!linkBar]);
+  const submitLink = () => {
+    const bar = linkBar;
+    const url = bar?.url.trim();
+    if (!bar || !url) return;
+    const edit = createMarkdownLinkEdit(textRef.current, bar.start, bar.end, bar.label || url, url, bar.link);
+    setLinkBar(null);
+    applyEdit(edit);
+  };
+
+  const openFind = (replace: boolean) => {
+    const el = ta.current;
+    if (el && el.selectionStart !== el.selectionEnd) {
+      const picked = textRef.current.slice(el.selectionStart, el.selectionEnd);
+      if (!picked.includes("\n") && picked.length <= 200) setQuery(picked);
+    }
+    setLinkBar(null);
+    setFind({ open: true, replace });
+    setFindFocus((n) => n + 1);
+  };
+  useEffect(() => { if (find.open) { findInput.current?.focus(); findInput.current?.select(); } }, [findFocus]);
+  const closeFind = () => { setFind((f) => ({ ...f, open: false })); ta.current?.focus({ preventScroll: true }); };
+  /** 一致の位置へ編集欄を動かす（フォーカスは検索欄のまま。選択もしておくので、閉じるとその語が選ばれている）。 */
+  const showMatch = (r: { start: number; end: number } | undefined) => {
+    const el = ta.current;
+    if (!r || !el) return;
+    el.setSelectionRange(r.start, r.end);
+    ensureVisible(el, r.start);
+    setFollowLine(lineOfOffset(textRef.current, r.start));
+  };
+  const onQuery = (value: string) => {
+    setQuery(value);
+    const ranges = findRanges(textRef.current, value, caseSens).ranges;
+    const at = pickMatch(ranges, ta.current?.selectionStart ?? 0, false);
+    setFindIdx(Math.max(at, 0));
+    showMatch(ranges[at]);
+  };
+  const stepFind = (backward: boolean) => {
+    const n = found.ranges.length;
+    if (!n) return;
+    const next = backward ? (curMatch - 1 + n) % n : (curMatch + 1) % n;
+    setFindIdx(next);
+    showMatch(found.ranges[next]);
+  };
+  const replaceOne = () => {
+    const r = found.ranges[curMatch];
+    if (!r || aiRef.current || ta.current?.readOnly) return;
+    const t = textRef.current;
+    applyEdit({ start: r.start, end: r.end, text: repl, selectionStart: r.start + repl.length, selectionEnd: r.start + repl.length }, true);
+    const after = findRanges(t.slice(0, r.start) + repl + t.slice(r.end), query, caseSens).ranges;
+    const next = Math.min(curMatch, after.length - 1);
+    setFindIdx(Math.max(next, 0));
+    showMatch(after[next]);
+  };
+  const replaceAll = () => {
+    if (ta.current?.readOnly) return;
+    const t = textRef.current;
+    const result = replaceAllText(t, query, repl, caseSens);
+    if (!result.count) { setNote("置換する語が見つかりません"); return; }
+    applyEdit({ start: 0, end: t.length, text: result.text, selectionStart: 0, selectionEnd: 0 }, true);
+    setNote(result.count + "件を置換しました（Ctrl+Z で元に戻せます）");
+  };
+  const onFindKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>, replacing: boolean) => {
+    if (event.nativeEvent.isComposing) return;
+    const k = keyOf(event);
+    const done = () => { event.preventDefault(); event.stopPropagation(); };
+    if (event.key === "Escape") { done(); closeFind(); }
+    else if (event.key === "Enter") { done(); if (replacing) replaceOne(); else stepFind(event.shiftKey); }
+    else if (event.key === "F3" && !event.ctrlKey && !event.altKey && !event.metaKey) { done(); stepFind(event.shiftKey); }
+    else if (matchShortcut(k, "mdFind")) { done(); openFind(false); }
+    else if (matchShortcut(k, "mdReplace")) { done(); openFind(true); }
+    else if (matchShortcut(k, "mdSave")) { done(); void save(); }
+  };
+
+  const onEditorKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.nativeEvent.isComposing) return;
+    const k = keyOf(event);
+    const done = () => { event.preventDefault(); event.stopPropagation(); };
+    const el = event.currentTarget;
+    if (matchShortcut(k, "mdSave")) { done(); void save(); return; }
+    if (matchShortcut(k, "mdFind")) { done(); openFind(false); return; }
+    if (matchShortcut(k, "mdReplace")) { done(); openFind(true); return; }
+    if (event.key === "F3" && !event.ctrlKey && !event.altKey && !event.metaKey) { done(); if (find.open) stepFind(event.shiftKey); else openFind(false); return; }
+    // Esc: 開いている検索・リンクの欄を閉じる。なければ編集欄から出る（Tab を文字として使うため、キーボードだけでも他の操作へ移れるようにする）。
+    if (event.key === "Escape") { done(); if (linkBar) setLinkBar(null); else if (find.open) closeFind(); else pane.current?.focus(); return; }
+    if (el.readOnly) return;
+    const plainKey = !event.ctrlKey && !event.altKey && !event.metaKey;
+    if (matchShortcut(k, "mdBold")) { done(); format("**"); return; }
+    if (matchShortcut(k, "mdItalic")) { done(); format("*"); return; }
+    if (matchShortcut(k, "mdLink")) { done(); openLink(); return; }
+    if (matchShortcut(k, "mdHeadingDown")) { done(); heading(-1); return; }
+    if (matchShortcut(k, "mdHeadingUp")) { done(); heading(1); return; }
+    if (event.key === "Tab" && plainKey) { done(); indent(event.shiftKey); return; }
+    if (event.key === "Enter" && plainKey && !event.shiftKey) {
+      const edit = continueList(textRef.current, el.selectionStart, el.selectionEnd);
+      if (edit) { done(); applyEdit(edit); }
+    }
+  };
+  /** 見出し一覧から、その行へ移る。 */
+  const goHeading = (line: number) => {
+    revealLine(line);
+    preview.current?.scrollToLine(line);
+    if (view !== "preview") ta.current?.focus({ preventScroll: true });
+  };
+  const toggleOutline = () => { const next = !outlineOpen; setOutlineOpen(next); try { window.localStorage.setItem(OUTLINE_KEY, next ? "1" : "0"); } catch { /* 保存できなくても動く */ } };
 
   const locked = aiBusy || sending;
   const name = path.split(/[\\/]/).pop() ?? path;
@@ -273,6 +462,7 @@ export default function MarkdownPane({ rootPath, path, aiBusy, sending, selectio
       <strong className="md-name" title={path}>{name}</strong>
       <span className={"md-state" + (status.tone ? " " + status.tone : "")} role="status">{status.text}</span>
       <span className="md-bar-end">
+        <button type="button" className="btn sm" aria-pressed={outlineOpen} title="見出し一覧を表示／隠す" onClick={toggleOutline}>見出し</button>
         <span className="vp-seg" role="group" aria-label="表示の切り替え">
           {VIEWS.map((v) => <button key={v.id} type="button" className="btn sm" aria-pressed={view === v.id} title={v.hint} onClick={() => setView(v.id)}>{v.label}</button>)}
         </span>
@@ -294,11 +484,56 @@ export default function MarkdownPane({ rootPath, path, aiBusy, sending, selectio
     {note && !saveError ? <p className="md-msg md-note" role="status">{note}</p> : null}
     <div className={"md-body md-view-" + view}>
       {!base ? <div className="visual-empty"><strong>{loadError ? "文書を開けませんでした" : "読み込んでいます…"}</strong>{loadError ? <p>{loadError}</p> : null}</div> : <>
+        {outlineOpen ? <nav className="md-outline" aria-label="見出し一覧">
+          {outline.length ? <ul>{outline.map((h, i) => {
+            const active = followLine !== null && h.line <= followLine && !(outline[i + 1] && outline[i + 1].line <= followLine);
+            return <li key={i} style={{ paddingLeft: (h.level - 1) * 12 }}><button type="button" className={"md-outline-item" + (active ? " on" : "")} aria-current={active ? "location" : undefined} title={h.text + "（" + h.line + "行目）"} onClick={() => goHeading(h.line)}>{h.text || "（空の見出し）"}</button></li>;
+          })}</ul> : <p>見出しがありません</p>}
+        </nav> : null}
         {view !== "preview" ? <div className="md-edit">
           {locked ? <p className="md-lock" role="status">{aiBusy ? "AIが編集中です。終わるまで編集できません（終わると自動で読み直します）。" : "依頼を送信しています。結果が決まるまで編集できません。"}</p> : null}
-          <textarea ref={ta} className="md-editor" data-md-editor="" value={text} readOnly={locked} spellCheck={false} aria-label={"Markdownの編集欄: " + name}
-            onChange={(event) => { setText(event.target.value); setNote(null); if (hasSelection.current) onSelectRef.current([]); }}
-            onKeyDown={onEditorKeyDown} onSelect={syncCaret} />
+          <div className="md-tools" role="toolbar" aria-label="書式と検索">
+            <button type="button" className="btn subtle sm md-tool" disabled={locked} aria-label="太字" title="太字（Ctrl+B）" onMouseDown={(e) => e.preventDefault()} onClick={() => format("**")}><strong>B</strong></button>
+            <button type="button" className="btn subtle sm md-tool" disabled={locked} aria-label="斜体" title="斜体（Ctrl+I）" onMouseDown={(e) => e.preventDefault()} onClick={() => format("*")}><em>I</em></button>
+            <button type="button" className="btn subtle sm md-tool" disabled={locked} aria-label="リンク" title="リンクの挿入・編集（Ctrl+K）" onMouseDown={(e) => e.preventDefault()} onClick={openLink}>リンク</button>
+            <button type="button" className="btn subtle sm md-tool" disabled={locked} aria-label="見出しを大きく" title="見出しを大きく（Alt+Shift+←）" onMouseDown={(e) => e.preventDefault()} onClick={() => heading(-1)}>見出し▲</button>
+            <button type="button" className="btn subtle sm md-tool" disabled={locked} aria-label="見出しを小さく" title="見出しを小さく（Alt+Shift+→）" onMouseDown={(e) => e.preventDefault()} onClick={() => heading(1)}>見出し▼</button>
+            <button type="button" className="btn subtle sm md-tool" aria-pressed={find.open} title="検索と置換（Ctrl+F／Ctrl+H）" onClick={() => (find.open ? closeFind() : openFind(false))}>検索・置換</button>
+          </div>
+          {find.open ? <div className="md-find" role="search" aria-label="文書内の検索と置換" data-md-editor="">
+            <div className="md-find-row">
+              <input ref={findInput} className="vp-input" value={query} placeholder="検索する語" aria-label="検索する語" onChange={(e) => onQuery(e.target.value)} onKeyDown={(e) => onFindKeyDown(e, false)} />
+              <span className="md-find-count" role="status" aria-live="polite">{!query ? "" : found.ranges.length ? (found.capped ? FIND_CAP_TEXT : (curMatch + 1) + " / " + found.ranges.length + "件") : "見つかりません"}</span>
+              <button type="button" className="btn subtle sm" aria-label="前の一致" title="前へ（Shift+Enter／Shift+F3）" disabled={!found.ranges.length} onClick={() => stepFind(true)}>前へ</button>
+              <button type="button" className="btn subtle sm" aria-label="次の一致" title="次へ（Enter／F3）" disabled={!found.ranges.length} onClick={() => stepFind(false)}>次へ</button>
+              <button type="button" className="btn subtle sm" aria-pressed={caseSens} title="大文字と小文字を区別する" onClick={() => setCaseSens(!caseSens)}>Aa</button>
+              <button type="button" className="btn subtle sm vp-ico" aria-label="検索を閉じる" title="閉じる（Esc）" onClick={closeFind}><Icon name="x" /></button>
+            </div>
+            <div className="md-find-row">
+              <button type="button" className="btn subtle sm" aria-pressed={find.replace} title="置換の欄を表示／隠す（Ctrl+H）" onClick={() => setFind((f) => ({ ...f, replace: !f.replace }))}>置換</button>
+              {find.replace ? <>
+                <input className="vp-input" value={repl} placeholder="置換後の文字" aria-label="置換後の文字" onChange={(e) => setRepl(e.target.value)} onKeyDown={(e) => onFindKeyDown(e, true)} />
+                <button type="button" className="btn sm" disabled={locked || curMatch < 0} title="今の一致を置換して次へ（Enter）" onClick={replaceOne}>置換</button>
+                <button type="button" className="btn sm" disabled={locked || !found.ranges.length} title="すべて置換（Ctrl+Z で元に戻せます）" onClick={replaceAll}>すべて置換</button>
+              </> : null}
+            </div>
+          </div> : null}
+          {linkBar ? <div className="md-find md-linkbar" role="group" aria-label="リンクの挿入" data-md-editor="">
+            <div className="md-find-row">
+              <input className="vp-input" value={linkBar.label} placeholder="表示する文字（空ならURL）" aria-label="リンクの表示文字" onChange={(e) => setLinkBar({ ...linkBar, label: e.target.value })}
+                onKeyDown={(e) => { if (e.nativeEvent.isComposing) return; if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); setLinkBar(null); ta.current?.focus(); } else if (e.key === "Enter") { e.preventDefault(); linkInput.current?.focus(); } }} />
+              <input ref={linkInput} className="vp-input" value={linkBar.url} placeholder="リンク先（https://…）" aria-label="リンク先" onChange={(e) => setLinkBar({ ...linkBar, url: e.target.value })}
+                onKeyDown={(e) => { if (e.nativeEvent.isComposing) return; if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); setLinkBar(null); ta.current?.focus(); } else if (e.key === "Enter") { e.preventDefault(); submitLink(); } }} />
+              <button type="button" className="btn primary sm" disabled={!linkBar.url.trim()} onClick={submitLink}>{linkBar.link ? "更新" : "挿入"}</button>
+              <button type="button" className="btn sm" onClick={() => { setLinkBar(null); ta.current?.focus(); }}>やめる</button>
+            </div>
+          </div> : null}
+          <div className={"md-edit-wrap" + (locked ? " ro" : "")}>
+            {find.open && query ? <div ref={hl} className="md-hl" aria-hidden="true">{highlighted(text, found.ranges, curMatch)}</div> : null}
+            <textarea ref={ta} className="md-editor" data-md-editor="" value={text} readOnly={locked} spellCheck={false} aria-label={"Markdownの編集欄: " + name}
+              onChange={(event) => { setText(event.target.value); setNote(null); if (hasSelection.current) onSelectRef.current([]); }}
+              onKeyDown={onEditorKeyDown} onSelect={syncCaret} onScroll={(e) => { if (hl.current) hl.current.scrollTop = e.currentTarget.scrollTop; }} />
+          </div>
         </div> : null}
         {view !== "edit" && rendered ? <div className="md-prev"><MarkdownPreview ref={preview} html={html} text={shown} rootPath={rootPath} path={path} epoch={epoch}
           selection={selection} onSelect={onSelect} onBlockPick={revealLine} currentLine={view === "split" ? followLine : null} /></div> : null}

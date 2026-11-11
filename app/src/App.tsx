@@ -37,7 +37,7 @@ import { DockPane, MiniWindow, type DockActions, type DockFocus } from "./ui/Doc
 import { MiniChat, RightTabs, peekCandidates } from "./ui/MiniChat";
 import { commandViews } from "./ui/commandViews";
 import { cwdOpenWhy } from "./ui/commands";
-import { matchShortcut } from "./ui/shortcuts";
+import { inMarkdownEditor, matchShortcut } from "./ui/shortcuts";
 import { recheckSummary } from "./ui/chatState";
 import { gitKindOf, ownerMarkVisible, type GitKind } from "./ui/revertView";
 import { CommandPalette } from "./ui/CommandPalette";
@@ -1826,6 +1826,8 @@ ${cur}` : p.text);
     const h = (e: KeyboardEvent) => {
       if (matchShortcut(e, "toggleMonitor")) { e.preventDefault(); act("toggleMonitor"); return; }
       if (matchShortcut(e, "togglePet")) { e.preventDefault(); act("togglePet"); return; }
+      // Markdown編集欄にフォーカスがあるときは、Ctrl+K・Ctrl+F・Ctrl+B を編集欄が使う（編集欄側が処理する）。他のキー（Ctrl+N など）は従来どおり。
+      if (inMarkdownEditor(e.target) && (matchShortcut(e, "palette") || matchShortcut(e, "find") || matchShortcut(e, "toggleLeft"))) return;
       if (matchShortcut(e, "palette")) {
         e.preventDefault();
         if (dialog) return;
