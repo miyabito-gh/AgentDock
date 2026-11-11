@@ -14,7 +14,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   compose: { shortcut: "Ctrl+Alt+R", commonRules: "", replyRules: "", polishRules: "", model: null, effort: "low", lastMode: "reply" },
   monitorScope: "selectedChat", defaultModel: null, sendKey: "enter", runningInput: "queue", acknowledgedWarnings: [], tools: { git: null }, cloudEnvByRepo: {}, baselines: { enabled: true, repos: [] }, layout: { leftWidth: null, dockWidth: null },
   chatList: { view: "Recent", pinnedFolders: [], collapsedFolders: [] }, appearance: { theme: "System", uiText: "Normal", bodyText: "Normal" },
-  dismissedVersionNotice: null, recentSkills: [], workFolderSets: [], lastNewChat: null, sandboxWorkaround: false, orgStallMinutes: 30, continuation: { enabled: false, suggestAtPercent: 70, rounds: 3 },
+  dismissedVersionNotice: null, recentSkills: [], workFolderSets: [], lastNewChat: null, sandboxWorkaround: false, orgStallMinutes: 30, continuation: { enabled: false, suggestAtPercent: 30, rounds: 3 },
 };
 
 const emptySnapshot = (): HostSnapshot => ({

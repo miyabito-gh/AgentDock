@@ -282,7 +282,7 @@ pub struct ContinuationSettings {
     /// 継続チャット（使用量の表示・目的メモ・引き継ぎの案内と導線）を使う。既定はオフ。
     /// 保存済みの `continuation`（この項目なし）もオフで読む。保存済みの記録（chat.json）は消さない。
     pub enabled: bool,
-    /// この割合（%）以上の使用率を観測したら「次の送信で引き継ぐ」を案内する。None＝案内しない。既定 Some(70)。範囲 50〜95。
+    /// この割合（%）以上の使用率を観測したら「次の送信で引き継ぐ」を案内する。None＝案内しない。既定 Some(30)。範囲 15〜95（文脈が大きいほど毎回の入力が増えるため、低めを既定にする）。
     pub suggest_at_percent: Option<u8>,
     /// 引き継ぎ資料に入れる直近の往復数。既定 3。範囲 1〜10。
     pub rounds: u8,
@@ -290,14 +290,14 @@ pub struct ContinuationSettings {
 
 impl Default for ContinuationSettings {
     fn default() -> Self {
-        ContinuationSettings { enabled: false, suggest_at_percent: Some(70), rounds: 3 }
+        ContinuationSettings { enabled: false, suggest_at_percent: Some(30), rounds: 3 }
     }
 }
 
 impl ContinuationSettings {
-    /// 範囲外の値を範囲内へ寄せる（案内の割合 50〜95、往復数 1〜10）。
+    /// 範囲外の値を範囲内へ寄せる（案内の割合 15〜95、往復数 1〜10）。
     pub fn normalized(&self) -> Self {
-        ContinuationSettings { enabled: self.enabled, suggest_at_percent: self.suggest_at_percent.map(|p| p.clamp(50, 95)), rounds: self.rounds.clamp(1, 10) }
+        ContinuationSettings { enabled: self.enabled, suggest_at_percent: self.suggest_at_percent.map(|p| p.clamp(15, 95)), rounds: self.rounds.clamp(1, 10) }
     }
 }
 

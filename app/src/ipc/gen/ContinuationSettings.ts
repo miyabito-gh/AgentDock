@@ -10,7 +10,7 @@ export type ContinuationSettings = {
  */
 enabled: boolean, 
 /**
- * この割合（%）以上の使用率を観測したら「次の送信で引き継ぐ」を案内する。None＝案内しない。既定 Some(70)。範囲 50〜95。
+ * この割合（%）以上の使用率を観測したら「次の送信で引き継ぐ」を案内する。None＝案内しない。既定 Some(30)。範囲 15〜95（文脈が大きいほど毎回の入力が増えるため、低めを既定にする）。
  */
 suggestAtPercent: number | null, 
 /**

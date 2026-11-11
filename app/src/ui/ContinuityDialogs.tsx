@@ -332,7 +332,7 @@ export function HandoffPreviewBody({ chatName, load, live }: { chatName: string;
 
 // ───────────────────────────── 設定「継続チャット」 ─────────────────────────────
 
-const THRESHOLDS = [50, 55, 60, 65, 70, 75, 80, 85, 90, 95];
+const THRESHOLDS = [15, 20, 25, 30, 35, 40, 45, 50, 60, 70, 80, 90, 95];
 const ROUNDS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 /** 選択肢に無い保存値（手で書き換えた settings.json など）も、そのまま選択肢に出す。 */
 const withCurrent = (list: number[], v: number | null): number[] => (v === null || list.includes(v) ? list : [...list, v].sort((a, b) => a - b));
@@ -350,7 +350,7 @@ export function ContinuationSettingsBody({ value, set }: { value: ContinuationSe
           <option value="">案内しない</option>
           {withCurrent(THRESHOLDS, value.suggestAtPercent).map((n) => <option key={n} value={n}>{n}% 以上で案内</option>)}
         </select>
-        <span className="note">文脈の使用率がこの値以上になったら（この接続で受け取った値のときだけ）、入力欄の上に「次の送信で新しい会話へ引き継ぎます」と案内します。案内だけで、自動では引き継ぎません。</span>
+        <span className="note">文脈の使用率がこの値以上になったら（この接続で受け取った値のときだけ）、入力欄の上に「次の送信で新しい会話へ引き継ぎます」と案内します。案内だけで、自動では引き継ぎません。文脈が大きいほど、送るたびの使用量が増えます。低い値ほど使用量を抑えられますが、引き継ぎの回数は増えます（目安は 30% 前後）。</span>
       </div>
       <div className="field"><span>資料に入れる往復数</span>
         <select aria-label="引き継ぎ資料に入れる直近の往復数" value={value.rounds} onChange={(e) => set({ ...value, rounds: Number(e.target.value) })}>

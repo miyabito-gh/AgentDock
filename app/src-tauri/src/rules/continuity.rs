@@ -1833,15 +1833,15 @@ mod tests {
     #[test]
     fn continuation_settings_default_and_clamp() {
         let d = ContinuationSettings::default();
-        assert_eq!((d.enabled, d.suggest_at_percent, d.rounds), (false, Some(70), 3), "新規（値なし）は使わない");
+        assert_eq!((d.enabled, d.suggest_at_percent, d.rounds), (false, Some(30), 3), "新規（値なし）は使わない");
         let n = ContinuationSettings { enabled: true, suggest_at_percent: Some(10), rounds: 0 }.normalized();
-        assert_eq!((n.suggest_at_percent, n.rounds), (Some(50), 1));
+        assert_eq!((n.suggest_at_percent, n.rounds), (Some(15), 1));
         let n = ContinuationSettings { enabled: true, suggest_at_percent: Some(99), rounds: 50 }.normalized();
         assert_eq!((n.suggest_at_percent, n.rounds), (Some(95), 10));
         assert_eq!(ContinuationSettings { enabled: true, suggest_at_percent: None, rounds: 3 }.normalized().suggest_at_percent, None);
         // 保存済みの continuation（enabled なし）もオフで読む。他の項目が無ければ既定値で読む。
         let s: ContinuationSettings = serde_json::from_str("{}").unwrap();
-        assert_eq!((s.enabled, s.suggest_at_percent, s.rounds), (false, Some(70), 3));
+        assert_eq!((s.enabled, s.suggest_at_percent, s.rounds), (false, Some(30), 3));
         let s: ContinuationSettings = serde_json::from_str(r#"{"suggestAtPercent":80,"rounds":5}"#).unwrap();
         assert_eq!((s.enabled, s.suggest_at_percent, s.rounds), (false, Some(80), 5));
         let s: ContinuationSettings = serde_json::from_str(r#"{"enabled":true}"#).unwrap();
