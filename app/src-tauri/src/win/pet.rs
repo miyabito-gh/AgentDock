@@ -230,6 +230,16 @@ pub fn apply_settings(app: &AppHandle, host: &Arc<Host>, pet: &PetSettings) -> R
     }
 }
 
+/// 返信・推敲のパネルを出すために、ペット窓を前面に出す。ペットを隠している（窓がない）ときは、パネルのためだけに窓を作る
+/// （設定の「表示」は変えない。UIは設定が非表示ならペットの絵を出さず、パネルを閉じるとホストが窓を閉じる）。
+pub fn show_for_compose(app: &AppHandle, host: &Arc<Host>) -> Result<(), String> {
+    open_pet(app, host)?;
+    if let Some(w) = app.get_webview_window(PET_LABEL) {
+        let _ = w.set_focus();
+    }
+    Ok(())
+}
+
 /// 表示と非表示を切り替える。操作後に表示中かを返す。
 pub fn toggle_pet(app: &AppHandle, host: &Arc<Host>) -> Result<bool, String> {
     let mut pet = host.get_app_settings().pet;
@@ -273,7 +283,9 @@ pub fn bubble_of(n: &OsNotification) -> PetBubble {
 
 /// ペットが表示中なら吹き出しとして送り、true を返す（OS通知は出さない）。隠れているときは false（呼び出し側がOS通知を出す）。
 pub fn emit_bubble(app: &AppHandle, n: &OsNotification) -> bool {
-    if !is_open(app) {
+    // 返信・推敲のパネルのためだけに窓が開いている間（設定は非表示）は、吹き出しを出さず OS 通知に任せる。
+    let shown = app.try_state::<Arc<Host>>().is_none_or(|h| h.get_app_settings().pet.visible);
+    if !is_open(app) || !shown {
         return false;
     }
     app.emit_to(PET_LABEL, PET_BUBBLE_EVENT, bubble_of(n)).is_ok()

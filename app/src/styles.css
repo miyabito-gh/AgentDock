@@ -1403,3 +1403,4 @@ html.pet-view,html.pet-view body,html.pet-view #root{background:transparent;over
 .pc-compose-foot .pc-pill{white-space:nowrap}
 .pc-copied{margin-right:auto;font-size:var(--fs-s);font-weight:600;color:var(--done);opacity:0;transition:opacity .15s}
 .pc-copied.on{opacity:1}
+.pet-panel.bare::after{display:none}

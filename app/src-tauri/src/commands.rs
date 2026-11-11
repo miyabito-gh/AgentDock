@@ -486,9 +486,26 @@ pub async fn compose_adjust(host: Hs<'_>, args: ComposeAdjustArgs) -> R<ComposeV
 
 /// パネルを閉じる（会話を閉じる。作成中なら中止する）。
 #[tauri::command]
-pub async fn compose_close(host: Hs<'_>) -> R<ComposeView> {
+pub async fn compose_close(app: tauri::AppHandle, host: Hs<'_>) -> R<ComposeView> {
     let confirmed = UserConfirmed::from_user_command();
-    Ok(host.inner().clone().compose_close(&confirmed).await)
+    let view = host.inner().clone().compose_close(&confirmed).await;
+    // ペットを隠している間にパネルのためだけに出した窓は、パネルを閉じたら窓も閉じる。
+    if !host.get_app_settings().pet.visible {
+        let _ = crate::win::pet::close_pet(&app);
+    }
+    Ok(view)
+}
+
+/// ショートカット（利用者のキー操作）で取り込んだ文章でパネルを開く。利用者の確認の証票はこの層でだけ作る。
+pub(crate) async fn compose_open_from_shortcut(host: &Arc<Host>, source: String, origin: ComposeOrigin, notice: Option<String>) -> ComposeView {
+    let confirmed = UserConfirmed::from_user_command();
+    host.compose_begin(None, source, origin, notice, &confirmed).await
+}
+
+/// ペット窓が閉じられたとき、開いていたパネルの会話も閉じる。
+pub(crate) async fn compose_close_with_window(host: &Arc<Host>) {
+    let confirmed = UserConfirmed::from_user_command();
+    host.compose_close(&confirmed).await;
 }
 
 /// 結果をクリップボードへコピーする（貼り付け・送信はしない）。

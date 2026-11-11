@@ -78,6 +78,8 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        // 返信・推敲のグローバルショートカット（登録はRust側だけ。画面側へ権限は出さない）。
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         // 2つ目の起動は、既存の通常画面を表示して終わる（重複して Codex を起動しない）。
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| win::window::show_main(app)))
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec!["--autostart"])))
@@ -101,6 +103,11 @@ pub fn run() {
                         let mut pet = host.get_app_settings().pet;
                         pet.visible = false;
                         let _ = host.set_pet_settings(pet);
+                        // 返信・推敲のパネルが開いていたら、窓と一緒に閉じる（会話も閉じる）。
+                        let host = host.inner().clone();
+                        tauri::async_runtime::spawn(async move {
+                            commands::compose_close_with_window(&host).await;
+                        });
                     }
                 }
             }
@@ -172,10 +179,13 @@ pub fn run() {
             app.manage(host.clone());
             app.manage(visual_edit::preview::PreviewManager::default());
             app.manage(Arc::new(win::pet::PetRuntime::default()));
+            app.manage(Arc::new(win::compose_shortcut::ComposeShortcut::default()));
             // 通常画面の位置を復元して表示する。自動起動（--autostart）なら通常画面は開かず、トレイ格納で起動する。
             let start_hidden = std::env::args().any(|a| a == "--autostart");
             win::window::restore_main(app.handle(), &host, start_hidden);
             win::pet::restore_pet(app.handle(), &host);
+            // 返信・推敲のショートカット。登録できなくてもアプリは続ける（理由は設定画面に出す）。
+            win::compose_shortcut::apply(app.handle(), &host.get_app_settings().compose.shortcut);
             setup_tray(app, host).map_err(|e| format!("tray: {e}"))?;
             Ok(())
         })

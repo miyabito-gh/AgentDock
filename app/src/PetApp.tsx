@@ -385,12 +385,14 @@ export default function PetApp() {
   } : undefined;
   const note = sprite.state === "none" ? "ペットが未選択です（設定で選べます）" : sprite.state === "error" ? `ペットを読み込めません: ${sprite.text}` : sprite.state === "loading" ? "読み込み中…" : null;
   const showLost = lost && isIdlePose(pose);
+  // ペットを隠している間に、パネルのためだけに窓が開いている（絵は出さない。パネルを閉じるとホストが窓を閉じる）。
+  const composeOnly = settingsReady && !snap.settings.pet.visible;
 
   return (
     <div className="pet-root" aria-label="AgentDock ペット" onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onContextMenu={(e) => { e.preventDefault(); if (panelRefState.current?.kind === "compose") return; if (panelRefState.current?.kind === "menu") hidePanel(); else showPanel({ kind: "menu" }); }}>
       <div className={`pet-bubble-zone${panel ? " open" : ""}`} style={{ height: panel ? (panel.kind === "compose" ? COMPOSE_ZONE_H : CARD_ZONE_H) : BUBBLE_ZONE_H }}>
         {panel && (
-          <div ref={panelRef} className={`pet-panel${panel.kind === "compose" ? " compose" : ""}`} style={{ maxWidth: panel.kind === "compose" ? COMPOSE_MAX_W : CARD_MAX_W }}>
+          <div ref={panelRef} className={`pet-panel${panel.kind === "compose" ? " compose" : ""}${composeOnly ? " bare" : ""}`} style={{ maxWidth: panel.kind === "compose" ? COMPOSE_MAX_W : CARD_MAX_W }}>
             <button type="button" className="pet-panel-x" aria-label="閉じる" title="閉じる（Esc）" onClick={closePanel}>×</button>
             {panel.kind === "compose" ? (
               compose ? <ComposePane view={compose} onView={setCompose} onClose={closePanel} /> : <div className="pc-hint">読み込み中…</div>
@@ -414,11 +416,11 @@ export default function PetApp() {
           </button>
         )}
       </div>
-      <div ref={spriteRef} className="pet-sprite" style={{ width: note ? undefined : w, height: h, ...sheetStyle }} onDoubleClick={() => openMain(null)}
+      {composeOnly ? <div style={{ width: w, height: h, flex: "none" }} aria-hidden="true" /> : <div ref={spriteRef} className="pet-sprite" style={{ width: note ? undefined : w, height: h, ...sheetStyle }} onDoubleClick={() => openMain(null)}
         role="img" aria-label={showLost ? "ペット（状態不明のチャットがあります）" : "ペット"}>
         {note && <span className="pet-note">{note}</span>}
         {showLost && <span className="pet-unknown" title="作業中だったチャットの状態が不明です（完了とは限りません）">?</span>}
-      </div>
+      </div>}
     </div>
   );
 }

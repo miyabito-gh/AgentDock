@@ -47,3 +47,10 @@
 - イベントは本文を運ばない合図 `ComposeUpdated` だけ。ペット窓が `compose_view` で取り直す。
 - コマンド: `compose_open`（クリップボードの文字を取り込んでパネルを開く。取り込み直しも同じ）・`compose_view`・`compose_start`・`compose_adjust`・`compose_close`・`compose_copy`。コピーはホストがクリップボードへ書く（ペット窓にクリップボードの権限を足さない）。`PET_COMMANDS` に足したのはこの6つだけ（設定の変更・停止・削除は不可。テストで確認）。
 - パネル: `pet/ComposePane.tsx`、純粋ロジックは `pet/composeLogic.ts`（`node --test`）。ペット窓を幅440×高さ(1コマ＋560)に広げ、パネルは幅400px。本文はパネル内スクロール、主ボタン（作成／コピー）は右下に固定。Ctrl+Enter で作成（再調整欄では調整）、Esc・×・「閉じる」で閉じる（作成中は中止して閉じる）。
+
+### 段階2（実装済み）
+- `tauri-plugin-global-shortcut`（2.4.1）を追加。登録はRust側だけ（`win/compose_shortcut.rs`）で、画面側にこのプラグインの権限は出さない（capabilities は変更なし）。`windows` crate に `Win32_System_DataExchange`・`Win32_UI_Input_KeyboardAndMouse`・`Win32_UI_WindowsAndMessaging` を追加。
+- 取り込み（`win/capture.rs`）: 押した時点で、元のクリップボードの種類（文字・空・文字以外）を `CountClipboardFormats`／`IsClipboardFormatAvailable` で調べ、更新番号（`GetClipboardSequenceNumber`）を控えてから、前面ウィンドウへ `SendInput` で Ctrl+C を送る。更新番号の変化を最大0.3秒待って文字を読み、元へ戻す（元が文字ならその文字を書き戻す。空なら空に戻す。文字以外は戻せないので戻さず、パネルに「元のクリップボードは文字以外だったため、戻せませんでした」と出す）。変化がなければ（選択なし）元のクリップボードの文字を使い、「クリップボードから」と表示する。判断は純粋関数 `capture::plan`（テストあり）。
+- 修飾キー対策: 押されたままの Ctrl/Alt/Shift/Win を最大0.35秒待って解放を見届ける。まだ押されていれば、一時的に解放の入力を送ってから Ctrl+C を送る。Alt が押されていたときは、無害なキー（VK 0xE8）を挟み、離したときにメニューが起動しないようにする。前面が AgentDock 自身の窓のときは Ctrl+C を送らない。管理者権限のウィンドウには送れない（UIPI）ので、その場合は選択なしと同じ扱い。
+- ペットを隠している場合: パネルのためだけにペット窓を出す（`win::pet::show_for_compose`。設定の「表示」は変えない）。UI は設定が非表示のあいだ、ペットの絵と吹き出しの尻尾を出さず、パネルを閉じるとホストが窓を閉じる。この間の通知は吹き出しではなく OS 通知で出す。窓を閉じると会話も閉じる。
+- 作成中にもう一度ショートカットを押したときは、取り込み直さず、パネルを前面に出すだけ。取り込みの連打は重ねない。
