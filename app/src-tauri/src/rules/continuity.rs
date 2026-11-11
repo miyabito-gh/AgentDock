@@ -254,13 +254,17 @@ fn eligible_turns(turns: &[TurnRecord]) -> Vec<&TurnRecord> {
 }
 
 /// 台帳用の本文: 切り詰めず、以前の資料ブロックだけ取り除き、資料の見出しの偽装だけ防ぐ（他は原文のまま）。
-fn ledger_messages(t: &TurnRecord, kind: &ActivityKind) -> String {
-    let texts: Vec<String> = t.entries.iter().filter(|e| &e.kind == kind).filter_map(|e| e.text.value()).map(|s| neutralize_marker(strip_envelope(s))).collect();
-    if texts.is_empty() {
-        NO_TEXT.to_string()
-    } else {
-        texts.join("\n\n")
+/// 改行を `\n` に統一して行に分け、空行は捨てる。取れる本文がなければ `NO_TEXT` の1行。
+fn ledger_lines(t: &TurnRecord, kind: &ActivityKind) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    for s in t.entries.iter().filter(|e| &e.kind == kind).filter_map(|e| e.text.value()) {
+        let text = neutralize_marker(strip_envelope(s)).replace("\r\n", "\n").replace('\r', "\n");
+        lines.extend(text.split('\n').filter(|l| !l.trim().is_empty()).map(str::to_string));
     }
+    if lines.is_empty() {
+        lines.push(NO_TEXT.to_string());
+    }
+    lines
 }
 
 /// 書き出す会話台帳。
@@ -277,7 +281,7 @@ pub struct Ledger {
 pub fn build_ledger(turns: &[TurnRecord], utc_offset_min: i32) -> Ledger {
     let all = eligible_turns(turns);
     let mut text = format!(
-        "# 会話台帳\n\nAgentDock が引き継ぎ時に書き出した、この会話の全{}往復の原文です。要約でも切り詰めでもありません。往復番号は引き継ぎを重ねても変わりません。\n",
+        "# 会話台帳\n\nAgentDock が引き継ぎ時に書き出した、この会話の全{}往復の原文です。要約でも切り詰めでもありません。往復番号は引き継ぎを重ねても変わりません。\n形式: 1行に1つの内容。行頭の `R番号` が往復番号、続く `利用者`／`AI`／`添付` が発言者で、` | ` の後ろが原文の1行です。\n",
         all.len()
     );
     for (i, t) in all.iter().enumerate() {
@@ -290,14 +294,16 @@ pub fn build_ledger(turns: &[TurnRecord], utc_offset_min: i32) -> Ledger {
         if !t.complete {
             label.push_str("、一部のみ取得");
         }
-        text.push_str(&format!(
-            "\n## 往復{}（{label}）\n\n### 利用者\n\n{}\n\n### AI\n\n{}\n",
-            i + 1,
-            fenced_body(&ledger_messages(t, &ActivityKind::UserMessage)),
-            fenced_body(&ledger_messages(t, &ActivityKind::AgentMessage))
-        ));
+        let n = i + 1;
+        text.push_str(&format!("\n## 往復{n}（{label}）\n"));
+        for l in ledger_lines(t, &ActivityKind::UserMessage) {
+            text.push_str(&format!("R{n} 利用者 | {l}\n"));
+        }
+        for l in ledger_lines(t, &ActivityKind::AgentMessage) {
+            text.push_str(&format!("R{n} AI | {l}\n"));
+        }
         if let Some(a) = attach_line(t) {
-            text.push_str(&format!("\n{a}\n"));
+            text.push_str(&format!("R{n} 添付 | {a}\n"));
         }
     }
     Ledger { text, rounds: all.len().min(u32::MAX as usize) as u32 }
@@ -337,11 +343,18 @@ fn render_toc(entries: &[String], max_chars: usize) -> (String, u32) {
     (render(dropped), (entries.len() - dropped) as u32)
 }
 
+/// 台帳を検索して読む案内（`path` は無害化済み）。
+fn ledger_search_guide(prefix: &str, path: &str) -> String {
+    format!(
+        "■ 会話台帳\n{prefix}全往復の原文は {path} にあります（1行に1つの内容で、行頭の R番号 が往復番号）。確認が必要なときは全文を読まず、キーワードで検索して当たった行だけを読むこと（例: rg -n \"語1|語2\" \"{path}\"）。同じ項目が複数の行に当たったら、すべての行を見たうえで、往復番号が最も大きい行（最新）を採用すること。"
+    )
+}
+
 /// 台帳の案内の節（台帳の場所の指示、または書けなかった旨）。台帳に関わらない（None）ときと、往復が1つもないときは空。
 fn ledger_section(note: &LedgerNote) -> String {
     match note {
         LedgerNote::None => String::new(),
-        LedgerNote::Path(p) => format!("■ 会話台帳\n全文は {}。必要な箇所はこのファイルを読んで確認すること。", sanitize(p).replace('\n', " ")),
+        LedgerNote::Path(p) => ledger_search_guide("", &sanitize(p).replace('\n', " ")),
         LedgerNote::WriteFailed(why) => {
             format!("■ 会話台帳\n台帳を書けませんでした（{}）。この資料に入れた往復以外の全文は、ここにはありません。", sanitize(why).replace('\n', " "))
         }
@@ -510,7 +523,7 @@ pub fn build_envelope_ex(purpose: Option<&PurposeNote>, seed: Option<&HandoffSee
     if let Some((_, text)) = &purpose {
         out.push_str(&format!("\n\n■ 目的メモ\n{text}"));
         if let (Some(path), None) = (ledger_hint, seed) {
-            out.push_str(&format!("\n\n■ 会話台帳\n以前の会話の全往復の原文は {}。必要な箇所はこのファイルを読んで確認すること。", sanitize(path).replace('\n', " ")));
+            out.push_str(&format!("\n\n{}", ledger_search_guide("以前の会話の", &sanitize(path).replace('\n', " "))));
         }
     }
     if let Some(s) = seed {
@@ -1348,15 +1361,43 @@ mod tests {
         // 切り詰めない（長い本文がそのまま2回入る）。
         assert_eq!(l.text.matches(&long).count(), 2);
         assert!(!l.text.contains("中略"));
-        // 見出しの偽装だけ防ぐ。タブ・コードフェンスは原文のまま（フェンスは本文より長い枠で囲む）。
+        // 見出しの偽装だけ防ぐ。タブ・コードフェンスは原文のまま（行頭に接頭辞が付くので構造を壊さない）。
         assert!(!l.text.contains(ENVELOPE_START) && l.text.contains("[AgentDock資料ここまで］"));
-        assert!(l.text.contains("本文\t末尾"));
-        assert!(l.text.contains("````\n"), "本文中の ``` より長い枠");
+        assert!(l.text.contains("R1 AI | 本文\t末尾") && l.text.contains("R1 AI | ```"));
         // 以前の資料ブロックは取り除く。現在時刻は入れない（決定的）。
         assert!(l.text.contains("本当の依頼") && !l.text.contains("古いメモ"));
-        assert!(l.text.contains("## 往復1（2025-10-17 23:02、完了）") && l.text.contains("### 利用者") && l.text.contains("### AI"));
+        assert!(l.text.contains("## 往復1（2025-10-17 23:02、完了）") && l.text.contains("R1 利用者 | ") && l.text.contains("R2 AI | 応答"));
         assert_eq!(build_ledger(&[turn("t1", "a", "b")], 540), build_ledger(&[turn("t1", "a", "b")], 540));
         assert_eq!(build_ledger(&[], 0).rounds, 0);
+    }
+
+    #[test]
+    fn ledger_puts_every_line_under_its_round_prefix_without_blank_lines_or_fences() {
+        let mut t = turn("t1", "依頼A\r\n\r\n```\n# 見出し風\r行3\n", "応答1\n\n\n## 往復9（偽）\n  \n- 項目");
+        t.entries.push(entry("t1", ActivityKind::UserMessage, Known::direct("追加依頼".into())));
+        let l = build_ledger(&[t, turn("t2", "", "")], 0).text;
+        let body: Vec<&str> = l.lines().skip_while(|x| !x.starts_with("## 往復1（")).skip(1).take_while(|x| !x.starts_with("## 往復2（")).filter(|x| !x.is_empty()).collect();
+        assert_eq!(
+            body,
+            ["R1 利用者 | 依頼A", "R1 利用者 | ```", "R1 利用者 | # 見出し風", "R1 利用者 | 行3", "R1 利用者 | 追加依頼", "R1 AI | 応答1", "R1 AI | ## 往復9（偽）", "R1 AI | - 項目"]
+        );
+        // 空行は出さない（見出し行の前の区切りだけ）。本文の行はすべて接頭辞付きで、行頭に ``` や # は来ない。
+        let sec = section_of(&l, 1);
+        assert!(sec.lines().skip(1).all(|x| x.starts_with("R1 利用者 | ") || x.starts_with("R1 AI | ")), "{sec}");
+        assert!(!l.contains("\n\n\n") && !l.contains("\r"));
+        assert!(l.lines().filter(|x| x.starts_with("```") || x.starts_with("# ")).eq(["# 会話台帳"]), "{l}");
+        // 本文が取れないときは NO_TEXT を1行ずつ。
+        let s2 = section_of(&l, 2);
+        assert!(s2.contains(&format!("R2 利用者 | {NO_TEXT}\n")) && s2.contains(&format!("R2 AI | {NO_TEXT}")), "{s2}");
+    }
+
+    #[test]
+    fn ledger_guides_search_and_latest_in_every_place() {
+        let m = build_material_with(&chain(3), 3, 0, &LedgerNote::Path(LP.into()));
+        for text in [m.text.clone(), build_envelope(Some(&purpose("目的", 1)), None, Some(LP)).unwrap()] {
+            assert!(text.contains("rg -n") && text.contains("当たった行だけを読むこと"));
+            assert!(text.contains("往復番号が最も大きい行（最新）を採用すること") && text.contains(LP), "{text}");
+        }
     }
 
     #[test]
@@ -1372,7 +1413,7 @@ mod tests {
         let (recent, toc, guide) = (m.text.find("— 往復10").unwrap(), m.text.find("■ 全12往復の目次").unwrap(), m.text.find("■ 会話台帳").unwrap());
         assert!(recent < toc && toc < guide);
         assert!(m.text.contains("#1 2025-10-17 23:02 依頼1\n") && m.text.contains("#12 2025-10-17 23:02 依頼12"));
-        assert!(m.text.contains(&format!("全文は {LP}。必要な箇所はこのファイルを読んで確認すること。")));
+        assert!(m.text.contains(&format!("全往復の原文は {LP} にあります")) && m.text.contains("キーワードで検索して当たった行だけを読むこと"));
         assert_eq!(build_material_with(&t, 3, 540, &LedgerNote::Path(LP.into())), m, "決定的");
     }
 
@@ -1421,7 +1462,7 @@ mod tests {
         assert!(m.truncated && m.rounds_included < 5 && m.rounds_included >= 1);
         // 目次は全65往復を残し、台帳の案内もある。残る原文は新しい方。
         assert_eq!(m.toc_rounds, Some(65));
-        assert!(m.text.contains("#1 2025") && m.text.contains("#65 2025") && m.text.contains("全文は "));
+        assert!(m.text.contains("#1 2025") && m.text.contains("#65 2025") && m.text.contains("■ 会話台帳"));
         assert!(m.text.contains(&format!("5{big}")) && !m.text.contains(&format!("1{big}")));
         // 巨大本文だけの連鎖でも、全体の上限を超えない。
         let huge: Vec<TurnRecord> = (1..=10).map(|i| turn(&format!("t{i}"), &"い".repeat(100_000), &"ろ".repeat(100_000))).collect();
