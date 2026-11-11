@@ -1,0 +1,304 @@
+{
+  "kind": "recall-probe",
+  "version": "codex-cli 0.167.0",
+  "codexHome": "%USERPROFILE%\\.codex (shared default, read-only use)",
+  "startedAt": "2026-11-11T15:42:28.647Z",
+  "params": {
+    "rounds": 2,
+    "facts": 3,
+    "compactions": 1,
+    "model": "gpt-6.1-sol",
+    "handoffRounds": 1,
+    "methods": [
+      "a",
+      "e",
+      "s"
+    ],
+    "trial": false,
+    "long": true,
+    "seed": 42,
+    "budgetUncached": 60000
+  },
+  "results": [
+    {
+      "method": "a",
+      "label": "同一thread＋圧縮任せ",
+      "status": "done",
+      "turns": [
+        {
+          "status": "completed",
+          "ms": 2961,
+          "replyChars": 2,
+          "error": null
+        },
+        {
+          "status": "completed",
+          "ms": 2579,
+          "replyChars": 2,
+          "error": null
+        },
+        {
+          "status": "completed",
+          "ms": 3423,
+          "replyChars": 77,
+          "error": null
+        }
+      ],
+      "compactions": [
+        {
+          "beforeContextTokens": 21069,
+          "beforeUncachedCum": 21069,
+          "requested": true,
+          "rpcAccepted": true,
+          "itemObserved": true,
+          "legacyNotificationObserved": false,
+          "turnCompleted": true,
+          "ms": 26796,
+          "error": null,
+          "notificationMethods": [
+            "item/completed",
+            "item/started",
+            "thread/status/changed",
+            "thread/tokenUsage/updated",
+            "turn/completed",
+            "turn/started"
+          ],
+          "compactCallTokens": 25578,
+          "compactUncached": 0,
+          "afterRound": 1,
+          "nextTurnContextTokens": 23328
+        }
+      ],
+      "commands": [],
+      "itemTypes": {
+        "userMessage": 3,
+        "agentMessage": 3
+      },
+      "errors": [],
+      "approvalRequests": 0,
+      "thread": {
+        "model": "gpt-6.1-sol",
+        "reasoningEffort": "medium",
+        "sandbox": "readOnly",
+        "approvalPolicy": "never",
+        "ephemeral": true
+      },
+      "threadId": "01a1cb46-5e93-7580-9890-73303acbfc84",
+      "usage": {
+        "total": {
+          "totalTokens": 67957,
+          "inputTokens": 67898,
+          "cachedInputTokens": 44032,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 59,
+          "reasoningOutputTokens": 0
+        },
+        "lastCall": {
+          "totalTokens": 23560,
+          "inputTokens": 23511,
+          "cachedInputTokens": 23168,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 49,
+          "reasoningOutputTokens": 0
+        },
+        "peakContextTokens": 25578,
+        "modelContextWindow": 475000,
+        "updates": 4
+      },
+      "answerFormat": "json",
+      "answers": {
+        "Q1": "4,280万円",
+        "C1": "高",
+        "Q2": "2027年3月26日",
+        "C2": "高",
+        "Q3": "営業部の森田さん",
+        "C3": "高"
+      },
+      "score": {
+        "correct": 3,
+        "total": 3,
+        "wrong": []
+      }
+    },
+    {
+      "method": "e",
+      "label": "aの回答後に同じ会話で台帳検索して答え直す",
+      "status": "done",
+      "turns": [
+        {
+          "status": "completed",
+          "ms": 4054,
+          "replyChars": 77,
+          "error": null
+        }
+      ],
+      "compactions": [],
+      "commands": [],
+      "itemTypes": {
+        "userMessage": 1,
+        "agentMessage": 1
+      },
+      "errors": [],
+      "approvalRequests": 0,
+      "thread": {
+        "sameThreadAs": "a",
+        "afterAnswer": true
+      },
+      "baseUsage": {
+        "total": {
+          "totalTokens": 67957,
+          "inputTokens": 67898,
+          "cachedInputTokens": 44032,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 59,
+          "reasoningOutputTokens": 0
+        },
+        "lastCall": {
+          "totalTokens": 23560,
+          "inputTokens": 23511,
+          "cachedInputTokens": 23168,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 49,
+          "reasoningOutputTokens": 0
+        },
+        "peakContextTokens": 25578,
+        "modelContextWindow": 475000,
+        "updates": 4
+      },
+      "threadId": "01a1cb46-5e93-7580-9890-73303acbfc84",
+      "usage": {
+        "total": {
+          "totalTokens": 23944,
+          "inputTokens": 23895,
+          "cachedInputTokens": 23424,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 49,
+          "reasoningOutputTokens": 0
+        },
+        "lastCall": {
+          "totalTokens": 23944,
+          "inputTokens": 23895,
+          "cachedInputTokens": 23424,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 49,
+          "reasoningOutputTokens": 0
+        },
+        "peakContextTokens": 25578,
+        "modelContextWindow": 475000,
+        "updates": 5
+      },
+      "answerFormat": "json",
+      "answers": {
+        "Q1": "4,280万円",
+        "C1": "高",
+        "Q2": "2027年3月26日",
+        "C2": "高",
+        "Q3": "営業部の森田さん",
+        "C3": "高"
+      },
+      "score": {
+        "correct": 3,
+        "total": 3,
+        "wrong": []
+      },
+      "ledger": {
+        "commandAttempts": 0,
+        "ledgerReadAttempts": 0,
+        "outputChars": 0,
+        "ledgerReadSucceeded": false
+      }
+    },
+    {
+      "method": "s",
+      "label": "検索型の引継ぎ（1行1往復の台帳）",
+      "status": "done",
+      "turns": [
+        {
+          "status": "completed",
+          "ms": 10625,
+          "replyChars": 77,
+          "error": null
+        }
+      ],
+      "compactions": [],
+      "commands": [
+        {
+          "command": "\"C:\\\\WINDOWS\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command 'rg -n \"予算|上限|リリース日|顧客データ移行\" -- \"会話台帳.txt\"'",
+          "status": "completed",
+          "exitCode": 0,
+          "outputChars": 2808
+        }
+      ],
+      "itemTypes": {
+        "userMessage": 1,
+        "agentMessage": 2,
+        "commandExecution": 1
+      },
+      "errors": [],
+      "approvalRequests": 0,
+      "thread": {
+        "model": "gpt-6.1-sol",
+        "reasoningEffort": "medium",
+        "sandbox": "readOnly",
+        "approvalPolicy": "never",
+        "ephemeral": true
+      },
+      "handoff": {
+        "envelopeChars": 1648,
+        "recentRounds": 1,
+        "ledgerFormat": "one-line-per-round"
+      },
+      "threadId": "01a1cb46-fc75-7eb3-aa85-94dd8642eaaf",
+      "usage": {
+        "total": {
+          "totalTokens": 45532,
+          "inputTokens": 45398,
+          "cachedInputTokens": 21504,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 134,
+          "reasoningOutputTokens": 0
+        },
+        "lastCall": {
+          "totalTokens": 23898,
+          "inputTokens": 23849,
+          "cachedInputTokens": 21504,
+          "cacheWriteInputTokens": 0,
+          "outputTokens": 49,
+          "reasoningOutputTokens": 0
+        },
+        "peakContextTokens": 23898,
+        "modelContextWindow": 475000,
+        "updates": 2
+      },
+      "answerFormat": "json",
+      "answers": {
+        "Q1": "4,280万円",
+        "C1": "高",
+        "Q2": "2027年3月26日",
+        "C2": "高",
+        "Q3": "営業部の森田さん",
+        "C3": "高"
+      },
+      "score": {
+        "correct": 3,
+        "total": 3,
+        "wrong": []
+      },
+      "ledger": {
+        "commandAttempts": 1,
+        "ledgerReadAttempts": 1,
+        "outputChars": 2808,
+        "ledgerReadSucceeded": true
+      }
+    }
+  ],
+  "approvalRequests": [],
+  "fatalError": null,
+  "durationMs": 51650,
+  "configUnchanged": true,
+  "authUnchanged": true,
+  "stderrTail": [
+    ""
+  ],
+  "totalTokens": 137433
+}

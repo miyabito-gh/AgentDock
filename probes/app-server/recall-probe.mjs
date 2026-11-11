@@ -30,6 +30,8 @@ const MODEL = flag('model', 'gpt-6.1-sol');
 const HANDOFF_ROUNDS = Number(flag('handoff-rounds', 3)); // 製品の既定
 const METHODS = flag('methods', 'a,b,c,d').split(',').map(s => s.trim()).filter(Boolean);
 const TRIAL = process.argv.includes('--trial');
+const LONG = process.argv.includes('--long'); // 実際の長さの議事録（1往復 約1,400字・紛れの数値多数）。圧縮で実際に情報が落ちる量にする
+const SEED = Number(flag('seed', 42));
 const TURN_TIMEOUT = Number(flag('turn-timeout-ms', 240000));
 const PURPOSE = '請求システム刷新プロジェクト「ミナト」の定例会議で決まった事項・数値・担当・期限を正確に把握し、後続の質問に答える。';
 
@@ -63,9 +65,36 @@ const FACT_BANK = [
 const FILLERS = ['今日は朝から雨だった。', 'コーヒーを切らしている。', '会議室の空調が少し寒い。', '昼は近所の定食屋に行く予定。',
   '先週の連休は混んでいた。', 'プロジェクターの調子が悪い。', '新しい椅子が届いた。', '来月は出張が多い。', '資料の印刷が間に合った。', '窓の外に虹が出ている。'];
 
+// ───────────── 長文モード（--long）─────────────
+// 議事録らしい議題を毎回10件生成し、事実はそのどれかの中に埋める。紛れの数値・人名・日付は、事実の答えと重ならないよう検査する。
+const LONG_FIXES = {
+  F11: { fix: '追加要員は3名から5名へ増やす（開始は6月のまま）。', any: [['5名', '5人', '五名'], ['6月', '06-']], forbid: ['3名', '3人', '三名'] },
+  F13: { fix: '値引き率の上限は8%から6%へ引き下げる。', any: [['6%']], forbid: ['8%'] },
+};
+function rng(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+const TOPICS = ['帳票テンプレートの改修', '問い合わせ窓口の再編', 'ログ保管方針', '社内ポータルの更新', '権限の棚卸し', 'テスト環境の増強', '文書管理の統一', '監査対応の準備', 'バックアップの復元検証',
+  '画面文言の見直し', '端末の入れ替え', '帳簿照合の自動化', 'データ品質チェック', '通知メールの改善', '外部APIの監視', '請求書PDFの体裁', '夜間バッチの短縮', 'マスタ整備', '利用者アンケート', '障害訓練の計画'];
+const PEOPLE = ['佐々木', '野口', '石川', '小野', '村上', '岡本', '中島', '藤井', '久保', '平田'];
+const REMARKS = ['前回からの持ち越し分は解消した。', '一部で手戻りが出ているが影響は小さい。', '関係部署との調整がまだ残っている。', '次回までに見積の内訳を出す。', '優先度は中のまま据え置き。',
+  '現場からは前向きな反応が多い。', '試算の前提を一度見直すことになった。', 'リスクとして記録だけ残す。', '担当を交代するかは次回判断。', '資料は共有フォルダに置いた。'];
+function longMinutes(factSays, facts, rand) {
+  const banned = facts.flatMap(f => [...f.any.flat(), ...(f.origAny ?? []).flat(), ...(f.forbid ?? [])]).map(norm).filter(b => b.length >= 2);
+  const pick = a => a[Math.floor(rand() * a.length)];
+  const num = (lo, n) => lo + Math.floor(rand() * n);
+  const item = k => {
+    for (;;) {
+      const t = `議題${k}: ${pick(TOPICS)}について、${pick(PEOPLE)}さんから報告。見積は${num(10, 890)}万円、期限は${num(1, 12)}月${num(1, 28)}日、対象は${num(20, 3000)}件、工数は月${num(10, 200)}時間の見込み。進捗率は${num(0, 100)}%。${pick(REMARKS)}`;
+      if (!banned.some(b => norm(t).includes(b))) return t;
+    }
+  };
+  const items = Array.from({ length: 14 }, (_, k) => item(k + 1));
+  for (const say of factSays) { const k = Math.floor(rand() * items.length); items[k] += ` なお、${say}`; }
+  return items.join('\n');
+}
+
 function buildScenario(rounds, factsN) {
   if (factsN > FACT_BANK.length) throw new Error(`facts max is ${FACT_BANK.length}`);
-  const facts = FACT_BANK.slice(0, factsN);
+  const facts = FACT_BANK.slice(0, factsN).map(f => (LONG && LONG_FIXES[f.id] ? { ...f, ...LONG_FIXES[f.id], origAny: f.any } : { ...f }));
   const perRound = Array.from({ length: rounds }, () => []);
   facts.forEach((f, j) => perRound[Math.floor(j * rounds / factsN)].push(f.say));
   const factRounds = {};
@@ -77,9 +106,10 @@ function buildScenario(rounds, factsN) {
     else { delete f.forbid; f.any = f.origAny; } // 訂正が入らない規模では元の値が正解
   }
   // 1行目は見出しだけにする（目次は依頼の先頭1行を載せるため、事実が目次に漏れないように）。
-  // 1行目は見出しだけにする（目次は依頼の先頭1行を載せるため、事実が目次に漏れないように）。
-  const userTexts = perRound.map((s, i) =>
-    `【定例${i + 1}回目】\n${s.join(' ')} ${FILLERS[i % FILLERS.length]}\n内容は覚えておいてください。返答は「了解」の一言だけで。`);
+  const rand = rng(SEED);
+  const userTexts = perRound.map((s, i) => LONG
+    ? `【定例${i + 1}回目】\n${longMinutes(s, facts, rand)}\n${FILLERS[i % FILLERS.length]}\n内容は覚えておいてください。返答は「了解」の一言だけで。`
+    : `【定例${i + 1}回目】\n${s.join(' ')} ${FILLERS[i % FILLERS.length]}\n内容は覚えておいてください。返答は「了解」の一言だけで。`);
   return { facts, userTexts, factRounds };
 }
 
@@ -103,11 +133,22 @@ function parseAnswers(text, n) {
   for (const line of text.split(/\r?\n/)) { const m = line.match(/^\W*(Q\d+)\s*[:：]\s*(.*)$/i); if (m) out[m[1].toUpperCase()] = m[2]; }
   return { answers: out, format: Object.keys(out).length ? 'lines' : 'unparsed' };
 }
+// 1行1内容の台帳（提案形式）。依頼・応答の各行に往復番号を付ける。検索して当たった行だけを読めば足りる。
+const SEARCH_RULE = '台帳は1行に1つの内容で、行頭がその内容の出てきた往復の番号（R1, R2, ...）です。キーワードで検索して当たった行だけを読み、全文は読まないでください。同じ項目が複数の行に当たったら、すべての行を見たうえで、R番号が最も大きい行の値（最新）を採用してください。';
+let LINE_LEDGER = null;
+function writeLineLedger(replies) {
+  LINE_LEDGER = join(work, '会話台帳.txt');
+  const lines = scenario.userTexts.flatMap((u, i) => [...u.split(/\r?\n/).filter(Boolean).map(l => `R${i + 1} 依頼 | ${l}`),
+    ...String(replies?.[i] ?? '了解').split(/\r?\n/).filter(Boolean).map(l => `R${i + 1} 応答 | ${l}`)]);
+  writeFileSync(LINE_LEDGER, lines.join('\n') + '\n');
+}
 function questionPrompt(facts, mode) {
   const how = {
     memory: '会話の記憶だけで答えてください。ファイルの読み取りやコマンドは使わないでください。分からない項目は空文字にしてください。',
     material: '上に添付された資料の内容だけで答えてください。ファイルの読み取りやコマンドは使わないでください。資料に無い項目は空文字にしてください。',
     ledger: '上に添付された資料と、資料に書かれた会話台帳ファイルの両方を使って答えてください。資料だけでは分からない項目は、台帳ファイルを読み取って確認してから答えてください。',
+    memledger: `会話の記憶で答えてください。ただし確信度が「高」でない項目は、会話台帳ファイル ${LINE_LEDGER} を検索して確認してから答えてください。${SEARCH_RULE}`,
+    search: `上に添付された資料で答えてください。資料に無い項目や不確かな項目は、会話台帳ファイル ${LINE_LEDGER} を検索して確認してから答えてください。${SEARCH_RULE}`,
   }[mode];
   return `定例会議のメモについて、次の各問に答えてください。${how}\n` +
     `出力はJSONオブジェクト1つだけ。キー Q1, Q2, ... の値は答えを1行で短く、キー C1, C2, ... の値は各答えの確信度（高・中・低のいずれか）。前置き・説明・コードフェンスは不要です。\n` +
@@ -178,9 +219,14 @@ async function waitFor(pred, timeout) {
   return null;
 }
 const BUDGET = Number(flag('budget-uncached', 300000)); // 非キャッシュ（入力の非キャッシュ分＋出力）の累計上限
+function deltaUsage(u, base) {
+  if (!u || !base?.total) return u;
+  const total = {}; for (const [k, v] of Object.entries(u.total)) total[k] = typeof v === 'number' ? v - (base.total[k] ?? 0) : v;
+  return { ...u, total };
+}
 const uncachedOf = u => (u?.total ? u.total.inputTokens - u.total.cachedInputTokens + u.total.outputTokens : 0);
 function checkBudget(rec, threadId) {
-  rec.usage = usageOf(threadId);
+  rec.usage = deltaUsage(usageOf(threadId), rec.baseUsage);
   const sum = out.results.reduce((a, r) => a + uncachedOf(r.usage), 0);
   if (sum > BUDGET) {
     out.budgetExceeded = { limit: BUDGET, uncachedAtAbort: sum, method: rec.method, turnsDone: rec.turns.length };
@@ -241,7 +287,7 @@ async function compact(threadId, rec) {
 
 // ───────────── 方式の実行 ─────────────
 const newRec = (method, label) => ({ method, label, status: 'pending', turns: [], compactions: [], commands: [], itemTypes: {}, errors: [], approvalRequests: 0 });
-let scenario; let handoff = null; let aReplies = null;
+let scenario; let handoff = null; let aReplies = null; let aThread = null; let aUsageAfterQuiz = null; const forkError = null;
 
 function prepareHandoff() {
   const transcript = scenario.userTexts.map((u, i) => ({ user: u, ai: aReplies?.[i] ?? '了解' }));
@@ -262,7 +308,7 @@ async function finish(rec, threadId, facts, text) {
   rec.answerFormat = format;
   rec.answers = answers; // 採点用の回答のみ
   rec.score = scoreAnswers(facts, answers);
-  rec.usage = usageOf(threadId);
+  rec.usage = deltaUsage(usageOf(threadId), rec.baseUsage);
 }
 async function chatMethod(rec, withCompactPrompt) {
   const { facts, userTexts } = scenario;
@@ -280,6 +326,8 @@ async function chatMethod(rec, withCompactPrompt) {
   if (!withCompactPrompt && replies.length === userTexts.length) aReplies = replies;
   const text = await runTurn(threadId, questionPrompt(facts, 'memory'), rec);
   await finish(rec, threadId, facts, text);
+  // e は a の回答の直後に、同じ会話で台帳を使って答え直す（ephemeral thread は thread/fork できないため）。
+  if (!withCompactPrompt) { aThread = threadId; aUsageAfterQuiz = usageOf(threadId); }
 }
 async function handoffMethod(rec, mode) {
   const { facts } = scenario;
@@ -294,6 +342,33 @@ async function handoffMethod(rec, mode) {
     ledgerReadSucceeded: readLedger.some(c => c.status === 'completed' && (c.exitCode === 0 || c.exitCode === null) && c.outputChars > 0) };
 }
 
+function ledgerStats(rec) {
+  const hits = rec.commands.filter(c => /会話台帳|台帳|ledger/i.test(c.command));
+  rec.ledger = { commandAttempts: rec.commands.length, ledgerReadAttempts: hits.length, outputChars: rec.commands.reduce((a, c) => a + c.outputChars, 0),
+    ledgerReadSucceeded: hits.some(c => c.status === 'completed' && (c.exitCode === 0 || c.exitCode === null) && c.outputChars > 0) };
+}
+async function forkLedgerMethod(rec) {
+  if (!aThread) throw new Error('run a first in the same invocation');
+  if (!LINE_LEDGER) writeLineLedger(aReplies);
+  rec.thread = { sameThreadAs: 'a', afterAnswer: true };
+  rec.baseUsage = aUsageAfterQuiz; // 使用量は a の回答後からの差分だけ数える
+  const text = await runTurn(aThread, `先ほどの回答を見直します。${questionPrompt(scenario.facts, 'memledger')}`, rec);
+  await finish(rec, aThread, scenario.facts, text);
+  ledgerStats(rec);
+}
+async function searchHandoffMethod(rec) {
+  if (!LINE_LEDGER) writeLineLedger(aReplies);
+  const { threadId, started } = await startThread();
+  rec.thread = started;
+  const n = scenario.userTexts.length, from = Math.max(0, n - HANDOFF_ROUNDS);
+  const recent = scenario.userTexts.slice(from).map((u, k) => `── 往復${from + k + 1} ──\n依頼: ${u}\n応答: ${aReplies?.[from + k] ?? '了解'}`).join('\n');
+  const envelope = `【引継ぎ資料】\n目的: ${PURPOSE}\n\n直近${n - from}往復の原文:\n${recent}\n\nそれより前の会話は、会話台帳ファイル ${LINE_LEDGER} にあります（1行に1つの内容、行頭が往復の番号R）。`;
+  rec.handoff = { envelopeChars: envelope.length, recentRounds: n - from, ledgerFormat: 'one-line-per-item' };
+  const text = await runTurn(threadId, `${envelope}\n\n${questionPrompt(scenario.facts, 'search')}`, rec);
+  await finish(rec, threadId, scenario.facts, text);
+  ledgerStats(rec);
+}
+
 const COMPACT_PROMPT = [
   'あなたは業務会話の引き継ぎ要約を作る。これまでの会話を、後で正確に質問に答えられるよう要約する。',
   '次を必ず残すこと: 決定事項、数字（金額・件数・割合・時間・日付）、担当者と担当範囲、期限・日時、保留事項、却下された案、未解決の論点、識別子・番号・固有名詞。',
@@ -303,7 +378,7 @@ const COMPACT_PROMPT = [
 
 // ───────────── 本体 ─────────────
 const out = { kind: 'recall-probe', version, codexHome: codexHome === join(process.env.USERPROFILE, '.codex') ? '%USERPROFILE%\\.codex (shared default, read-only use)' : 'custom',
-  startedAt: new Date().toISOString(), params: { rounds: ROUNDS, facts: FACTS_N, compactions: COMPACTIONS, model: MODEL, handoffRounds: HANDOFF_ROUNDS, methods: METHODS, trial: TRIAL, budgetUncached: Number(flag('budget-uncached', 300000)) },
+  startedAt: new Date().toISOString(), params: { rounds: ROUNDS, facts: FACTS_N, compactions: COMPACTIONS, model: MODEL, handoffRounds: HANDOFF_ROUNDS, methods: METHODS, trial: TRIAL, long: LONG, seed: SEED, budgetUncached: Number(flag('budget-uncached', 300000)) },
   results: [], approvalRequests: [], fatalError: null };
 const t0 = Date.now();
 const save = () => {
@@ -329,7 +404,8 @@ try {
     rec.status = 'done';
   } else {
     const defs = { a: ['a', '同一thread＋圧縮任せ', r => chatMethod(r, false)], b: ['b', '引継ぎ資料（台帳は読まない）', r => handoffMethod(r, 'material')],
-      c: ['c', '引継ぎ資料＋台帳を読む指示', r => handoffMethod(r, 'ledger')], d: ['d', '同一thread＋compact_prompt', r => chatMethod(r, true)] };
+      c: ['c', '引継ぎ資料＋台帳を読む指示', r => handoffMethod(r, 'ledger')], d: ['d', '同一thread＋compact_prompt', r => chatMethod(r, true)],
+      e: ['e', 'aの回答後に同じ会話で台帳検索して答え直す', r => forkLedgerMethod(r)], s: ['s', '検索型の引継ぎ（1行1内容の台帳）', r => searchHandoffMethod(r)] };
     for (const m of METHODS) {
       const [id, label, fn] = defs[m];
       const rec = newRec(id, label); out.results.push(rec);
@@ -371,7 +447,9 @@ try {
   const comps = res.flatMap(r => r.compactions.map((c, k) => `| ${r.method} | ${k + 1} | 往復${c.afterRound ?? '?'}後 | ${c.beforeContextTokens ?? '-'} | ${c.nextTurnContextTokens ?? '-'} | ${c.compactCallTokens ?? '-'} | ${c.compactUncached ?? '-'} | ${c.itemObserved ? '観測' : '未観測'} |`));
   const md = [`# 想起比較試験 ${stamp}`, '',
     `- codex: ${version}、モデル指定: ${MODEL}、受理: ${[...new Set(out.results.map(r => r.thread?.model).filter(Boolean))].join(',') || '-'}`,
-    `- 往復 ${ROUNDS} / 事実 ${FACTS_N} / 圧縮 ${COMPACTIONS} / 引継ぎ直近 ${HANDOFF_ROUNDS}往復${TRIAL ? ' / 試行モード' : ''}`,
+    `- 往復 ${ROUNDS} / 事実 ${FACTS_N} / 圧縮 ${COMPACTIONS} / 引継ぎ直近 ${HANDOFF_ROUNDS}往復${TRIAL ? ' / 試行モード' : ''}${LONG && scenario ? ' / 長文モード（seed ' + SEED + '、1往復 平均' + Math.round(scenario.userTexts.reduce((a, u) => a + u.length, 0) / scenario.userTexts.length) + '字）' : ''}`,
+    ...res.filter(r => r.ledger).map(r => `- ${r.method} の台帳: コマンド${r.ledger.commandAttempts}回、うち台帳${r.ledger.ledgerReadAttempts}回、コマンド出力${r.ledger.outputChars}字、成功 ${r.ledger.ledgerReadSucceeded}`),
+    forkError ? `- 分岐の失敗: ${forkError}` : '',
     `- b/c の往復記録のAI側: ${handoff?.aiSource ?? '-'}`,
     `- config.toml 不変: ${out.configUnchanged} / auth.json 不変: ${out.authUnchanged} / 承認要求: ${approvals.length}件`,
     out.budgetExceeded ? `- 非キャッシュ上限超過で中断: ${JSON.stringify(out.budgetExceeded)}` : '',
