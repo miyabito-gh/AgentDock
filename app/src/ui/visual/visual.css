@@ -1,14 +1,5 @@
 /* Visual Editor uses the existing AgentDock palette, type scale and controls. */
-.visual-appbar{display:flex;align-items:stretch;background:var(--surface);border-bottom:1px solid var(--line);flex:none;min-width:0}
-.visual-appbar>.menubar{flex:1;min-width:0;border-bottom:0}
-.visual-entry{margin:2px 8px 2px 4px;flex:none;align-self:center}
-.visual-chat-toggle{margin:2px 8px 2px 0;flex:none;align-self:center}
-/* チャットを畳む: 中央列を0にし、右ペイン（プレビュー）が残りを使う。幅の変化はネイティブWebViewが追従する。 */
-.body.visual-mode{transition:grid-template-columns .16s ease-out}
-.body.visual-mode.v-chat-off>.center{visibility:hidden;overflow:hidden}
-.body.visual-mode.v-chat-off>.splitter.split-r{display:none}
-@media (prefers-reduced-motion:reduce){.body.visual-mode{transition:none}}
-.visual-entry[aria-pressed=true],.visual-chat-toggle[aria-pressed=true],.visual-pane .btn[aria-pressed=true]{color:var(--accent-text);background:var(--accent-weak);border-color:var(--accent-line)}
+.visual-pane .btn[aria-pressed=true]{color:var(--accent-text);background:var(--accent-weak);border-color:var(--accent-line)}
 .visual-path{font-weight:400;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1}
 .visual-stage{position:relative;flex:1;min-height:100px;min-width:0;overflow:hidden;background:var(--surface)}
 .visual-empty{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;padding:24px;color:var(--ink2);font-size:var(--fs-s);line-height:1.7;overflow:auto}
@@ -16,15 +7,10 @@
 .visual-empty p{margin:8px 0 0;max-width:34em}
 .visual-native-note{padding:16px;color:var(--ink3);font-size:var(--fs-s)}
 .visual-error{margin:6px 0 0;font-size:var(--fs-xs);color:var(--fail-ink);overflow-wrap:anywhere}
-@media(max-width:1100px){
-  .body.visual-mode{--lw:180px!important}
-  .body.visual-mode.l-off,.body.visual-mode[data-left-temp]{--lw:0px!important}
-}
 @media(max-width:760px){
   .visual-empty{padding:12px}
   .visual-empty p:last-child{display:none}
 }
-.visual-chip{border-color:var(--accent-line)!important;background:var(--accent-weak)}
 
 /* 差分は既存の .scrim/.dialog に載せる。 */
 .dialog .visual-diff-columns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;min-height:0}
@@ -75,8 +61,6 @@
 .vp-go.working::after{content:"";position:absolute;inset:-4px;border-radius:50%;border:2px solid transparent;border-top-color:var(--accent);animation:vpSpin 1s linear infinite}
 @keyframes vpSpin{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion:reduce){.vp-go.working::after{animation:none;border-color:var(--accent-line)}}
-.vctx-body{margin:2px 0 6px;padding:6px 8px;border-left:2px solid var(--accent-line);background:var(--surface2);color:var(--ink2);font-size:var(--fs-xs);white-space:pre-wrap;overflow-wrap:anywhere;max-height:180px;overflow:auto}
-.vc-badge{display:inline-block;min-width:16px;margin-left:5px;padding:0 5px;border-radius:999px;background:var(--fail);color:var(--fail-on);font-weight:600;font-size:var(--fs-xs);line-height:16px;text-align:center}
 
 /* ツールバーのアイコンボタン・提案チップ・手順 */
 .vp-ico{display:inline-flex;align-items:center;justify-content:center;padding:5px 7px;min-width:28px}
@@ -111,3 +95,31 @@
 .vd-text{color:var(--ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .vd-acts{display:inline-flex;gap:4px;flex:none}
 .vd-files{display:flex;flex-wrap:wrap;gap:4px;margin:0 0 6px}
+
+/* ── Markdown の画面（プレビュー・状態・操作列） ── */
+.md-pane{display:flex;flex-direction:column;flex:1;min-height:0;min-width:0}
+.md-bar{display:flex;align-items:center;gap:6px;padding:6px 10px;border-bottom:1px solid var(--line2);flex:none;min-width:0;flex-wrap:wrap}
+.md-name{font-size:var(--fs-s);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;max-width:100%}
+.md-state{font-size:var(--fs-xs);color:var(--ink2);flex:none}
+.md-state.busy{color:var(--accent-text)}
+.md-state.bad{color:var(--fail-ink)}
+.md-bar-end{margin-left:auto;display:inline-flex;align-items:center;gap:4px;flex:none}
+.md-msg{margin:0;padding:6px 10px;border-bottom:1px solid var(--line2);font-size:var(--fs-xs);flex:none;overflow-wrap:anywhere}
+.md-note{color:var(--ink2)}
+.md-body{position:relative;flex:1;min-height:160px;min-width:0;display:flex}
+.md-prev{flex:1 1 0;min-width:0;overflow:auto;padding:12px 16px 16px}
+.md-doc{font-size:var(--fs-body);line-height:1.65}
+.md-doc p{white-space:normal}
+.md-doc:focus-visible{outline:2px solid var(--focus);outline-offset:6px;border-radius:var(--r1)}
+.md-doc [data-src-start]{cursor:pointer;border-radius:var(--r1)}
+.md-doc [data-src-start]:hover{box-shadow:0 0 0 1px var(--accent-line)}
+.md-doc .md-sel{background:var(--accent-weak);box-shadow:0 0 0 2px var(--accent-line)}
+.md-doc .md-cur{box-shadow:-6px 0 0 -3px var(--accent-line)}
+.md-doc .md-sel.md-cur{box-shadow:0 0 0 2px var(--accent-line)}
+.md-doc pre{margin:6px 0 10px;border:1px solid var(--line2);border-radius:var(--r1);background:var(--surface2);padding:8px 10px;overflow:auto;white-space:pre;font-size:.92em}
+.md-doc pre code{background:transparent;border:0;padding:0;font-size:1em}
+.md-doc table{display:block;max-width:100%;overflow-x:auto;margin:0 0 10px}
+.md-doc img{max-width:100%;height:auto}
+.md-doc li>input[type=checkbox]{margin-right:6px}
+.md-link-off{color:var(--accent-text);text-decoration:underline;cursor:default}
+.md-img-off{display:inline-block;padding:0 6px;border:1px dashed var(--line-strong);border-radius:var(--r1);color:var(--ink2);font-size:var(--fs-s)}

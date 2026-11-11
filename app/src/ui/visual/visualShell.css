@@ -1,0 +1,18 @@
+/* Visual Editor の入口と画面の枠（アプリ起動時から必要）。ペイン内の部品は visual.css（Visual Editor を開いたときに読み込む）。 */
+.visual-appbar{display:flex;align-items:stretch;background:var(--surface);border-bottom:1px solid var(--line);flex:none;min-width:0}
+.visual-appbar>.menubar{flex:1;min-width:0;border-bottom:0}
+.visual-entry{margin:2px 8px 2px 4px;flex:none;align-self:center}
+.visual-chat-toggle{margin:2px 8px 2px 0;flex:none;align-self:center}
+/* チャットを畳む: 中央列を0にし、右ペイン（プレビュー）が残りを使う。幅の変化はネイティブWebViewが追従する。 */
+.body.visual-mode{transition:grid-template-columns .16s ease-out}
+.body.visual-mode.v-chat-off>.center{visibility:hidden;overflow:hidden}
+.body.visual-mode.v-chat-off>.splitter.split-r{display:none}
+@media (prefers-reduced-motion:reduce){.body.visual-mode{transition:none}}
+.visual-entry[aria-pressed=true],.visual-chat-toggle[aria-pressed=true]{color:var(--accent-text);background:var(--accent-weak);border-color:var(--accent-line)}
+@media(max-width:1100px){
+  .body.visual-mode{--lw:180px!important}
+  .body.visual-mode.l-off,.body.visual-mode[data-left-temp]{--lw:0px!important}
+}
+.visual-chip{border-color:var(--accent-line)!important;background:var(--accent-weak)}
+.vctx-body{margin:2px 0 6px;padding:6px 8px;border-left:2px solid var(--accent-line);background:var(--surface2);color:var(--ink2);font-size:var(--fs-xs);white-space:pre-wrap;overflow-wrap:anywhere;max-height:180px;overflow:auto}
+.vc-badge{display:inline-block;min-width:16px;margin-left:5px;padding:0 5px;border-radius:999px;background:var(--fail);color:var(--fail-on);font-weight:600;font-size:var(--fs-xs);line-height:16px;text-align:center}

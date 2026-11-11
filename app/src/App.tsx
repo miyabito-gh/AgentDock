@@ -63,7 +63,8 @@ import { hms, keyStr, knownValue } from "./ui/format";
 import { pushRecent } from "./ui/skillPick";
 import { SendKeyContext } from "./ui/SendKeyContext";
 import { applyAppearance, watchSystemTheme } from "./ui/appearance";
-import { VisualWorkspace, type VisualSendHandle } from "./ui/visual/VisualWorkspace";
+import { VisualGate } from "./ui/visual/VisualGate";
+import type { VisualSendHandle } from "./ui/visual/VisualWorkspace";
 import { VISUAL_CONTEXT_MARK, friendlyVisualError } from "./ui/visual/api";
 
 type Mode = "live" | "mock";
@@ -1936,7 +1937,7 @@ ${cur}` : p.text);
               onChatList={(f) => updateSettings((s) => ({ ...s, chatList: f(s.chatList) }), "一覧の表示設定を保存できませんでした。次回の起動では保存されている値に戻ります")} listStatus={listStatus} uiSize={snap.settings.appearance.uiText} />
           </aside>
           <main className="center">
-            <VisualWorkspace key={mode} enabled={visualShown}
+            <VisualGate key={mode} enabled={visualShown}
               blocked={!!dialog || !!menu || palette || mockOpen || !!(sideId && sideShown) || lNarrow || rNarrow || dragging}
               chatId={chat?.key.id ?? null} chatKey={chat && chat.key.backend === "codex" ? chat.key : null} chatCwd={chat ? knownValue(chat.cwd) : null} onSendInstruction={sendInstruction}
               sendLock={chat ? sendLockReason(snap, chat, snap.chatLocals.find((l) => l.chat.id === chat.key.id)) ?? firstSendLockReason(pendingSends[chat.key.id]) : null}
@@ -1945,7 +1946,7 @@ ${cur}` : p.text);
               renderRequest={(r) => <RequestCard r={r} onRespond={onRespond} />} onOpenChat={() => setVisualChatOff(false)}
               onNewChatHere={(cwd) => setDialog({ type: "newChat", dev: true, cwd })}
               onContext={setVisualCtx} onChip={setVisualChip} openRequest={visualOpen}
-              onNotice={say}>
+              onNotice={say} />
             {orgScreen ? (
               <OrgPane snap={snap} org={orgShown} error={orgErr} live={live} timelineTick={orgTlTick} leftShown={leftTemp ? lNarrow : leftOpen} rightShown={rightTemp ? rNarrow : rightOpen}
                 onAct={act} onOpenChat={(k) => selectChat(k.id)} onReload={() => setOrgTick((n) => n + 1)} run={orgRun} onDelete={(id) => setDialog({ type: "orgDelete", workflowId: id })}
@@ -1975,7 +1976,6 @@ ${cur}` : p.text);
                 leftShown={leftTemp ? lNarrow : leftOpen} rightShown={rightTemp ? rNarrow : rightOpen}
               />
             ) : <EmptyCenter onAct={act} />}
-            </VisualWorkspace>
           </main>
           <aside className="right" id="pane-dock" aria-label={visualShown ? "Visual Editor" : peek.view === "chat" ? "チャット" : "エージェントのドック"}>
             {visualShown ? null : (

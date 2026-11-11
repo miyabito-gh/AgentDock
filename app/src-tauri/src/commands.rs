@@ -1615,4 +1615,19 @@ pub async fn visual_direct_source_hint(host: Hs<'_>, args: crate::host::visual_d
 #[tauri::command]
 pub async fn visual_direct_diff(host: Hs<'_>, args: crate::host::visual_direct::DirectDiffArgs) -> R<crate::host::visual_direct::DirectDiff> {
     host.inner().clone().visual_direct_diff(args).await
+}#[tauri::command]
+pub async fn visual_markdown_read(host: Hs<'_>, args: crate::host::visual_markdown::MdTargetArgs) -> R<crate::host::visual_markdown::MdDoc> {
+    host.inner().clone().visual_markdown_read(args).await
+}
+#[tauri::command]
+pub async fn visual_markdown_stamp(host: Hs<'_>, args: crate::host::visual_markdown::MdTargetArgs) -> R<String> {
+    host.inner().clone().visual_markdown_stamp(args).await
+}
+#[tauri::command]
+pub async fn visual_markdown_save(host: Hs<'_>, args: crate::host::visual_markdown::MdSaveArgs) -> R<crate::host::visual_markdown::MdSaved> {
+    host.inner().clone().visual_markdown_save(args).await
+}
+#[tauri::command]
+pub async fn visual_markdown_image(host: Hs<'_>, args: crate::host::visual_markdown::MdImageArgs) -> R<crate::host::visual_markdown::MdImage> {
+    host.inner().clone().visual_markdown_image(args).await
 }

@@ -208,3 +208,41 @@ export function friendlyVisualError(message: string): string {
   if (refusal?.kind === "conflict") return "元のファイルが、AIの編集後に別の内容へ変わっています。";
   return message;
 }
+
+// ── Markdown（編集欄つき）。文字コード・改行の判定と保存はホスト側（読み込み時にBOM・LF/CRLFを判定し、保存時に同じ形で書く）。 ──
+export const isMarkdownPath = (path: string): boolean => /\.(?:md|markdown)$/i.test(path);
+/** Visual Editor で開けるファイルか（HTML または Markdown）。 */
+export const isVisualPath = (path: string): boolean => /\.(?:html?|md|markdown)$/i.test(path);
+export interface MarkdownDoc { text: string; bom: boolean; eol: "lf" | "crlf"; mixed: boolean; stamp: string; bytes: number }
+export interface MarkdownSaved { stamp: string; bytes: number }
+export interface MarkdownSaveArgs { rootPath: string; path: string; text: string; bom: boolean; eol: "lf" | "crlf"; baseStamp: string | null; force: boolean }
+
+/** invoke の失敗（IpcError・文字列・Error）から日本語の本文を取り出す。 */
+export const errorText = (error: unknown): string => error instanceof Error ? error.message : typeof error === "string" ? error
+  : error && typeof error === "object" && "message" in error && typeof (error as { message: unknown }).message === "string" ? (error as { message: string }).message : "不明なエラー";
+
+export async function visualMarkdownRead(rootPath: string, path: string): Promise<MarkdownDoc> {
+  const v = await invoke<unknown>("visual_markdown_read", { args: { rootPath, path } });
+  if (!record(v) || typeof v.text !== "string" || typeof v.bom !== "boolean" || (v.eol !== "lf" && v.eol !== "crlf") || typeof v.mixed !== "boolean" || typeof v.stamp !== "string" || typeof v.bytes !== "number") {
+    throw new Error("文書の読み込み結果を確認できませんでした。");
+  }
+  return { text: v.text, bom: v.bom, eol: v.eol, mixed: v.mixed, stamp: v.stamp, bytes: v.bytes };
+}
+/** 文書ファイルの変化を見る印（読み取りのみ）。見つからなければ失敗する。 */
+export async function visualMarkdownStamp(rootPath: string, path: string): Promise<string> {
+  const v = await invoke<unknown>("visual_markdown_stamp", { args: { rootPath, path } });
+  if (typeof v !== "string") throw new Error("ファイルの状態を確認できませんでした。");
+  return v;
+}
+/** 保存。読み込み後に外部で変わっていれば `conflict:` で失敗する（force のときだけ上書き）。 */
+export async function visualMarkdownSave(args: MarkdownSaveArgs): Promise<MarkdownSaved> {
+  const v = await invoke<unknown>("visual_markdown_save", { args });
+  if (!record(v) || typeof v.stamp !== "string" || typeof v.bytes !== "number") throw new Error("保存結果を確認できませんでした。");
+  return { stamp: v.stamp, bytes: v.bytes };
+}
+/** 文書から相対参照された画像を data URL で受け取る（フォルダの中のものだけ）。 */
+export async function visualMarkdownImage(rootPath: string, path: string, href: string): Promise<string> {
+  const v = await invoke<unknown>("visual_markdown_image", { args: { rootPath, path, href } });
+  if (!record(v) || typeof v.mime !== "string" || typeof v.data !== "string" || !/^image\/[a-z0-9.+-]+$/.test(v.mime)) throw new Error("画像を確認できませんでした。");
+  return `data:${v.mime};base64,${v.data}`;
+}

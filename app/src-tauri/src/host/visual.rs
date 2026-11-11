@@ -28,6 +28,45 @@ pub(super) fn discover(root:&ProjectRoot, html:&RelativePath)->ve::VisualResult<
     if !chosen.iter().any(|f| f.path==html.as_str() && f.access==FileAccess::Edit) { return Err(ve::VisualError::Conflict("selected HTML is not an editable file")); }
     FileScope::new(chosen)
 }
+/// Markdown 文書の編集対象: 文書そのもの（編集可）と、文書から相対参照されるルート内の画像（読み取り専用）。
+pub(super) fn discover_markdown(root:&ProjectRoot, doc:&RelativePath)->ve::VisualResult<FileScope> {
+    use std::io::Read;
+    let mut bytes=Vec::new();
+    {
+        let held=root.open_relative(doc)?.ok_or(ve::VisualError::Conflict("markdown file not found"))?;
+        (&held.file).take(ve::MAX_FILE_BYTES+1).read_to_end(&mut bytes)?;
+    }
+    if bytes.len() as u64>ve::MAX_FILE_BYTES { return Err(ve::VisualError::Limit("single file bytes")); }
+    let mut chosen=vec![SelectedFile {path:doc.as_str().to_string(),access:FileAccess::Edit}];
+    let mut seen=std::collections::BTreeSet::from([doc.as_str().to_uppercase()]);
+    for href in ve::markdown::extract_refs(&String::from_utf8_lossy(&bytes)) {
+        let Some(rel)=ve::markdown::resolve_ref(doc.as_str(),&href) else { continue };
+        if ve::markdown::image_mime(&rel).is_none() || !seen.insert(rel.to_uppercase()) { continue; }
+        let Ok(parsed)=RelativePath::parse(&rel) else { continue };
+        if !matches!(root.open_relative(&parsed),Ok(Some(_))) { continue; }
+        chosen.push(SelectedFile {path:rel,access:FileAccess::ReadOnly});
+    }
+    FileScope::new(chosen)
+}
+#[cfg(test)]
+mod markdown_scope_tests {
+    use super::*;
+    #[test]
+    fn markdown_scope_is_the_document_plus_referenced_images_read_only() {
+        let base=std::env::temp_dir().join(format!("agentdock-mdscope-{}",std::process::id()));
+        let _=fs::remove_dir_all(&base);
+        fs::create_dir_all(base.join("img")).unwrap();
+        fs::write(base.join("a.md"),"![x](img/p.png) ![y](missing.png) ![z](../out.png) [l](other.md)").unwrap();
+        fs::write(base.join("img").join("p.png"),[1u8,2,3]).unwrap();
+        fs::write(base.join("other.md"),"x").unwrap();
+        let root=ProjectRoot::open(&base).unwrap();
+        let scope=discover_markdown(&root,&RelativePath::parse("a.md").unwrap()).unwrap();
+        let got:Vec<_>=scope.selected().iter().map(|f|(f.path.clone(),f.access)).collect();
+        drop(root);
+        let _=fs::remove_dir_all(&base);
+        assert_eq!(got,vec![("a.md".to_string(),FileAccess::Edit),("img/p.png".to_string(),FileAccess::ReadOnly)]);
+    }
+}
 #[cfg(test)]
 mod discover_tests {
     use super::*;

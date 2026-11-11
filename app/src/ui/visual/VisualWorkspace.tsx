@@ -1,14 +1,19 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Icon } from "../Icon";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import type { ChatKey, PendingRequest } from "../../ipc/types";
-import { actOnPreview, closePreview, onPreviewError, onPreviewSelection, openPreview, parentFolder, previewAvailable, quickTemplates, updatePreviewBounds, visualDirectOpen, visualDirectSourceHint, visualDirectStamp, visualDirectTurnBegin, visualDirectTurnEnd, visualDirectTurns, visualSendContext, type PreviewAction, type PreviewBounds, type PreviewElement, type PreviewSession, type VisualContext, type VisualFileScope, type DirectTurn } from "./api";
+import { actOnPreview, closePreview, onPreviewError, onPreviewSelection, openPreview, parentFolder, previewAvailable, isMarkdownPath, quickTemplates, updatePreviewBounds, visualDirectOpen, visualDirectSourceHint, visualDirectStamp, visualDirectTurnBegin, visualDirectTurnEnd, visualDirectTurns, visualSendContext, type PreviewAction, type PreviewBounds, type PreviewElement, type PreviewSession, type VisualContext, type VisualFileScope, type DirectTurn } from "./api";
 import { VisualEditControls } from "./VisualEditControls";
 import { composerPlaceholder, folderContains, runStopped } from "./composerHint";
+import { confirmLeaveMarkdown } from "./markdown/guard";
+import { markdownSendContext, markdownTemplates } from "./markdown/context";
 import { NO_STAMP, afterStep, pollStep, type StampState } from "./stampSync";
 import { isSendKey, sendKeyName, type EnterMode } from "../sendKeys";
 import "./visual.css";
+
+/** Markdown の画面は、Markdown を開いたときに初めて読み込む（描画・編集欄のコードと marked / DOMPurify を含む）。 */
+const MarkdownPane = lazy(() => import("./markdown/MarkdownPane"));
 
 /** 送信側（App）へ渡す文脈。begin＝依頼の直前に対象ファイルを保存する（失敗したら送らない）、end＝受理されなかった依頼のターンを閉じる。 */
 export interface VisualSendHandle extends VisualContext {
@@ -26,18 +31,23 @@ function overlayOpen(): boolean {
     .some((node) => node.getClientRects().length > 0 && getComputedStyle(node).visibility !== "hidden");
 }
 
-export function VisualWorkspace({ enabled, blocked, chatId, chatKey, chatCwd, onSendInstruction, sendLock, chatRunning, enterMode, chatOff, latestReply, requests, renderRequest, onOpenChat, onContext, onChip, openRequest, onNotice, onNewChatHere, children }: {
+export function VisualWorkspace({ enabled, blocked, chatId, chatKey, chatCwd, onSendInstruction, sendLock, chatRunning, enterMode, chatOff, latestReply, requests, renderRequest, onOpenChat, onContext, onChip, openRequest, onNotice, onNewChatHere }: {
   enabled: boolean; blocked: boolean; chatId: string | null; onSendInstruction: (text: string) => Promise<string | null>; /** 通常チャットと同じ送信不可の理由（送れるときはnull）と、実行中か（送ると追加指示になる）。 */ sendLock: string | null; chatRunning: boolean; enterMode: EnterMode;
   /** 編集に使う会話（中央で選択中）と、その作業フォルダ（未取得はnull）。 */ chatKey: ChatKey | null; chatCwd: string | null;
   /** 中央チャットが畳まれている間の、最新の返答（切り詰め済み）・承認/質問の待ち（回答は中央と同じ経路）・チャットを開く操作。 */ chatOff: boolean; latestReply: string | null; requests: PendingRequest[]; renderRequest: (r: PendingRequest) => ReactNode; onOpenChat: () => void;
   /** 編集対象のルートを含む場所で、新しい会話を作る（既存の新規会話の経路）。 */ onNewChatHere: (cwd: string) => void;
-  onContext: (ctx: VisualSendHandle | null) => void; onChip: (chip: { count: number; label: string; onClear: () => void } | null) => void; openRequest: { path: string; nonce: number } | null; onNotice: (message: string) => void; children: ReactNode;
+  onContext: (ctx: VisualSendHandle | null) => void; onChip: (chip: { count: number; label: string; onClear: () => void } | null) => void; openRequest: { path: string; nonce: number } | null; onNotice: (message: string) => void;
 }) {
   const desktop = previewAvailable();
   const stage = useRef<HTMLDivElement>(null);
   const [session, setSession] = useState<PreviewSession | null>(null);
   /** 開いているHTMLの編集範囲（visual_direct_open の結果）。取得できていない間は null＝依頼を送れない。 */
   const [direct, setDirect] = useState<{ sessionId: string; scope: VisualFileScope[] } | null>(null);
+  /** 開いているMarkdown（プレビューのWebViewは作らない。HTMLを開いている間は null）。 */
+  const [mdDoc, setMdDoc] = useState<PreviewSession | null>(null);
+  const mdCurrent = useRef<PreviewSession | null>(null);
+  const doc = session ?? mdDoc;
+  const activeDoc = () => current.current ?? mdCurrent.current;
   const [turns, setTurns] = useState<DirectTurn[]>([]);
   /** 編集範囲の取得に失敗した（もう一度試せる）。nonce を進めると取り直す。 */
   const [openFailed, setOpenFailed] = useState(false);
@@ -140,8 +150,8 @@ export function VisualWorkspace({ enabled, blocked, chatId, chatKey, chatCwd, on
     if (enabled) return;
     generation.current += 1;
     const active = current.current;
-    current.current = null;
-    setSession(null); setSelection([]); setTruncated(false); setError(null);
+    current.current = null; mdCurrent.current = null;
+    setSession(null); setMdDoc(null); setSelection([]); setTruncated(false); setError(null);
     if (active) void enqueue(() => closePreview(active.sessionId)).catch((error) => notice.current(`プレビューを閉じたことを確認できませんでした: ${messageOf(error)}`));
   }, [enabled, enqueue]);
 
@@ -192,6 +202,8 @@ export function VisualWorkspace({ enabled, blocked, chatId, chatKey, chatCwd, on
   }, [enabled, desktop, syncBounds]);
 
   const replacePreview = async (htmlPath: string, rootPath: string, token: number) => {
+    // 開いているMarkdownに未保存の編集があれば、離れてよいか確かめる（保存して続ける・保存せず続ける・やめる）。
+    if (mdCurrent.current && !(await confirmLeaveMarkdown())) return;
     const old = current.current;
     if (old) {
       try { await enqueue(() => closePreview(old.sessionId)); }
@@ -200,6 +212,14 @@ export function VisualWorkspace({ enabled, blocked, chatId, chatKey, chatCwd, on
       if (alive.current) { setSession(null); setSelection([]); setTruncated(false); }
     }
     if (!alive.current || generation.current !== token || !enabledRef.current) return;
+    if (isMarkdownPath(htmlPath)) {
+      // Markdown はWebViewを作らず、画面の中で描く（資源を使うのは開いている間だけ）。
+      const next: PreviewSession = { sessionId: "md:" + rootPath + "|" + htmlPath, rootPath, htmlPath };
+      mdCurrent.current = next; lastBounds.current = "";
+      setMdDoc(next); setSelection([]); setTruncated(false);
+      return;
+    }
+    mdCurrent.current = null; setMdDoc(null);
     const opened = await enqueue(() => openPreview(rootPath, htmlPath, bounds()));
     if (!alive.current || generation.current !== token || !enabledRef.current) {
       await enqueue(() => closePreview(opened.sessionId));
@@ -225,7 +245,7 @@ export function VisualWorkspace({ enabled, blocked, chatId, chatKey, chatCwd, on
       const active = current.current;
       const selected = await openDialog(folder
         ? { directory: true, multiple: false, title: "表示用ファイルのルートを選択", defaultPath: active?.rootPath }
-        : { multiple: false, title: "プレビューするHTMLを開く", filters: [{ name: "HTML", extensions: ["html", "htm"] }] });
+        : { multiple: false, title: "プレビューするHTML／Markdownを開く", filters: [{ name: "HTML／Markdown", extensions: ["html", "htm", "md", "markdown"] }] });
       pickerOpen.current = false;
       if (!alive.current || generation.current !== token || !enabledRef.current) return;
       if (typeof selected === "string") {
@@ -233,7 +253,7 @@ export function VisualWorkspace({ enabled, blocked, chatId, chatKey, chatCwd, on
         else if (!folder) await replacePreview(selected, parentFolder(selected), token);
       }
     } catch (error) {
-      if (alive.current && generation.current === token) setError(`HTMLプレビューを開けませんでした: ${messageOf(error)}`);
+      if (alive.current && generation.current === token) setError(`プレビューを開けませんでした: ${messageOf(error)}`);
     } finally {
       pickerOpen.current = false;
       operationBusy.current = false;
@@ -245,6 +265,7 @@ export function VisualWorkspace({ enabled, blocked, chatId, chatKey, chatCwd, on
   const action = async (action: PreviewAction): Promise<boolean> => {
     const active = current.current;
     if (action === "reload" && openFailed) retryOpen();
+    if (!active && mdCurrent.current) { if (action === "clear") { setSelection([]); return true; } return false; }
     if (!active || operationBusy.current || closeFailed.current) return false;
     operationBusy.current = true; setBusy(true); setError(null);
     try {
@@ -287,21 +308,22 @@ export function VisualWorkspace({ enabled, blocked, chatId, chatKey, chatCwd, on
   const refreshTurns = async (rootPath: string, htmlPath: string) => {
     try {
       const next = await visualDirectTurns(rootPath, htmlPath);
-      if (alive.current && current.current?.rootPath === rootPath && current.current.htmlPath === htmlPath) setTurns(next);
+      const at = activeDoc();
+      if (alive.current && at?.rootPath === rootPath && at.htmlPath === htmlPath) setTurns(next);
     } catch { /* 取れなければ表示はそのまま（次の操作で更新する） */ }
   };
   // プレビューを開いたら、編集範囲とターンの履歴を読む（開いている途中のターンはホストが確定する）。
   useEffect(() => {
     setDirect(null); setTurns([]); setOpenFailed(false);
-    if (!enabled || !desktop || !session) return;
+    if (!enabled || !desktop || !doc) return;
     let live = true;
-    const opened = session;
+    const opened = doc;
     void visualDirectOpen(opened.rootPath, opened.htmlPath).then((result) => {
       if (!live || !alive.current) return;
       setDirect({ sessionId: opened.sessionId, scope: result.scope }); setTurns(result.turns);
     }).catch((failure) => { if (live && alive.current) { setOpenFailed(true); setError("直接編集の準備ができませんでした。もう一度お試しください: " + messageOf(failure)); } });
     return () => { live = false; };
-  }, [enabled, desktop, session?.sessionId, openNonce]);
+  }, [enabled, desktop, doc?.sessionId, openNonce]);
   const retryOpen = () => { setError(null); setOpenFailed(false); setOpenNonce((n) => n + 1); };
   // 依頼のターンを閉じる。変更がなければホストが削除する。失敗しても自動では再試行しない（次のターン開始・起動時にホストが確定する）。
   const endTurn = async (turn: { id: string; rootPath: string; htmlPath: string }) => {
@@ -312,7 +334,7 @@ export function VisualWorkspace({ enabled, blocked, chatId, chatKey, chatCwd, on
     await refreshTurns(turn.rootPath, turn.htmlPath);
   };
   const beginTurn = async (): Promise<{ id: string; fresh: boolean }> => {
-    const active = current.current;
+    const active = activeDoc();
     if (!active || !direct || direct.sessionId !== active.sessionId) throw new Error("プレビューの準備ができていません。");
     const key = `${chatKey?.id ?? ""}|${active.rootPath}|${active.htmlPath}`;
     const prior = openTurns.current.get(key);
@@ -386,8 +408,8 @@ export function VisualWorkspace({ enabled, blocked, chatId, chatKey, chatCwd, on
   // 編集に使う会話（中央で選択中）への送信に、選択範囲と編集方針を自動で添える（入力欄は書き換えない）。
   // ソースの該当箇所（目安）は選択が変わるたびに先読みしてキャッシュする。間に合わない・失敗のときは添えずに送る（送信は待たない）。
   // AIが書ける場所か: 会話の作業フォルダが、編集対象のルートを含むこと。
-  const writable = !!session && folderContains(chatCwd, session.rootPath);
-  const composerOn = enabled && !!session && !!direct && !!chatKey && writable;
+  const writable = !!doc && folderContains(chatCwd, doc.rootPath);
+  const composerOn = enabled && !!doc && !!direct && !!chatKey && writable;
   const hintCache = useRef(new Map<string, string>());
   const [hint, setHint] = useState({ key: "", text: "" });
   const hintKey = session ? `${session.sessionId}|${draftStamp}|${JSON.stringify(selection.slice(0, 12).map((item) => [item.selector, item.tag, item.text.slice(0, 200)]))}` : "";
@@ -404,8 +426,8 @@ export function VisualWorkspace({ enabled, blocked, chatId, chatKey, chatCwd, on
     }).catch(() => { /* 抜粋なしで送る */ });
     return () => { live = false; };
   }, [composerOn, hintKey]);
-  const baseCtx = composerOn && session && direct ? visualSendContext(session.htmlPath, selection, direct.scope) : null;
-  const hintText = baseCtx && hint.key === hintKey ? hint.text.trim() : "";
+  const baseCtx = composerOn && doc && direct ? (session ? visualSendContext(doc.htmlPath, selection, direct.scope) : markdownSendContext(doc.htmlPath, selection, direct.scope)) : null;
+  const hintText = baseCtx && session && hint.key === hintKey ? hint.text.trim() : "";
   // 抜粋（選択なしのときは短い目次）は毎回送る側に入れる。固定の方針は書き換わりで変わらないので、「同じ内容なら一度だけ」が働く。
   const visualCtx = baseCtx && hintText ? { ...baseCtx, sel: `${baseCtx.sel}\n${hintText}` } : baseCtx;
   const ctxSel = visualCtx?.sel ?? null, ctxFixed = visualCtx?.fixed ?? null, ctxChat = chatKey?.id ?? null;
@@ -424,7 +446,7 @@ export function VisualWorkspace({ enabled, blocked, chatId, chatKey, chatCwd, on
   }, [hasChip, selection.length, chipLabel]);
   useEffect(() => () => chipRef.current(null), []);
   const working = chatRunning;
-  const needChat = enabled && !!session && !!direct && (!chatKey || !writable);
+  const needChat = enabled && !!doc && !!direct && (!chatKey || !writable);
   const barOn = composerOn && selection.length > 0;
   // 依頼欄は最大4行まで伸びる（既定は1行）。
   useLayoutEffect(() => {
@@ -458,25 +480,66 @@ export function VisualWorkspace({ enabled, blocked, chatId, chatKey, chatCwd, on
       if (reason === null) { setBarText(""); setSentNote(true); setSendError(null); } else setSendError(reason);
     } finally { if (alive.current) setSending(false); }
   };
-  if (!enabled) return <>{children}</>;
+  if (!enabled) return null;
   const disabled = !session || busy || closeUnconfirmed;
-  const fileName = session ? session.htmlPath.split(/[\\/]/).pop() ?? session.htmlPath : null;
+  const fileName = doc ? doc.htmlPath.split(/[\\/]/).pop() ?? doc.htmlPath : null;
+  const foot = whereOpen || composerOn || needChat ? <div className="vp-foot">
+    {whereOpen ? <div className="vp-where">
+      <div><span>{session || !doc ? "HTML" : "Markdown"}</span> <span className="visual-path" title={doc?.htmlPath}>{doc?.htmlPath ?? "未選択"}</span></div>
+      <div><span>{mdDoc && !session ? "基準フォルダ（画像の参照元）" : "ページの基準フォルダ"}</span> <span className="visual-path" title={doc?.rootPath}>{doc?.rootPath ?? "HTMLの親フォルダを使用"}</span>
+        {session ? <button type="button" className="btn subtle sm" disabled={disabled} onClick={() => void pick(true)}>変更…</button> : null}</div>
+    </div> : null}
+    {composerOn && chatOff && requests.length ? <div className="vp-reqs" aria-label="対応が必要な依頼">{requests.map((r) => <div key={r.key.requestId}>{renderRequest(r)}</div>)}</div>
+      : composerOn && chatOff && latestReply ? <button type="button" className="vp-reply" title="チャットを開く" onClick={onOpenChat}><span className="vp-reply-h">最新の返答</span><span className="vp-reply-b">{latestReply}</span><Icon name="chevron" /></button> : null}
+    {needChat ? <div className="vp-needchat" role="status">
+      <span>{!chatKey ? "依頼を送る会話を選んでください。" : chatCwd ? "この会話の作業フォルダは編集対象を含まないため、AIが書き込めません。" : "この会話の作業フォルダを確認できないため、AIが編集できるか分かりません。"}</span>
+      <button type="button" className="btn-line sm" onClick={() => doc && onNewChatHere(doc.rootPath)}>{chatKey ? "この場所で新しい会話を作る" : "新しい会話を作る"}</button>
+    </div> : null}
+    {composerOn ? <div className="vp-composer" role="group" aria-label={barOn ? "選択した範囲への依頼" : "全体への依頼"}>
+      {barOn ? <div className="vp-ctx">
+        <span className="vp-chip" title={selection.map((item) => item.selector).join(", ")}>{selection.length > 1 ? selection.length + "件 · " : ""}{chipLabel}{truncated ? "（一部）" : ""}</span>
+        {!barText && !textOpen && !sending ? <span className="vp-sugs" role="group" aria-label="依頼の書き出し">
+          {textEditable ? <button type="button" className="vp-sug" onClick={() => { setTextValue(original); setTextOpen(true); }}>文章を直す</button> : null}
+          {(session ? quickTemplates : markdownTemplates).map((item) => <button key={item.name} type="button" className="vp-sug" onClick={() => { setBarText(item.text); barInput.current?.focus(); }}>{item.name}</button>)}
+        </span> : null}
+      </div> : null}
+      {textOpen && textEditable ? <div className="vp-textedit">
+        <textarea className="vp-input" rows={2} value={textValue} aria-label="変更後の文章" disabled={sending} onChange={(event) => setTextValue(event.target.value)} />
+        <button type="button" className="btn primary sm" disabled={sending || !textValue.trim() || textValue.trim() === original} onClick={() => void sendText()}>この文章に直す</button>
+      </div> : null}
+      <div className="vp-inrow">
+        <textarea ref={barInput} rows={1} className="vp-input vp-hero" value={barText} placeholder={composerPlaceholder(sendLock, chatRunning, barOn)} title={sendLock ?? (session ? "例: 青系の配色に / 見出しを短く" : "例: この段落を短く / 表にまとめて")} aria-label={barOn ? "この範囲への依頼" : "全体への依頼"} disabled={sending}
+          onChange={(event) => { setBarText(event.target.value); setSentNote(false); setSendError(null); }}
+          onKeyDown={(event) => { if (isSendKey({ key: event.key, ctrlKey: event.ctrlKey, shiftKey: event.shiftKey, metaKey: event.metaKey, isComposing: event.nativeEvent.isComposing }, enterMode)) { event.preventDefault(); void sendBar(); } }} />
+        <button type="button" className={"vp-go" + (working ? " working" : "")} aria-label="送信" title={sendLock ?? (chatRunning ? "追加指示として送信（" + sendKeyName(enterMode) + "）" : "送信（" + sendKeyName(enterMode) + "）")} disabled={!barText.trim() || sending || busy || closeUnconfirmed || !!sendLock} onClick={() => void sendBar()}>↑</button>
+      </div>
+      {sendError ? <small className="vp-sent visual-error" role="alert">{sendError}</small> : null}
+      {sentNote ? <small className="vp-sent" role="status">送信しました</small> : null}
+    </div> : null}
+  </div> : null;
   const pane = (
     <div className="visual-pane">
-      {session || error || closeUnconfirmed ? <section className="vp-card vp-edit" aria-label="編集">
+      {doc || error || closeUnconfirmed ? <section className="vp-card vp-edit" aria-label="編集">
         <div className="vp-body">
-          <VisualEditControls preview={session} turns={turns} onTurns={(root, html, next) => { if (current.current?.rootPath === root && current.current.htmlPath === html) setTurns(next); }} running={chatRunning} chat={chatKey} onBeforeDiff={beforeDiff} onAfterDiff={afterDiff} />
+          <VisualEditControls preview={doc} turns={turns} onTurns={(root, html, next) => { const at = activeDoc(); if (at?.rootPath === root && at.htmlPath === html) setTurns(next); }} running={chatRunning} chat={chatKey} onBeforeDiff={beforeDiff} onAfterDiff={afterDiff} />
           {error ? <p className="visual-error" role="alert">{error}</p> : null}
           {openFailed ? <button type="button" className="btn-line sm" disabled={busy} onClick={retryOpen}>もう一度試す</button> : null}
           {closeUnconfirmed ? <button type="button" className="btn-line sm" disabled={busy} onClick={() => void retryClose()}>閉じるを再試行</button> : null}
         </div>
       </section> : null}
-      <section className="vp-card vp-preview" aria-label="HTMLプレビュー">
+      {mdDoc && !session ? <section className="vp-card vp-preview" aria-label="Markdownプレビュー">
+        <Suspense fallback={<div className="visual-empty"><strong>Markdownの画面を読み込んでいます…</strong></div>}>
+          <MarkdownPane rootPath={mdDoc.rootPath} path={mdDoc.htmlPath} aiBusy={chatRunning} selection={selection} onSelect={setSelection}
+            barStart={<button type="button" className="btn subtle sm vp-ico" aria-label="HTML／Markdownを開く" title="HTML／Markdownを開く" disabled={!desktop || busy} onClick={() => void pick(false)}><Icon name="folderOpen" /></button>}
+            barEnd={<button type="button" className="btn subtle sm vp-ico" aria-pressed={whereOpen} aria-label="表示しているファイルの場所" title="表示しているファイルの場所" onClick={() => setWhereOpen(!whereOpen)}><Icon name="more" /></button>} />
+        </Suspense>
+        {foot}
+      </section> : <section className="vp-card vp-preview" aria-label="HTMLプレビュー">
         <header className="vp-head"><strong>プレビュー</strong><span className="vp-sub" title={session?.htmlPath}>{fileName ?? "HTMLを開いてください"}</span></header>
         <div className="vp-bar">
           <span className="vp-group" role="group" aria-label="ページ">
-            {session ? <button type="button" className="btn subtle sm vp-ico" aria-label="HTMLを開く" title="HTMLを開く" disabled={!desktop || busy || closeUnconfirmed} onClick={() => void pick(false)}><Icon name="folderOpen" /></button>
-              : <button type="button" className="btn primary sm" disabled={!desktop || busy || closeUnconfirmed} onClick={() => void pick(false)}>HTMLを開く</button>}
+            {session ? <button type="button" className="btn subtle sm vp-ico" aria-label="HTML／Markdownを開く" title="HTML／Markdownを開く" disabled={!desktop || busy || closeUnconfirmed} onClick={() => void pick(false)}><Icon name="folderOpen" /></button>
+              : <button type="button" className="btn primary sm" disabled={!desktop || busy || closeUnconfirmed} onClick={() => void pick(false)}>HTML／Markdownを開く</button>}
             <button type="button" className="btn subtle sm vp-ico" aria-label="再読み込み" title="再読み込み" disabled={disabled} onClick={() => void action("reload")}><Icon name="refresh" /></button>
           </span>
           <span className="vp-seg" role="group" aria-label="ページの操作モード">
@@ -491,45 +554,12 @@ export function VisualWorkspace({ enabled, blocked, chatId, chatKey, chatCwd, on
           <button type="button" className="btn subtle sm vp-ico vp-where-btn" aria-pressed={whereOpen} aria-label="表示しているファイルの場所" title="表示しているファイルの場所" onClick={() => setWhereOpen(!whereOpen)}><Icon name="more" /></button>
         </div>
         <div className="visual-stage" ref={stage} aria-label="プレビューの表示領域">
-          {!session ? <div className="visual-empty"><strong>HTMLを開いて、直したい所をクリック</strong>{desktop ? <ol className="vp-steps" aria-label="使い方"><li>HTMLを開く</li><li>要素を選ぶ</li><li>依頼を書く</li><li>結果を見て、必要なら戻す</li></ol> : <p>デスクトップ版でHTMLを開いてください。</p>}</div>
+          {!session ? <div className="visual-empty"><strong>HTMLまたはMarkdownを開いて、直したい所をクリック</strong>{desktop ? <ol className="vp-steps" aria-label="使い方"><li>HTML／Markdownを開く</li><li>要素を選ぶ</li><li>依頼を書く</li><li>結果を見て、必要なら戻す</li></ol> : <p>デスクトップ版でHTMLまたはMarkdownを開いてください。</p>}</div>
             : <div className="visual-native-note">{blocked || overlayOpen() ? "メニュー・ダイアログの操作中はプレビューを非表示にします。" : null}</div>}
         </div>
-        {whereOpen || composerOn || needChat ? <div className="vp-foot">
-          {whereOpen ? <div className="vp-where">
-            <div><span>HTML</span> <span className="visual-path" title={session?.htmlPath}>{session?.htmlPath ?? "未選択"}</span></div>
-            <div><span>ページの基準フォルダ</span> <span className="visual-path" title={session?.rootPath}>{session?.rootPath ?? "HTMLの親フォルダを使用"}</span>
-              <button type="button" className="btn subtle sm" disabled={disabled} onClick={() => void pick(true)}>変更…</button></div>
-          </div> : null}
-          {composerOn && chatOff && requests.length ? <div className="vp-reqs" aria-label="対応が必要な依頼">{requests.map((r) => <div key={r.key.requestId}>{renderRequest(r)}</div>)}</div>
-            : composerOn && chatOff && latestReply ? <button type="button" className="vp-reply" title="チャットを開く" onClick={onOpenChat}><span className="vp-reply-h">最新の返答</span><span className="vp-reply-b">{latestReply}</span><Icon name="chevron" /></button> : null}
-          {needChat ? <div className="vp-needchat" role="status">
-            <span>{!chatKey ? "依頼を送る会話を選んでください。" : chatCwd ? "この会話の作業フォルダは編集対象を含まないため、AIが書き込めません。" : "この会話の作業フォルダを確認できないため、AIが編集できるか分かりません。"}</span>
-            <button type="button" className="btn-line sm" onClick={() => session && onNewChatHere(session.rootPath)}>{chatKey ? "この場所で新しい会話を作る" : "新しい会話を作る"}</button>
-          </div> : null}
-          {composerOn ? <div className="vp-composer" role="group" aria-label={barOn ? "選択した範囲への依頼" : "全体への依頼"}>
-            {barOn ? <div className="vp-ctx">
-              <span className="vp-chip" title={selection.map((item) => item.selector).join(", ")}>{selection.length > 1 ? selection.length + "件 · " : ""}{chipLabel}{truncated ? "（一部）" : ""}</span>
-              {!barText && !textOpen && !sending ? <span className="vp-sugs" role="group" aria-label="依頼の書き出し">
-                {textEditable ? <button type="button" className="vp-sug" onClick={() => { setTextValue(original); setTextOpen(true); }}>文章を直す</button> : null}
-                {quickTemplates.map((item) => <button key={item.name} type="button" className="vp-sug" onClick={() => { setBarText(item.text); barInput.current?.focus(); }}>{item.name}</button>)}
-              </span> : null}
-            </div> : null}
-            {textOpen && textEditable ? <div className="vp-textedit">
-              <textarea className="vp-input" rows={2} value={textValue} aria-label="変更後の文章" disabled={sending} onChange={(event) => setTextValue(event.target.value)} />
-              <button type="button" className="btn primary sm" disabled={sending || !textValue.trim() || textValue.trim() === original} onClick={() => void sendText()}>この文章に直す</button>
-            </div> : null}
-            <div className="vp-inrow">
-              <textarea ref={barInput} rows={1} className="vp-input vp-hero" value={barText} placeholder={composerPlaceholder(sendLock, chatRunning, barOn)} title={sendLock ?? "例: 青系の配色に / 見出しを短く"} aria-label={barOn ? "この範囲への依頼" : "全体への依頼"} disabled={sending}
-                onChange={(event) => { setBarText(event.target.value); setSentNote(false); setSendError(null); }}
-                onKeyDown={(event) => { if (isSendKey({ key: event.key, ctrlKey: event.ctrlKey, shiftKey: event.shiftKey, metaKey: event.metaKey, isComposing: event.nativeEvent.isComposing }, enterMode)) { event.preventDefault(); void sendBar(); } }} />
-              <button type="button" className={"vp-go" + (working ? " working" : "")} aria-label="送信" title={sendLock ?? (chatRunning ? "追加指示として送信（" + sendKeyName(enterMode) + "）" : "送信（" + sendKeyName(enterMode) + "）")} disabled={!barText.trim() || sending || busy || closeUnconfirmed || !!sendLock} onClick={() => void sendBar()}>↑</button>
-            </div>
-            {sendError ? <small className="vp-sent visual-error" role="alert">{sendError}</small> : null}
-            {sentNote ? <small className="vp-sent" role="status">送信しました</small> : null}
-          </div> : null}
-        </div> : null}
-      </section>
+        {foot}
+      </section>}
     </div>
   );
-  return <>{children}{dockEl ? createPortal(pane, dockEl) : null}</>;
+  return dockEl ? createPortal(pane, dockEl) : null;
 }

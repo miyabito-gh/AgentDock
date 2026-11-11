@@ -1,5 +1,6 @@
 //! Bounded Visual Editor file scope, immutable snapshots, source hints, direct-edit turn records, and preview.
 pub(crate) mod direct;
+pub(crate) mod markdown;
 mod scope;
 mod snapshot;
 pub(crate) mod source_hint;

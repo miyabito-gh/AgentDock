@@ -1,5 +1,5 @@
 //! 直接編集方式の Host 側。元のファイルを直接編集させ、ターンごとに戻す。保存と一致検査は `visual_edit::direct`。
-use super::{err, visual::discover, Host};
+use super::{err, visual::{discover, discover_markdown}, Host};
 use crate::backend::{ipc::{IpcError, IpcErrorCode}, model::ChatKey};
 use crate::visual_edit::{self as ve, direct::{self, DirectError, DirectStore, TurnView}, FileAccess, FileScope, ProjectRoot, RelativePath};
 use serde::{Deserialize, Serialize};
@@ -51,7 +51,11 @@ impl Target {
         let dir:PathBuf=host.app_data_dir.join("visual-editor").join("direct").join(direct::store_key(root.path(),&html));
         Ok(Self{root,html,store:DirectStore::new(dir)})
     }
-    fn scope(&self)->Result<FileScope,IpcError> { discover(&self.root,&self.html).map_err(ve_err) }
+    /// Markdown は文書＋参照画像、それ以外（HTML）は従来の探索。
+    fn scope(&self)->Result<FileScope,IpcError> {
+        let md=self.html.as_str().rsplit('.').next().is_some_and(|e|e.eq_ignore_ascii_case("md")||e.eq_ignore_ascii_case("markdown"));
+        (if md {discover_markdown(&self.root,&self.html)} else {discover(&self.root,&self.html)}).map_err(ve_err)
+    }
 }
 fn display(bytes:Option<Vec<u8>>)->(Option<String>,bool,bool) {
     const LIMIT:usize=256*1024;

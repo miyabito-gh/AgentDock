@@ -39,6 +39,7 @@ pub mod worktree;
 pub mod work_folders;
 pub mod visual;
 pub mod visual_direct;
+pub mod visual_markdown;
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;

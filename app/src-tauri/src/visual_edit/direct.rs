@@ -559,7 +559,7 @@ impl DirectStore {
     }
 }
 
-fn read_current(root: &ProjectRoot, rel: &RelativePath) -> DResult<Option<Vec<u8>>> {
+pub(crate) fn read_current(root: &ProjectRoot, rel: &RelativePath) -> DResult<Option<Vec<u8>>> {
     let Some(held) = root.open_relative(rel)? else { return Ok(None) };
     let mut bytes = Vec::new();
     (&held.file).take(MAX_FILE_BYTES + 1).read_to_end(&mut bytes)?;
@@ -570,7 +570,7 @@ fn read_current(root: &ProjectRoot, rel: &RelativePath) -> DResult<Option<Vec<u8
 }
 
 /// ルートの中へ1ファイルを書く（None は削除）。パスの途中・対象がリンクなら拒否し、ルートの外へは出ない。書き込みは一時ファイル＋置換。
-fn safe_write(root: &ProjectRoot, rel: &RelativePath, bytes: Option<&[u8]>) -> DResult<()> {
+pub(crate) fn safe_write(root: &ProjectRoot, rel: &RelativePath, bytes: Option<&[u8]>) -> DResult<()> {
     let path = rel.join(root.path());
     let parent = path.parent().ok_or_else(|| VisualError::UnsafePath(path.clone()))?;
     let inside = |dir: &Path| -> DResult<()> {
