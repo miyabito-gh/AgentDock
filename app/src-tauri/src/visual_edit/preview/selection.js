@@ -37,7 +37,19 @@
   window.addEventListener('pointercancel', () => { drag = null; band = null; draw(); },true);
   window.addEventListener('dragstart', e => { if (mode) e.preventDefault(); },true);
   window.addEventListener('selectstart', e => { if (mode && drag) e.preventDefault(); },true);
-  window.addEventListener('click', e => { if (suppressClick) { e.preventDefault(); e.stopImmediatePropagation(); return; } if (!mode) return; const el=target(e); if (!el) return; e.preventDefault(); e.stopImmediatePropagation(); if (e.ctrlKey) selected=selected.includes(el)?selected.filter(x=>x!==el):[...selected,el].slice(0,64); else selected=[el]; post(); },true);
+  // Shift+クリック: 起点（最後に普通のクリック・Ctrl+クリックで選んだ要素）から押した要素までをまとめて選ぶ。
+  // DOMは木なので、2つの共通の親の直下で、両者を含む子要素の間（文書順）を選ぶ。片方がもう片方を含むときは外側だけ。
+  let rangeFrom = null;
+  const between = (a, b) => {
+    if (a === b) return [a]; if (a.contains(b)) return [a]; if (b.contains(a)) return [b];
+    let lca = a.parentElement; while (lca && !lca.contains(b)) lca = lca.parentElement; if (!lca) return [b];
+    const childOf = n => { while (n && n.parentElement !== lca) n = n.parentElement; return n; };
+    const kids = Array.from(lca.children), i = kids.indexOf(childOf(a)), j = kids.indexOf(childOf(b));
+    if (i < 0 || j < 0) return [b];
+    const skip = new Set(['SCRIPT','STYLE','LINK','META','TEMPLATE','NOSCRIPT','BR']);
+    return kids.slice(Math.min(i, j), Math.max(i, j) + 1).filter(k => !skip.has(k.tagName) && k !== overlay).slice(0, 64);
+  };
+  window.addEventListener('click', e => { if (suppressClick) { e.preventDefault(); e.stopImmediatePropagation(); return; } if (!mode) return; const el=target(e); if (!el) return; e.preventDefault(); e.stopImmediatePropagation(); if (e.shiftKey && rangeFrom && rangeFrom.isConnected) { selected=between(rangeFrom, el); post(); return; } if (e.ctrlKey) selected=selected.includes(el)?selected.filter(x=>x!==el):[...selected,el].slice(0,64); else selected=[el]; rangeFrom=el; post(); },true);
   window.addEventListener('keydown', e => { if (mode && selected.length && e.altKey && (e.key==='ArrowUp'||e.key==='ArrowDown')) { e.preventDefault(); window.dispatchEvent(new CustomEvent('agentdock-preview-action',{detail:e.key==='ArrowUp'?'parent':'child'})); return; } if (e.key==='Escape') { selected=[]; hovered=null; post(); } },true);
   const save = () => { try { sessionStorage.setItem('agentdock-select', mode ? '1' : '0'); } catch (_) {} };
   const cursor = () => { try { document.documentElement.style.cursor = mode ? 'crosshair' : ''; } catch (_) {} };

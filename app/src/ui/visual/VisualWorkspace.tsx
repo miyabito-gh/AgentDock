@@ -552,7 +552,7 @@ export function VisualWorkspace({ enabled, blocked, chatId, chatKey, chatCwd, on
             <button type="button" className="btn subtle sm vp-ico" aria-label="再読み込み" title="再読み込み" disabled={disabled} onClick={() => void action("reload")}><Icon name="refresh" /></button>
           </span>
           <span className="vp-seg" role="group" aria-label="ページの操作モード">
-            <button type="button" className="btn sm vp-ico" aria-pressed={!interaction} aria-label="範囲選択" disabled={disabled} title="範囲選択: ドラッグで範囲を選びます（クリックで1つ、Ctrl＋クリックで追加、Escで解除）" onClick={() => void action("select")}><Icon name="select" /></button>
+            <button type="button" className="btn sm vp-ico" aria-pressed={!interaction} aria-label="範囲選択" disabled={disabled} title="範囲選択: ドラッグで範囲を選びます（クリックで1つ、Ctrl＋クリックで1つずつ追加、Shift＋クリックで間をまとめて選択、Escで解除）" onClick={() => void action("select")}><Icon name="select" /></button>
             <button type="button" className="btn sm vp-ico" aria-pressed={interaction} aria-label="ページ操作" disabled={disabled} title="ページ操作: リンクやボタンを実際に操作します" onClick={() => void action("interact")}><Icon name="interact" /></button>
           </span>
           {selection.length ? <span className="vp-group" role="group" aria-label="選択の調整">
