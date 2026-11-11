@@ -87,7 +87,7 @@ export const MarkdownPreview = forwardRef<PreviewHandle, {
 
   const onClick = (event: React.MouseEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement;
-    const link = target.closest("a");
+    const link = target.closest("a,area"); // area は sanitize で除くが、念のため同じく移動させない
     if (link) {
       event.preventDefault();
       const anchor = link.getAttribute("data-anchor");

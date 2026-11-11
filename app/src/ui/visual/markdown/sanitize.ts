@@ -11,6 +11,8 @@ function install(): void {
   DOMPurify.addHook("afterSanitizeAttributes", (node) => {
     if (!(node instanceof Element)) return;
     const tag = node.tagName;
+    // 保険: A・IMG 以外の要素は、移動や読み込みにつながるURL属性を持たせない。
+    if (tag !== "A" && tag !== "IMG") for (const attr of URL_ATTRS) node.removeAttribute(attr);
     if (tag === "IMG") {
       const src = node.getAttribute("src") ?? "";
       node.removeAttribute("src");
@@ -36,8 +38,9 @@ function install(): void {
   });
 }
 
-const FORBID_TAGS = ["style", "script", "form", "button", "textarea", "select", "option", "link", "meta", "base", "iframe", "object", "embed", "audio", "video", "source", "template"];
-const FORBID_ATTR = ["style", "srcset", "ping", "formaction", "action", "target", "class"];
+const URL_ATTRS = ["href", "xlink:href", "src", "srcset", "action", "formaction", "poster", "background", "data", "ping", "longdesc", "usemap"];
+const FORBID_TAGS = ["area", "map", "style", "script", "form", "button", "textarea", "select", "option", "link", "meta", "base", "iframe", "object", "embed", "audio", "video", "source", "template"];
+const FORBID_ATTR = ["style", "srcset", "ping", "formaction", "action", "target", "class", "usemap", "ismap", "id", "name"];
 
 export function sanitizeMarkdownHtml(html: string): string {
   install();

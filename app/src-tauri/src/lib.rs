@@ -7,6 +7,7 @@ pub mod exec;
 pub mod external_tools;
 pub mod gitops;
 pub mod host;
+pub mod nav_guard;
 pub mod pathref;
 pub mod pets;
 pub mod rules;
@@ -75,6 +76,8 @@ fn setup_tray(app: &tauri::App, host: Arc<Host>) -> tauri::Result<()> {
 pub fn run() {
     let app = tauri::Builder::default()
         // 添付：ファイル選択・保存先の指定（dialog）、関連アプリで開く（opener、Rust側から明示操作でだけ）、選択範囲の貼り付け（clipboard）。
+        // 本体の画面（main・monitor・pet）がアプリ自身のURL以外へ遷移しない（多層防御。HTMLプレビューの子WebViewは対象外）。
+        .plugin(nav_guard::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())

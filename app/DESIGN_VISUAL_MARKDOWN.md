@@ -64,3 +64,9 @@
 2. 編集欄の基本（保存、未保存の確認、文字コード・改行の維持、外部変更の検出、AI実行中の読み取り専用、位置の連動）。
 3. 編集補助（続け入力、インデント、書式ショートカット、検索・置換、アウトライン）。
 各段階の最後にUI/UXの点検（既存画面との統一感・見やすさ・操作のわかりやすさ）を行い、見つけた問題は直した（コミットメッセージと最終報告に列挙）。
+
+## 本体内描画の安全前提
+Markdown は本体の画面（特権WebView）の中で描くため、次を前提にする。
+- サニタイズ方針（`sanitize.ts`）: DOMPurify の html プロファイル。`area`・`map`・`usemap`・`ismap`・`id`・`name`・`style`・`class`・フォーム・埋め込みを除く。`a` は `href` を外して移動させない（クリックも `a,area` で止める）。`a`・`img` 以外の要素からは URL 属性（`href`・`xlink:href`・`src`・`action`・`formaction`・`poster`・`background` など）を除く。画像は `data:` とフォルダ内の相対パス（ホスト経由）だけ。`id`・`name` を除くのは、生HTMLが本体の要素（`getElementById` で引く id）と衝突しないようにするため（見出し移動は `data-slug`）。
+- 遷移ガード（`nav_guard.rs`、Tauri プラグインの `on_navigation`）: label が `main`・`monitor`・`pet` のWebViewは、アプリ自身のURL（`tauri://localhost`、`http(s)://tauri.localhost`、`about:blank`、debugビルドだけ `http://localhost:5173`）以外へ遷移できない。拒否は diag に スキームとホストだけ記録。HTML プレビュー用の子WebView（label `visual-preview-*`）は対象外。
+- CSP は未設定。既存画面への影響範囲が大きいため、今後の検討とする。
