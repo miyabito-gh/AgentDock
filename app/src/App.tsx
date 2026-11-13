@@ -98,7 +98,8 @@ function markRetryable(list: PendingSend[] | undefined, a: SendAttempt | undefin
 }
 
 export default function App() {
-  const [mode, setMode] = useState<Mode>("live");
+  // Tauriの外（ブラウザでの画面確認）では、ホストが無いのでモックで始める。
+  const [mode, setMode] = useState<Mode>(() => (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window ? "live" : "mock"));
   const [scenario, setScenario] = useState("normal");
   const [scenarios, setScenarios] = useState<Array<[string, string]>>([]);
   const [bundle, setBundle] = useState<Bundle>(() => emptyBundle());
@@ -126,6 +127,16 @@ export default function App() {
       return v && (v.view === "chat" || v.view === "dock") ? { id: typeof v.id === "string" ? v.id : null, view: v.view } : { id: null, view: "dock" };
     } catch { return { id: null, view: "dock" }; }
   });
+  useEffect(() => {
+    if (mode !== "mock" || bundle.snapshot.chats.length > 0) return;
+    void (async () => {
+      const { client, scenarios: list } = await loadMock();
+      setScenarios(list);
+      const b = await client.getBundle(scenario);
+      setModels(await client.listModels());
+      setBundle(b); setSelId(b.snapshot.chats[0]?.key.id ?? null); setScope(b.snapshot.monitorScope);
+    })();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { try { window.localStorage.setItem("agentdock.peek", JSON.stringify(peek)); } catch { /* 保存できなくても動く */ } }, [peek]);
   // 中央に選んだ会話が右ペインと同じなら、右は外す（同じ会話を2か所で操作しない）。
   useEffect(() => { if (selId && peek.id === selId) setPeek({ id: null, view: "dock" }); }, [selId, peek.id]);
@@ -556,6 +567,8 @@ export default function App() {
   const visualLeftPx = !leftTemp && leftOpen ? paneW.left : 0;
   const visualMax = Math.max(PANE.visual.min, Math.min(PANE.visual.max, winW - visualLeftPx - 380));
   const visualPx = Math.max(PANE.visual.min, Math.min(visualW ?? PANE.visual.def, visualMax));
+  /** 会話とプレビューを並べられない狭い窓（会話300px＋プレビュー最小幅が入らない）。このときは「チャット」ボタンで会話とプレビューを切り替える。 */
+  const visualNarrow = winW - (visualLeftPx > 0 && winW <= 1100 ? 180 : visualLeftPx) < PANE.visual.min + 300;
   const onPaneCommit = (kind: PaneKind, w: number | null) => {
     const layout = kind === "left" ? { ...savedLayout, leftWidth: w } : { ...savedLayout, dockWidth: w };
     setLayoutOv(layout);
@@ -1859,6 +1872,8 @@ ${cur}` : p.text);
   // 依頼できる状態になったら、既定ではチャットを畳んでプレビューを広く使う。
   const visualReady = !!visualCtx;
   useEffect(() => { if (visualReady) setVisualChatOff(true); }, [visualReady]);
+  // 狭い窓で開いたときは、ファイルを開く操作があるプレビュー側を先に見せる。
+  useEffect(() => { if (visualShown && visualNarrow) setVisualChatOff(true); }, [visualShown]); // eslint-disable-line react-hooks/exhaustive-deps
   // 対応が要るものが増えたら、チャットを自動で開く。
   // 承認・質問は、畳んだままでも右の画面で答えられる（チャットは自動で開かない）。受理されなかった送信は、中央で戻す操作が要るため開く。
   const visualUnsent = visualChatId ? (pendingSends[visualChatId] ?? []).filter((p) => p.outcome && p.outcome.kind !== "accepted").length : 0;
@@ -1912,7 +1927,7 @@ ${cur}` : p.text);
             // 閉じるとき、Markdownに未保存の編集があれば確かめる（保存して閉じる・保存せず閉じる・やめる）。
             if (visualShown) void confirmLeaveMarkdown().then((ok) => { if (ok) toggle(); }); else toggle();
           }}>Visual Editor</button>
-          {visualShown ? <button type="button" className="btn sm visual-chat-toggle" aria-pressed={!visualChatOff} title={visualChatOff ? "チャットを表示してプレビューを狭める" : "チャットを畳んでプレビューを広げる"} onClick={() => setVisualChatOff(!visualChatOff)}>チャット{visualAttention > 0 ? <span className="vc-badge" aria-label={`対応が必要 ${visualAttention}件`}>{visualAttention}</span> : null}</button> : null}
+          {visualShown ? <button type="button" className="btn sm visual-chat-toggle" aria-pressed={!visualChatOff} title={visualNarrow ? (visualChatOff ? "チャットを表示する（窓が狭いあいだはプレビューと切り替え）" : "プレビューを表示する（窓が狭いあいだはチャットと切り替え）") : visualChatOff ? "チャットを表示してプレビューを狭める" : "チャットを畳んでプレビューを広げる"} onClick={() => setVisualChatOff(!visualChatOff)}>チャット{visualAttention > 0 ? <span className="vc-badge" aria-label={`対応が必要 ${visualAttention}件`}>{visualAttention}</span> : null}</button> : null}
         </div>
         <GlobalBanner source={src} dismissed={snap.settings.dismissedVersionNotice}
           onDismiss={(key) => updateSettings((s) => ({ ...s, dismissedVersionNotice: key }), "版の注意を閉じた記録を保存できませんでした。次回の起動ではまた表示されます")} onAct={act} />
@@ -1924,9 +1939,9 @@ ${cur}` : p.text);
         ) : null}
         <SaveBanner failed={failedSaves.filter((s) => !forChat(s))} warnings={warnHidden ? [] : snap.startupWarnings} onDismissWarnings={dismissWarnings} onAct={act} />
         <div
-          className={`body ${visualShown ? "visual-mode" : ""} ${visualShown && visualChatOff ? "v-chat-off" : ""} ${leftOpen ? "" : "l-off"} ${rightOpen || visualShown ? "" : "r-off"} ${lNarrow ? "n-l" : ""} ${rNarrow && !visualShown ? "n-r" : ""}`}
+          className={`body ${visualShown ? "visual-mode" : ""} ${visualShown && visualChatOff ? "v-chat-off" : ""} ${visualShown && visualNarrow && !visualChatOff ? "v-prev-off" : ""} ${leftOpen ? "" : "l-off"} ${rightOpen || visualShown ? "" : "r-off"} ${lNarrow ? "n-l" : ""} ${rNarrow && !visualShown ? "n-r" : ""}`}
           data-left-temp={leftTemp ? "" : undefined} data-right-temp={rightTemp && !visualShown ? "" : undefined}
-          style={{ ...(!leftTemp && leftOpen ? { "--lw": `${paneW.left}px` } : {}), ...(visualShown ? { "--rw": visualChatOff ? "calc(100% - var(--lw, 0px))" : `${visualPx}px` } : !rightTemp && rightOpen ? { "--rw": `${paneW.dock}px` } : {}) } as CSSProperties}
+          style={{ ...(!leftTemp && leftOpen ? { "--lw": `${paneW.left}px` } : {}), ...(visualShown ? { "--rw": visualChatOff ? "calc(100% - var(--lw, 0px))" : visualNarrow ? "0px" : `${visualPx}px` } : !rightTemp && rightOpen ? { "--rw": `${paneW.dock}px` } : {}) } as CSSProperties}
         >
           <aside className="left" id="pane-left" aria-label="チャット一覧">
             <LeftPane org={{ wf: org?.workflow ?? null, selected: orgScreen && !orgHist, onOpen: () => { setOrgSel(null); setOrgScreen(true); setLNarrow(false); setQuick((q) => (q.open ? { ...q, open: false } : q)); }, onStart: () => act("orgStart"), history: org?.history ?? [], deletionOverflow: org?.deletionOverflow ?? 0, archived: org?.archived ?? [], onUnarchive: (id) => void orgRun("アーカイブの解除", async () => { await host.orgUnarchiveWorkflow(id); return "アーカイブを解除しました。"; }), onArchive: (id) => void orgRun("アーカイブ", async () => { await host.orgArchiveWorkflow(id); return "ワークフローをアーカイブしました（アーカイブ一覧から戻せます）。"; }), onArchiveMany: async (ids) => {
@@ -2000,7 +2015,7 @@ ${cur}` : p.text);
             )}
           </aside>
           {!leftTemp && leftOpen && !(visualShown && winW <= 1100) ? <PaneSplitter kind="left" width={paneW.left} max={paneW.leftMax} onCommit={(w) => onPaneCommit("left", w)} /> : null}
-          {visualShown ? <PaneSplitter kind="visual" width={visualPx} max={visualMax} onCommit={(w) => { setVisualW(w); try { if (w === null) window.localStorage.removeItem("agentdock.visualPaneWidth"); else window.localStorage.setItem("agentdock.visualPaneWidth", String(w)); } catch { /* 保存できなくても動く */ } }} /> : !rightTemp && rightOpen ? <PaneSplitter kind="dock" width={paneW.dock} max={paneW.dockMax} onCommit={(w) => onPaneCommit("dock", w)} /> : null}
+          {visualShown && visualNarrow ? null : visualShown ? <PaneSplitter kind="visual" width={visualPx} max={visualMax} onCommit={(w) => { setVisualW(w); try { if (w === null) window.localStorage.removeItem("agentdock.visualPaneWidth"); else window.localStorage.setItem("agentdock.visualPaneWidth", String(w)); } catch { /* 保存できなくても動く */ } }} /> : !rightTemp && rightOpen ? <PaneSplitter kind="dock" width={paneW.dock} max={paneW.dockMax} onCommit={(w) => onPaneCommit("dock", w)} /> : null}
           {lNarrow || rNarrow ? <div className="panel-scrim" aria-hidden="true" onClick={() => { setLNarrow(false); setRNarrow(false); }} /> : null}
         </div>
       </div>

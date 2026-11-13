@@ -7,6 +7,8 @@
 .body.visual-mode{transition:grid-template-columns .16s ease-out}
 .body.visual-mode.v-chat-off>.center{visibility:hidden;overflow:hidden}
 .body.visual-mode.v-chat-off>.splitter.split-r{display:none}
+/* 狭い窓で会話を表示しているときは、プレビューを隠す（「チャット」ボタンで切り替える）。 */
+.body.visual-mode.v-prev-off>.right{display:none}
 @media (prefers-reduced-motion:reduce){.body.visual-mode{transition:none}}
 .visual-entry[aria-pressed=true],.visual-chat-toggle[aria-pressed=true]{color:var(--accent-text);background:var(--accent-weak);border-color:var(--accent-line)}
 @media(max-width:1100px){

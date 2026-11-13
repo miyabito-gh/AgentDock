@@ -15,8 +15,8 @@
         "title": "AgentDock",
         "width": 1280,
         "height": 800,
-        "minWidth": 960,
-        "minHeight": 600,
+        "minWidth": 420,
+        "minHeight": 480,
         "visible": false
       }
     ],

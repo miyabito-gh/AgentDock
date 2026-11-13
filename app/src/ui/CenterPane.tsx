@@ -272,7 +272,7 @@ function Header({ snap, chat, onAct, commands, local, onCwdToggle, wasLive, exte
       <button className="btn subtle icon panebtn" aria-label="チャット一覧" aria-pressed={leftShown} title={tipWithKey(`チャット一覧を${leftShown ? "閉じる" : "開く"}`, "toggleLeft")} onClick={() => onAct("toggleLeft")}><Icon name="list" /></button>
       <span className="ttl" style={ttl.confirmed ? undefined : TENTATIVE_STYLE} title={`${ttl.text}（Codex）${ttl.confirmed ? "" : `\n${TENTATIVE_HINT}`}`}>{ttl.text}</span>
       {/* 状態と鮮度は別表示。片方から他方を導かない */}
-      <span className={`st ${chatChipClass(snap, chat)}`}><i />{chatStatusText(snap, chat)}</span>
+      <span className={`st ${chatChipClass(snap, chat)}`} title={chatStatusText(snap, chat)}><i />{chatStatusText(snap, chat)}</span>
       {isLive ? (
         <span className={`fresh ${fresh.c}`} title="収集の鮮度。エージェントの状態とは別">{fresh.t}</span>
       ) : (

@@ -17,7 +17,8 @@ pub const MONITOR_LABEL: &str = "monitor";
 pub const PET_LABEL: &str = "pet";
 /// 監視窓の開閉通知（payload: bool）。UI側の名前は `ipc/client.ts` の `MONITOR_WINDOW_EVENT` と同じ。
 pub const MONITOR_WINDOW_EVENT: &str = "agentdock://monitor-window";
-const MAIN_MIN: (u32, u32) = (960, 600);
+// tauri.conf.json の minWidth/minHeight と同じ値。狭い窓では左右ペインが一時パネル（重ね表示）に切り替わる。
+const MAIN_MIN: (u32, u32) = (420, 480);
 const MONITOR_MIN: (u32, u32) = (300, 260);
 
 pub fn kind_of(label: &str) -> Option<WindowKind> {

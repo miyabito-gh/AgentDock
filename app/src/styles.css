@@ -193,7 +193,14 @@ label{display:inline-flex;align-items:center;gap:6px}
 .winbtn.close:hover{background:var(--fail);color:var(--fail-on)}
 .menubar{display:flex;align-items:center;gap:2px;padding:1px 8px;background:var(--surface);border-bottom:1px solid var(--line)}
 .menubar .grow{flex:1}
-.menubar .mock-tag{margin-left:8px}
+.menubar{min-width:0;container:menubar/inline-size}
+/* メニューだけで幅が埋まるほど狭いときは版タグを隠す（接続先の切替は「ツール」メニューにもある）。 */
+@container menubar (max-width:300px){.menubar .mock-tag,.menubar>.pop-wrap:has(>.mock-tag){display:none}}
+.menubar>.menu{flex:none}
+.menubar>.pop-wrap{flex:0 1 auto;min-width:0;display:inline-flex}
+.menubar>.pop-wrap>.mock-tag{max-width:100%}
+/* 版タグは狭い窓では「…」で縮める（全文は title とメニュー内）。 */
+.menubar .mock-tag{margin-left:8px;flex:0 1 auto;min-width:2.5em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .menu{position:relative}
 .menu > button{height:26px}
 .menu > button[aria-expanded=true]{background:var(--accent-weak)}
@@ -220,14 +227,14 @@ label{display:inline-flex;align-items:center;gap:6px}
 .body>.right{background:var(--surface);border-left:1px solid var(--line);display:flex;flex-direction:column}
 .l-off>.left,.r-off>.right{display:none}
 .body>.left{grid-column:1}.center{grid-column:2}.body>.right{grid-column:3}
-.center{min-width:0;display:flex;flex-direction:column;min-height:0;background:var(--surface)}
+.center{min-width:0;display:flex;flex-direction:column;min-height:0;background:var(--surface);container:center/inline-size}
 
 /* center */
 /* 会話ヘッダーは1行（41px）。題名・状態・鮮度は縮めず、作業フォルダが先に縮む。960px未満だけ2行まで。 */
 .chead{display:flex;align-items:center;gap:8px;padding:6px 16px;border-bottom:1px solid var(--line2);min-height:41px}
 .chead>*{flex:none}
 .chead .ttl{font-size:calc(var(--fs) + 2px);font-weight:700;line-height:1.4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:40%;flex:0 1 auto;min-width:3em}
-.chead .st{margin-left:0}
+.chead .st{margin-left:0;flex:0 1 auto;min-width:2.5em}
 .chead .fbtn{padding:0 6px;height:24px;border:0}
 .chead .cwd{flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink2);font-size:var(--fs-s);height:auto;padding:0;display:block;text-align:left;border:0;background:none}
 .chead button.cwd:hover{color:var(--ink);text-decoration:underline;background:none}
@@ -264,7 +271,8 @@ label{display:inline-flex;align-items:center;gap:6px}
 .cbanner.slim{display:flex;align-items:center;gap:8px;margin-top:4px;padding:2px 10px;min-height:24px}
 .cbanner.slim .grow,.cbanner.row .grow{flex:1;min-width:0}
 .cbanner.row{display:flex;align-items:center;gap:8px;padding:6px 10px}
-.cbanner .acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.cbanner .acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;min-width:0}
+.cbanner .acts>button{max-width:100%;white-space:normal;height:auto;min-height:var(--ctl);text-align:left}
 .cbanner.row .grow>b{margin-right:.6em}
 .targets{margin:6px 0 0;padding:0;list-style:none;display:grid;gap:3px}
 .targets li{display:grid;grid-template-columns:150px 1fr;gap:8px}
@@ -430,23 +438,33 @@ textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;paddin
 @media (max-width:959px){
   .window{inset:0;border-radius:0;border:0}
   .winbtn{width:38px}
-  .chead{padding:6px 10px;flex-wrap:wrap;row-gap:2px}
-  .chead .cwd{order:9;flex:1 0 calc(100% - 30px)}
-  .chead .cwdopen{order:9}
-  .chead .tag{order:9}
-  .chead .grow{flex:1 1 0}
-  .chead .hide-s{display:none}
   .gbanner{flex-wrap:wrap}
   .gbanner .grow{flex-basis:calc(100% - 30px)}
-  .msgs{padding:12px 10px}
-  .msg.user .bubble{margin-left:20px}
-  .composer,.queue{padding-left:10px;padding-right:10px}
   .targets li{grid-template-columns:1fr}
   .mini{right:8px;left:8px;width:auto;bottom:70px}
   .mockctl{right:8px;top:32px}
   .mockctl .panel{max-height:70vh;overflow:auto}
 }
 
+/* 会話ヘッダー・本文・入力欄は、窓幅ではなく中央ペインの幅で詰める（左右ペインの開閉で中央幅が変わるため）。 */
+@container center (max-width:720px){
+  .chead{padding:6px 10px;flex-wrap:wrap;row-gap:2px}
+  .chead .ttl{max-width:none;flex:1 1 auto}
+  .chead .cwd{order:9;flex:1 0 calc(100% - 30px)}
+  .chead .cwdopen{order:9}
+  .chead .tag{order:9}
+  .chead .grow{flex:1 1 0}
+  .chead .hide-s{display:none}
+  .msgs{padding:12px 10px}
+  .msg.user .bubble{margin-left:20px}
+  .composer,.queue{padding-left:10px;padding-right:10px}
+}
+/* 中央がさらに狭いとき（窓幅を詰めた直後など）も、ボタンが中央の外へはみ出さないよう折り返す。 */
+@container center (max-width:460px){
+  .queue summary{flex-wrap:wrap;row-gap:0}
+  .qitem{grid-template-columns:22px minmax(0,1fr)}
+  .qitem>:last-child{grid-column:2;justify-self:start}
+}
 /* ==== side ==== */
 /* 左一覧・右ドック・コンパクト監視窓（UI-2 が書き換える節） */
 .left-top{padding:8px;display:flex;flex-direction:column;gap:6px;border-bottom:1px solid var(--line)}
@@ -509,7 +527,9 @@ textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;paddin
 .row-chat .st-mark.none i{width:4px;height:4px;background:var(--ink3)}
 .row-chat .row-main .tag{flex:none}
 .row-chat .marks{flex:none;display:inline-flex;gap:4px;align-items:center}
-.left-foot{border-top:1px solid var(--line);padding:6px 10px;font-size:var(--fs-s);color:var(--ink2);display:flex;justify-content:space-between}
+.left-foot{border-top:1px solid var(--line);padding:6px 10px;font-size:var(--fs-s);color:var(--ink2);display:flex;justify-content:space-between;gap:4px;min-width:0}
+.left-foot>button{min-width:0;flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block}
+.left-foot>button>svg{vertical-align:-2px;margin-right:2px}
 
 .dock-top{position:relative;padding:6px 8px;border-bottom:1px solid var(--line2);display:flex;align-items:center;gap:6px;min-width:0}
 .dock-top .seg{flex:none}
@@ -566,9 +586,13 @@ textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;paddin
 .tcard.unk{border-left-color:var(--unk);border-left-style:dashed}
 .tcard.working:not(.line):not(.band):not(.kopen){max-height:calc(var(--dock-h, 600px) / 3);overflow:auto}
 .tcard.ended:not(.line){min-height:0}
-.tc-h{display:flex;align-items:center;gap:6px;min-width:0}
+.tc-h{display:flex;align-items:center;flex-wrap:wrap;gap:2px 6px;min-width:0}
 .tc-h .tc-name,.tc-line .tc-name{flex:1 1 auto;min-width:0;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.tc-h .st,.tc-line .st{flex:none}
+.tc-h .st,.tc-line .st{flex:0 1 auto;min-width:2.5em;max-width:100%}
+/* 狭いときに状態の文字を「…」で縮める（全文は title）。inline-flex のままでは省略記号が出ないので inline-block にする。 */
+.chead .st,.tc-h .st,.tc-line .st{display:inline-block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chead .st>i,.tc-h .st>i,.tc-line .st>i{display:inline-block;margin-right:4px;vertical-align:0}
+.chead .st>svg,.tc-h .st>svg,.tc-line .st>svg{margin-right:4px;vertical-align:-1px}
 .tc-h button.small{flex:none;height:22px}
 .tc-note{margin-top:1px;font-size:var(--fs-xs);color:var(--ink3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .tc-h .tc-name{min-width:4em}
@@ -845,7 +869,7 @@ textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;paddin
 .md code{font-family:var(--mono);font-size:.92em;background:var(--surface2);border:1px solid var(--line2);border-radius:var(--r1);padding:0 4px}
 .md :not(pre)>code{overflow-wrap:anywhere;overflow-x:visible}
 .md .md-code{margin:6px 0 10px;border:1px solid var(--line2);border-radius:var(--r1);background:var(--surface2);overflow:hidden}
-.md .md-code-bar{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:2px 8px;border-bottom:1px solid var(--line2);font-size:var(--fs-xs);color:var(--ink2)}
+.md .md-code-bar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:2px 8px;min-width:0;padding:2px 8px;border-bottom:1px solid var(--line2);font-size:var(--fs-xs);color:var(--ink2)}
 .md .md-code-acts{display:inline-flex;gap:4px}
 .md .md-code pre{margin:0;border:0;border-radius:0;background:transparent;padding:8px 10px;overflow:auto;white-space:pre;font-size:.92em}
 .md .md-code pre.wrap{white-space:pre-wrap;overflow-wrap:anywhere}

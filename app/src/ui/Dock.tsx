@@ -342,7 +342,7 @@ function TaskCard({ snap, c, band, line, open, marked, mini, at, confirmed, acti
       <div className="tc-h">
         {line && !completed ? (
           <button className="tc-line" aria-expanded={open} title={`${stateText}。押すとこのカードだけ展開します`} onClick={onToggle}>
-            <span className={`st ${chip}`}><i aria-hidden="true" />{stateText}</span>
+            <span className={`st ${chip}`} title={stateText}><i aria-hidden="true" />{stateText}</span>
             <span className="tc-name">{chatName(c)}</span>
             <OrgBadge local={snap.chatLocals.find((l) => l.chat.id === c.key.id)} />
             {marked ? <span className="tc-mark" role="img" aria-label="新しい動きがあります">●</span> : null}
@@ -353,7 +353,7 @@ function TaskCard({ snap, c, band, line, open, marked, mini, at, confirmed, acti
             <span className="tc-name">{chatName(c)}</span>
             <OrgBadge local={snap.chatLocals.find((l) => l.chat.id === c.key.id)} />
             {marked ? <span className="tc-mark" role="img" aria-label="新しい動きがあります">●</span> : null}
-            <span className={`st ${chip}`}><i aria-hidden="true" />{stateText}</span>
+            <span className={`st ${chip}`} title={stateText}><i aria-hidden="true" />{stateText}</span>
             {at ? <span className="tc-at">{hms(at)}</span> : null}
           </>
         )}
