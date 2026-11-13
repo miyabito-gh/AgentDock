@@ -1,6 +1,9 @@
 //! ペット窓（DESIGN_PET）。透明・枠なし・最前面・タスクバー非表示の2つ目の窓 `pet`。
 //!
-//! - 大きさは「1コマ（192×208）×倍率」に吹き出しの領域を足したもの（TS側 `pet/layout.ts` と同じ数値）。位置は `windows.json` に保存し、起動時に画面外なら戻す。
+//! - 大きさは「1コマ（192×208）×倍率」に、いちばん大きいパネル（返信・推敲）の領域を足したもので、カードの開閉では変えない
+//!   （開閉のたびに窓の大きさと位置を変えると、古い描画がずれた位置に一瞬出てちらつき、クリック領域も一時的に古くなるため）。
+//!   画面内に収めるのは下端中央の「ペット＋吹き出し（開いていればカード）」の部分だけで、残りの透明部分は画面外へはみ出してよい。
+//!   位置は `windows.json` に保存し、起動時は保存した窓の足元（下端の中央）に合わせる。
 //! - 透明部分のクリックを下の窓へ通す: Windowsでは窓単位の切替（`set_ignore_cursor_events`）しかないので、短い間隔で
 //!   カーソル位置を見て、画面側が通知した「不透明な領域」の上にいるときだけ入力を受ける（無効化中は窓がマウスイベントを受けないため、前面側では判定できない）。
 //! - 隠す＝窓を閉じる（描画・監視スレッドも止まる）。表示＝作り直す。アプリの終了時は他の窓と一緒に閉じる。
@@ -35,13 +38,14 @@ const COMPOSE_W: f64 = 440.0;
 const COMPOSE_H: f64 = 560.0;
 const POLL_MS: u64 = 33;
 
-/// 窓の大きさ（論理px）。幅は1コマと吹き出し（カード）の広いほう、高さは1コマ＋吹き出し（カード）。
-pub fn window_size(scale_percent: u32, card: bool) -> (f64, f64) {
-    window_size_for(scale_percent, card, false)
+/// 窓の大きさ（論理px）。カード・パネルの開閉では変えない（いちばん大きい返信・推敲のパネルが入る大きさ）。
+pub fn window_size(scale_percent: u32) -> (f64, f64) {
+    visible_area(scale_percent, true, true)
 }
 
+/// 画面内に収める部分（論理px、窓の下端中央）。幅は1コマと吹き出し（カード）の広いほう、高さは1コマ＋吹き出し（カード）。
 /// `compose`（返信・推敲のパネル）は幅広・縦長で、`card` より優先する。
-pub fn window_size_for(scale_percent: u32, card: bool, compose: bool) -> (f64, f64) {
+pub fn visible_area(scale_percent: u32, card: bool, compose: bool) -> (f64, f64) {
     let s = scale_percent as f64 / 100.0;
     let (w, h) = if compose {
         (COMPOSE_W, COMPOSE_H)
@@ -96,6 +100,24 @@ fn fit_position(app: &AppHandle, x: i32, y: i32, size: PhysicalSize<u32>) -> Phy
     PhysicalPosition::new(b.x, b.y)
 }
 
+/// 窓の位置 (x, y) を、下端中央の `area` が画面内に収まるように補正する（窓の残りははみ出してよい）。
+fn fit_window(app: &AppHandle, x: i32, y: i32, size: PhysicalSize<u32>, area: PhysicalSize<u32>) -> PhysicalPosition<i32> {
+    let dx = (size.width as i32 - area.width as i32) / 2;
+    let dy = size.height as i32 - area.height as i32;
+    let p = fit_position(app, x + dx, y + dy, area);
+    PhysicalPosition::new(p.x - dx, p.y - dy)
+}
+
+/// いま画面内に収める部分（物理px）。
+fn current_area(app: &AppHandle, w: &tauri::WebviewWindow, scale_percent: u32) -> Option<PhysicalSize<u32>> {
+    let rt = app.try_state::<Arc<PetRuntime>>();
+    let card = rt.as_ref().is_some_and(|rt| rt.card.load(Ordering::SeqCst));
+    let compose = rt.as_ref().is_some_and(|rt| rt.compose.load(Ordering::SeqCst));
+    let f = w.scale_factor().ok()?;
+    let (aw, ah) = visible_area(scale_percent, card, compose);
+    Some(LogicalSize::new(aw, ah).to_physical(f))
+}
+
 fn spawn_hit_watcher(app: &AppHandle, generation: u64) {
     let app = app.clone();
     std::thread::spawn(move || {
@@ -124,7 +146,8 @@ pub fn open_pet(app: &AppHandle, host: &Arc<Host>) -> Result<(), String> {
     if let Some(w) = app.get_webview_window(PET_LABEL) {
         return w.show().map_err(|e| e.to_string());
     }
-    let (lw, lh) = window_size(host.get_app_settings().pet.scale_percent, false);
+    let scale = host.get_app_settings().pet.scale_percent;
+    let (lw, lh) = window_size(scale);
     let saved = host.saved_bounds(WindowKind::Pet);
     let w = WebviewWindowBuilder::new(app, PET_LABEL, WebviewUrl::App("index.html?view=pet".into()))
         .title("AgentDock ペット")
@@ -142,15 +165,21 @@ pub fn open_pet(app: &AppHandle, host: &Arc<Host>) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     // 領域が届くまでは、クリックを通す。
     let _ = w.set_ignore_cursor_events(true);
-    if let (Some(b), Ok(size)) = (saved, w.inner_size()) {
-        let p = fit_position(app, b.x, b.y, size);
-        let _ = w.set_position(p);
-    }
     let Some(rt) = app.try_state::<Arc<PetRuntime>>() else { return Err("pet runtime missing".into()) };
     let generation = rt.generation.fetch_add(1, Ordering::SeqCst) + 1;
     rt.set_regions(Vec::new());
     rt.card.store(false, Ordering::SeqCst);
     rt.compose.store(false, Ordering::SeqCst);
+    // 保存した窓の足元（下端の中央）に合わせる（以前の小さい窓の保存値でも、ペットの位置は変わらない）。
+    if let (Some(b), Ok(size)) = (saved, w.inner_size()) {
+        let x = b.x + (b.width as i32 - size.width as i32) / 2;
+        let y = b.y + b.height as i32 - size.height as i32;
+        let p = match current_area(app, &w, scale) {
+            Some(area) => fit_window(app, x, y, size, area),
+            None => PhysicalPosition::new(x, y),
+        };
+        let _ = w.set_position(p);
+    }
     spawn_hit_watcher(app, generation);
     Ok(())
 }
@@ -165,24 +194,31 @@ pub fn close_pet(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// 倍率に合わせて窓の大きさを変える。足元（下端の中央）を動かさない。
+/// 倍率に合わせて窓の大きさを変え、画面に収める部分がはみ出していれば寄せる。足元（下端の中央）を動かさない。
+/// 大きさも位置も変わらなければ何もしない。
 fn resize(app: &AppHandle, scale_percent: u32) {
-    let rt = app.try_state::<Arc<PetRuntime>>();
-    let card = rt.as_ref().is_some_and(|rt| rt.card.load(Ordering::SeqCst));
-    let compose = rt.as_ref().is_some_and(|rt| rt.compose.load(Ordering::SeqCst));
     let Some(w) = app.get_webview_window(PET_LABEL) else { return };
     let (Ok(old), Ok(pos)) = (w.inner_size(), w.outer_position()) else { return };
-    let (lw, lh) = window_size_for(scale_percent, card, compose);
-    if w.set_size(LogicalSize::new(lw, lh)).is_err() {
-        return;
+    let (lw, lh) = window_size(scale_percent);
+    let Ok(f) = w.scale_factor() else { return };
+    let mut new = old;
+    if LogicalSize::new(lw, lh).to_physical::<u32>(f) != old {
+        if w.set_size(LogicalSize::new(lw, lh)).is_err() {
+            return;
+        }
+        let Ok(n) = w.inner_size() else { return };
+        new = n;
     }
-    let Ok(new) = w.inner_size() else { return };
     let x = pos.x + (old.width as i32 - new.width as i32) / 2;
     let y = pos.y + old.height as i32 - new.height as i32;
-    let _ = w.set_position(fit_position(app, x, y, new));
+    let Some(area) = current_area(app, &w, scale_percent) else { return };
+    let p = fit_window(app, x, y, new, area);
+    if p != pos {
+        let _ = w.set_position(p);
+    }
 }
 
-/// カードの開閉に合わせて窓の大きさを変える（足元固定）。
+/// カードの開閉を記録する。窓の大きさは変えず、開いたカードが画面からはみ出すときだけ窓を寄せる。
 pub fn set_card(app: &AppHandle, host: &Arc<Host>, open: bool, compose: bool) {
     if let Some(rt) = app.try_state::<Arc<PetRuntime>>() {
         rt.card.store(open, Ordering::SeqCst);
@@ -296,16 +332,28 @@ mod tests {
     use super::*;
 
     #[test]
-    fn window_fits_the_frame_and_the_bubble() {
-        assert_eq!(window_size(100, false), (240.0, 304.0));
-        assert_eq!(window_size(150, false), (288.0, 408.0));
-        assert_eq!(window_size(50, false), (240.0, 200.0));
-        assert_eq!(window_size(100, true), (316.0, 628.0));
-        assert_eq!(window_size(150, true), (316.0, 732.0));
+    fn visible_area_fits_the_frame_and_the_bubble() {
+        assert_eq!(visible_area(100, false, false), (240.0, 304.0));
+        assert_eq!(visible_area(150, false, false), (288.0, 408.0));
+        assert_eq!(visible_area(50, false, false), (240.0, 200.0));
+        assert_eq!(visible_area(100, true, false), (316.0, 628.0));
+        assert_eq!(visible_area(150, true, false), (316.0, 732.0));
         // 返信・推敲のパネルは幅広・縦長（足元の1コマ分は同じ）
-        assert_eq!(window_size_for(100, true, true), (440.0, 768.0));
-        assert_eq!(window_size_for(100, false, true), (440.0, 768.0));
-        assert_eq!(window_size_for(150, true, false), window_size(150, true));
+        assert_eq!(visible_area(100, true, true), (440.0, 768.0));
+        assert_eq!(visible_area(100, false, true), (440.0, 768.0));
+    }
+
+    #[test]
+    fn window_size_is_fixed_and_holds_every_panel() {
+        // カードの開閉で窓の大きさを変えない（ちらつき・クリック領域のずれを防ぐ）。
+        for scale in [50, 100, 150, 200] {
+            let (w, h) = window_size(scale);
+            for (card, compose) in [(false, false), (true, false), (true, true)] {
+                let (aw, ah) = visible_area(scale, card, compose);
+                assert!(aw <= w && ah <= h, "scale {scale} card {card} compose {compose}");
+            }
+        }
+        assert_eq!(window_size(100), (440.0, 768.0));
     }
 
     #[test]

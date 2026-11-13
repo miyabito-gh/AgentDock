@@ -281,11 +281,12 @@ pub async fn visual_preview_bounds(
     if !visible {
         s.view.hide().map_err(|e| e.to_string())?;
     }
+    // 位置と大きさを1回で変える（別々に変えると、途中の状態が一瞬描かれてちらつく）。
     s.view
-        .set_position(LogicalPosition::new(bounds.x, bounds.y))
-        .map_err(|e| e.to_string())?;
-    s.view
-        .set_size(LogicalSize::new(bounds.width, bounds.height))
+        .set_bounds(tauri::Rect {
+            position: LogicalPosition::new(bounds.x, bounds.y).into(),
+            size: LogicalSize::new(bounds.width, bounds.height).into(),
+        })
         .map_err(|e| e.to_string())?;
     if visible {
         s.view.show().map_err(|e| e.to_string())?;

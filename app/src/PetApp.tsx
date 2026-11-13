@@ -31,6 +31,8 @@ const BUBBLE_ATTENTION_MS = 20_000;
 const BUBBLE_MAX_KEPT = 5;
 const DRAG_PX = 4;
 const DRAG_IDLE_MS = 250;
+/** 1回目のクリックから、ダブルクリック（通常画面を開く）を待つ時間。待つ間に跳ねて反応を見せ、過ぎたらカードを開閉する。 */
+const DOUBLE_CLICK_MS = 300;
 const GAZE_MIN_GAP_MS = 5000;
 const GAZE_RANGE_MS = 7000;
 const GAZE_HOLD_MS = 2500;
@@ -294,13 +296,26 @@ export default function PetApp() {
     dragSession.current = true;
     getCurrentWindow().startDragging().catch(() => { dragSession.current = false; });
   };
+  // クリックとダブルクリックを分ける。1回目ですぐカードを開くと、2回目のクリックがカードを閉じてしまい、通常画面が開きにくい。
+  const clickTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(clickTimer.current), []);
   const onPointerUp = () => {
     const p = press.current;
     press.current = null;
-    if (p && !p.moved) { setJumpAt(Date.now()); toggleCard(); }
+    if (p && !p.moved) {
+      if (clickTimer.current !== undefined) {
+        window.clearTimeout(clickTimer.current);
+        clickTimer.current = undefined;
+        openMain(null);
+      } else {
+        setJumpAt(Date.now());
+        clickTimer.current = window.setTimeout(() => { clickTimer.current = undefined; toggleCard(); }, DOUBLE_CLICK_MS);
+      }
+    }
     endDragSession();
   };
-  // カード（簡易チャット・回答・メニュー）。開くときは先に窓を広げ、閉じるときは先に描画を畳んでから窓を戻す。
+  // カード（簡易チャット・回答・メニュー）。窓の大きさは開閉で変わらない（ホスト `win::pet`）ので、すぐ描く。
+  // ホストへは開閉だけ知らせる（カードが画面からはみ出すときだけ、ホストが窓を寄せる）。
   const panelOpen = useRef(false);
   const panelWide = useRef(false);
   const showPanel = useCallback((p: NonNullable<Panel>) => {
@@ -309,15 +324,15 @@ export default function PetApp() {
     const sameSize = panelWide.current === wide;
     panelOpen.current = true;
     panelWide.current = wide;
-    if (wasOpen && sameSize) { setPanel(p); return; }
-    host.petSetCard(true, wide).catch(() => undefined).finally(() => { if (panelOpen.current) setPanel(p); });
+    setPanel(p);
+    if (!(wasOpen && sameSize)) host.petSetCard(true, wide).catch(() => undefined);
   }, []);
   const hidePanel = useCallback(() => {
     if (!panelOpen.current) return;
     panelOpen.current = false;
     panelWide.current = false;
     setPanel(null);
-    window.setTimeout(() => { if (!panelOpen.current) host.petSetCard(false).catch(() => undefined); }, 120);
+    host.petSetCard(false).catch(() => undefined);
   }, []);
   const pendingReqs = useMemo(() => pendingRequests(snap.requests), [snap.requests]);
   const pendingRef = useRef(pendingReqs);
@@ -417,7 +432,7 @@ export default function PetApp() {
           </button>
         )}
       </div>
-      {composeOnly ? <div style={{ width: w, height: h, flex: "none" }} aria-hidden="true" /> : <div ref={spriteRef} className="pet-sprite" style={{ width: note ? undefined : w, height: h, ...sheetStyle }} onDoubleClick={() => openMain(null)}
+      {composeOnly ? <div style={{ width: w, height: h, flex: "none" }} aria-hidden="true" /> : <div ref={spriteRef} className="pet-sprite" style={{ width: note ? undefined : w, height: h, ...sheetStyle }}
         role="img" aria-label={showLost ? "ペット（状態不明のチャットがあります）" : "ペット"}>
         {note && <span className="pet-note">{note}</span>}
         {showLost && <span className="pet-unknown" title="作業中だったチャットの状態が不明です（完了とは限りません）">?</span>}

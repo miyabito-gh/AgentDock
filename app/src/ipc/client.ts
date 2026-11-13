@@ -134,7 +134,7 @@ export const petToggle = (): Promise<boolean> => invokeCmd("pet_toggle", {});
 export const petSetHitRegions = (regions: PetRect[]): Promise<null> => invokeCmd("pet_set_hit_regions", { regions });
 /** ペット窓の左上から見たカーソル位置（目線用。窓の外も取れる）。 */
 export const petCursor = (): Promise<PetCursor | null> => invokeCmd("pet_cursor", {});
-/** カード（簡易チャット・回答・メニュー）の開閉に合わせてペット窓の大きさを変える（足元固定）。 */
+/** カード（簡易チャット・回答・メニュー）の開閉を知らせる。窓の大きさは変えない（はみ出すときだけ窓を寄せる）。 */
 export const petSetCard = (open: boolean, compose = false): Promise<null> => invokeCmd("pet_set_card", { open, compose });
 /** 通知の一時停止（minutes なしで再開）。終わりの時刻（UNIXミリ秒）を返す。承認・質問は止めない。 */
 export const petPause = (minutes: number | null): Promise<number | null> => invokeCmd("pet_pause", { minutes });
