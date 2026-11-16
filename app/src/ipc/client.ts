@@ -282,7 +282,7 @@ export const resendAsFork = (chat: ChatKey, throughTurn: ExternalId, targetTurn:
   invokeCmd("resend_as_fork", { chat, throughTurn, targetTurn, text, purpose, send, attachments });
 /** 状態不明の子孫の「履歴で再確認」（読取りのみ。再開・停止しない。確認できなければ状態不明のまま）。 */
 export const recheckUnknownAgents = (chat: ChatKey, agents: AgentKey[]): Promise<RecheckAgentsResult> => invokeCmd("recheck_unknown_agents", { chat, agents });
-/** 文脈の圧縮。圧縮前の本文を控えに保存してから送る（保存できなければ送らない）。 */
+/** コンテキストの圧縮。圧縮前の本文を控えに保存してから送る（保存できなければ送らない）。 */
 export const compactChat = (chat: ChatKey): Promise<CompactChatResult> => invokeCmd("compact_chat", { chat });
 /** 結果が未確認の操作（レビュー・圧縮）の照合（読取りのみ。再送しない）。 */
 export const reconcileOp = (chat: ChatKey, op: ParityOp): Promise<OpReconcile> => invokeCmd("reconcile_op", { chat, op });

@@ -13,7 +13,7 @@ export const OP_LABEL: Record<ParityOp, string> = {
   reviewToNewChat: "レビュー結果を別チャットへ",
   workMode: "計画／実行の切替",
   fork: "会話の分岐",
-  compact: "文脈の圧縮",
+  compact: "コンテキストの圧縮",
   referenceChat: "過去の会話を参考指定",
   goal: "Goal",
   sideChat: "side相談",
@@ -156,7 +156,7 @@ export const PARITY_COMMANDS: Command[] = [
   cmd("reviewToNewChat", "reviewToNewChat", "review", true, true, { label: "レビューを別チャットで…", group: "作業", git: true }),
   cmd("workMode", "workMode", "workMode", true, false, { label: "計画／実行を切替", group: "作業", checked: (ctx) => !!ctx.checked.workMode }),
   cmd("fork", "fork", "fork", true, false, { label: "会話を分岐…", group: "作業" }),
-  cmd("compact", "compact", "compact", true, true, { label: "文脈を圧縮…", group: "作業" }),
+  cmd("compact", "compact", "compact", true, true, { label: "コンテキストを圧縮…", group: "作業" }),
   cmd("goal", "goal", "goal", true, false, { label: "Goal を設定…", group: "作業" }),
   cmd("referenceChat", "referenceChat", "reference", true, false, { label: "過去の会話を参考に…", group: "作業" }),
   cmd("sideChat", "sideChat", "sideOpen", true, false, { label: "side相談を開く", group: "作業" }),
@@ -248,7 +248,7 @@ export const APP_COMMANDS: Command[] = [
     label: "この会話から組織実行の依頼を作る…", group: "作業", needsChat: true, keywords: ["組織実行", "依頼整理", "ワークフロー"],
     why: (ctx) => (ctx.isGeneral ? "作業フォルダのあるチャットだけで使えます" : notPending(ctx)),
   }),
-  app("handoffThread", "handoff", { label: "新しい thread へ引き継ぐ…", group: "作業", needsChat: true, why: contOn, keywords: ["引き継ぎ", "文脈", "継続", "新しいthread"] }),
+  app("handoffThread", "handoff", { label: "新しい thread へ引き継ぐ…", group: "作業", needsChat: true, why: contOn, keywords: ["引き継ぎ", "コンテキスト", "継続", "新しいthread"] }),
 
   app("reloadHistory", "reloadHistory", {
     label: "状態を再照合", group: "作業", needsChat: true, keywords: ["再確認", "更新"],

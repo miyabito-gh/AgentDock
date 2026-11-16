@@ -9,7 +9,7 @@ import { DEFAULT_SETTINGS } from "../ipc/live";
 const NOW = Date.now();
 const ago = (s: number) => NOW - s * 1000;
 
-/** 継続チャットの表示確認用の補足情報（目的メモ・文脈 72%）。他の項目は空。 */
+/** 継続チャットの表示確認用の補足情報（目的メモ・コンテキスト 72%）。他の項目は空。 */
 const mockLocal = (id: string, patch: Partial<ChatLocalView>): ChatLocalView => ({
   chat: ck(id), pinned: false, lastUsedAt: null, model: null, permission: null, nextCwd: null, nextFolders: null, acceptedFolders: null, unconfirmedFolders: null,
   memoryMode: null, reviewOf: null, forkOf: null, draft: { text: "", attachments: [], updatedAt: null }, visibility: { kind: "visible" }, deletePending: null,
@@ -138,6 +138,8 @@ function base(): Bundle {
   const a3 = agent(A("3"), "a", A("2"), "Tester", "tester", "二重送信の再現テスト");
   const a4 = agent(A("4"), "a", A("0"), "reviewer-2", null, null);
   const a5 = agent(A("5"), "a", "?", null, null, null);
+  // 親が付けたタスク名（Codexの経路の末尾）。右ペインの小タスクの一言に出る。
+  a1.agentPath = val("/root/find_resend_paths"); a2.agentPath = val("/root/fix_resend"); a3.agentPath = val("/root/fix_resend/repro_test");
   const c0 = agent("c0", "c", null, "メイン", "main", "依存更新");
   const b0 = agent("b0", "b", null, "メイン", "main", "文章整理");
   const e0 = agent("e0", "e", null, "メイン", "main", "外部で作成");

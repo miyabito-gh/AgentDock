@@ -29,24 +29,24 @@ export function observedText(ms: number, now: number = Date.now()): string | nul
 
 const num = (n: number) => n.toLocaleString("en-US");
 
-/** 入力欄の補助行の「文脈 62%」チップ。threshold が null（案内しない）のときは色を付けない（90% 以上の強い注意だけ）。 */
+/** 入力欄の補助行の「コンテキスト 62%」チップ。threshold が null（案内しない）のときは色を付けない（90% 以上の強い注意だけ）。 */
 export function usageChip(u: ContextUsageView, threshold: number | null, now: number = Date.now()): UsageChip {
   switch (u.kind) {
     case "known": {
       const at = observedText(u.observedAt, now);
       const tip = `使用 ${num(u.used)} / 上限 ${num(u.window)} トークン${at ? `、${at} の応答時点` : ""}${u.live ? "" : "。前回の応答時点の値です（この接続ではまだ更新されていません）"}`;
-      if (!u.live) return { text: `文脈 ${u.percent}%（前回）`, tip, tone: "dim" };
+      if (!u.live) return { text: `コンテキスト ${u.percent}%（前回）`, tip, tone: "dim" };
       const tone: UsageTone = u.percent >= STRONG_PERCENT ? "strong" : threshold !== null && u.percent >= threshold ? "warn" : "normal";
-      return { text: `文脈 ${u.percent}%`, tip, tone };
+      return { text: `コンテキスト ${u.percent}%`, tip, tone };
     }
     case "windowUnknown":
-      return { text: "文脈 未取得", tip: `使用 ${num(u.used)} トークン。上限が示されていないため、割合は出しません`, tone: "dim" };
+      return { text: "コンテキスト 未取得", tip: `使用 ${num(u.used)} トークン。上限が示されていないため、割合は出しません`, tone: "dim" };
     case "notFetched":
-      return { text: "文脈 未取得", tip: "この会話の文脈の使用量を、まだ受け取っていません", tone: "dim" };
+      return { text: "コンテキスト 未取得", tip: "この会話のコンテキストの使用量を、まだ受け取っていません", tone: "dim" };
     case "afterCompaction":
-      return { text: "文脈 圧縮後・未取得", tip: "文脈が圧縮されました。次の応答で使用量を受け取るまで、割合は分かりません", tone: "dim" };
+      return { text: "コンテキスト 圧縮後・未取得", tip: "コンテキストが圧縮されました。次の応答で使用量を受け取るまで、割合は分かりません", tone: "dim" };
     case "unsupported":
-      return { text: "文脈 非対応", tip: "このAIでは、文脈の使用量を取得できません", tone: "dim" };
+      return { text: "コンテキスト 非対応", tip: "このAIでは、コンテキストの使用量を取得できません", tone: "dim" };
   }
 }
 
@@ -100,7 +100,7 @@ export function purposeSaveBlock(text: string, original: string, orgOwned: boole
 /** 案内行の文。使用率の行（threshold）と手動（manual）で冒頭だけ変える。引き継ぎは送信ボタンの▾から選んだときだけなので、そう書く（通常の送信では引き継がない）。 */
 export function noticeText(mode: "threshold" | "manual", percent: number | null): string {
   const body = "新しい会話へ引き継ぐなら、送信の ▾ →「引き継いで送信」";
-  return mode === "threshold" && percent !== null ? `文脈 ${percent}%。${body}` : body;
+  return mode === "threshold" && percent !== null ? `コンテキスト ${percent}%。${body}` : body;
 }
 
 /** 案内行のツールチップ。rounds は資料に入れる往復数。 */

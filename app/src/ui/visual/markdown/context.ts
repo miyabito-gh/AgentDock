@@ -1,4 +1,4 @@
-// Markdown の依頼に添える文脈（純粋ロジック）。選んだブロックは「行の範囲と本文の抜粋」で渡す。
+// Markdown の依頼に添えるコンテキスト（純粋ロジック）。選んだブロックは「行の範囲と本文の抜粋」で渡す。
 // 実行: node --test src/ui/visual/markdown/context.test.ts （tscの対象外）
 import { VISUAL_CONTEXT_MARK, type PreviewElement, type VisualContext, type VisualFileScope } from "../api.ts";
 import { tagLabel } from "./render.ts";

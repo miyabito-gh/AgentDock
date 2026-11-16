@@ -64,7 +64,7 @@ fn kind_label(k: &ActivityKind) -> String {
         ActivityKind::SubAgent => "子エージェント".into(),
         ActivityKind::ReviewStarted => "レビュー開始".into(),
         ActivityKind::ReviewResult => "レビュー結果".into(),
-        ActivityKind::ContextCompaction => "文脈の圧縮".into(),
+        ActivityKind::ContextCompaction => "コンテキストの圧縮".into(),
         ActivityKind::Other { raw } => format!("その他（{raw}）"),
     }
 }

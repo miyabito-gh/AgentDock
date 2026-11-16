@@ -286,3 +286,14 @@ export function branchOrder(snap: HostSnapshot, c: Chat): string[] {
     .sort((a, b) => Number(b.active) - Number(a.active) || b.at - a.at || a.i - b.i)
     .map((x) => x.k);
 }
+
+/** 小タスク（子エージェント）の一言。親が起動時に付けたタスク名、無ければCodexの経路の末尾（`/root/fix_login_tests`）。
+ *  区切りの `_`・`-` は空白にする（`fix login tests`）。取れなければ null（呼び名を出す）。 */
+export function taskLabel(a: AgentView): string | null {
+  const spec = a.agent.spawnSpec.kind === "value" ? a.agent.spawnSpec.value.taskName : null;
+  const path = a.agent.agentPath.kind === "value" ? (a.agent.agentPath.value.split("/").filter(Boolean).pop() ?? null) : null;
+  const raw = (spec ?? path ?? "").trim();
+  if (!raw || raw === "root") return null;
+  const t = raw.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+  return t === "" ? null : t;
+}

@@ -411,7 +411,7 @@ pub fn item_kind_and_text(item: &Value) -> (ActivityKind, Option<String>) {
         "imageGeneration" => (ActivityKind::Other { raw: "imageGeneration".into() }, str_of(item, "status").map(|s| format!("画像生成（{s}）"))),
         "enteredReviewMode" => (ActivityKind::ReviewStarted, str_of(item, "review").map(str::to_string)),
         "exitedReviewMode" => (ActivityKind::ReviewResult, str_of(item, "review").map(str::to_string)),
-        "contextCompaction" => (ActivityKind::ContextCompaction, Some("文脈を圧縮".to_string())),
+        "contextCompaction" => (ActivityKind::ContextCompaction, Some("コンテキストを圧縮".to_string())),
         "hookPrompt" => (ActivityKind::Other { raw: "hookPrompt".into() }, None),
         "" => (ActivityKind::Other { raw: "(missing type)".into() }, None),
         other => (ActivityKind::Other { raw: other.to_string() }, None),

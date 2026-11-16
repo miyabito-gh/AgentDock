@@ -127,7 +127,7 @@ export default function MonitorApp() {
           <button className="btn-line" onClick={() => openMain(pendingReqs[0].chat.id)}>通常画面で開く</button>
         </div>
       ) : null}
-      <DockPane snap={snap} scope={scope} selId={selId} mini confirmed={confirmed} onScope={onScope}
+      <DockPane snap={snap} models={bundle.modelSettings} scope={scope} selId={selId} mini confirmed={confirmed} onScope={onScope}
         onOpen={(id) => openMain(id)} onConfirmFail={() => undefined} onAct={() => undefined} />
       {toast ? <div className="toast" role="status">{toast}</div> : null}
     </div>

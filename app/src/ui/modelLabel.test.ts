@@ -50,3 +50,16 @@ test("推論の強さの表示名: 既知は日本語、未知はそのまま", 
   assert.equal(effortLabel("xhigh"), "最高");
   assert.equal(effortLabel("ultra-future"), "ultra-future");
 });
+
+test("メインのモデルは実効値、なければ受理値。どちらも無ければ出さない", async () => {
+  const { rootModelOf } = await import("./modelLabel.ts");
+  const nf = { kind: "notFetched" } as never;
+  assert.equal(rootModelOf(undefined), null);
+  assert.equal(rootModelOf({ accepted: nf, effective: nf }), null);
+  const acc = rootModelOf({ accepted: v({ model: "gpt-6.1-sol", effort: "high" }), effective: nf })!;
+  assert.equal(modelBadgeText(acc.model, acc.effort), "Sol·高");
+  assert.match(acc.tip, /受理/);
+  const eff = rootModelOf({ accepted: v({ model: "a-b", effort: "low" }), effective: v({ model: "gpt-6.1-luna", effort: null }) })!;
+  assert.equal(modelBadgeText(eff.model, eff.effort), "Luna");
+  assert.match(eff.tip, /切り替え/);
+});

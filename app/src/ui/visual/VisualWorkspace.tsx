@@ -16,7 +16,7 @@ import "./visual.css";
 /** Markdown の画面は、Markdown を開いたときに初めて読み込む（描画・編集欄のコードと marked / DOMPurify を含む）。 */
 const MarkdownPane = lazy(() => import("./markdown/MarkdownPane"));
 
-/** 送信側（App）へ渡す文脈。begin＝依頼の直前に対象ファイルを保存する（失敗したら送らない）、end＝受理されなかった依頼のターンを閉じる。 */
+/** 送信側（App）へ渡すコンテキスト。begin＝依頼の直前に対象ファイルを保存する（失敗したら送らない）、end＝受理されなかった依頼のターンを閉じる。 */
 export interface VisualSendHandle extends VisualContext {
   chatId: string;
   begin: () => Promise<{ id: string; fresh: boolean }>;

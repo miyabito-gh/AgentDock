@@ -435,9 +435,16 @@ impl HostData {
 
     /// ルートの使用量を取り込む（置き換え。圧縮後の印はこの値で解除される）。保存領域は呼び出し側が割り当てた `dir_id`。
     pub fn note_context_usage(&mut self, chat: &ChatKey, sample: ContextUsageSample, dir_id: crate::backend::model::LocalId) -> Vec<HostEvent> {
+        let created = !self.locals.contains_key(chat);
         let file = self.locals.entry(chat.clone()).or_insert_with(|| ChatLocalFile::new(dir_id, Some(chat.clone())));
         file.context_usage = Some(sample);
         self.usage_live.insert(chat.clone());
+        // 補足情報が無かったチャットは、画面側に入れ物が無いので、補足情報ごと送る（使用率の表示も含まれる）。
+        if created {
+            if let Some(local) = self.local_view(chat) {
+                return vec![HostEvent::ChatLocalUpdated { local }];
+            }
+        }
         vec![self.usage_event(chat)]
     }
 

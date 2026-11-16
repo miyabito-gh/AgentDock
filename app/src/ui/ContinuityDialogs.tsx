@@ -87,7 +87,7 @@ export function PurposeBody({ chat, chatName, current, live, orgOwned, save, onD
           </div>
         </div>
       ) : null}
-      <p className="small muted">この会話の送信に資料として添えます（この会話で最初の送信・メモを変更した後・文脈の圧縮を観測した後の、手動の送信のとき）。キューや追加指示には添えません。空にして保存すると、目的メモを削除します（記録は残ります）。</p>
+      <p className="small muted">この会話の送信に資料として添えます（この会話で最初の送信・メモを変更した後・コンテキストの圧縮を観測した後の、手動の送信のとき）。キューや追加指示には添えません。空にして保存すると、目的メモを削除します（記録は残ります）。</p>
       {orgOwned ? <div className="why">組織実行が所有するチャットでは、目的メモを編集できません。</div> : null}
       {current ? <p className="small muted">現在の版: {current.revision}{observedText(current.updatedAt) ? `（${observedText(current.updatedAt)} に保存）` : ""}</p> : null}
       {err ? <div className="why" role="alert">{err}</div> : null}
@@ -345,12 +345,12 @@ export function ContinuationSettingsBody({ value, set }: { value: ContinuationSe
         <span className="note">初期値はオフです。オンにすると、使用量チップ・目的メモ・引き継ぎの案内（と「目的メモ」「新しい会話へ引き継ぐ」の操作）が使えるようになります。オフのあいだはこれらを出さず、使用量も取り込みません。保存済みの目的メモなどの記録は消しません。</span>
       </div>
       <div className="field"><span>引き継ぎの案内</span>
-        <select aria-label="文脈の使用率が何%以上で案内するか" value={value.suggestAtPercent ?? ""}
+        <select aria-label="コンテキストの使用率が何%以上で案内するか" value={value.suggestAtPercent ?? ""}
           onChange={(e) => set({ ...value, suggestAtPercent: e.target.value === "" ? null : Number(e.target.value) })}>
           <option value="">案内しない</option>
           {withCurrent(THRESHOLDS, value.suggestAtPercent).map((n) => <option key={n} value={n}>{n}% 以上で案内</option>)}
         </select>
-        <span className="note">文脈の使用率がこの値以上になったら（この接続で受け取った値のときだけ）、入力欄の上に「次の送信で新しい会話へ引き継ぎます」と案内します。案内だけで、自動では引き継ぎません。文脈が大きいほど、送るたびの使用量が増えます。低い値ほど使用量を抑えられますが、引き継ぎの回数は増えます（目安は 30% 前後）。</span>
+        <span className="note">コンテキストの使用率がこの値以上になったら（この接続で受け取った値のときだけ）、入力欄の上に「次の送信で新しい会話へ引き継ぎます」と案内します。案内だけで、自動では引き継ぎません。コンテキストが大きいほど、送るたびの使用量が増えます。低い値ほど使用量を抑えられますが、引き継ぎの回数は増えます（目安は 30% 前後）。</span>
       </div>
       <div className="field"><span>資料に入れる往復数</span>
         <select aria-label="引き継ぎ資料に入れる直近の往復数" value={value.rounds} onChange={(e) => set({ ...value, rounds: Number(e.target.value) })}>

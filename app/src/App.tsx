@@ -1894,7 +1894,7 @@ ${cur}` : p.text);
     respond: (r, a) => void onRespond(r, a),
   };
   const dockProps = {
-    snap, scope, selId, confirmed: confirmedKeys, onScope, onAct: act, actions: dockActions, focusReq: dockFocus,
+    snap, models: bundle.modelSettings, scope, selId, confirmed: confirmedKeys, onScope, onAct: act, actions: dockActions, focusReq: dockFocus,
     onOpen: (id: string) => { selectChat(id); },
     onConfirmFail: (k: string) => {
       if (!live) setConfirmed((s) => new Set(s).add(k));

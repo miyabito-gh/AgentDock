@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { VISUAL_CONTEXT_MARK, directRefusal, friendlyVisualError, visualSendContext, splitVisualContext, parseDirectTurn } from "./api.ts";
 
 // 実行: node --test src/ui/visual/apiContext.test.ts （tscの対象外）
-test("送信文脈は直接編集の新文言で、編集用コピー・反映の記述を含まない", () => {
+test("送信コンテキストは直接編集の新文言で、編集用コピー・反映の記述を含まない", () => {
   const ctx = visualSendContext("C:/site/index.html", [{ tag: "h1", id: "", className: "", text: "題", selector: "h1", rect: { x: 0, y: 0, width: 1, height: 1 }, leaf: true }],
     [{ path: "index.html", access: "edit" }, { path: "lib.js", access: "readOnly" }]);
   assert.ok(ctx.sel.includes("編集対象: C:/site/index.html（元のファイルを直接編集します。変更は戻せます）"));

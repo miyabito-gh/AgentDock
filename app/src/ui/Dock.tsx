@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { AgentKey, AgentView, Chat, ChatKey, HistoryOutcome, HostSnapshot, MonitorScope, PendingRequest, RequestAnswer } from "../ipc/types";
+import type { AgentKey, AgentView, Chat, ChatKey, ChatModelSettings, HistoryOutcome, HostSnapshot, MonitorScope, PendingRequest, RequestAnswer } from "../ipc/types";
 import { RequestCard, chatChipClass } from "./CenterPane";
-import { DESCENDANT_LIMIT, branchOrder, cardDensity, chatSignature, descendantSummary, descendantSummaryText, holdByTyping, isCompletedCard, completedKidsNote, mayRedirect, nextHeldSig, orderWorkingFirst, selectTasks, stableMembership, stableOrder, trackRecency, workSignature, type Recency } from "./dockTasks";
+import { DESCENDANT_LIMIT, taskLabel, branchOrder, cardDensity, chatSignature, descendantSummary, descendantSummaryText, holdByTyping, isCompletedCard, completedKidsNote, mayRedirect, nextHeldSig, orderWorkingFirst, selectTasks, stableMembership, stableOrder, trackRecency, workSignature, type Recency } from "./dockTasks";
 import { Icon } from "./Icon";
 import { OrgBadge } from "./OrgPane";
 import { RequestGapLine } from "./RequestGap";
@@ -13,6 +13,8 @@ import { CHAT_DISPLAY_TEXT, isActiveState, HISTORY_OUTCOME_TEXT, historyBreakdow
 import { FRESH, SOURCE_LABEL, STATE, hms, keyStr, showKnown } from "./format";
 import { TitleBar } from "./Chrome";
 import { ModelBadge } from "./ModelBadge";
+import { rootModelOf } from "./modelLabel";
+import { usageChip, type UsageChip } from "./contUsage";
 import { useThrottled } from "./useThrottled";
 
 function waitText(a: AgentView): string | null {
@@ -42,7 +44,9 @@ function shortAct(s: string): string {
 /** 状態不明カードの「確認済みにして隠す」の署名（新しい活動・turnが届けば変わる）。 */
 const sigOf = (v: AgentView): string => unknownSignature(v.status.raw.label, v.agent.latestTurn, v.currentActivity ? v.currentActivity.evidence.observedAt : null);
 
-function Berth({ a, depth, orphan, mini, confirmed, onConfirmFail, rootName, childNote, onDismiss, outcome, outcomeAt, readOnly }: {
+function Berth({ a, depth, orphan, mini, confirmed, onConfirmFail, rootName, childNote, onDismiss, outcome, outcomeAt, readOnly, rootModel, usage }: {
+  /** メインのカードだけ: 受理済みのモデル（取れなければバッジを出さない）と、コンテキストの使用率（取れたときだけ）。 */
+  rootModel?: ReturnType<typeof rootModelOf>; usage?: UsageChip | null;
   /** 監視窓（見るだけ）。詳細を広げても確認済み・隠すのボタンは出さない。 */ readOnly?: boolean;
   outcome?: HistoryOutcome | null; outcomeAt?: number; rootName?: string; childNote?: string; a: AgentView; depth: number; orphan: boolean; mini: boolean; confirmed: boolean; onConfirmFail: (key: string) => void;
   onDismiss?: () => void;
@@ -53,18 +57,24 @@ function Berth({ a, depth, orphan, mini, confirmed, onConfirmFail, rootName, chi
   const notLive = a.freshness !== "live";
   const act = waitText(a) ?? (a.currentActivity ? activityText(a.currentActivity.summary) : a.status.state === "unknown" ? rawStateText(a.status.raw.label) : "活動なし");
   const failUnconfirmed = a.status.state === "failed" && !confirmed;
+  const isRoot = a.agent.parent.kind === "root";
+  // 小タスクは「何をしているか」の一言（親が付けたタスク名）を名前の位置に出す。Codexの呼び名はツールチップへ。
+  const task = isRoot ? null : taskLabel(a);
+  const nick = showKnown(a.agent.displayName);
+  const nameTip = isRoot ? undefined : task ? `タスク名: ${task}／呼び名: ${nick}${a.agent.assignment.kind === "value" ? `
+担当: ${a.agent.assignment.value}` : ""}` : "Codexが付けた呼び名です（役割ではありません）";
   return (
     <div className={`card berth ${m.c} ${notLive ? "stale" : ""}`}>
       <div className="c1">
-        <span className="nm" title={a.agent.parent.kind === "root" ? undefined : "Codexが付けた呼び名です（役割ではありません）"}>{a.agent.parent.kind === "root" ? (rootName ?? showKnown(a.agent.displayName)) : showKnown(a.agent.displayName)}</span>
+        <span className="nm" title={nameTip}>{isRoot ? (rootName ?? nick) : (task ?? nick)}</span>
         <span className="rel" title={a.agent.parent.kind === "root" ? "役割: メイン（会話の本体）" : undefined}>{rel}</span>
-        <ModelBadge model={a.agent.model} effort={a.agent.effort} spawn={a.agent.spawnSpec} root={a.agent.parent.kind === "root"} />
+        {isRoot ? (rootModel ? <ModelBadge model={rootModel.model} effort={rootModel.effort} root tip={rootModel.tip} /> : null) : <ModelBadge model={a.agent.model} effort={a.agent.effort} spawn={a.agent.spawnSpec} />}
         <span className={`st ${m.c}${outcome ? " hist" : ""}`}><i aria-hidden="true" />{m.t}</span>
       </div>
-      {childNote || (a.agent.parent.kind !== "root" && a.agent.agentPath.kind === "value") || (!mini && a.agent.parent.kind !== "root") ? (
+      {childNote || (a.agent.parent.kind !== "root" && a.agent.agentPath.kind === "value" && !task) || (!mini && a.agent.parent.kind !== "root") ? (
         <div className="c2">
           {childNote ? <span className="kvp" title="親のみ表示のため、サブエージェントを含めたチャットの状態を示します">{childNote}</span> : null}
-          {a.agent.parent.kind !== "root" && a.agent.agentPath.kind === "value" ? <span className="path mono" title="Codexが返したエージェントの経路（呼び名とは別）">{a.agent.agentPath.value}</span> : null}
+          {a.agent.parent.kind !== "root" && a.agent.agentPath.kind === "value" && !task ? <span className="path mono" title="Codexが返したエージェントの経路（呼び名とは別）">{a.agent.agentPath.value}</span> : null}
           {mini || a.agent.parent.kind === "root" ? null : (
             <>
               <span className="kvp" title={a.agent.role.kind === "missing" ? "Codexが返していません" : undefined}>役割: {a.agent.role.kind === "missing" ? "未提供" : showKnown(a.agent.role)}</span>
@@ -78,6 +88,7 @@ function Berth({ a, depth, orphan, mini, confirmed, onConfirmFail, rootName, chi
         <div className="c4">
           {mini ? null : (
             <>
+              {usage ? <span className={`ctxchip ${usage.tone}`} title={usage.tip}>{usage.text}</span> : null}
               <span>{hms(a.status.evidence.observedAt)}</span>
               <span>{SOURCE_LABEL[a.status.evidence.source]}</span>
             </>
@@ -98,6 +109,16 @@ function Berth({ a, depth, orphan, mini, confirmed, onConfirmFail, rootName, chi
       )}
     </div>
   );
+}
+
+/** メインのカードに添える控えめな情報: 受理済みのモデルと、コンテキストの使用率（値を受け取ったときだけ。未取得・非対応は出さない）。 */
+function rootExtras(snap: HostSnapshot, c: Chat): { rootModel: ReturnType<typeof rootModelOf>; usage: UsageChip | null } {
+  const u = snap.chatLocals.find((l) => l.chat.id === c.key.id)?.contextUsage;
+  const shown = u && (u.kind === "known" || u.kind === "windowUnknown" || u.kind === "afterCompaction");
+  return {
+    rootModel: rootModelOf(snap.modelSettings.find((m) => m.chat.id === c.key.id)?.settings),
+    usage: shown ? usageChip(u, null) : null,
+  };
 }
 
 /** 親のみ表示のときに、子孫込みの状態を親カードへ添える（子孫の状態が親と同じ扱いなら添えない）。 */
@@ -199,7 +220,7 @@ function RootBlock({ snap, c, views, showHead, selected, mini, parentOnly, confi
     const ch = parentOnly ? [] : kids(k);
     return (
       <li key={k}>
-        {rowWrap(v, <Berth a={v} outcome={outcomeOf(v)} outcomeAt={atOf(v)} depth={depthOf(v)} orphan={false} mini={rowMini(v)} readOnly={mini} confirmed={confirmed.has(k)} onConfirmFail={onConfirmFail} childNote={parentOnly && v.agent.parent.kind === "root" ? parentNote(snap, c) : undefined} rootName={v.agent.parent.kind === "root" ? (v.agent.displayName.kind === "value" ? v.agent.displayName.value : previewTitle(c) ?? "メイン") : undefined} />)}
+        {rowWrap(v, <Berth a={v} outcome={outcomeOf(v)} outcomeAt={atOf(v)} depth={depthOf(v)} orphan={false} mini={rowMini(v)} readOnly={mini} confirmed={confirmed.has(k)} onConfirmFail={onConfirmFail} childNote={parentOnly && v.agent.parent.kind === "root" ? parentNote(snap, c) : undefined} {...(v.agent.parent.kind === "root" ? rootExtras(snap, c) : {})} rootName={v.agent.parent.kind === "root" ? (v.agent.displayName.kind === "value" ? v.agent.displayName.value : previewTitle(c) ?? "メイン") : undefined} />)}
         {ch.length ? <ul className="tree">{ch.map(node)}</ul> : null}
       </li>
     );
@@ -337,6 +358,7 @@ function TaskCard({ snap, c, band, line, open, marked, mini, at, confirmed, acti
   const notLive = !!root && root.freshness !== "live";
   const chip = chatChipClass(snap, c);
   const stateText = chatStatusText(snap, c);
+  const extras = rootExtras(snap, c);
   return (
     <section className={`tcard ${chip} ${band ? "band" : ""} ${working ? "working" : "ended"} ${line ? "line" : ""} ${kidsOpen && body ? "kopen" : ""}`} data-chat={cid(c)} aria-label={`${chatName(c)}のカード`}>
       <div className="tc-h">
@@ -373,6 +395,12 @@ function TaskCard({ snap, c, band, line, open, marked, mini, at, confirmed, acti
         <>
           {notLive ? <div className="tc-fresh">{FRESH[root.freshness].t}</div> : null}
           <div className="tc-act" title={act}>{shortAct(act)}</div>
+          {extras.rootModel || extras.usage ? (
+            <div className="tc-meta">
+              {extras.rootModel ? <ModelBadge model={extras.rootModel.model} effort={extras.rootModel.effort} root tip={extras.rootModel.tip} /> : null}
+              {extras.usage ? <span className={`ctxchip ${extras.usage.tone}`} title={extras.usage.tip}>{extras.usage.text}</span> : null}
+            </div>
+          ) : null}
           <div className="tc-kids">
             {sum.notFetched ? <div className="tc-kids-none small muted">{sumText}</div> : <KidsToggle text={sumText} open={kidsOpen} onToggle={onToggleKids} />}
             {kidsOpen && !sum.notFetched ? (
@@ -389,14 +417,19 @@ function TaskCard({ snap, c, band, line, open, marked, mini, at, confirmed, acti
   );
 }
 
-export function DockPane({ snap: snapIn, scope, selId, mini, confirmed, onScope, onOpen, onConfirmFail, onAct, onRecheck, actions, focusReq }: {
+export function DockPane({ snap: snapRaw, models, scope, selId, mini, confirmed, onScope, onOpen, onConfirmFail, onAct, onRecheck, actions, focusReq }: {
   snap: HostSnapshot; scope: MonitorScope; selId: string | null; mini?: boolean; confirmed: Set<string>;
   /** 状態不明の子の「履歴で再確認」（本窓のみ。保存履歴を読むだけ）。結果の案内は呼び出し側が出す。 */
   onRecheck?: (chat: ChatKey, agents: AgentKey[]) => Promise<void>;
   /** カード内の指示欄・回答（本窓のみ。監視窓では渡さず、回答ボタンと指示欄を出さない）。 */
   actions?: DockActions; focusReq?: DockFocus | null;
+  /** チャット別のモデル設定の最新値（スナップショットの値は更新通知で古くなるため、画面側が持つ値を渡す）。 */
+  models?: Record<string, ChatModelSettings>;
   onScope: (s: MonitorScope) => void; onOpen: (id: string) => void; onConfirmFail: (key: string) => void; onAct: (a: string) => void;
 }) {
+  const snapIn = useMemo(() => (models
+    ? { ...snapRaw, modelSettings: snapRaw.chats.flatMap((c) => (models[c.key.id] ? [{ chat: c.key, settings: models[c.key.id] }] : [])) }
+    : snapRaw), [snapRaw, models]);
   // 更新は1秒に間引く（活動のたびの再描画でチカチカしない）。承認・質問の増減は即時。
   const snap = useThrottled(snapIn, 1000, snapIn.requests.filter((r) => r.state.kind === "pending").map((r) => `${r.key.source}/${r.key.requestId}`).join("|"));
   // 表示（タスク｜選択中｜全）と「親のみ」はウィンドウ内の記憶（ホストへは保存しない）。表示範囲の変更だけで送信先・中断・承認を変えない。

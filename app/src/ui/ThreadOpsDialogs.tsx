@@ -1,4 +1,4 @@
-// コードレビュー（#3・#4）・会話の分岐（#6）・文脈の圧縮（#7）の本体（段階③ P3-2）。外枠（Shell）と下部ボタンは Dialogs.tsx 側。
+// コードレビュー（#3・#4）・会話の分岐（#6）・コンテキストの圧縮（#7）の本体（段階③ P3-2）。外枠（Shell）と下部ボタンは Dialogs.tsx 側。
 // 規則: 状態を変える操作は確認の後だけ。結果は「受け付けた」までしか書かない（レビュー結果・圧縮の完了は、会話の記録を観測したときだけ表示される）。
 //       受理不明は再送せず、読取りだけの「状態を確認」を出す。取れていない値は「未確認」と書き、0や空で代用しない。
 import { useEffect, useState } from "react";
@@ -260,7 +260,7 @@ export function ForkBody({ chat, live, cap, throughTurn, onOpenChat }: Pick<Thre
   );
 }
 
-// ───────────────────────────── 文脈の圧縮 ─────────────────────────────
+// ───────────────────────────── コンテキストの圧縮 ─────────────────────────────
 
 const entryLabel = (k: TurnRecord["entries"][number]["kind"]): string => {
   switch (k.kind) {
@@ -325,9 +325,9 @@ export function CompactBody({ chat, live, cap, pending, waiting }: ThreadOpProps
   return (
     <>
     <div className="content">
-      <p><b>{chatName(chat)}</b> の文脈を圧縮します。</p>
+      <p><b>{chatName(chat)}</b> のコンテキストを圧縮します。</p>
       <UnverifiedNote cap={cap} />
-      <About><p>圧縮の前に、現在の本文をこのチャット用の領域へ控えとして保存します。保存できないときは圧縮を送りません。圧縮が終わったかどうかは、会話に「文脈の圧縮」の記録が現れたときだけ表示されます。</p></About>
+      <About><p>圧縮の前に、現在の本文をこのチャット用の領域へ控えとして保存します。保存できないときは圧縮を送りません。圧縮が終わったかどうかは、会話に「コンテキストの圧縮」の記録が現れたときだけ表示されます。</p></About>
       <PendingNote chat={chat} pending={pending} ops={["compact"]} />
       {err ? <p className="gbanner err" role="alert">{err}</p> : null}
       {!result ? (
@@ -336,14 +336,14 @@ export function CompactBody({ chat, live, cap, pending, waiting }: ThreadOpProps
             <button className="btn" disabled={running} onClick={() => setConfirming(false)}>やめる</button>
             <button className="btn danger" disabled={running} onClick={() => void run()}>{running ? "控えを保存して依頼しています…" : "圧縮する"}</button></>}>
             <p>
-              文脈を圧縮します。元に戻せません（圧縮前の本文は控えとして残ります）。
+              コンテキストを圧縮します。元に戻せません（圧縮前の本文は控えとして残ります）。
               {waiting > 0 ? `この操作の完了後に、送信待ち ${waiting} 件が送られます。` : null}
             </p>
           </ConfirmBlock>
         ) : null
       ) : (
         <div role="status">
-          <p className={result.ack.kind === "accepted" ? "banner info" : "banner err"}>{ackText(result.ack, "文脈の圧縮")}</p>
+          <p className={result.ack.kind === "accepted" ? "banner info" : "banner err"}>{ackText(result.ack, "コンテキストの圧縮")}</p>
           {result.ack.kind === "unknown" ? <p className="small muted">受理を確認できないため、再送していません。上の「状態を確認」で履歴を読んで確かめてください。</p> : null}
           <p className="small muted">圧縮前の本文の控え: <span className="mono">{result.snapshotPath}</span></p>
         </div>

@@ -711,7 +711,7 @@ export function Dialogs({ externalTools, modelDefault, cont, org, folderTools, w
           <ForkBody chat={c} live={live} cap={opCaps.find((x) => x.op === "fork")} throughTurn={d.throughTurn} onOpenChat={common.onOpenChat} />
         </Shell>);
       return (
-        <Shell title="文脈を圧縮" wide onClose={onClose} close="閉じる">
+        <Shell title="コンテキストを圧縮" wide onClose={onClose} close="閉じる">
           <CompactBody {...common} cap={opCaps.find((x) => x.op === "compact")} />
         </Shell>);
     }

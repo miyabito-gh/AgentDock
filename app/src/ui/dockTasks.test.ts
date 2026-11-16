@@ -264,3 +264,14 @@ test("completedKidsNote: 完了カードで子が未取得のときだけ「サ�
   assert.equal(completedKidsNote(true, { notFetched: false }), null);
   assert.equal(completedKidsNote(false, { notFetched: true }), null);
 });
+
+test("小タスクの一言はタスク名、なければ経路の末尾", async () => {
+  const { taskLabel } = await import("./dockTasks.ts");
+  const nf = { kind: "notFetched" };
+  const mk = (spec: unknown, path: unknown) => ({ agent: { spawnSpec: spec, agentPath: path } }) as never;
+  const val = (value: unknown) => ({ kind: "value", value, basis: "direct" });
+  assert.equal(taskLabel(mk(val({ taskName: "fix_login-tests", model: null, effort: null, forkTurns: null }), val("/root/x"))), "fix login tests");
+  assert.equal(taskLabel(mk(nf, val("/root/child_a"))), "child a");
+  assert.equal(taskLabel(mk(nf, val("/root"))), null);
+  assert.equal(taskLabel(mk(nf, nf)), null);
+});

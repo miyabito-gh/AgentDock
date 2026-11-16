@@ -557,7 +557,9 @@ textarea{width:100%;border:0;resize:none;min-height:56px;max-height:160px;paddin
 .card .c1 .nm{font-weight:700;flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .card .c1 .rel{flex:none}
 .card .c1 .st{flex:none;margin-left:auto}
-.card .c1 .mdl{flex:0 1 auto;min-width:0;max-width:14ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--fs-xs);color:var(--ink2);background:var(--surface2);border-radius:3px;padding:0 5px;cursor:default}
+.tc-meta{display:flex;align-items:center;gap:8px;margin-top:3px;font-size:var(--fs-xs);color:var(--ink3);min-width:0}
+.tc-meta .ctxchip{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.card .c1 .mdl,.tc-meta .mdl{flex:0 1 auto;min-width:0;max-width:14ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--fs-xs);color:var(--ink2);background:var(--surface2);border-radius:3px;padding:0 5px;cursor:default}
 .card .c1 .mdl-tip{position:fixed;z-index:60;max-width:min(300px,86vw);white-space:pre-line;overflow-wrap:anywhere;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:var(--r2);box-shadow:var(--sh-3);padding:6px 8px;font-size:var(--fs-s);font-weight:400}
 .card .rel{font-size:var(--fs-xs);color:var(--ink3)}
 .card .c2{display:flex;flex-wrap:wrap;gap:0 10px;align-items:baseline;font-size:var(--fs-s);color:var(--ink2);min-width:0}

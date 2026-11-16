@@ -73,3 +73,19 @@ ${line}`;
   const parts = [`モデル: ${m ?? absent(model)}`, `推論強度: ${e ?? absent(effort)}`];
   return `${parts.join("・")}（記録値。いま使用中とは限りません）${tail}`;
 }
+
+/** メイン（親）のカードに出すモデル。実効値の通知（モデルの切り替わり）があればそれ、なければCodexが受理した設定。
+ *  どちらも取れていなければ null（メインのカードにはバッジを出さない。次の送信用の選択は入力欄の下にある）。 */
+export function rootModelOf(s: { accepted: Known<{ model: string; effort: string | null }>; effective: Known<{ model: string; effort: string | null }> } | undefined):
+  { model: Known<string>; effort: Known<string>; tip: string } | null {
+  if (!s) return null;
+  const k = s.effective.kind === "value" ? s.effective : s.accepted.kind === "value" ? s.accepted : null;
+  if (!k || k.value.model.trim() === "") return null;
+  const c = k.value;
+  const head = s.effective.kind === "value" ? "メインのモデル（Codexが切り替えた実際の設定）" : "メインのモデル（Codexが受理した設定）";
+  return {
+    model: { kind: "value", value: c.model, basis: "direct" },
+    effort: c.effort ? { kind: "value", value: c.effort, basis: "direct" } : { kind: "notFetched" },
+    tip: `${head}\nモデル: ${c.model}・推論の強さ: ${c.effort ? effortLabel(c.effort) : "既定"}\n次の送信に使う設定は、入力欄の下で選べます`,
+  };
+}

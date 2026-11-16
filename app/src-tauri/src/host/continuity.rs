@@ -298,10 +298,8 @@ impl Host {
 
     /// ルートの使用量を取り込む。メモリの値を即時に通知し、chat.json へは2秒まとめで書く。
     pub(super) fn note_context_usage(self: &Arc<Self>, chat: &ChatKey, sample: ContextUsageSample) {
-        // 継続チャットを使わない設定のときは、使用量を取り込まない（保存済みの記録は消さない）。
-        if !self.read(|d| d.settings.continuation.enabled) {
-            return;
-        }
+        // 継続チャットの設定に関わらず取り込む（右ペインのメインのカードにコンテキストの使用率を出す）。
+        // 引き継ぎの案内は、従来どおり継続チャットが有効なときだけ（画面側で判定）。
         let dir_id = self.persist.dir_id_for(chat);
         self.mutate(|d| ((), d.note_context_usage(chat, sample, dir_id)));
         self.schedule_save(SaveScope::ChatLocal { chat: chat.clone() }, SAVE_DELAY);

@@ -7,14 +7,14 @@ const known = (percent: number, live = true) => ({ kind: "known", used: 1234, wi
 const NOW = new Date(2026, 9, 18, 15, 0).getTime();
 
 test("usageChip distinguishes every kind and never invents a number", () => {
-  assert.equal(usageChip(known(62), 70, NOW).text, "文脈 62%");
+  assert.equal(usageChip(known(62), 70, NOW).text, "コンテキスト 62%");
   assert.match(usageChip(known(62), 70, NOW).tip, /使用 1,234 \/ 上限 200,000 トークン、14:02 の応答時点/);
-  assert.equal(usageChip(known(62, false), 70, NOW).text, "文脈 62%（前回）");
+  assert.equal(usageChip(known(62, false), 70, NOW).text, "コンテキスト 62%（前回）");
   assert.equal(usageChip(known(62, false), 70, NOW).tone, "dim");
-  assert.equal(usageChip({ kind: "windowUnknown", used: 5, observedAt: 1 } as never, 70, NOW).text, "文脈 未取得");
-  assert.equal(usageChip({ kind: "notFetched" } as never, 70, NOW).text, "文脈 未取得");
-  assert.equal(usageChip({ kind: "afterCompaction", observedAt: 1 } as never, 70, NOW).text, "文脈 圧縮後・未取得");
-  assert.equal(usageChip({ kind: "unsupported" } as never, 70, NOW).text, "文脈 非対応");
+  assert.equal(usageChip({ kind: "windowUnknown", used: 5, observedAt: 1 } as never, 70, NOW).text, "コンテキスト 未取得");
+  assert.equal(usageChip({ kind: "notFetched" } as never, 70, NOW).text, "コンテキスト 未取得");
+  assert.equal(usageChip({ kind: "afterCompaction", observedAt: 1 } as never, 70, NOW).text, "コンテキスト 圧縮後・未取得");
+  assert.equal(usageChip({ kind: "unsupported" } as never, 70, NOW).text, "コンテキスト 非対応");
 });
 
 test("usageChip tone follows the threshold, 90% is strong, no threshold means no warn", () => {
@@ -23,7 +23,7 @@ test("usageChip tone follows the threshold, 90% is strong, no threshold means no
   assert.equal(usageChip(known(90), 70, NOW).tone, "strong");
   assert.equal(usageChip(known(80), null, NOW).tone, "normal");
   assert.equal(usageChip(known(95), null, NOW).tone, "strong");
-  assert.equal(usageChip(known(120), 70, NOW).text, "文脈 120%");
+  assert.equal(usageChip(known(120), 70, NOW).text, "コンテキスト 120%");
 });
 
 test("shouldSuggest: only Known live at or above the threshold", () => {
@@ -65,7 +65,7 @@ test("purposeFirstLine skips blank lines and truncates", () => {
 });
 
 test("noticeText and observedText", () => {
-  assert.equal(noticeText("threshold", 72), "文脈 72%。新しい会話へ引き継ぐなら、送信の ▾ →「引き継いで送信」");
+  assert.equal(noticeText("threshold", 72), "コンテキスト 72%。新しい会話へ引き継ぐなら、送信の ▾ →「引き継いで送信」");
   assert.equal(noticeText("manual", null), "新しい会話へ引き継ぐなら、送信の ▾ →「引き継いで送信」");
   assert.equal(observedText(new Date(2026, 9, 17, 9, 5).getTime(), NOW), "10/17 09:05");
   assert.equal(observedText(0, NOW), null);

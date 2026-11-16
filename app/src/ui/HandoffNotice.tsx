@@ -94,7 +94,7 @@ function worktreeReasonOnly(usage: ChatLocalView["contextUsage"], settings: Cont
 export function HandoffNotice({ ui, onPreview, onDraft }: { ui: HandoffUi; onPreview: () => void; onDraft?: () => void }) {
   if (!ui.shown) return null;
   if (ui.ineligible !== null) {
-    return <div className="handoff-note muted" role="status">{ui.mode === null ? `文脈が ${ui.percent}% です。` : ""}{ui.ineligible}。{ui.mode === "manual" ? <button className="small" aria-label="案内を閉じる" onClick={ui.close}>×</button> : null}</div>;
+    return <div className="handoff-note muted" role="status">{ui.mode === null ? `コンテキストが ${ui.percent}% です。` : ""}{ui.ineligible}。{ui.mode === "manual" ? <button className="small" aria-label="案内を閉じる" onClick={ui.close}>×</button> : null}</div>;
   }
   const mode = ui.mode ?? "manual";
   const pv = ui.preview;
@@ -123,7 +123,7 @@ export function HandoffNotice({ ui, onPreview, onDraft }: { ui: HandoffUi; onPre
   );
 }
 
-/** 補助行の「文脈 62%」チップ。ツールチップに使用量と観測時刻。 */
+/** 補助行の「コンテキスト 62%」チップ。ツールチップに使用量と観測時刻。 */
 export function UsageChip({ local, settings }: { local: ChatLocalView | undefined; settings: ContinuationSettings }) {
   if (!settings.enabled) return null;
   const c = usageChip(local?.contextUsage ?? { kind: "notFetched" }, settings.suggestAtPercent);

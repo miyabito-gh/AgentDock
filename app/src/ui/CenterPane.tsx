@@ -484,7 +484,7 @@ function FilesBlock({ chatId, sent, artifacts, files }: { chatId: string; sent: 
 const KIND_LABEL: Record<string, string> = {
   command: "コマンド", fileChange: "ファイル変更", toolCall: "ツール", webSearch: "Web検索", subAgent: "サブエージェント",
   reasoning: "推論", plan: "計画", agentMessage: "応答", userMessage: "依頼",
-  reviewStarted: "レビュー開始", reviewResult: "レビュー結果", contextCompaction: "文脈の圧縮",
+  reviewStarted: "レビュー開始", reviewResult: "レビュー結果", contextCompaction: "コンテキストの圧縮",
 };
 const kindLabel = (k: ActivityKind): string => (k.kind === "other" ? k.raw : KIND_LABEL[k.kind] ?? k.kind);
 /** 作業の記録1件の表示。値が本当に無いときだけ「記載なし」とする（取得できた属性はホストが文にして渡す）。 */
