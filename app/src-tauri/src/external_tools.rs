@@ -31,15 +31,22 @@ pub struct ExternalToolsSettings {
     pub terminal_executable: String,
 }
 
+/// 実行ファイルとして受け付ける形: ドライブ文字の絶対パス（割り当てたネットワークドライブを含む）か `\\server\share\…` の .exe。
+/// ネットワーク上の実行ファイルは利用者が設定で明示したときだけ使う（設定画面で保存前に確認する）。
+/// 触るのは利用者が開く操作をしたときだけで、保存時や自動の確認では触らない。`\\?\`・`\\.\` の形は受け付けない。
+fn acceptable(value: &str) -> bool {
+    (crate::pathref::is_drive_abs(value) || crate::pathref::is_unc(value))
+        && !value.chars().any(|c| c.is_control())
+        && Path::new(value).extension().is_some_and(|e| e.eq_ignore_ascii_case("exe"))
+}
+
 fn executable(value: &str) -> Result<PathBuf, String> {
-    if !crate::pathref::is_drive_abs(value) || crate::pathref::is_network_path(value)
-        || value.chars().any(|c| c.is_control())
-        || !Path::new(value).extension().is_some_and(|e| e.eq_ignore_ascii_case("exe")) {
-        return Err("実行ファイルはローカルの絶対パス（.exe）で指定してください".into());
+    if !acceptable(value) {
+        return Err("実行ファイルは絶対パス（.exe）で指定してください".into());
     }
     let path = std::fs::canonicalize(value).map_err(|_| "設定した実行ファイルが見つかりません")?;
-    if crate::pathref::is_network_path(&path.to_string_lossy()) || !path.is_file() {
-        return Err("ローカルの実行ファイルを指定してください".into());
+    if !path.is_file() {
+        return Err("設定した実行ファイルが見つかりません".into());
     }
     Ok(path)
 }
@@ -47,10 +54,8 @@ fn executable(value: &str) -> Result<PathBuf, String> {
 pub fn validate_settings(settings: &ExternalToolsSettings) -> Result<(), String> {
     // Existence is checked at launch; a moved/uninstalled app must not block unrelated settings saves.
     for value in [&settings.editor_executable, &settings.terminal_executable] {
-        if !value.is_empty() && (!crate::pathref::is_drive_abs(value) || crate::pathref::is_network_path(value)
-            || value.chars().any(|c| c.is_control())
-            || !Path::new(value).extension().is_some_and(|e| e.eq_ignore_ascii_case("exe"))) {
-            return Err("外部ツールにはローカルの絶対パス（.exe）を指定してください".into());
+        if !value.is_empty() && !acceptable(value) {
+            return Err("外部ツールには絶対パス（.exe）を指定してください".into());
         }
     }
     Ok(())
@@ -111,11 +116,14 @@ mod tests {
     fn defaults_read_old_settings_and_invalid_executable_is_rejected() {
         assert_eq!(serde_json::from_str::<ExternalToolsSettings>("{}").unwrap(), ExternalToolsSettings::default());
         let mut settings = ExternalToolsSettings::default();
-        for path in [r"\\server\app.exe", "cmd.exe", r"C:\app.cmd", "C:\\bad\napp.exe"] {
+        for path in ["cmd.exe", r"C:\app.cmd", "C:\\bad\napp.exe", r"\\?\C:\app.exe", r"\\.\pipe\app.exe", r"\\?\UNC\server\share\app.exe"] {
             settings.editor_executable = path.into();
             assert!(validate_settings(&settings).is_err(), "{path}");
         }
-        settings.editor_executable = r"C:\Program Files\Code\Code.exe".into();
-        assert!(validate_settings(&settings).is_ok());
+        // 利用者が明示したネットワーク上の実行ファイル（UNC・割り当てドライブ）は受け付ける。
+        for path in [r"C:\Program Files\Code\Code.exe", r"\\server\share\tools\app.exe", r"Z:\tools\app.exe"] {
+            settings.editor_executable = path.into();
+            assert!(validate_settings(&settings).is_ok(), "{path}");
+        }
     }
 }
