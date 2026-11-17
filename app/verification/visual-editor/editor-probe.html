@@ -4,7 +4,7 @@
   const sleep=ms=>new Promise(r=>setTimeout(r,ms));
   const post=value=>{try{window.chrome.webview.postMessage(JSON.stringify(value));}catch(_){}};
   let invoke;
-  const observations={selections:[], lifecycle:[], errors:[]};
+  const observations={selections:[], lifecycle:[], errors:[], zooms:[]};
   const bounds={x:10,y:50,width:600,height:380};
   await sleep(150);
   try {
@@ -13,6 +13,7 @@
     if(typeof invoke!=="function" || typeof window.__TAURI__?.event?.listen!=="function") throw new Error("main Tauri bootstrap surface missing");
     await window.__TAURI__.event.listen('visual-preview-selection', e=>observations.selections.push(e.payload));
     await window.__TAURI__.event.listen('visual-preview-error', e=>observations.errors.push(e.payload));
+    await window.__TAURI__.event.listen('visual-preview-zoom', e=>observations.zooms.push(e.payload?.sessionId===observations.sessionId?e.payload.step:'foreign'));
     observations.mainSentinel=await invoke('probe_privileged_sentinel');
     const fixture=await invoke('probe_fixture');
     const session=await invoke('visual_preview_open',{rootPath:fixture.root,htmlPath:'pages/index.html',bounds});
@@ -26,10 +27,18 @@
     await sleep(650);
     await invoke('probe_step',{sessionId,step:'resources'});
     await sleep(850);
+    // 既定はページ操作モード。範囲選択に切り替えてから選ぶ。
+    await invoke('visual_preview_action',{sessionId,action:'select'}); await sleep(120);
     await invoke('probe_step',{sessionId,step:'click-one'}); await sleep(180);
     await invoke('probe_step',{sessionId,step:'ctrl-click-two'}); await sleep(180);
     await invoke('visual_preview_action',{sessionId,action:'parent'}); await sleep(180);
     await invoke('probe_step',{sessionId,step:'escape'}); await sleep(180);
+    await invoke('probe_step',{sessionId,step:'zoom-input'}); await sleep(250);
+    await invoke('visual_preview_zoom',{sessionId,factor:1.5}); await sleep(250);
+    await invoke('probe_step',{sessionId,step:'zoom-measure'}); await sleep(200);
+    await invoke('visual_preview_zoom',{sessionId,factor:1}); await sleep(250);
+    await invoke('probe_step',{sessionId,step:'zoom-measure'}); await sleep(200);
+    observations.zoomInvalidRejected=await invoke('visual_preview_zoom',{sessionId,factor:10}).then(()=>false,()=>true);
     observations.beforeMalicious=observations.selections.length;
     await invoke('probe_step',{sessionId,step:'malicious'}); await sleep(220);
     observations.afterMalicious=observations.selections.length;

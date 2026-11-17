@@ -34,6 +34,31 @@ pub struct SelectionEvent {
     pub selection: Vec<Selection>,
     pub truncated: bool,
 }
+/// プレビュー内の Ctrl＋ホイール／Ctrl＋＋・−・0 を、Visual Editor 側の倍率操作として伝える。
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ZoomEvent {
+    pub session_id: String,
+    pub step: &'static str,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ZoomMessage {
+    zoom: String,
+}
+/// `{"zoom":"in"|"out"|"reset"}` だけを受け付ける（それ以外は選択のメッセージとして扱う）。
+pub(super) fn zoom_step(raw: &str) -> Option<&'static str> {
+    if raw.len() > 64 {
+        return None;
+    }
+    let m: ZoomMessage = serde_json::from_str(raw).ok()?;
+    match m.zoom.as_str() {
+        "in" => Some("in"),
+        "out" => Some("out"),
+        "reset" => Some("reset"),
+        _ => None,
+    }
+}
 pub(super) fn validate(raw: &str) -> Option<(Vec<Selection>, bool)> {
     if raw.len() > 65536 {
         return None;
@@ -78,6 +103,18 @@ mod tests {
         }
         assert!(validate(&" ".repeat(65537)).is_none());
         assert!(validate(r#"{"selection":[{"tag":"p","id":"","className":"","text":"a","selector":"p","leaf":true,"rect":{"x":0,"y":0,"width":1,"height":1}}]}"#).is_some());
+    }
+    #[test]
+    fn zoom_messages_accept_only_known_steps() {
+        assert_eq!(zoom_step(r#"{"zoom":"in"}"#), Some("in"));
+        assert_eq!(zoom_step(r#"{"zoom":"out"}"#), Some("out"));
+        assert_eq!(zoom_step(r#"{"zoom":"reset"}"#), Some("reset"));
+        for raw in [r#"{"zoom":"9"}"#, r#"{"zoom":"in","x":1}"#, r#"{"selection":[]}"#, r#"{"zoom":1}"#] {
+            assert!(zoom_step(raw).is_none());
+        }
+        assert!(validate(r#"{"zoom":"in"}"#).is_none());
+        assert!(super::super::zoom_factor_valid(1.0) && super::super::zoom_factor_valid(3.0));
+        assert!(!super::super::zoom_factor_valid(f64::NAN) && !super::super::zoom_factor_valid(0.1) && !super::super::zoom_factor_valid(6.0));
     }
 }
 

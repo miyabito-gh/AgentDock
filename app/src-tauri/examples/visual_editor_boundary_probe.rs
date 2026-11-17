@@ -154,6 +154,8 @@ mod probe {
             "click-one"=>"document.getElementById('one').dispatchEvent(new MouseEvent('click',{bubbles:true,composed:true}));".to_string(),
             "ctrl-click-two"=>"document.getElementById('two').dispatchEvent(new MouseEvent('click',{bubbles:true,composed:true,ctrlKey:true}));".to_string(),
             "escape"=>"window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));".to_string(),
+            "zoom-input"=>"const w=new WheelEvent('wheel',{deltaY:-100,ctrlKey:true,bubbles:true,cancelable:true});document.body.dispatchEvent(w);const k=new KeyboardEvent('keydown',{key:'0',code:'Digit0',ctrlKey:true,bubbles:true,cancelable:true});document.body.dispatchEvent(k);window.chrome.webview.postMessage(JSON.stringify({probe:'zoom-input',wheelPrevented:w.defaultPrevented,keyPrevented:k.defaultPrevented}));".to_string(),
+            "zoom-measure"=>"window.chrome.webview.postMessage(JSON.stringify({probe:'zoom-measure',dpr:window.devicePixelRatio,innerWidth:window.innerWidth}));".to_string(),
             "malicious"=>r#"window.chrome.webview.postMessage(JSON.stringify({selection:[{tag:'div',id:'injected',className:'',text:'injected',selector:'#injected',rect:{x:0,y:0,width:1,height:1}}],rootPath:'C:/',command:'probe_privileged_sentinel'}));window.chrome.webview.postMessage(JSON.stringify({probe:'malicious-sent'}));"#.to_string(),
             "resources"=>format!(r#"(async()=>{{
                 const post=v=>window.chrome.webview.postMessage(JSON.stringify(v));
@@ -360,6 +362,22 @@ mod probe {
                         .unwrap_or(false)
             })
         });
+        // 表示倍率: プレビュー内の Ctrl＋ホイール／Ctrl＋0 はエディタへ伝わり、ページ既定の動作は止まる。倍率1.5で幅が2/3になり、1で戻る。
+        let scale = diagnostics
+            .iter()
+            .find(|v| v["probe"] == "lifecycle")
+            .and_then(|v| v["scaleFactor"].as_f64())
+            .unwrap_or(1.0);
+        let measures: Vec<&Value> = diagnostics.iter().filter(|v| v["probe"] == "zoom-measure").collect();
+        let near = |v: &Value, key: &str, want: f64, tol: f64| v[key].as_f64().map(|x| (x - want).abs() <= tol).unwrap_or(false);
+        let zoom = observations["zooms"] == json!(["in", "reset"])
+            && diagnostics.iter().any(|d| d["probe"] == "zoom-input" && d["wheelPrevented"] == true && d["keyPrevented"] == true)
+            && measures.len() == 2
+            && near(measures[0], "dpr", scale * 1.5, 0.05)
+            && near(measures[0], "innerWidth", 400.0, 3.0)
+            && near(measures[1], "dpr", scale, 0.05)
+            && near(measures[1], "innerWidth", 600.0, 3.0)
+            && observations["zoomInvalidRejected"] == true;
         let no_child = app
             .webviews()
             .keys()
@@ -371,6 +389,7 @@ mod probe {
             .iter()
             .any(|p| p == &format!("GET /api/{} HTTP/1.1", state.run_id));
         let passed = resources
+            && zoom
             && sequence
             && lifecycle
             && native_lifecycle
@@ -385,7 +404,7 @@ mod probe {
         let written = write_report(
             &state,
             if passed { "passed" } else { "failed" },
-            json!({"controller":observations,"checks":{"resources":resources,"selectionSequence":sequence,"lifecycle":lifecycle,"nativeVisibilityBounds":native_lifecycle,"childClosed":no_child,"apiReached":api_reached}}),
+            json!({"controller":observations,"checks":{"resources":resources,"selectionSequence":sequence,"lifecycle":lifecycle,"nativeVisibilityBounds":native_lifecycle,"zoom":zoom,"childClosed":no_child,"apiReached":api_reached}}),
             passed,
         );
         app.exit(if passed && written.is_ok() { 0 } else { 2 });
@@ -508,6 +527,7 @@ mod probe {
                 agentdock_lib::visual_edit::preview::visual_preview_open,
                 agentdock_lib::visual_edit::preview::visual_preview_bounds,
                 agentdock_lib::visual_edit::preview::visual_preview_action,
+                agentdock_lib::visual_edit::preview::visual_preview_zoom,
                 agentdock_lib::visual_edit::preview::visual_preview_close,
                 probe_fixture,
                 probe_attach,

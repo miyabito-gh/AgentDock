@@ -3,8 +3,10 @@ import { createPortal } from "react-dom";
 import { Icon } from "../Icon";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import type { ChatKey, PendingRequest } from "../../ipc/types";
-import { actOnPreview, closePreview, onPreviewError, onPreviewSelection, openPreview, parentFolder, previewAvailable, isMarkdownPath, quickTemplates, updatePreviewBounds, visualDirectOpen, visualDirectSourceHint, visualDirectStamp, visualDirectTurnBegin, visualDirectTurnEnd, visualDirectTurns, visualSendContext, type PreviewAction, type PreviewBounds, type PreviewElement, type PreviewSession, type VisualContext, type VisualFileScope, type DirectTurn } from "./api";
+import { actOnPreview, closePreview, onPreviewError, onPreviewSelection, onPreviewZoom, openPreview, parentFolder, previewAvailable, isMarkdownPath, quickTemplates, updatePreviewBounds, visualDirectOpen, visualDirectSourceHint, visualDirectStamp, visualDirectTurnBegin, visualDirectTurnEnd, visualDirectTurns, visualSendContext, zoomPreview, type PreviewAction, type PreviewBounds, type PreviewElement, type PreviewSession, type VisualContext, type VisualFileScope, type DirectTurn } from "./api";
 import { VisualEditControls } from "./VisualEditControls";
+import { ZoomControl } from "./ZoomControl";
+import { rememberZoom, rememberedZoom, stepZoom, zoomKey, zoomKeyOf, type ZoomStep } from "./zoom";
 import { composerPlaceholder, folderContains, runStopped } from "./composerHint";
 import { confirmLeaveMarkdown } from "./markdown/guard";
 import type { MarkdownHandle } from "./markdown/MarkdownPane";
@@ -402,6 +404,56 @@ export function VisualWorkspace({ enabled, blocked, chatId, chatKey, chatCwd, on
     timer = window.setTimeout(() => void tick(), 0);
     return () => { live = false; window.clearTimeout(timer); };
   }, [enabled, desktop, session?.sessionId]);
+  // 表示倍率（ファイルごとに、アプリを開いている間だけ覚える）。HTMLはWebViewの倍率、Markdownは文字の倍率。
+  const docZoomKey = doc ? zoomKey(doc.rootPath, doc.htmlPath) : "";
+  const [zoom, setZoom] = useState(1);
+  const zoomRef = useRef(1);
+  const zoomKeyRef = useRef("");
+  zoomKeyRef.current = docZoomKey;
+  useLayoutEffect(() => { const value = docZoomKey ? rememberedZoom(docZoomKey) : 1; zoomRef.current = value; setZoom(value); }, [docZoomKey]);
+  const stepZoomBy = useCallback((step: ZoomStep) => {
+    if (!zoomKeyRef.current) return;
+    const next = stepZoom(zoomRef.current, step);
+    if (next === zoomRef.current) return;
+    zoomRef.current = next; rememberZoom(zoomKeyRef.current, next); setZoom(next);
+  }, []);
+  // HTMLのプレビューへ倍率を反映する（開き直し・別のHTMLでも、そのファイルの倍率に合わせる）。
+  useEffect(() => {
+    const pid = session?.sessionId;
+    if (!enabled || !desktop || !pid) return;
+    void enqueue(() => zoomPreview(pid, zoom)).catch(() => { /* 倍率を変えられなくても表示は続ける */ });
+  }, [enabled, desktop, session?.sessionId, zoom, enqueue]);
+  // プレビュー内で押された Ctrl＋ホイール／Ctrl＋＋・−・0。
+  useEffect(() => {
+    if (!enabled || !desktop) return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void onPreviewZoom((event) => { if (alive.current && current.current?.sessionId === event.sessionId) stepZoomBy(event.step); })
+      .then((off) => { if (disposed) off(); else unlisten = off; }).catch(() => { /* 受け取れなくてもボタンで操作できる */ });
+    return () => { disposed = true; unlisten?.(); };
+  }, [enabled, desktop, stepZoomBy]);
+  // Visual Editor の中（ツールバー・Markdown）での Ctrl＋＋・−・0 と Ctrl＋ホイール。ダイアログやメニューの操作中は扱わない。
+  useEffect(() => {
+    if (!enabled || !docZoomKey) return;
+    const inPane = (target: EventTarget | null) => target instanceof Element && !!target.closest(".visual-pane") && !target.closest(".scrim,[role=dialog],[role=alertdialog],[role=menu]");
+    const onKey = (event: KeyboardEvent) => {
+      const step = zoomKeyOf(event);
+      if (!step || event.isComposing || !(inPane(event.target) || event.target === document.body)) return;
+      event.preventDefault(); stepZoomBy(step);
+    };
+    let acc = 0, at = 0;
+    const onWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey || !inPane(event.target)) return;
+      event.preventDefault();
+      acc += event.deltaY * (event.deltaMode === 1 ? 40 : event.deltaMode === 2 ? 400 : 1);
+      const now = Date.now();
+      if (Math.abs(acc) < 50 || now - at < 70) return;
+      at = now; stepZoomBy(acc < 0 ? "in" : "out"); acc = 0;
+    };
+    document.addEventListener("keydown", onKey, true);
+    window.addEventListener("wheel", onWheel, { capture: true, passive: false });
+    return () => { document.removeEventListener("keydown", onKey, true); window.removeEventListener("wheel", onWheel, true); };
+  }, [enabled, docZoomKey, stepZoomBy]);
   const [dockEl, setDockEl] = useState<HTMLElement | null>(null);
   useEffect(() => { if (enabled) setDockEl(document.getElementById("pane-dock")); }, [enabled]);
   // 通常チャットのファイルメニューからの「Visual Editorで開く」。編集中なら編集から離れて、そのHTMLを表示する。
@@ -538,9 +590,9 @@ export function VisualWorkspace({ enabled, blocked, chatId, chatKey, chatCwd, on
       </section> : null}
       {mdDoc && !session ? <section className="vp-card vp-preview" aria-label="Markdownプレビュー">
         <Suspense fallback={<div className="visual-empty"><strong>Markdownの画面を読み込んでいます…</strong></div>}>
-          <MarkdownPane key={mdDoc.sessionId} rootPath={mdDoc.rootPath} path={mdDoc.htmlPath} aiBusy={chatRunning} sending={sending} selection={selection} onSelect={setSelection} onOpenPath={openPath} handleRef={mdHandle}
+          <MarkdownPane key={mdDoc.sessionId} zoom={zoom} rootPath={mdDoc.rootPath} path={mdDoc.htmlPath} aiBusy={chatRunning} sending={sending} selection={selection} onSelect={setSelection} onOpenPath={openPath} handleRef={mdHandle}
             barStart={<button type="button" className="btn subtle sm vp-ico" aria-label="HTML／Markdownを開く" title="HTML／Markdownを開く" disabled={!desktop || busy} onClick={() => void pick(false)}><Icon name="folderOpen" /></button>}
-            barEnd={<button type="button" className="btn subtle sm vp-ico" aria-pressed={whereOpen} aria-label="表示しているファイルの場所" title="表示しているファイルの場所" onClick={() => setWhereOpen(!whereOpen)}><Icon name="more" /></button>} />
+            barEnd={<><ZoomControl value={zoom} onStep={stepZoomBy} /><button type="button" className="btn subtle sm vp-ico" aria-pressed={whereOpen} aria-label="表示しているファイルの場所" title="表示しているファイルの場所" onClick={() => setWhereOpen(!whereOpen)}><Icon name="more" /></button></>} />
         </Suspense>
         {foot}
       </section> : <section className="vp-card vp-preview" aria-label="HTMLプレビュー">
@@ -560,6 +612,7 @@ export function VisualWorkspace({ enabled, blocked, chatId, chatKey, chatCwd, on
             <button type="button" className="btn subtle sm vp-ico" aria-label="内側へ" disabled={disabled} title="内側へ（Alt＋↓）: 選択を、中の最初の要素に移します" onClick={() => void action("child")}><Icon name="collapse" /></button>
             <button type="button" className="btn subtle sm vp-ico" aria-label="選択を解除" disabled={disabled} title="選択を解除（Esc）" onClick={() => void action("clear")}><Icon name="x" /></button>
           </span> : null}
+          {session ? <ZoomControl value={zoom} disabled={disabled} onStep={stepZoomBy} /> : null}
           <button type="button" className="btn subtle sm vp-ico vp-where-btn" aria-pressed={whereOpen} aria-label="表示しているファイルの場所" title="表示しているファイルの場所" onClick={() => setWhereOpen(!whereOpen)}><Icon name="more" /></button>
         </div>
         <div className="visual-stage" ref={stage} aria-label="プレビューの表示領域">

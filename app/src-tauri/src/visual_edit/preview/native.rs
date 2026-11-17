@@ -79,6 +79,11 @@ pub(super) unsafe fn install(
     let settings = core.Settings()?;
     settings.SetAreHostObjectsAllowed(false)?;
     settings.SetIsWebMessageEnabled(true)?;
+    // 倍率は Visual Editor の操作（−・＋・Ctrl＋ホイール）でだけ変える。WebView2標準のズーム・ピンチは、表示中の倍率と食い違うので止める。
+    settings.SetIsZoomControlEnabled(false)?;
+    if let Ok(s5) = settings.cast::<ICoreWebView2Settings5>() {
+        s5.SetIsPinchZoomEnabled(false)?;
+    }
     let mut token = 0;
     let stop = StopTarget {
         app: app.clone(),
@@ -193,7 +198,16 @@ pub(super) unsafe fn install(
                     .unwrap_or(false);
                 if allowed {
                     let raw = read_string(|p| args.TryGetWebMessageAsString(p))?;
-                    if let Some((selection, truncated)) = super::selection::validate(&raw) {
+                    if let Some(step) = super::selection::zoom_step(&raw) {
+                        let _ = app.emit_to(
+                            tauri::EventTarget::webview("main"),
+                            "visual-preview-zoom",
+                            super::selection::ZoomEvent {
+                                session_id: session.clone(),
+                                step,
+                            },
+                        );
+                    } else if let Some((selection, truncated)) = super::selection::validate(&raw) {
                         let event = super::selection::SelectionEvent {
                             session_id: session.clone(),
                             selection,

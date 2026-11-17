@@ -196,6 +196,7 @@ pub fn run() {
             visual_edit::preview::visual_preview_open,
             visual_edit::preview::visual_preview_bounds,
             visual_edit::preview::visual_preview_action,
+            visual_edit::preview::visual_preview_zoom,
             visual_edit::preview::visual_preview_close,
             commands::visual_direct_open,
             commands::visual_direct_turn_begin,

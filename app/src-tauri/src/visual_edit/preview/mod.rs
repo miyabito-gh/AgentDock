@@ -325,6 +325,28 @@ pub async fn visual_preview_action(
     }
     Ok(())
 }
+/// プレビューの表示倍率（WebView2のズーム）。ページ側の標準のズーム操作は無効にしてあり、倍率はここからだけ変える。
+pub(crate) fn zoom_factor_valid(factor: f64) -> bool {
+    factor.is_finite() && (0.25..=5.0).contains(&factor)
+}
+#[tauri::command]
+pub async fn visual_preview_zoom(
+    webview: Webview,
+    state: tauri::State<'_, PreviewManager>,
+    session_id: String,
+    factor: f64,
+) -> Result<(), String> {
+    controller(&webview)?;
+    if !zoom_factor_valid(factor) {
+        return Err("invalid zoom factor".into());
+    }
+    let slot = state.0.lock().await;
+    let s = slot
+        .as_ref()
+        .filter(|s| s.id == session_id)
+        .ok_or("preview session unavailable")?;
+    s.view.set_zoom(factor).map_err(|e| e.to_string())
+}
 #[tauri::command]
 pub async fn visual_preview_close(
     webview: Webview,

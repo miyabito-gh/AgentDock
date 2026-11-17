@@ -51,6 +51,11 @@
   };
   window.addEventListener('click', e => { if (suppressClick) { e.preventDefault(); e.stopImmediatePropagation(); return; } if (!mode) return; const el=target(e); if (!el) return; e.preventDefault(); e.stopImmediatePropagation(); if (e.shiftKey && rangeFrom && rangeFrom.isConnected) { selected=between(rangeFrom, el); post(); return; } if (e.ctrlKey) selected=selected.includes(el)?selected.filter(x=>x!==el):[...selected,el].slice(0,64); else selected=[el]; rangeFrom=el; post(); },true);
   window.addEventListener('keydown', e => { if (mode && selected.length && e.altKey && (e.key==='ArrowUp'||e.key==='ArrowDown')) { e.preventDefault(); window.dispatchEvent(new CustomEvent('agentdock-preview-action',{detail:e.key==='ArrowUp'?'parent':'child'})); return; } if (e.key==='Escape') { selected=[]; hovered=null; post(); } },true);
+  // 表示倍率: Ctrl＋ホイール／Ctrl＋＋・−・0 は、ページのズームではなく Visual Editor の倍率操作として伝える（倍率はエディタ側が決める）。
+  let zoomAcc = 0, zoomAt = 0;
+  const zoom = step => { try { window.chrome.webview.postMessage(JSON.stringify({zoom:step})); } catch (_) {} };
+  window.addEventListener('wheel', e => { if (!e.ctrlKey) return; e.preventDefault(); zoomAcc += e.deltaY * (e.deltaMode === 1 ? 40 : e.deltaMode === 2 ? 400 : 1); const now = Date.now(); if (Math.abs(zoomAcc) < 50 || now - zoomAt < 70) return; zoomAt = now; zoom(zoomAcc < 0 ? 'in' : 'out'); zoomAcc = 0; },{capture:true,passive:false});
+  window.addEventListener('keydown', e => { if (!(e.ctrlKey || e.metaKey) || e.altKey) return; const k = e.key, c = e.code; const step = (k==='+'||k==='='||k===';'||c==='NumpadAdd') ? 'in' : (k==='-'||k==='_'||c==='NumpadSubtract') ? 'out' : (k==='0'||c==='Numpad0') ? 'reset' : null; if (!step) return; e.preventDefault(); e.stopImmediatePropagation(); zoom(step); },true);
   const save = () => { try { sessionStorage.setItem('agentdock-select', mode ? '1' : '0'); } catch (_) {} };
   const cursor = () => { try { document.documentElement.style.cursor = mode ? 'crosshair' : ''; } catch (_) {} };
   window.addEventListener('scroll',draw,true); window.addEventListener('resize',draw);

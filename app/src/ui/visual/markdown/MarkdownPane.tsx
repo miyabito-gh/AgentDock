@@ -1,6 +1,6 @@
 // Visual Editor の Markdown 画面（遅延読み込み）。開いている間だけ動く: 文書を読み、ファイルの変化を見て、編集欄とプレビューを描く。
 // 保存・外部変更の検出・AI実行中の読み取り専用はここが持ち、依頼の送信・ターンの戻す/やり直しは Visual Editor 側（既存の仕組み）が持つ。
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MutableRefObject, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type CSSProperties, type MutableRefObject, type ReactNode } from "react";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { Icon } from "../../Icon";
 import { askConfirm } from "../../appConfirm";
@@ -43,6 +43,7 @@ export interface MarkdownPaneProps {
   /** 別名で保存したあと、そのファイルへ切り替える。 */ onOpenPath: (path: string) => void;
   handleRef: MutableRefObject<MarkdownHandle | null>;
   /** 上の操作列の左端・右端に置く、ファイルを開く・場所の表示（持ち主は Visual Editor 側）。 */ barStart?: ReactNode; barEnd?: ReactNode;
+  /** 表示倍率（プレビューと編集欄の文字の大きさ）。 */ zoom?: number;
 }
 
 type Prompt = "leave" | "send";
@@ -90,7 +91,7 @@ const OUTLINE_KEY = "agentdock.markdownOutline";
 const readOutline = (): boolean => { try { return window.localStorage.getItem(OUTLINE_KEY) === "1"; } catch { return false; } };
 interface LinkBar { label: string; url: string; link: MarkdownLink | null; start: number; end: number }
 
-export default function MarkdownPane({ rootPath, path, aiBusy, sending, selection, onSelect, onOpenPath, handleRef, barStart, barEnd }: MarkdownPaneProps) {
+export default function MarkdownPane({ rootPath, path, aiBusy, sending, selection, onSelect, onOpenPath, handleRef, barStart, barEnd, zoom = 1 }: MarkdownPaneProps) {
   const draftKey = rootPath + "|" + path;
   const [base, setBase] = useState<MarkdownDoc | null>(null);
   const [text, setText] = useState("");
@@ -482,7 +483,7 @@ export default function MarkdownPane({ rootPath, path, aiBusy, sending, selectio
     {loadError && base && !external ? <p className="visual-error md-msg" role="alert">{loadError}</p> : null}
     {saveError ? <p className="visual-error md-msg" role="alert">{saveError}</p> : null}
     {note && !saveError ? <p className="md-msg md-note" role="status">{note}</p> : null}
-    <div className={"md-body md-view-" + view}>
+    <div className={"md-body md-view-" + view} style={{ "--md-zoom": String(zoom) } as CSSProperties}>
       {!base ? <div className="visual-empty"><strong>{loadError ? "文書を開けませんでした" : "読み込んでいます…"}</strong>{loadError ? <p>{loadError}</p> : null}</div> : <>
         {outlineOpen ? <nav className="md-outline" aria-label="見出し一覧">
           {outline.length ? <ul>{outline.map((h, i) => {

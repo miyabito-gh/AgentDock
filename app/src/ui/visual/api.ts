@@ -52,6 +52,15 @@ export const updatePreviewBounds = (sessionId: string, bounds: PreviewBounds, vi
   invoke("visual_preview_bounds", { sessionId, bounds, visible });
 export const actOnPreview = (sessionId: string, action: PreviewAction): Promise<void> =>
   invoke("visual_preview_action", { sessionId, action });
+export const zoomPreview = (sessionId: string, factor: number): Promise<void> =>
+  invoke("visual_preview_zoom", { sessionId, factor });
+/** プレビュー内で押された Ctrl＋ホイール／Ctrl＋＋・−・0。 */
+export function parsePreviewZoom(value: unknown): { sessionId: string; step: "in" | "out" | "reset" } | null {
+  if (!record(value) || typeof value.sessionId !== "string" || !value.sessionId || value.sessionId.length > 128) return null;
+  return value.step === "in" || value.step === "out" || value.step === "reset" ? { sessionId: value.sessionId, step: value.step } : null;
+}
+export const onPreviewZoom = (handler: (value: { sessionId: string; step: "in" | "out" | "reset" }) => void): Promise<UnlistenFn> =>
+  listen<unknown>("visual-preview-zoom", (event) => { const value = parsePreviewZoom(event.payload); if (value) handler(value); });
 export const closePreview =(sessionId: string): Promise<void> => invoke("visual_preview_close", { sessionId });
 export const onPreviewSelection = (handler: (value: PreviewSelection) => void): Promise<UnlistenFn> =>
   listen<unknown>("visual-preview-selection", (event) => { const value = parseSelection(event.payload); if (value) handler(value); });
