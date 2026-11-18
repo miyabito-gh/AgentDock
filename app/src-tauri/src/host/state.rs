@@ -457,9 +457,16 @@ impl HostData {
             usage_changed = true;
         }
         let mut conv_changed = false;
-        if let Some(c) = file.conversation.as_mut().filter(|c| !c.compacted_since_delivery) {
-            c.compacted_since_delivery = true;
-            conv_changed = true;
+        if let Some(c) = file.conversation.as_mut() {
+            if !c.compacted_since_delivery {
+                c.compacted_since_delivery = true;
+                conv_changed = true;
+            }
+            // 受付係は、圧縮を観測したら次の送信で指示・ルール・一覧を全部添え直す（目的メモとは別の印）。
+            if let Some(r) = c.router.as_mut().filter(|r| !r.compacted_since_delivery) {
+                r.compacted_since_delivery = true;
+                conv_changed = true;
+            }
         }
         let ev = if conv_changed {
             // 会話の記録の変化は補足情報の更新で運ぶ（使用率の表示も含まれる）。

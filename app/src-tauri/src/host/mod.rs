@@ -30,6 +30,7 @@ pub mod persist;
 pub mod purpose_draft;
 pub mod queue_driver;
 pub mod read_limit;
+pub mod router;
 pub mod side;
 pub mod state;
 pub mod subagents;
@@ -234,6 +235,8 @@ pub struct Host {
     subagent_rt: subagents::SubagentRuntime,
     /// Visual Editor 直接編集のターン操作の直列化（`visual_direct.rs`）。
     visual_rt: visual::VisualRuntime,
+    /// 受付係のルール帳の直列化・送信の記録・返答の処理の二重防止（`router.rs`）。
+    router_rt: router::RouterRuntime,
 }
 
 /// 最初の依頼の送信が確定（または後続タスクが終了）したら、同じチャットの送信停止を解く。
@@ -283,6 +286,7 @@ impl Host {
             gitprep_rt: gitprep::GitPrepRuntime::default(),
             subagent_rt: subagents::SubagentRuntime::default(),
             visual_rt: visual::VisualRuntime::default(),
+            router_rt: router::RouterRuntime::default(),
         }
     }
 
@@ -422,6 +426,8 @@ impl Host {
         if !matches!(env.event, BackendEvent::ActivityDelta { .. }) { self.subagent_observe(); }
         // 依頼整理: 要約の turn の終端を観測したら、履歴を読んで結果を取り込む（待たない・送らない）。
         self.intake_observe_event(&env.event);
+        // 受付係: 完了した turn の返答を検査してカード・ルール更新にする（待たない・送らない）。
+        self.router_observe_event(&env.event);
         self.refresh_unnamed_chat(&env.event);
         if !matches!(env.event, BackendEvent::Activity { .. } | BackendEvent::ActivityDelta { .. } | BackendEvent::ArtifactObserved { .. }) {
             self.kick_queue();

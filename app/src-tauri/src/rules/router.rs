@@ -126,6 +126,8 @@ impl Default for RulesFile {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct Rule {
     /// "r12" など。アプリが採番。
@@ -139,6 +141,8 @@ pub struct Rule {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum RuleTarget {
     Chat { chat: ChatKey, title_at_save: String },
@@ -146,6 +150,8 @@ pub enum RuleTarget {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum RuleSource {
     Conversation { turn: String, quote: String },
@@ -153,6 +159,8 @@ pub enum RuleSource {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub enum RuleOp {
     Add,
@@ -161,6 +169,8 @@ pub enum RuleOp {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 pub struct RulesChange {
     /// この変更で作った版。
@@ -173,6 +183,7 @@ pub struct RulesChange {
     pub undone: bool,
     /// 取り消しの記録のとき、取り消した変更の版。取り消しの記録は取り消せない。
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
     pub undoes: Option<u32>,
 }
 
@@ -481,6 +492,16 @@ fn dispatch_result_line(d: &Dispatch, label: &dyn Fn(&DispatchTarget) -> String)
         DispatchState::Unconfirmed { .. } => format!("{act} へ送りましたが、受理を確認できていません"),
         DispatchState::Dismissed { .. } => format!("提案（{sug}）は見送られました"),
     }
+}
+
+/// 送った本文（履歴の利用者の発言）が受付係の資料つきなら、資料を除いた利用者の本文を返す。受付係の送信でなければ None。
+pub fn router_turn_user_text(sent: &str) -> Option<&str> {
+    if !sent.starts_with(ENVELOPE_HEAD) {
+        return None;
+    }
+    let i = sent.find(ENVELOPE_END)?;
+    let rest = &sent[i + ENVELOPE_END.len()..];
+    Some(rest.strip_prefix("\n").unwrap_or(rest))
 }
 
 // ───────────────────────────── 出力の形（§5.2） ─────────────────────────────
@@ -914,6 +935,51 @@ fn same_folder(a: &str, b: &str) -> bool {
     key(a) == key(b)
 }
 
+/// ルール本文の検査（空・字数・禁止語）と、件数・合計字数の上限（会話からの変更と手での編集で共通）。
+fn check_text_and_limits(op: RuleOp, existing: Option<&Rule>, text: &str, rules: &RulesFile) -> Result<(), RuleReject> {
+    if text.is_empty() {
+        return Err(RuleReject::EmptyText);
+    }
+    if char_len(text) > RULE_TEXT_MAX_CHARS {
+        return Err(RuleReject::TextTooLong);
+    }
+    if let Some(w) = find_forbidden(text) {
+        return Err(RuleReject::ForbiddenWord(w));
+    }
+    if op == RuleOp::Add && rules.rules.len() >= RULES_MAX {
+        return Err(RuleReject::TooManyRules);
+    }
+    let others = total_chars(&rules.rules) - existing.map_or(0, |r| char_len(&r.text));
+    if others + char_len(text) > RULES_TOTAL_MAX_CHARS {
+        return Err(RuleReject::TotalTooLong);
+    }
+    Ok(())
+}
+
+/// 利用者が手で編集するときの検査。引用・初めてのフォルダの制限は要らない（利用者自身の操作）が、
+/// 本文・件数・字数の上限、禁止語、`ruleId` の存在、新規フォルダが絶対パスであることは会話からの変更と同じに守る。
+/// `target` が `Chat` のとき、そのチャットが使えるかはホストが確かめる。update で `target` が None なら送り先は変えない。
+pub fn check_manual_rule_change(op: RuleOp, rule_id: Option<&str>, text: &str, target: Option<RuleTargetSpec>, rules: &RulesFile) -> Result<ValidRuleChange, RuleReject> {
+    let existing = match op {
+        RuleOp::Add => None,
+        RuleOp::Update | RuleOp::Remove => {
+            let id = rule_id.ok_or(RuleReject::RuleIdMissing)?;
+            Some(rules.rules.iter().find(|r| r.id == id).ok_or_else(|| RuleReject::RuleIdNotFound(id.to_string()))?)
+        }
+    };
+    if op == RuleOp::Remove {
+        return Ok(ValidRuleChange { op, rule_id: rule_id.map(str::to_string), text: String::new(), target: None, quote: String::new() });
+    }
+    let text = text.trim().to_string();
+    check_text_and_limits(op, existing, &text, rules)?;
+    if let Some(RuleTargetSpec::NewIn(folder)) = &target {
+        if normalize_path(folder).is_none() && !is_unc(folder) {
+            return Err(RuleReject::BadTarget);
+        }
+    }
+    Ok(ValidRuleChange { op, rule_id: rule_id.map(str::to_string), text, target, quote: String::new() })
+}
+
 /// ルール変更を検査する（§6.3）。`user_text` はその turn の利用者本文（資料を除く）。
 /// `folders_with_existing_chat` は、新規チャットが既に作られている作業フォルダ（`newFolder` のルールはここにあるフォルダだけ）。
 /// update で `target`・`newFolder` がともに null のときは、送り先を変えない。remove は引用と ruleId だけ検査する。
@@ -931,22 +997,7 @@ pub fn check_rule_change(change: &RawRuleChange, user_text: &str, rules: &RulesF
         return Ok(ValidRuleChange { op: RuleOp::Remove, rule_id: change.rule_id.clone(), text: String::new(), target: None, quote: change.quote.clone() });
     }
 
-    if text.is_empty() {
-        return Err(RuleReject::EmptyText);
-    }
-    if char_len(&text) > RULE_TEXT_MAX_CHARS {
-        return Err(RuleReject::TextTooLong);
-    }
-    if let Some(w) = find_forbidden(&text) {
-        return Err(RuleReject::ForbiddenWord(w));
-    }
-    if change.op == RuleOp::Add && rules.rules.len() >= RULES_MAX {
-        return Err(RuleReject::TooManyRules);
-    }
-    let others = total_chars(&rules.rules) - existing.map_or(0, |r| char_len(&r.text));
-    if others + char_len(&text) > RULES_TOTAL_MAX_CHARS {
-        return Err(RuleReject::TotalTooLong);
-    }
+    check_text_and_limits(change.op, existing, &text, rules)?;
 
     let new_folder = change.new_folder.as_deref().map(str::trim).filter(|f| !f.is_empty());
     let target = match (change.target.as_deref(), new_folder) {
@@ -1296,7 +1347,7 @@ mod tests {
     #[test]
     fn only_unreported_resolved_dispatches_are_reported_oldest_first() {
         let cat = build_catalog(&[chat("a", "A", 5)], &RulesFile::default(), NOW);
-        let mk = |id: &str, target: DispatchTarget, state: DispatchState, reported: bool| Dispatch { id: LocalId(id.into()), source_turn: "t".into(), route_index: 0, target, suggested: DispatchTarget::Existing { chat: ck("a") }, state, reported };
+        let mk = |id: &str, target: DispatchTarget, state: DispatchState, reported: bool| Dispatch { id: LocalId(id.into()), source_turn: "t".into(), route_index: 0, target, suggested: DispatchTarget::Existing { chat: ck("a") }, state, reported, proposal: None };
         let sent = DispatchState::Sent { at: UnixMillis(1), client_message_id: "m".into() };
         let mut rec = delivered(&cat, &RulesFile::default());
         rec.dispatches = vec![

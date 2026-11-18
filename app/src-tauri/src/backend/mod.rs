@@ -31,6 +31,8 @@ pub mod worktree;
 pub mod cloud;
 /// 組織実行の依頼整理（`app/DESIGN_ORG_INTAKE.md` §1）のデータ型とIPC型。
 pub mod intake;
+/// 受付係（`app/DESIGN_ROUTER.md` §9）のIPC型。
+pub mod router;
 /// Gitの準備とアプリからのプッシュ（`app/DESIGN_ORG_INTAKE.md` §2・§3）のIPC型。
 pub mod git_ops;
 

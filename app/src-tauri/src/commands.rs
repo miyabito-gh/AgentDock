@@ -1048,6 +1048,71 @@ pub async fn discard_purpose_draft(host: Hs<'_>, args: ChatArgs) -> R<()> {
     host.inner().clone().discard_purpose_draft(args).await
 }
 
+// ── 受付係（DESIGN_ROUTER §9）。AIは決めるだけ。振り分けの送信は利用者の［送る］だけ ──
+
+/// 受付係を作る（読み取り専用の普通のチャット）。既にあればそれを返す。
+#[tauri::command]
+pub async fn router_create(host: Hs<'_>) -> R<Chat> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().router_create(&confirmed).await
+}
+
+/// 受付係の画面の写し（読取りのみ）。受付係がなければ null。
+#[tauri::command]
+pub async fn router_get(host: Hs<'_>) -> R<Option<crate::backend::router::RouterView>> {
+    host.inner().clone().router_get()
+}
+
+/// 受付係をやめる（印を外すだけ。チャットもルール帳も消さない）。
+#[tauri::command]
+pub async fn router_retire(host: Hs<'_>, args: ChatArgs) -> R<()> {
+    host.inner().clone().router_retire(args.chat).await
+}
+
+/// 受付係への送信（通常の送信の代わり。受付係のチャット以外は拒否）。
+#[tauri::command]
+pub async fn router_send(host: Hs<'_>, args: SendMessageArgs) -> R<SendAttempt> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().router_send(args, &confirmed).await
+}
+
+/// 振り分けカードの［送る］（利用者の送信として1回だけ。自動再送しない）。
+#[tauri::command]
+pub async fn router_dispatch(host: Hs<'_>, args: crate::backend::router::RouterDispatchArgs) -> R<crate::backend::router::DispatchView> {
+    let confirmed = UserConfirmed::from_user_command();
+    host.inner().clone().router_dispatch(args, &confirmed).await
+}
+
+/// 新規チャットの案を、新規チャット作成の経路で作った後に呼ぶ（送り先と結果を記録する）。
+#[tauri::command]
+pub async fn router_dispatch_created(host: Hs<'_>, args: crate::backend::router::RouterDispatchCreatedArgs) -> R<crate::backend::router::DispatchView> {
+    host.inner().clone().router_dispatch_created(args).await
+}
+
+/// ［見送る］。
+#[tauri::command]
+pub async fn router_dismiss(host: Hs<'_>, args: crate::backend::router::RouterDispatchIdArgs) -> R<crate::backend::router::DispatchView> {
+    host.inner().clone().router_dismiss(args).await
+}
+
+/// ルール帳の写し（読取りのみ）。
+#[tauri::command]
+pub async fn router_rules(host: Hs<'_>) -> R<crate::backend::router::RulesView> {
+    host.inner().clone().router_rules()
+}
+
+/// ルールの手での編集（出所は手動）。
+#[tauri::command]
+pub async fn router_rule_edit(host: Hs<'_>, args: crate::backend::router::RuleEditArgs) -> R<crate::backend::router::RulesView> {
+    host.inner().clone().router_rule_edit(args).await
+}
+
+/// ルール変更の取り消し。後の変更があれば `blocked.kind=routerRuleUndoNeedsConfirm`（確認のうえ `force=true` で再実行）。
+#[tauri::command]
+pub async fn router_rule_undo(host: Hs<'_>, args: crate::backend::router::RuleUndoArgs) -> R<crate::backend::router::RulesView> {
+    host.inner().clone().router_rule_undo(args).await
+}
+
 /// side相談を開く（読取り専用の一時の分岐）。ユーザー操作だけが呼ぶ。
 #[tauri::command]
 pub async fn open_side(host: Hs<'_>, args: ChatArgs) -> R<OpenSideResult> {

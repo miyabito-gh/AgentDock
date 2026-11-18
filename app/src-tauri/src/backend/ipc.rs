@@ -224,6 +224,8 @@ pub enum BlockedReason {
     /// 組織実行を始める作業フォルダが、まだGitの準備を終えていない（リポジトリでない・コミットがない・前回の準備が途中）。
     /// UIは「Gitを準備」ダイアログへ誘導できる。
     RepoNotPrepared { repo: super::git_ops::RepoStatusView },
+    /// ルールの取り消しで、その後に同じルールを変えた変更がある。確認のうえ `force=true` で再実行する。
+    RouterRuleUndoNeedsConfirm,
 }
 
 /// 保存先の選択ダイアログ（ファイルの書込みはしない）。
@@ -1323,6 +1325,8 @@ pub enum HostEvent {
     ChatLocalUpdated { local: ChatLocalView },
     /// 組織実行の依頼整理の更新（要約の完了・失敗、状態の変化）。画面は `org_intake_view` で読み直す。
     IntakeUpdated { chat: ChatKey },
+    /// 受付係のカード・ルール・解析結果の更新（`chat` は受付係のチャット）。画面は `router_get`・`router_rules` で読み直す。
+    RouterUpdated { chat: ChatKey },
     /// 文脈の使用率の更新（ルートの値だけ。保存は2秒まとめ）。会話の記録の変化は `ChatLocalUpdated` で運ぶ。
     ContextUsageUpdated { chat: ChatKey, usage: ContextUsageView },
     SaveStatusUpdated { status: SaveStatus },

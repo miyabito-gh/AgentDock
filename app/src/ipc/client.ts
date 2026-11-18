@@ -427,6 +427,31 @@ export const orgIntakeSave = (a: IntakeSaveArgs): Promise<IntakeView> => invokeC
 export const orgIntakeStart = (chat: ChatKey, rev: number, composedRequest: string): Promise<StartOrgResult> => invokeCmd("org_intake_start", { chat, rev, composedRequest });
 export const orgIntakeAbandon = (chat: ChatKey): Promise<IntakeView> => invokeCmd("org_intake_abandon", { chat });
 
+// ── 受付係（DESIGN_ROUTER §9）。AIは決めるだけ。振り分けの送信は利用者の［送る］だけ（自動再送しない） ──
+import type { DispatchView, RouterView, RuleEditArgs, RuleTargetInput, RulesView } from "./types";
+/** 受付係を作る（読み取り専用の普通のチャット）。既にあればそれを返す。 */
+export const routerCreate = (): Promise<Chat> => invokeCmd("router_create", {});
+/** 受付係の画面の写し（読取りだけ）。受付係がなければ null。 */
+export const routerGet = (): Promise<RouterView | null> => invokeCmd("router_get", {});
+/** 受付係をやめる（印を外すだけ。チャットもルール帳も消さない）。 */
+export const routerRetire = (chat: ChatKey): Promise<null> => invokeCmd("router_retire", { chat });
+/** 受付係への送信（通常の sendMessage の代わり。受付係のチャット以外は拒否。intent は newTurn のみ）。 */
+export const routerSend = (chat: ChatKey, text: string, attachments: LocalId[] = []): Promise<SendAttempt> =>
+  invokeCmd("router_send", { chat, text, attachments, intent: "newTurn", steerEntry: null });
+/** カードの［送る］。intent を省くと送り先が実行中なら追加指示、そうでなければ新しいturn。送り先が新規の案には使えない（routerDispatchCreated）。 */
+export const routerDispatch = (dispatchId: LocalId, text: string, targetOverride: ChatKey | null = null, intent: SendIntent | null = null): Promise<DispatchView> =>
+  invokeCmd("router_dispatch", { dispatchId, targetOverride, text, intent });
+/** 新規チャットの案を、既存の新規チャット作成の経路で作った後に呼ぶ。firstSend は startChat の戻り値の firstSend。 */
+export const routerDispatchCreated = (dispatchId: LocalId, chat: ChatKey, firstSend: SendAttempt | null): Promise<DispatchView> =>
+  invokeCmd("router_dispatch_created", { dispatchId, chat, firstSend });
+export const routerDismiss = (dispatchId: LocalId): Promise<DispatchView> => invokeCmd("router_dismiss", { dispatchId });
+export const routerRules = (): Promise<RulesView> => invokeCmd("router_rules", {});
+/** ルールの手での編集（出所は手動）。 */
+export const routerRuleEdit = (a: RuleEditArgs): Promise<RulesView> => invokeCmd("router_rule_edit", a);
+export type { RuleTargetInput };
+/** 変更の取り消し。後の変更があると blocked.kind === "routerRuleUndoNeedsConfirm" で拒否される（確認のうえ force=true で再実行）。 */
+export const routerRuleUndo = (revision: number, force = false): Promise<RulesView> => invokeCmd("router_rule_undo", { revision, force });
+
 // ── Gitの準備・プッシュ（DESIGN_ORG_INTAKE §2・§3）。プレビューは読取りだけ。実行は確認ダイアログの後だけ ──
 export const gitRepoStatus = (folder: string): Promise<RepoStatusView> => invokeCmd("git_repo_status", { folder });
 export const gitDirtySummary = (folder: string): Promise<DirtySummaryView> => invokeCmd("git_dirty_summary", { folder });

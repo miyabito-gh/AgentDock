@@ -176,6 +176,7 @@ export function applyHostEvent(b: Bundle, e: HostEvent): Bundle {
     case "composeUpdated": // 返信・推敲のパネルの合図（ペット窓が compose_view で取り直す。状態は変えない）
     case "purposeDraftUpdated": // 目的メモの更新案の合図（開いている画面が read_purpose_draft で取り直す。状態は変えない）
     case "intakeUpdated": // 依頼整理の更新の合図（画面側が org_intake_view で取り直す。状態は変えない）
+    case "routerUpdated": // 受付係のカード・ルール・解析結果の合図（画面側が router_get・router_rules で取り直す。状態は変えない）
     case "orgTimelineUpdated": // 進行タイムラインの合図（画面側が org_timeline で差分を取り直す。状態は変えない）
     case "orgDeleteProgress": // 削除の進行（画面側Appが表示用に保持する。状態は変えない）
     case "orgUpdated": // 組織実行の状態の合図（画面側が取り直す。P-ORG-7。状態は変えない）

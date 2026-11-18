@@ -172,12 +172,17 @@ pub struct RouterRecord {
     /// 送信ごとの一覧の連番とチャットの対応（新しい順、最大 [`ROUTER_CATALOGS_MAX`] 件）。返答の解析に使う。
     #[serde(default)]
     pub catalogs: Vec<SentCatalog>,
+    /// 受付係の返答の解析結果（新しい順、最大 [`ROUTER_TURNS_MAX`] 件）。再起動後も画面が描き直せるように残す。
+    #[serde(default)]
+    pub turns: Vec<RouterTurnRecord>,
 }
 
 /// 送った一覧の連番とチャットの対応を残す件数の上限。
 pub const ROUTER_CATALOGS_MAX: usize = 20;
 /// 振り分けの記録の上限。
 pub const ROUTER_DISPATCHES_MAX: usize = 200;
+/// 返答の解析結果を残す件数の上限。
+pub const ROUTER_TURNS_MAX: usize = 50;
 
 impl RouterRecord {
     /// 一覧の対応を先頭へ足し、古いものを捨てる（同じ送信IDは置き換える）。
@@ -191,6 +196,38 @@ impl RouterRecord {
         self.dispatches.insert(0, d);
         self.dispatches.truncate(ROUTER_DISPATCHES_MAX);
     }
+    /// 返答の解析結果を先頭へ足し、古いものを捨てる（同じ turn は置き換える）。
+    pub fn push_turn(&mut self, t: RouterTurnRecord) {
+        self.turns.retain(|x| x.turn != t.turn);
+        self.turns.insert(0, t);
+        self.turns.truncate(ROUTER_TURNS_MAX);
+    }
+}
+
+/// 受付係の1つの返答（turn）の解析結果。画面が返答文・ルール更新の行を描くのに使う。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RouterTurnRecord {
+    pub turn: String,
+    /// 解析できた返答文。解析できなければ None（原文は通常の本文として見せる）。
+    pub reply: Option<String>,
+    /// 解析できなかった理由。
+    #[serde(default)]
+    pub parse_error: Option<String>,
+    /// 検査で落とした振り分け案の理由。
+    #[serde(default)]
+    pub route_rejects: Vec<String>,
+    #[serde(default)]
+    pub notices: Vec<RuleNoticeRecord>,
+}
+
+/// 返答の下に出すルール更新の1行。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuleNoticeRecord {
+    /// 書いたときの `rules.json` の版。書かなかった（理由の表示）ときは None。
+    pub revision: Option<u32>,
+    pub text: String,
 }
 
 /// ある送信に添えた一覧の連番（c1, c2…）とチャットの対応。
@@ -217,9 +254,38 @@ pub struct Dispatch {
     /// 次の受付係への送信で「前回の振り分け結果」として伝えたか。
     #[serde(default)]
     pub reported: bool,
+    /// 受付係の案の中身（送る本文・理由・新規チャットの内容）。古い記録にはない。
+    #[serde(default)]
+    pub proposal: Option<DispatchProposal>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct DispatchProposal {
+    pub text: String,
+    pub text_is_original: bool,
+    pub reason: String,
+    /// "high" | "medium" | "low"。
+    pub confidence: String,
+    /// 新規チャットの案（送り先が新規のとき）。
+    pub new_chat: Option<NewChatProposal>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub struct NewChatProposal {
+    pub title: String,
+    pub folder: String,
+    pub purpose: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum DispatchTarget {
     Existing { chat: ChatKey },
@@ -228,6 +294,8 @@ pub enum DispatchTarget {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum DispatchState {
     Proposed,
@@ -612,6 +680,7 @@ mod tests {
             suggested: DispatchTarget::Existing { chat: key() },
             state: DispatchState::Sent { at: UnixMillis(1), client_message_id: "m".into() },
             reported: false,
+            proposal: None,
         };
         let mut r = RouterRecord::default();
         for i in 0..25 {
