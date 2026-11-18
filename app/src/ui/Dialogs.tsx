@@ -36,14 +36,16 @@ import { SubagentRunsBody } from "./SubagentRuns";
 import { IntakeStartBody, OrgIntakeBeginBody } from "./OrgIntake";
 import { GitPrepBody, GitPushBody } from "./GitDialogs";
 import { FolderListEditor } from "./WorkFoldersUi";
+import { RouterRulesBody } from "./RouterParts";
 import { FolderSetBar, type FolderTools } from "./WorkFolderSetsUi";
 import { inspectFolders, splitForNewChat } from "./workFolderSets";
 import { addBlockReason, applyCheck, confirmedStrongPaths, MAX_FOLDERS, projectDefaults, REJECT_TEXT, saveBlockReason, strongText, type FolderItem } from "./workFolders";
 
 export type DialogState =
   | { type: "settings"; tab: string }
-  | { type: "newChat"; dev?: boolean; cwd?: string; cwdChoices?: string[]; /** 「同じ作業フォルダで新規」: 先頭＝プライマリ。開いたとき検査して並べる。 */ initialFolders?: string[]; folderNote?: string; /** 作成に失敗したときの「入力し直す」: 同じ値を入れて開くだけ（送らない）。 */ prefill?: { model: string; first: string; isolate: boolean; worktree: string | null } }
+  | { type: "newChat"; dev?: boolean; cwd?: string; cwdChoices?: string[]; /** 「同じ作業フォルダで新規」: 先頭＝プライマリ。開いたとき検査して並べる。 */ initialFolders?: string[]; folderNote?: string; /** 作成に失敗したときの「入力し直す」: 同じ値を入れて開くだけ（送らない）。 */ prefill?: { model: string; first: string; isolate: boolean; worktree: string | null; /** 目的メモの案（作成後に保存する）。受付係の「始める」から。 */ purpose?: string; /** 受付係の振り分けカードのID。作成できたらカードへ結び付ける。 */ routerDispatch?: string } }
   | { type: "worktrees" }
+  | { type: "routerRules" }
   | { type: "cloud"; chatId: string | null }
   | { type: "orgStart"; /** Gitの準備から戻ったとき、入れていた作業フォルダを引き継ぐ。 */ folder?: string }
   | { type: "subagentRuns" }
@@ -460,9 +462,11 @@ function RenameDialog({ chat, onClose, run }: { chat: Chat | undefined; onClose:
 }
 
 /** isolate は「分離」（worktreeを作成してから開始）。worktree は既存のAgentDock作成worktreeの記録ID（チャットに結び付ける）。 */
-export interface NewChatInput { cwd: string | null; model: string; firstMessage: string | null; isolate: boolean; worktree: string | null; /** 追加の作業フォルダ（プライマリ以外）。 */ extraFolders: string[]; /** 強い確認を済ませたパス（ホストが再検査する）。 */ confirmedStrong: string[] }
+export interface NewChatInput { cwd: string | null; model: string; firstMessage: string | null; isolate: boolean; worktree: string | null; /** 追加の作業フォルダ（プライマリ以外）。 */ extraFolders: string[]; /** 強い確認を済ませたパス（ホストが再検査する）。 */ confirmedStrong: string[]; /** 目的メモの案（作成後に保存。受付係の「始める」から）。 */ purpose?: string | null; /** 受付係の振り分けカードのID（作成後に結び付ける）。 */ routerDispatch?: string | null }
 
-export function Dialogs({ externalTools, modelDefault, cont, org, folderTools, workspaceRoots, d, onClose, chats, source, models, enterMode, setEnterMode, runningInput, setRunningInput, top, setTab, onAct, exe, onCreateChat, notify, autostart, pet, reply, appearance, quit, force, manage, onRename, opCaps, live, changesTick, turnRecords, onRevertDone, prefs, threadOps, worktree, cloudTasks, compose, resend }: {
+export function Dialogs({ externalTools, modelDefault, cont, org, folderTools, workspaceRoots, d, onClose, chats, source, models, enterMode, setEnterMode, runningInput, setRunningInput, top, setTab, onAct, exe, onCreateChat, notify, autostart, pet, reply, appearance, quit, force, manage, onRename, opCaps, live, changesTick, turnRecords, onRevertDone, prefs, threadOps, worktree, cloudTasks, compose, resend, router }: {
+  /** 受付係のルール帳の表示に使う、受付係のチャットと全チャットの補足情報。 */
+  router: { routerKey: ChatKey | null; locals: ChatLocalView[] };
   org: OrgDialogProps;
   /** 設定「モデル」: 新しいチャットの既定（AppSettings.defaultModel）。 */
   externalTools: ExternalToolsProps;
@@ -595,7 +599,7 @@ export function Dialogs({ externalTools, modelDefault, cont, org, folderTools, w
       } catch (e) { setNcErr(e instanceof Error ? e.message : "検査できませんでした"); setCreating(false); return; }
     }
     // 以後は呼び出し側が仮行で示す。作成が終わるまでボタンは押せないまま（完了で閉じる）。
-    try { await onCreateChat({ cwd: dev ? primary : null, model, firstMessage: first.trim() || null, isolate: dev && isolate, worktree: dev && !isolate ? wt : null, extraFolders: dev ? extras.map((e) => e.path) : [], confirmedStrong: dev ? strong : [] }); } finally { setCreating(false); }
+    try { await onCreateChat({ cwd: dev ? primary : null, model, firstMessage: first.trim() || null, isolate: dev && isolate, worktree: dev && !isolate ? wt : null, extraFolders: dev ? extras.map((e) => e.path) : [], confirmedStrong: dev ? strong : [], purpose: pre?.purpose ?? null, routerDispatch: pre?.routerDispatch ?? null }); } finally { setCreating(false); }
   };
   const [resendRunning, setResendRunning] = useState(false);
   void chats;
@@ -671,7 +675,12 @@ export function Dialogs({ externalTools, modelDefault, cont, org, folderTools, w
               if (!((kind === "dev" && !cwd.trim()) || creating)) void createNewChat();
             }} />
             <span className="note">{enterMode === "ctrl" ? "Ctrl＋Enterで作成、Enterで改行" : "EnterまたはCtrl＋Enterで作成、Shift＋Enterで改行"}</span></div>
+          {pre?.purpose ? <div className="field"><span>目的メモ</span><div className="small">{pre.purpose}</div><span className="note">作成できたら、このチャットの目的メモとして保存します。</span></div> : null}
         </div>
+      </Shell>);
+    case "routerRules": return (
+      <Shell title="ルール帳" wide onClose={onClose} close="閉じる">
+        <RouterRulesBody chats={chats} locals={router.locals} routerKey={router.routerKey} live={live} />
       </Shell>);
     case "rename": return <RenameDialog chat={chats.find((x) => x.key.id === d.chatId)} onClose={onClose} run={(n) => onRename(d.chatId, n)} />;
     case "quit": return <QuitDialog q={quit} chats={chats} onClose={onClose} onAct={onAct} />;

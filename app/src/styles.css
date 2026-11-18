@@ -1436,3 +1436,40 @@ html.pet-view,html.pet-view body,html.pet-view #root{background:transparent;over
 .pc-copied{margin-right:auto;font-size:var(--fs-s);font-weight:600;color:var(--done);opacity:0;transition:opacity .15s}
 .pc-copied.on{opacity:1}
 .pet-panel.bare::after{display:none}
+
+/* ==== 受付係（DESIGN_ROUTER §8）。色はトークンだけ。 ==== */
+.router-hint{padding:0 10px 4px}
+.row-chat.router-row.quiet .nm{font-size:var(--fs-s)}
+.rextra{display:flex;flex-direction:column;gap:6px;margin:6px 0 2px;min-width:0}
+.rcard{border:1px solid var(--card-line);border-left:3px solid var(--accent);border-radius:var(--r2);background:var(--surface);padding:8px 10px;display:flex;flex-direction:column;gap:6px;min-width:0;overflow-wrap:anywhere}
+.rcard-h{display:flex;align-items:center;gap:6px;min-width:0}
+.rcard textarea{border:1px solid var(--line-strong);border-radius:var(--r1);background:var(--surface);resize:vertical;min-height:56px;max-height:200px;padding:4px 8px}
+.rcard-acts{display:flex;flex-wrap:wrap;gap:6px}
+.rcard.folded{flex-direction:row;align-items:center;gap:8px;padding:4px 10px;border-left-color:var(--done);font-size:var(--fs-s)}
+.rcard.folded.warn{border-left-color:var(--wait-solid);background:var(--wait-bg);color:var(--wait-ink)}
+.rcard.folded.quiet{border-left-color:var(--idle);color:var(--ink3)}
+.rcard .grow{flex:1;min-width:0}
+.rwarn{color:var(--wait-ink)}
+.rseg{display:inline-flex;align-self:flex-start;border:1px solid var(--line-strong);border-radius:var(--r1);overflow:hidden}
+.rseg button{border:0;background:var(--surface);padding:2px 10px;font-size:var(--fs-s);cursor:pointer}
+.rseg button.on{background:var(--accent-weak);color:var(--accent-text);font-weight:600}
+.rnotice{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.rquiet{color:var(--ink3)}
+.rpicker{display:flex;flex-direction:column;gap:4px;border:1px solid var(--line);border-radius:var(--r1);padding:6px;background:var(--surface2)}
+.rpicker-q{display:flex;gap:6px}
+.rpicker-list{list-style:none;margin:0;padding:0;max-height:200px;overflow:auto}
+.rpicker-list button{display:flex;gap:8px;align-items:baseline;width:100%;text-align:left;border:0;background:transparent;padding:3px 6px;border-radius:var(--r1);cursor:pointer;min-width:0}
+.rpicker-list button:hover{background:var(--hover)}
+.rpicker-list .nm{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rpicker-list .fl{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rpicker-none{padding:4px 6px}
+.rh{margin:12px 0 4px;font-size:var(--fs)}
+.rrules,.rhist{list-style:none;margin:0 0 8px;padding:0}
+.rrules li{border-bottom:1px solid var(--line2);padding:6px 0}
+.rrule{display:flex;gap:6px;align-items:flex-start}
+.rrule .grow{flex:1;min-width:0;overflow-wrap:anywhere}
+.rform{display:flex;flex-direction:column;gap:6px;padding:6px 0}
+.rform>label{display:flex;flex-direction:column;gap:2px}
+.rform textarea{border:1px solid var(--line-strong);border-radius:var(--r1);background:var(--surface);resize:vertical;min-height:48px;padding:4px 8px}
+.rhist li{display:flex;gap:8px;align-items:baseline;padding:2px 0}
+.rhist .grow{flex:1;min-width:0;overflow-wrap:anywhere}

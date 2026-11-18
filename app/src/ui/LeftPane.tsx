@@ -2,7 +2,7 @@ import { multiFolderMark } from "./workFolders";
 import { CreatingRows } from "./CreatingRows";
 import type { CreatingChat } from "./creating";
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
-import type { Chat, ChatListSettings, ChatListView, HostSnapshot, ProjectsOutcome, UiTextSize } from "../ipc/types";
+import type { Chat, ChatListSettings, ChatListView, HostSnapshot, ProjectsOutcome, RouterView, UiTextSize } from "../ipc/types";
 import { Icon } from "./Icon";
 import { tipWithKey } from "./shortcuts";
 import { Popover } from "./Popover";
@@ -40,9 +40,11 @@ interface MenuItem { act: string; label: string; danger?: boolean; sep?: boolean
 /** 開いているメニュー（行の「…」・見出しの「…」で共通）。位置は「…」ボタンに寄せる。 */
 type OpenMenu = { kind: "chat"; id: string } | { kind: "group"; key: string };
 
-export function LeftPane({ org, snap, sel, onSelect, onAct, onAcknowledge, onChatAct, chatList, onChatList, projects = null, onNotice, listStatus, uiSize = "Normal", onNewChatIn, onReclassify, onFetchProjectChats, onLoadMore, creating = [], onCreatingAct }: {
+export function LeftPane({ router, org, snap, sel, onSelect, onAct, onAcknowledge, onChatAct, chatList, onChatList, projects = null, onNotice, listStatus, uiSize = "Normal", onNewChatIn, onReclassify, onFetchProjectChats, onLoadMore, creating = [], onCreatingAct }: {
   /** 組織実行（P-ORG-7b）。ワークフロー1件＝1行。役割チャットは通常の一覧から隠し、ワークフロー画面から辿る。wf が null なら開始の入口だけ（足元）。 */
   org?: { wf: OrgWorkflowView | null; selected: boolean; onOpen: () => void; onStart: () => void; history: OrgWorkflowView[]; deletionOverflow?: number; archived: OrgWorkflowView[]; onUnarchive: (id: string) => void; onArchive: (id: string) => void; onArchiveMany?: (ids: string[]) => Promise<string>; live: boolean; onDelete: (id: string) => void; selectedHistory: string | null; onOpenHistory: (id: string) => void; shown: ReadonlySet<string> | null };
+  /** 受付係（DESIGN_ROUTER §8）。view があれば最上段に固定の「受付」行（通常の一覧には出さない）。無ければ控えめな「受付係を作る」行（実接続のときだけ）。 */
+  router?: { view: RouterView | null; selected: boolean; onOpen: () => void; onCreate: () => void; live: boolean };
   /** 作成中の仮行（先頭。ピンより上）と、その操作。 */
   creating?: CreatingChat[]; onCreatingAct?: (id: string, op: "retry" | "dismiss" | "refresh") => void;
   /** プロジェクト見出しの「このプロジェクトのチャットを取得」。roots を cwd 条件に読む（読み取りのみ）。結果の通知は呼び出し側が出す。 */
@@ -96,7 +98,7 @@ export function LeftPane({ org, snap, sel, onSelect, onAct, onAcknowledge, onCha
     return named && folder && (stateFilter === "all" || (rootView(snap, c)?.status.state ?? "unknown") === stateFilter);
   };
   // アーカイブ表示では従来どおり組織の役割チャットを除く。通常表示では、役割チャット・依頼整理を入れ子へ回す（下）。
-  const filtered = sortChats(snap.chats).filter((c) => !removed(c) && (!showArch || !isOrgOwned(localOf(c), org?.shown ?? null))).filter((c) =>
+  const filtered = sortChats(snap.chats).filter((c) => c.key.id !== router?.view?.chat.id && !removed(c) && (!showArch || !isOrgOwned(localOf(c), org?.shown ?? null))).filter((c) =>
     (showArch ? archived(c) : !archived(c) || (searching && inclArch)) && matchesQ(c));
   // 依頼整理と組織の役割チャットは、ワークフローの下（または「依頼整理（未開始）」）へ畳む。アーカイブ表示では並べたまま。
   const cls = (c: Chat) => (showArch ? { kind: "normal" as const } : classifyLeft(localOf(c), org?.shown ?? null, c.pinned, searching));
@@ -572,6 +574,31 @@ export function LeftPane({ org, snap, sel, onSelect, onAct, onAcknowledge, onCha
         {projectsNote ? <div className={`small${projectsNote.bad ? " lt-fail" : ""}`} role="status">{projectsNote.text}</div> : null}
         {listStatus && !listStatus.ok ? <div className="small lt-fail" role="status">{listStatus.text}</div> : null}
       </div>
+      {router?.view ? (() => {
+        // 受付係の行。実行中・承認待ちなどの状態は通常の行と同じ表示（状態文字・マーク）
+        const rv = router.view;
+        const rc = snap.chats.find((c) => c.key.id === rv.chat.id);
+        const st = rc ? chatStatusText(snap, rc) : null;
+        const fl = rc ? flagsOf(rc) : null;
+        return (
+          <div className={`row-chat router-row${router.selected ? " sel" : ""}`}>
+            <button type="button" className="row-main" aria-current={router.selected} onClick={router.onOpen} title={`依頼の振り分けに使う読み取り専用の会話です${st ? `\n状態: ${st}` : ""}`}>
+              <span className={`st st-mark ${st ? statusClass(st) || "none" : "none"}`} role="img" aria-label={`状態: ${st ?? "未確認"}`} title={st ?? undefined}><i aria-hidden="true" /></span>
+              <span className="nm">受付</span>
+              <span className="marks">
+                {fl?.hasReq ? <span className="mark wait" title="承認・質問待ち">待</span> : null}
+                {rc && isRunning(snap, rc) ? <span className="mark pend" title="作業中">作業中</span> : null}
+              </span>
+            </button>
+          </div>
+        );
+      })() : router?.live ? (
+        <div className="row-chat router-row quiet">
+          <button type="button" className="row-main" onClick={router.onCreate} title="読み取り専用の会話を作り、依頼の振り分けに使います（押すと確認を出します）">
+            <span className="nm muted">受付係を作る</span>
+          </button>
+        </div>
+      ) : null}
       {org?.wf && org.wf.archivedAt === null ? <OrgListRow wf={org.wf} selected={org.selected} onOpen={org.onOpen} onStart={org.onStart} counts={workflowRequestCounts(snap, org.wf)} live={org.live} onArchive={org.onArchive} onDelete={org.onDelete} /> : null}
       {org && org.history.length > 0 ? <OrgHistoryRows history={org.history} deletionOverflow={org.deletionOverflow} selectedId={org.selectedHistory} onOpen={org.onOpenHistory} onDelete={org.onDelete} onArchive={org.onArchive} onArchiveMany={org.onArchiveMany} currentFinished={!!org.wf && org.wf.archivedAt === null && org.wf.finished} searching={q !== ""} live={org.live} /> : null}
       <div className="left-scroll" ref={scrollerRef} onScroll={() => { if (menu) closeMenu(false); if (windowed) measure(); }}>

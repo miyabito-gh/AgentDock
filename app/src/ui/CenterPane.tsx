@@ -48,6 +48,8 @@ import { isOrgInstruction, parseOrgReport } from "./orgChat";
 import { appearsInTurns, firstSendLockReason, type PendingSend } from "./pendingSend";
 import { EnvelopeFold, PreviousThreads, usePrevThreads } from "./PreviousThreads";
 import { splitEnvelope } from "./continuity";
+import { RouterTurnExtras, type RouterCtx } from "./RouterParts";
+import { originalRequest, routerEnvelopeLabel, splitRouterEnvelope, turnViewOf } from "./router";
 import { histView, type HistLoad, type HistView } from "./historyLoad";
 import { PURPOSE_TAG, resendAvailability, type ResendCtx } from "./resend";
 
@@ -55,6 +57,8 @@ const NO_THREADS: ThreadSegmentView[] = [];
 const SCOPE_TEXT = { once: "1回だけ", session: "このセッション中", persistent: "以後ずっと（永続）", unknown: "効力範囲は不明" } as const;
 
 export interface CenterProps {
+  /** 受付係のチャットのとき（DESIGN_ROUTER §8）: 返答の描き方・カード・ヘッダーの「…」・入力欄の案内を切り替える。それ以外は null。 */
+  router?: RouterCtx | null;
   /** 組織実行が所有するチャットのとき、通常の入力欄の代わりに出す割り込み指示の材料（それ以外は null）。 */
   orgInterject?: { workflowId: string; task: OrgTaskView | null; interjects: OrgInterjectView[]; readonly?: boolean; run: (label: string, f: () => Promise<string | void>) => Promise<boolean> } | null;
   /** 左（チャット一覧）・右（ドック）が今見えているか（狭い画面では一時表示の開閉）。ヘッダーの開閉ボタンの見た目に使う。 */
@@ -255,8 +259,8 @@ function freshnessText(root: AgentView | undefined, wasLive: boolean): string {
     : `アプリの再起動後のため、保存履歴から表示しています。送信すると続きから再開します（再開するまでライブ監視はしません）。保存履歴から取得した状態です（${t}）。${STALE_TAIL}`;
 }
 
-function Header({ snap, chat, onAct, commands, local, onCwdToggle, wasLive, externalLabel, cwdInfo, leftShown, rightShown }: {
-  leftShown: boolean; rightShown: boolean;
+function Header({ snap, chat, onAct, commands, local, onCwdToggle, wasLive, externalLabel, cwdInfo, leftShown, rightShown, isRouter }: {
+  leftShown: boolean; rightShown: boolean; isRouter: boolean;
   snap: HostSnapshot; chat: Chat; onAct: (a: string) => void; commands: CommandView[]; local: ChatLocalView | undefined; cwdInfo: PathInfo | undefined;
   onCwdToggle: () => void; wasLive: boolean; externalLabel: string | undefined;
 }) {
@@ -309,7 +313,18 @@ ${cwd}`} onClick={() => onAct("openTerminal")}>ターミナル</button> : null}
       <span className="grow" />
       {/* このチャットの近道。項目・名前・無効理由は上部メニューと同じ台帳（menuModel の HEADER_MORE）から作る */}
       <Popover trigger={<Icon name="more" />} label="このチャットの操作" title={`変更・会話・このチャットの操作と、すべての操作${commands.some((v) => v.mark) ? "\n記録できない変更があります（「変更を確認…」から案内を表示）" : ""}`} role="menu" align="right" triggerClassName="btn subtle icon">
-        {(close) => <MenuList entries={resolveEntries(HEADER_MORE, commands)} onPick={(a) => { close(); onAct(a); }} />}
+        {(close) => (
+          <>
+            {isRouter ? (
+              <>
+                <button type="button" role="menuitem" onClick={() => { close(); onAct("routerRules"); }}>ルール帳…</button>
+                <button type="button" role="menuitem" className="danger" onClick={() => { close(); onAct("routerRetire"); }}>受付係をやめる…</button>
+                <hr />
+              </>
+            ) : null}
+            <MenuList entries={resolveEntries(HEADER_MORE, commands)} onPick={(a) => { close(); onAct(a); }} />
+          </>
+        )}
       </Popover>
       <button className="btn subtle icon panebtn" aria-label="エージェントのドック" aria-pressed={rightShown} title={tipWithKey(`エージェントのドックを${rightShown ? "閉じる" : "開く"}`, "toggleRight")} onClick={() => onAct("toggleRight")}><Icon name="dock" /></button>
     </div>
@@ -592,9 +607,9 @@ function HistoryNotice({ view, onReload }: { view: HistView; onReload: () => voi
   return null;
 }
 
-export function Messages({ mini, orgBound, headKey, threads, chatId, turns, reqs, gaps, running, onRespond, onAct, extra, find, resend, locals, files, sends, agentName, decisions, pending, onPendingRestore, onPendingDismiss }: {
+export function Messages({ router, mini, orgBound, headKey, threads, chatId, turns, reqs, gaps, running, onRespond, onAct, extra, find, resend, locals, files, sends, agentName, decisions, pending, onPendingRestore, onPendingDismiss }: {
   /** 右ペインのミニチャット。分岐・再生成は中央のチャットが対象になるため出さない。 */
-  mini?: boolean; orgBound: boolean; headKey: ChatKey; threads: ThreadSegmentView[]; agentName?: (a: AgentKey) => string; decisions: DecisionItem[];
+  mini?: boolean; router?: RouterCtx | null; orgBound: boolean; headKey: ChatKey; threads: ThreadSegmentView[]; agentName?: (a: AgentKey) => string; decisions: DecisionItem[];
   pending: PendingSend[]; onPendingRestore: (p: PendingSend) => void; onPendingDismiss: (p: PendingSend) => void;
   turns: TurnRecord[]; reqs: PendingRequest[]; /** 回答を届けられなかった要求（理由を常設表示する） */ gaps: PendingRequest[]; running: boolean; onRespond: CenterProps["onRespond"]; onAct: (a: string) => void; extra?: ReactNode; find: FindState; resend: ResendView;
   locals: AttachmentEntry[]; files: FileActions; sends: SentLocal[]; chatId: string;
@@ -681,8 +696,10 @@ export function Messages({ mini, orgBound, headKey, threads, chatId, turns, reqs
               if (e.kind.kind === "userMessage") {
                 // 添付だけの依頼は本文の項目がない。空の吹き出しにせず、中立の表示にする（コピーは本文があるときだけ）。
                 // 資料つきの依頼は、利用者の文だけを吹き出しにし、資料は折りたたみの行へ（コピー・再送の基準も利用者の文）
-                const env = e.text.kind === "value" ? splitEnvelope(e.text.value) : null;
-                const utext = env ? env.userText : text;
+                // 受付係のチャットでは、受付係の資料（終端の前）を畳み、利用者の依頼だけを吹き出しにする
+                const renv = router && e.text.kind === "value" ? splitRouterEnvelope(e.text.value) : null;
+                const env = e.text.kind === "value" && !router ? splitEnvelope(e.text.value) : null;
+                const utext = renv ? renv.userText : env ? env.userText : text;
                 const noBody = e.text.kind !== "value" || !utext.trim();
                 const atts = (e.attachments?.length ? e.attachments : sentMap.get(e.key.itemId)) ?? [];
                 return (
@@ -692,6 +709,7 @@ export function Messages({ mini, orgBound, headKey, threads, chatId, turns, reqs
                       : <>
                     <div className="sr">あなた</div>
                     {env?.envelope ? <EnvelopeFold env={env} /> : null}
+                    {renv?.envelope ? <EnvelopeFold env={{ envelope: renv.envelope, purposeRev: null, handoffRounds: null, truncated: false, userText: renv.userText }} label={routerEnvelopeLabel(renv.envelope)} /> : null}
                     {noBody
                       ? (atts.length && e.text.kind === "value" ? null : <div className="bubble" data-find="body"><span className="muted">{e.text.kind === "value" ? "（本文なし）" : BODY_MISSING}</span></div>)
                       : <UserBubble text={utext} forceOpen={find.open && needsExpand([utext], find.query)} open={openMsgs.includes(e.key.itemId)} onToggle={() => toggleMsg(e.key.itemId)} />}
@@ -699,18 +717,23 @@ export function Messages({ mini, orgBound, headKey, threads, chatId, turns, reqs
                     {atts.length ? <MsgChips atts={atts} locals={locals} files={files} /> : null}
                     <div className="acts">
                       {noBody ? null : <CopyAct text={utext} />}
-                      {mine && !mini ? <button aria-disabled={blocked("editResend", e.key.itemId) || undefined} onClick={() => onAct(`resend:editResend|${t.key.turnId}|${e.key.itemId}`)}><Icon name="branch" />編集して分岐…</button> : null}
+                      {mine && !mini && !router ? <button aria-disabled={blocked("editResend", e.key.itemId) || undefined} onClick={() => onAct(`resend:editResend|${t.key.turnId}|${e.key.itemId}`)}><Icon name="branch" />編集して分岐…</button> : null}
                     </div>
                   </div>);
               }
+              // 受付係の返答: 解析できた返答文を本文にし、下に振り分けカードなどを出す。解析できなければ原文を通常の本文として出す
+              const rtv = router && e === lastAi ? turnViewOf(router.view, t.key.turnId) : null;
+              const rText = rtv?.reply != null ? rtv.reply : text;
+              const routerThinking = !!router && e === lastAi && t.end === null && !rtv;
               return (
                 <Fragment key={e.key.itemId}>
                 {lead}
                 <div className="msg ai">
                   <div className="who">Codex</div>
-                  <div className="bubble" data-find="body">{e.text.kind !== "value" && !(t.end === null && e === lastAi) ? <span className="muted">{BODY_MISSING}</span> : (() => { const rep = orgBound && !(t.end === null && e === lastAi) ? parseOrgReport(text) : null; return rep ? <OrgReportView report={rep} raw={text} /> : <Markdown text={text} streaming={t.end === null && e === lastAi} />; })()}</div>
-                  <div className="acts">{e.text.kind === "value" ? <CopyAct text={text} /> : null}{mini ? null : <button onClick={() => onAct(`fork:${t.key.turnId}`)}><Icon name="branch" />ここから分岐</button>}
-                    {mine && !mini && e === lastAi ? <button aria-disabled={blocked("regenerate", null) || undefined} onClick={() => onAct(`resend:regenerate|${t.key.turnId}|`)}><Icon name="refresh" />もう一度…</button> : null}</div>
+                  <div className="bubble" data-find="body">{routerThinking ? <span className="muted">振り分けを考えています…</span> : e.text.kind !== "value" && !(t.end === null && e === lastAi) ? <span className="muted">{BODY_MISSING}</span> : (() => { const rep = orgBound && !(t.end === null && e === lastAi) ? parseOrgReport(text) : null; return rep ? <OrgReportView report={rep} raw={text} /> : <Markdown text={rText} streaming={t.end === null && e === lastAi} />; })()}</div>
+                  {router && rtv ? <RouterTurnExtras tv={rtv} original={originalRequest(t.entries)} ctx={router} /> : null}
+                  <div className="acts">{e.text.kind === "value" ? <CopyAct text={rText} /> : null}{mini || router ? null : <button onClick={() => onAct(`fork:${t.key.turnId}`)}><Icon name="branch" />ここから分岐</button>}
+                    {mine && !mini && !router && e === lastAi ? <button aria-disabled={blocked("regenerate", null) || undefined} onClick={() => onAct(`resend:regenerate|${t.key.turnId}|`)}><Icon name="refresh" />もう一度…</button> : null}</div>
                 </div>
                 </Fragment>
               );
@@ -995,7 +1018,7 @@ function Composer({ p, running, lock, hu }: { p: CenterProps; running: boolean; 
   const empty = !p.draft.trim() && attachments.length === 0;
   const steerWhy = lock ? "いまは送信できません" : attachBlock ? "添付に問題があります" : empty ? "送る内容がありません" : steerBlockReason(running, changed, p.local);
   // 「引き継いで送信」は送信ボタンの▾メニューから選ぶ（作業中は出さない）。選べないときは理由を出す。
-  const handoffMenu = !running && p.snap.settings.continuation.enabled && hu.ineligible === null && !!p.onHandoffSend && !!p.loadHandoffPreview;
+  const handoffMenu = !running && !p.router && p.snap.settings.continuation.enabled && hu.ineligible === null && !!p.onHandoffSend && !!p.loadHandoffPreview;
   const handoffWhy = !handoffMenu || hu.armed ? null
     : hu.mode === null ? "選ぶと引き継ぎ資料の確認を始めます。確認できたら、もう一度選んでください。"
     : hu.preview.kind === "loading" ? "資料を確認しています…"
@@ -1243,6 +1266,7 @@ function Composer({ p, running, lock, hu }: { p: CenterProps; running: boolean; 
         </div>
       </div>
       <PurposeLine local={p.local} enabled={p.snap.settings.continuation.enabled} onEdit={() => p.onAct("purpose")} />
+      {p.router ? <div className="small muted router-hint">依頼を書くと、送り先を提案します</div> : null}
     </div>
   );
 }
@@ -1306,11 +1330,12 @@ export function CenterPane(p: CenterProps) {
   const hu = useHandoff({ chat, local: p.local, settings: snap.settings.continuation, running, worktree: inWorktree, load: p.loadHandoffPreview });
   return (
     <>
-      <Header snap={snap} chat={chat} onAct={p.onAct} commands={p.commands} local={p.local} onCwdToggle={() => setCwdOpenFor((id) => (id === chat.key.id ? null : chat.key.id))} wasLive={p.wasLive} externalLabel={p.externalLabel} cwdInfo={p.cwdInfo} leftShown={p.leftShown} rightShown={p.rightShown} />
+      <Header isRouter={!!p.router} snap={snap} chat={chat} onAct={p.onAct} commands={p.commands} local={p.local} onCwdToggle={() => setCwdOpenFor((id) => (id === chat.key.id ? null : chat.key.id))} wasLive={p.wasLive} externalLabel={p.externalLabel} cwdInfo={p.cwdInfo} leftShown={p.leftShown} rightShown={p.rightShown} />
       {cwdOpen ? <WorkFoldersPanel key={`wf-${chat.key.id}`} api={p.wf} lockReason={cwdLock} permissionText={PERMISSION_FULL[p.local?.permission ?? "workspaceWriteOnRequest"]} fallback={p.local?.nextFolders?.folders ?? [p.local?.nextCwd ?? knownValue(chat.cwd) ?? ""].filter(Boolean)} onClose={() => setCwdOpenFor(null)} /> : null}
       <Banners p={p} />
+      {p.router?.view.rulesWarning ? <div className="cbanner warn" role="status">ルール帳の警告: {p.router.view.rulesWarning}</div> : null}
       <HistoryNotice view={histView(p.history, p.turns.length > 0)} onReload={p.onReloadHistory} />
-      <Messages key={chat.key.id} orgBound={!!p.local?.org} headKey={chat.key} threads={p.local?.conversation?.threads ?? NO_THREADS} chatId={chat.key.id} agentName={nameOf} decisions={p.decisions} turns={p.turns} reqs={reqs} gaps={chatGapRequests(snap, chat.key)} running={running} onRespond={p.onRespond} onAct={p.onAct} find={find}
+      <Messages key={chat.key.id} router={p.router} orgBound={!!p.local?.org} headKey={chat.key} threads={p.local?.conversation?.threads ?? NO_THREADS} chatId={chat.key.id} agentName={nameOf} decisions={p.decisions} turns={p.turns} reqs={reqs} gaps={chatGapRequests(snap, chat.key)} running={running} onRespond={p.onRespond} onAct={p.onAct} find={find}
         locals={snap.attachments.filter((a) => keyStr(a.chat) === keyStr(chat.key))} files={p.files} sends={p.sends}
         pending={p.pending} onPendingRestore={p.onPendingRestore} onPendingDismiss={p.onPendingDismiss}
         resend={{ ctx: resendCtxOf(snap, chat, snap.sources.some((x) => x.connection.kind === "connected"), p.turns), rootAgentId: rootView(snap, chat)?.agent.key.id }}

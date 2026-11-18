@@ -45,13 +45,13 @@ function CopyBtn({ text }: { text: string }) {
 }
 
 /** 資料つきの依頼の上の折りたたみ行。開くと資料を等幅で出す（Markdown 整形しない）。資料は開いた枠のコピーで別にコピーする。 */
-export function EnvelopeFold({ env }: { env: SplitEnvelope }) {
+export function EnvelopeFold({ env, label }: { env: SplitEnvelope; /** 折りたたみ行の文字（既定は継続チャットの資料の文）。 */ label?: string }) {
   const [open, setOpen] = useState(false);
   const id = useId();
   if (!env.envelope) return null;
   return (
     <div className="envfold">
-      <button type="button" className="foldmsg" aria-expanded={open} aria-controls={id} onClick={() => setOpen((v) => !v)}>{envelopeLabel(env)} {open ? "‹" : "›"}</button>
+      <button type="button" className="foldmsg" aria-expanded={open} aria-controls={id} onClick={() => setOpen((v) => !v)}>{label ?? envelopeLabel(env)} {open ? "‹" : "›"}</button>
       {open ? (
         <div id={id} className="envbody">
           <pre className="mono" data-find="body">{env.envelope}</pre>

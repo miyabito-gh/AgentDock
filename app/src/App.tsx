@@ -7,6 +7,8 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { readText } from "@tauri-apps/plugin-clipboard-manager";
 import type { RepoRecordChoice, AgentKey, AppSettings, AttachmentEntry, Chat, ChatKey, Goal, GoalUpdate, Known, WorkMode, WorkModeInfo, WorkFoldersView, DeleteOutcome, DeletePreview, UsageReport, ForceKillPreview, HostEvent, HostEventEnvelope, HostSnapshot, ModelInfo, PathInfo, ProjectsOutcome, MonitorScope, PendingRequest, PermissionPreset, QuitDecision, QuitPhase, RequestAnswer, SendAttempt, SettingsImpact, SkillInfo, SourceInfo, OrgSnapshotView, IntakeBeginMode } from "./ipc/types";
+import type { DispatchView, RouterView } from "./ipc/types";
+import type { RouterCtx } from "./ui/RouterParts";
 import type { PlanView } from "./ui/PrefsDialogs";
 import * as host from "./ipc/client";
 import { LinkContext, RefContext, type PathAction, type RefActions } from "./ui/Markdown";
@@ -489,6 +491,21 @@ export default function App() {
   const src: SourceInfo | undefined = snap.sources[0] ?? (live && connectError ? failedSource(connectError) : undefined);
   const chat = snap.chats.find((c) => c.key.id === selId) ?? null;
   const connected = src?.connection.kind === "connected";
+  // 受付係（DESIGN_ROUTER §8）。ホストが持つ RouterView の写し。routerUpdated の合図と、作成・やめる・カード操作のあとに取り直す（読み取りのみ）。
+  const [routerView, setRouterView] = useState<RouterView | null>(null);
+  const routerKeyId = routerView?.chat.id ?? null;
+  const routerKeyRef = useRef<string | null>(null);
+  routerKeyRef.current = routerKeyId;
+  const refreshRouter = useCallback(async () => {
+    if (!live) return;
+    try { setRouterView(await host.routerGet()); } catch { /* 取れなかったときは前の表示のまま（無いことにはしない） */ }
+  }, [live]);
+  useEffect(() => {
+    if (!live) { setRouterView(null); return; }
+    if (connected) void refreshRouter();
+    const un = host.subscribeHostEvents((e) => { if (e.event.kind === "routerUpdated") void refreshRouter(); });
+    return () => { void un.then((f) => f()); };
+  }, [live, connected, refreshRouter]);
   /** 主要ボタン・メニュー「作業」・Ctrl+K が共有する操作の可否（台帳から導く）。 */
   // 選択中チャットの作業フォルダがGitリポジトリか（`git_info` の読取りだけ。チャット選択時と作業フォルダ変更時に1回）。確認できていないときは無効にしない。
   const gitCwd = chat?.cwd.kind === "value" ? chat.cwd.value : null;
@@ -758,7 +775,9 @@ export default function App() {
   /** 送信（対象チャットを引数で受ける。中央の入力欄とドックの指示欄が同じ判定を通る）。 */
   const sendTo = async (chat: Chat, text: string, steer: boolean, attachments: string[], onAccepted?: () => void, onRejected?: () => void): Promise<boolean> => {
     if (!live) { void loadMock().then((m) => m.client.sendMessage(chat.key, text, steer ? "steer" : "newTurn")); say("送信を依頼しました（モック）。"); return true; }
+    const viaRouter = chat.key.id === routerKeyRef.current;
     const running = isRunning(snap, chat);
+    if (viaRouter && running) { say("受付係が返答中です。終わってから送ってください。"); return false; }
     if (running && !steer) {
       // 完了後に送る依頼として登録する（送信はホストが条件を判断して1件ずつ行う）。
       // 登録できたら、本文に埋め込んだ終了メモなどは送った扱いにする（登録に失敗したときは外さない）。
@@ -779,7 +798,7 @@ export default function App() {
     setPendingSends((m) => ({ ...m, [chatId]: [...(m[chatId] ?? []), { id: pid, text, startedAt: Date.now(), steer: running, phase: null, outcome: null }] }));
     void (async () => {
       try {
-        const a = await host.sendMessage(chat.key, text, running ? "steer" : "newTurn", attachments);
+        const a = viaRouter ? await host.routerSend(chat.key, text, attachments) : await host.sendMessage(chat.key, text, running ? "steer" : "newTurn", attachments);
         noteAttempt(chatId, a);
         const o = outcomeOfAttempt(a);
         if (o) setOutcome(o);
@@ -1121,6 +1140,9 @@ ${cur}` : p.text);
       const r = await host.startChat(cwd, i.model ? { model: i.model, effort: m?.defaultEffort ?? null } : null, i.firstMessage, null, worktree, i.extraFolders, i.confirmedStrong);
       setCreating((l) => removeCreating(l, tempId));
       setSelId(r.chat.key.id);
+      // 受付係の「始める」: 目的メモの案を保存し、振り分けカードへ結び付ける（どちらも作成できたあとの1回。失敗は通知だけで再送しない）
+      if (i.purpose?.trim()) void host.setPurposeNote(r.chat.key, i.purpose, null).catch((e) => sayErr("目的メモを保存できませんでした", e));
+      if (i.routerDispatch) void host.routerDispatchCreated(i.routerDispatch, r.chat.key, r.firstSend ?? null).then(() => refreshRouter(), (e) => sayErr("振り分けカードを更新できませんでした", e));
       // 作成に成功したときだけ、モデルを次のクイック新規へ引き継ぐ（作業フォルダ・権限は持ち越さない）。
       if (i.model) void updateSettings((s) => ({ ...s, lastNewChat: { model: { model: i.model, effort: m?.defaultEffort ?? null } } }), "前回のモデルを保存できませんでした");
       // 戻り値は送信中（Sending）。確定が先に届いていれば mergeAttempt が確定を残す。
@@ -1169,7 +1191,7 @@ ${cur}` : p.text);
     setCreating((l) => removeCreating(l, id));
     if (op === "retry") {
       const i = c.input;
-      setDialog({ type: "newChat", dev: i.cwd !== null, cwd: i.cwd ?? undefined, initialFolders: i.cwd ? [i.cwd, ...i.extraFolders] : undefined, prefill: { model: i.model, first: i.firstMessage ?? "", isolate: i.isolate, worktree: i.worktree } });
+      setDialog({ type: "newChat", dev: i.cwd !== null, cwd: i.cwd ?? undefined, initialFolders: i.cwd ? [i.cwd, ...i.extraFolders] : undefined, prefill: { model: i.model, first: i.firstMessage ?? "", isolate: i.isolate, worktree: i.worktree, purpose: i.purpose ?? undefined, routerDispatch: i.routerDispatch ?? undefined } });
     }
   };
 
@@ -1722,6 +1744,33 @@ ${cur}` : p.text);
     setDialog({ type: "newChat", dev: true, cwd: init.folders[0], initialFolders: init.folders, folderNote: init.extrasUnconfirmed ? SAME_FOLDER_UNCONFIRMED_NOTE : undefined });
   };
 
+  /** 受付係を作る（確認のあと1回。作ったら開く）。 */
+  const createRouter = async () => {
+    if (!live) return;
+    if (!(await askConfirm({ title: "受付係を作りますか", body: "読み取り専用の会話を作り、依頼の振り分けに使います", okLabel: "作る", cancelLabel: "やめる" }))) return;
+    try {
+      const c = await host.routerCreate();
+      await refreshRouter();
+      selectChat(c.key.id);
+      say("受付係を作りました。");
+    } catch (e) { sayErr("受付係を作れませんでした", e); }
+  };
+  /** 受付係をやめる（確認のあと1回）。ルール帳は残す。会話の記録は消さない。 */
+  const retireRouter = async () => {
+    const key = routerView?.chat;
+    if (!key) return;
+    if (!(await askConfirm({ title: "受付係をやめますか", body: "この会話は、受付係としては使わなくなります（会話の記録は消えません）。\nルール帳は残ります。あとから受付係を作り直すと、同じルールを使えます。", okLabel: "やめる", cancelLabel: "戻る", danger: true }))) return;
+    try { await host.routerRetire(key); await refreshRouter(); say("受付係をやめました。ルール帳は残しています。"); } catch (e) { sayErr("受付係をやめられませんでした", e); }
+  };
+  /** 振り分けカードの［始める］: 新規チャット作成のダイアログを、案の値を入れて開く（作成と最初の送信はそこで押したときだけ）。 */
+  const startRouterNew = (d: DispatchView, text: string) => {
+    const n = d.proposal?.newChat;
+    const folder = n?.folder?.trim() ?? "";
+    const model = pickQuickModel(models, snap.settings.lastNewChat, snap.settings.defaultModel);
+    setDialog({ type: "newChat", dev: !!folder, cwd: folder || undefined, prefill: { model, first: text, isolate: false, worktree: null, purpose: n?.purpose?.trim() || undefined, routerDispatch: d.id } });
+  };
+  const routerCtx: RouterCtx | null = routerView && live ? { view: routerView, chats: snap.chats, locals: snap.chatLocals, refresh: () => void refreshRouter(), startNew: startRouterNew, openChat: (k) => selectChat(k.id) } : null;
+
   const act = (a: string) => {
     if (a.startsWith("unv:")) { setDialog({ type: "unv", why: a.slice(4) }); return; }
     if (a.startsWith("resend:")) {
@@ -1756,6 +1805,8 @@ ${cur}` : p.text);
         setQuick((q) => ({ ...q, open: true }));
         window.requestAnimationFrame(() => quickRef.current?.focus());
         break;
+      case "routerRules": setDialog({ type: "routerRules" }); break;
+      case "routerRetire": void retireRouter(); break;
       case "newChat": setDialog({ type: "newChat" }); break;
       case "newChatWorktree": setDialog({ type: "newChat", dev: true }); break;
       case "newChatSameFolder": void sameFolderNew(chat?.key.id); break;
@@ -1944,7 +1995,7 @@ ${cur}` : p.text);
           style={{ ...(!leftTemp && leftOpen ? { "--lw": `${paneW.left}px` } : {}), ...(visualShown ? { "--rw": visualChatOff ? "calc(100% - var(--lw, 0px))" : visualNarrow ? "0px" : `${visualPx}px` } : !rightTemp && rightOpen ? { "--rw": `${paneW.dock}px` } : {}) } as CSSProperties}
         >
           <aside className="left" id="pane-left" aria-label="チャット一覧">
-            <LeftPane org={{ wf: org?.workflow ?? null, selected: orgScreen && !orgHist, onOpen: () => { setOrgSel(null); setOrgScreen(true); setLNarrow(false); setQuick((q) => (q.open ? { ...q, open: false } : q)); }, onStart: () => act("orgStart"), history: org?.history ?? [], deletionOverflow: org?.deletionOverflow ?? 0, archived: org?.archived ?? [], onUnarchive: (id) => void orgRun("アーカイブの解除", async () => { await host.orgUnarchiveWorkflow(id); return "アーカイブを解除しました。"; }), onArchive: (id) => void orgRun("アーカイブ", async () => { await host.orgArchiveWorkflow(id); return "ワークフローをアーカイブしました（アーカイブ一覧から戻せます）。"; }), onArchiveMany: async (ids) => {
+            <LeftPane router={{ view: routerView, selected: !orgScreen && !quick.open && !!chat && chat.key.id === routerKeyId, onOpen: () => { if (routerKeyId) { selectChat(routerKeyId); setLNarrow(false); } }, onCreate: () => void createRouter(), live }} org={{ wf: org?.workflow ?? null, selected: orgScreen && !orgHist, onOpen: () => { setOrgSel(null); setOrgScreen(true); setLNarrow(false); setQuick((q) => (q.open ? { ...q, open: false } : q)); }, onStart: () => act("orgStart"), history: org?.history ?? [], deletionOverflow: org?.deletionOverflow ?? 0, archived: org?.archived ?? [], onUnarchive: (id) => void orgRun("アーカイブの解除", async () => { await host.orgUnarchiveWorkflow(id); return "アーカイブを解除しました。"; }), onArchive: (id) => void orgRun("アーカイブ", async () => { await host.orgArchiveWorkflow(id); return "ワークフローをアーカイブしました（アーカイブ一覧から戻せます）。"; }), onArchiveMany: async (ids) => {
               const rs: ArchiveResult[] = [];
               for (const id of ids) {
                 try { await host.orgArchiveWorkflow(id); rs.push({ id, ok: true }); } catch (e) { rs.push({ id, ok: false, reason: host.asIpcError(e).message }); }
@@ -1977,6 +2028,7 @@ ${cur}` : p.text);
                 onSend={quickSend} onDetail={() => { setDialog({ type: "newChat", prefill: { model: quick.model ?? pickQuickModel(models, snap.settings.lastNewChat, snap.settings.defaultModel), first: quick.text, isolate: false, worktree: null } }); setQuick({ open: false, text: "", model: null }); }} />
             ) : chat ? (
               <CenterPane
+                router={routerCtx && chat.key.id === routerCtx.view.chat.id ? routerCtx : null}
                 snap={snap} chat={chat} turns={bundle.turns[chat.key.id] ?? []} history={histLoads[chat.key.id]} onReloadHistory={() => void loadChat(chat.key.id)}
                 attachments={draftAttachments} files={files} inputRef={composerRef}
                 visualChip={visualShown ? visualChip : null}
@@ -2026,7 +2078,7 @@ ${cur}` : p.text);
       {mini && !live ? <MiniWindow {...dockProps} top={miniTop} /> : null}
       {palette && !dialog ? <CommandPalette views={cmdViews} onRun={act} onClose={() => setPalette(false)} /> : null}
       {dialog ? (
-        <Dialogs d={dialog} modelDefault={{ saved: snap.settings.defaultModel?.model ?? null, set: (id) => updateSettings((s) => ({ ...s, defaultModel: id ? { model: id, effort: models.find((m) => m.id === id)?.defaultEffort ?? null } : null }), "新しいチャットの既定のモデルを保存できませんでした") }} cont={{
+        <Dialogs d={dialog} router={{ routerKey: routerView?.chat ?? null, locals: snap.chatLocals }} modelDefault={{ saved: snap.settings.defaultModel?.model ?? null, set: (id) => updateSettings((s) => ({ ...s, defaultModel: id ? { model: id, effort: models.find((m) => m.id === id)?.defaultEffort ?? null } : null }), "新しいチャットの既定のモデルを保存できませんでした") }} cont={{
           value: snap.settings.continuation, locals: snap.chatLocals, savePurpose, loadPreview: (id) => loadHandoffPreview({ backend: "codex", id }),
           setValue: (c) => updateSettings((s) => ({ ...s, continuation: c }), "継続チャットの設定を保存できませんでした。次回の起動では保存されている値に戻ります"),
         }} org={{
