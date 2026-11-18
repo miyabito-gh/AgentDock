@@ -92,14 +92,17 @@ impl Drop for ProcessingGuard<'_> {
 
 /// 送信が受理されたとき、資料に含めた節を「届いた記録」へ反映する（§5.3）。受理以外（受理不明・拒否・未確定）は何も変えない。
 /// 反映したときだけ true。
-pub(super) fn apply_delivery(rec: &mut RouterRecord, inc: &EnvelopeSections, state: &SendState) -> bool {
+pub(super) fn apply_delivery(rec: &mut RouterRecord, inc: &EnvelopeSections, composed_epoch: u32, state: &SendState) -> bool {
     if !matches!(state, SendState::Accepted { .. }) {
         return false;
     }
     if let Some(rev) = inc.instructions {
         rec.instructions_delivered_rev = Some(rev);
         // 圧縮を観測したあとは指示・ルール・一覧を全部添え直すので、この送信で印を外す。
-        rec.compacted_since_delivery = false;
+        // ただし資料を組み立てた後に新しい圧縮を観測していたら、その分は届いていないので印を残す。
+        if rec.compaction_epoch == composed_epoch {
+            rec.compacted_since_delivery = false;
+        }
     }
     if let Some(rev) = inc.rules {
         rec.rules_delivered_rev = Some(rev);
@@ -551,7 +554,7 @@ impl Host {
         let Some(rec) = self.router_record(&chat) else {
             return Err(err(IpcErrorCode::InvalidArgs, "このチャットは受付係ではありません。通常の送信を使ってください"));
         };
-        if self.route_state(&chat) != ChatRouteState::Router {
+        if self.router_head().as_ref() != Some(&chat) {
             return Err(err(IpcErrorCode::InvalidArgs, "このチャットは今の受付係ではありません（アーカイブまたは引き継ぎ済みです）"));
         }
         if !matches!(args.intent, SendIntent::NewTurn) {
@@ -593,7 +596,7 @@ impl Host {
             .await;
         match sent {
             Ok(attempt) => {
-                self.router_note_send(&chat, &cm, &env.included, &attempt);
+                self.router_note_send(&chat, &cm, &env.included, rec.compaction_epoch, &attempt);
                 Ok(attempt)
             }
             Err(e) => {
@@ -616,7 +619,7 @@ impl Host {
     }
 
     /// 送信の結果を反映する。受理を確認したときだけ、届いた記録と turn の対応づけを書く。
-    pub(super) fn router_note_send(self: &Arc<Self>, chat: &ChatKey, cm: &str, inc: &EnvelopeSections, attempt: &SendAttempt) {
+    pub(super) fn router_note_send(self: &Arc<Self>, chat: &ChatKey, cm: &str, inc: &EnvelopeSections, composed_epoch: u32, attempt: &SendAttempt) {
         match &attempt.state {
             SendState::Accepted { turn } => {
                 if let Some(p) = self.router_rt.pending.lock().unwrap().iter_mut().find(|p| p.client_message_id == cm) {
@@ -624,7 +627,7 @@ impl Host {
                 }
                 let state = attempt.state.clone();
                 self.update_router(chat, |r| {
-                    apply_delivery(r, inc, &state);
+                    apply_delivery(r, inc, composed_epoch, &state);
                 });
                 self.emit_router(chat);
             }
@@ -1081,16 +1084,16 @@ mod tests {
         };
         for not_accepted in [SendState::Sending, SendState::AcceptanceUnknown { since: UnixMillis(1) }, SendState::Rejected { message: "x".into() }, SendState::NotFoundAfterReconcile] {
             let mut r = base();
-            assert!(!apply_delivery(&mut r, &inc, &not_accepted), "{not_accepted:?}");
+            assert!(!apply_delivery(&mut r, &inc, 0, &not_accepted), "{not_accepted:?}");
             assert_eq!(r, base(), "受理を確認できない送信は記録を変えない: {not_accepted:?}");
         }
         let mut r = base();
-        assert!(apply_delivery(&mut r, &inc, &accepted()));
+        assert!(apply_delivery(&mut r, &inc, 0, &accepted()));
         assert_eq!((r.instructions_delivered_rev, r.rules_delivered_rev, r.catalog_delivered_digest.as_deref(), r.compacted_since_delivery), (Some(1), Some(3), Some("dg"), false));
         assert!(r.dispatches[0].reported && !r.dispatches[1].reported, "資料に含めた結果だけ報告済みにする");
         // 資料に含めなかった節は触らない
         let mut r = RouterRecord { rules_delivered_rev: Some(2), ..Default::default() };
-        apply_delivery(&mut r, &EnvelopeSections { catalog_digest: Some("x".into()), ..Default::default() }, &accepted());
+        apply_delivery(&mut r, &EnvelopeSections { catalog_digest: Some("x".into()), ..Default::default() }, 0, &accepted());
         assert_eq!((r.instructions_delivered_rev, r.rules_delivered_rev), (None, Some(2)));
     }
 
@@ -1324,6 +1327,37 @@ mod tests {
         let v = host.router_rule_undo(RuleUndoArgs { revision: 1, force: false }).await.unwrap();
         assert!(v.rules.is_empty());
         assert!(v.history.iter().filter(|h| h.change.undoes.is_some()).count() == 2, "取り消しも履歴に残る");
+    }
+
+    #[test]
+    fn a_compaction_observed_after_composing_is_not_cleared_by_the_acceptance() {
+        let inc = EnvelopeSections { instructions: Some(1), ..Default::default() };
+        let mut r = RouterRecord { compacted_since_delivery: true, compaction_epoch: 3, ..Default::default() };
+        // 組み立て時の世代3で受理 → 印を外す
+        apply_delivery(&mut r, &inc, 3, &accepted());
+        assert!(!r.compacted_since_delivery);
+        // 組み立て後（世代3）に圧縮を観測（世代4）してから受理 → 印を残す
+        let mut r = RouterRecord { compacted_since_delivery: true, compaction_epoch: 4, ..Default::default() };
+        apply_delivery(&mut r, &inc, 3, &accepted());
+        assert!(r.compacted_since_delivery);
+        assert_eq!(r.instructions_delivered_rev, Some(1));
+    }
+
+    #[tokio::test]
+    async fn router_send_refuses_an_archived_or_superseded_router() {
+        let (host, r, a) = host_with_router("stale");
+        let confirmed = UserConfirmed::from_user_command();
+        let send = |host: Arc<Host>, r: ChatKey| async move { host.router_send(SendMessageArgs { chat: r, text: "依頼".into(), attachments: vec![], intent: SendIntent::NewTurn, steer_entry: None }, &UserConfirmed::from_user_command()).await.unwrap_err() };
+        let _ = &confirmed;
+        host.update_local(&r, false, std::time::Duration::ZERO, |f| f.visibility = ListVisibility::Archived { at: UnixMillis(1), sync: crate::backend::local::ArchiveSync::Unsupported });
+        let e = send(host.clone(), r.clone()).await;
+        assert!(e.code == IpcErrorCode::InvalidArgs && e.message.contains("アーカイブまたは引き継ぎ済み"), "{}", e.message);
+        host.update_local(&r, false, std::time::Duration::ZERO, |f| {
+            f.visibility = ListVisibility::Visible;
+            f.superseded_by = Some(crate::store::records::Superseded { by: a, at: UnixMillis(1) });
+        });
+        let e = send(host.clone(), r).await;
+        assert!(e.message.contains("アーカイブまたは引き継ぎ済み"), "{}", e.message);
     }
 
     #[tokio::test]

@@ -568,6 +568,7 @@ mod tests {
             rules_delivered_rev: Some(4),
             catalog_delivered_digest: Some("abc".into()),
             compacted_since_delivery: true,
+            compaction_epoch: 2,
             dispatches: vec![d],
             catalogs: vec![SentCatalog { client_message_id: "m1".into(), entries: vec![("c1".into(), key("x"))], at: UnixMillis(1) }],
             turns: Vec::new(),

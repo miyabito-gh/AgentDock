@@ -166,6 +166,9 @@ pub struct RouterRecord {
     /// 圧縮を観測したら真（次の送信で指示・ルール・一覧を全部添え直す）。
     #[serde(default)]
     pub compacted_since_delivery: bool,
+    /// 圧縮を観測した回数（資料を組み立てた後に観測した圧縮を、受理で消さないための照合用）。
+    #[serde(default)]
+    pub compaction_epoch: u32,
     /// 振り分けの記録（新しい順、最大200件）。
     #[serde(default)]
     pub dispatches: Vec<Dispatch>,

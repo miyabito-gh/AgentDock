@@ -463,7 +463,8 @@ impl HostData {
                 conv_changed = true;
             }
             // 受付係は、圧縮を観測したら次の送信で指示・ルール・一覧を全部添え直す（目的メモとは別の印）。
-            if let Some(r) = c.router.as_mut().filter(|r| !r.compacted_since_delivery) {
+            if let Some(r) = c.router.as_mut() {
+                r.compaction_epoch = r.compaction_epoch.wrapping_add(1);
                 r.compacted_since_delivery = true;
                 conv_changed = true;
             }
