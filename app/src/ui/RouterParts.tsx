@@ -254,8 +254,12 @@ export function RouterRulesBody({ chats, locals, routerKey, live }: { chats: Cha
     const m = await edit("remove", r.rule.id, "", null);
     if (m) setNote(`削除できませんでした: ${m}`);
   };
+  const [busyRev, setBusyRev] = useState<number | null>(null);
   const undo = async (c: RuleChangeView) => {
+    if (busyRev !== null) return;
+    setBusyRev(c.change.revision);
     const m = await undoRule(c.change.revision);
+    setBusyRev(null);
     setNote(m);
     try { setRv(await host.routerRules()); } catch { /* 合図で取り直される */ }
   };
@@ -294,7 +298,7 @@ export function RouterRulesBody({ chats, locals, routerKey, live }: { chats: Cha
           <li key={c.change.revision} className="small">
             <span className="muted">{ruleDate(c.change.at)}</span>
             <span className="grow">{c.summary}{c.change.undone ? "（取り消し済み）" : ""}</span>
-            {!c.change.undone && c.change.undoes === undefined ? <button type="button" className="btn-text" onClick={() => void undo(c)}>取り消す</button> : null}
+            {!c.change.undone && c.change.undoes === undefined ? <button type="button" className="btn-text" disabled={busyRev !== null} onClick={() => void undo(c)}>取り消す</button> : null}
           </li>
         ))}
       </ul>

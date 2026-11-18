@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Chat, ChatLocalView, HostSnapshot, PendingRequest, RequestAnswer, TurnRecord } from "../ipc/types";
 import { Icon } from "./Icon";
+import type { RouterCtx } from "./RouterParts";
 import { Messages, sendLockReason, type FileActions, type FindState } from "./CenterPane";
 import { chatAgents, chatRequests, chatTitle, isRunning, rootView, sortChats } from "./derive";
 import { chatGapRequests } from "./org";
@@ -42,7 +43,9 @@ export function RightTabs({ view, onView, waiting }: { view: "dock" | "chat"; on
   );
 }
 
-export function MiniChat({ snap, chat, centerId, turns, history, onReload, local, pending, decisions, sends, files, draft, setDraft, enterMode, connected, onSend, onRespond, onPick, onOpenCenter }: {
+export function MiniChat({ router, snap, chat, centerId, turns, history, onReload, local, pending, decisions, sends, files, draft, setDraft, enterMode, connected, onSend, onRespond, onPick, onOpenCenter }: {
+  /** 表示中の会話が受付係のとき（中央と同じ描き方にする）。それ以外は null。 */
+  router?: RouterCtx | null;
   snap: HostSnapshot;
   chat: Chat | null;
   /** 中央に出ているチャット（同じ会話を2か所で開かない）。 */
@@ -126,7 +129,7 @@ export function MiniChat({ snap, chat, centerId, turns, history, onReload, local
       ) : (
         <>
           {hv.kind === "failed" ? <div className="rp-empty">{hv.text}<button type="button" className="small" onClick={onReload}>再取得</button></div> : hv.kind === "loading" ? <div className="rp-empty">読み込み中…</div> : null}
-          <Messages key={shown.key.id} mini orgBound={false} headKey={shown.key} threads={local?.conversation?.threads ?? NO_THREADS} chatId={shown.key.id} agentName={(a) => nameOf(a)}
+          <Messages key={shown.key.id} mini router={router && router.view.chat.id === shown.key.id ? router : null} orgBound={false} headKey={shown.key} threads={local?.conversation?.threads ?? NO_THREADS} chatId={shown.key.id} agentName={(a) => nameOf(a)}
             decisions={decisions} turns={turns} reqs={chatRequests(snap, shown)} gaps={chatGapRequests(snap, shown.key)} running={running} onRespond={onRespond} onAct={() => undefined} find={NO_FIND}
             locals={snap.attachments.filter((a) => keyStr(a.chat) === keyStr(shown.key))} files={files} sends={sends}
             pending={pending} onPendingRestore={() => undefined} onPendingDismiss={() => undefined}

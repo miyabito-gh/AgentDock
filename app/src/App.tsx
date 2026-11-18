@@ -2057,7 +2057,7 @@ ${cur}` : p.text);
                   const pc = snap.chats.find((c) => c.key.id === peek.id) ?? null;
                   const pl = pc ? snap.chatLocals.find((l) => l.chat.id === pc.key.id) : undefined;
                   return (
-                    <MiniChat snap={snap} chat={pc} centerId={selId} turns={pc ? bundle.turns[pc.key.id] ?? [] : []} history={pc ? histLoads[pc.key.id] : undefined} onReload={() => { if (pc) void loadChat(pc.key.id); }}
+                    <MiniChat router={routerCtx} snap={snap} chat={pc} centerId={selId} turns={pc ? bundle.turns[pc.key.id] ?? [] : []} history={pc ? histLoads[pc.key.id] : undefined} onReload={() => { if (pc) void loadChat(pc.key.id); }}
                       local={pl} pending={pc ? markRetryable(pendingSends[pc.key.id], attempts[pc.key.id]) : []} decisions={pc ? decisions[pc.key.id] ?? NO_DECISIONS : NO_DECISIONS} sends={pc ? sends[pc.key.id] ?? NO_SENDS : NO_SENDS} files={files}
                       draft={pc ? drafts[pc.key.id] ?? pl?.draft.text ?? pc.draft ?? "" : ""} setDraft={(v) => { if (pc) onDraft(pc, v); }} enterMode={enterMode} connected={!live || connected}
                       onSend={sendPeek} onRespond={(r, a) => void onRespond(r, a)} onPick={openPeek} onOpenCenter={peekToCenter} />

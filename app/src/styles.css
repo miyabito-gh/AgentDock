@@ -1473,3 +1473,4 @@ html.pet-view,html.pet-view body,html.pet-view #root{background:transparent;over
 .rform textarea{border:1px solid var(--line-strong);border-radius:var(--r1);background:var(--surface);resize:vertical;min-height:48px;padding:4px 8px}
 .rhist li{display:flex;gap:8px;align-items:baseline;padding:2px 0}
 .rhist .grow{flex:1;min-width:0;overflow-wrap:anywhere}
+.rcard .why.err,.rextra .why.err,.rform .why.err,.dialog .content>.why.err{color:var(--fail-ink)}
