@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use crate::backend::backend::{AiBackend, BackendEvent, PermissionPreset, ReadOptions, UserConfirmed};
 use crate::backend::ipc::{BlockedReason, HostEvent, IpcError, IpcErrorCode, SendIntent, SendMessageArgs, StartChatArgs};
-use crate::backend::local::{ListVisibility, SaveScope};
+use crate::backend::local::{EnqueueArgs, ListVisibility, SaveScope};
 use crate::backend::model::*;
 use crate::backend::router::*;
 use crate::host::state::agent_key_of;
@@ -776,6 +776,7 @@ impl Host {
         match &d.state {
             DispatchState::Proposed => {}
             DispatchState::Sent { .. } => return Err(err(IpcErrorCode::InvalidArgs, "すでに送っています")),
+            DispatchState::Queued { .. } => return Err(err(IpcErrorCode::InvalidArgs, "すでに送り先の順番待ちに入れています")),
             DispatchState::Unconfirmed { .. } => return Err(err(IpcErrorCode::InvalidArgs, "送れたか確認できていません。再送はしません（送り先の会話を開いて確認してください）")),
             DispatchState::Dismissed { .. } => return Err(err(IpcErrorCode::InvalidArgs, "見送った振り分けです")),
         }
@@ -800,7 +801,21 @@ impl Host {
             s => return Err(err(IpcErrorCode::InvalidArgs, RouteReject::Unavailable(s).message())),
         }
         let running = self.read(|data| data.root_view(&target).is_some_and(|v| matches!(v.status.state, AgentState::Running | AgentState::Waiting | AgentState::Initializing)));
-        let intent = args.intent.unwrap_or(if running { SendIntent::Steer } else { SendIntent::NewTurn });
+        // 実行中の送り先へ intent 指定なしで送るときは順番待ち（完了後に送る）に入れる。別件の依頼を実行中の turn へ差し込まない。追加指示は明示されたときだけ。
+        if running && args.intent.is_none() {
+            let entry = self.enqueue(EnqueueArgs { chat: target.clone(), text: args.text, attachments: Vec::new() })?;
+            let at = now_ms();
+            self.set_dispatch(&router, &args.dispatch_id, |d| {
+                d.target = DispatchTarget::Existing { chat: target };
+                d.state = DispatchState::Queued { at, queue_entry: entry.id };
+            });
+            if !self.save_router(&router).await {
+                self.warn("振り分けの結果を保存できませんでした（画面には残っています）");
+            }
+            self.emit_router(&router);
+            return self.dispatch_view_of(&args.dispatch_id);
+        }
+        let intent = args.intent.unwrap_or(SendIntent::NewTurn);
         let cm = self.local_id("cm").0;
         let sent = self
             .send_message_with(
@@ -844,6 +859,7 @@ impl Host {
         match &d.state {
             DispatchState::Proposed => {}
             DispatchState::Unconfirmed { .. } if linked => {}
+            DispatchState::Queued { .. } => return Err(err(IpcErrorCode::InvalidArgs, "すでに順番待ちに入れています（再送はしません）")),
             DispatchState::Dismissed { .. } => return Err(err(IpcErrorCode::InvalidArgs, "見送った振り分けです")),
             _ => return Err(err(IpcErrorCode::InvalidArgs, "すでに送っています（再送はしません）")),
         }

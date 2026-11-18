@@ -300,6 +300,8 @@ pub enum DispatchTarget {
 pub enum DispatchState {
     Proposed,
     Sent { at: UnixMillis, client_message_id: String },
+    /// 送り先が実行中のため、送り先の順番待ち（完了後キュー）に入れた。まだ送っていない（送信は既存のキューが行う）。
+    Queued { at: UnixMillis, queue_entry: LocalId },
     /// 受理不明（送れたか確認できない）。自動再送しない。
     Unconfirmed { at: UnixMillis, client_message_id: String },
     Dismissed { at: UnixMillis },

@@ -12,6 +12,6 @@ export type RouterDispatchArgs = { dispatchId: LocalId,
  */
 targetOverride: ChatKey | null, text: string, 
 /**
- * None＝自動（送り先が実行中なら追加指示、そうでなければ新しい turn）。
+ * None＝自動（送り先が実行中なら順番待ちに入れ、状態は `queued`。そうでなければ新しい turn）。追加指示は "steer" を明示したときだけ。
  */
 intent: SendIntent | null, };

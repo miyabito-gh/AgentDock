@@ -88,7 +88,7 @@ pub struct RouterDispatchArgs {
     #[serde(default)]
     pub target_override: Option<ChatKey>,
     pub text: String,
-    /// None＝自動（送り先が実行中なら追加指示、そうでなければ新しい turn）。
+    /// None＝自動（送り先が実行中なら順番待ちに入れ、状態は `queued`。そうでなければ新しい turn）。追加指示は "steer" を明示したときだけ。
     #[serde(default)]
     pub intent: Option<SendIntent>,
 }

@@ -489,6 +489,7 @@ fn dispatch_result_line(d: &Dispatch, label: &dyn Fn(&DispatchTarget) -> String)
         DispatchState::Proposed => format!("提案: {sug}（未対応）"),
         DispatchState::Sent { .. } if d.suggested == d.target => format!("提案どおり {act} へ送りました"),
         DispatchState::Sent { .. } => format!("提案は {sug} でしたが、利用者は {act} へ送りました"),
+        DispatchState::Queued { .. } => format!("{act} が実行中のため、順番待ち（完了後に送信）に入れました"),
         DispatchState::Unconfirmed { .. } => format!("{act} へ送りましたが、受理を確認できていません"),
         DispatchState::Dismissed { .. } => format!("提案（{sug}）は見送られました"),
     }
