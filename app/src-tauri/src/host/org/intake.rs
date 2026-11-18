@@ -499,7 +499,7 @@ fn new_record(id: LocalId, folder: String) -> IntakeRecord {
 }
 
 fn new_conversation(id: LocalId, purpose: Option<PurposeNote>, _now: UnixMillis, intake: Option<IntakeRecord>) -> ConversationRecord {
-    ConversationRecord { id, purpose, threads: Vec::new(), seed: None, purpose_delivered_rev: None, compacted_since_delivery: false, replaces: None, intake }
+    ConversationRecord { id, purpose, threads: Vec::new(), seed: None, purpose_delivered_rev: None, compacted_since_delivery: false, replaces: None, intake, router: None }
 }
 
 #[cfg(test)]

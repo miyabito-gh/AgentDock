@@ -1004,7 +1004,7 @@ mod tests {
         }
     }
     fn conv() -> ConversationRecord {
-        ConversationRecord { id: LocalId("c1".into()), purpose: None, threads: vec![], seed: None, purpose_delivered_rev: None, compacted_since_delivery: false, replaces: None, intake: None }
+        ConversationRecord { id: LocalId("c1".into()), purpose: None, threads: vec![], seed: None, purpose_delivered_rev: None, compacted_since_delivery: false, replaces: None, intake: None, router: None }
     }
 
     // ── 使用率 ──

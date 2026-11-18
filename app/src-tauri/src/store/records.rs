@@ -145,6 +145,96 @@ pub struct ConversationRecord {
     /// 組織実行の依頼整理（DESIGN_ORG_INTAKE §1.4）。None＝依頼整理をしていない。引き継ぎで新しい先頭へ写す。
     #[serde(default)]
     pub intake: Option<crate::backend::intake::IntakeRecord>,
+    /// 受付係の印（DESIGN_ROUTER §3.1）。None＝受付係ではない。引き継ぎで新しい先頭へ写す。
+    #[serde(default)]
+    pub router: Option<RouterRecord>,
+}
+
+/// 受付係の記録（DESIGN_ROUTER §3.1）。
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RouterRecord {
+    /// 固定の指示をこの thread へ届けた版。thread が替われば None から。
+    #[serde(default)]
+    pub instructions_delivered_rev: Option<u32>,
+    /// ルール帳をこの thread へ届けた版。
+    #[serde(default)]
+    pub rules_delivered_rev: Option<u32>,
+    /// 一覧の安定部分の指紋をこの thread へ届けた値。
+    #[serde(default)]
+    pub catalog_delivered_digest: Option<String>,
+    /// 圧縮を観測したら真（次の送信で指示・ルール・一覧を全部添え直す）。
+    #[serde(default)]
+    pub compacted_since_delivery: bool,
+    /// 振り分けの記録（新しい順、最大200件）。
+    #[serde(default)]
+    pub dispatches: Vec<Dispatch>,
+    /// 送信ごとの一覧の連番とチャットの対応（新しい順、最大 [`ROUTER_CATALOGS_MAX`] 件）。返答の解析に使う。
+    #[serde(default)]
+    pub catalogs: Vec<SentCatalog>,
+}
+
+/// 送った一覧の連番とチャットの対応を残す件数の上限。
+pub const ROUTER_CATALOGS_MAX: usize = 20;
+/// 振り分けの記録の上限。
+pub const ROUTER_DISPATCHES_MAX: usize = 200;
+
+impl RouterRecord {
+    /// 一覧の対応を先頭へ足し、古いものを捨てる（同じ送信IDは置き換える）。
+    pub fn push_catalog(&mut self, c: SentCatalog) {
+        self.catalogs.retain(|x| x.client_message_id != c.client_message_id);
+        self.catalogs.insert(0, c);
+        self.catalogs.truncate(ROUTER_CATALOGS_MAX);
+    }
+    /// 振り分けの記録を先頭へ足し、上限を超えた古いものを捨てる。
+    pub fn push_dispatch(&mut self, d: Dispatch) {
+        self.dispatches.insert(0, d);
+        self.dispatches.truncate(ROUTER_DISPATCHES_MAX);
+    }
+}
+
+/// ある送信に添えた一覧の連番（c1, c2…）とチャットの対応。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SentCatalog {
+    pub client_message_id: String,
+    /// （連番, チャット）。
+    pub entries: Vec<(String, ChatKey)>,
+    pub at: UnixMillis,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Dispatch {
+    pub id: LocalId,
+    /// どの受付係の返答（turn）から出た案か。
+    pub source_turn: String,
+    pub route_index: u32,
+    pub target: DispatchTarget,
+    /// 受付係の案（利用者が送り先を変えたら target と異なる）。
+    pub suggested: DispatchTarget,
+    pub state: DispatchState,
+    /// 次の受付係への送信で「前回の振り分け結果」として伝えたか。
+    #[serde(default)]
+    pub reported: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum DispatchTarget {
+    Existing { chat: ChatKey },
+    /// 新規チャット。作成できたら chat が入る。
+    New { chat: Option<ChatKey> },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum DispatchState {
+    Proposed,
+    Sent { at: UnixMillis, client_message_id: String },
+    /// 受理不明（送れたか確認できない）。自動再送しない。
+    Unconfirmed { at: UnixMillis, client_message_id: String },
+    Dismissed { at: UnixMillis },
 }
 
 /// 目的メモ（利用者が書く固定文）。
@@ -494,6 +584,7 @@ mod tests {
             compacted_since_delivery: true,
             replaces: Some(key()),
             intake: None,
+            router: None,
         });
         f.superseded_by = Some(Superseded { by: key(), at: UnixMillis(7) });
         f.context_usage = Some(ContextUsageSample { used: 12_345, window: Some(200_000), observed_at: UnixMillis(8), turn: Some(ExternalId("t".into())), stale_after_compaction: true });
@@ -508,6 +599,37 @@ mod tests {
         // 内側の項目が欠けた古い形（purposeだけ）も読める。
         let min: ConversationRecord = serde_json::from_str(r#"{"id":"c"}"#).unwrap();
         assert!(min.purpose.is_none() && min.threads.is_empty() && min.seed.is_none() && !min.compacted_since_delivery);
+        assert!(min.router.is_none(), "router を持たない古い記録も読める");
+    }
+
+    #[test]
+    fn router_record_round_trips_and_caps_catalogs_and_dispatches() {
+        let d = |i: u32| Dispatch {
+            id: LocalId(format!("d{i}")),
+            source_turn: "t".into(),
+            route_index: i,
+            target: DispatchTarget::New { chat: None },
+            suggested: DispatchTarget::Existing { chat: key() },
+            state: DispatchState::Sent { at: UnixMillis(1), client_message_id: "m".into() },
+            reported: false,
+        };
+        let mut r = RouterRecord::default();
+        for i in 0..25 {
+            r.push_catalog(SentCatalog { client_message_id: format!("m{i}"), entries: vec![("c1".into(), key())], at: UnixMillis(i as i64) });
+        }
+        r.push_catalog(SentCatalog { client_message_id: "m24".into(), entries: vec![], at: UnixMillis(99) });
+        assert_eq!((r.catalogs.len(), r.catalogs[0].client_message_id.as_str(), r.catalogs[0].at), (ROUTER_CATALOGS_MAX, "m24", UnixMillis(99)));
+        for i in 0..210 {
+            r.push_dispatch(d(i));
+        }
+        assert_eq!((r.dispatches.len(), r.dispatches[0].route_index), (ROUTER_DISPATCHES_MAX, 209));
+        let back: RouterRecord = serde_json::from_slice(&serde_json::to_vec(&r).unwrap()).unwrap();
+        assert_eq!(back, r);
+        let v: serde_json::Value = serde_json::to_value(&r).unwrap();
+        assert_eq!(v["dispatches"][0]["state"]["kind"], "sent");
+        assert_eq!(v["dispatches"][0]["target"]["kind"], "new");
+        let empty: RouterRecord = serde_json::from_str("{}").unwrap();
+        assert_eq!(empty, RouterRecord::default());
     }
 
     /// `speedTier` を持たない旧い `model` も読める。

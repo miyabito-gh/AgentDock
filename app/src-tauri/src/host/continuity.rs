@@ -353,6 +353,7 @@ impl Host {
                         compacted_since_delivery: false,
                         replaces: None,
                         intake: None,
+                        router: None,
                     });
                     rec.purpose = purpose;
                     let out = view(rec);
@@ -383,6 +384,7 @@ mod tests {
             compacted_since_delivery: false,
             replaces: None,
             intake: None,
+            router: None,
         }
     }
     const NOW: UnixMillis = UnixMillis(9);

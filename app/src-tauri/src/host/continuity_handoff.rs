@@ -24,7 +24,7 @@ use crate::backend::model::*;
 use crate::rules::continuity as cont;
 use crate::rules::queue::AgentFact;
 use crate::rules::thread_ops::clear_draft_after;
-use crate::store::records::{ConversationRecord, HandoffSeed, PurposeNote, SeedState, Superseded, ThreadSegment};
+use crate::store::records::{ConversationRecord, HandoffSeed, PurposeNote, RouterRecord, SeedState, Superseded, ThreadSegment};
 
 /// 実行中の「引き継いで送信」の印（引き継ぎ元ごと）。同じ元の2本目は始められない。ガードを手放すと外れる。
 pub(super) type HandoffInflight = ResendInflight;
@@ -84,7 +84,13 @@ pub(super) fn handoff_conversation(src: &ChatKey, src_rec: Option<&ConversationR
         replaces: None,
         // 依頼整理の記録（要約・状態）は会話の記録の一部。新しい先頭へ写す。
         intake: src_rec.and_then(|r| r.intake.clone()),
+        router: src_rec.and_then(|r| r.router.as_ref().map(router_for_new_head)),
     }
+}
+
+/// 新しい先頭へ写す受付係の記録。届けた記録（指示・ルール帳・一覧）は新しい thread では未送付から始め、振り分けの記録は残す。
+fn router_for_new_head(r: &RouterRecord) -> RouterRecord {
+    RouterRecord { instructions_delivered_rev: None, rules_delivered_rev: None, catalog_delivered_digest: None, compacted_since_delivery: false, ..r.clone() }
 }
 
 /// 空の先頭 N のやり直し先 N2 の記録。資料は N の `seed.material` をそのまま使う（P を読み直さない）。
@@ -100,6 +106,7 @@ pub(super) fn redo_conversation(src: &ChatKey, src_rec: &ConversationRecord, now
         compacted_since_delivery: false,
         replaces: Some(src.clone()),
         intake: src_rec.intake.clone(),
+        router: src_rec.router.as_ref().map(router_for_new_head),
     })
 }
 
@@ -110,7 +117,7 @@ pub(super) fn purpose_for_fork(rec: Option<&ConversationRecord>) -> Option<Purpo
 
 /// 分岐先の会話の記録（別の会話。id は新規、以前の thread・引き継ぎ資料・届けた記録は持たない）。
 pub(super) fn fork_conversation(id: LocalId, purpose: PurposeNote) -> ConversationRecord {
-    ConversationRecord { id, purpose: Some(purpose), threads: Vec::new(), seed: None, purpose_delivered_rev: None, compacted_since_delivery: false, replaces: None, intake: None }
+    ConversationRecord { id, purpose: Some(purpose), threads: Vec::new(), seed: None, purpose_delivered_rev: None, compacted_since_delivery: false, replaces: None, intake: None, router: None }
 }
 
 /// チャット領域の作業領域（`workspace`）を作業フォルダとして使っている、別のチャット（`candidates` は (チャット, 作業フォルダ)）。
@@ -510,7 +517,7 @@ mod tests {
         PurposeNote { text: text.into(), revision: rev, updated_at: UnixMillis(1), source: crate::store::records::PurposeSource::Chat }
     }
     fn record(purpose: Option<PurposeNote>, threads: Vec<ThreadSegment>) -> ConversationRecord {
-        ConversationRecord { id: LocalId("c0".into()), purpose, threads, seed: None, purpose_delivered_rev: Some(7), compacted_since_delivery: true, replaces: None, intake: None }
+        ConversationRecord { id: LocalId("c0".into()), purpose, threads, seed: None, purpose_delivered_rev: Some(7), compacted_since_delivery: true, replaces: None, intake: None, router: None }
     }
     fn fact(state: AgentState, freshness: Freshness, terminal_explicit: bool) -> AgentFact {
         AgentFact {
@@ -542,6 +549,39 @@ mod tests {
     }
 
     // ── 記録の組立て ──
+
+    #[test]
+    fn handoff_and_redo_carry_the_router_record_with_delivery_marks_cleared_but_dispatches_kept() {
+        use crate::store::records::{Dispatch, DispatchState, DispatchTarget, SentCatalog};
+        let d = Dispatch {
+            id: LocalId("d1".into()),
+            source_turn: "t1".into(),
+            route_index: 0,
+            target: DispatchTarget::Existing { chat: key("x") },
+            suggested: DispatchTarget::New { chat: None },
+            state: DispatchState::Proposed,
+            reported: true,
+        };
+        let router = RouterRecord {
+            instructions_delivered_rev: Some(1),
+            rules_delivered_rev: Some(4),
+            catalog_delivered_digest: Some("abc".into()),
+            compacted_since_delivery: true,
+            dispatches: vec![d],
+            catalogs: vec![SentCatalog { client_message_id: "m1".into(), entries: vec![("c1".into(), key("x"))], at: UnixMillis(1) }],
+        };
+        let mut src = record(None, vec![]);
+        src.router = Some(router.clone());
+        let expect = RouterRecord { instructions_delivered_rev: None, rules_delivered_rev: None, catalog_delivered_digest: None, compacted_since_delivery: false, ..router };
+        let rec = handoff_conversation(&key("p"), Some(&src), None, seed(SeedState::Pending), LocalId("new".into()), UnixMillis(9));
+        assert_eq!(rec.router, Some(expect.clone()));
+        src.seed = Some(seed(SeedState::Pending));
+        assert_eq!(redo_conversation(&key("n"), &src, UnixMillis(10)).unwrap().router, Some(expect));
+        // 受付係でない会話は None のまま、分岐は持たない
+        let plain = record(None, vec![]);
+        assert!(handoff_conversation(&key("p"), Some(&plain), None, seed(SeedState::Pending), LocalId("new".into()), UnixMillis(9)).router.is_none());
+        assert!(fork_conversation(LocalId("f".into()), purpose("目的", 1)).router.is_none());
+    }
 
     #[test]
     fn handoff_and_redo_carry_the_intake_record_to_the_new_head_but_a_fork_does_not() {

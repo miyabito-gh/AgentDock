@@ -18,6 +18,7 @@
 //! - [`purpose_draft`]: 目的メモの下書き支援の指示文・出力の検査（DESIGN_CONT_DRAFT）
 //! - [`org_intake`]・[`git_prep`]・[`git_push`]: 依頼整理の要約・依頼文・状態遷移、Gitの準備、アプリからのプッシュ（DESIGN_ORG_INTAKE）
 //! - [`compose_assist`]: 返信・推敲の会話ごとの指示・送信文・モデルの決め方（DESIGN_COMPOSE）
+//! - [`router`]: 受付係の一覧・資料・返答の検査・ルール帳の適用と取り消し（DESIGN_ROUTER）
 //! - [`compose`]・[`side`]: 参考ブロックの組立て、side相談の停止範囲・引渡し（段階③ P3-4）
 
 pub mod baseline;
@@ -40,6 +41,7 @@ pub mod org_timeline;
 pub mod org_worktree;
 pub mod purpose_draft;
 pub mod queue;
+pub mod router;
 pub mod side;
 pub mod thread_ops;
 pub mod window;
