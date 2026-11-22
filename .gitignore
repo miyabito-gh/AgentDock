@@ -7,3 +7,6 @@ probes/app-server/runs/*/marketplace/
 target/
 node_modules/
 dist/
+
+# Environment files
+**/.env
