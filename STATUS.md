@@ -17,3 +17,4 @@
 - `2026-11-12T12-54-57-407Z-reviewer/{fail-assert,fail-import,pass}/`
 - `2026-11-12T12-55-11-618Z-subagent/{free/repo,single/repo}/`
 - `2026-11-12T12-58-33-312Z-subagent/{free/repo,single/repo}/`
+- 2026-11-22 フォルダ統一: パス変更 C:\Users\wmasa\Documents\Rust\AgentDock_next → C:\Users\wmasa\Documents\Rust\AgentDock（旧フォルダ AgentDock / AgentDock_claude は Rust\_archive へ退避）
