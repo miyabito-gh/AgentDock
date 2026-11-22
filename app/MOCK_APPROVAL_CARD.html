@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>承認カード モック</title>
+<style>
+:root{--bg:#F3F3F3;--surface:#fff;--surface2:#F5F5F5;--ink:#1B1B1B;--ink2:#545454;--ink3:#686868;--line:#E3E3E3;--line-strong:#C2C2C2;
+--accent:#005FB8;--accent-ink:#fff;--accent-weak:#E7F0FA;--wait-solid:#F2B600;--fail:#C42B1C;--r1:6px;--r2:10px;--mono:ui-monospace,Consolas,monospace}
+@media(prefers-color-scheme:dark){:root{--bg:#202020;--surface:#2B2B2B;--surface2:#323232;--ink:#F2F2F2;--ink2:#C9C9C9;--ink3:#A8A8A8;--line:#3A3A3A;--line-strong:#575757;--accent:#4CC2FF;--accent-ink:#00243A;--accent-weak:#15303F;--fail:#FF8A80}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.6 "Segoe UI","Yu Gothic UI",sans-serif}
+.wrap{max-width:1100px;margin:0 auto;padding:24px 16px;display:grid;grid-template-columns:1fr 1fr;gap:24px}
+@media(max-width:820px){.wrap{grid-template-columns:1fr}}
+h2{font-size:13px;color:var(--ink3);margin:0 0 8px;font-weight:600}
+.pane{background:var(--surface);border:1px solid var(--line);border-radius:var(--r2);padding:16px;display:flex;flex-direction:column;gap:12px}
+.msg{max-width:90%}.user{align-self:flex-end;background:var(--accent-weak);padding:8px 12px;border-radius:var(--r2)}
+.muted{color:var(--ink3);font-size:12px}
+/* --- 旧 --- */
+.old{border:1px solid #EDD08A;background:#FFF4D4;color:#7A4800;border-radius:var(--r2);padding:10px 12px;font-size:13px}
+.old .h{font-weight:700}.old .t{margin:6px 0}.old code{display:block;background:#fff;border:1px solid #EDD08A;border-radius:var(--r1);padding:6px 8px;font:12px/1.5 var(--mono);color:#1B1B1B}
+.old .opts,.new .opts{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+button{font:inherit;font-size:13px;border-radius:var(--r1);padding:5px 12px;border:1px solid var(--line-strong);background:var(--surface);color:var(--ink);cursor:pointer}
+button.main{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+button.text{border-color:transparent;background:none;color:var(--ink2)}
+button.text:hover,button.link:hover{text-decoration:underline}
+button.link{border:0;background:none;padding:0;color:var(--accent);font-size:12px}
+/* --- 新 --- */
+.new{border:1px solid var(--line);border-left:3px solid var(--wait-solid);background:var(--surface2);border-radius:var(--r1);padding:10px 12px}
+.new .q{font-weight:600}.new .who{font-weight:400;color:var(--ink3);font-size:12px;margin-left:6px}
+.new code{display:block;margin-top:6px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r1);padding:6px 8px;font:12px/1.5 var(--mono);overflow-wrap:anywhere}
+.new .opts{align-items:center}.new .sp{flex:1}
+.all{display:flex;gap:6px;align-items:flex-start;margin-top:10px;padding-top:8px;border-top:1px dashed var(--line-strong);font-size:12px;color:var(--ink2);cursor:pointer}.all b{color:var(--fail)}
+.menuwrap{position:relative}
+.menu{position:absolute;right:0;top:100%;margin-top:4px;z-index:2;width:300px;max-width:80vw;background:var(--surface);border:1px solid var(--line-strong);border-radius:var(--r1);padding:4px;box-shadow:0 4px 14px rgba(0,0,0,.18)}
+.menu hr{border:0;border-top:1px solid var(--line);margin:4px 0}
+.mi{display:block;width:100%;text-align:left;border:0;background:none;padding:6px 8px;border-radius:var(--r1)}
+.mi:hover{background:var(--surface2)}.mi span{display:block;font-size:13px}.mi small{display:block;font-size:11px;color:var(--ink3)}
+.mi.warn span{color:var(--fail)}
+.pane.tall{min-height:330px}
+.done{display:flex;gap:6px;align-items:baseline;font-size:12px;color:var(--ink3);padding:2px 0}
+.done b{font-weight:600;color:var(--ink2)}
+.auto{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:var(--ink2);padding:4px 10px;border-radius:var(--r1);background:var(--accent-weak)}
+.note{grid-column:1/-1;font-size:13px;color:var(--ink2)}.note li{margin:2px 0}
+</style></head><body><div class="wrap">
+
+<div><h2>いま</h2><div class="pane">
+<div class="msg user">テストを実行して</div>
+<div class="old" role="group"><div class="h">⚠ コマンドの実行を承認してください</div>
+<div class="t">要求元: メイン　作業フォルダ: <span style="font-family:var(--mono)">C:\Users\me\Documents\Rust\AgentDock_next\app</span></div>
+<code>cargo test --lib visual</code>
+<div class="opts"><button class="main">許可（今回のみ）</button><button>許可（このセッション中）</button><button>許可して、この会話の以降もすべて許可</button><button>辞退</button><button>取りやめ</button></div>
+<div style="font-size:12px;margin-top:6px">効力範囲: 許可（今回のみ）=1回だけ／許可（このセッション中）=このセッション中／辞退=1回だけ／取りやめ=1回だけ</div></div>
+</div></div>
+
+<div><h2>案</h2><div class="pane tall">
+<div class="msg user">テストを実行して</div>
+<div class="new" role="group" aria-label="承認要求">
+<div class="q">コマンドを実行してよいですか？</div>
+<code>cargo test --lib visual</code>
+<div class="opts"><button class="main">許可</button><button title="Codex が、この会話の間、同じ種類の操作を覚えます">許可（このセッション中）</button><button class="text">辞退</button><span class="sp"></span><span class="menuwrap"><button class="link">その他 ▾</button>
+<div class="menu" role="menu">
+<button role="menuitem" class="mi warn"><span>許可し、同種のコマンドを今後も許可</span><small>以後ずっと(永続)。Codex の実行ポリシーに規則を保存します</small></button>
+<button role="menuitem" class="mi warn"><span>ネットワーク規則を追加（example.com: allow）</span><small>以後ずっと(永続)</small></button>
+<hr>
+<button role="menuitem" class="mi"><span>辞退して中止</span><small>この1件を断り、AI の作業も止めます</small></button>
+</div></span></div>
+<label class="all"><input type="checkbox"> <span>この会話のこれ以降の承認を、<b>内容を見ずにすべて</b>許可する</span></label></div>
+<div class="muted">↑ 待っている間</div>
+
+<div class="done"><b>許可</b> コマンド cargo test --lib visual</div>
+<div class="done"><b>許可</b> ファイル変更 src/App.tsx</div>
+<div class="muted">↑ 応答したあと（会話に残る1行）</div>
+
+<div class="auto" role="status"><span>この会話の承認は自動で許可しています（質問は対象外）</span><button class="link">やめる</button></div>
+<div class="muted">↑ 「常に許可」を選んだ会話の上部に出る帯</div>
+</div></div>
+
+<ul class="note">
+<li><b>3つの許可の違い</b>
+<table style="border-collapse:collapse;margin-top:4px;font-size:12px"><tr><th align=left>選択</th><th align=left>範囲</th><th align=left>判断する主体</th></tr>
+<tr><td>許可</td><td>この1件だけ</td><td>毎回あなた</td></tr>
+<tr><td>許可（このセッション中）※カードに残す</td><td>同じ種類の操作。範囲は Codex が決める</td><td>Codex</td></tr>
+<tr><td>☑ 内容を見ずにすべて許可</td><td>この会話の、これ以降の承認カードすべて(コマンドもファイル変更も)</td><td>なし。やめるまで</td></tr></table>
+チェックを入れて「許可」を押したときだけ有効になり、会話の上部に帯が出ます。ボタンとは別の行・チェックボックスにして、通常の許可と混ざらないようにしました。</li>
+<li><b>その他 ▾ の中身</b>(Codex が示したものだけ。無いものは出ない): 「許可し、同種のコマンドを今後も許可」「ネットワーク規則を追加」は永続保存なので赤字＋説明つき。「辞退して中止」は最後に区切って置く。MCP許可確認では中止の名前だけ別(「取りやめる」)。</li>
+<li><b>省いたもの</b>: 見出しの警告アイコンと長い文、「要求元」(単独のときは不要。子のエージェントの要求のときだけ名前を右に小さく出す)、作業フォルダ(会話の作業フォルダと同じなら非表示、違うときだけ出す)、効力範囲の行(選択肢の意味はツールチップに)。</li>
+<li><b>ボタン</b>: 常に見えるのは「許可」(主)と「辞退」(文字だけ)。「このセッション中」「取りやめ」は「その他」にまとめる。効力範囲が広い選択肢ほど目立たせない。</li>
+<li><b>色</b>: 黄色の塗りつぶしをやめ、既存の薄いカード面に左端の細い黄色線だけ(待機状態の色は他の画面と同じ)。</li>
+<li><b>質問・MCP許可確認</b>も同じ枠・同じ並び(主ボタン→文字ボタン→その他)にそろえる。</li>
+</ul>
+</div></body></html>

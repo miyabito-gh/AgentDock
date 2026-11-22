@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Visual Editor の流れ</title>
+<style>
+:root{--bg:#fafafa;--ink:#1f2328;--ink2:#59636e;--line:#d0d7de;--card:#fff;--real:#fde8e6;--real-line:#e8a39b;--copy:#e7f0fa;--copy-line:#9cc3ea;--ok:#e6f4ea;--ok-line:#8fcfa0;--warn:#fff4d6;--warn-line:#e6c36a;--btn:#005fb8}
+@media (prefers-color-scheme:dark){:root{--bg:#1c1c1c;--ink:#ececec;--ink2:#a8a8a8;--line:#3a3a3a;--card:#262626;--real:#3d1f1c;--real-line:#7a3530;--copy:#15303f;--copy-line:#2b5a75;--ok:#1d3523;--ok-line:#3f7a4c;--warn:#3a321a;--warn-line:#7d6a2c;--btn:#4cc2ff}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 "Yu Gothic UI","Meiryo",system-ui,sans-serif;padding:20px 16px 60px}
+main{max-width:860px;margin:0 auto}
+h1{font-size:20px;margin:0 0 4px}
+.lead{color:var(--ink2);margin:0 0 22px}
+h2{font-size:16px;margin:34px 0 10px;padding-left:10px;border-left:4px solid var(--btn)}
+.box{border:1.5px solid var(--line);border-radius:12px;background:var(--card);padding:10px 14px}
+.real{background:var(--real);border-color:var(--real-line)}
+.copy{background:var(--copy);border-color:var(--copy-line)}
+.ok{background:var(--ok);border-color:var(--ok-line)}
+.warn{background:var(--warn);border-color:var(--warn-line)}
+.box b{display:block}
+.box small{color:var(--ink2);display:block}
+.flow{display:flex;flex-direction:column;align-items:stretch;gap:0}
+.step{display:flex;gap:10px;align-items:stretch}
+.arrow{align-self:center;text-align:center;color:var(--ink2);font-size:13px;padding:3px 0}
+.arrow::before{content:"▼";display:block;line-height:1;font-size:12px}
+.btn{display:inline-block;background:var(--btn);color:#fff;border-radius:7px;padding:1px 9px;font-size:13px;font-weight:600;margin:0 2px;white-space:nowrap}
+@media (prefers-color-scheme:dark){.btn{color:#00243a}}
+.btn.ghost{background:transparent;color:var(--btn);border:1px solid var(--btn)}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.row3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+@media (max-width:640px){.row,.row3{grid-template-columns:1fr}}
+.tag{display:inline-block;font-size:12px;padding:0 8px;border-radius:999px;border:1px solid currentColor;margin-right:6px}
+.tag.r{color:#c42b1c}.tag.c{color:#005fb8}
+@media (prefers-color-scheme:dark){.tag.r{color:#ff8a80}.tag.c{color:#4cc2ff}}
+ul{margin:6px 0 0;padding-left:20px}
+.legend{display:flex;gap:14px;flex-wrap:wrap;margin:0 0 16px;font-size:13px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend i{width:14px;height:14px;border-radius:4px;border:1.5px solid}
+.sw1{background:var(--real);border-color:var(--real-line)}
+.sw2{background:var(--copy);border-color:var(--copy-line)}
+.note{margin-top:12px;font-size:14px}
+</style>
+</head>
+<body>
+<main>
+<h1>Visual Editor の流れ</h1>
+<p class="lead">ポイントは1つだけ。<b>AIが直すのは「コピー」。本物は、「元に反映」を押すまで変わりません。</b></p>
+
+<div class="legend">
+  <span><i class="sw1"></i>本物（元のHTMLのフォルダ）</span>
+  <span><i class="sw2"></i>編集用コピー（AIが直す場所）</span>
+</div>
+
+<h2>① 基本の流れ（これだけ覚えれば使えます）</h2>
+<div class="flow">
+  <div class="box real"><b><span class="tag r">本物</span>直したいHTML</b><small>まだ何も変わりません</small></div>
+  <div class="arrow"><span class="btn">編集を始める</span> でコピーを作る</div>
+  <div class="box copy"><b><span class="tag c">コピー</span>編集用コピー</b><small>ここから先、AIが触るのはコピーだけ</small></div>
+  <div class="arrow">プレビューで直したい所を<b>クリック</b>して、<b>依頼を書いて送信</b></div>
+  <div class="box copy"><b><span class="tag c">コピー</span>AIがコピーを直す → プレビューが更新される</b><small>気に入らなければ、もう一度依頼するか <span class="btn ghost">取り消す</span>（直前のAI編集をコピーの中で取り消す）</small></div>
+  <div class="arrow">気に入ったら</div>
+  <div class="box ok"><b>⑤ <span class="btn">元に反映</span> を押す</b><small>コピーの内容が、本物のフォルダに上書きされます（ここで初めて本物が変わる）</small></div>
+  <div class="arrow">あとで気が変わったら</div>
+  <div class="box real"><b><span class="tag r">本物</span><span class="btn ghost">反映を戻す</span> で反映前の状態に戻せる</b><small>ただし、反映後に本物のファイルを自分で変えていた場合は、その変更を守るため戻せません</small></div>
+  <div class="arrow">最後に</div>
+  <div class="box"><b><span class="btn ghost">終える</span> で編集をやめる</b><small>反映していない変更は本物に入りません（コピーは残ります）</small></div>
+</div>
+
+<h2>② 順番の注意：「反映」してから「終える」</h2>
+<div class="row">
+  <div class="box ok"><b>○ 正しい順</b><small>気に入った → <span class="btn">元に反映</span> → <span class="btn ghost">終える</span><br>本物に変更が入り、そのあと編集をやめる</small></div>
+  <div class="box warn"><b>△ 反映せずに「終える」「切り離す」</b><small>AIの編集は<b>コピーの中だけ</b>に残り、本物には入りません。終えたあとは、画面から反映できなくなります（コピーのファイルは残るので、手で取り出すことは可能）</small></div>
+</div>
+
+<h2>③ 会話の3つの始め方（編集を始めるときに選ぶ）</h2>
+<div class="row3">
+  <div class="box">
+    <b>今の会話で続ける</b>
+    <small>この会話を、そのまま使う</small>
+    <ul>
+      <li>編集中だけ、会話の作業場所が<b>コピー</b>に切り替わる</li>
+      <li><span class="btn ghost">終える</span> → <b>次の送信</b>で元の作業場所に戻る</li>
+      <li>会話は1つだけなので、迷子になりにくい</li>
+    </ul>
+  </div>
+  <div class="box">
+    <b>分岐して続ける</b>
+    <small>今の会話は残し、コピーした新しい会話（名前に「（編集）」）で編集</small>
+    <ul>
+      <li>元の会話は<b>そのまま</b>残る</li>
+      <li>新しい会話はコピーで作業。終えると、<b>元の会話と同じフォルダ</b>に戻る</li>
+      <li>元の会話へは <span class="btn ghost">元の会話へ戻る</span> か、左の一覧から</li>
+    </ul>
+  </div>
+  <div class="box">
+    <b>新しい会話で始める</b>
+    <small>履歴なしの専用会話（一覧には出ない）</small>
+    <ul>
+      <li>編集のためだけの会話</li>
+      <li>元の会話へは <span class="btn ghost">元の会話へ戻る</span></li>
+      <li>編集は保存され、あとで続きから再開できる</li>
+    </ul>
+  </div>
+</div>
+
+<h2>④ 困ったとき</h2>
+<div class="row">
+  <div class="box"><b>元の会話へ戻りたい</b><small>会話の上の案内の <span class="btn ghost">元の会話へ戻る</span>（または <span class="btn ghost">会話一覧を開く</span>）。左の一覧から選んでも戻れます</small></div>
+  <div class="box"><b>編集が止まって動かない</b><small>案内の <span class="btn ghost">編集から切り離す…</span>。コピーも本物も変えずに、会話を元の作業場所へ戻します（反映していない変更は本物に入りません）</small></div>
+  <div class="box"><b>反映を取り消したい</b><small><span class="btn ghost">反映を戻す</span>（反映したあとだけ表示）</small></div>
+  <div class="box"><b>AIの直前の編集だけ取り消したい</b><small><span class="btn ghost">取り消す</span>（まだ反映していないとき。コピーの中だけの操作）</small></div>
+</div>
+
+<p class="note">ボタンの位置: <b>元に反映／取り消す／終える</b> は右側の上の行、<b>反映を戻す</b> は反映後に同じ行へ出ます。選んだ要素への依頼は、プレビューの下の入力欄です。</p>
+</main>
+</body>
+</html>
