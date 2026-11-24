@@ -12,6 +12,8 @@ pub mod pathref;
 pub mod pets;
 pub mod rules;
 pub mod store;
+#[cfg(test)]
+pub(crate) mod test_support;
 pub mod win;
 pub mod visual_edit;
 

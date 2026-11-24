@@ -785,7 +785,7 @@ mod tests {
 
     #[tokio::test]
     async fn start_is_refused_for_a_repo_without_commits_and_allowed_with_one() {
-        let dir = std::env::temp_dir().join(format!("agentdock-precheck-{}", now_ms().0));
+        let dir = crate::test_support::unique_temp_dir("agentdock-precheck");
         std::fs::create_dir_all(&dir).unwrap();
         let git = crate::gitops::Git::new(None);
         let folder = dir.to_string_lossy().into_owned();

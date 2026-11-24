@@ -535,7 +535,7 @@ mod tests {
 
     #[test]
     fn the_copy_is_written_before_start_and_a_write_failure_is_reported() {
-        let dir = std::env::temp_dir().join(format!("agentdock-intake-copy-{}-{}", std::process::id(), now_ms().0));
+        let dir = crate::test_support::unique_temp_dir("agentdock-intake-copy");
         let wf = dir.join("org").join("wf-1");
         save_copy(&wf, &origin(), UnixMillis(7)).unwrap();
         let copy: IntakeCopy = serde_json::from_slice(&std::fs::read(wf.join(INTAKE_FILE)).unwrap()).unwrap();

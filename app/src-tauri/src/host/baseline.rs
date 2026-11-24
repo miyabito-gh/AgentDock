@@ -1053,7 +1053,7 @@ mod tests {
     }
 
     fn fixture(tag: &str) -> Fixture {
-        let base = std::env::temp_dir().join(format!("agentdock-bhost-{tag}-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let base = crate::test_support::unique_temp_dir(&format!("agentdock-bhost-{tag}"));
         let repo = base.join("repo");
         std::fs::create_dir_all(&repo).unwrap();
         sh(&repo, &["init", "-q"]);

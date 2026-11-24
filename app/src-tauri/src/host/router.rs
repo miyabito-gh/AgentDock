@@ -1004,7 +1004,7 @@ mod tests {
     }
 
     fn unique_dir(tag: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("agentdock-router-{tag}-{}-{}", std::process::id(), now_ms().0));
+        let d = crate::test_support::unique_temp_dir(&format!("agentdock-router-{tag}"));
         std::fs::create_dir_all(&d).unwrap();
         d
     }

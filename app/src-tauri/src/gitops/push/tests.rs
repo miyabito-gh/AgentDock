@@ -2,7 +2,7 @@ use super::*;
 use std::path::PathBuf;
 
 fn temp(name: &str) -> PathBuf {
-    let p = std::env::temp_dir().join(format!("agentdock-push-{name}-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+    let p = crate::test_support::unique_temp_dir(&format!("agentdock-push-{name}"));
     std::fs::create_dir_all(&p).unwrap();
     p
 }

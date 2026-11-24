@@ -334,7 +334,7 @@ u UU N... 100644 100644 100644 100755 h1 h2 h3 conflict.txt\0\
     }
 
     fn temp_base(tag: &str) -> PathBuf {
-        std::env::temp_dir().join(format!("agentdock-bsnap-{tag}-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()))
+        crate::test_support::unique_temp_dir(&format!("agentdock-bsnap-{tag}"))
     }
 
     fn no_space_check() -> impl Fn(u64) -> Result<(), BaselineFailure> + Send + Sync {

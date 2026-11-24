@@ -1484,7 +1484,7 @@ mod tests {
     }
 
     fn temp(tag: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("agentdock-chg-{tag}-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let d = crate::test_support::unique_temp_dir(&format!("agentdock-chg-{tag}"));
         std::fs::create_dir_all(&d).unwrap();
         d
     }

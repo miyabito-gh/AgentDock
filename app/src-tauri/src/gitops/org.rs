@@ -242,7 +242,7 @@ mod tests {
     }
 
     fn rig() -> Rig {
-        let t = std::env::temp_dir().join(format!("agentdock-orgwt-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let t = crate::test_support::unique_temp_dir("agentdock-orgwt");
         std::fs::create_dir_all(&t).unwrap();
         let base = std::path::PathBuf::from(resolved(&t).unwrap());
         let repo = base.join("repo");

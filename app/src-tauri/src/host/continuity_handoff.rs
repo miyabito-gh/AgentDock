@@ -531,9 +531,7 @@ mod tests {
         }
     }
     fn temp_root(name: &str) -> std::path::PathBuf {
-        let p = std::env::temp_dir().join(format!("agentdock-handoff-{name}-{}-{}", std::process::id(), now_ms().0));
-        let _ = std::fs::remove_dir_all(&p);
-        p
+        crate::test_support::unique_temp_dir(&format!("agentdock-handoff-{name}"))
     }
 
     // ── 二重実行の防止（A7） ──

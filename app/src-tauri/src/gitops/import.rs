@@ -409,7 +409,7 @@ mod tests {
 
     impl Rig {
         fn new() -> Rig {
-            let t = std::env::temp_dir().join(format!("agentdock-import-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+            let t = crate::test_support::unique_temp_dir("agentdock-import");
             std::fs::create_dir_all(&t).unwrap();
             let base = std::path::PathBuf::from(crate::gitops::org::resolved(&t).unwrap());
             let repo = base.join("repo");

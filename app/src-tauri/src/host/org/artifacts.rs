@@ -854,10 +854,7 @@ mod tests {
     use std::io::Write;
 
     fn temp() -> PathBuf {
-        let d = std::env::temp_dir().join(format!("agentdock-orgart-{}-{}", std::process::id(), now_ms().0));
-        let _ = std::fs::remove_dir_all(&d);
-        std::fs::create_dir_all(&d).unwrap();
-        d
+        crate::test_support::unique_temp_dir("agentdock-orgart")
     }
 
     fn prepared() -> gi::Prepared {

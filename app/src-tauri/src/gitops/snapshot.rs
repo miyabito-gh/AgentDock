@@ -556,7 +556,7 @@ mod tests {
         if !git_ok() {
             return;
         }
-        let base = std::env::temp_dir().join(format!("agentdock-snap-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let base = crate::test_support::unique_temp_dir("agentdock-snap");
         let repo = base.join("repo");
         let area = base.join("area");
         std::fs::create_dir_all(&repo).unwrap();
