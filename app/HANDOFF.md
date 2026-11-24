@@ -1,5 +1,7 @@
 # 現在の引き継ぎ
 
+2026-11-25 更新。Visual Editor と検証資料の作業ブランチは master へ統合済み。統合対象、検証結果、未追跡の検証出力の保全先は [STATUS.md](../STATUS.md) を参照。
+
 更新: 2026-10-26。読む順序は README → AGENTS → 本書 → 必要なら MIGRATION_SUBAGENTS。過去の詳細記録は [docs/archive/HANDOFF_visual_editor_2026-10.md](../docs/archive/HANDOFF_visual_editor_2026-10.md)（旧版全文。必要な日付の節だけ検索して読む。全文は読まない）。旧々版は docs/archive/HANDOFF_pre_subagent_migration.md。
 
 ## 現在地
