@@ -1,5 +1,9 @@
 # 現在の引き継ぎ
 
+## 2026-11-26 Antigravity（agy）プロバイダ
+
+`feature/antigravity-provider`（基点 `19f046d`、コミットはローカルのみ・push なし。`feature/reception-flow` は origin に push 済み）。内容・検証・限界・要判断は [STATUS.md](../STATUS.md) の同日の節を参照。構成の要点: `app/src-tauri/src/antigravity/`（agy を1ターン1プロセスで実行）、`app/src-tauri/src/mux.rs`（ホストが保持する振り分け層。キーの backend で Codex／Antigravity）、受付の `newChat.provider` と候補行の「AI:」、画面の担当AI選択（`app/src/ui/backendModels.ts`）。次は、画面での実操作確認と、実 Codex の受付分類で Antigravity 宛が選ばれるかの結合確認（Codex の利用枠に余裕があるとき）。稼働中の試験プロセス・未コミット差分なし。
+
 ## 2026-11-25 reception-triage 修正と実機再試験
 
 - `feature/reception-flow` の実装 `ce1a7c9`。指定の実チャットIDと候補IDの対応を分類に渡し、有効な `reception-triage` を分類ターンへ自動添付する。

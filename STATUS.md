@@ -1,5 +1,16 @@
 ﻿# 保全状況
 
+## 2026-11-26 Antigravity（agy）プロバイダの追加
+
+- ブランチ `feature/antigravity-provider`（基点 `19f046d` = `feature/reception-flow`、origin に push 済みの地点）。コミットはローカルのみで push なし。`feature/reception-flow` は origin へ push 済み（上流設定、リモート参照 `19f046d` で一致を確認）。
+- 方式: `agy` を1ターン1プロセスの print モード（`--output-format stream-json`、会話は `--conversation`）で動かす `AntigravityBackend`（`app/src-tauri/src/antigravity/`）。ACP は使っていない。モデルは `agy models` のうち `gemini-` のみ。権限は読取り系→`--mode plan`、書込み系→`--mode accept-edits`、フルアクセスだけ `--dangerously-skip-permissions`。承認が要る操作は agy が自動拒否し、`denied_actions` を警告として出す（承認の中継はしない）。履歴・会話は `<app_data>/antigravity/chats.json`（原子的保存）。
+- ホストは `MuxBackend`（`app/src-tauri/src/mux.rs`）を保持し、キーの `backend` で Codex と Antigravity に振り分ける。監視元・接続・能力は Codex の1つのまま。Codex 固有の拡張操作は Codex のチャットだけに通す。
+- 受付: 候補行に「AI: Codex / Antigravity」を載せ、`newChat.provider`（codex | antigravity、省略は Codex）を検査して案に保持（指示の版3、構造化出力スキーマに必須項目として追加、旧返答・旧記録は Codex として読む）。画面: 新規チャットの担当AI選択、AI別のモデル一覧、受付の「始める」への provider 引継ぎ、`backend: "codex"` 固定の実キー化、Antigravity のチャットで追加指示・添付・推論強度などを隠す。
+- 検証: cargo check（--locked）成功、Rust 1766件通過（無視1）、Node 550件通過、型チェック・本番ビルド成功。実機スモーク（使い捨て Git リポジトリ＋専用保存先、実機の agy・`gemini-3.8-flash-low`）で、受付（分類結果は固定の返答。Codex は不使用）→自動送信のキュー登録→担当 agy が完了→受付カードへ結果「担当完了 7391」を回収まで通過。スモークで見つかった不具合（子孫走査が非対応エラーでキューが送信を保留し続ける）は `93f5fe8` で修正。独立検証の指摘を `32f672f` で反映（先頭が `-` の本文を agy がフラグと誤認する、強制終了が Antigravity を停止確認済みにする、レビューで空チャットが残る、先頭チャットのキー）。試験の保存先・試験会話（agy 側 `~/.gemini/antigravity-cli` の `brain`・`conversations`・`presence` の試験分4件）は削除し、前後の一覧が一致することを確認。agy の索引ファイル（`conversation_summaries.db`）は触っていない。
+- 未実施・限界: 画面（WebView）での操作確認、実 Codex による受付分類との結合（クレジット配慮で未実施）、受付の新規チャット案から Antigravity を作る経路の実機確認、`accept-edits` が作業フォルダ外への書込みを防ぐかの確認。ホストの接続状態は Codex 基準で、Codex が起動できないと Antigravity のチャットも送れない。強制終了とアプリ終了は agy プロセスを止めない（実行中の turn は次回起動で結果不明になる）。結果不明後は同じチャットへ次の送信が通り、残ったプロセスと同じ会話に2本動き得る。agy の起動引数長（約32K文字）超の本文は起動拒否になる。ルール帳の送り先（担当表）には担当AIの指定を持たせていない（本文の指示と、チャット指定のルールで運用）。
+- 要判断: ①結果不明後に同じチャットへの送信を止めるか、アプリ終了時に agy を Job で止めるか。②受付の実 Codex 分類で Antigravity 宛が選ばれるかの確認を、クレジットの余裕があるときに行うか。③ルール帳の新規先（`NewIn`）に担当AIを持たせるか。④Codex 固有メニュー（分岐・圧縮・目標など）を Antigravity のチャットで画面側でも隠すか。⑤権限選択（`accept-edits` の範囲が未確認のため）の扱い。
+- 子の作業: 実装・検証を Claude の子で実施（台帳は最終報告に記載）。Codex は不使用。
+
 ## 2026-11-25 reception-triage 修正と実機再試験
 
 - `feature/reception-flow` の実装 `ce1a7c9`。指定の実チャットIDと候補IDの対応を分類に渡し、有効な `reception-triage` を分類ターンへ自動添付する。
