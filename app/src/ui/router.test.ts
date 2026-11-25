@@ -1,7 +1,7 @@
 // 実行: node --test src/ui/router.test.ts （tscの対象外）
 import test from "node:test";
 import assert from "node:assert/strict";
-import { ROUTER_ENVELOPE_END, ROUTER_ENVELOPE_HEAD, baseText, canToggleOriginal, dispatchesOfTurn, foldedLine, noticeView, originalRequest, pickableChats, routerEnvelopeLabel, splitRouterEnvelope, targetLabel } from "./router.ts";
+import { ROUTER_ENVELOPE_END, ROUTER_ENVELOPE_HEAD, baseText, canToggleOriginal, chipNeedsAttention, dispatchChip, dispatchesOfTurn, foldedLine, proposedProvider, providerLabel, resultBody, resultChip, noticeView, originalRequest, pickableChats, routerEnvelopeLabel, splitRouterEnvelope, targetLabel } from "./router.ts";
 
 const wrap = (user: string) => `${ROUTER_ENVELOPE_HEAD}\n## 指示（第1版）\nx\n${ROUTER_ENVELOPE_END}\n${user}`;
 
@@ -80,4 +80,50 @@ test("最初の利用者発話から原文を取り出す", () => {
   const e = [{ kind: { kind: "agentMessage" }, text: { kind: "value", value: "x" } }, { kind: { kind: "userMessage" }, text: { kind: "value", value: wrap("依頼") } }];
   assert.equal(originalRequest(e), "依頼");
   assert.equal(originalRequest([]), null);
+});
+
+test("担当の結果文から状態の印を引く（形＋文字で区別。知らない文は印なし）", () => {
+  assert.deepEqual(resultChip("担当完了\n結果"), { tone: "done", icon: "check", label: "完了" });
+  assert.equal(resultChip("担当完了（最終回答の記録なし）")?.label, "完了");
+  assert.equal(resultChip("担当の実行が失敗しました")?.label, "失敗");
+  assert.equal(resultChip("送信失敗: 理由")?.label, "送信失敗");
+  assert.equal(resultChip("担当の実行が中断されました")?.label, "中断");
+  assert.deepEqual(resultChip("担当への受理を照合中です"), { tone: "unk", icon: "help", label: "受理不明" });
+  assert.equal(resultChip("キューは停止中です。担当チャットで詳細を確認してください")?.label, "要確認");
+  assert.equal(resultChip("キュー記録を照合できません")?.label, "照合不能");
+  assert.equal(resultChip("キューで取り消されました")?.label, "取り消し");
+  assert.equal(resultChip("未知の文"), null);
+  assert.equal(resultChip(null), null);
+});
+test("カードの印: 結果があれば結果、なければ送信の状態。見送りは印なし", () => {
+  const q = { kind: "queued", at: 1, queueEntry: "q" };
+  assert.deepEqual(dispatchChip(dv({ state: q })), { tone: "idle", icon: "hourglass", label: "送信待ち" });
+  assert.equal(dispatchChip(dv({ state: q, executionResult: "送信失敗: x" }))?.label, "送信失敗");
+  assert.equal(dispatchChip(dv({ state: { kind: "unconfirmed", at: 1, clientMessageId: "m" } }))?.label, "受理不明");
+  assert.deepEqual(dispatchChip(dv({ state: { kind: "sent", at: 1, clientMessageId: "m" } })), { tone: "run", icon: "play", label: "送信済み" });
+  // 結果文があるのに判定できないときは、送信の状態（送信待ち）に戻らず「状態不明」（完了を送信待ちと見せない）
+  assert.deepEqual(dispatchChip(dv({ state: q, executionResult: "知らない文言" })), { tone: "unk", icon: "help", label: "状態不明" });
+  assert.equal(dispatchChip(dv({ state: { kind: "dismissed", at: 1 } })), null);
+  assert.equal(dispatchChip(dv()), null);
+});
+test("枠を警告色にするのは失敗・受理不明・要確認だけ。完了の1行目の語は本文から省く", () => {
+  assert.equal(chipNeedsAttention(resultChip("送信失敗: x")), true);
+  assert.equal(chipNeedsAttention(resultChip("担当への受理を照合中です")), true);
+  assert.equal(chipNeedsAttention(resultChip("キューは停止中です")), true);
+  assert.equal(chipNeedsAttention(resultChip("担当完了\n結果")), false);
+  assert.equal(chipNeedsAttention(resultChip("担当の実行が中断されました")), false);
+  assert.equal(chipNeedsAttention(null), false);
+  assert.equal(resultBody("担当完了\n最終回答"), "最終回答");
+  assert.equal(resultBody("担当完了（最終回答の記録なし）"), "担当完了（最終回答の記録なし）");
+  assert.equal(resultBody("送信失敗: x\n2行目"), "送信失敗: x\n2行目");
+});
+test("カードの担当AI: 新規は案の provider（省略は Codex）、既存は実際のチャットのキー", () => {
+  const nc = (provider?: string) => dv({ target: { kind: "new", chat: null }, proposal: { text: "t", textIsOriginal: true, reason: "", confidence: "high", newChat: { title: "x", folder: null, purpose: "", ...(provider ? { provider } : {}) } } });
+  assert.equal(proposedProvider(nc("antigravity")), "antigravity");
+  assert.equal(proposedProvider(nc()), "codex");
+  assert.equal(proposedProvider(dv({ target: { kind: "existing", chat: { backend: "antigravity", id: "c1" } } })), "antigravity");
+  assert.equal(proposedProvider(dv()), "codex");
+  assert.equal(proposedProvider(dv({ target: { kind: "new", chat: null }, proposal: null })), "codex");
+  assert.equal(providerLabel("antigravity"), "Antigravity（Gemini）");
+  assert.equal(providerLabel("codex"), "Codex");
 });

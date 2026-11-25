@@ -38,6 +38,7 @@ import { filterSkills, isDisabled, originLabel, queryTerms, removeTrigger, skill
 import { PendingSendRow } from "./PendingSendRow";
 import { SendStatusBar } from "./SendStatusBar";
 import { queueCounts } from "./sendStatus";
+import { aiName } from "./backendModels";
 import { HandoffNotice, PurposeLine, UsageChip, useHandoff, type HandoffUi } from "./HandoffNotice";
 import { IntakeSection } from "./OrgIntake";
 import { worktreeOf } from "./folderGroups";
@@ -275,7 +276,7 @@ function Header({ snap, chat, onAct, commands, local, onCwdToggle, wasLive, exte
   return (
     <div className="chead">
       <button className="btn subtle icon panebtn" aria-label="チャット一覧" aria-pressed={leftShown} title={tipWithKey(`チャット一覧を${leftShown ? "閉じる" : "開く"}`, "toggleLeft")} onClick={() => onAct("toggleLeft")}><Icon name="list" /></button>
-      <span className="ttl" style={ttl.confirmed ? undefined : TENTATIVE_STYLE} title={`${ttl.text}（Codex）${ttl.confirmed ? "" : `\n${TENTATIVE_HINT}`}`}>{ttl.text}</span>
+      <span className="ttl" style={ttl.confirmed ? undefined : TENTATIVE_STYLE} title={`${ttl.text}（${aiName(chat.key.backend)}）${ttl.confirmed ? "" : `\n${TENTATIVE_HINT}`}`}>{ttl.text}</span>
       {/* 状態と鮮度は別表示。片方から他方を導かない */}
       <span className={`st ${chatChipClass(snap, chat)}`} title={chatStatusText(snap, chat)}><i />{chatStatusText(snap, chat)}</span>
       {isLive ? (
@@ -617,6 +618,7 @@ export function Messages({ router, mini, orgBound, headKey, threads, chatId, tur
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
+  const ai = aiName(headKey.backend);
   const prev = usePrevThreads(headKey, threads);
   const [away, setAway] = useState(false);
   // 長い依頼文の展開状態（依頼の項目単位。チャット別に覚える）
@@ -674,7 +676,7 @@ export function Messages({ router, mini, orgBound, headKey, threads, chatId, tur
             </div>
             {wfOpen ? wfEntries.map((e) => e.kind.kind === "agentMessage" ? (
               <div className="msg ai" key={e.key.itemId}>
-                <div className="who">Codex</div>
+                <div className="who">{ai}</div>
                 <div className="bubble" data-find="body">{e.text.kind === "value" ? <Markdown text={e.text.value} streaming={false} /> : <span className="muted">{BODY_MISSING}</span>}</div>
               </div>
             ) : (
@@ -730,7 +732,7 @@ export function Messages({ router, mini, orgBound, headKey, threads, chatId, tur
                 <Fragment key={e.key.itemId}>
                 {lead}
                 <div className="msg ai">
-                  <div className="who">Codex</div>
+                  <div className="who">{ai}</div>
                   <div className="bubble" data-find="body">{routerThinking ? <span className="muted">振り分けを考えています…</span> : e.text.kind !== "value" && !(t.end === null && e === lastAi) ? <span className="muted">{BODY_MISSING}</span> : (() => { const rep = orgBound && !(t.end === null && e === lastAi) ? parseOrgReport(text) : null; return rep ? <OrgReportView report={rep} raw={text} /> : <Markdown text={rText} streaming={t.end === null && e === lastAi} />; })()}</div>
                   {router && rtv ? <RouterTurnExtras tv={rtv} original={originalRequest(t.entries)} ctx={router} /> : null}
                   <div className="acts">{e.text.kind === "value" ? <CopyAct text={rText} /> : null}{mini || router ? null : <button onClick={() => onAct(`fork:${t.key.turnId}`)}><Icon name="branch" />ここから分岐</button>}
@@ -755,7 +757,7 @@ export function Messages({ router, mini, orgBound, headKey, threads, chatId, tur
       {extra}
       {gaps.map((r) => <RequestGapLine key={`gap:${r.key.source}/${r.key.requestId}`} r={r} guide={orgBound ? "org" : "plain"} />)}
       {reqs.map((r) => <RequestCard key={keyStr({ backend: r.key.backend, id: r.key.requestId })} r={r} onRespond={onRespond} agentName={agentName} />)}
-      {running && reqs.length === 0 ? <div className="msg ai"><div className="who">Codex</div><div className="activity">作業中…</div></div> : null}
+      {running && reqs.length === 0 ? <div className="msg ai"><div className="who">{ai}</div><div className="activity">作業中…</div></div> : null}
     </div>
     {away ? <button className="jump" onClick={toBottom}>最新へ</button> : null}
     </div>
@@ -1187,7 +1189,7 @@ function Composer({ p, running, lock, hu }: { p: CenterProps; running: boolean; 
                 <span>推論の強さ</span>
                 <select aria-label="推論の強さ" value={effort} onChange={(e) => pickEffort(e.target.value)}>{efforts.map((x) => <option key={x.id} value={x.id}>{effortLabel(x.id)}</option>)}</select>
               </label>}
-              <label>
+              {agy ? null : <label>
                 <span>速度 {stCap?.verification === "unverified" && speed ? <UnverifiedTag cap={stCap} /> : null}</span>
                 <select aria-label="速度" value={speed} disabled={tiers.length === 0}
                   title={tiers.length === 0 ? "このモデルが示す速度の選択肢はありません（Codex から取得した一覧）" : "次の送信から適用。実際に適用されたかは、受理済みの表示で確認します"}
@@ -1196,8 +1198,8 @@ function Composer({ p, running, lock, hu }: { p: CenterProps; running: boolean; 
                   <option value="default" title="標準の速度へ戻す指定を送ります（schemaが標準速度の値として示す default）。結果は受理済みの表示で確認してください">速度: 標準（default）</option>
                   {tiers.filter((t) => t.id !== "default").map((t) => <option key={t.id} value={t.id} title={t.description ?? undefined}>{t.name}</option>)}
                 </select>
-              </label>
-              {speed === "default" ? <div className="small muted">標準へ戻す指定を送ります。戻ったかは、送信後の受理済みの表示で確認してください（未確認）。</div> : null}
+              </label>}
+              {speed === "default" && !agy ? <div className="small muted">標準へ戻す指定を送ります。戻ったかは、送信後の受理済みの表示で確認してください（未確認）。</div> : null}
               {agy ? null : <label>
                 <span>計画／実行</span>
                 <select aria-label="計画／実行" value={wmSelected ?? ""} disabled={!wmUsable && wmSelected === null}
@@ -1207,9 +1209,11 @@ function Composer({ p, running, lock, hu }: { p: CenterProps; running: boolean; 
                   {wmOptions.map((m) => <option key={m.mode} value={m.mode} disabled={!wmUsable}>{m.label}</option>)}
                 </select>
               </label>}
-              <div className="small accfull" title={acceptTip}>{acceptLine}</div>
-              {wmLine ? <div className="small accfull" title="計画／実行は experimental の設定で、設定の更新通知を受け取るまで受理は確認できません。">{wmLine} <UnverifiedTag cap={wmCap} /></div> : null}
-              {speedKeptLine ? <div className="small why">{speedKeptLine}</div> : null}
+              {agy
+                ? <div className="small accfull">Antigravity（Gemini）のチャットです。添付・推論の強さ・速度・計画／実行・追加指示は使えません（出していません）。承認が必要な操作は自動で拒否されます。</div>
+                : <div className="small accfull" title={acceptTip}>{acceptLine}</div>}
+              {wmLine && !agy ?<div className="small accfull" title="計画／実行は experimental の設定で、設定の更新通知を受け取るまで受理は確認できません。">{wmLine} <UnverifiedTag cap={wmCap} /></div> : null}
+              {speedKeptLine && !agy ? <div className="small why">{speedKeptLine}</div> : null}
             </div>
           </Popover>
           <UsageChip local={p.local} settings={p.snap.settings.continuation} />
@@ -1353,6 +1357,7 @@ export function CenterPane(p: CenterProps) {
         // 実行中のturn（終端がない）に、依頼以外の出力が出ているか
         turnHasOutput: p.turns.some((t) => t.end === null && t.entries.some((e) => e.kind.kind !== "userMessage")),
         queue: queueCounts(snap.queues.find((q) => keyStr(q.chat) === keyStr(chat.key))?.entries),
+        ai: aiName(chat.key.backend),
       }} />
       <IntakeSection chat={chat.key} local={p.local} live />
       {p.orgInterject ? (

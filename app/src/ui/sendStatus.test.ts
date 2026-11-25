@@ -66,3 +66,11 @@ test("経過時間の表記", () => {
   assert.equal(formatElapsed(59_999), "59秒");
   assert.equal(formatElapsed(61_000), "1分01秒");
 });
+
+test("担当AIの表示名を渡すと状態文に使う（省略は Codex）", () => {
+  const run = (ai?: string) => sendStatusLines(input({ running: true, turnHasOutput: true, ...(ai ? { ai } : {}) }))[0].text;
+  assert.equal(run(), "処理中（Codex が作業しています）");
+  assert.equal(run("Gemini"), "処理中（Gemini が作業しています）");
+  assert.match(sendStatusLines(input({ running: true, turnHasOutput: false, ai: "Gemini" }))[0].text, /Gemini からの最初の返答/);
+  assert.match(sendStatusLines(input({ pending: [p({ phase: "awaitingAcceptance" })], ai: "Gemini" }))[0].text, /Gemini が受理するのを待っています/);
+});

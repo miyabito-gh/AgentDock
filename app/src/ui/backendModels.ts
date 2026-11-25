@@ -13,3 +13,7 @@ export function modelsForBackend(backend: BackendKind, codex: ModelInfo[], antig
 export function chatKeyOfId(chats: ReadonlyArray<{ key: ChatKey }>, id: string): ChatKey {
   return chats.find((c) => c.key.id === id)?.key ?? { backend: "codex", id };
 }
+
+/** 会話の発話者・状態文に出す担当AIの名前（Antigravity のチャットは Gemini。左一覧の「Gemini」の印と同じ語）。 */
+const AI_NAME: Record<BackendKind, string> = { codex: "Codex", antigravity: "Gemini" };
+export const aiName = (backend: BackendKind): string => AI_NAME[backend];

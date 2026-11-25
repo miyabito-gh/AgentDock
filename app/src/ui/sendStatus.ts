@@ -26,6 +26,8 @@ export interface StatusInput {
   /** 実行中のturnに、依頼以外の出力（返答・作業の記録）が出ているか。取れないとき（ドック）は null。 */
   turnHasOutput: boolean | null;
   queue: QueueCounts | null;
+  /** 担当AIの表示名（省略は Codex。Antigravity のチャットは Gemini）。 */
+  ai?: string;
 }
 
 export function queueCounts(entries: ReadonlyArray<{ state: { kind: string } }> | undefined): QueueCounts | null {
@@ -39,34 +41,35 @@ export function queueCounts(entries: ReadonlyArray<{ state: { kind: string } }> 
   return c.waiting + c.sending + c.unknown > 0 ? c : null;
 }
 
-function sendText(steer: boolean, phase: SendPhase | null): string {
+function sendText(steer: boolean, phase: SendPhase | null, ai: string): string {
   const what = steer ? "追加指示を送信しました" : "送信しました";
   switch (phase) {
     case "preparing": return `${what}（送信の準備をしています）`;
     case "resuming": return `${what}（会話を再開しています）`;
-    case "awaitingAcceptance": return `受理待ち（Codex が${steer ? "追加指示を" : ""}受理するのを待っています）`;
+    case "awaitingAcceptance": return `受理待ち（${ai} が${steer ? "追加指示を" : ""}受理するのを待っています）`;
     default: return `${what}（画面は入力を受け付けました。受理待ち）`;
   }
 }
 
 /** 表示する段階の一覧（上から重要な順。無ければ空）。 */
 export function sendStatusLines(i: StatusInput): StatusLine[] {
+  const ai = i.ai ?? "Codex";
   const out: StatusLine[] = [];
   for (const p of i.pending) {
     const o = p.outcome;
     if (o === null) {
-      out.push({ id: `send:${p.id}`, tone: "busy", text: sendText(p.steer, p.phase), since: p.startedAt, spin: true });
+      out.push({ id: `send:${p.id}`, tone: "busy", text: sendText(p.steer, p.phase, ai), since: p.startedAt, spin: true });
     } else if (o.kind === "unknown") {
       out.push({ id: `unknown:${p.id}`, tone: "warn", text: "受理を確認できません（再送していません。履歴との照合で確定します）", since: null, spin: false });
     } else if (o.kind === "accepted") {
-      if (p.steer) out.push({ id: `acc:${p.id}`, tone: "ok", text: "追加指示を Codex が受理しました（反映は会話の表示で確認してください）", since: null, spin: false });
+      if (p.steer) out.push({ id: `acc:${p.id}`, tone: "ok", text: `追加指示を ${ai} が受理しました（反映は会話の表示で確認してください）`, since: null, spin: false });
       else if (!i.running) out.push({ id: `acc:${p.id}`, tone: "busy", text: "受理されました（処理の開始を待っています）", since: null, spin: true });
     }
     // rejected・failed は会話内の「未送信」の行が理由と操作を持つ。ここには出さない。
   }
   if (i.running) {
-    if (i.turnHasOutput === false) out.push({ id: "wait-first", tone: "busy", text: "応答待ち（Codex からの最初の返答を待っています）", since: null, spin: true });
-    else out.push({ id: "working", tone: "busy", text: "処理中（Codex が作業しています）", since: null, spin: true });
+    if (i.turnHasOutput === false) out.push({ id: "wait-first", tone: "busy", text: `応答待ち（${ai} からの最初の返答を待っています）`, since: null, spin: true });
+    else out.push({ id: "working", tone: "busy", text: `処理中（${ai} が作業しています）`, since: null, spin: true });
   }
   const q = i.queue;
   if (q) {

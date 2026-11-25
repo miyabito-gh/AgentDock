@@ -659,10 +659,16 @@ export function Dialogs({ externalTools, modelDefault, cont, org, folderTools, w
         <OrgImportBody workflowId={d.workflowId} initialTasks={d.tasks} live={org.settings.live} onBack={() => org.go({ type: "orgArtifacts", workflowId: d.workflowId, task: d.tasks[0] ?? null })} onPush={(folder) => org.go({ type: "gitPush", folder })} onClose={onClose} />
       </Shell>);
     case "newChat": return (
-      <Shell title="新しいチャット" onClose={onClose} foot={<><button className="btn" onClick={onClose}>キャンセル</button><button className="btn primary" disabled={(kind === "dev" && !cwd.trim()) || creating || (provider === "antigravity" && !agyReady)} onClick={() => void createNewChat()}>{creating ? <><span className="spinner" aria-hidden="true" /> 作成中…</> : kind === "dev" && isolate ? "worktreeを作って開始" : "作成"}</button></>}>
+      <Shell title="新しいチャット" onClose={onClose} foot={<><button className="btn" onClick={onClose}>キャンセル</button><button className="btn primary" disabled={(kind === "dev" && !cwd.trim()) || creating || (provider === "antigravity" && !agyReady)} title={provider === "antigravity" && !agyReady ? "Antigravity（Gemini）が使えないため作成できません。担当AIを Codex に切り替えてください" : undefined} onClick={() => void createNewChat()}>{creating ? <><span className="spinner" aria-hidden="true" /> 作成中…</> : kind === "dev" && isolate ? "worktreeを作って開始" : "作成"}</button></>}>
         <div className="content">
           <div className="field"><span>担当AI</span><div><label><input type="radio" name="provider" checked={provider === "codex"} onChange={() => changeProvider("codex")} />Codex</label><br /><label><input type="radio" name="provider" checked={provider === "antigravity"} disabled={!agyReady && provider !== "antigravity"} onChange={() => changeProvider("antigravity")} />Antigravity（Gemini）</label>
-            {!agyReady ? <div className="small muted" role={provider === "antigravity" ? "alert" : undefined}>Antigravity（Gemini）は使えません: agy が見つからないか、モデル一覧を取得できていません。</div> : provider === "antigravity" ? <div className="small muted">承認が必要な操作は自動で拒否されます。追加の指示・添付には対応していません。</div> : null}</div></div>
+            {!agyReady ? (
+              <div className="small rwarn" role={provider === "antigravity" ? "alert" : undefined} style={{ marginTop: 4 }}>
+                <Icon name="alert" /> {pre?.routerDispatch && provider === "antigravity" ? "受付係の案は Antigravity（Gemini）でしたが、いまは使えません。" : "Antigravity（Gemini）は使えません。"}
+                モデル一覧を取得できていません（取得中、または agy が未導入・未ログイン・起動不可の可能性があります）。
+                {provider === "antigravity" ? <> Codex で作成できます。<button type="button" className="btn sm" style={{ marginLeft: 6 }} onClick={() => changeProvider("codex")}>Codex に切り替える</button></> : <> いまは Codex だけ選べます。</>}
+              </div>
+            ) : provider === "antigravity" ? <div className="small muted">承認が必要な操作は自動で拒否されます。追加の指示・添付には対応していません。</div> : null}</div></div>
           <div className="field"><span>作業フォルダ</span><div><label><input type="radio" name="k" checked={kind === "general"} onChange={() => setKind("general")} />指定しない（一般チャット）</label><br /><label><input type="radio" name="k" checked={kind === "dev"} onChange={() => setKind("dev")} />フォルダを指定する</label>
             {kind === "dev" && live && provider !== "antigravity" ? (
               <div style={{ marginTop: 4 }}>

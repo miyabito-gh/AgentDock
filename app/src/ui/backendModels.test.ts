@@ -1,7 +1,7 @@
 // 実行: node --test src/ui/backendModels.test.ts （tscの対象外）
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chatKeyOfId, modelsForBackend } from "./backendModels.ts";
+import { aiName, chatKeyOfId, modelsForBackend } from "./backendModels.ts";
 
 const m = (id: string, isDefault = false): any => ({ id, isDefault });
 
@@ -17,4 +17,9 @@ test("chatKeyOfId: 一覧のキー（antigravity を含む）を返し、無け�
   assert.deepEqual(chatKeyOfId(chats, "g1"), { backend: "antigravity", id: "g1" });
   assert.deepEqual(chatKeyOfId(chats, "c1"), { backend: "codex", id: "c1" });
   assert.deepEqual(chatKeyOfId(chats, "zz"), { backend: "codex", id: "zz" });
+});
+
+test("aiName: 会話に出す担当AIの名前。Antigravity は Gemini、それ以外は Codex", () => {
+  assert.equal(aiName("antigravity"), "Gemini");
+  assert.equal(aiName("codex"), "Codex");
 });

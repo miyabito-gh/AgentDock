@@ -1442,7 +1442,10 @@ html.pet-view,html.pet-view body,html.pet-view #root{background:transparent;over
 .row-chat.router-row.quiet .nm{font-size:var(--fs-s)}
 .rextra{display:flex;flex-direction:column;gap:6px;margin:6px 0 2px;min-width:0}
 .rcard{border:1px solid var(--card-line);border-left:3px solid var(--accent);border-radius:var(--r2);background:var(--surface);padding:8px 10px;display:flex;flex-direction:column;gap:6px;min-width:0;overflow-wrap:anywhere}
-.rcard-h{display:flex;align-items:center;gap:6px;min-width:0}
+.rcard-h{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;min-width:0}
+.rcard-h .tag{flex:none}
+.rcard .rline{display:flex;flex-wrap:wrap;align-items:center;gap:2px 8px}
+.rcard .rline .st{margin-left:0}
 .rcard textarea{border:1px solid var(--line-strong);border-radius:var(--r1);background:var(--surface);resize:vertical;min-height:56px;max-height:200px;padding:4px 8px}
 .rcard-acts{display:flex;flex-wrap:wrap;gap:6px}
 .rcard.folded{flex-direction:row;align-items:center;gap:8px;padding:4px 10px;border-left-color:var(--done);font-size:var(--fs-s)}

@@ -560,6 +560,7 @@ impl Host {
             let Some((queue, entry)) = queue.and_then(|q| q.entries.iter().find(|e| &e.id == queue_entry).map(|e| (q, e))) else {
                 return (None, Some("キュー記録を照合できません".into()));
             };
+            // 結果文の先頭の語は、画面（ui/router.ts の resultChip）が状態の印（完了・失敗・受理不明など）を引く手がかり。文言を変えるときは合わせる。
             match &entry.state {
                 QueueEntryState::Sent { turn } => (Some(turn.clone()), Some("担当が受理しました。完了を照合中です".into())),
                 QueueEntryState::NotAccepted { message, .. } => (None, Some(format!("送信失敗: {message}"))),
@@ -610,6 +611,7 @@ impl Host {
             };
             let Ok(history) = history else { continue };
             let Some(record) = history.turns.iter().find(|r| r.key == turn && r.complete) else { continue };
+            // 先頭の語（担当完了／担当の実行が失敗／担当の実行が中断）は、画面（ui/router.ts の resultChip）が状態の印を引く手がかり。保存済みの記録にも残るので、文言を変えるときは画面側も合わせる。
             let result = match record.end {
                 Some(TurnEnd::Completed) => match facts_of(record).final_text {
                     Some(text) => format!("担当完了\n{text}"),

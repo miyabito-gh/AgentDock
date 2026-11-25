@@ -7,7 +7,8 @@ import type { Chat, ChatKey, ChatLocalView, DispatchView, RouterView, RouterTurn
 import { askConfirm } from "./appConfirm";
 import { chatName, sortChats } from "./derive";
 import { knownValue } from "./format";
-import { baseText, canToggleOriginal, dispatchesOfTurn, foldedLine, noticeView, pickableChats, targetLabel } from "./router";
+import { baseText, canToggleOriginal, chipNeedsAttention, dispatchChip, dispatchesOfTurn, foldedLine, noticeView, pickableChats, proposedProvider, providerLabel, resultBody, targetLabel } from "./router";
+import { Icon } from "./Icon";
 
 const errText = (e: unknown) => host.asIpcError(e).message;
 
@@ -82,14 +83,18 @@ function DispatchCard({ d, original, ctx }: { d: DispatchView; original: string 
   const folded = foldedLine(d);
   if (folded) {
     const key = d.target.chat;
+    // 状態は色だけでなく、形＋文字の印（.st）でも示す。失敗・受理不明・要確認は枠も警告色（緑の「送りました」に埋もれさせない）
+    const chip = dispatchChip(d);
+    const kind = chipNeedsAttention(chip) ? "warn" : folded.kind;
     return (
-      <div className={`rcard folded ${folded.kind}`}>
-        <div className="grow"><div>{folded.text}</div>{d.executionResult && <div style={{ whiteSpace: "pre-wrap" }}>{d.executionResult}</div>}<small>受付 {d.requestId ?? d.sourceTurn} ／ 振り分け {d.id}{d.executionTurn && ` ／ 担当 ${d.executionTurn}`}</small></div>
+      <div className={`rcard folded ${kind}`}>
+        <div className="grow"><div className="rline">{chip ? <span className={`st ${chip.tone}`}><Icon name={chip.icon} />{chip.label}</span> : null}<span>{folded.text}</span></div>{d.executionResult && <div style={{ whiteSpace: "pre-wrap" }}>{resultBody(d.executionResult)}</div>}<small>受付 {d.requestId ?? d.sourceTurn} ／ 振り分け {d.id}{d.executionTurn && ` ／ 担当 ${d.executionTurn}`}</small></div>
         {folded.canOpen && key ? <button type="button" className="btn sm" onClick={() => ctx.openChat(key)}>開く</button> : null}
       </div>
     );
   }
   const isNew = d.target.kind === "new" && d.target.chat === null;
+  const provider = proposedProvider(d);
   const p = d.proposal;
   const empty = !text.trim();
   const toggle = (next: boolean) => { setUseOrig(next); setText(baseText(d, next, original)); };
@@ -108,7 +113,7 @@ function DispatchCard({ d, original, ctx }: { d: DispatchView; original: string 
   };
   return (
     <div className="rcard">
-      <div className="rcard-h"><span className="tag ai">{isNew ? "新規" : "送り先"}</span><b className="grow nm">{targetLabel(d)}</b></div>
+      <div className="rcard-h"><span className="tag ai">{isNew ? "新規" : "送り先"}</span><b className="grow nm">{targetLabel(d)}</b>{provider ? <span className="tag" title="このチャットを担当するAI">AI: {providerLabel(provider)}</span> : null}</div>
       <small className="muted">受付 {d.requestId ?? d.sourceTurn} ／ 振り分け {d.id}{d.target.chat && ` ／ 送り先ID ${d.target.chat.id}`}</small>
       {p?.reason ? <div className="small muted">{p.reason}</div> : null}
       {p?.confidence === "low" ? <div className="small rwarn">この案はあまり自信がありません。送り先をよく確認してください。</div> : null}
