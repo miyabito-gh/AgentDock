@@ -1,5 +1,11 @@
 ﻿# 保全状況
 
+## 2026-11-26 インストーラー手順書の旧パス修正
+
+- `app/INSTALLER_BUILD.md` の起動コマンドが旧フォルダ `AgentDock_next` を指していたため、現在の `C:\Users\wmasa\Documents\Rust\AgentDock` に修正。ドキュメントのみの変更で、製品コードは変更していない。push なし。
+- 同じパスの NSIS インストーラーが 2026-11-26 06:38 の別ビルドに置き換わっていたため、作成記録の値（2026-10-24）には旧値である旨と現在の値を併記した。現在のファイルの内容・ソースHEADは未確認。インストーラーは起動していない。
+- 他の文書の旧パス参照（`app/verification/visual-editor/Run-NativeProbe.ps1`、`docs/archive/`、`probes/` 配下の記録）は、今回の依頼範囲外のため未修正。判断待ち。
+
 ## 2026-11-26 Antigravity（agy）プロバイダの追加
 
 - ブランチ `feature/antigravity-provider`（基点 `19f046d` = `feature/reception-flow`、origin に push 済みの地点）。コミットはローカルのみで push なし。`feature/reception-flow` は origin へ push 済み（上流設定、リモート参照 `19f046d` で一致を確認）。
