@@ -178,6 +178,12 @@ pub struct RouterRecord {
     /// 受付係の返答の解析結果（新しい順、最大 [`ROUTER_TURNS_MAX`] 件）。再起動後も画面が描き直せるように残す。
     #[serde(default)]
     pub turns: Vec<RouterTurnRecord>,
+    #[serde(default)]
+    pub request_ids: std::collections::BTreeMap<String, String>,
+    #[serde(default)]
+    pub dispatch_turns: std::collections::BTreeMap<String, crate::backend::model::TurnKey>,
+    #[serde(default)]
+    pub dispatch_results: std::collections::BTreeMap<String, String>,
 }
 
 /// 送った一覧の連番とチャットの対応を残す件数の上限。

@@ -8,7 +8,7 @@ export type DispatchView = { id: LocalId,
 /**
  * どの返答（turn）から出た案か。
  */
-sourceTurn: string, routeIndex: number, target: DispatchTarget, suggested: DispatchTarget, state: DispatchState, reported: boolean, 
+sourceTurn: string, requestId: string | null, executionTurn: string | null, executionResult: string | null, routeIndex: number, target: DispatchTarget, suggested: DispatchTarget, state: DispatchState, reported: boolean,
 /**
  * 送り先チャットの今の名前（新規で未作成なら None）。
  */

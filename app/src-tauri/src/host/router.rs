@@ -2,7 +2,7 @@
 //!
 //! 守ること:
 //! - **AIは決めるだけ、実行はアプリ**。受付係の返答（構造化出力）は純関数（`rules::router`）で検査し、通ったものだけを
-//!   カード（`Proposed`）とルール帳の更新にする。振り分けの送信は利用者が［送る］を押したとき（`router_dispatch`）だけ。
+//!   カード（`Proposed`）にする。自動送信の条件は利用者指定の既存先と分類結果が一致すること。ルール帳の編集は利用者操作で行う。
 //! - 受付係への資料の「届いた記録」は、送信が `Accepted` になったときだけ書く。受理不明・拒否・送れなかったときは書かない。
 //!   切断・受理不明で自動再送しない（振り分けも `Proposed` のまま、または `Unconfirmed` で止める）。
 //! - 利用者の送信と同じ経路（`send_message_with`、`SendAuth::User`）で送る。組織実行の所有チャット・アーカイブ・引き継ぎ済みへは送らない。
@@ -481,7 +481,7 @@ impl Host {
     // ───────────── 読取り ─────────────
 
     /// カード1枚分の写し（送り先の今の名前・実行中・使えない理由を添える）。
-    fn dispatch_view(&self, d: &Dispatch) -> DispatchView {
+    fn dispatch_view(&self, rec: &RouterRecord, d: &Dispatch) -> DispatchView {
         let title_of = |t: &DispatchTarget| -> Option<String> {
             let chat = match t {
                 DispatchTarget::Existing { chat } => chat.clone(),
@@ -501,7 +501,11 @@ impl Host {
             }
             DispatchTarget::New { .. } => (false, None),
         };
+        let (queue_turn, queue_status) = self.dispatch_queue_status(d);
         DispatchView {
+            request_id: rec.request_ids.get(&d.source_turn).cloned(),
+            execution_turn: queue_turn.as_ref().or_else(|| rec.dispatch_turns.get(&d.id.0)).map(|t| t.turn_id.0.clone()),
+            execution_result: rec.dispatch_results.get(&d.id.0).cloned().or(queue_status),
             id: d.id.clone(),
             source_turn: d.source_turn.clone(),
             route_index: d.route_index,
@@ -542,7 +546,88 @@ impl Host {
                     .collect(),
             })
             .collect();
-        Ok(Some(RouterView { chat, rules_warning: self.rules_warning(), rules_revision: rules.revision, dispatches: rec.dispatches.iter().map(|d| self.dispatch_view(d)).collect(), turns }))
+        Ok(Some(RouterView { chat, rules_warning: self.rules_warning(), rules_revision: rules.revision, dispatches: rec.dispatches.iter().map(|d| self.dispatch_view(&rec, d)).collect(), turns }))
+    }
+
+    fn dispatch_queue_status(&self, d: &Dispatch) -> (Option<TurnKey>, Option<String>) {
+        use crate::backend::local::{QueueEntryState, QueueRun};
+        let (DispatchState::Queued { queue_entry, .. }, DispatchTarget::Existing { chat }) = (&d.state, &d.target) else {
+            return (None, None);
+        };
+        self.read(|data| {
+            let queue = data.queues.get(chat).map(|f| &f.queue);
+            let Some((queue, entry)) = queue.and_then(|q| q.entries.iter().find(|e| &e.id == queue_entry).map(|e| (q, e))) else {
+                return (None, Some("キュー記録を照合できません".into()));
+            };
+            match &entry.state {
+                QueueEntryState::Sent { turn } => (Some(turn.clone()), Some("担当が受理しました。完了を照合中です".into())),
+                QueueEntryState::NotAccepted { message, .. } => (None, Some(format!("送信失敗: {message}"))),
+                QueueEntryState::Cancelled => (None, Some("キューで取り消されました".into())),
+                QueueEntryState::AcceptanceUnknown { .. } => (None, Some("担当への受理を照合中です".into())),
+                QueueEntryState::Sending { .. } => (None, Some("担当へ送信中です".into())),
+                QueueEntryState::Waiting if queue.run != QueueRun::Active => (None, Some("キューは停止中です。担当チャットで詳細を確認してください".into())),
+                QueueEntryState::Waiting => (None, None),
+            }
+        })
+    }
+
+    /// 保存済みの対応IDだけで履歴を照合する。受付の復旧から新しい送信はしない。
+    pub async fn router_refresh(self: &Arc<Self>) -> Result<Option<RouterView>, IpcError> {
+        let Some(chat) = self.router_head() else { return Ok(None) };
+        let Some(rec) = self.router_record(&chat) else { return Ok(None) };
+        if self.is_connected() && rec.catalogs.iter().any(|c| !rec.request_ids.values().any(|id| id == &c.client_message_id) && !self.router_rt.pending.lock().unwrap().iter().any(|p| p.client_message_id == c.client_message_id)) {
+            if let Ok(history) = self.read_history(agent_key_of(&chat), ReadOptions { include_turns: true }).await {
+                for turn in history.turns.iter().filter(|t| t.complete && t.end == Some(TurnEnd::Completed)) {
+                    let facts = facts_of(turn);
+                    if let (Some(input), Some(output)) = (
+                        facts.user_texts.iter().find(|text| router_request_id(text).is_some_and(|id| rec.catalogs.iter().any(|c| c.client_message_id == id) && !self.router_rt.pending.lock().unwrap().iter().any(|p| p.client_message_id == id))),
+                        facts.final_text.as_deref(),
+                    ) {
+                        let key = (chat.clone(), turn.key.turn_id.0.clone());
+                        if self.router_rt.processing.lock().unwrap().insert(key.clone()) {
+                            let _guard = ProcessingGuard { rt: &self.router_rt, key };
+                            self.router_apply_reply(&chat, &turn.key.turn_id.0, input, output, false).await;
+                        }
+                    }
+                }
+            }
+        }
+        let mut changed = false;
+        let mut histories = HashMap::new();
+        for d in &rec.dispatches {
+            if rec.dispatch_results.contains_key(&d.id.0) {
+                continue;
+            }
+            let (queue_turn, _) = self.dispatch_queue_status(d);
+            let Some(turn) = queue_turn.or_else(|| rec.dispatch_turns.get(&d.id.0).cloned()) else { continue };
+            let history = match histories.entry(turn.agent.clone()) {
+                std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
+                std::collections::hash_map::Entry::Vacant(e) => {
+                    let fetched = self.read_history(turn.agent.clone(), ReadOptions { include_turns: true }).await;
+                    e.insert(fetched)
+                }
+            };
+            let Ok(history) = history else { continue };
+            let Some(record) = history.turns.iter().find(|r| r.key == turn && r.complete) else { continue };
+            let result = match record.end {
+                Some(TurnEnd::Completed) => match facts_of(record).final_text {
+                    Some(text) => format!("担当完了\n{text}"),
+                    None => "担当完了（最終回答の記録なし）".into(),
+                },
+                Some(TurnEnd::Failed) => "担当の実行が失敗しました".into(),
+                Some(TurnEnd::Interrupted) => "担当の実行が中断されました".into(),
+                None => continue,
+            };
+            self.update_router(&chat, |r| {
+                r.dispatch_turns.insert(d.id.0.clone(), turn);
+                r.dispatch_results.insert(d.id.0.clone(), result);
+            });
+            changed = true;
+        }
+        if changed && !self.save_router(&chat).await {
+            self.warn("担当の結果を保存できませんでした");
+        }
+        self.router_get()
     }
 
     // ───────────── 受付係への送信 ─────────────
@@ -578,8 +663,9 @@ impl Host {
                 DispatchTarget::New { chat: None } => "新規チャット".to_string(),
             }
         };
-        let env = compose_router_envelope(&rec, &catalog, &rules, &label, &args.text);
-        let cm = self.local_id("cm").0;
+        let mut env = compose_router_envelope(&rec, &catalog, &rules, &label, &args.text);
+        let cm = self.local_id("reception").0;
+        env.text = stamp_router_request(&env.text, &cm);
         // 一覧の連番とチャットの対応を、送る前に保存する（返答の解析に使う）。保存できなければ送らない。
         let sent_catalog = catalog.to_sent(&cm, now);
         self.update_router(&chat, |r| r.push_catalog(sent_catalog));
@@ -642,6 +728,15 @@ impl Host {
     /// turn の終端を観測したとき（待たない・送らない）。受付係の完了した turn なら、履歴を読んで返答を処理する。
     pub(in crate::host) fn router_observe_event(self: &Arc<Self>, event: &BackendEvent) {
         let BackendEvent::TurnEnded { turn, end, .. } = event else { return };
+        let target = ChatKey { backend: turn.agent.backend, id: turn.agent.id.clone() };
+        if let Some(router) = self.router_head() {
+            if self.router_record(&router).is_some_and(|r| r.dispatches.iter().any(|d| match &d.target {
+                DispatchTarget::Existing { chat } | DispatchTarget::New { chat: Some(chat) } => chat == &target,
+                _ => false,
+            })) {
+                self.emit_router(&router);
+            }
+        }
         if *end != TurnEnd::Completed {
             return;
         }
@@ -676,54 +771,72 @@ impl Host {
         let facts = facts_of(turn);
         let Some(sent_text) = facts.user_texts.iter().find(|u| router_turn_user_text(u).is_some()) else { return };
         let Some(final_text) = facts.final_text.as_deref() else { return };
-        self.router_apply_reply(&chat, &turn_id, sent_text, final_text).await;
+        let live_request = router_request_id(sent_text).is_some_and(|id| {
+            self.router_rt.pending.lock().unwrap().iter().any(|p| p.chat == chat && p.client_message_id == id && p.full_text.trim() == sent_text.trim())
+        });
+        self.router_apply_reply(&chat, &turn_id, sent_text, final_text, live_request).await;
     }
 
     /// 受付係の返答（最終回答）を処理する。`sent_text` はその turn の利用者の発言（資料つきの送信全体）。
-    /// 一覧の対応は、turn または本文が一致する送信のもの。見つからなければ最も新しい送信の一覧を使う。
-    pub(super) async fn router_apply_reply(self: &Arc<Self>, chat: &ChatKey, turn_id: &str, sent_text: &str, final_text: &str) {
+    /// 送信時の受付依頼IDに一致する候補一覧を使う。旧形式は同じプロセス内の対応記録だけを使う。
+    pub(super) async fn router_apply_reply(self: &Arc<Self>, chat: &ChatKey, turn_id: &str, sent_text: &str, final_text: &str, allow_auto: bool) {
         let Some(rec) = self.router_record(chat) else { return };
-        if rec.turns.iter().any(|t| t.turn == turn_id) {
+        if rec.turns.iter().any(|t| t.turn == turn_id)
+            || router_request_id(sent_text).is_some_and(|id| rec.request_ids.values().any(|used| used == id))
+        {
             return;
         }
         let user_text = router_turn_user_text(sent_text).unwrap_or_default().to_string();
-        let cm = self
+        let cm = router_request_id(sent_text).map(str::to_owned).or_else(|| self
             .router_rt
             .pending
             .lock()
             .unwrap()
             .iter()
             .find(|p| &p.chat == chat && (p.turn.as_deref() == Some(turn_id) || p.full_text.trim() == sent_text.trim()))
-            .map(|p| p.client_message_id.clone());
+            .map(|p| p.client_message_id.clone()));
         let sent = cm
             .as_deref()
             .and_then(|cm| rec.catalogs.iter().find(|c| c.client_message_id == cm))
-            .or_else(|| rec.catalogs.first())
             .cloned()
             .unwrap_or(SentCatalog { client_message_id: String::new(), entries: Vec::new(), at: now_ms() });
         let now = now_ms();
+        let mut auto = None;
+        let matched = !sent.client_message_id.is_empty();
 
         let turn_rec = match parse_router_reply(final_text) {
             Err(e) => RouterTurnRecord { turn: turn_id.to_string(), reply: None, parse_error: Some(e.message()), route_rejects: Vec::new(), notices: Vec::new() },
             Ok(reply) => {
                 let folders = self.existing_chat_folders();
                 let mut interpreted = {
-                    let (guard, rules, writable) = self.lock_rules();
+                    let (guard, rules, _) = self.lock_rules();
                     let mut new_id = || self.local_id("disp");
                     let state_of = |k: &ChatKey| self.route_state(k);
                     let title_of = |k: &ChatKey| self.chat_title(k);
                     let mut out = interpret_reply(&reply, turn_id, &sent, &user_text, &rules, &state_of, &title_of, &folders, &mut new_id, now);
-                    if let Some(next) = &out.rules {
-                        let written = if writable { self.write_rules(next) } else { Err("ルール帳を書ける状態ではありません".to_string()) };
-                        if let Err(reason) = written {
-                            out.rules = None;
-                            downgrade_notices(&mut out.notices, &reason);
-                        }
+                    if out.rules.take().is_some() {
+                        downgrade_notices(&mut out.notices, "ルール帳で明示的に登録してください");
+                    }
+                    if !matched {
+                        out.dispatches.clear();
+                        out.route_rejects.push("受付依頼IDと候補一覧を照合できませんでした".into());
                     }
                     drop(guard);
                     out
                 };
                 let dispatches = std::mem::take(&mut interpreted.dispatches);
+                // 自動送信は利用者が本文の先頭で指定した既存先と分類が一致した場合だけ。
+                if allow_auto && self.router_head().as_ref() == Some(chat)
+                    && dispatches.len() == 1 && interpreted.route_rejects.is_empty() && reply.rule_changes.is_empty()
+                {
+                    let d = &dispatches[0];
+                    if let (DispatchTarget::Existing { chat: target }, Some(p)) = (&d.target, &d.proposal) {
+                        let requested = automatic_target_id(&user_text);
+                        if requested == Some(target.id.0.as_str()) && p.confidence == "high" && !p.text_is_original {
+                            auto = Some((d.id.clone(), target.clone(), p.text.clone()));
+                        }
+                    }
+                }
                 // 新しい順に並ぶよう、案の並びの逆から足す。
                 self.update_router(chat, |r| {
                     for d in dispatches.into_iter().rev() {
@@ -733,10 +846,31 @@ impl Host {
                 RouterTurnRecord { turn: turn_id.to_string(), reply: Some(reply.reply), parse_error: None, route_rejects: interpreted.route_rejects, notices: interpreted.notices }
             }
         };
-        self.update_router(chat, |r| r.push_turn(turn_rec));
+        self.update_router(chat, |r| {
+            if matched {
+                r.request_ids.insert(turn_id.to_string(), sent.client_message_id.clone());
+            }
+            r.push_turn(turn_rec);
+        });
         if !self.save_router(chat).await {
             self.warn("受付係の返答の解析結果を保存できませんでした（画面には残っています）");
+        } else if let Some((id, target, text)) = auto {
+            let acquired = self.router_rt.dispatching.lock().unwrap().insert(id.clone());
+            if acquired {
+                let _guard = DispatchGuard { rt: &self.router_rt, id: id.clone() };
+                if self.find_dispatch(&id).is_some_and(|(_, d)| matches!(d.state, DispatchState::Proposed)) {
+                    if let Err(e) = self.router_enqueue(chat, &id, target, text).await {
+                        self.update_router(chat, |rec| {
+                            if let Some(turn) = rec.turns.iter_mut().find(|t| t.turn == turn_id) {
+                                turn.route_rejects.push(format!("自動送信を保留しました: {}", e.message));
+                            }
+                        });
+                        self.save_router(chat).await;
+                    }
+                }
+            }
         }
+        if let Some(cm) = cm { self.forget_pending(&cm); }
         self.emit_router(chat);
     }
 
@@ -760,7 +894,7 @@ impl Host {
     }
 
     fn dispatch_view_of(&self, id: &LocalId) -> Result<DispatchView, IpcError> {
-        self.find_dispatch(id).map(|(_, d)| self.dispatch_view(&d)).ok_or_else(|| err(IpcErrorCode::NotFound, "振り分けの記録が見つかりません"))
+        self.find_dispatch(id).and_then(|(chat, d)| self.router_record(&chat).map(|rec| self.dispatch_view(&rec, &d))).ok_or_else(|| err(IpcErrorCode::NotFound, "振り分けの記録が見つかりません"))
     }
 
     /// カードの［送る］。送り先を送る直前に再検査し、利用者の送信（`SendAuth::User`）として1回だけ送る。
@@ -803,20 +937,11 @@ impl Host {
             ChatRouteState::OrgOwned => return Err(blocked(BlockedReason::OrgOwned, RouteReject::Unavailable(ChatRouteState::OrgOwned).message())),
             s => return Err(err(IpcErrorCode::InvalidArgs, RouteReject::Unavailable(s).message())),
         }
-        let running = self.read(|data| data.root_view(&target).is_some_and(|v| matches!(v.status.state, AgentState::Running | AgentState::Waiting | AgentState::Initializing)));
-        // 実行中の送り先へ intent 指定なしで送るときは順番待ち（完了後に送る）に入れる。別件の依頼を実行中の turn へ差し込まない。追加指示は明示されたときだけ。
-        if running && args.intent.is_none() {
-            let entry = self.enqueue(EnqueueArgs { chat: target.clone(), text: args.text, attachments: Vec::new() })?;
-            let at = now_ms();
-            self.set_dispatch(&router, &args.dispatch_id, |d| {
-                d.target = DispatchTarget::Existing { chat: target };
-                d.state = DispatchState::Queued { at, queue_entry: entry.id };
-            });
-            if !self.save_router(&router).await {
-                self.warn("振り分けの結果を保存できませんでした（画面には残っています）");
+        if args.intent.is_none() {
+            if !self.is_connected() {
+                return Err(err(IpcErrorCode::InvalidArgs, "AIに接続してから送ってください"));
             }
-            self.emit_router(&router);
-            return self.dispatch_view_of(&args.dispatch_id);
+            return self.router_enqueue(&router, &args.dispatch_id, target, args.text).await;
         }
         let intent = args.intent.unwrap_or(SendIntent::NewTurn);
         let cm = self.local_id("cm").0;
@@ -830,11 +955,47 @@ impl Host {
         self.router_settle_dispatch(&router, &args.dispatch_id, DispatchTarget::Existing { chat: target }, &sent).await
     }
 
+    async fn router_enqueue(self: &Arc<Self>, router: &ChatKey, id: &LocalId, target: ChatKey, text: String) -> Result<DispatchView, IpcError> {
+        if self.route_state(&target) != ChatRouteState::Available {
+            return Err(err(IpcErrorCode::InvalidArgs, "送り先を利用できません"));
+        }
+        let entry = self.local_id("q");
+        self.set_dispatch(router, id, |d| {
+            d.target = DispatchTarget::Existing { chat: target.clone() };
+            d.state = DispatchState::Queued { at: now_ms(), queue_entry: entry.clone() };
+        });
+        if !self.save_router(router).await {
+            self.emit_router(router);
+            return Err(err(IpcErrorCode::Io, "振り分けを保存できないためキューに登録していません"));
+        }
+        let result = if self.route_state(&target) == ChatRouteState::Available {
+            self.enqueue_with_id(EnqueueArgs { chat: target, text, attachments: Vec::new() }, entry)
+        } else {
+            Err(err(IpcErrorCode::InvalidArgs, "送り先を利用できなくなりました"))
+        };
+        if let Err(e) = &result {
+            self.update_router(router, |rec| {
+                rec.dispatch_results.insert(id.0.clone(), format!("キュー登録失敗: {}", e.message));
+            });
+            if !self.save_router(router).await {
+                self.warn("キュー登録失敗の記録を保存できませんでした");
+            }
+        }
+        self.emit_router(router);
+        result?;
+        self.dispatch_view_of(id)
+    }
+
     /// 送信の結果をカードへ反映する。受理を確認したら `Sent`、受理不明なら `Unconfirmed`、受理されなければ「提案」のままエラー。
     pub(super) async fn router_settle_dispatch(self: &Arc<Self>, router: &ChatKey, id: &LocalId, target: DispatchTarget, attempt: &SendAttempt) -> Result<DispatchView, IpcError> {
         match dispatch_outcome(&attempt.state, &attempt.client_message_id, attempt.at) {
             DispatchOutcome::NotSent(message) => Err(err(IpcErrorCode::Rejected, message)),
             DispatchOutcome::Sent(state) | DispatchOutcome::Unconfirmed(state) => {
+                if let SendState::Accepted { turn } = &attempt.state {
+                    self.update_router(router, |rec| {
+                        rec.dispatch_turns.insert(id.0.clone(), turn.clone());
+                    });
+                }
                 self.set_dispatch(router, id, |d| {
                     d.target = target;
                     d.state = state;
@@ -891,6 +1052,10 @@ impl Host {
 
     /// ［見送る］。送っていない案だけ。
     pub async fn router_dismiss(self: &Arc<Self>, args: RouterDispatchIdArgs) -> Result<DispatchView, IpcError> {
+        if !self.router_rt.dispatching.lock().unwrap().insert(args.dispatch_id.clone()) {
+            return Err(err(IpcErrorCode::InvalidArgs, "この振り分けは送信中です"));
+        }
+        let _guard = DispatchGuard { rt: &self.router_rt, id: args.dispatch_id.clone() };
         let Some((router, d)) = self.find_dispatch(&args.dispatch_id) else {
             return Err(err(IpcErrorCode::NotFound, "振り分けの記録が見つかりません"));
         };
@@ -1112,7 +1277,7 @@ mod tests {
     // ── 返答の処理 ──
 
     #[tokio::test]
-    async fn a_completed_reply_makes_proposed_cards_and_writes_rules_with_a_notice() {
+    async fn a_completed_reply_makes_proposed_cards_and_requires_explicit_rule_edit() {
         let (host, r, a) = host_with_router("reply");
         host.update_router(&r, |rec| rec.push_catalog(sent_catalog("cm1", &[("c1", &a)])));
         let user = "定例会議の議事録は、今後は週次議事録へ送って";
@@ -1120,7 +1285,7 @@ mod tests {
             &format!("{},{}", route("c1", "議事録の依頼です"), route("c9", "存在しない")),
             r#"{"op":"add","ruleId":null,"text":"定例会議の議事録 → 週次議事録","target":"c1","newFolder":null,"quote":"今後は週次議事録へ送って"},{"op":"add","ruleId":null,"text":"x","target":null,"newFolder":null,"quote":"本文にない引用です"}"#,
         );
-        host.router_apply_reply(&r, "t1", &envelope_for(user), &json).await;
+        host.router_apply_reply(&r, "t1", &stamp_router_request(&envelope_for(user), "cm1"), &json, false).await;
 
         let rec = host.router_record(&r).unwrap();
         assert_eq!(rec.dispatches.len(), 1, "連番c9は案にしない");
@@ -1130,17 +1295,16 @@ mod tests {
         let t = &rec.turns[0];
         assert_eq!((t.reply.as_deref(), t.route_rejects.len()), (Some("了解です"), 1));
         assert_eq!(t.notices.len(), 2);
-        assert_eq!(t.notices[0].revision, Some(1));
-        assert!(t.notices[0].text.starts_with("ルールを更新"));
+        assert_eq!(t.notices[0].revision, None);
+        assert!(t.notices[0].text.contains("明示的に登録"));
         assert!(t.notices[1].revision.is_none() && t.notices[1].text.starts_with("ルールは更新していません"), "{:?}", t.notices[1]);
 
         let rules = host.router_rules().unwrap();
-        assert_eq!((rules.revision, rules.rules.len()), (1, 1));
-        let bytes = std::fs::read(host.rules_path()).unwrap();
-        assert_eq!(parse_rules_file(&bytes).unwrap().rules[0].text, "定例会議の議事録 → 週次議事録");
+        assert_eq!((rules.revision, rules.rules.len()), (0, 0));
+        assert!(!host.rules_path().exists());
 
         // 同じ turn をもう一度処理しても増えない
-        host.router_apply_reply(&r, "t1", &envelope_for(user), &json).await;
+        host.router_apply_reply(&r, "t1", &stamp_router_request(&envelope_for(user), "cm1"), &json, false).await;
         assert_eq!(host.router_record(&r).unwrap().dispatches.len(), 1);
         let view = host.router_get().unwrap().unwrap();
         assert_eq!((view.dispatches.len(), view.turns.len(), view.turns[0].notices[0].undone), (1, 1, false));
@@ -1151,7 +1315,7 @@ mod tests {
     async fn an_unreadable_reply_makes_no_cards_and_no_rule_writes() {
         let (host, r, a) = host_with_router("badreply");
         host.update_router(&r, |rec| rec.push_catalog(sent_catalog("cm1", &[("c1", &a)])));
-        host.router_apply_reply(&r, "t1", &envelope_for("x"), "これはJSONではありません").await;
+        host.router_apply_reply(&r, "t1", &envelope_for("x"), "これはJSONではありません", false).await;
         let rec = host.router_record(&r).unwrap();
         assert!(rec.dispatches.is_empty());
         assert!(rec.turns[0].reply.is_none() && rec.turns[0].parse_error.is_some());
@@ -1170,8 +1334,40 @@ mod tests {
         });
         let text = envelope_for("依頼");
         host.remember_pending(PendingSend { chat: r.clone(), client_message_id: "cm1".into(), full_text: text.clone(), turn: None });
-        host.router_apply_reply(&r, "t1", &text, &reply_json(&route("c1", "本文"), "")).await;
+        host.router_apply_reply(&r, "t1", &text, &reply_json(&route("c1", "本文"), ""), false).await;
         assert_eq!(host.router_record(&r).unwrap().dispatches[0].target, DispatchTarget::Existing { chat: a });
+    }
+
+    #[tokio::test]
+    async fn explicitly_addressed_reception_queues_once_and_recovery_does_not_send() {
+        let (host, r, a) = host_with_router("auto-dispatch");
+        let root = host.app_data_dir.clone();
+        host.update_router(&r, |rec| {
+            rec.push_catalog(sent_catalog("live", &[("c1", &a)]));
+            rec.push_catalog(sent_catalog("recovered", &[("c1", &a)]));
+        });
+        let input = envelope_for("自動送信: a\n週次の議事録をまとめて");
+        let live = stamp_router_request(&input, "live");
+        let recovered = stamp_router_request(&input, "recovered");
+        let route = r#"{"target":"c1","newChat":null,"text":"週次議事録の要約を作成してください。","textIsOriginal":false,"reason":"週次議事録担当","confidence":"high"}"#;
+        let reply = reply_json(route, "");
+        host.router_apply_reply(&r, "t-live", &live, &reply, true).await;
+        host.router_apply_reply(&r, "t-live", &live, &reply, true).await;
+        host.router_apply_reply(&r, "t-recovered", &recovered, &reply, false).await;
+        let view = host.router_get().unwrap().unwrap();
+        assert_eq!(view.dispatches.len(), 2);
+        assert!(matches!(view.dispatches[0].state, DispatchState::Proposed));
+        assert_eq!(view.dispatches[0].request_id.as_deref(), Some("recovered"));
+        let DispatchState::Queued { queue_entry, .. } = &view.dispatches[1].state else { panic!("自動送信はキューに登録される") };
+        assert_eq!(view.dispatches[1].request_id.as_deref(), Some("live"));
+        host.read(|data| {
+            let entries = &data.queues.get(&a).unwrap().queue.entries;
+            assert_eq!(entries.len(), 1);
+            assert_eq!(&entries[0].id, queue_entry);
+            assert_eq!(entries[0].text, "週次議事録の要約を作成してください。");
+        });
+        drop(host);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[tokio::test]
@@ -1179,7 +1375,7 @@ mod tests {
         let (host, r, a) = host_with_router("archived");
         host.update_router(&r, |rec| rec.push_catalog(sent_catalog("cm1", &[("c1", &a)])));
         host.update_local(&a, false, std::time::Duration::ZERO, |f| f.visibility = ListVisibility::Archived { at: UnixMillis(1), sync: crate::backend::local::ArchiveSync::Unsupported });
-        host.router_apply_reply(&r, "t1", &envelope_for("x"), &reply_json(&route("c1", "本文"), "")).await;
+        host.router_apply_reply(&r, "t1", &stamp_router_request(&envelope_for("x"), "cm1"), &reply_json(&route("c1", "本文"), ""), false).await;
         let rec = host.router_record(&r).unwrap();
         assert!(rec.dispatches.is_empty() && rec.turns[0].route_rejects[0].contains("アーカイブ"), "{:?}", rec.turns[0]);
     }

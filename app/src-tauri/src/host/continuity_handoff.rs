@@ -569,7 +569,7 @@ mod tests {
             compaction_epoch: 2,
             dispatches: vec![d],
             catalogs: vec![SentCatalog { client_message_id: "m1".into(), entries: vec![("c1".into(), key("x"))], at: UnixMillis(1) }],
-            turns: Vec::new(),
+            ..RouterRecord::default()
         };
         let mut src = record(None, vec![]);
         src.router = Some(router.clone());

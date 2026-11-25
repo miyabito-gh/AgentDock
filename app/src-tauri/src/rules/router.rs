@@ -52,7 +52,7 @@ const RULE_TEXT_PARSE_MAX: usize = 2_000;
 const ID_MAX: usize = 32;
 
 /// 固定の指示の版。文面を変えたら上げる（届けた版と比べて添え直す）。
-pub const ROUTER_INSTRUCTIONS_REV: u32 = 1;
+pub const ROUTER_INSTRUCTIONS_REV: u32 = 2;
 
 /// 受付係へ届ける固定の指示（§5.1）。
 pub const ROUTER_INSTRUCTIONS: &str = "\
@@ -63,7 +63,7 @@ pub const ROUTER_INSTRUCTIONS: &str = "\
 - 「今回だけ」と「今後も」を区別してください。どちらか分からなければ質問します。既存のルールと矛盾するときも質問します。
 - 自動送信や確認の省略を求めるルールは作りません（現在は扱えない、と利用者に伝えてください）。
 - ルール帳が多くなったら（80件超）、整理案を reply で提案してかまいません。変更は利用者の同意の後です。
-- 出力は指定の形式（reply・routes・ruleChanges）だけです。reply は短く書いてください。routes[].text は送り先へ送る本文で、利用者の原文のままなら textIsOriginal を true にします。";
+- 出力は指定の形式（reply・routes・ruleChanges）だけです。reply は短く書いてください。routes[].text には意図・条件・成果物を保った整えた文を書いてください。利用者本文の冒頭に「自動送信: 」と送り先IDだけの行がある場合は送付操作の指定です。その行を本文に含めません。送り先一覧の候補IDに解決できる場合だけ既存先を提案します。原文のままなら textIsOriginal を true にします。";
 
 /// 自動送信・確認の省略を表す語（§6.3。正規化後の部分一致。正規化＝小文字・空白と `-` `_` の除去）。
 pub const FORBIDDEN_RULE_WORDS: &[&str] = &[
@@ -476,10 +476,32 @@ pub fn compose_router_envelope(rec: &RouterRecord, catalog: &Catalog, rules: &Ru
         }
     }
 
+    if let Some(id) = automatic_target_id(user_text) {
+        if let Some(entry) = catalog.entries.iter().find(|entry| entry.key.id.0 == id) {
+            out.push_str(&format!("## 利用者が指定した送り先\n候補 {}\n\n", entry.id));
+        }
+    }
     out.push_str(ENVELOPE_END);
     out.push('\n');
     out.push_str(user_text);
     RouterEnvelope { text: out, included: inc }
+}
+
+/// 利用者本文の先頭行だけを、今回の自動送信操作の指定として扱う。
+pub fn automatic_target_id(text: &str) -> Option<&str> {
+    text.lines().next()?.strip_prefix("自動送信: ").filter(|id| !id.is_empty())
+}
+
+/// The request ID is in the host-generated header, outside the user body.
+pub fn stamp_router_request(text: &str, id: &str) -> String {
+    format!("{ENVELOPE_HEAD}\n[request:{id}]{}", &text[ENVELOPE_HEAD.len()..])
+}
+
+pub fn router_request_id(text: &str) -> Option<&str> {
+    text.strip_prefix(ENVELOPE_HEAD)?
+        .strip_prefix("\n[request:")?
+        .lines().next()?
+        .strip_suffix(']')
 }
 
 fn dispatch_result_line(d: &Dispatch, label: &dyn Fn(&DispatchTarget) -> String) -> String {
@@ -1297,10 +1319,10 @@ mod tests {
         let cat = build_catalog(&[c], &RulesFile::default(), NOW);
         let e = env(&RouterRecord::default(), &cat, &RulesFile::default());
         assert!(e.text.starts_with(ENVELOPE_HEAD));
-        assert!(e.text.contains("## 指示（第1版）") && e.text.contains("## ルール帳（第0版）") && e.text.contains("c1 『週次議事録』"));
+        assert!(e.text.contains(&format!("## 指示（第{ROUTER_INSTRUCTIONS_REV}版）")) && e.text.contains("## ルール帳（第0版）") && e.text.contains("c1 『週次議事録』"));
         assert!(e.text.ends_with(&format!("{ENVELOPE_END}\n依頼です")));
         assert!(!e.text.contains("前回の振り分け結果"));
-        assert_eq!(e.included.instructions, Some(1));
+        assert_eq!(e.included.instructions, Some(ROUTER_INSTRUCTIONS_REV));
         assert_eq!(e.included.rules, Some(0));
         assert_eq!(e.included.catalog_digest, Some(cat.digest.clone()));
     }

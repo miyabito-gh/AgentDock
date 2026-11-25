@@ -61,6 +61,9 @@ pub struct DispatchView {
     pub id: LocalId,
     /// どの返答（turn）から出た案か。
     pub source_turn: String,
+    pub request_id: Option<String>,
+    pub execution_turn: Option<String>,
+    pub execution_result: Option<String>,
     pub route_index: u32,
     pub target: DispatchTarget,
     pub suggested: DispatchTarget,

@@ -508,7 +508,7 @@ export function Dialogs({ externalTools, modelDefault, cont, org, folderTools, w
   const pre = d.type === "newChat" ? d.prefill : undefined;
   const [isolate, setIsolate] = useState(pre?.isolate ?? false);
   const [wt, setWt] = useState<string | null>(pre?.worktree ?? null);
-  const [model, setModel] = useState(pre && models.some((m) => m.id === pre.model) ? pre.model : pickQuickModel(models, null, modelDefault.saved ? { model: modelDefault.saved } : null));
+  const [model, setModel] = useState(pre?.routerDispatch ? pre.model : pre && models.some((m) => m.id === pre.model) ? pre.model : pickQuickModel(models, null, modelDefault.saved ? { model: modelDefault.saved } : null));
   const [first, setFirst] = useState(pre?.first ?? "");
   // 追加の作業フォルダ（新しいチャット）。プロジェクトから作るときは、プロジェクトの全フォルダを既定で並べる（外せる。上限8件）。
   const [extras, setExtras] = useState<FolderItem[]>([]);
@@ -575,6 +575,7 @@ export function Dialogs({ externalTools, modelDefault, cont, org, folderTools, w
   };
   const createNewChat = async () => {
     if (creating) return; // 二重押し
+    if (pre?.routerDispatch && !models.some((m) => m.id === model)) { setNcErr("担当に使うモデルを一覧から選んでください。"); return; }
     const dev = kind === "dev";
     const primary = cwd.trim();
     let strong = confirmedStrongPaths(extras);
@@ -667,7 +668,7 @@ export function Dialogs({ externalTools, modelDefault, cont, org, folderTools, w
                 {ncErr ? <div className="why err" role="alert" style={{ marginTop: 4 }}>{ncErr}</div> : null}
               </div>) : null}</div></div>
           {kind === "dev" ? <WorkspaceChoice live={live} cwd={cwd} isolate={isolate} setIsolate={setIsolate} onUse={(p, r) => { setCwd(p); setWt(r); setIsolate(false); }} /> : null}
-          <div className="field"><span>モデル</span><div style={{ display: "flex", gap: 6 }}><select value={model} onChange={(e) => setModel(e.target.value)}>{models.map((m) => <option key={m.id} value={m.id}>{m.displayName}</option>)}</select></div><span className="note">このチャットの最初の選択です。Codex から取得した一覧です。</span></div>
+          <div className="field"><span>モデル</span><div style={{ display: "flex", gap: 6 }}><select value={model} onChange={(e) => setModel(e.target.value)}>{pre?.routerDispatch && !models.some((m) => m.id === "claude-sonnet-5-5") && <option value="" disabled>Sonnet を利用できません。モデルを選択</option>}{models.map((m) => <option key={m.id} value={m.id}>{m.displayName}</option>)}</select></div><span className="note">このチャットの最初の選択です。Codex から取得した一覧です。</span>{kind !== "dev" && ncErr && <span className="why err" role="alert">{ncErr}</span>}</div>
           <div className="field"><span>最初の依頼</span><textarea value={first} onChange={(e) => setFirst(e.target.value)} rows={3} style={{ width: "100%" }} placeholder="空欄なら、チャットだけ作成します" aria-label="最初の依頼"
             onKeyDown={(e) => {
               if (!isNewChatSubmitKey({ key: e.key, ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, altKey: e.altKey, metaKey: e.metaKey, isComposing: e.nativeEvent.isComposing }, enterMode)) return;

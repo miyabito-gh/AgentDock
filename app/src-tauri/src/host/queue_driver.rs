@@ -1187,6 +1187,11 @@ impl Host {
 
     /// 完了後に送る依頼を登録する。設定（モデル・権限・作業フォルダ）は登録時に固定せず、送信時点のものを使う。
     pub fn enqueue(self: &Arc<Self>, args: EnqueueArgs) -> Result<QueueEntry, IpcError> {
+        let id = self.local_id("q");
+        self.enqueue_with_id(args, id)
+    }
+
+    pub(super) fn enqueue_with_id(self: &Arc<Self>, args: EnqueueArgs, id: LocalId) -> Result<QueueEntry, IpcError> {
         self.check_not_org_owned(&args.chat)?;
         if args.text.trim().is_empty() && args.attachments.is_empty() {
             return Err(err(IpcErrorCode::InvalidArgs, "依頼が空です"));
@@ -1197,7 +1202,6 @@ impl Host {
         self.precheck_space()?;
         // 登録の時点で使えない添付（コピー中・失敗・欠損）は受け付けない（送信時にも確認する）。
         self.verify_attachments(&args.chat, &args.attachments)?;
-        let id = self.local_id("q");
         let now = now_ms();
         let used = args.attachments.clone();
         let chat = args.chat.clone();

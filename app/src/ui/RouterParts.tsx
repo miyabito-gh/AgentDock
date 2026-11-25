@@ -84,12 +84,12 @@ function DispatchCard({ d, original, ctx }: { d: DispatchView; original: string 
     const key = d.target.chat;
     return (
       <div className={`rcard folded ${folded.kind}`}>
-        <span className="grow">{folded.text}</span>
+        <div className="grow"><div>{folded.text}</div>{d.executionResult && <div style={{ whiteSpace: "pre-wrap" }}>{d.executionResult}</div>}<small>受付 {d.requestId ?? d.sourceTurn} ／ 振り分け {d.id}{d.executionTurn && ` ／ 担当 ${d.executionTurn}`}</small></div>
         {folded.canOpen && key ? <button type="button" className="btn sm" onClick={() => ctx.openChat(key)}>開く</button> : null}
       </div>
     );
   }
-  const isNew = d.target.kind === "new";
+  const isNew = d.target.kind === "new" && d.target.chat === null;
   const p = d.proposal;
   const empty = !text.trim();
   const toggle = (next: boolean) => { setUseOrig(next); setText(baseText(d, next, original)); };
@@ -109,6 +109,7 @@ function DispatchCard({ d, original, ctx }: { d: DispatchView; original: string 
   return (
     <div className="rcard">
       <div className="rcard-h"><span className="tag ai">{isNew ? "新規" : "送り先"}</span><b className="grow nm">{targetLabel(d)}</b></div>
+      <small className="muted">受付 {d.requestId ?? d.sourceTurn} ／ 振り分け {d.id}{d.target.chat && ` ／ 送り先ID ${d.target.chat.id}`}</small>
       {p?.reason ? <div className="small muted">{p.reason}</div> : null}
       {p?.confidence === "low" ? <div className="small rwarn">この案はあまり自信がありません。送り先をよく確認してください。</div> : null}
       {isNew && p?.newChat?.purpose ? <div className="small muted">目的メモの案: {p.newChat.purpose}</div> : null}
@@ -125,7 +126,7 @@ function DispatchCard({ d, original, ctx }: { d: DispatchView; original: string 
       <div className="rcard-acts">
         {isNew
           ? <button type="button" className="btn primary sm" disabled={busy || empty} title="新しいチャットの作成画面を、この案の値を入れて開きます（作成と送信はそこで押したときだけ）" onClick={() => ctx.startNew(d, text)}>始める</button>
-          : <button type="button" className="btn primary sm" disabled={busy || empty || !!d.targetProblem} onClick={() => void send(null)}>送る</button>}
+          : <button type="button" className="btn primary sm" disabled={busy || empty || !!d.targetProblem} onClick={() => void send(d.target.kind === "new" ? d.target.chat : null)}>送る</button>}
         <button type="button" className="btn sm" disabled={busy} aria-expanded={picking} onClick={() => setPicking((v) => !v)}>別の会話へ</button>
         <button type="button" className="btn sm" disabled={busy} onClick={() => void dismiss()}>見送る</button>
       </div>

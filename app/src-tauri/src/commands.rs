@@ -1060,7 +1060,7 @@ pub async fn router_create(host: Hs<'_>) -> R<Chat> {
 /// 受付係の画面の写し（読取りのみ）。受付係がなければ null。
 #[tauri::command]
 pub async fn router_get(host: Hs<'_>) -> R<Option<crate::backend::router::RouterView>> {
-    host.inner().clone().router_get()
+    host.inner().clone().router_refresh().await
 }
 
 /// 受付係をやめる（印を外すだけ。チャットもルール帳も消さない）。

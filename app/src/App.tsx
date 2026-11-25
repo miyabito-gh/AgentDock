@@ -496,6 +496,8 @@ export default function App() {
   const routerKeyId = routerView?.chat.id ?? null;
   const routerKeyRef = useRef<string | null>(null);
   routerKeyRef.current = routerKeyId;
+  const routerTargetsRef = useRef<Set<string>>(new Set());
+  routerTargetsRef.current = new Set(routerView?.dispatches.flatMap((d) => d.target.chat ? [d.target.chat.id] : []) ?? []);
   const refreshRouter = useCallback(async () => {
     if (!live) return;
     try { setRouterView(await host.routerGet()); } catch { /* 取れなかったときは前の表示のまま（無いことにはしない） */ }
@@ -503,7 +505,7 @@ export default function App() {
   useEffect(() => {
     if (!live) { setRouterView(null); return; }
     if (connected) void refreshRouter();
-    const un = host.subscribeHostEvents((e) => { if (e.event.kind === "routerUpdated") void refreshRouter(); });
+    const un = host.subscribeHostEvents((e) => { if (e.event.kind === "routerUpdated" || (e.event.kind === "chatQueueUpdated" && routerTargetsRef.current.has(e.event.queue.chat.id))) void refreshRouter(); });
     return () => { void un.then((f) => f()); };
   }, [live, connected, refreshRouter]);
   /** 主要ボタン・メニュー「作業」・Ctrl+K が共有する操作の可否（台帳から導く）。 */
@@ -1137,12 +1139,21 @@ ${cur}` : p.text);
         say(`worktreeを作成しました（ブランチ ${rec.branch}）。`);
         setCreating((l) => setCreatingPhase(l, tempId, "starting"));
       }
-      const r = await host.startChat(cwd, i.model ? { model: i.model, effort: m?.defaultEffort ?? null } : null, i.firstMessage, null, worktree, i.extraFolders, i.confirmedStrong);
+      const r = await host.startChat(cwd, i.model ? { model: i.model, effort: m?.defaultEffort ?? null } : null, i.routerDispatch ? null : i.firstMessage, null, worktree, i.extraFolders, i.confirmedStrong);
       setCreating((l) => removeCreating(l, tempId));
       setSelId(r.chat.key.id);
-      // 受付係の「始める」: 目的メモの案を保存し、振り分けカードへ結び付ける（どちらも作成できたあとの1回。失敗は通知だけで再送しない）
       if (i.purpose?.trim()) void host.setPurposeNote(r.chat.key, i.purpose, null).catch((e) => sayErr("目的メモを保存できませんでした", e));
-      if (i.routerDispatch) void host.routerDispatchCreated(i.routerDispatch, r.chat.key, r.firstSend ?? null).then(() => refreshRouter(), (e) => sayErr("振り分けカードを更新できませんでした", e));
+      // 受付からの新規チャットは、作成後にカードとキューの対応を記録してから送る。
+      if (i.routerDispatch) {
+        try {
+          await host.routerDispatchCreated(i.routerDispatch, r.chat.key, null);
+          if (i.firstMessage?.trim()) await host.routerDispatch(i.routerDispatch, i.firstMessage, r.chat.key);
+        } catch (e) {
+          sayErr("担当チャットを作成しました。振り分けを確認してください", e);
+        } finally {
+          void refreshRouter();
+        }
+      }
       // 作成に成功したときだけ、モデルを次のクイック新規へ引き継ぐ（作業フォルダ・権限は持ち越さない）。
       if (i.model) void updateSettings((s) => ({ ...s, lastNewChat: { model: { model: i.model, effort: m?.defaultEffort ?? null } } }), "前回のモデルを保存できませんでした");
       // 戻り値は送信中（Sending）。確定が先に届いていれば mergeAttempt が確定を残す。
@@ -1766,7 +1777,7 @@ ${cur}` : p.text);
   const startRouterNew = (d: DispatchView, text: string) => {
     const n = d.proposal?.newChat;
     const folder = n?.folder?.trim() ?? "";
-    const model = pickQuickModel(models, snap.settings.lastNewChat, snap.settings.defaultModel);
+    const model = models.find((m) => m.id === "claude-sonnet-5-5")?.id ?? "";
     setDialog({ type: "newChat", dev: !!folder, cwd: folder || undefined, prefill: { model, first: text, isolate: false, worktree: null, purpose: n?.purpose?.trim() || undefined, routerDispatch: d.id } });
   };
   const routerCtx: RouterCtx | null = routerView && live ? { view: routerView, chats: snap.chats, locals: snap.chatLocals, refresh: () => void refreshRouter(), startNew: startRouterNew, openChat: (k) => selectChat(k.id) } : null;
