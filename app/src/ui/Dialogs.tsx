@@ -1,12 +1,13 @@
 import { ExternalToolsBody, type ExternalToolsProps } from "./ExternalToolsSettings";
 import { isNewChatSubmitKey, pickQuickModel } from "./quickNew";
+import { chatKeyOfId, modelsForBackend } from "./backendModels";
 import { ModelSettingsBody, type ModelDefaultProps } from "./ModelSettings";
 import { PetSettingsField, type PetProps } from "./PetSettings";
 import { ReplySettingsBody, type ReplySettingsProps } from "./ReplySettings";
 import type { EnterMode, RunningInputMode } from "./sendKeys";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { IntakeBeginMode, OrgRunningNote } from "../ipc/types";
-import type { Chat, ChatKey, ChatLocalView, ChatPendingOp, ChatQueue, ChatModelSettings, ForceKillPreview, Goal, GoalUpdate, Known, ModelInfo, NotificationSettings, OrgDeleteOutcome, OrgDeletePreview, OpCapability, QuitDecision, QuitPhase, RevertResult, SaveStatus, SideSessionMeta, SourceInfo, StopRecord, StopSummary, TurnRecord, WorktreeRecord, CloudTaskRecord } from "../ipc/types";
+import type { BackendKind, Chat, ChatKey, ChatLocalView, ChatPendingOp, ChatQueue, ChatModelSettings, ForceKillPreview, Goal, GoalUpdate, Known, ModelInfo, NotificationSettings, OrgDeleteOutcome, OrgDeletePreview, OpCapability, QuitDecision, QuitPhase, RevertResult, SaveStatus, SideSessionMeta, SourceInfo, StopRecord, StopSummary, TurnRecord, WorktreeRecord, CloudTaskRecord } from "../ipc/types";
 import type { AppearanceSettings, BodyTextSize, ChatListView, StrongReason, ThemePref, UiTextSize, Support } from "../ipc/types";
 import { chatName } from "./derive";
 import { SCOPE_TEXT } from "./Chrome";
@@ -43,7 +44,7 @@ import { addBlockReason, applyCheck, confirmedStrongPaths, MAX_FOLDERS, projectD
 
 export type DialogState =
   | { type: "settings"; tab: string }
-  | { type: "newChat"; dev?: boolean; cwd?: string; cwdChoices?: string[]; /** 「同じ作業フォルダで新規」: 先頭＝プライマリ。開いたとき検査して並べる。 */ initialFolders?: string[]; folderNote?: string; /** 作成に失敗したときの「入力し直す」: 同じ値を入れて開くだけ（送らない）。 */ prefill?: { model: string; first: string; isolate: boolean; worktree: string | null; /** 目的メモの案（作成後に保存する）。受付係の「始める」から。 */ purpose?: string; /** 受付係の振り分けカードのID。作成できたらカードへ結び付ける。 */ routerDispatch?: string } }
+  | { type: "newChat"; dev?: boolean; cwd?: string; cwdChoices?: string[]; /** 「同じ作業フォルダで新規」: 先頭＝プライマリ。開いたとき検査して並べる。 */ initialFolders?: string[]; folderNote?: string; /** 作成に失敗したときの「入力し直す」: 同じ値を入れて開くだけ（送らない）。 */ prefill?: { model: string; /** 担当AI（受付係の案など）。省略は Codex。 */ provider?: BackendKind; first: string; isolate: boolean; worktree: string | null; /** 目的メモの案（作成後に保存する）。受付係の「始める」から。 */ purpose?: string; /** 受付係の振り分けカードのID。作成できたらカードへ結び付ける。 */ routerDispatch?: string } }
   | { type: "worktrees" }
   | { type: "routerRules" }
   | { type: "cloud"; chatId: string | null }
@@ -462,9 +463,9 @@ function RenameDialog({ chat, onClose, run }: { chat: Chat | undefined; onClose:
 }
 
 /** isolate は「分離」（worktreeを作成してから開始）。worktree は既存のAgentDock作成worktreeの記録ID（チャットに結び付ける）。 */
-export interface NewChatInput { cwd: string | null; model: string; firstMessage: string | null; isolate: boolean; worktree: string | null; /** 追加の作業フォルダ（プライマリ以外）。 */ extraFolders: string[]; /** 強い確認を済ませたパス（ホストが再検査する）。 */ confirmedStrong: string[]; /** 目的メモの案（作成後に保存。受付係の「始める」から）。 */ purpose?: string | null; /** 受付係の振り分けカードのID（作成後に結び付ける）。 */ routerDispatch?: string | null }
+export interface NewChatInput { cwd: string | null; model: string; firstMessage: string | null; isolate: boolean; worktree: string | null; /** 追加の作業フォルダ（プライマリ以外）。 */ extraFolders: string[]; /** 強い確認を済ませたパス（ホストが再検査する）。 */ confirmedStrong: string[]; /** 目的メモの案（作成後に保存。受付係の「始める」から）。 */ purpose?: string | null; /** 受付係の振り分けカードのID（作成後に結び付ける）。 */ routerDispatch?: string | null; /** 担当AI。省略は Codex。 */ backend?: BackendKind }
 
-export function Dialogs({ externalTools, modelDefault, cont, org, folderTools, workspaceRoots, d, onClose, chats, source, models, enterMode, setEnterMode, runningInput, setRunningInput, top, setTab, onAct, exe, onCreateChat, notify, autostart, pet, reply, appearance, quit, force, manage, onRename, opCaps, live, changesTick, turnRecords, onRevertDone, prefs, threadOps, worktree, cloudTasks, compose, resend, router }: {
+export function Dialogs({ externalTools, modelDefault, cont, org, folderTools, workspaceRoots, d, onClose, chats, source, models, agyModels, enterMode, setEnterMode, runningInput, setRunningInput, top, setTab, onAct, exe, onCreateChat, notify, autostart, pet, reply, appearance, quit, force, manage, onRename, opCaps, live, changesTick, turnRecords, onRevertDone, prefs, threadOps, worktree, cloudTasks, compose, resend, router }: {
   /** 受付係のルール帳の表示に使う、受付係のチャットと全チャットの補足情報。 */
   router: { routerKey: ChatKey | null; locals: ChatLocalView[] };
   org: OrgDialogProps;
@@ -498,6 +499,8 @@ export function Dialogs({ externalTools, modelDefault, cont, org, folderTools, w
   autostart: AutostartProps; pet: PetProps; reply: ReplySettingsProps; appearance: AppearanceProps; quit: QuitProps; force: ForceProps; manage: ManageProps;
   notify: NotifyProps;
   d: DialogState; onClose: () => void; chats: Chat[]; source: SourceInfo | undefined; models: ModelInfo[];
+  /** Antigravity（Gemini）のモデル一覧。空＝未導入または取得できていない（選択肢を無効にする）。 */
+  agyModels: ModelInfo[];
   exe: CodexExe; onCreateChat: (i: NewChatInput) => Promise<void>;
   enterMode: EnterMode; setEnterMode: (m: EnterMode) => void; runningInput: RunningInputMode; setRunningInput: (m: RunningInputMode) => void;
   top: { main: boolean; mini: boolean; setMain: (b: boolean) => void; setMini: (b: boolean) => void };
@@ -508,7 +511,18 @@ export function Dialogs({ externalTools, modelDefault, cont, org, folderTools, w
   const pre = d.type === "newChat" ? d.prefill : undefined;
   const [isolate, setIsolate] = useState(pre?.isolate ?? false);
   const [wt, setWt] = useState<string | null>(pre?.worktree ?? null);
-  const [model, setModel] = useState(pre?.routerDispatch ? pre.model : pre && models.some((m) => m.id === pre.model) ? pre.model : pickQuickModel(models, null, modelDefault.saved ? { model: modelDefault.saved } : null));
+  const [provider, setProvider] = useState<BackendKind>(pre?.provider ?? "codex");
+  const agyReady = agyModels.length > 0;
+  /** いま選んでいる担当AIのモデル一覧（Antigravity は Codex の一覧を使わない）。 */
+  const activeModels = modelsForBackend(provider, models, agyModels);
+  const [model, setModel] = useState(
+    provider === "antigravity" ? (pre && agyModels.some((m) => m.id === pre.model) ? pre.model : pickQuickModel(agyModels, null, null))
+      : pre?.routerDispatch ? pre.model : pre && models.some((m) => m.id === pre.model) ? pre.model : pickQuickModel(models, null, modelDefault.saved ? { model: modelDefault.saved } : null));
+  const changeProvider = (p: BackendKind) => {
+    if (p === provider) return;
+    setProvider(p); setNcErr(null);
+    setModel(p === "antigravity" ? pickQuickModel(agyModels, null, null) : pickQuickModel(models, null, modelDefault.saved ? { model: modelDefault.saved } : null));
+  };
   const [first, setFirst] = useState(pre?.first ?? "");
   // 追加の作業フォルダ（新しいチャット）。プロジェクトから作るときは、プロジェクトの全フォルダを既定で並べる（外せる。上限8件）。
   const [extras, setExtras] = useState<FolderItem[]>([]);
@@ -575,18 +589,20 @@ export function Dialogs({ externalTools, modelDefault, cont, org, folderTools, w
   };
   const createNewChat = async () => {
     if (creating) return; // 二重押し
-    if (pre?.routerDispatch && !models.some((m) => m.id === model)) { setNcErr("担当に使うモデルを一覧から選んでください。"); return; }
+    if (provider === "antigravity" && !agyReady) { setNcErr("Antigravity（Gemini）を利用できません（agy が見つからないか、モデル一覧を取得できていません）。"); return; }
+    if (pre?.routerDispatch && !activeModels.some((m) => m.id === model)) { setNcErr("担当に使うモデルを一覧から選んでください。"); return; }
     const dev = kind === "dev";
     const primary = cwd.trim();
-    let strong = confirmedStrongPaths(extras);
+    const useExtras = provider === "antigravity" ? [] : extras;
+    let strong = confirmedStrongPaths(useExtras);
     setNcErr(null);
     setCreating(true);
     if (dev) {
-      const why = saveBlockReason([{ path: primary, strong: [], confirmed: false }, ...extras], workspaceRoots);
+      const why = saveBlockReason([{ path: primary, strong: [], confirmed: false }, ...useExtras], workspaceRoots);
       if (why) { setNcErr(why); setCreating(false); return; }
       try {
         // プライマリも（追加フォルダなしでも）、並べた状態で検査する（強い確認・重複）。ホストも同じ検査をやり直す。
-        const c = await host.checkWorkFolder(primary, extras.map((e) => e.path));
+        const c = await host.checkWorkFolder(primary, useExtras.map((e) => e.path));
         if (c.kind === "rejected") { setNcErr(`プライマリ: ${REJECT_TEXT[c.reason]}`); setCreating(false); return; }
         if (c.kind === "needsStrongConfirm") {
           if (!primaryStrong || primaryStrong.path !== c.normalized || !primaryStrong.confirmed) {
@@ -600,7 +616,7 @@ export function Dialogs({ externalTools, modelDefault, cont, org, folderTools, w
       } catch (e) { setNcErr(e instanceof Error ? e.message : "検査できませんでした"); setCreating(false); return; }
     }
     // 以後は呼び出し側が仮行で示す。作成が終わるまでボタンは押せないまま（完了で閉じる）。
-    try { await onCreateChat({ cwd: dev ? primary : null, model, firstMessage: first.trim() || null, isolate: dev && isolate, worktree: dev && !isolate ? wt : null, extraFolders: dev ? extras.map((e) => e.path) : [], confirmedStrong: dev ? strong : [], purpose: pre?.purpose ?? null, routerDispatch: pre?.routerDispatch ?? null }); } finally { setCreating(false); }
+    try { await onCreateChat({ cwd: dev ? primary : null, model, firstMessage: first.trim() || null, isolate: dev && isolate, worktree: dev && !isolate ? wt : null, extraFolders: dev ? useExtras.map((e) => e.path) : [], confirmedStrong: dev ? strong : [], purpose: pre?.purpose ?? null, routerDispatch: pre?.routerDispatch ?? null, backend: provider }); } finally { setCreating(false); }
   };
   const [resendRunning, setResendRunning] = useState(false);
   void chats;
@@ -620,7 +636,7 @@ export function Dialogs({ externalTools, modelDefault, cont, org, folderTools, w
       </Shell>);
     case "orgIntakeStart": return (
       <Shell title="この内容で組織実行を開始" wide onClose={onClose} close="キャンセル">
-        <IntakeStartBody chat={{ backend: "codex", id: d.chatId }} onStarted={org.onIntakeStarted} onPrepare={(folder) => org.go({ type: "gitPrep", folder })} />
+        <IntakeStartBody chat={chatKeyOfId(chats, d.chatId)} onStarted={org.onIntakeStarted} onPrepare={(folder) => org.go({ type: "gitPrep", folder })} />
       </Shell>);
     case "gitPrep": return (
       <Shell title="Gitを準備" wide onClose={onClose} close="閉じる">
@@ -643,11 +659,12 @@ export function Dialogs({ externalTools, modelDefault, cont, org, folderTools, w
         <OrgImportBody workflowId={d.workflowId} initialTasks={d.tasks} live={org.settings.live} onBack={() => org.go({ type: "orgArtifacts", workflowId: d.workflowId, task: d.tasks[0] ?? null })} onPush={(folder) => org.go({ type: "gitPush", folder })} onClose={onClose} />
       </Shell>);
     case "newChat": return (
-      <Shell title="新しいチャット" onClose={onClose} foot={<><button className="btn" onClick={onClose}>キャンセル</button><button className="btn primary" disabled={(kind === "dev" && !cwd.trim()) || creating} onClick={() => void createNewChat()}>{creating ? <><span className="spinner" aria-hidden="true" /> 作成中…</> : kind === "dev" && isolate ? "worktreeを作って開始" : "作成"}</button></>}>
+      <Shell title="新しいチャット" onClose={onClose} foot={<><button className="btn" onClick={onClose}>キャンセル</button><button className="btn primary" disabled={(kind === "dev" && !cwd.trim()) || creating || (provider === "antigravity" && !agyReady)} onClick={() => void createNewChat()}>{creating ? <><span className="spinner" aria-hidden="true" /> 作成中…</> : kind === "dev" && isolate ? "worktreeを作って開始" : "作成"}</button></>}>
         <div className="content">
-          <div className="field"><span>AI</span><div><label><input type="radio" defaultChecked />Codex</label><div className="small muted">他の AI は今後追加できるようにする予定です。</div></div></div>
+          <div className="field"><span>担当AI</span><div><label><input type="radio" name="provider" checked={provider === "codex"} onChange={() => changeProvider("codex")} />Codex</label><br /><label><input type="radio" name="provider" checked={provider === "antigravity"} disabled={!agyReady && provider !== "antigravity"} onChange={() => changeProvider("antigravity")} />Antigravity（Gemini）</label>
+            {!agyReady ? <div className="small muted" role={provider === "antigravity" ? "alert" : undefined}>Antigravity（Gemini）は使えません: agy が見つからないか、モデル一覧を取得できていません。</div> : provider === "antigravity" ? <div className="small muted">承認が必要な操作は自動で拒否されます。追加の指示・添付には対応していません。</div> : null}</div></div>
           <div className="field"><span>作業フォルダ</span><div><label><input type="radio" name="k" checked={kind === "general"} onChange={() => setKind("general")} />指定しない（一般チャット）</label><br /><label><input type="radio" name="k" checked={kind === "dev"} onChange={() => setKind("dev")} />フォルダを指定する</label>
-            {kind === "dev" && live ? (
+            {kind === "dev" && live && provider !== "antigravity" ? (
               <div style={{ marginTop: 4 }}>
                 <FolderSetBar tools={folderTools} current={[cwd.trim(), ...extras.map((e) => e.path)]}
                   saveBlock={!cwd.trim() ? "プライマリのフォルダを指定してください" : extras.some((e) => e.rejected) ? "使えないフォルダがあります（外すか置き換えてから保存してください）" : null}
@@ -660,15 +677,17 @@ export function Dialogs({ externalTools, modelDefault, cont, org, folderTools, w
               </div>) : null}
             {kind === "dev" ? (
               <div className="small" style={{ marginTop: 6 }}>
+                {provider === "antigravity" ? <div className="muted">Antigravity では追加の作業フォルダは指定できません（上のフォルダだけを使います）。</div> : <>
                 <div className="muted">追加の作業フォルダ（上のフォルダがプライマリ。Codex が検索・読取り・編集できる範囲が広がります）</div>
                 {projectChoices && projectChoices.length > 1 ? <div className="muted">プロジェクトのフォルダを並べました（先頭をプライマリと推定しています）。不要なものは外せます。</div> : null}
                 {live ? <FolderListEditor items={extras} setItems={(v) => { setExtras(v); setNcErr(null); }} support={workspaceRoots} check={host.checkWorkFolder} minItems={0} primaryFixed browse={folderTools.browse} /> : <div className="muted">モックでは動きません。</div>}
+                </>}
                 {primaryStrong ? <label style={{ display: "block", marginTop: 4 }}><input type="checkbox" checked={primaryStrong.confirmed} onChange={(e) => setPrimaryStrong({ ...primaryStrong, confirmed: e.target.checked })} /> プライマリのフォルダ全体を許可することを理解しました（{strongText(primaryStrong.reasons)}）</label> : null}
                 {ncNote ? <div className="muted" style={{ marginTop: 2 }}>{ncNote}</div> : null}
                 {ncErr ? <div className="why err" role="alert" style={{ marginTop: 4 }}>{ncErr}</div> : null}
               </div>) : null}</div></div>
           {kind === "dev" ? <WorkspaceChoice live={live} cwd={cwd} isolate={isolate} setIsolate={setIsolate} onUse={(p, r) => { setCwd(p); setWt(r); setIsolate(false); }} /> : null}
-          <div className="field"><span>モデル</span><div style={{ display: "flex", gap: 6 }}><select value={model} onChange={(e) => setModel(e.target.value)}>{pre?.routerDispatch && !models.some((m) => m.id === "claude-sonnet-5-5") && <option value="" disabled>Sonnet を利用できません。モデルを選択</option>}{models.map((m) => <option key={m.id} value={m.id}>{m.displayName}</option>)}</select></div><span className="note">このチャットの最初の選択です。Codex から取得した一覧です。</span>{kind !== "dev" && ncErr && <span className="why err" role="alert">{ncErr}</span>}</div>
+          <div className="field"><span>モデル</span><div style={{ display: "flex", gap: 6 }}><select value={model} onChange={(e) => setModel(e.target.value)}>{provider === "codex" && pre?.routerDispatch && !models.some((m) => m.id === "claude-sonnet-5-5") && <option value="" disabled>Sonnet を利用できません。モデルを選択</option>}{provider === "antigravity" && activeModels.length === 0 && <option value="" disabled>モデルを取得できていません</option>}{activeModels.map((m) => <option key={m.id} value={m.id}>{m.displayName}</option>)}</select></div><span className="note">{provider === "antigravity" ? "このチャットの最初の選択です。Antigravity から取得した一覧です。" : "このチャットの最初の選択です。Codex から取得した一覧です。"}</span>{kind !== "dev" && ncErr && <span className="why err" role="alert">{ncErr}</span>}</div>
           <div className="field"><span>最初の依頼</span><textarea value={first} onChange={(e) => setFirst(e.target.value)} rows={3} style={{ width: "100%" }} placeholder="空欄なら、チャットだけ作成します" aria-label="最初の依頼"
             onKeyDown={(e) => {
               if (!isNewChatSubmitKey({ key: e.key, ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, altKey: e.altKey, metaKey: e.metaKey, isComposing: e.nativeEvent.isComposing }, enterMode)) return;

@@ -2,7 +2,7 @@
 import { makeBundle, MODELS, type Bundle } from "./data";
 import { mockOrgGraphs, mockOrgRoles, mockOrgView } from "./org";
 import type {
-  AgentKey, ChatKey, ChatModelSettings, ExternalId, ForkPurpose, InterruptChatResult, LocalId, ModelChoice, ModelInfo, MonitorScope, RecheckAgentsResult,
+  AgentKey, BackendKind, ChatKey, ChatModelSettings, ExternalId, ForkPurpose, InterruptChatResult, LocalId, ModelChoice, ModelInfo, MonitorScope, RecheckAgentsResult,
   OrgGraphsView, OrgRolesView, OrgSnapshotView, RequestAnswer, RequestKey, RespondOutcome, ResendAsForkResult, SendAttempt, SendIntent,
 } from "../ipc/types";
 import type { HandoffPreview } from "../ipc/types";
@@ -16,8 +16,8 @@ export async function previewHandoff(_chat: ChatKey): Promise<HandoffPreview> {
 export async function getBundle(scenario: string): Promise<Bundle> {
   return makeBundle(scenario);
 }
-export async function listModels(): Promise<ModelInfo[]> {
-  return MODELS;
+export async function listModels(_backend: BackendKind = "codex"): Promise<ModelInfo[]> {
+  return _backend === "codex" ? MODELS : [];
 }
 export async function setMonitorScope(_scope: MonitorScope): Promise<null> {
   return null;

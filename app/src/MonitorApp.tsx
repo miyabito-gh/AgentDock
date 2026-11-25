@@ -9,6 +9,7 @@ import { DockPane } from "./ui/Dock";
 import { keyStr } from "./ui/format";
 import { matchShortcut } from "./ui/shortcuts";
 import { applyAppearance, watchSystemTheme } from "./ui/appearance";
+import { chatKeyOfId } from "./ui/backendModels";
 
 export default function MonitorApp() {
   const [bundle, setBundle] = useState<Bundle>(() => emptyBundle());
@@ -94,14 +95,14 @@ export default function MonitorApp() {
   const kind = snap.settings.monitorScope;
   const scope: MonitorScope = kind === "allChats"
     ? { kind: "allChats", showFinished }
-    : { kind: "selectedChat", chat: selId ? { backend: "codex", id: selId } : null };
+    : { kind: "selectedChat", chat: selId ? chatKeyOfId(snap.chats, selId) : null };
   const onScope = (s: MonitorScope) => {
     if (s.kind === "allChats") setShowFinished(s.showFinished);
     if (s.kind !== kind) host.setMonitorWindowScope(s.kind).catch((e) => sayErr("表示範囲を保存できませんでした", e));
   };
   const top = snap.settings.monitorWindow.alwaysOnTop;
   const openMain = (id: string | null) => {
-    host.showMainWindow(id ? { backend: "codex", id } : null).catch((e) => sayErr("通常画面を開けませんでした", e));
+    host.showMainWindow(id ? chatKeyOfId(snap.chats, id) : null).catch((e) => sayErr("通常画面を開けませんでした", e));
   };
 
   // 確認済みの失敗（ホストの記録と現在の失敗turnの一致）。

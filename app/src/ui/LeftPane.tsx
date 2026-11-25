@@ -431,6 +431,7 @@ export function LeftPane({ router, org, snap, sel, onSelect, onAct, onAcknowledg
           onKeyDown={(e) => { if ((e.shiftKey && e.key === "F10") || e.key === "ContextMenu") { e.preventDefault(); e.stopPropagation(); openFromRow(e.currentTarget); } }}>
           <span className={`st st-mark ${statusCls || "none"}`} role="img" aria-label={`状態: ${statusText}`} title={statusText}><i aria-hidden="true" /></span>
           <span className="nm" style={titleOf(c).confirmed ? undefined : TENTATIVE_STYLE} title={titleOf(c).confirmed ? kindTitle : TENTATIVE_HINT}>{titleOf(c).text}</span>
+          {c.key.backend === "antigravity" ? <span className="tag" title="Antigravity（Gemini）の会話">Gemini</span> : null}
           {c.origin === "external" ? <span className="tag" title="Codex 側で作られた会話（AgentDock が起動したものではない）">外部</span> : null}
           {c.noHistory ? <span className="tag" title="Codex に記録がありません">履歴なし</span> : null}
           {multi.has(c.key.id) ? <span className="tag" title={`他に一致: ${multi.get(c.key.id)!.join("、")}

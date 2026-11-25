@@ -16,6 +16,7 @@ import { ModelBadge } from "./ModelBadge";
 import { rootModelOf } from "./modelLabel";
 import { usageChip, type UsageChip } from "./contUsage";
 import { useThrottled } from "./useThrottled";
+import { chatKeyOfId } from "./backendModels";
 
 function waitText(a: AgentView): string | null {
   const w = a.status.wait;
@@ -568,7 +569,7 @@ export function DockPane({ snap: snapRaw, models, scope, selId, mini, confirmed,
       <div className="dock-top">
         <span className="seg" role="group" aria-label="表示範囲">
           <button aria-pressed={isTask} aria-label="タスク" title="最近動かした順のタスク（完了しても残ります）" onClick={() => setView("task")}>タスク</button>
-          <button aria-pressed={isSel} aria-label="選択中のチャット" title="選択中のチャット（完了したエージェントも表示しています）" onClick={() => { setView("sel"); onScope({ kind: "selectedChat", chat: selId ? { backend: "codex", id: selId } : null }); }}>選択中</button>
+          <button aria-pressed={isSel} aria-label="選択中のチャット" title="選択中のチャット（完了したエージェントも表示しています）" onClick={() => { setView("sel"); onScope({ kind: "selectedChat", chat: selId ? chatKeyOfId(snap.chats, selId) : null }); }}>選択中</button>
           <button aria-pressed={view === "all"} aria-label="全チャット" title="全チャット" onClick={() => { setView("all"); onScope({ kind: "allChats", showFinished }); }}>全</button>
         </span>
         {isTask ? null : (

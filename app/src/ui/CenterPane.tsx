@@ -41,7 +41,7 @@ import { queueCounts } from "./sendStatus";
 import { HandoffNotice, PurposeLine, UsageChip, useHandoff, type HandoffUi } from "./HandoffNotice";
 import { IntakeSection } from "./OrgIntake";
 import { worktreeOf } from "./folderGroups";
-import type { HandoffPreview, OrgInterjectView, OrgTaskView } from "../ipc/types";
+import type { BackendKind, HandoffPreview, OrgInterjectView, OrgTaskView } from "../ipc/types";
 import { InterjectComposer } from "./InterjectComposer";
 import { OrgInstructionBubble, OrgReportView } from "./OrgChatParts";
 import { isOrgInstruction, parseOrgReport } from "./orgChat";
@@ -184,7 +184,8 @@ export interface QueueActions {
 }
 
 /** 追加指示にできない理由（できるときは null）。追加指示はモデル・権限・作業フォルダの変更には使えず、実行中のturnにだけ送れる。 */
-function steerBlockReason(running: boolean, changed: boolean, local: ChatLocalView | undefined): string | null {
+function steerBlockReason(running: boolean, changed: boolean, local: ChatLocalView | undefined, backend: BackendKind = "codex"): string | null {
+  if (backend === "antigravity") return "Antigravity（Gemini）は追加指示に対応していません（完了後に送信を使います）";
   if (!running) return "実行中のやりとりがないため、追加指示にはできません";
   if (changed) return "モデル・推論の強さ・速度を変更中のため、追加指示にはできません（変更は次の送信から適用されます）";
   if (local?.nextCwd) return "作業フォルダの変更が予定されているため、追加指示にはできません";
@@ -995,6 +996,8 @@ function skillOrigin(f: AttachmentEntry, api: SkillPickApi | null): string | nul
 
 function Composer({ p, running, lock, hu }: { p: CenterProps; running: boolean; lock: string | null; hu: HandoffUi }) {
   const { settings, models, attachments } = p;
+  /** Antigravity（Gemini）のチャット: 追加指示・添付・推論の強さ・計画／実行は対応していないので出さない。 */
+  const agy = p.chat.key.backend === "antigravity";
   const autoApi = useContext(AutoAllowContext);
   const dflt = models.find((m) => m.isDefault) ?? models[0];
   // 保存結果・再開通知を含む同一チャットの更新も反映する。送信側と同じホストの選択値を正とする。
@@ -1016,7 +1019,7 @@ function Composer({ p, running, lock, hu }: { p: CenterProps; running: boolean; 
   const attachBlock = attachments.some((a) => a.state.kind !== "ready") ? "コピー中・コピー失敗・欠損の添付があります。取り外すか、もう一度添付してから送信してください。" : null;
   // 追加指示は送るたびの1回限り（状態を持たない。次の送信は常に設定「実行中の入力」の既定の送り方）
   const empty = !p.draft.trim() && attachments.length === 0;
-  const steerWhy = lock ? "いまは送信できません" : attachBlock ? "添付に問題があります" : empty ? "送る内容がありません" : steerBlockReason(running, changed, p.local);
+  const steerWhy = lock ? "いまは送信できません" : attachBlock ? "添付に問題があります" : empty ? "送る内容がありません" : steerBlockReason(running, changed, p.local, p.chat.key.backend);
   // 「引き継いで送信」は送信ボタンの▾メニューから選ぶ（作業中は出さない）。選べないときは理由を出す。
   const handoffMenu = !running && !p.router && p.snap.settings.continuation.enabled && hu.ineligible === null && !!p.onHandoffSend && !!p.loadHandoffPreview;
   const handoffWhy = !handoffMenu || hu.armed ? null
@@ -1073,11 +1076,12 @@ function Composer({ p, running, lock, hu }: { p: CenterProps; running: boolean; 
   };
   const enterHint = enterHintOf(p.enterMode);
   // 実行中の送り方: 送信キー（とボタン）は設定の側、Ctrl＋Shift＋Enter はもう一方
-  const defAct = defaultRunningAction(p.runningInput);
-  const altAct = otherRunningAction(p.runningInput);
+  const runningInput = agy ? "queue" : p.runningInput;
+  const defAct = defaultRunningAction(runningInput);
+  const altAct = otherRunningAction(runningInput);
   const actLabel = (a: "queue" | "steer") => (a === "steer" ? "追加指示で送る" : "完了後に送信");
   const sendKeyName = sendKeyNameOf(p.enterMode);
-  const runHint = `${enterHint}／Ctrl＋Shift＋Enter で${actLabel(altAct)}`;
+  const runHint = agy ? enterHint : `${enterHint}／Ctrl＋Shift＋Enter で${actLabel(altAct)}`;
   // 受理の根拠。全文は title と「⋯」に常に置き、1行目には問題があるとき（未受理・受理未確認・不一致）だけ短く出す。
   const acceptLine = `${changed ? `選択: ${model}／${effortLabel(effort)}${speed ? `／速度 ${speed}` : ""}（未受理。次のターンから適用）　` : ""}受理済み: ${settings ? (accepted ? `${accepted.model}／${accepted.effort ? effortLabel(accepted.effort) : "既定"}${accepted.speedTier ? `／速度 ${accepted.speedTier}` : ""}` : showKnown(settings.accepted)) : "未確認"}${!accepted ? "（受け取るまで確認不可）" : ""}`;
   const acceptTip = !accepted ? "会話の再開・開始の応答か Codex の設定通知でモデルを受け取るまで、受理は確認できません。受け取っていない間は、選択値が使われたとは言えません。" : undefined;
@@ -1133,7 +1137,7 @@ function Composer({ p, running, lock, hu }: { p: CenterProps; running: boolean; 
           onPaste={(e) => {
             // クリップボードの画像は添付にする（生バイトでホストへ）。文章だけの貼り付けは通常どおり。
             const images = Array.from(e.clipboardData.files).filter((f) => f.type.startsWith("image/"));
-            if (!images.length) return;
+            if (agy || !images.length) return;
             e.preventDefault();
             void (async () => {
               for (const image of images) {
@@ -1155,7 +1159,7 @@ function Composer({ p, running, lock, hu }: { p: CenterProps; running: boolean; 
             }
             if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
             // 実行中は、送信キー＝設定の送り方、Ctrl＋Shift＋Enter＝もう一方。追加指示は条件を満たさないとき何も送らない（理由は▾メニューの項目に出る）
-            const act = sendActionForKey(e, p.enterMode, running, p.runningInput);
+            const act = sendActionForKey(e, p.enterMode, running, runningInput);
             // 送信キーは常に通常の送信（引き継ぎは▾メニューで選ぶ）
             if (e.ctrlKey && e.shiftKey) e.preventDefault();
             if (act === null) return;
@@ -1165,9 +1169,9 @@ function Composer({ p, running, lock, hu }: { p: CenterProps; running: boolean; 
         <div className="small muted keyhint">{running ? runHint : enterHint}</div>
         <div className="ctrl">
           <div className="ctrl-l">
-          <button aria-label="ファイル・画像・参考情報を追加" disabled={!!lock} onClick={() => p.onAct("attach")}><Icon name="clip" /></button>
+          {agy ? null : <button aria-label="ファイル・画像・参考情報を追加" disabled={!!lock} onClick={() => p.onAct("attach")}><Icon name="clip" /></button>}
           <span className="sel"><select aria-label="モデル" title="モデル（次の送信から適用）" value={model} onChange={(e) => pickModel(e.target.value)}>{model && !models.some((m) => m.id === model) ? <option value={model}>{model}（一覧にない選択）</option> : null}{models.map((m) => <option key={m.id} value={m.id}>{m.displayName}</option>)}</select></span>
-          <span className="sel eff-inline"><select aria-label="推論の強さ" title="推論の強さ（次の送信から適用）" value={effort} onChange={(e) => pickEffort(e.target.value)}><option value="">既定</option>{effort && !efforts.some((x) => x.id === effort) ? <option value={effort}>{effortLabel(effort)}（一覧にない選択）</option> : null}{efforts.map((x) => <option key={x.id} value={x.id}>{effortLabel(x.id)}</option>)}</select></span>
+          {agy ? null : <span className="sel eff-inline"><select aria-label="推論の強さ" title="推論の強さ（次の送信から適用）" value={effort} onChange={(e) => pickEffort(e.target.value)}><option value="">既定</option>{effort && !efforts.some((x) => x.id === effort) ? <option value={effort}>{effortLabel(effort)}（一覧にない選択）</option> : null}{efforts.map((x) => <option key={x.id} value={x.id}>{effortLabel(x.id)}</option>)}</select></span>}
           {/* まれな設定（権限・速度・計画／実行）と受理の全文は「⋯」へ。既定から外れているときだけ、下の小さな印で示す */}
           <Popover trigger={<Icon name="more" />} label="送信の設定" title="次の送信に使う権限・推論の強さ・速度・計画／実行（と、受理の全文）" triggerClassName="btn subtle icon">
             <div className="moreset">
@@ -1179,10 +1183,10 @@ function Composer({ p, running, lock, hu }: { p: CenterProps; running: boolean; 
                   {(Object.keys(PERMISSION_LABEL) as PermissionPreset[]).filter((k) => k === perm || !k.endsWith("Untrusted")).map((k) => <option key={k} value={k} title={PERMISSION_FULL[k]}>{k === "fullAccess" ? "■ " : ""}{PERMISSION_LABEL[k]}</option>)}
                 </select>
               </label>
-              <label className="eff-pop">
+              {agy ? null : <label className="eff-pop">
                 <span>推論の強さ</span>
                 <select aria-label="推論の強さ" value={effort} onChange={(e) => pickEffort(e.target.value)}>{efforts.map((x) => <option key={x.id} value={x.id}>{effortLabel(x.id)}</option>)}</select>
-              </label>
+              </label>}
               <label>
                 <span>速度 {stCap?.verification === "unverified" && speed ? <UnverifiedTag cap={stCap} /> : null}</span>
                 <select aria-label="速度" value={speed} disabled={tiers.length === 0}
@@ -1194,7 +1198,7 @@ function Composer({ p, running, lock, hu }: { p: CenterProps; running: boolean; 
                 </select>
               </label>
               {speed === "default" ? <div className="small muted">標準へ戻す指定を送ります。戻ったかは、送信後の受理済みの表示で確認してください（未確認）。</div> : null}
-              <label>
+              {agy ? null : <label>
                 <span>計画／実行</span>
                 <select aria-label="計画／実行" value={wmSelected ?? ""} disabled={!wmUsable && wmSelected === null}
                   title={wmUsable ? "次の送信から適用。実際に適用されたかは、受理済みの表示で確認します（experimental）" : (wmCap?.note ?? "この Codex 接続では使えません")}
@@ -1202,7 +1206,7 @@ function Composer({ p, running, lock, hu }: { p: CenterProps; running: boolean; 
                   <option value="">計画／実行: 指定なし</option>
                   {wmOptions.map((m) => <option key={m.mode} value={m.mode} disabled={!wmUsable}>{m.label}</option>)}
                 </select>
-              </label>
+              </label>}
               <div className="small accfull" title={acceptTip}>{acceptLine}</div>
               {wmLine ? <div className="small accfull" title="計画／実行は experimental の設定で、設定の更新通知を受け取るまで受理は確認できません。">{wmLine} <UnverifiedTag cap={wmCap} /></div> : null}
               {speedKeptLine ? <div className="small why">{speedKeptLine}</div> : null}
@@ -1245,7 +1249,7 @@ function Composer({ p, running, lock, hu }: { p: CenterProps; running: boolean; 
                   </>
                 ) : (
                   <>
-                    {[defAct, altAct].map((a) => {
+                    {[defAct, altAct].filter((a) => !agy || a === "queue").map((a) => {
                       const isDef = a === defAct;
                       const kbd = isDef ? sendKeyName : "Ctrl＋Shift＋Enter";
                       return a === "queue" ? (
@@ -1256,7 +1260,7 @@ function Composer({ p, running, lock, hu }: { p: CenterProps; running: boolean; 
                           onClick={() => { if (steerWhy) return; close(); void send(true); }}><span>追加指示で送る</span>{isDef ? <span className="tag">既定</span> : null}<span className="kbd">{kbd}</span></button>
                       );
                     })}
-                    {steerWhy ? <div className="small muted" style={{ padding: "2px 8px 4px" }}>追加指示にできない理由: {steerWhy}</div> : null}
+                    {steerWhy && !agy ? <div className="small muted" style={{ padding: "2px 8px 4px" }}>追加指示にできない理由: {steerWhy}</div> : null}
                   </>
                 )}
               </Popover>
@@ -1340,7 +1344,7 @@ export function CenterPane(p: CenterProps) {
         pending={p.pending} onPendingRestore={p.onPendingRestore} onPendingDismiss={p.onPendingDismiss}
         resend={{ ctx: resendCtxOf(snap, chat, snap.sources.some((x) => x.connection.kind === "connected"), p.turns), rootAgentId: rootView(snap, chat)?.agent.key.id }}
         extra={<FilesBlock chatId={chat.key.id} sent={snap.attachments.filter((a) => keyStr(a.chat) === keyStr(chat.key) && a.usedBy.length > 0)} artifacts={snap.artifacts.filter((a) => keyStr(a.chat) === keyStr(chat.key))} files={p.files} />} />
-      <Queue q={snap.queues.find((q) => keyStr(q.chat) === keyStr(chat.key))} nameOf={nameOf} qact={p.qact} steerWhy={steerBlockReason(running, modelChanged(p.settings), p.local)} />
+      <Queue q={snap.queues.find((q) => keyStr(q.chat) === keyStr(chat.key))} nameOf={nameOf} qact={p.qact} steerWhy={steerBlockReason(running, modelChanged(p.settings), p.local, chat.key.backend)} />
       <PlanBar plan={(() => { const r = rootView(snap, chat); const pl = r && p.plans[r.agent.key.id]; return pl && pl.turn === r.status.turn ? pl : undefined; })()} />
       <GoalBar goal={p.goal} live={rootView(snap, chat)?.freshness === "live"} cap={snap.opCapabilities.find((o) => o.op === "goal")} busy={p.goalBusy}
         onEdit={() => p.onAct("goal")} onClear={p.onGoalClear} onReload={p.onGoalReload} />

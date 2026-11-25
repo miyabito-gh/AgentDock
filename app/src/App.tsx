@@ -47,6 +47,7 @@ import { Dialogs, type DialogState, type NewChatInput } from "./ui/Dialogs";
 import { OrgPane } from "./ui/OrgPane";
 import { QuickNewPane } from "./ui/QuickNewPane";
 import { pickQuickModel } from "./ui/quickNew";
+import { chatKeyOfId, modelsForBackend } from "./ui/backendModels";
 import { latestReplyText } from "./ui/visual/composerHint";
 import { enterModeFromSetting, enterModeToSetting, type EnterMode } from "./ui/sendKeys";
 import { addCreating, creatingLabel, foundSince, removeCreating, resolveCreating, resultOfError, setCheckedNote, setCreatingPhase, type CreatingChat } from "./ui/creating";
@@ -106,6 +107,8 @@ export default function App() {
   const [scenarios, setScenarios] = useState<Array<[string, string]>>([]);
   const [bundle, setBundle] = useState<Bundle>(() => emptyBundle());
   const [models, setModels] = useState<ModelInfo[]>([]);
+  /** Antigravity（Gemini）のモデル一覧。空＝未導入または取得できていない（取得失敗は通知しない）。 */
+  const [agyModels, setAgyModels] = useState<ModelInfo[]>([]);
   /** プロジェクト一覧の取得結果（null＝未取得）。取得できなかったことを空の一覧にしない。 */
   const [projects, setProjects] = useState<ProjectsOutcome | null>(null);
   const [selId, setSelId] = useState<string | null>(null);
@@ -136,6 +139,7 @@ export default function App() {
       setScenarios(list);
       const b = await client.getBundle(scenario);
       setModels(await client.listModels());
+      setAgyModels(await client.listModels("antigravity"));
       setBundle(b); setSelId(b.snapshot.chats[0]?.key.id ?? null); setScope(b.snapshot.monitorScope);
     })();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -222,6 +226,8 @@ export default function App() {
   const selRef = useRef<string | null>(null);
   const quitKindRef = useRef<QuitPhase["kind"]>("idle");
   selRef.current = selId;
+  /** id しか持たない処理が、実際のチャットのキー（担当AI）を引くための最新の一覧。 */
+  const chatsRef = useRef<Chat[]>([]);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const dropRef = useRef<(paths: string[]) => void>(() => undefined);
   const live = mode === "live";
@@ -253,7 +259,7 @@ export default function App() {
   const loadChat = useCallback(async (id: string) => {
     setHistLoads((m) => ({ ...m, [id]: histStart(m[id]) }));
     try {
-      const h = await host.openChat({ backend: "codex", id });
+      const h = await host.openChat(chatKeyOfId(chatsRef.current, id));
       setBundle((b) => ({ ...b, turns: { ...b.turns, [id]: h.turns } }));
       setHistLoads((m) => ({ ...m, [id]: histOk() }));
     } catch (e) {
@@ -303,6 +309,8 @@ export default function App() {
       }
     } catch (e) { sayErr("会話の一覧を取得できませんでした", e); }
     try { setModels(await host.listModels()); } catch (e) { sayErr("モデル一覧を取得できませんでした", e); }
+    // Antigravity は未導入のことがある。取得できなければ選択肢を出さないだけで、通知しない。
+    setAgyModels(await host.listModels("antigravity").catch(() => []));
     void refreshProjects();
     return true;
   }, [loadChat, sayErr, refreshProjects]);
@@ -383,7 +391,7 @@ export default function App() {
       effects(env.event);
     };
 
-    setBundle(emptyBundle()); setSelId(null); setModels([]); setProjects(null); setAttempts({}); setScope({ kind: "selectedChat", chat: null });
+    setBundle(emptyBundle()); setSelId(null); setModels([]); setAgyModels([]); setProjects(null); setAttempts({}); setScope({ kind: "selectedChat", chat: null });
     void (async () => {
       try {
         const un = await host.subscribeHostEvents((env) => { if (ready) handle(env); else pending.push(env); });
@@ -399,6 +407,7 @@ export default function App() {
           if (page) setListCursor(page.nextCursor);
           if (page?.items[0] && !selRef.current) { setSelId(page.items[0].chat.key.id); void loadChat(page.items[0].chat.key.id); }
           setModels(await host.listModels().catch(() => []));
+          setAgyModels(await host.listModels("antigravity").catch(() => []));
           void refreshProjects();
         }
         if (!alive) return;
@@ -422,6 +431,7 @@ export default function App() {
 
   // 組織の役割チャットの表示名だけ上書きする（表示用。保存済みの名前は変えない）
   const snap: HostSnapshot = useMemo(() => [org?.workflow, ...(org?.history ?? []), ...(org?.archived ?? [])].reduce((s, w) => withOrgTitles(s, w), bundle.snapshot), [bundle.snapshot, org]);
+  chatsRef.current = snap.chats;
   /** 数秒おきの補完処理が、そのときの最新の一覧を見るための参照。 */
   const snapLive = useRef(snap);
   snapLive.current = snap;
@@ -661,6 +671,7 @@ export default function App() {
       setScenarios(list);
       const b = await client.getBundle(scenario);
       setModels(await client.listModels());
+      setAgyModels(await client.listModels("antigravity"));
       setBundle(b); setSelId(b.snapshot.chats[0]?.key.id ?? null); setScope(b.snapshot.monitorScope); setConfirmed(new Set());
     }
     setMode(m);
@@ -919,7 +930,7 @@ export default function App() {
   /** 目的メモの保存。失敗の文（成功なら null）を返す。 */
   const savePurpose = async (chatId: string, text: string, expectedRevision: number | null): Promise<string | null> => {
     if (!live) return "モックでは保存できません。";
-    try { await host.setPurposeNote({ backend: "codex", id: chatId }, text, expectedRevision); say(text.trim() === "" ? "目的メモを削除しました。" : "目的メモを保存しました。"); return null; } catch (e) { return host.asIpcError(e).message; }
+    try { await host.setPurposeNote(chatKeyOfId(snap.chats, chatId), text, expectedRevision); say(text.trim() === "" ? "目的メモを削除しました。" : "目的メモを保存しました。"); return null; } catch (e) { return host.asIpcError(e).message; }
   };
 
   const pendingRestore =(c: Chat, p: PendingSend) => {
@@ -1100,7 +1111,7 @@ ${cur}` : p.text);
     setDialog(null);
     if (!live) { say("この操作はモックでは動きません。"); return; }
     try {
-      const out = await host.resumeChat({ backend: "codex", id });
+      const out = await host.resumeChat(chatKeyOfId(snap.chats, id));
       if (out.kind === "resumed") { say("会話を再開しました。続きを送れます。"); void loadChat(id); }
       else if (out.kind === "runningElsewhere") say("外部で実行中のため再開できません。終了してからもう一度お試しください。");
       else say(`再開できませんでした: ${out.reason}`);
@@ -1116,7 +1127,8 @@ ${cur}` : p.text);
     setCreating((l) => addCreating(l, { tempId, label: creatingLabel(i.firstMessage, i.cwd), startedAt: Date.now(), phase: i.isolate && i.cwd ? "worktree" : "starting", input: i, result: null, body: i.firstMessage }));
     // 検査は済んでいる。以後は一覧の仮行で示す（閉じても作成は続く。取り消せる操作には見せない）。
     setDialog(null);
-    const m = models.find((x) => x.id === i.model);
+    const backend = i.backend ?? "codex";
+    const m = modelsForBackend(backend, models, agyModels).find((x) => x.id === i.model);
     let retryInput: NewChatInput = i;
     try {
       let cwd = i.cwd;
@@ -1139,7 +1151,7 @@ ${cur}` : p.text);
         say(`worktreeを作成しました（ブランチ ${rec.branch}）。`);
         setCreating((l) => setCreatingPhase(l, tempId, "starting"));
       }
-      const r = await host.startChat(cwd, i.model ? { model: i.model, effort: m?.defaultEffort ?? null } : null, i.routerDispatch ? null : i.firstMessage, null, worktree, i.extraFolders, i.confirmedStrong);
+      const r = await host.startChat(cwd, i.model ? { model: i.model, effort: m?.defaultEffort ?? null } : null, i.routerDispatch ? null : i.firstMessage, null, worktree, i.extraFolders, i.confirmedStrong, backend);
       setCreating((l) => removeCreating(l, tempId));
       setSelId(r.chat.key.id);
       if (i.purpose?.trim()) void host.setPurposeNote(r.chat.key, i.purpose, null).catch((e) => sayErr("目的メモを保存できませんでした", e));
@@ -1155,7 +1167,8 @@ ${cur}` : p.text);
         }
       }
       // 作成に成功したときだけ、モデルを次のクイック新規へ引き継ぐ（作業フォルダ・権限は持ち越さない）。
-      if (i.model) void updateSettings((s) => ({ ...s, lastNewChat: { model: { model: i.model, effort: m?.defaultEffort ?? null } } }), "前回のモデルを保存できませんでした");
+      // （クイック新規の初期値は Codex の一覧から選ぶため、Antigravity のモデルは引き継がない。）
+      if (i.model && backend === "codex") void updateSettings((s) => ({ ...s, lastNewChat: { model: { model: i.model, effort: m?.defaultEffort ?? null } } }), "前回のモデルを保存できませんでした");
       // 戻り値は送信中（Sending）。確定が先に届いていれば mergeAttempt が確定を残す。
       if (r.firstSend) {
         const chatId = r.chat.key.id;
@@ -1202,7 +1215,7 @@ ${cur}` : p.text);
     setCreating((l) => removeCreating(l, id));
     if (op === "retry") {
       const i = c.input;
-      setDialog({ type: "newChat", dev: i.cwd !== null, cwd: i.cwd ?? undefined, initialFolders: i.cwd ? [i.cwd, ...i.extraFolders] : undefined, prefill: { model: i.model, first: i.firstMessage ?? "", isolate: i.isolate, worktree: i.worktree, purpose: i.purpose ?? undefined, routerDispatch: i.routerDispatch ?? undefined } });
+      setDialog({ type: "newChat", dev: i.cwd !== null, cwd: i.cwd ?? undefined, initialFolders: i.cwd ? [i.cwd, ...i.extraFolders] : undefined, prefill: { model: i.model, provider: i.backend, first: i.firstMessage ?? "", isolate: i.isolate, worktree: i.worktree, purpose: i.purpose ?? undefined, routerDispatch: i.routerDispatch ?? undefined } });
     }
   };
 
@@ -1214,6 +1227,7 @@ ${cur}` : p.text);
 
   // ── 添付・成果物（§3.8）。コピー・実在確認・上書き判定はホスト。ここは操作の入口と結果の案内だけ。 ──
   const addFiles = async (c: ChatKey, paths: string[]) => {
+    if (c.backend === "antigravity") { say("Antigravity（Gemini）のチャットには添付できません。"); return; }
     for (const path of paths) {
       try {
         const e = await host.addAttachmentFile(c, path);
@@ -1777,8 +1791,10 @@ ${cur}` : p.text);
   const startRouterNew = (d: DispatchView, text: string) => {
     const n = d.proposal?.newChat;
     const folder = n?.folder?.trim() ?? "";
-    const model = models.find((m) => m.id === "claude-sonnet-5-5")?.id ?? "";
-    setDialog({ type: "newChat", dev: !!folder, cwd: folder || undefined, prefill: { model, first: text, isolate: false, worktree: null, purpose: n?.purpose?.trim() || undefined, routerDispatch: d.id } });
+    const provider = n?.provider ?? "codex";
+    // 担当AIの一覧から選ぶ。Antigravity のときは、一覧が空でもダイアログで理由を示す（Codex へは切り替えない）。
+    const model = provider === "antigravity" ? pickQuickModel(agyModels, null, null) : models.find((m) => m.id === "claude-sonnet-5-5")?.id ?? "";
+    setDialog({ type: "newChat", dev: !!folder, cwd: folder || undefined, prefill: { model, provider, first: text, isolate: false, worktree: null, purpose: n?.purpose?.trim() || undefined, routerDispatch: d.id } });
   };
   const routerCtx: RouterCtx | null = routerView && live ? { view: routerView, chats: snap.chats, locals: snap.chatLocals, refresh: () => void refreshRouter(), startNew: startRouterNew, openChat: (k) => selectChat(k.id) } : null;
 
@@ -2021,7 +2037,7 @@ ${cur}` : p.text);
           <main className="center">
             <VisualGate key={mode} enabled={visualShown}
               blocked={!!dialog || !!menu || palette || mockOpen || !!(sideId && sideShown) || lNarrow || rNarrow || dragging}
-              chatId={chat?.key.id ?? null} chatKey={chat && chat.key.backend === "codex" ? chat.key : null} chatCwd={chat ? knownValue(chat.cwd) : null} onSendInstruction={sendInstruction}
+              chatId={chat?.key.id ?? null} chatKey={chat && chat.key.backend === "codex" ? chat.key : null /* Visual Editor は Codex 専用 */} chatCwd={chat ? knownValue(chat.cwd) : null} onSendInstruction={sendInstruction}
               sendLock={chat ? sendLockReason(snap, chat, snap.chatLocals.find((l) => l.chat.id === chat.key.id)) ?? firstSendLockReason(pendingSends[chat.key.id]) : null}
               chatRunning={!!chat && isRunning(snap, chat)} enterMode={enterMode}
               chatOff={visualChatOff} latestReply={visualReply} requests={visualReqs}
@@ -2045,7 +2061,7 @@ ${cur}` : p.text);
                 visualChip={visualShown ? visualChip : null}
                 visualHint={visualShown && visualCtx ? "例: この見出しを短く / ここを青系の配色に" : undefined}
                 skillPick={live ? { skills: skillLists[chat.key.id], load: () => loadSkills(chat.key), recent: snap.settings.recentSkills ?? [], pick: (sk) => { void pickSkill(chat.key, sk.name, sk.path); } } : null}
-                settings={bundle.modelSettings[chat.key.id]} models={models} save={chatSave}
+                settings={bundle.modelSettings[chat.key.id]} models={modelsForBackend(chat.key.backend, models, agyModels)} save={chatSave}
                 externalLabel={bundle.externalLabel[chat.key.id]} wasLive={liveSeen.current.has(chat.key.id)} enterMode={enterMode} runningInput={snap.settings.runningInput ?? "queue"}
                 draft={curDraft} setDraft={(v) => onDraft(chat, v)}
                 onAct={act} commands={cmdViews} onRespond={(r, a) => void onRespond(r, a)}
@@ -2090,7 +2106,7 @@ ${cur}` : p.text);
       {palette && !dialog ? <CommandPalette views={cmdViews} onRun={act} onClose={() => setPalette(false)} /> : null}
       {dialog ? (
         <Dialogs d={dialog} router={{ routerKey: routerView?.chat ?? null, locals: snap.chatLocals }} modelDefault={{ saved: snap.settings.defaultModel?.model ?? null, set: (id) => updateSettings((s) => ({ ...s, defaultModel: id ? { model: id, effort: models.find((m) => m.id === id)?.defaultEffort ?? null } : null }), "新しいチャットの既定のモデルを保存できませんでした") }} cont={{
-          value: snap.settings.continuation, locals: snap.chatLocals, savePurpose, loadPreview: (id) => loadHandoffPreview({ backend: "codex", id }),
+          value: snap.settings.continuation, locals: snap.chatLocals, savePurpose, loadPreview: (id) => loadHandoffPreview(chatKeyOfId(snap.chats, id)),
           setValue: (c) => updateSettings((s) => ({ ...s, continuation: c }), "継続チャットの設定を保存できませんでした。次回の起動では保存されている値に戻ります"),
         }} org={{
           settings: { live, stallMinutes: snap.settings.orgStallMinutes, setStall: async (m) => { if (!live) return "モックでは動きません。"; try { await host.orgSetStallMinutes(m); return null; } catch (e) { return host.asIpcError(e).message; } } },
@@ -2099,7 +2115,7 @@ ${cur}` : p.text);
           deleteWorkflow: (id, del, expect, intake) => host.orgDeleteWorkflow(id, del, expect, intake),
           deleteProgress: orgDelProg, onDeleteIssue: (m) => say(m, 8000),
           onDeleted: (id, note) => { setDialog((d) => (d?.type === "orgDelete" && d.workflowId === id ? null : d)); if (orgSel === id) setOrgSel(null); setOrgTick((n) => n + 1); say(`ワークフローを削除しました。worktree とブランチは残しています。${note ? ` ${note}` : ""}`, note ? 10000 : 6000); },
-        }} externalTools={{ value: snap.settings.externalTools, save: (externalTools) => updateSettings((st) => ({ ...st, externalTools }), "外部ツールの設定を保存できませんでした") }} folderTools={folderTools} workspaceRoots={snap.workspaceRoots} onClose={closeDialog} opCaps={snap.opCapabilities} resend={{ state: resendState, handlers: resendHandlers }} chats={snap.chats} source={src} models={models}
+        }} externalTools={{ value: snap.settings.externalTools, save: (externalTools) => updateSettings((st) => ({ ...st, externalTools }), "外部ツールの設定を保存できませんでした") }} folderTools={folderTools} workspaceRoots={snap.workspaceRoots} onClose={closeDialog} opCaps={snap.opCapabilities} resend={{ state: resendState, handlers: resendHandlers }} chats={snap.chats} source={src} models={models} agyModels={agyModels}
           prefs={{ goal: dialog.type === "goal" ? goals[dialog.chatId] : undefined, saveGoal,
             settings: dialog.type === "status" && dialog.chatId ? bundle.modelSettings[dialog.chatId] : undefined,
             local: dialog.type === "status" && dialog.chatId ? snap.chatLocals.find((l) => l.chat.id === dialog.chatId) : undefined }}
