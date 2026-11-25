@@ -38,7 +38,7 @@ import { filterSkills, isDisabled, originLabel, queryTerms, removeTrigger, skill
 import { PendingSendRow } from "./PendingSendRow";
 import { SendStatusBar } from "./SendStatusBar";
 import { queueCounts } from "./sendStatus";
-import { aiName } from "./backendModels";
+import { aiFullName, aiName } from "./backendModels";
 import { HandoffNotice, PurposeLine, UsageChip, useHandoff, type HandoffUi } from "./HandoffNotice";
 import { IntakeSection } from "./OrgIntake";
 import { worktreeOf } from "./folderGroups";
@@ -186,7 +186,7 @@ export interface QueueActions {
 
 /** 追加指示にできない理由（できるときは null）。追加指示はモデル・権限・作業フォルダの変更には使えず、実行中のturnにだけ送れる。 */
 function steerBlockReason(running: boolean, changed: boolean, local: ChatLocalView | undefined, backend: BackendKind = "codex"): string | null {
-  if (backend === "antigravity") return "Antigravity（Gemini）は追加指示に対応していません（完了後に送信を使います）";
+  if (backend === "antigravity") return `${aiFullName("antigravity")}は追加指示に対応していません（完了後に送信を使います）`;
   if (!running) return "実行中のやりとりがないため、追加指示にはできません";
   if (changed) return "モデル・推論の強さ・速度を変更中のため、追加指示にはできません（変更は次の送信から適用されます）";
   if (local?.nextCwd) return "作業フォルダの変更が予定されているため、追加指示にはできません";
@@ -276,7 +276,9 @@ function Header({ snap, chat, onAct, commands, local, onCwdToggle, wasLive, exte
   return (
     <div className="chead">
       <button className="btn subtle icon panebtn" aria-label="チャット一覧" aria-pressed={leftShown} title={tipWithKey(`チャット一覧を${leftShown ? "閉じる" : "開く"}`, "toggleLeft")} onClick={() => onAct("toggleLeft")}><Icon name="list" /></button>
-      <span className="ttl" style={ttl.confirmed ? undefined : TENTATIVE_STYLE} title={`${ttl.text}（${aiName(chat.key.backend)}）${ttl.confirmed ? "" : `\n${TENTATIVE_HINT}`}`}>{ttl.text}</span>
+      <span className="ttl" style={ttl.confirmed ? undefined : TENTATIVE_STYLE} title={`${ttl.text}（${aiFullName(chat.key.backend)}）${ttl.confirmed ? "" : `\n${TENTATIVE_HINT}`}`}>{ttl.text}</span>
+      {/* 担当AI（このチャットを動かしているAI）。状態・鮮度とは別の印 */}
+      <span className="tag" title={`担当AI: ${aiFullName(chat.key.backend)}`}>{aiName(chat.key.backend)}</span>
       {/* 状態と鮮度は別表示。片方から他方を導かない */}
       <span className={`st ${chatChipClass(snap, chat)}`} title={chatStatusText(snap, chat)}><i />{chatStatusText(snap, chat)}</span>
       {isLive ? (
@@ -1210,7 +1212,7 @@ function Composer({ p, running, lock, hu }: { p: CenterProps; running: boolean; 
                 </select>
               </label>}
               {agy
-                ? <div className="small accfull">Antigravity（Gemini）のチャットです。添付・推論の強さ・速度・計画／実行・追加指示は使えません（出していません）。承認が必要な操作は自動で拒否されます。</div>
+                ? <div className="small accfull">{aiFullName("antigravity")}のチャットです。添付・推論の強さ・速度・計画／実行・追加指示は使えません（出していません）。承認が必要な操作は自動で拒否されます。</div>
                 : <div className="small accfull" title={acceptTip}>{acceptLine}</div>}
               {wmLine && !agy ?<div className="small accfull" title="計画／実行は experimental の設定で、設定の更新通知を受け取るまで受理は確認できません。">{wmLine} <UnverifiedTag cap={wmCap} /></div> : null}
               {speedKeptLine && !agy ? <div className="small why">{speedKeptLine}</div> : null}

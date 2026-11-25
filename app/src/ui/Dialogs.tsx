@@ -1,6 +1,6 @@
 import { ExternalToolsBody, type ExternalToolsProps } from "./ExternalToolsSettings";
 import { isNewChatSubmitKey, pickQuickModel } from "./quickNew";
-import { chatKeyOfId, modelsForBackend } from "./backendModels";
+import { aiFullName, chatKeyOfId, modelsForBackend } from "./backendModels";
 import { ModelSettingsBody, type ModelDefaultProps } from "./ModelSettings";
 import { PetSettingsField, type PetProps } from "./PetSettings";
 import { ReplySettingsBody, type ReplySettingsProps } from "./ReplySettings";
@@ -465,7 +465,7 @@ function RenameDialog({ chat, onClose, run }: { chat: Chat | undefined; onClose:
 /** isolate は「分離」（worktreeを作成してから開始）。worktree は既存のAgentDock作成worktreeの記録ID（チャットに結び付ける）。 */
 export interface NewChatInput { cwd: string | null; model: string; firstMessage: string | null; isolate: boolean; worktree: string | null; /** 追加の作業フォルダ（プライマリ以外）。 */ extraFolders: string[]; /** 強い確認を済ませたパス（ホストが再検査する）。 */ confirmedStrong: string[]; /** 目的メモの案（作成後に保存。受付係の「始める」から）。 */ purpose?: string | null; /** 受付係の振り分けカードのID（作成後に結び付ける）。 */ routerDispatch?: string | null; /** 担当AI。省略は Codex。 */ backend?: BackendKind }
 
-export function Dialogs({ externalTools, modelDefault, cont, org, folderTools, workspaceRoots, d, onClose, chats, source, models, agyModels, enterMode, setEnterMode, runningInput, setRunningInput, top, setTab, onAct, exe, onCreateChat, notify, autostart, pet, reply, appearance, quit, force, manage, onRename, opCaps, live, changesTick, turnRecords, onRevertDone, prefs, threadOps, worktree, cloudTasks, compose, resend, router }: {
+export function Dialogs({ externalTools, modelDefault, cont, org, folderTools, workspaceRoots, d, onClose, chats, source, models, agyModels, agyError, enterMode, setEnterMode, runningInput, setRunningInput, top, setTab, onAct, exe, onCreateChat, notify, autostart, pet, reply, appearance, quit, force, manage, onRename, opCaps, live, changesTick, turnRecords, onRevertDone, prefs, threadOps, worktree, cloudTasks, compose, resend, router }: {
   /** 受付係のルール帳の表示に使う、受付係のチャットと全チャットの補足情報。 */
   router: { routerKey: ChatKey | null; locals: ChatLocalView[] };
   org: OrgDialogProps;
@@ -501,6 +501,8 @@ export function Dialogs({ externalTools, modelDefault, cont, org, folderTools, w
   d: DialogState; onClose: () => void; chats: Chat[]; source: SourceInfo | undefined; models: ModelInfo[];
   /** Antigravity（Gemini）のモデル一覧。空＝未導入または取得できていない（選択肢を無効にする）。 */
   agyModels: ModelInfo[];
+  /** Antigravity のモデル一覧を取得できなかった理由（ホストが返した文。取得できているときは null）。 */
+  agyError: string | null;
   exe: CodexExe; onCreateChat: (i: NewChatInput) => Promise<void>;
   enterMode: EnterMode; setEnterMode: (m: EnterMode) => void; runningInput: RunningInputMode; setRunningInput: (m: RunningInputMode) => void;
   top: { main: boolean; mini: boolean; setMain: (b: boolean) => void; setMini: (b: boolean) => void };
@@ -589,7 +591,7 @@ export function Dialogs({ externalTools, modelDefault, cont, org, folderTools, w
   };
   const createNewChat = async () => {
     if (creating) return; // 二重押し
-    if (provider === "antigravity" && !agyReady) { setNcErr("Antigravity（Gemini）を利用できません（agy が見つからないか、モデル一覧を取得できていません）。"); return; }
+    if (provider === "antigravity" && !agyReady) { setNcErr(`${aiFullName("antigravity")}を利用できません。${agyError ? `取得できなかった理由: ${agyError}` : "モデル一覧を取得できていません（agy が見つからない可能性があります）。"}`); return; }
     if (pre?.routerDispatch && !activeModels.some((m) => m.id === model)) { setNcErr("担当に使うモデルを一覧から選んでください。"); return; }
     const dev = kind === "dev";
     const primary = cwd.trim();
@@ -659,13 +661,13 @@ export function Dialogs({ externalTools, modelDefault, cont, org, folderTools, w
         <OrgImportBody workflowId={d.workflowId} initialTasks={d.tasks} live={org.settings.live} onBack={() => org.go({ type: "orgArtifacts", workflowId: d.workflowId, task: d.tasks[0] ?? null })} onPush={(folder) => org.go({ type: "gitPush", folder })} onClose={onClose} />
       </Shell>);
     case "newChat": return (
-      <Shell title="新しいチャット" onClose={onClose} foot={<><button className="btn" onClick={onClose}>キャンセル</button><button className="btn primary" disabled={(kind === "dev" && !cwd.trim()) || creating || (provider === "antigravity" && !agyReady)} title={provider === "antigravity" && !agyReady ? "Antigravity（Gemini）が使えないため作成できません。担当AIを Codex に切り替えてください" : undefined} onClick={() => void createNewChat()}>{creating ? <><span className="spinner" aria-hidden="true" /> 作成中…</> : kind === "dev" && isolate ? "worktreeを作って開始" : "作成"}</button></>}>
+      <Shell title="新しいチャット" onClose={onClose} foot={<><button className="btn" onClick={onClose}>キャンセル</button><button className="btn primary" disabled={(kind === "dev" && !cwd.trim()) || creating || (provider === "antigravity" && !agyReady)} title={provider === "antigravity" && !agyReady ? `${aiFullName("antigravity")}が使えないため作成できません。担当AIを Codex に切り替えてください` : undefined} onClick={() => void createNewChat()}>{creating ? <><span className="spinner" aria-hidden="true" /> 作成中…</> : kind === "dev" && isolate ? "worktreeを作って開始" : "作成"}</button></>}>
         <div className="content">
-          <div className="field"><span>担当AI</span><div><label><input type="radio" name="provider" checked={provider === "codex"} onChange={() => changeProvider("codex")} />Codex</label><br /><label><input type="radio" name="provider" checked={provider === "antigravity"} disabled={!agyReady && provider !== "antigravity"} onChange={() => changeProvider("antigravity")} />Antigravity（Gemini）</label>
+          <div className="field"><span>担当AI</span><div><label><input type="radio" name="provider" checked={provider === "codex"} onChange={() => changeProvider("codex")} />{aiFullName("codex")}</label><br /><label><input type="radio" name="provider" checked={provider === "antigravity"} disabled={!agyReady && provider !== "antigravity"} onChange={() => changeProvider("antigravity")} />{aiFullName("antigravity")}</label>
             {!agyReady ? (
               <div className="small rwarn" role={provider === "antigravity" ? "alert" : undefined} style={{ marginTop: 4 }}>
-                <Icon name="alert" /> {pre?.routerDispatch && provider === "antigravity" ? "受付係の案は Antigravity（Gemini）でしたが、いまは使えません。" : "Antigravity（Gemini）は使えません。"}
-                モデル一覧を取得できていません（取得中、または agy が未導入・未ログイン・起動不可の可能性があります）。
+                <Icon name="alert" /> {pre?.routerDispatch && provider === "antigravity" ? `受付係の案は ${aiFullName("antigravity")} でしたが、いまは使えません。` : `${aiFullName("antigravity")}は使えません。`}
+                {agyError ? `取得できなかった理由: ${agyError}` : "モデル一覧を取得できていません（取得中、または agy が未導入・未ログイン・起動不可の可能性があります）。"}
                 {provider === "antigravity" ? <> Codex で作成できます。<button type="button" className="btn sm" style={{ marginLeft: 6 }} onClick={() => changeProvider("codex")}>Codex に切り替える</button></> : <> いまは Codex だけ選べます。</>}
               </div>
             ) : provider === "antigravity" ? <div className="small muted">承認が必要な操作は自動で拒否されます。追加の指示・添付には対応していません。</div> : null}</div></div>
