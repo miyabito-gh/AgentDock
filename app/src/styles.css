@@ -1463,6 +1463,7 @@ html.pet-view,html.pet-view body,html.pet-view #root{background:transparent;over
 .rpicker-list{list-style:none;margin:0;padding:0;max-height:200px;overflow:auto}
 .rpicker-list button{display:flex;gap:8px;align-items:baseline;width:100%;text-align:left;border:0;background:transparent;padding:3px 6px;border-radius:var(--r1);cursor:pointer;min-width:0}
 .rpicker-list button:hover{background:var(--hover)}
+.rpicker-list .tag{flex:none}
 .rpicker-list .nm{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rpicker-list .fl{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rpicker-none{padding:4px 6px}

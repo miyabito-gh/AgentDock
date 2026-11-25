@@ -61,6 +61,7 @@ export function ChatPicker({ chats, locals, routerKey, onPick, onCancel }: { cha
           <li key={c.key.id}>
             <button type="button" onClick={() => onPick(c)} title={folderOf(c) ?? "一般チャット"}>
               <span className="nm">{chatName(c)}</span>
+              {c.key.backend === "antigravity" ? <span className="tag" title="Antigravity（Gemini）の会話">Gemini</span> : null}
               <span className="small muted fl">{folderOf(c) ?? "一般"}</span>
             </button>
           </li>
