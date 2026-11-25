@@ -1,10 +1,20 @@
 ﻿# 保全状況
 
+## 2026-11-26 旧パス参照の修正と、受付・Antigravity 画面の UI/UX 確認
+
+- ブランチ `feature/antigravity-provider`。コミットはローカルのみ（push なし）。`c5b3ec2`（旧パス）、`8bba0b2`・`40ee072`（UI）。
+- 旧パス: `Run-NativeProbe.ps1` の固定パスは旧フォルダ `AgentDock_next` を指しており、現在の場所では Inspect でも常に例外で止まっていた。現行の `AgentDock` へ直し、Inspect が動くことを確認（Run は未実行）。`MOCK_APPROVAL_CARD.html` は画面サンプルのパス表示のみ修正。履歴文書（docs/archive/HANDOFF_visual_editor_2026-10.md、probes/ の envelope.txt 3件、本ファイル末尾の改名記録）は当時の記録なので未変更。
+- UI 改善（受付カード・新規チャット・Antigravity チャットに限定）: 受付カードに状態の印（形＋文字。完了・失敗・送信失敗・受理不明・送信待ち・要確認など）と担当AI表示、失敗系の枠を警告色に。Antigravity が使えないときの警告表示と「Codex に切り替える」ボタン。Antigravity チャットで発話者・状態文が「Codex」固定だったのを Gemini に、送信の設定から Codex 専用の速度・受理済み表示を外し説明を追加。「別の会話へ」の候補行に Gemini の印。ホストはコメントのみ追加（結果文の先頭の語を画面が判定に使う）。
+- 検証: type-check 成功、Node 556件通過（追加6件）、Rust は cargo check・lib テスト 1771件通過（無視1。最後のコミットはコメントのみのため、その後の Rust テストは未再実行だがリリースビルドは成功）。リリースビルド（HEAD `40ee072`）: exe 33763840 bytes・NSIS 8062843 bytes、いずれも 2026-11-26 07:18:05。画面は、実 exe を WebView2 のデバッグ接続で起動し新規チャットの担当AI選択（Codex／Antigravity の切替とモデル一覧）まで確認。受付カード・agy 利用不可の表示・Antigravity チャットの入力欄は、ブラウザのモック描画での確認（実 exe では未確認。実データに受付や Antigravity チャットを作っていない）。
+- 実データ: 実 exe の起動で、既存データの activity.jsonl 9件の新規作成と chat.json 6件・queue.json 1件・診断ログの更新が起きた（通常起動の記録更新。送信・削除・作成はしていない）。終了はメニューから行い、プロセス終了を確認。
+- 子の作業: Haiku＝Rust テスト実行、リリースビルド。Opus＝差分の設計レビュー1回（指摘を反映）。実装・検証・exe 確認は司令塔（Sonnet）。Codex は不使用。
+- 提案（未実装）: 担当の状態をホストが構造化値で返す、agy モデル一覧の失敗理由を画面へ渡す、クイック新規に担当AI選択、チャット見出しへの担当AI表示、担当AI表示名の一元化。
+
 ## 2026-11-26 インストーラー手順書の旧パス修正
 
 - `app/INSTALLER_BUILD.md` の起動コマンドが旧フォルダ `AgentDock_next` を指していたため、現在の `C:\Users\wmasa\Documents\Rust\AgentDock` に修正。ドキュメントのみの変更で、製品コードは変更していない。push なし。
 - 同じパスの NSIS インストーラーが 2026-11-26 06:38 の別ビルドに置き換わっていたため、作成記録の値（2026-10-24）には旧値である旨と現在の値を併記した。現在のファイルの内容・ソースHEADは未確認。インストーラーは起動していない。
-- 他の文書の旧パス参照（`app/verification/visual-editor/Run-NativeProbe.ps1`、`docs/archive/`、`probes/` 配下の記録）は、今回の依頼範囲外のため未修正。判断待ち。（→ 2026-11-26 の次の節で対応済み）
+- 他の文書の旧パス参照（`app/verification/visual-editor/Run-NativeProbe.ps1`、`docs/archive/`、`probes/` 配下の記録）は、今回の依頼範囲外のため未修正。判断待ち。（→ 2026-11-26 の次の節で対応済み）（→ 2026-11-26 の次の節で対応済み）
 
 ## 2026-11-26 Antigravity（agy）プロバイダの追加
 
