@@ -14,6 +14,16 @@ export function chatKeyOfId(chats: ReadonlyArray<{ key: ChatKey }>, id: string):
   return chats.find((c) => c.key.id === id)?.key ?? { backend: "codex", id };
 }
 
-/** 会話の発話者・状態文に出す担当AIの名前（Antigravity のチャットは Gemini。左一覧の「Gemini」の印と同じ語）。 */
-const AI_NAME: Record<BackendKind, string> = { codex: "Codex", antigravity: "Gemini" };
-export const aiName = (backend: BackendKind): string => AI_NAME[backend];
+/**
+ * 担当AI（バックエンド）の表示名の正本。表記ゆれを防ぐため、画面に出す AI の名前はここから引く（BackendKind を足すと型で漏れを検出する）。
+ * - name: 発話者・状態文・一覧／見出しの印に出す短い名前（Antigravity のチャットは Gemini）。
+ * - full: 選択肢・案内文に出す正式な名前（Antigravity（Gemini））。
+ */
+const AI_LABEL: Record<BackendKind, { name: string; full: string }> = {
+  codex: { name: "Codex", full: "Codex" },
+  antigravity: { name: "Gemini", full: "Antigravity（Gemini）" },
+};
+export const aiName = (backend: BackendKind): string => AI_LABEL[backend].name;
+export const aiFullName = (backend: BackendKind): string => AI_LABEL[backend].full;
+/** 印（一覧・見出し・候補行）に添えるツールチップ。 */
+export const aiTip = (backend: BackendKind): string => `${AI_LABEL[backend].full}の会話`;

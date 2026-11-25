@@ -7,8 +7,9 @@ import type { Chat, ChatKey, ChatLocalView, DispatchView, RouterView, RouterTurn
 import { askConfirm } from "./appConfirm";
 import { chatName, sortChats } from "./derive";
 import { knownValue } from "./format";
-import { baseText, canToggleOriginal, chipNeedsAttention, dispatchChip, dispatchesOfTurn, foldedLine, noticeView, pickableChats, proposedProvider, providerLabel, resultBody, targetLabel } from "./router";
+import { baseText, canToggleOriginal, chipNeedsAttention, dispatchChip, dispatchesOfTurn, foldedLine, noticeView, pickableChats, proposedProvider, targetLabel } from "./router";
 import { Icon } from "./Icon";
+import { aiName, aiTip, aiFullName } from "./backendModels";
 
 const errText = (e: unknown) => host.asIpcError(e).message;
 
@@ -61,7 +62,7 @@ export function ChatPicker({ chats, locals, routerKey, onPick, onCancel }: { cha
           <li key={c.key.id}>
             <button type="button" onClick={() => onPick(c)} title={folderOf(c) ?? "一般チャット"}>
               <span className="nm">{chatName(c)}</span>
-              {c.key.backend === "antigravity" ? <span className="tag" title="Antigravity（Gemini）の会話">Gemini</span> : null}
+              {c.key.backend === "antigravity" ? <span className="tag" title={aiTip(c.key.backend)}>{aiName(c.key.backend)}</span> : null}
               <span className="small muted fl">{folderOf(c) ?? "一般"}</span>
             </button>
           </li>
@@ -89,7 +90,7 @@ function DispatchCard({ d, original, ctx }: { d: DispatchView; original: string 
     const kind = chipNeedsAttention(chip) ? "warn" : folded.kind;
     return (
       <div className={`rcard folded ${kind}`}>
-        <div className="grow"><div className="rline">{chip ? <span className={`st ${chip.tone}`}><Icon name={chip.icon} />{chip.label}</span> : null}<span>{folded.text}</span></div>{d.executionResult && <div style={{ whiteSpace: "pre-wrap" }}>{resultBody(d.executionResult)}</div>}<small>受付 {d.requestId ?? d.sourceTurn} ／ 振り分け {d.id}{d.executionTurn && ` ／ 担当 ${d.executionTurn}`}</small></div>
+        <div className="grow"><div className="rline">{chip ? <span className={`st ${chip.tone}`}><Icon name={chip.icon} />{chip.label}</span> : null}<span>{folded.text}</span></div>{d.executionResult && <div style={{ whiteSpace: "pre-wrap" }}>{d.executionResult}</div>}<small>受付 {d.requestId ?? d.sourceTurn} ／ 振り分け {d.id}{d.executionTurn && ` ／ 担当 ${d.executionTurn}`}</small></div>
         {folded.canOpen && key ? <button type="button" className="btn sm" onClick={() => ctx.openChat(key)}>開く</button> : null}
       </div>
     );
@@ -114,7 +115,7 @@ function DispatchCard({ d, original, ctx }: { d: DispatchView; original: string 
   };
   return (
     <div className="rcard">
-      <div className="rcard-h"><span className="tag ai">{isNew ? "新規" : "送り先"}</span><b className="grow nm">{targetLabel(d)}</b>{provider ? <span className="tag" title="このチャットを担当するAI">AI: {providerLabel(provider)}</span> : null}</div>
+      <div className="rcard-h"><span className="tag ai">{isNew ? "新規" : "送り先"}</span><b className="grow nm">{targetLabel(d)}</b>{provider ? <span className="tag" title="このチャットを担当するAI">AI: {aiFullName(provider)}</span> : null}</div>
       <small className="muted">受付 {d.requestId ?? d.sourceTurn} ／ 振り分け {d.id}{d.target.chat && ` ／ 送り先ID ${d.target.chat.id}`}</small>
       {p?.reason ? <div className="small muted">{p.reason}</div> : null}
       {p?.confidence === "low" ? <div className="small rwarn">この案はあまり自信がありません。送り先をよく確認してください。</div> : null}

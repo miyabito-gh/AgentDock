@@ -1,7 +1,7 @@
 // 実行: node --test src/ui/router.test.ts （tscの対象外）
 import test from "node:test";
 import assert from "node:assert/strict";
-import { ROUTER_ENVELOPE_END, ROUTER_ENVELOPE_HEAD, baseText, canToggleOriginal, chipNeedsAttention, dispatchChip, dispatchesOfTurn, foldedLine, proposedProvider, providerLabel, resultBody, resultChip, noticeView, originalRequest, pickableChats, routerEnvelopeLabel, splitRouterEnvelope, targetLabel } from "./router.ts";
+import { ROUTER_ENVELOPE_END, ROUTER_ENVELOPE_HEAD, baseText, canToggleOriginal, chipNeedsAttention, dispatchChip, dispatchesOfTurn, foldedLine, proposedProvider, statusChip, noticeView, originalRequest, pickableChats, routerEnvelopeLabel, splitRouterEnvelope, targetLabel } from "./router.ts";
 
 const wrap = (user: string) => `${ROUTER_ENVELOPE_HEAD}\n## 指示（第1版）\nx\n${ROUTER_ENVELOPE_END}\n${user}`;
 
@@ -82,40 +82,40 @@ test("最初の利用者発話から原文を取り出す", () => {
   assert.equal(originalRequest([]), null);
 });
 
-test("担当の結果文から状態の印を引く（形＋文字で区別。知らない文は印なし）", () => {
-  assert.deepEqual(resultChip("担当完了\n結果"), { tone: "done", icon: "check", label: "完了" });
-  assert.equal(resultChip("担当完了（最終回答の記録なし）")?.label, "完了");
-  assert.equal(resultChip("担当の実行が失敗しました")?.label, "失敗");
-  assert.equal(resultChip("送信失敗: 理由")?.label, "送信失敗");
-  assert.equal(resultChip("担当の実行が中断されました")?.label, "中断");
-  assert.deepEqual(resultChip("担当への受理を照合中です"), { tone: "unk", icon: "help", label: "受理不明" });
-  assert.equal(resultChip("キューは停止中です。担当チャットで詳細を確認してください")?.label, "要確認");
-  assert.equal(resultChip("キュー記録を照合できません")?.label, "照合不能");
-  assert.equal(resultChip("キューで取り消されました")?.label, "取り消し");
-  assert.equal(resultChip("未知の文"), null);
-  assert.equal(resultChip(null), null);
+test("担当の結果の状態（値）から印を引く（形＋文字で区別。状態なしは印なし）", () => {
+  assert.deepEqual(statusChip("done"), { tone: "done", icon: "check", label: "完了" });
+  assert.equal(statusChip("failed")?.label, "失敗");
+  assert.equal(statusChip("sendFailed")?.label, "送信失敗");
+  assert.deepEqual(statusChip("enqueueFailed"), { tone: "fail", icon: "x", label: "キュー登録失敗" });
+  assert.equal(statusChip("interrupted")?.label, "中断");
+  assert.deepEqual(statusChip("unconfirmed"), { tone: "unk", icon: "help", label: "受理不明" });
+  assert.equal(statusChip("queuePaused")?.label, "要確認");
+  assert.equal(statusChip("queueMissing")?.label, "照合不能");
+  assert.equal(statusChip("cancelled")?.label, "取り消し");
+  assert.equal(statusChip(null), null);
+  assert.equal(statusChip(undefined), null);
 });
-test("カードの印: 結果があれば結果、なければ送信の状態。見送りは印なし", () => {
+test("カードの印: 結果の状態があればそれ（結果文の文言は見ない）、なければ送信の状態。見送りは印なし", () => {
   const q = { kind: "queued", at: 1, queueEntry: "q" };
   assert.deepEqual(dispatchChip(dv({ state: q })), { tone: "idle", icon: "hourglass", label: "送信待ち" });
-  assert.equal(dispatchChip(dv({ state: q, executionResult: "送信失敗: x" }))?.label, "送信失敗");
+  assert.equal(dispatchChip(dv({ state: q, executionStatus: "sendFailed", executionResult: "送信失敗: x" }))?.label, "送信失敗");
+  // 文言が何であれ、状態の値が印を決める（先頭の語に依存しない）
+  assert.equal(dispatchChip(dv({ state: q, executionStatus: "done", executionResult: "知らない文言" }))?.label, "完了");
   assert.equal(dispatchChip(dv({ state: { kind: "unconfirmed", at: 1, clientMessageId: "m" } }))?.label, "受理不明");
   assert.deepEqual(dispatchChip(dv({ state: { kind: "sent", at: 1, clientMessageId: "m" } })), { tone: "run", icon: "play", label: "送信済み" });
-  // 結果文があるのに判定できないときは、送信の状態（送信待ち）に戻らず「状態不明」（完了を送信待ちと見せない）
-  assert.deepEqual(dispatchChip(dv({ state: q, executionResult: "知らない文言" })), { tone: "unk", icon: "help", label: "状態不明" });
+  // 結果文があるのに状態がないとき（読み替えられない旧記録）は、送信の状態（送信待ち）に戻らず「状態不明」
+  assert.deepEqual(dispatchChip(dv({ state: q, executionStatus: null, executionResult: "知らない文言" })), { tone: "unk", icon: "help", label: "状態不明" });
   assert.equal(dispatchChip(dv({ state: { kind: "dismissed", at: 1 } })), null);
   assert.equal(dispatchChip(dv()), null);
 });
-test("枠を警告色にするのは失敗・受理不明・要確認だけ。完了の1行目の語は本文から省く", () => {
-  assert.equal(chipNeedsAttention(resultChip("送信失敗: x")), true);
-  assert.equal(chipNeedsAttention(resultChip("担当への受理を照合中です")), true);
-  assert.equal(chipNeedsAttention(resultChip("キューは停止中です")), true);
-  assert.equal(chipNeedsAttention(resultChip("担当完了\n結果")), false);
-  assert.equal(chipNeedsAttention(resultChip("担当の実行が中断されました")), false);
+test("枠を警告色にするのは失敗・受理不明・要確認だけ", () => {
+  assert.equal(chipNeedsAttention(statusChip("sendFailed")), true);
+  assert.equal(chipNeedsAttention(statusChip("enqueueFailed")), true);
+  assert.equal(chipNeedsAttention(statusChip("unconfirmed")), true);
+  assert.equal(chipNeedsAttention(statusChip("queuePaused")), true);
+  assert.equal(chipNeedsAttention(statusChip("done")), false);
+  assert.equal(chipNeedsAttention(statusChip("interrupted")), false);
   assert.equal(chipNeedsAttention(null), false);
-  assert.equal(resultBody("担当完了\n最終回答"), "最終回答");
-  assert.equal(resultBody("担当完了（最終回答の記録なし）"), "担当完了（最終回答の記録なし）");
-  assert.equal(resultBody("送信失敗: x\n2行目"), "送信失敗: x\n2行目");
 });
 test("カードの担当AI: 新規は案の provider（省略は Codex）、既存は実際のチャットのキー", () => {
   const nc = (provider?: string) => dv({ target: { kind: "new", chat: null }, proposal: { text: "t", textIsOriginal: true, reason: "", confidence: "high", newChat: { title: "x", folder: null, purpose: "", ...(provider ? { provider } : {}) } } });
@@ -124,6 +124,4 @@ test("カードの担当AI: 新規は案の provider（省略は Codex）、既�
   assert.equal(proposedProvider(dv({ target: { kind: "existing", chat: { backend: "antigravity", id: "c1" } } })), "antigravity");
   assert.equal(proposedProvider(dv()), "codex");
   assert.equal(proposedProvider(dv({ target: { kind: "new", chat: null }, proposal: null })), "codex");
-  assert.equal(providerLabel("antigravity"), "Antigravity（Gemini）");
-  assert.equal(providerLabel("codex"), "Codex");
 });

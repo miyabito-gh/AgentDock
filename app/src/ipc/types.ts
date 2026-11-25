@@ -381,6 +381,7 @@ export type { RouterView } from "./gen/RouterView";
 export type { RouterTurnView } from "./gen/RouterTurnView";
 export type { RuleNoticeView } from "./gen/RuleNoticeView";
 export type { DispatchView } from "./gen/DispatchView";
+export type { ExecutionStatus } from "./gen/ExecutionStatus";
 export type { RouterDispatchArgs } from "./gen/RouterDispatchArgs";
 export type { RouterDispatchCreatedArgs } from "./gen/RouterDispatchCreatedArgs";
 export type { RouterDispatchIdArgs } from "./gen/RouterDispatchIdArgs";

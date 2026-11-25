@@ -22,7 +22,7 @@ use crate::host::{blocked, err, now_ms, Host, SendExtras};
 use crate::rules::org_intake::facts_of;
 use crate::rules::router::*;
 use crate::store::atomic::write_atomic;
-use crate::store::records::{ConversationRecord, Dispatch, DispatchProposal, DispatchState, DispatchTarget, NewChatProposal, RouterRecord, RouterTurnRecord, RuleNoticeRecord, SentCatalog};
+use crate::store::records::{ConversationRecord, Dispatch, DispatchProposal, DispatchState, DispatchTarget, ExecutionStatus, NewChatProposal, RouterRecord, RouterTurnRecord, RuleNoticeRecord, SentCatalog};
 
 /// 受付係のチャットに付ける名前。
 const ROUTER_TITLE: &str = "受付";
@@ -503,10 +503,22 @@ impl Host {
             DispatchTarget::New { .. } => (false, None),
         };
         let (queue_turn, queue_status) = self.dispatch_queue_status(d);
+        // 結果の状態は値で返す（画面は文言から判定しない）。保存した結果を優先し、状態を持たない旧記録だけ文言から読み替える。
+        let (execution_status, execution_result) = match rec.dispatch_results.get(&d.id.0) {
+            Some(text) => {
+                let status = rec.dispatch_result_status.get(&d.id.0).copied().or_else(|| ExecutionStatus::from_legacy_text(text));
+                (status, Some(status.map_or_else(|| text.clone(), |s| s.view_text(text))))
+            }
+            None => match queue_status {
+                Some((status, text)) => (Some(status), Some(text)),
+                None => (None, None),
+            },
+        };
         DispatchView {
             request_id: rec.request_ids.get(&d.source_turn).cloned(),
             execution_turn: queue_turn.as_ref().or_else(|| rec.dispatch_turns.get(&d.id.0)).map(|t| t.turn_id.0.clone()),
-            execution_result: rec.dispatch_results.get(&d.id.0).cloned().or(queue_status),
+            execution_status,
+            execution_result,
             id: d.id.clone(),
             source_turn: d.source_turn.clone(),
             route_index: d.route_index,
@@ -550,7 +562,7 @@ impl Host {
         Ok(Some(RouterView { chat, rules_warning: self.rules_warning(), rules_revision: rules.revision, dispatches: rec.dispatches.iter().map(|d| self.dispatch_view(&rec, d)).collect(), turns }))
     }
 
-    fn dispatch_queue_status(&self, d: &Dispatch) -> (Option<TurnKey>, Option<String>) {
+    fn dispatch_queue_status(&self, d: &Dispatch) -> (Option<TurnKey>, Option<(ExecutionStatus, String)>) {
         use crate::backend::local::{QueueEntryState, QueueRun};
         let (DispatchState::Queued { queue_entry, .. }, DispatchTarget::Existing { chat }) = (&d.state, &d.target) else {
             return (None, None);
@@ -558,16 +570,16 @@ impl Host {
         self.read(|data| {
             let queue = data.queues.get(chat).map(|f| &f.queue);
             let Some((queue, entry)) = queue.and_then(|q| q.entries.iter().find(|e| &e.id == queue_entry).map(|e| (q, e))) else {
-                return (None, Some("キュー記録を照合できません".into()));
+                return (None, Some((ExecutionStatus::QueueMissing, "キュー記録を照合できません".into())));
             };
-            // 結果文の先頭の語は、画面（ui/router.ts の resultChip）が状態の印（完了・失敗・受理不明など）を引く手がかり。文言を変えるときは合わせる。
+            // 状態は値（ExecutionStatus）で返す。文は人が読む説明で、画面は文言から状態を判定しない。
             match &entry.state {
-                QueueEntryState::Sent { turn } => (Some(turn.clone()), Some("担当が受理しました。完了を照合中です".into())),
-                QueueEntryState::NotAccepted { message, .. } => (None, Some(format!("送信失敗: {message}"))),
-                QueueEntryState::Cancelled => (None, Some("キューで取り消されました".into())),
-                QueueEntryState::AcceptanceUnknown { .. } => (None, Some("担当への受理を照合中です".into())),
-                QueueEntryState::Sending { .. } => (None, Some("担当へ送信中です".into())),
-                QueueEntryState::Waiting if queue.run != QueueRun::Active => (None, Some("キューは停止中です。担当チャットで詳細を確認してください".into())),
+                QueueEntryState::Sent { turn } => (Some(turn.clone()), Some((ExecutionStatus::Accepted, "担当が受理しました。完了を照合中です".into()))),
+                QueueEntryState::NotAccepted { message, .. } => (None, Some((ExecutionStatus::SendFailed, format!("送信失敗: {message}")))),
+                QueueEntryState::Cancelled => (None, Some((ExecutionStatus::Cancelled, "キューで取り消されました".into()))),
+                QueueEntryState::AcceptanceUnknown { .. } => (None, Some((ExecutionStatus::Unconfirmed, "担当への受理を照合中です".into()))),
+                QueueEntryState::Sending { .. } => (None, Some((ExecutionStatus::Sending, "担当へ送信中です".into()))),
+                QueueEntryState::Waiting if queue.run != QueueRun::Active => (None, Some((ExecutionStatus::QueuePaused, "キューは停止中です。担当チャットで詳細を確認してください".into()))),
                 QueueEntryState::Waiting => (None, None),
             }
         })
@@ -611,19 +623,20 @@ impl Host {
             };
             let Ok(history) = history else { continue };
             let Some(record) = history.turns.iter().find(|r| r.key == turn && r.complete) else { continue };
-            // 先頭の語（担当完了／担当の実行が失敗／担当の実行が中断）は、画面（ui/router.ts の resultChip）が状態の印を引く手がかり。保存済みの記録にも残るので、文言を変えるときは画面側も合わせる。
-            let result = match record.end {
+            // 状態は値で保存し、文は人が読む説明。完了の文は先頭行「担当完了」＋最終回答（画面へは見出し行を省いて返す。ExecutionStatus::view_text）。
+            let (status, result) = match record.end {
                 Some(TurnEnd::Completed) => match facts_of(record).final_text {
-                    Some(text) => format!("担当完了\n{text}"),
-                    None => "担当完了（最終回答の記録なし）".into(),
+                    Some(text) => (ExecutionStatus::Done, format!("担当完了\n{text}")),
+                    None => (ExecutionStatus::Done, "担当完了（最終回答の記録なし）".into()),
                 },
-                Some(TurnEnd::Failed) => "担当の実行が失敗しました".into(),
-                Some(TurnEnd::Interrupted) => "担当の実行が中断されました".into(),
+                Some(TurnEnd::Failed) => (ExecutionStatus::Failed, "担当の実行が失敗しました".into()),
+                Some(TurnEnd::Interrupted) => (ExecutionStatus::Interrupted, "担当の実行が中断されました".into()),
                 None => continue,
             };
             self.update_router(&chat, |r| {
                 r.dispatch_turns.insert(d.id.0.clone(), turn);
                 r.dispatch_results.insert(d.id.0.clone(), result);
+                r.dispatch_result_status.insert(d.id.0.clone(), status);
             });
             changed = true;
         }
@@ -999,6 +1012,7 @@ impl Host {
         if let Err(e) = &result {
             self.update_router(router, |rec| {
                 rec.dispatch_results.insert(id.0.clone(), format!("キュー登録失敗: {}", e.message));
+                rec.dispatch_result_status.insert(id.0.clone(), ExecutionStatus::EnqueueFailed);
             });
             if !self.save_router(router).await {
                 self.warn("キュー登録失敗の記録を保存できませんでした");

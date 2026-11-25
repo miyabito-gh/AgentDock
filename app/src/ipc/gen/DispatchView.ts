@@ -2,13 +2,22 @@
 import type { DispatchProposal } from "./DispatchProposal";
 import type { DispatchState } from "./DispatchState";
 import type { DispatchTarget } from "./DispatchTarget";
+import type { ExecutionStatus } from "./ExecutionStatus";
 import type { LocalId } from "./LocalId";
 
 export type DispatchView = { id: LocalId, 
 /**
  * どの返答（turn）から出た案か。
  */
-sourceTurn: string, requestId: string | null, executionTurn: string | null, executionResult: string | null, routeIndex: number, target: DispatchTarget, suggested: DispatchTarget, state: DispatchState, reported: boolean, 
+sourceTurn: string, requestId: string | null, executionTurn: string | null, 
+/**
+ * 担当の結果の状態（ホストが決めた値。画面は `execution_result` の文言から状態を判定しない）。結果がまだない・旧記録で読み替えられないときは None。
+ */
+executionStatus: ExecutionStatus | null, 
+/**
+ * 担当の結果の説明文（人が読むための本文。完了のときは最終回答だけ）。
+ */
+executionResult: string | null, routeIndex: number, target: DispatchTarget, suggested: DispatchTarget, state: DispatchState, reported: boolean, 
 /**
  * 送り先チャットの今の名前（新規で未作成なら None）。
  */

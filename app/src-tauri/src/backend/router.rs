@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use super::ipc::SendIntent;
 use super::model::{ChatKey, LocalId, SendAttempt};
 use crate::rules::router::{Rule, RuleOp, RulesChange};
-use crate::store::records::{DispatchProposal, DispatchState, DispatchTarget};
+use crate::store::records::{DispatchProposal, DispatchState, DispatchTarget, ExecutionStatus};
 
 /// 受付係の画面の写し（読取りだけ）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -63,6 +63,9 @@ pub struct DispatchView {
     pub source_turn: String,
     pub request_id: Option<String>,
     pub execution_turn: Option<String>,
+    /// 担当の結果の状態（ホストが決めた値。画面は `execution_result` の文言から状態を判定しない）。結果がまだない・旧記録で読み替えられないときは None。
+    pub execution_status: Option<ExecutionStatus>,
+    /// 担当の結果の説明文（人が読むための本文。完了のときは最終回答だけ）。
     pub execution_result: Option<String>,
     pub route_index: u32,
     pub target: DispatchTarget,

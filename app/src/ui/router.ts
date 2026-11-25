@@ -1,6 +1,6 @@
 // 受付係（DESIGN_ROUTER §8）の表示用の純関数。判定の正本はホスト（rules/router.rs）で、ここは文字の切り出しと文言だけ。
 // 実行: node --test src/ui/router.test.ts （tscの対象外。実行時の import を持たない）
-import type { BackendKind, Chat, ChatKey, ChatLocalView, DispatchView, RouterView, RuleNoticeView } from "../ipc/types";
+import type { BackendKind, Chat, ChatKey, ChatLocalView, DispatchView, ExecutionStatus, RouterView, RuleNoticeView } from "../ipc/types";
 
 /** 受付係への送信の資料の見出し・終端（ホスト rules/router.rs の ENVELOPE_HEAD / ENVELOPE_END と同じ文字列）。 */
 export const ROUTER_ENVELOPE_HEAD = "[AgentDock 受付係の資料]";
@@ -59,32 +59,31 @@ export function foldedLine(d: DispatchView): { text: string; kind: "ok" | "warn"
 export interface DispatchChip { tone: "run" | "wait" | "fail" | "int" | "done" | "idle" | "unk"; icon: string; label: string }
 
 /**
- * 担当の結果文（ホスト host/router.rs の `execution_result`）から状態の印を引く。文の先頭の語で判定する
- * （ホスト側の文言を変えるときはここも合わせる）。知らない文は印なし（本文はそのまま表示する）。
+ * 担当の結果の状態（ホストが値で返す `executionStatus`）から状態の印を引く。結果文の文言は見ない
+ * （ホストが文言を変えても印は変わらない）。BackendKind と同様、状態を足したらここも足す（型で漏れを検出する）。
  */
-export function resultChip(result: string | null): DispatchChip | null {
-  if (!result) return null;
-  const has = (p: string) => result.startsWith(p);
-  if (has("担当完了")) return { tone: "done", icon: "check", label: "完了" };
-  if (has("担当の実行が失敗")) return { tone: "fail", icon: "x", label: "失敗" };
-  if (has("送信失敗")) return { tone: "fail", icon: "x", label: "送信失敗" };
-  if (has("担当の実行が中断")) return { tone: "int", icon: "pause", label: "中断" };
-  if (has("担当への受理を照合中")) return { tone: "unk", icon: "help", label: "受理不明" };
-  if (has("担当が受理しました")) return { tone: "run", icon: "hourglass", label: "完了を照合中" };
-  if (has("担当へ送信中")) return { tone: "run", icon: "hourglass", label: "送信中" };
-  if (has("キューは停止中")) return { tone: "wait", icon: "alert", label: "要確認" };
-  if (has("キュー記録を照合できません")) return { tone: "unk", icon: "help", label: "照合不能" };
-  if (has("キューで取り消")) return { tone: "idle", icon: "ban", label: "取り消し" };
-  return null;
-}
+const STATUS_CHIP: Record<ExecutionStatus, DispatchChip> = {
+  done: { tone: "done", icon: "check", label: "完了" },
+  failed: { tone: "fail", icon: "x", label: "失敗" },
+  sendFailed: { tone: "fail", icon: "x", label: "送信失敗" },
+  enqueueFailed: { tone: "fail", icon: "x", label: "キュー登録失敗" },
+  interrupted: { tone: "int", icon: "pause", label: "中断" },
+  unconfirmed: { tone: "unk", icon: "help", label: "受理不明" },
+  accepted: { tone: "run", icon: "hourglass", label: "完了を照合中" },
+  sending: { tone: "run", icon: "hourglass", label: "送信中" },
+  queuePaused: { tone: "wait", icon: "alert", label: "要確認" },
+  queueMissing: { tone: "unk", icon: "help", label: "照合不能" },
+  cancelled: { tone: "idle", icon: "ban", label: "取り消し" },
+};
+export const statusChip = (s: ExecutionStatus | null | undefined): DispatchChip | null => (s ? STATUS_CHIP[s] : null);
 
 /**
- * 送った後の1行に添える印。担当の結果が分かればそれ、なければ送信の状態（送信待ち・受理不明・送信済み）。見送りは印なし。
- * 結果文があるのに先頭の語を判定できないとき（ホストの文言が変わった・古い記録）は、送信の状態に戻らず「状態不明」にする
+ * 送った後の1行に添える印。担当の結果の状態が分かればそれ、なければ送信の状態（送信待ち・受理不明・送信済み）。見送りは印なし。
+ * 結果文はあるが状態がないとき（ホストが読み替えられなかった古い記録）は、送信の状態に戻らず「状態不明」にする
  * （完了しているのに「送信待ち」と見せない。本文は常に表示する）。
  */
 export function dispatchChip(d: DispatchView): DispatchChip | null {
-  const r = resultChip(d.executionResult);
+  const r = statusChip(d.executionStatus);
   if (r) return r;
   if (d.executionResult) return { tone: "unk", icon: "help", label: "状態不明" };
   switch (d.state.kind) {
@@ -95,18 +94,8 @@ export function dispatchChip(d: DispatchView): DispatchChip | null {
   }
 }
 
-/** 結果の本文。先頭行が印と同じ語だけ（「担当完了」）なら、その行は省いて最終回答だけを出す。 */
-export function resultBody(result: string): string {
-  const i = result.indexOf("\n");
-  return i > 0 && result.slice(0, i) === "担当完了" ? result.slice(i + 1) : result;
-}
-
 /** 印が「結果を確かめる必要がある」側（失敗・受理不明・要確認）か。カードの枠を警告色にする。 */
 export const chipNeedsAttention = (c: DispatchChip | null): boolean => c?.tone === "fail" || c?.tone === "unk" || c?.tone === "wait";
-
-/** 担当AIの表示名（カードの印）。BackendKind を足したらここも足す（型で漏れを検出する）。 */
-const PROVIDER_LABEL: Record<BackendKind, string> = { codex: "Codex", antigravity: "Antigravity（Gemini）" };
-export const providerLabel = (b: BackendKind): string => PROVIDER_LABEL[b];
 
 /** 提案カードの担当AI。新規は案の provider（省略は Codex）、既存の送り先はそのチャットのキーの backend。分からなければ null。 */
 export function proposedProvider(d: DispatchView): BackendKind | null {

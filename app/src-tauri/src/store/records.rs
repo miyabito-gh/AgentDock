@@ -184,6 +184,9 @@ pub struct RouterRecord {
     pub dispatch_turns: std::collections::BTreeMap<String, crate::backend::model::TurnKey>,
     #[serde(default)]
     pub dispatch_results: std::collections::BTreeMap<String, String>,
+    /// `dispatch_results` の各結果の状態（値）。この項目を持たない旧記録は、結果文から読み替える（[`ExecutionStatus::from_legacy_text`]）。
+    #[serde(default)]
+    pub dispatch_result_status: std::collections::BTreeMap<String, ExecutionStatus>,
 }
 
 /// 送った一覧の連番とチャットの対応を残す件数の上限。
@@ -317,6 +320,71 @@ pub enum DispatchState {
     /// 受理不明（送れたか確認できない）。自動再送しない。
     Unconfirmed { at: UnixMillis, client_message_id: String },
     Dismissed { at: UnixMillis },
+}
+
+/// 担当の結果の状態。ホストが結果を決めた時点で値として持ち、画面は結果文の文言ではなくこの値で印（完了・失敗など）を引く。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
+#[serde(rename_all = "camelCase")]
+pub enum ExecutionStatus {
+    /// 担当のターンが完了した。
+    Done,
+    /// 担当のターンが失敗した。
+    Failed,
+    /// 担当のターンが中断された。
+    Interrupted,
+    /// キューへの送信が受け付けられなかった。
+    SendFailed,
+    /// 担当への受理を確認できない（照合中）。
+    Unconfirmed,
+    /// 担当が受理した。完了を照合中。
+    Accepted,
+    /// 担当へ送信中。
+    Sending,
+    /// 送り先のキューが停止中で、まだ送られていない。
+    QueuePaused,
+    /// 送信待ちのキュー記録を照合できない。
+    QueueMissing,
+    /// キューで取り消された。
+    Cancelled,
+    /// キューへの登録に失敗した。
+    EnqueueFailed,
+}
+
+impl ExecutionStatus {
+    /// この状態の結果文の先頭の語（保存する結果文の見出し）。旧記録（状態を持たない）の読み替えにも使う。
+    fn text_head(self) -> &'static str {
+        match self {
+            Self::Done => "担当完了",
+            Self::Failed => "担当の実行が失敗",
+            Self::Interrupted => "担当の実行が中断",
+            Self::SendFailed => "送信失敗",
+            Self::Unconfirmed => "担当への受理を照合中",
+            Self::Accepted => "担当が受理しました",
+            Self::Sending => "担当へ送信中",
+            Self::QueuePaused => "キューは停止中",
+            Self::QueueMissing => "キュー記録を照合できません",
+            Self::Cancelled => "キューで取り消",
+            Self::EnqueueFailed => "キュー登録失敗",
+        }
+    }
+
+    const ALL: [Self; 11] = [Self::Done, Self::Failed, Self::Interrupted, Self::SendFailed, Self::Unconfirmed, Self::Accepted, Self::Sending, Self::QueuePaused, Self::QueueMissing, Self::Cancelled, Self::EnqueueFailed];
+
+    /// 状態を持たない旧記録の結果文から状態を読み替える（先頭の語で判定。知らない文は None）。新しい記録は状態を値で持つので使わない。
+    pub fn from_legacy_text(text: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|s| text.starts_with(s.text_head()))
+    }
+
+    /// 画面へ出す結果の本文。完了は先頭の見出し行（「担当完了」）を省いて最終回答だけにする（見出し行だけの記録・最終回答なしの記録はそのまま）。
+    pub fn view_text(self, text: &str) -> String {
+        match (self, text.strip_prefix("担当完了
+")) {
+            (Self::Done, Some(body)) => body.to_string(),
+            _ => text.to_string(),
+        }
+    }
 }
 
 /// 目的メモ（利用者が書く固定文）。
@@ -760,5 +828,34 @@ mod tests {
         assert!(matches!(parse_versioned::<ChatLocalFile>(b"{\"pinned\":true}"), Err(ParseError::Corrupt(_))));
         assert!(matches!(parse_versioned::<ChatLocalFile>(b"{\"schemaVersion\":1}"), Err(ParseError::Corrupt(_))));
         assert!(matches!(parse_versioned::<ChatLocalFile>(b""), Err(ParseError::Corrupt(_))));
+    }
+
+    #[test]
+    fn execution_status_reads_legacy_result_text() {
+        // 状態を持たない旧記録の結果文（先頭の語）から読み替える。知らない文は None（画面は「状態不明」にする）。
+        use ExecutionStatus::*;
+        for (text, want) in [
+            ("担当完了\n結果", Done), ("担当完了（最終回答の記録なし）", Done), ("担当の実行が失敗しました", Failed), ("担当の実行が中断されました", Interrupted),
+            ("送信失敗: x", SendFailed), ("担当への受理を照合中です", Unconfirmed), ("担当が受理しました。完了を照合中です", Accepted), ("担当へ送信中です", Sending),
+            ("キューは停止中です。担当チャットで詳細を確認してください", QueuePaused), ("キュー記録を照合できません", QueueMissing), ("キューで取り消されました", Cancelled), ("キュー登録失敗: x", EnqueueFailed),
+        ] {
+            assert_eq!(ExecutionStatus::from_legacy_text(text), Some(want), "{text}");
+        }
+        assert_eq!(ExecutionStatus::from_legacy_text("知らない文言"), None);
+    }
+
+    #[test]
+    fn execution_status_view_text_drops_only_the_done_heading() {
+        assert_eq!(ExecutionStatus::Done.view_text("担当完了\n最終回答"), "最終回答");
+        assert_eq!(ExecutionStatus::Done.view_text("担当完了（最終回答の記録なし）"), "担当完了（最終回答の記録なし）");
+        assert_eq!(ExecutionStatus::Failed.view_text("担当の実行が失敗しました"), "担当の実行が失敗しました");
+    }
+
+    #[test]
+    fn router_record_without_result_status_still_loads() {
+        // 状態の項目が増える前に保存した記録（dispatch_result_status なし）も読める。
+        let r: RouterRecord = serde_json::from_str(r#"{"dispatchResults":{"d1":"担当完了\nx"}}"#).unwrap();
+        assert!(r.dispatch_result_status.is_empty());
+        assert_eq!(r.dispatch_results.len(), 1);
     }
 }

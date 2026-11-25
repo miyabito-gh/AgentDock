@@ -1,7 +1,7 @@
 // 実行: node --test src/ui/backendModels.test.ts （tscの対象外）
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { aiName, chatKeyOfId, modelsForBackend } from "./backendModels.ts";
+import { aiFullName, aiName, aiTip, chatKeyOfId, modelsForBackend } from "./backendModels.ts";
 
 const m = (id: string, isDefault = false): any => ({ id, isDefault });
 
@@ -22,4 +22,10 @@ test("chatKeyOfId: 一覧のキー（antigravity を含む）を返し、無け�
 test("aiName: 会話に出す担当AIの名前。Antigravity は Gemini、それ以外は Codex", () => {
   assert.equal(aiName("antigravity"), "Gemini");
   assert.equal(aiName("codex"), "Codex");
+});
+test("表示名の一元化: 短い名前（印・発話者）と正式名（選択肢・案内）と印のツールチップ", () => {
+  assert.equal(aiFullName("antigravity"), "Antigravity（Gemini）");
+  assert.equal(aiFullName("codex"), "Codex");
+  assert.equal(aiTip("antigravity"), "Antigravity（Gemini）の会話");
+  assert.equal(aiTip("codex"), "Codexの会話");
 });
