@@ -134,6 +134,11 @@ fn force_kill_records(
     let mut ids: Vec<LocalId> = Vec::new();
     let mut events = Vec::new();
     for chat in affected {
+        // 強制終了で止まるのは Codex の Job だけ。他のバックエンド（Antigravity の agy プロセス等）は止まらないので、
+        // 停止記録も「OS実体確認」の証拠も作らない（実行中のまま・停止未確認のまま残す）。
+        if chat.backend != BackendKind::Codex {
+            continue;
+        }
         if d.open_stop(chat).is_none() {
             let mut targets: Vec<StopTarget> = running_turns(d, chat).into_iter().map(|t| stop::new_target(t, Some(requested_at), now)).collect();
             if targets.is_empty() {
@@ -744,5 +749,20 @@ mod tests {
         // 消滅を確認できたときだけ確認済み。
         let (_, _) = force_kill_records(&mut d, &mut new_id, std::slice::from_ref(&chat), Some(42), UnixMillis(1_000), Some(UnixMillis(12_000)), UnixMillis(12_000));
         assert!(d.open_stop(&chat).is_none());
+    }
+
+    #[test]
+    fn force_kill_never_records_or_confirms_a_stop_for_a_non_codex_chat() {
+        // 強制終了で止まるのは Codex の Job だけ。Antigravity のチャットに「OS実体確認」を付けない。
+        let mut d = HostData::default();
+        let mut n = 0;
+        let mut new_id = || {
+            n += 1;
+            LocalId(format!("s{n}"))
+        };
+        let agy = ChatKey { backend: BackendKind::Antigravity, id: ExternalId("agy-1".into()) };
+        let (records, events) = force_kill_records(&mut d, &mut new_id, std::slice::from_ref(&agy), Some(42), UnixMillis(1_000), Some(UnixMillis(2_000)), UnixMillis(2_000));
+        assert!(records.is_empty() && events.is_empty());
+        assert!(d.stops.is_empty() && d.open_stop(&agy).is_none());
     }
 }

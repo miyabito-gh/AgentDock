@@ -94,9 +94,19 @@ pub struct TurnLaunch<'a> {
     pub extra_dirs: &'a [String],
 }
 
+/// 本文が `-` で始まると、agy は（`-p=` 形式でも）フラグ・誤指定として扱い、依頼を実行しない（実機で確認:
+/// `-p "--version"` は版を表示するだけ）。先頭に空白を1つ足して本文として渡す。内容は変えない。
+fn safe_prompt(text: &str) -> String {
+    if text.starts_with('-') {
+        format!(" {text}")
+    } else {
+        text.to_string()
+    }
+}
+
 /// 1ターン分の `agy` の引数（実行ファイル名は含めない）。
 pub fn turn_args(l: &TurnLaunch) -> Vec<String> {
-    let mut a: Vec<String> = vec!["-p".into(), l.text.into(), "--output-format".into(), "stream-json".into(), "--model".into(), l.model.into()];
+    let mut a: Vec<String> = vec!["-p".into(), safe_prompt(l.text), "--output-format".into(), "stream-json".into(), "--model".into(), l.model.into()];
     if let Some(c) = l.conversation_id {
         a.push("--conversation".into());
         a.push(c.into());
@@ -160,6 +170,10 @@ mod tests {
         let extra = vec!["C:\\b".to_string(), "C:\\c".to_string()];
         let first = turn_args(&TurnLaunch { text: "hi", model: "gemini-x", conversation_id: None, permission: PermissionPreset::ReadOnly, extra_dirs: &[] });
         assert_eq!(first, ["-p", "hi", "--output-format", "stream-json", "--model", "gemini-x", "--mode", "plan"]);
+        // 先頭が '-' の本文は、フラグと誤認されないよう先頭に空白を足す（それ以外は変えない）。
+        assert_eq!(safe_prompt("--version"), " --version");
+        assert_eq!(safe_prompt("- 箇条書き"), " - 箇条書き");
+        assert_eq!(safe_prompt("本文 -x"), "本文 -x");
         assert!(!first.iter().any(|a| a == "--conversation" || a == "--add-dir"));
         let later = turn_args(&TurnLaunch { text: "again", model: "gemini-x", conversation_id: Some("9db8"), permission: PermissionPreset::FullAccess, extra_dirs: &extra });
         assert_eq!(

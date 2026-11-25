@@ -203,6 +203,10 @@ impl Host {
 
     /// レビュー。現在の会話か、新しい会話で実行する。受け付けた事実だけを返し、結果は会話の記録（レビュー結果）の観測で示す。
     pub async fn start_review(self: &Arc<Self>, args: StartReviewArgs, confirmed: &UserConfirmed) -> Result<ReviewOutcome, IpcError> {
+        // コードレビューは Codex の機能。他のAIのチャットでは、別チャットを作る前に断る（空のチャットを残さない）。
+        if args.chat.backend != BackendKind::Codex {
+            return Err(err(IpcErrorCode::Unsupported, "このAIのチャットではコードレビューを使えません"));
+        }
         self.check_not_org_owned(&args.chat)?;
         let cap_op = match args.delivery {
             ReviewDelivery::CurrentChat => ParityOp::CodeReview,

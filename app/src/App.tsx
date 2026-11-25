@@ -256,10 +256,11 @@ export default function App() {
   }, []);
 
   const [histLoads, setHistLoads] = useState<Record<string, HistLoad>>({});
-  const loadChat = useCallback(async (id: string) => {
+  const loadChat = useCallback(async (id: string, key?: ChatKey) => {
     setHistLoads((m) => ({ ...m, [id]: histStart(m[id]) }));
     try {
-      const h = await host.openChat(chatKeyOfId(chatsRef.current, id));
+      // 一覧の取得直後は chatsRef が古いことがあるので、キーが分かっているときはそれを使う。
+      const h = await host.openChat(key ?? chatKeyOfId(chatsRef.current, id));
       setBundle((b) => ({ ...b, turns: { ...b.turns, [id]: h.turns } }));
       setHistLoads((m) => ({ ...m, [id]: histOk() }));
     } catch (e) {
@@ -303,9 +304,9 @@ export default function App() {
       const page = await host.listChats();
       setListCursor(page.nextCursor);
       if (!selRef.current && page.items[0]) {
-        const id = page.items[0].chat.key.id;
-        setSelId(id);
-        void loadChat(id);
+        const first = page.items[0].chat.key;
+        setSelId(first.id);
+        void loadChat(first.id, first);
       }
     } catch (e) { sayErr("会話の一覧を取得できませんでした", e); }
     try { setModels(await host.listModels()); } catch (e) { sayErr("モデル一覧を取得できませんでした", e); }
@@ -405,7 +406,7 @@ export default function App() {
         } else {
           const page = await host.listChats().catch(() => null);
           if (page) setListCursor(page.nextCursor);
-          if (page?.items[0] && !selRef.current) { setSelId(page.items[0].chat.key.id); void loadChat(page.items[0].chat.key.id); }
+          if (page?.items[0] && !selRef.current) { setSelId(page.items[0].chat.key.id); void loadChat(page.items[0].chat.key.id, page.items[0].chat.key); }
           setModels(await host.listModels().catch(() => []));
           setAgyModels(await host.listModels("antigravity").catch(() => []));
           void refreshProjects();
