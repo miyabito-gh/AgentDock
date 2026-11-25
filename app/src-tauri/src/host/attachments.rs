@@ -600,7 +600,7 @@ impl Host {
         if atts.iter().any(|a| a.kind == AttachmentKind::Image) {
             if let Some(sel) = self.read(|d| d.model_settings.get(chat).and_then(|s| s.selected.clone())) {
                 // 一覧を取得できないときは止めない（対応は未確認。UIも「モデルが読めるかは未確認」と表示する）。
-                if let Ok(models) = self.backend.list_models(ModelQuery { include_hidden: true }).await {
+                if let Ok(models) = self.backend.list_models(ModelQuery { include_hidden: true, backend: chat.backend }).await {
                     if model_lacks_input(&models, &sel.model, AttachmentKind::Image) {
                         return Err(blocked(
                             BlockedReason::ModelLacksInput { input: AttachmentKind::Image },

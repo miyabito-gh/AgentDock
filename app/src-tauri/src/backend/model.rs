@@ -21,14 +21,16 @@ use serde::{Deserialize, Serialize};
 #[serde(transparent)]
 pub struct UnixMillis(pub i64);
 
-/// AIバックエンドの種別。初期版はCodexのみ（§2.3）。追加時にvariantを足す。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+/// AIバックエンドの種別（§2.3）。追加時にvariantを足す。Antigravity は `agy` CLI（print モード）を使う。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
 pub enum BackendKind {
+    #[default]
     Codex,
+    Antigravity,
 }
 
 /// バックエンド内部のID（Codexならthread ID・turn ID等）。中身はアダプターだけが解釈する不透明値。

@@ -237,6 +237,7 @@ impl Host {
         let models = self.models_cache.lock().unwrap().clone();
         let choice = ca::resolve_choice(&settings, &models);
         let params = StartChatParams {
+            backend: BackendKind::Codex,
             kind: ChatKind::General,
             cwd,
             model: choice.clone(),

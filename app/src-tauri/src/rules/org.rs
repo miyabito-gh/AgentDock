@@ -18,13 +18,18 @@ use crate::store::records::OrgBinding;
 pub fn chat_ref_of(chat: &ChatKey) -> ChatRef {
     match chat.backend {
         BackendKind::Codex => ChatRef::new(format!("codex:{}", chat.id.0)),
+        BackendKind::Antigravity => ChatRef::new(format!("antigravity:{}", chat.id.0)),
     }
 }
 
 /// `chat_ref_of` の逆。知らない形式なら None（推定しない）。
 pub fn chat_key_of_ref(r: &ChatRef) -> Option<ChatKey> {
-    let id = r.0.strip_prefix("codex:").filter(|id| !id.is_empty())?;
-    Some(ChatKey { backend: BackendKind::Codex, id: ExternalId(id.to_string()) })
+    for (prefix, backend) in [("codex:", BackendKind::Codex), ("antigravity:", BackendKind::Antigravity)] {
+        if let Some(id) = r.0.strip_prefix(prefix).filter(|id| !id.is_empty()) {
+            return Some(ChatKey { backend, id: ExternalId(id.to_string()) });
+        }
+    }
+    None
 }
 
 /// turn の中立ID。チャットは別に渡すので、turn ID そのものにする。

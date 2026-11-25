@@ -52,7 +52,8 @@ use crate::backend::backend::*;
 use crate::backend::ipc::*;
 use crate::backend::local::{ChatArgs, DeleteOutcome};
 use crate::backend::model::*;
-use crate::codex::{CodexBackend, TARGET_VERSION};
+use crate::codex::TARGET_VERSION;
+use crate::mux::MuxBackend;
 use persist::Persist;
 use state::{agent_key_of, Followup, HostData};
 
@@ -179,7 +180,7 @@ pub(super) struct SendExtras {
 // ───────────────────────────── Host ─────────────────────────────
 
 pub struct Host {
-    backend: Arc<CodexBackend>,
+    backend: Arc<MuxBackend>,
     data: Mutex<HostData>,
     emitter: OnceLock<Emitter>,
     executable: Mutex<String>,
@@ -255,7 +256,7 @@ impl Drop for FirstSendRelease {
 impl Host {
     pub fn new(app_data_dir: PathBuf) -> Self {
         Host {
-            backend: Arc::new(CodexBackend::new()),
+            backend: Arc::new(MuxBackend::new()),
             data: Mutex::new(HostData::default()),
             emitter: OnceLock::new(),
             executable: Mutex::new(DEFAULT_CODEX_EXE.to_string()),
@@ -751,6 +752,7 @@ impl Host {
         // 書込み範囲（承認なしで書ける場所）に反映されなかった実機結果があり、turn/start の指定は反映される（実測M4・M5）。
         let created_folders: Option<Vec<String>> = (!extra_folders.is_empty()).then(|| std::iter::once(cwd.clone()).chain(extra_folders.iter().cloned()).collect());
         let params = StartChatParams {
+            backend: args.backend,
             kind,
             cwd,
             model: args.model.clone(),
@@ -1466,8 +1468,9 @@ impl Host {
     }
 
     pub async fn list_models(&self, args: ListModelsArgs) -> Result<Vec<ModelInfo>, IpcError> {
-        let models = self.backend.list_models(ModelQuery { include_hidden: args.include_hidden }).await?;
-        if !args.include_hidden {
+        let models = self.backend.list_models(ModelQuery { include_hidden: args.include_hidden, backend: args.backend }).await?;
+        // 既定モデルの解決用の一覧は Codex のものだけ（他のバックエンドの一覧で上書きしない）。
+        if !args.include_hidden && args.backend == BackendKind::Codex {
             *self.models_cache.lock().unwrap() = models.clone();
         }
         Ok(models)

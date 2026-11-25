@@ -195,6 +195,9 @@ pub enum PermissionPreset {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StartChatParams {
+    /// 開始先のバックエンド。未指定（旧形式）は Codex。
+    #[serde(default)]
+    pub backend: BackendKind,
     pub kind: ChatKind,
     /// 解決済みcwd。一般チャットではホストがアプリ管理の作業領域を割り当てて渡す（M21）。
     pub cwd: String,
@@ -535,6 +538,8 @@ pub enum InterruptAck {
 #[serde(rename_all = "camelCase")]
 pub struct ModelQuery {
     pub include_hidden: bool,
+    /// 一覧を取るバックエンド。未指定は Codex。
+    pub backend: BackendKind,
 }
 
 // ───────────────────────────── trait ─────────────────────────────

@@ -1,3 +1,4 @@
+pub mod antigravity;
 pub mod attach;
 pub mod backend;
 pub mod codex;
@@ -7,6 +8,7 @@ pub mod exec;
 pub mod external_tools;
 pub mod gitops;
 pub mod host;
+pub mod mux;
 pub mod nav_guard;
 pub mod pathref;
 pub mod pets;
