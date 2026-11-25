@@ -2,10 +2,10 @@
 param([ValidateSet('Inspect', 'Run')][string]$Mode = 'Inspect',
     [ValidateSet('NativeOnly', 'Layered', 'Offline', 'Editor')][string]$Policy = 'NativeOnly')
 $ErrorActionPreference = 'Stop'
-$repoRoot = 'C:\Users\wmasa\Documents\Rust\AgentDock_next'
+$repoRoot = 'C:\Users\wmasa\Documents\Rust\AgentDock'
 $scriptRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
 if (-not [string]::Equals($scriptRoot, $repoRoot, [StringComparison]::OrdinalIgnoreCase)) {
-    throw 'This helper must remain in the fixed AgentDock_next verification directory.'
+    throw 'This helper must remain in the fixed AgentDock verification directory.'
 }
 $exePath = Join-Path $repoRoot 'app\src-tauri\target\debug\examples\visual_preview_probe.exe'
 $probeRoot = Join-Path $repoRoot 'app\src-tauri\target\visual-probe'
