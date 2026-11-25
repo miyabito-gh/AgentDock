@@ -1,5 +1,11 @@
 # 現在の引き継ぎ
 
+## 2026-11-25 受付チャット
+
+`feature/reception-flow` の機能コミットは `fd3ef04`。既存キューを使う送信と受付カードへの担当結果の記録を追加。利用方法は [受付係の設計](DESIGN_ROUTER.md) を参照。Rust 1711件、Node 548件、型チェック・ビルドを確認した。
+
+実機では隔離した Codex プロファイルの認証確認まで実施。未ログインで受付の試験プロジェクトは作成していない。隔離プロファイルは削除済み。次は隔離認証の取得後に、使い捨てプロジェクトで受付・分類・自動送信・担当の完了・結果反映を確認し、再起動照合と後片付けまで行う。要判断と検証結果は [STATUS.md](../STATUS.md) を参照。稼働中の試験プロセスと未コミット差分はなし。push なし。
+
 2026-11-25 更新。Visual Editor と検証資料の作業ブランチは master へ統合済み。統合対象、検証結果、未追跡の検証出力の保全先は [STATUS.md](../STATUS.md) を参照。
 
 更新: 2026-10-26。読む順序は README → AGENTS → 本書 → 必要なら MIGRATION_SUBAGENTS。過去の詳細記録は [docs/archive/HANDOFF_visual_editor_2026-10.md](../docs/archive/HANDOFF_visual_editor_2026-10.md)（旧版全文。必要な日付の節だけ検索して読む。全文は読まない）。旧々版は docs/archive/HANDOFF_pre_subagent_migration.md。
