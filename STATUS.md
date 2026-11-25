@@ -1,5 +1,11 @@
 ﻿# 保全状況
 
+## 2026-11-25 reception-triage 修正と実機再試験
+
+- `feature/reception-flow` の実装 `ce1a7c9`。指定の実チャットIDと候補IDの対応を分類に渡し、有効な `reception-triage` を分類ターンへ自動添付する。
+- 既存ログインの Codex CLI 0.169.0 と、Sonnet が候補になかったため試験限定で `gpt-6.2-sol`（low）を使用。明確な事例は高確信の案から自動送信し、担当完了と `RECEPTION_SKILL_OK` を回収。曖昧な事例はID照合に成功したうえで対象・作業・成果物を聞き返し、案なし・送信なし。画面操作は未実施。
+- Rust 1712件通過（既存と一時実機試験の無視指定各1件）、Node 548件通過、cargo check・型チェック・本番ビルド成功。試験会話・一時リポジトリ・試験専用データと検証コードを削除し、試験プロセスの終了を確認済み。push なし。証跡は `Documents/consult/agentdock-reception/retest-reception-triage-2026-11-25.md`。
+
 ## 2026-11-25 reception-triage の追加実機試験
 
 - `feature/reception-flow` の `40c6bbc`。既存ログインの実 Codex `0.169.0` と `gpt-6.2-sol` を使用し、試験の受付2件にスキルを明示添付した。両方の Codex 履歴でスキル入力と本文の展開を確認した。画面操作は未実施。
