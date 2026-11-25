@@ -676,8 +676,10 @@ impl AiBackend for AntigravityBackend {
         })
     }
 
-    async fn scan_descendants(&self, _root: AgentKey) -> BackendResult<DescendantScan> {
-        Err(BackendError::Unsupported { capability: "descendantSearch".into() })
+    /// 子孫は追跡しない。agy の1ターンは1プロセスで、子の作業はそのターンの終了までに終わる。
+    /// 「見つからなかった（完全）」を返す（ホストのキューは走査の完了を待つため、非対応エラーだと送信が保留され続ける）。
+    async fn scan_descendants(&self, root: AgentKey) -> BackendResult<DescendantScan> {
+        Ok(DescendantScan { root, found: Vec::new(), complete: true })
     }
 
     async fn send(&self, request: SendRequest) -> SendOutcome {
@@ -1200,7 +1202,8 @@ mod tests {
     async fn unsupported_operations_say_so() {
         let (b, dir) = setup("agentdock-agy-unsupported");
         assert!(matches!(b.list_projects().await, Err(BackendError::Unsupported { capability }) if capability == "projects"));
-        assert!(matches!(b.scan_descendants(agent_key("agy-a")).await, Err(BackendError::Unsupported { capability }) if capability == "descendantSearch"));
+        let scan = b.scan_descendants(agent_key("agy-a")).await.unwrap();
+        assert!(scan.found.is_empty() && scan.complete);
         let rk = RequestKey { backend: BackendKind::Antigravity, source: SourceId("s".into()), request_id: ExternalId("1".into()) };
         assert!(matches!(b.respond(rk, RequestAnswer::Decision { option_id: "x".into() }, &confirmed()).await, Err(BackendError::Unsupported { capability }) if capability == "respond"));
         let _ = std::fs::remove_dir_all(&dir);
