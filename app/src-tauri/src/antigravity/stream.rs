@@ -471,6 +471,14 @@ impl TurnStream {
         (fin, out)
     }
 
+    /// 結果不明にした turn のプロセスを、利用者の中断要求で止め、その終了を観測したときの終端。
+    /// （`finish` が結果不明を返した後に1回だけ呼ぶ。中断の要求なしに終了した場合は呼ばない＝結果不明のまま。）
+    pub fn late_interrupted(&self, now: UnixMillis) -> Vec<BackendEvent> {
+        let mut out = Vec::new();
+        self.end_events(TurnEnd::Interrupted, None, "antigravity.exit", now, &mut out);
+        out
+    }
+
     fn end_events(&self, end: TurnEnd, error: Option<String>, label: &str, now: UnixMillis, out: &mut Vec<BackendEvent>) {
         out.push(BackendEvent::TurnEnded { turn: self.turn.clone(), end, error, evidence: evidence(label, now) });
         out.push(self.status(end_state(end), status_label(end), now));

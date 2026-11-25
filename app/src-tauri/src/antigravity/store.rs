@@ -5,7 +5,9 @@
 //! - 読めないファイルは上書きしない。内容が壊れていれば `chats.json.broken-<時刻>` へ退避して空で続行し、
 //!   読込み自体に失敗した（権限等）・新しい形式のファイルは触らず、保存だけを止める。
 //! - 会話・履歴は自動削除しない。起動時に実行中のまま残った turn は「結果不明」にする（成功・失敗にしない。再実行しない）。
+//!   その turn の agy プロセスの印（[`StoredTurn::process`]）は残す。生存の確認と送信の拒否は backend が行う（停止はしない）。
 
+use super::liveness::ProcessMark;
 use crate::backend::backend::PermissionPreset;
 use crate::backend::model::ChatKind;
 use serde::{Deserialize, Serialize};
@@ -15,7 +17,7 @@ pub const FILE_NAME: &str = "chats.json";
 const FORMAT_VERSION: u32 = 1;
 
 /// 起動時に実行中のまま残っていた turn に付ける説明。
-pub const ORPHANED_TURN_NOTE: &str = "AgentDock が終了したなどで、この turn の結果を確認できませんでした（agy のプロセスは追跡していません。再実行はしていません）";
+pub const ORPHANED_TURN_NOTE: &str = "AgentDock が終了したなどで、この turn の結果を確認できませんでした（再実行・停止はしていません。agy のプロセスが残っている間は、このチャットへの送信を止めます）";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -78,6 +80,10 @@ pub struct StoredTurn {
     pub error: Option<String>,
     #[serde(default)]
     pub usage: Option<Usage>,
+    /// この turn の agy プロセス。終了を確認するまで残す（残っている間は同じチャットへ送信しない）。
+    /// 旧版の記録には無い（None）。追加の項目なので形式の版は上げない。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub process: Option<ProcessMark>,
 }
 
 fn development_kind() -> ChatKind {
@@ -238,6 +244,22 @@ impl ChatStore {
         let i = self.chats.iter().position(|c| c.id == id)?;
         Some(self.chats.remove(i))
     }
+
+    /// 終了を確認していない agy プロセスの印（チャットID・turn ID・印）。
+    pub fn tracked_processes(&self) -> Vec<(String, String, ProcessMark)> {
+        self.chats.iter().flat_map(|c| c.turns.iter().filter_map(move |t| t.process.map(|m| (c.id.clone(), t.turn_id.clone(), m)))).collect()
+    }
+
+    /// プロセスの終了を確認した turn の印を外す。外したら true（保存は呼び出し側）。
+    pub fn clear_process(&mut self, chat_id: &str, turn_id: &str) -> bool {
+        match self.get_mut(chat_id).and_then(|c| c.turns.iter_mut().find(|t| t.turn_id == turn_id)) {
+            Some(t) if t.process.is_some() => {
+                t.process = None;
+                true
+            }
+            _ => false,
+        }
+    }
 }
 
 /// 壊れたファイルを `chats.json.broken-<時刻>` へ移す（移せなければ複製。どちらも失敗なら Err）。
@@ -298,6 +320,7 @@ mod tests {
             denied_actions: vec![DeniedAction { action: Some("command".into()), display_name: Some("Bash".into()) }],
             error: None,
             usage: Some(Usage { input_tokens: Some(10647), output_tokens: Some(2), thinking_tokens: Some(0), cache_read_tokens: None, total_tokens: Some(10649) }),
+            process: None,
         }
     }
 
@@ -376,11 +399,12 @@ mod tests {
         c.turns.push(turn("agy-a-t1", TurnStatus::Completed));
         let mut running = turn("agy-a-t2", TurnStatus::Running);
         running.ended_at = None;
+        running.process = Some(ProcessMark { pid: 4242, created: Some(77) });
         c.turns.push(running);
         s.insert(c);
         s.save().unwrap();
 
-        let (r, w) = ChatStore::load(&sub, 2);
+        let (mut r, w) = ChatStore::load(&sub, 2);
         assert_eq!(w.len(), 1, "{w:?}");
         let c = r.get("agy-a").unwrap();
         assert_eq!(c.turns[0].status, TurnStatus::Completed);
@@ -388,6 +412,13 @@ mod tests {
         assert_eq!(c.turns[1].error.as_deref(), Some(ORPHANED_TURN_NOTE));
         assert!(c.turns[1].ended_at.is_none());
         assert!(c.running_turn().is_none(), "nothing is re-run");
+        // プロセスの印は残る（終了を確認するまで送信を止めるため。ここでは止めも消しもしない）。
+        assert_eq!(r.tracked_processes(), [("agy-a".to_string(), "agy-a-t2".to_string(), ProcessMark { pid: 4242, created: Some(77) })]);
+        assert!(r.clear_process("agy-a", "agy-a-t2") && !r.clear_process("agy-a", "agy-a-t2"));
+        assert!(r.tracked_processes().is_empty());
+        // 印の無い turn は書き出しに項目を持たない（旧版の記録と同じ形）。
+        r.save().unwrap();
+        assert!(!std::fs::read_to_string(sub.join(FILE_NAME)).unwrap().contains("\"process\""));
         // 次の起動でも同じ（保存済み）。警告は繰り返さない。
         let (r2, w2) = ChatStore::load(&sub, 3);
         assert!(w2.is_empty());

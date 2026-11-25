@@ -8,9 +8,11 @@
 //! - [`store`]: チャット記録の保存（原子的書込み・壊れたファイルの退避）。
 //! - [`view`]: 記録 → 共通データモデルの変換（純粋）。
 //! - [`backend`]: `AiBackend` 実装（プロセスの起動・読取り task・中断）。
+//! - [`liveness`]: 起動した agy プロセスの生存確認（OS への問い合わせだけ）。
 
 pub mod backend;
 pub mod cmd;
+pub mod liveness;
 pub mod store;
 pub mod stream;
 pub mod view;

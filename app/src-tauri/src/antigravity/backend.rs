@@ -8,8 +8,20 @@
 //! - 通信断・出力を読めない・プロセスの終了を確認できない場合は、完了にも失敗にもせず結果不明にする。
 //! - イベントは有界キューへ。溢れたら黙って捨てず `Gap` を送る（[`Outbox`]）。
 //! - `Connection` イベントは出さない（監視元は Codex の1つで、接続表示はホストの Mux が決める）。
+//!
+//! agy プロセスの管理（2026-11-26 の判断）:
+//! - 起動した agy の PID と生成時刻を turn の記録に残し、終了を確認するまで同じチャットへの送信を拒否する
+//!   （結果不明・`result` 後に終わらない場合も含む。同じ会話IDで agy を2本動かさない）。終了の確認は、
+//!   今回の起動のものは保持している `Child` の `wait`、前回の起動のものは OS への問い合わせ（[`super::liveness`]）。
+//!   推測では解放しない。終了を確認できない間は `Child` を持ち続けて見届ける（時間切れで捨てない）。
+//! - アプリ終了で agy を道連れにしない（Job の `KILL_ON_JOB_CLOSE` は使わない）。Codex の Job と同じ方針
+//!   （`win/job.rs`: 異常終了で作業を無断停止しない）。止めるのは利用者の操作だけで、通常の終了手順では
+//!   実行中の turn が終了確認の対象になり、「作業を中断して終了」で `interrupt` が呼ばれる。
+//!   異常終了で残ったプロセスは、次回起動時に生存を確かめて知らせ、送信を止める（停止はしない）。
+//! - agy は強制終了（Job 単位、Codex 限定）の対象にしない。
 
 use super::cmd::{self, TurnLaunch};
+use super::liveness::{self, Liveness, ProcessMark};
 use super::store::{ChatStore, StoredChat, StoredTurn, TurnStatus};
 use super::stream::{parse_line, ExitInfo, TurnStream};
 use super::view::*;
@@ -35,8 +47,12 @@ const MODELS_CACHE_TTL: Duration = Duration::from_secs(60);
 const KILL_TIMEOUT: Duration = Duration::from_secs(10);
 /// 出力が終わってから、プロセスの終了を待つ最大時間。
 const EXIT_WAIT: Duration = Duration::from_secs(15);
-/// `result` の後、残りの出力を捨てて終了を待つ最大時間。
+/// `result` の後、残りの出力を捨てながら終了を待ってから終端を知らせる最大時間。
+/// 過ぎたら終端は知らせ、終了はその後も見届ける（それまで同じチャットへは送らない）。
+#[cfg(not(test))]
 const DRAIN_WAIT: Duration = Duration::from_secs(10);
+#[cfg(test)]
+const DRAIN_WAIT: Duration = Duration::from_secs(1);
 /// stderr の末尾として保持する量。
 const STDERR_KEEP_BYTES: usize = 4096;
 #[cfg(windows)]
@@ -209,13 +225,16 @@ struct ConnInfo {
     exe: String,
 }
 
-/// 実行中の turn（プロセス）。
+/// このアプリが起動し、まだ終了を確認していない agy プロセス（turn 単位）。
+/// 終了を確認するまで `Shared::live` に残す（結果不明・`result` 後に終わらない場合も）。
 struct LiveTurn {
     pid: Option<u32>,
     /// 中断を依頼してプロセスを止めた（終了の観測時に Interrupted として扱う）。
     interrupted: AtomicBool,
-    /// 終端を確定した（以後の中断は NotRunning）。
-    done: AtomicBool,
+    /// 終端（完了・失敗・中断）を確定した（以後の中断は NotRunning）。結果不明のときは立てない。
+    ended: AtomicBool,
+    /// プロセスの終了を確認した。
+    exited: AtomicBool,
 }
 
 struct Shared {
@@ -283,8 +302,8 @@ impl Shared {
         }
     }
 
-    /// turn の確定内容を保存する。保存に失敗したら理由を返す。
-    fn record_final(&self, chat_id: &str, turn_id: &str, fin: &super::stream::Finished, ended_at: Option<i64>) -> Option<String> {
+    /// turn の確定内容を保存する。`exited` ならプロセスの印も外す。保存に失敗したら理由を返す。
+    fn record_final(&self, chat_id: &str, turn_id: &str, fin: &super::stream::Finished, ended_at: Option<i64>, exited: bool) -> Option<String> {
         let r = self.with_store(|s| {
             if let Some(t) = s.get_mut(chat_id).and_then(|c| c.turns.iter_mut().find(|t| t.turn_id == turn_id)) {
                 t.status = fin.status;
@@ -293,14 +312,86 @@ impl Shared {
                 t.error = fin.error.clone();
                 t.denied_actions = fin.denied.clone();
                 t.usage = fin.usage.clone();
+                if exited {
+                    t.process = None;
+                }
             }
             Self::persist(s, chat_id)
         });
-        match r {
-            Ok(Ok(())) => None,
-            Ok(Err(e)) => Some(e),
-            Err(e) => Some(e.to_string()),
-        }
+        flatten_save(r)
+    }
+
+    /// 終端の後でプロセスの終了を確認した。印を外し、`interrupted`（結果不明の turn を利用者の中断で止めた）なら中断として確定する。
+    fn record_late_exit(&self, chat_id: &str, turn_id: &str, interrupted: bool, now: i64) -> Option<String> {
+        let r = self.with_store(|s| {
+            if let Some(t) = s.get_mut(chat_id).and_then(|c| c.turns.iter_mut().find(|t| t.turn_id == turn_id)) {
+                t.process = None;
+                if interrupted && t.status == TurnStatus::Unknown {
+                    t.status = TurnStatus::Interrupted;
+                    t.ended_at = Some(now);
+                }
+            }
+            Self::persist(s, chat_id)
+        });
+        flatten_save(r)
+    }
+
+    /// 起動した直後のプロセスの印を記録する（前回の起動から残ったものを次回の起動で見分けるため）。
+    fn record_process(&self, chat_id: &str, turn_id: &str, mark: ProcessMark) -> Option<String> {
+        let r = self.with_store(|s| {
+            if let Some(t) = s.get_mut(chat_id).and_then(|c| c.turns.iter_mut().find(|t| t.turn_id == turn_id)) {
+                t.process = Some(mark);
+            }
+            Self::persist(s, chat_id)
+        });
+        flatten_save(r)
+    }
+
+    /// このチャットに、終了を確認していない agy プロセスがあれば、送信（と記録の削除）を拒否する理由を返す。
+    /// 今回の起動のものは `live`（保持している `Child` の終了で外れる）、前回の起動のものは OS に問い合わせる。
+    /// 終了を確認できたものだけ印を外す。問い合わせに失敗したら拒否のまま（推測で解放しない）。
+    fn process_block(&self, chat_id: &str) -> BackendResult<Option<String>> {
+        // live → store の順にロックを重ねない（先に live の写しを取って放す）。
+        let live: Vec<TurnKey> = self.live.lock().unwrap().keys().filter(|k| k.agent.id.0 == chat_id).cloned().collect();
+        self.with_store(|s| {
+            let marks: Vec<(String, ProcessMark)> = s.get(chat_id).map(|c| c.turns.iter().filter_map(|t| t.process.map(|m| (t.turn_id.clone(), m))).collect()).unwrap_or_default();
+            let mut reason: Option<String> = None;
+            let mut cleared = false;
+            for (turn_id, mark) in marks {
+                if live.iter().any(|k| k.turn_id.0 == turn_id) {
+                    reason.get_or_insert_with(|| format!("前の turn の agy プロセス（PID {}）がまだ終了していません。終了を確認できるまで、このチャットへは送れません", mark.pid));
+                    continue;
+                }
+                match liveness::check(&mark) {
+                    Liveness::Gone => cleared |= s.clear_process(chat_id, &turn_id),
+                    Liveness::Alive => {
+                        reason.get_or_insert_with(|| format!("前回の起動で始まった agy プロセス（PID {}）がまだ動いています（AgentDock は停止していません）。終了するまで、このチャットへは送れません", mark.pid));
+                    }
+                    Liveness::Unknown(why) => {
+                        reason.get_or_insert_with(|| format!("前の agy プロセスの終了を確認できないため、このチャットへは送れません（{why}）"));
+                    }
+                }
+            }
+            if cleared {
+                if let Err(e) = Self::persist(s, chat_id) {
+                    crate::diag::log("antigravity", &format!("saving process clear failed: {e}"));
+                }
+            }
+            reason
+        })
+    }
+
+    fn store_warning(&self, what: &str, e: &str) {
+        crate::diag::log("antigravity", &format!("{what} failed: {e}"));
+        self.emit(BackendEvent::Unrecognized { raw_label: "antigravity.store".into(), note: Some(format!("{what}できませんでした（{e}）")) });
+    }
+}
+
+fn flatten_save(r: BackendResult<Result<(), String>>) -> Option<String> {
+    match r {
+        Ok(Ok(())) => None,
+        Ok(Err(e)) => Some(e),
+        Err(e) => Some(e.to_string()),
     }
 }
 
@@ -323,6 +414,30 @@ fn norm_path(p: &str) -> String {
         s.pop();
     }
     s
+}
+
+/// 起動時: 前回の起動で始めた agy プロセスの生存を確かめる。終了していれば印を外し、
+/// 動いている・確かめられないものは知らせる（停止・再実行はしない。送信は `process_block` が止める）。
+fn check_leftover_processes(store: &mut ChatStore) -> Vec<String> {
+    let mut warnings = Vec::new();
+    let mut cleared = false;
+    for (chat_id, turn_id, mark) in store.tracked_processes() {
+        let name = store.get(&chat_id).and_then(|c| c.name.clone()).unwrap_or_else(|| chat_id.clone());
+        match liveness::check(&mark) {
+            Liveness::Gone => cleared |= store.clear_process(&chat_id, &turn_id),
+            Liveness::Alive => warnings.push(format!(
+                "前回の起動で始まった agy のプロセス（PID {}、チャット「{name}」）がまだ動いています。AgentDock は停止していません。終了するまで、このチャットへの送信を止めます",
+                mark.pid
+            )),
+            Liveness::Unknown(why) => warnings.push(format!("前回の起動で始まった agy のプロセス（チャット「{name}」）の終了を確認できません。このチャットへの送信を止めます（{why}）")),
+        }
+    }
+    if cleared {
+        if let Err(e) = store.save() {
+            warnings.push(format!("終了を確認したプロセスの記録を保存できませんでした（{e}）"));
+        }
+    }
+    warnings
 }
 
 fn new_chat_id(store: &ChatStore) -> String {
@@ -371,7 +486,8 @@ impl AntigravityBackend {
         let mut store = self.shared.store.lock().unwrap();
         if store.is_none() {
             let dir = Path::new(app_data_dir).join("antigravity");
-            let (loaded, warnings) = ChatStore::load(&dir, now_ms());
+            let (mut loaded, mut warnings) = ChatStore::load(&dir, now_ms());
+            warnings.extend(check_leftover_processes(&mut loaded));
             *store = Some(loaded);
             drop(store);
             for w in warnings {
@@ -431,6 +547,23 @@ impl AntigravityBackend {
         });
         if let Ok(Err(e)) = r {
             crate::diag::log("antigravity", &format!("rollback save failed: {e}"));
+        }
+    }
+
+    /// 今回の起動で追跡していない turn の中断。前回の起動から残ったプロセスは止めない
+    /// （このアプリは終了を見届けられず、停止を確認できないため。動いていれば Unknown で知らせる）。
+    fn interrupt_untracked(&self, turn: &TurnKey) -> InterruptAck {
+        let mark = self
+            .shared
+            .with_store(|s| s.get(&turn.agent.id.0).and_then(|c| c.turns.iter().find(|t| t.turn_id == turn.turn_id.0)).and_then(|t| t.process))
+            .ok()
+            .flatten();
+        match mark.map(|m| (m, liveness::check(&m))) {
+            None | Some((_, Liveness::Gone)) => InterruptAck::NotRunning,
+            Some((m, Liveness::Alive)) => InterruptAck::Unknown {
+                message: format!("前回の起動で始まった agy プロセス（PID {}）が動いています。AgentDock からは停止を確認できないため止めません", m.pid),
+            },
+            Some((_, Liveness::Unknown(why))) => InterruptAck::Unknown { message: why },
         }
     }
 
@@ -500,6 +633,7 @@ impl AiBackend for AntigravityBackend {
     async fn disconnect(&self) -> BackendResult<()> {
         let _lifecycle = self.shared.lifecycle.lock().await;
         // 接続を閉じるだけ。実行中のプロセスは止めない（終端は読取り task が観測する）。
+        // アプリ終了でも止めない（冒頭の方針）。残ったプロセスは記録した印で次回の起動時に確かめる。
         *self.shared.conn.lock().unwrap() = None;
         Ok(())
     }
@@ -611,6 +745,12 @@ impl AiBackend for AntigravityBackend {
             return Err(unknown_chat());
         }
         let id = chat.id.0.clone();
+        // agy がまだ動いている会話の記録を消すと、利用者から見えなくなる。終了を確認するまで消さない。
+        if matches!(op, ManageOp::Delete) {
+            if let Some(why) = self.shared.process_block(&id)? {
+                return Err(rejected(why));
+            }
+        }
         let change = self.shared.with_store(|s| -> BackendResult<ChatMetaChange> {
             let c = s.get(&id).ok_or_else(unknown_chat)?;
             if c.running_turn().is_some() {
@@ -720,6 +860,12 @@ impl AiBackend for AntigravityBackend {
         if snapshot.running_turn().is_some() {
             return reject(request, rejected("このチャットではまだ実行中の turn があります"));
         }
+        // 結果不明・result 後に終わらない・前回の起動から残った agy がいれば送らない（同じ会話IDで2本動かさない）。
+        match self.shared.process_block(&chat_id) {
+            Ok(None) => {}
+            Ok(Some(why)) => return reject(request, rejected(why)),
+            Err(e) => return reject(request, e),
+        }
         let model = match self.resolve_model(request.model.as_ref().map(|m| m.model.as_str()), snapshot.model.as_deref()).await {
             Ok(m) => m,
             Err(e) => return reject(request, e),
@@ -771,6 +917,7 @@ impl AiBackend for AntigravityBackend {
                 denied_actions: Vec::new(),
                 error: None,
                 usage: None,
+                process: None,
             });
             let conversation = c.conversation_id.clone();
             if let Err(e) = Shared::persist(s, &chat_id) {
@@ -801,9 +948,14 @@ impl AiBackend for AntigravityBackend {
         };
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
-        let live = Arc::new(LiveTurn { pid: child.id(), interrupted: AtomicBool::new(false), done: AtomicBool::new(false) });
+        let pid = child.id();
+        let live = Arc::new(LiveTurn { pid, interrupted: AtomicBool::new(false), ended: AtomicBool::new(false), exited: AtomicBool::new(false) });
         let turn = turn_key(&chat_id, &turn_id);
         self.shared.live.lock().unwrap().insert(turn.clone(), live.clone());
+        // 起動後の記録に失敗しても受理は変わらない（今回の起動中は live で送信を止める。次回の起動で残りを見分けられないだけ）。
+        if let Some(e) = pid.and_then(|p| self.shared.record_process(&chat_id, &turn_id, liveness::mark_of(p))) {
+            self.shared.store_warning("agy のプロセスIDを保存", &e);
+        }
         tokio::spawn(run_turn(self.shared.clone(), child, stdout, stderr, turn.clone(), conversation, live));
         SendOutcome::Accepted { turn, accepted_model: Known::direct(ModelChoice { model, effort: None, speed_tier: None }) }
     }
@@ -828,7 +980,12 @@ impl AiBackend for AntigravityBackend {
 
     async fn interrupt(&self, turn: TurnKey, _confirmed: &UserConfirmed) -> BackendResult<InterruptAck> {
         let live = self.shared.live.lock().unwrap().get(&turn).cloned();
-        let Some(live) = live.filter(|l| !l.done.load(Ordering::SeqCst)) else { return Ok(InterruptAck::NotRunning) };
+        let Some(live) = live else { return Ok(self.interrupt_untracked(&turn)) };
+        // 終端を確定した turn は中断の対象ではない。結果不明の turn は、プロセスが残っていれば止められる
+        // （終了を観測したら中断として確定し、TurnEnded を出す）。
+        if live.ended.load(Ordering::SeqCst) || live.exited.load(Ordering::SeqCst) {
+            return Ok(InterruptAck::NotRunning);
+        }
         let Some(pid) = live.pid else {
             return Ok(InterruptAck::Unknown { message: "プロセスIDを取得できていないため、停止を要求できません".into() });
         };
@@ -839,7 +996,7 @@ impl AiBackend for AntigravityBackend {
             Ok(()) => Ok(InterruptAck::Requested),
             Err(e) => {
                 live.interrupted.store(false, Ordering::SeqCst);
-                if e.gone || live.done.load(Ordering::SeqCst) {
+                if e.gone || live.ended.load(Ordering::SeqCst) || live.exited.load(Ordering::SeqCst) {
                     Ok(InterruptAck::NotRunning)
                 } else {
                     Ok(InterruptAck::Unknown { message: e.message })
@@ -935,10 +1092,20 @@ async fn run_turn(shared: Arc<Shared>, mut child: Child, stdout: Option<ChildStd
         None => Some("標準出力を取得できませんでした".into()),
     };
     let got_result = stream.has_result();
-    if !got_result && exit.lost.is_none() {
+    // プロセスの終了を確認できたか（できるまで、同じチャットへの送信は止める）。
+    let mut exited = false;
+    if got_result {
+        // 残りの出力を捨てながら、少し終了を待ってから終端を知らせる（知らせた直後の次の送信が、残ったプロセスで拒否されないように）。
+        if let Ok(Ok(_)) = tokio::time::timeout(DRAIN_WAIT, reap(&mut child, reader.as_mut())).await {
+            exited = true;
+        }
+    } else if exit.lost.is_none() {
         // 出力が終わった。プロセスの終了を見届ける（終了を確認できなければ結果不明）。
         match tokio::time::timeout(EXIT_WAIT, child.wait()).await {
-            Ok(Ok(status)) => exit.exit_code = status.code(),
+            Ok(Ok(status)) => {
+                exit.exit_code = status.code();
+                exited = true;
+            }
             Ok(Err(e)) => exit.lost = Some(format!("プロセスの終了を確認できませんでした: {e}")),
             Err(_) => exit.lost = Some("出力は終わりましたが、プロセスが終了しません".into()),
         }
@@ -953,28 +1120,73 @@ async fn run_turn(shared: Arc<Shared>, mut child: Child, stdout: Option<ChildStd
 
     let now = now_ms();
     let (fin, events) = stream.finish(&exit, UnixMillis(now));
+    let outcome_known = fin.status != TurnStatus::Unknown;
     // 先に保存し、実行中の印を外してから、終端を知らせる（受け取った側がすぐ次の送信をしても通るように）。
-    let ended_at = (fin.status != TurnStatus::Unknown).then_some(now);
-    let save_error = shared.record_final(&chat_id, &turn.turn_id.0, &fin, ended_at);
-    live.done.store(true, Ordering::SeqCst);
-    shared.live.lock().unwrap().remove(&turn);
+    // プロセスの終了を確認できていなければ、live とプロセスの印は残す（同じチャットへの送信を止めたまま）。
+    let ended_at = outcome_known.then_some(now);
+    if exited {
+        live.exited.store(true, Ordering::SeqCst);
+        shared.live.lock().unwrap().remove(&turn);
+    }
+    let save_error = shared.record_final(&chat_id, &turn.turn_id.0, &fin, ended_at, exited);
+    live.ended.store(outcome_known, Ordering::SeqCst);
     for e in events {
         shared.emit(e);
     }
     if let Some(e) = save_error {
-        crate::diag::log("antigravity", &format!("saving turn result failed: {e}"));
-        shared.emit(BackendEvent::Unrecognized { raw_label: "antigravity.store".into(), note: Some(format!("turn の結果を保存できませんでした（{e}）")) });
+        shared.store_warning("turn の結果を保存", &e);
+    }
+    if exited {
+        return;
     }
 
-    if got_result {
-        // 残りの出力を捨てて（詰まらせない）、プロセスの終了を待つ。
-        let drain = async {
-            if let Some(r) = reader.as_mut() {
-                let _ = tokio::io::copy(r, &mut tokio::io::sink()).await;
+    // 終了を確認できていない（結果不明・result 後に終わらない）。保持している Child で終了を見届ける。
+    // 時間切れで捨てない（捨てると、動いている agy を見失ったまま送信を通してしまう）。止めもしない。
+    let pid = live.pid.map(|p| p.to_string()).unwrap_or_else(|| "不明".into());
+    match reap(&mut child, reader.as_mut()).await {
+        Ok(status) => {
+            live.exited.store(true, Ordering::SeqCst);
+            shared.live.lock().unwrap().remove(&turn);
+            // 結果不明の turn を利用者の中断要求で止めたなら、中断として確定する。要求なしに終わったなら結果不明のまま。
+            let interrupted = !outcome_known && live.interrupted.load(Ordering::SeqCst);
+            let now = now_ms();
+            if let Some(e) = shared.record_late_exit(&chat_id, &turn.turn_id.0, interrupted, now) {
+                shared.store_warning("プロセスの終了の記録を保存", &e);
             }
-            let _ = child.wait().await;
-        };
-        let _ = tokio::time::timeout(DRAIN_WAIT, drain).await;
+            if interrupted {
+                for e in stream.late_interrupted(UnixMillis(now)) {
+                    shared.emit(e);
+                }
+            } else if !outcome_known {
+                shared.emit(BackendEvent::Unrecognized {
+                    raw_label: "antigravity.process".into(),
+                    note: Some(format!("結果不明の turn の agy プロセス（PID {pid}）の終了を確認しました（終了コード {:?}）。結果は不明のままです。このチャットへ次の送信ができます", status.code())),
+                });
+            }
+        }
+        Err(e) => {
+            // 終了を確認できない。live に残し、このチャットへの送信は止めたままにする（推測で解放しない）。
+            crate::diag::log("antigravity", &format!("waiting for agy failed: {e}"));
+            shared.emit(BackendEvent::Unrecognized {
+                raw_label: "antigravity.process".into(),
+                note: Some(format!("agy プロセス（PID {pid}）の終了を確認できません（{e}）。このチャットへの送信は止めたままにします")),
+            });
+        }
+    }
+}
+
+/// 残りの出力を捨てながら（書込みで詰まらせない）、プロセスの終了を待つ。
+/// 出力が先に閉じても、終了までは待つ。`Child::wait` は取り消しても安全（時間切れの後に呼び直せる）。
+async fn reap(child: &mut Child, reader: Option<&mut BufReader<ChildStdout>>) -> std::io::Result<std::process::ExitStatus> {
+    let drain = async move {
+        if let Some(r) = reader {
+            let _ = tokio::io::copy(r, &mut tokio::io::sink()).await;
+        }
+        std::future::pending::<std::convert::Infallible>().await
+    };
+    tokio::select! {
+        r = child.wait() => r,
+        never = drain => match never {},
     }
 }
 
@@ -1116,6 +1328,7 @@ mod tests {
                                 denied_actions: vec![],
                                 error: None,
                                 usage: None,
+                                process: None,
                             }]
                         })
                         .unwrap_or_default(),
@@ -1236,7 +1449,7 @@ mod tests {
         r.cwd = Some(dir.join("missing").to_string_lossy().into_owned());
         assert!(matches!(code(b.send(r).await), BackendError::Rejected { .. }));
         // 実行中の turn があれば拒否。
-        b.shared.with_store(|s| s.get_mut(&id).unwrap().turns.push(StoredTurn { turn_id: "t-run".into(), client_message_id: "c".into(), user_text: "u".into(), response_text: String::new(), status: TurnStatus::Running, started_at: 1, ended_at: None, denied_actions: vec![], error: None, usage: None })).unwrap();
+        b.shared.with_store(|s| s.get_mut(&id).unwrap().turns.push(StoredTurn { turn_id: "t-run".into(), client_message_id: "c".into(), user_text: "u".into(), response_text: String::new(), status: TurnStatus::Running, started_at: 1, ended_at: None, denied_actions: vec![], error: None, usage: None, process: None })).unwrap();
         assert!(matches!(code(b.send(request(&id, "hi")).await), BackendError::Rejected { .. }));
         let n = b.shared.with_store(|s| s.get(&id).unwrap().turns.len()).unwrap();
         assert_eq!(n, 1, "rejected sends leave no turn behind");
@@ -1415,6 +1628,113 @@ mod tests {
             assert_eq!(b.shared.with_store(|s| s.get(&id).unwrap().turns[0].status).unwrap(), TurnStatus::Interrupted);
             // 終わった後の中断は NotRunning。
             assert!(matches!(b.interrupt(turn, &confirmed()).await, Ok(InterruptAck::NotRunning)));
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+
+        fn mark_of_turn(b: &AntigravityBackend, chat: &str, turn: &str) -> Option<ProcessMark> {
+            b.shared.with_store(|s| s.get(chat).unwrap().turns.iter().find(|t| t.turn_id == turn).unwrap().process).unwrap()
+        }
+
+        #[tokio::test]
+        async fn a_process_that_outlives_its_result_blocks_the_next_send_until_it_exits() {
+            let dir = unique_temp_dir("agentdock-agy-fake-linger");
+            // result を出した後も約4秒終わらない agy。
+            let exe = fake(&dir, &[INIT, RESULT], "ping -n 5 127.0.0.1 > nul\r\nexit /b 0");
+            let b = AntigravityBackend::new();
+            b.attach_for_test(&exe, dir.to_str().unwrap());
+            let mut rx = b.take_events().unwrap();
+            let id = new_chat(&b, &dir).await;
+            let SendOutcome::Accepted { turn, .. } = b.send(request(&id, "hello")).await else { panic!("not accepted") };
+            // 終端（完了）は、終了を待ちきれなくても知らせる。
+            let envs = until(&mut rx, is_end).await;
+            assert!(matches!(&envs.last().unwrap().event, BackendEvent::TurnEnded { end: TurnEnd::Completed, .. }));
+            assert_eq!(b.shared.with_store(|s| s.get(&id).unwrap().turns[0].status).unwrap(), TurnStatus::Completed);
+            // まだプロセスが動いている: 印が残り、同じチャットへの送信は拒否される（何も記録しない）。
+            assert!(mark_of_turn(&b, &id, &turn.turn_id.0).is_some());
+            match b.send(request(&id, "second")).await {
+                SendOutcome::Rejected { error: BackendError::Rejected { message, .. }, .. } => assert!(message.contains("まだ終了していません"), "{message}"),
+                other => panic!("{other:?}"),
+            }
+            assert_eq!(b.shared.with_store(|s| s.get(&id).unwrap().turns.len()).unwrap(), 1);
+            // 終端を確定した turn は中断の対象ではない。
+            assert!(matches!(b.interrupt(turn.clone(), &confirmed()).await, Ok(InterruptAck::NotRunning)));
+            // 終了を見届けると印が外れ、次の送信が通る。
+            let deadline = Instant::now() + Duration::from_secs(30);
+            while mark_of_turn(&b, &id, &turn.turn_id.0).is_some() {
+                assert!(Instant::now() < deadline, "the process exit was never observed");
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+            assert!(b.shared.live.lock().unwrap().is_empty());
+            assert_eq!(b.shared.process_block(&id).unwrap(), None);
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+
+        #[tokio::test]
+        async fn a_leftover_process_from_a_previous_run_is_reported_blocks_sending_and_is_not_stopped() {
+            let dir = unique_temp_dir("agentdock-agy-leftover");
+            // 前回の起動で始めた agy の代わり（このテストが持つ長いプロセス）と、終了済みのプロセス。
+            let mut alive = std::process::Command::new("ping").args(["-n", "60", "127.0.0.1"]).stdout(std::process::Stdio::null()).spawn().unwrap();
+            let mut ended = std::process::Command::new("cmd.exe").args(["/C", "exit 0"]).spawn().unwrap();
+            let ended_mark = liveness::mark_of(ended.id());
+            ended.wait().unwrap();
+            {
+                let (mut s, _) = ChatStore::load(&dir.join("antigravity"), 1);
+                for (chat, mark, status) in [("agy-alive", liveness::mark_of(alive.id()), TurnStatus::Running), ("agy-ended", ended_mark, TurnStatus::Completed)] {
+                    s.insert(StoredChat {
+                        id: chat.into(),
+                        conversation_id: Some(format!("conv-{chat}")),
+                        cwd: dir.to_string_lossy().into_owned(),
+                        extra_folders: vec![],
+                        model: Some("gemini-test-1".into()),
+                        permission: PermissionPreset::ReadOnly,
+                        kind: ChatKind::Development,
+                        name: None,
+                        created_at: 1,
+                        last_used_at: None,
+                        archived: false,
+                        turns: vec![StoredTurn {
+                            turn_id: format!("{chat}-t1"),
+                            client_message_id: format!("cm-{chat}"),
+                            user_text: "u".into(),
+                            response_text: String::new(),
+                            status,
+                            started_at: 1,
+                            ended_at: None,
+                            denied_actions: vec![],
+                            error: None,
+                            usage: None,
+                            process: Some(mark),
+                        }],
+                        ephemeral: false,
+                    });
+                }
+                s.save().unwrap();
+            }
+
+            let b = AntigravityBackend::new();
+            b.attach_for_test("agy-not-used", dir.to_str().unwrap());
+            let mut rx = b.take_events().unwrap();
+            // 起動時: 残っているプロセスを知らせる。終了済みのものは印を外し、知らせない。
+            let notes = until(&mut rx, |e| matches!(e, BackendEvent::Unrecognized { note: Some(n), .. } if n.contains("まだ動いています"))).await;
+            assert!(notes.iter().all(|e| !matches!(&e.event, BackendEvent::Unrecognized { note: Some(n), .. } if n.contains("agy-ended"))));
+            assert_eq!(mark_of_turn(&b, "agy-ended", "agy-ended-t1"), None);
+            assert_eq!(b.shared.with_store(|s| s.get("agy-alive").unwrap().turns[0].status).unwrap(), TurnStatus::Unknown, "orphaned, not re-run");
+            // 送信も記録の削除も拒否する。
+            match b.send(request("agy-alive", "again")).await {
+                SendOutcome::Rejected { error: BackendError::Rejected { message, .. }, .. } => assert!(message.contains(&alive.id().to_string()), "{message}"),
+                other => panic!("{other:?}"),
+            }
+            assert!(matches!(b.manage_chat(chat_key("agy-alive"), ManageOp::Delete, &confirmed()).await, Err(BackendError::Rejected { .. })));
+            // 中断を求められても、追跡していないプロセスは止めない（停止を確認できないので Unknown）。
+            assert!(matches!(b.interrupt(turn_key("agy-alive", "agy-alive-t1"), &confirmed()).await, Ok(InterruptAck::Unknown { .. })));
+            assert!(alive.try_wait().unwrap().is_none(), "AgentDock never stops it");
+            // 終了したら（ここではテストが止める）、送信の拒否が外れる。
+            alive.kill().unwrap();
+            alive.wait().unwrap();
+            assert_eq!(b.shared.process_block("agy-alive").unwrap(), None);
+            assert_eq!(mark_of_turn(&b, "agy-alive", "agy-alive-t1"), None);
+            assert_eq!(b.shared.with_store(|s| s.get("agy-alive").unwrap().turns[0].status).unwrap(), TurnStatus::Unknown, "still unknown, not failed");
+            assert!(matches!(b.interrupt(turn_key("agy-alive", "agy-alive-t1"), &confirmed()).await, Ok(InterruptAck::NotRunning)));
             let _ = std::fs::remove_dir_all(&dir);
         }
     }

@@ -209,6 +209,7 @@ mod tests {
             denied_actions: vec![],
             error: None,
             usage: None,
+            process: None,
         }
     }
 
