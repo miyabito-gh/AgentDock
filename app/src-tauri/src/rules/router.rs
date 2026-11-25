@@ -464,6 +464,11 @@ pub fn compose_router_envelope(rec: &RouterRecord, catalog: &Catalog, rules: &Ru
     for u in &catalog.unresolved_rules {
         out.push_str(&format!("送り先を解決できないルール: {}（{}）\n", u.rule_id, u.reason));
     }
+    if let Some(id) = automatic_target_id(user_text) {
+        if let Some(entry) = catalog.entries.iter().find(|entry| entry.key.id.0 == id) {
+            out.push_str(&format!("利用者が指定した実チャットID {} は候補ID {} に一致します。routes の target には候補IDを使ってください。\n", one_line(id), entry.id));
+        }
+    }
     inc.catalog_digest = Some(catalog.digest.clone());
 
     let unreported: Vec<&Dispatch> = rec.dispatches.iter().filter(|d| !d.reported && !matches!(d.state, DispatchState::Proposed)).collect();
@@ -476,11 +481,6 @@ pub fn compose_router_envelope(rec: &RouterRecord, catalog: &Catalog, rules: &Ru
         }
     }
 
-    if let Some(id) = automatic_target_id(user_text) {
-        if let Some(entry) = catalog.entries.iter().find(|entry| entry.key.id.0 == id) {
-            out.push_str(&format!("## 利用者が指定した送り先\n候補 {}\n\n", entry.id));
-        }
-    }
     out.push_str(ENVELOPE_END);
     out.push('\n');
     out.push_str(user_text);
@@ -1342,6 +1342,15 @@ mod tests {
         assert_eq!(e.included.rules, None);
         let cat2 = build_catalog(&[chat("a", "A", 5)], &rules, NOW);
         assert!(env(&delivered(&cat2, &rules), &cat2, &rules).text.contains("前回と同じ（実行中: なし）"));
+    }
+
+    #[test]
+    fn addressed_request_includes_the_id_mapping_even_with_an_unchanged_catalog() {
+        let rules = RulesFile::default();
+        let cat = build_catalog(&[chat("real-id", "A", 5)], &rules, NOW);
+        let envelope = compose_router_envelope(&delivered(&cat, &rules), &cat, &rules, &|_| String::new(), "自動送信: real-id\n依頼です");
+        assert!(envelope.text.contains("実チャットID real-id は候補ID c1 に一致します"));
+        assert!(envelope.text.ends_with("自動送信: real-id\n依頼です"));
     }
 
     #[test]

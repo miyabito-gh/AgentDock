@@ -173,6 +173,7 @@ pub(super) struct SendExtras {
     pub output_schema: Option<serde_json::Value>,
     /// 呼出し側が先に決めた照合用のメッセージID。
     pub client_message_id: Option<String>,
+    pub skill: Option<Attachment>,
 }
 
 // ───────────────────────────── Host ─────────────────────────────
@@ -1076,7 +1077,12 @@ impl Host {
             }
         }
         // 使えない添付（コピー中・失敗・欠損）やモデルが受けない入力があれば、再開（resume）より前に止める。
-        let attachments = self.prepare_attachments(&args.chat, &args.attachments).await?;
+        let mut attachments = self.prepare_attachments(&args.chat, &args.attachments).await?;
+        if let Some(skill) = extras.skill {
+            if !attachments.iter().any(|a| a.kind == AttachmentKind::Skill && a.original_path == skill.original_path) {
+                attachments.push(skill);
+            }
+        }
         self.ensure_live(&args.chat, confirmed).await?;
         let root = agent_key_of(&args.chat);
         let (running, active, selected_model) = self.read(|d| {

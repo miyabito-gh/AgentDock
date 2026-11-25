@@ -13,7 +13,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use crate::backend::backend::{AiBackend, BackendEvent, PermissionPreset, ReadOptions, UserConfirmed};
-use crate::backend::ipc::{BlockedReason, HostEvent, IpcError, IpcErrorCode, SendIntent, SendMessageArgs, StartChatArgs};
+use crate::backend::ipc::{BlockedReason, ListSkillsArgs, HostEvent, IpcError, IpcErrorCode, SendIntent, SendMessageArgs, StartChatArgs};
 use crate::backend::local::{EnqueueArgs, ListVisibility, SaveScope};
 use crate::backend::model::*;
 use crate::backend::router::*;
@@ -26,6 +26,7 @@ use crate::store::records::{ConversationRecord, Dispatch, DispatchProposal, Disp
 
 /// 受付係のチャットに付ける名前。
 const ROUTER_TITLE: &str = "受付";
+const ROUTER_SKILL: &str = "reception-triage";
 /// 送り先の解決で引き継ぎ先を辿る上限。
 const SUPERSEDE_HOPS: usize = 20;
 /// 受理待ちの送信を覚えておく件数の上限（メモリ上だけ）。
@@ -630,6 +631,25 @@ impl Host {
         self.router_get()
     }
 
+    async fn router_skill(self: &Arc<Self>, chat: &ChatKey) -> Result<Option<Attachment>, IpcError> {
+        if self.require_op(ParityOp::Skills).is_err() {
+            return Ok(None);
+        }
+        let list = self.list_skills(ListSkillsArgs { chat: chat.clone(), force_reload: false }).await?;
+        Ok(list.skills.into_iter()
+            .find(|s| s.name == ROUTER_SKILL && s.enabled.value() != Some(&false) && s.errors.is_empty())
+            .map(|s| Attachment {
+                id: self.local_id("att"),
+                kind: AttachmentKind::Skill,
+                original_path: s.path,
+                copy_path: None,
+                attached_at: now_ms(),
+                exists: Known::NotFetched,
+                owner_chat: chat.clone(),
+                name: Some(s.name),
+            }))
+    }
+
     // ───────────── 受付係への送信 ─────────────
 
     /// 受付係へ送る（通常の `send_message` の代わり）。資料と構造化出力の指定を付け、一覧の対応を送る前に保存する。
@@ -651,6 +671,7 @@ impl Host {
         if self.backend.capabilities().structured_output != Support::Supported {
             return Err(err(IpcErrorCode::Unsupported, "このAIは構造化出力に対応していないため、受付係を使えません"));
         }
+        let skill = self.router_skill(&chat).await?;
         let now = now_ms();
         let (guard, rules, _) = self.lock_rules();
         drop(guard);
@@ -677,7 +698,7 @@ impl Host {
             .send_message_with(
                 SendMessageArgs { chat: chat.clone(), text: env.text.clone(), attachments: args.attachments, intent: SendIntent::NewTurn, steer_entry: None },
                 confirmed,
-                SendExtras { output_schema: Some(router_output_schema()), client_message_id: Some(cm.clone()) },
+                SendExtras { output_schema: Some(router_output_schema()), client_message_id: Some(cm.clone()), skill },
             )
             .await;
         match sent {
@@ -949,7 +970,7 @@ impl Host {
             .send_message_with(
                 SendMessageArgs { chat: target.clone(), text: args.text, attachments: Vec::new(), intent, steer_entry: None },
                 confirmed,
-                SendExtras { output_schema: None, client_message_id: Some(cm.clone()) },
+                SendExtras { client_message_id: Some(cm.clone()), ..Default::default() },
             )
             .await?;
         self.router_settle_dispatch(&router, &args.dispatch_id, DispatchTarget::Existing { chat: target }, &sent).await

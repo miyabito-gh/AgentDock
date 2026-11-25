@@ -304,7 +304,7 @@ impl Host {
             .send_message_with(
                 SendMessageArgs { chat: chat.clone(), text: summary_request_message(), attachments: Vec::new(), intent: SendIntent::NewTurn, steer_entry: None },
                 confirmed,
-                SendExtras { output_schema: Some(summary_output_schema()), client_message_id: Some(cm) },
+                SendExtras { output_schema: Some(summary_output_schema()), client_message_id: Some(cm), ..Default::default() },
             )
             .await;
         match sent {
