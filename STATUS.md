@@ -1,5 +1,19 @@
 ﻿# 保全状況
 
+## 2026-11-26 改善提案5件の実装（受付の状態の構造化・agy 失敗理由・クイック新規の担当AI・見出し・表示名）
+
+- ブランチ `feature/antigravity-provider`。コミットはローカルのみ（push なし）。`feff1b9`（①＋⑤の土台）、`43d35ad`（②③④⑤）。STATUS に推奨の書き方はなく（提案の列挙のみ）、既存の実装方式に倣った。
+- ① 受付カードの状態の構造化: ホストが `ExecutionStatus`（done / failed / interrupted / sendFailed / unconfirmed / accepted / sending / queuePaused / queueMissing / cancelled / enqueueFailed）を値で返す（`DispatchView.executionStatus`）。保存は `dispatchResultStatus`（`#[serde(default)]`。旧記録は結果文の先頭の語から読み替え、読み替えられなければ画面は「状態不明」）。完了の見出し行「担当完了」の除去もホスト側へ。画面の `resultChip`/`resultBody` は廃止して `statusChip` に置換。**食い違い**: 従来は「キュー登録失敗」が「状態不明」に落ちていたが、失敗の印（キュー登録失敗）になる。
+- ② agy 失敗理由: App が `agyModelsError`（ホストが返した失敗文。一覧が空のときは専用の文）を保持し、新規チャット・クイック新規の警告に「取得できなかった理由: …」を表示。通知は従来どおり出さない。
+- ③ クイック新規の担当AI: 担当AIの選択（Codex／Antigravity）を追加。既定は毎回 Codex（持ち越さない）。Antigravity はモデル一覧が取れているときだけ選べ、取れないときは理由と「Codex に切り替える」を表示し、ボタン・Enter・送信処理の3か所で作成を止める。モデルは担当AIごとの既定（Antigravity は一覧の既定。「前回のモデル」「設定の既定」は Codex 用のまま）。「詳細を指定…」へも担当AIを引き継ぐ。
+- ④ 見出し: チャット見出しに担当AIの印（Codex／Gemini）を追加。
+- ⑤ 表示名: `backendModels.ts` に一元化（`aiName`＝短い名前、`aiFullName`＝Antigravity（Gemini）、`aiTip`）。`router.ts` の `providerLabel` は廃止。残っていた固定の文字列（新規チャット・送信設定・通知など）も統一。
+- 検証: cargo check（--locked）成功、Rust lib テスト 1775件通過・0失敗・無視1（追加5件: 旧記録の読み替え、見出し行の除去、旧記録の読込、ts-rs 出力2件）。type-check 成功、Node 557件通過（追加1件）。Opus による差分レビュー1回: 実害の指摘なし。弱点1件（未対応）: 将来 `ExecutionStatus` に値を足した版の記録を、この版で開くと知らない値で読み込みに失敗しうる（`#[serde(other)]` の受け皿なし。今回は未対応）。
+- 画面の確認レベル: 受付カード（全状態）・クイック新規（Codex／Antigravity／取得失敗の理由つき）はブラウザ（Edge headless）のモック描画のみ（実 exe では受付カードを未確認。実データに受付を作っていない）。実 exe（WebView2 のデバッグ接続）では、クイック新規の担当AI選択（Codex↔Antigravity の切替、モデル一覧の差し替え、利用可のときの説明文）と、既存の Codex チャット見出しの「Codex」印を確認。Antigravity チャットの見出し（Gemini）と agy 取得失敗の理由表示は実 exe では未確認（モック描画と純粋関数の確認のみ）。作成・送信は行っていない。
+- 実データ: 実 exe を起動し、既存チャット1件（T3コード調査）を閲覧、クイック新規を開いて閉じただけ。誤って開いた「受付係を作りますか」は「やめる」で閉じ、作成していない。通常起動の記録更新（診断ログなど）はあり得る。終了はメニューから行い、プロセス終了を確認。
+- リリースビルド（HEAD `43d35ad`）: exe `app/src-tauri/target/release/agentdock.exe` 33784832 bytes・2026-11-26 08:08:23、NSIS `app/src-tauri/target/release/bundle/nsis/AgentDock_0.0.1_x64-setup.exe` 8061745 bytes・2026-11-26 08:08:22。
+- 子の作業: Haiku＝Rust lib テスト実行、リリースビルドの試行（時間上限で打ち切られ失敗。司令塔が上限を延ばして再実行し成功）。Opus＝差分の設計レビュー1回。実装・検証・exe 確認は司令塔（Sonnet）。Codex は不使用。
+
 ## 2026-11-26 旧パス参照の修正と、受付・Antigravity 画面の UI/UX 確認
 
 - ブランチ `feature/antigravity-provider`。コミットはローカルのみ（push なし）。`c5b3ec2`（旧パス）、`8bba0b2`・`40ee072`（UI）。
@@ -8,7 +22,7 @@
 - 検証: type-check 成功、Node 556件通過（追加6件）、Rust は cargo check・lib テスト 1771件通過（無視1。最後のコミットはコメントのみのため、その後の Rust テストは未再実行だがリリースビルドは成功）。リリースビルド（HEAD `40ee072`）: exe 33763840 bytes・NSIS 8062843 bytes、いずれも 2026-11-26 07:18:05。画面は、実 exe を WebView2 のデバッグ接続で起動し新規チャットの担当AI選択（Codex／Antigravity の切替とモデル一覧）まで確認。受付カード・agy 利用不可の表示・Antigravity チャットの入力欄は、ブラウザのモック描画での確認（実 exe では未確認。実データに受付や Antigravity チャットを作っていない）。
 - 実データ: 実 exe の起動で、既存データの activity.jsonl 9件の新規作成と chat.json 6件・queue.json 1件・診断ログの更新が起きた（通常起動の記録更新。送信・削除・作成はしていない）。終了はメニューから行い、プロセス終了を確認。
 - 子の作業: Haiku＝Rust テスト実行、リリースビルド。Opus＝差分の設計レビュー1回（指摘を反映）。実装・検証・exe 確認は司令塔（Sonnet）。Codex は不使用。
-- 提案（未実装）: 担当の状態をホストが構造化値で返す、agy モデル一覧の失敗理由を画面へ渡す、クイック新規に担当AI選択、チャット見出しへの担当AI表示、担当AI表示名の一元化。
+- 提案（→ 上の節で5件とも実装済み）: 担当の状態をホストが構造化値で返す、agy モデル一覧の失敗理由を画面へ渡す、クイック新規に担当AI選択、チャット見出しへの担当AI表示、担当AI表示名の一元化。
 
 ## 2026-11-26 インストーラー手順書の旧パス修正
 
