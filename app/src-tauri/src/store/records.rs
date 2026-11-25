@@ -290,6 +290,9 @@ pub struct NewChatProposal {
     pub title: String,
     pub folder: String,
     pub purpose: String,
+    /// 担当AI。保存済みの旧記録（項目なし）は Codex。
+    #[serde(default)]
+    pub provider: BackendKind,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

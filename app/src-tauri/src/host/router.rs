@@ -180,7 +180,7 @@ pub(super) fn interpret_reply(
             Ok(v) => {
                 let (target, new_chat) = match &v.target {
                     RouteTarget::Existing { chat } => (DispatchTarget::Existing { chat: chat.clone() }, None),
-                    RouteTarget::New { title, folder, purpose } => (DispatchTarget::New { chat: None }, Some(NewChatProposal { title: title.clone(), folder: folder.clone(), purpose: purpose.clone() })),
+                    RouteTarget::New { title, folder, purpose, provider } => (DispatchTarget::New { chat: None }, Some(NewChatProposal { title: title.clone(), folder: folder.clone(), purpose: purpose.clone(), provider: *provider })),
                 };
                 dispatches.push(Dispatch {
                     id: new_id(),
