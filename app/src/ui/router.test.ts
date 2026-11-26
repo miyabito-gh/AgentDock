@@ -1,7 +1,7 @@
 // 実行: node --test src/ui/router.test.ts （tscの対象外）
 import test from "node:test";
 import assert from "node:assert/strict";
-import { ROUTER_ENVELOPE_END, ROUTER_ENVELOPE_HEAD, baseText, canToggleOriginal, chipNeedsAttention, dispatchChip, dispatchesOfTurn, foldedLine, proposedProvider, statusChip, noticeView, originalRequest, pickableChats, routerEnvelopeLabel, splitRouterEnvelope, targetLabel } from "./router.ts";
+import { ROUTER_ENVELOPE_END, ROUTER_ENVELOPE_HEAD, baseText, canToggleOriginal, chipNeedsAttention, dispatchChip, dispatchesOfTurn, foldedLine, proposedProvider, routeRejectLine, statusChip, noticeView, originalRequest, pickableChats, routerEnvelopeLabel, splitRouterEnvelope, targetLabel } from "./router.ts";
 
 const wrap = (user: string) => `${ROUTER_ENVELOPE_HEAD}\n## 指示（第1版）\nx\n${ROUTER_ENVELOPE_END}\n${user}`;
 
@@ -128,4 +128,10 @@ test("カードの担当AI: 新規は案の provider（省略は Codex）、既�
   assert.equal(proposedProvider(dv({ target: { kind: "existing", chat: { backend: "antigravity", id: "c1" } } })), "antigravity");
   assert.equal(proposedProvider(dv()), "codex");
   assert.equal(proposedProvider(dv({ target: { kind: "new", chat: null }, proposal: null })), "codex");
+});
+
+test("出さなかった理由の行: 自動送信の見送りは「案を出さなかった」と見せない", () => {
+  assert.deepEqual(routeRejectLine("振り分け案1を出しませんでした（送り先が見つかりません）"), { text: "振り分け案を出さなかった理由: 振り分け案1を出しませんでした（送り先が見つかりません）", auto: false });
+  assert.deepEqual(routeRejectLine("自動送信はしませんでした（分類の確信度が high ではないため）"), { text: "自動送信はしませんでした（分類の確信度が high ではないため）", auto: true });
+  assert.equal(routeRejectLine("自動送信を保留しました: 送り先のチャットが…").auto, true);
 });

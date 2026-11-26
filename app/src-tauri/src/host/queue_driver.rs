@@ -1090,8 +1090,11 @@ impl Host {
                 self.promote_folders_after_reconcile(&chat);
                 self.apply_reconciled(&chat, attempt_id, |a| q::SendResult::ReconciledAccepted { attempt: a, turn: turn.clone() });
                 if let Some(e) = steered {
+                    self.router_note_steered(&chat, &e, &turn, &client_message_id);
                     self.cancel_steered(&chat, &e);
                 }
+                // 受付カードの直接送信が受理不明だったなら、カードにも反映する（受理＝送信済み＋結果の追跡、受理なし＝提案へ戻す）。
+                self.router_note_reconciled(&chat, &client_message_id, Some(&turn));
                 let a = make(SendState::Accepted { turn });
                 self.emit_send(&chat, &a);
                 ReconcileStep::Resolved(a)
@@ -1103,6 +1106,7 @@ impl Host {
                 self.baseline_abandoned(&chat, attempt_id, "notFoundAfterReconcile");
                 self.note_folders_not_accepted(&chat);
                 self.apply_reconciled(&chat, attempt_id, |a| q::SendResult::ReconciledNotFound { attempt: a });
+                self.router_note_reconciled(&chat, &client_message_id, None);
                 let a = make(SendState::NotFoundAfterReconcile);
                 self.emit_send(&chat, &a);
                 ReconcileStep::Resolved(a)
@@ -1139,7 +1143,11 @@ impl Host {
     /// （受理不明の間はキュー全体が保留で自動送信されない。照合で受理と確定したら取り消す）。受理なしなら待機のまま。
     pub(super) fn settle_steer_entry(self: &Arc<Self>, chat: &ChatKey, entry: &LocalId, attempt: &SendAttempt) {
         match &attempt.state {
-            SendState::Accepted { .. } => self.cancel_steered(chat, entry),
+            SendState::Accepted { turn } => {
+                // 受付カードの順番待ちだった項目なら、取り消しではなく「送信済み」にする（届いている）。
+                self.router_note_steered(chat, entry, turn, &attempt.client_message_id);
+                self.cancel_steered(chat, entry)
+            }
             SendState::AcceptanceUnknown { .. } => {
                 let linked = self.mutate(|d| {
                     let Some(f) = d.queues.get_mut(chat) else { return (false, vec![]) };

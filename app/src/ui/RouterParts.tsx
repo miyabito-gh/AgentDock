@@ -7,7 +7,7 @@ import type { Chat, ChatKey, ChatLocalView, DispatchView, RouterView, RouterTurn
 import { askConfirm } from "./appConfirm";
 import { chatName, sortChats } from "./derive";
 import { knownValue } from "./format";
-import { baseText, canToggleOriginal, chipNeedsAttention, dispatchChip, dispatchesOfTurn, foldedLine, noticeView, pickableChats, proposedProvider, targetLabel } from "./router";
+import { baseText, canToggleOriginal, chipNeedsAttention, dispatchChip, dispatchesOfTurn, foldedLine, noticeView, pickableChats, proposedProvider, routeRejectLine, targetLabel } from "./router";
 import { Icon } from "./Icon";
 import { aiName, aiTip, aiFullName } from "./backendModels";
 
@@ -129,6 +129,7 @@ function DispatchCard({ d, original, ctx }: { d: DispatchView; original: string 
       <textarea value={text} onChange={(e) => setText(e.target.value)} rows={3} aria-label="送る文" />
       {!isNew && d.targetRunning && !d.targetProblem ? <div className="small muted">実行中です。順番待ちとして送ります</div> : null}
       {d.targetProblem ? <div className="small rwarn" role="alert">{d.targetProblem}</div> : null}
+      {empty ? <div className="small muted">送る文が空のため、送れません</div> : null}
       {err ? <div className="small why err" role="alert">{err}</div> : null}
       <div className="rcard-acts">
         {isNew
@@ -139,7 +140,7 @@ function DispatchCard({ d, original, ctx }: { d: DispatchView; original: string 
       </div>
       {picking ? (
         <ChatPicker chats={ctx.chats} locals={ctx.locals} routerKey={ctx.view.chat} onCancel={() => setPicking(false)}
-          onPick={(c) => { if (!empty) void send(c.key); }} />
+          onPick={(c) => { if (empty) { setErr("送る文が空です。文を入れてから送り先を選んでください"); return; } void send(c.key); }} />
       ) : null}
     </div>
   );
@@ -161,7 +162,7 @@ export function RouterTurnExtras({ tv, original, ctx }: { tv: RouterTurnView | n
   };
   return (
     <div className="rextra">
-      {tv.parseError ? <div className="small muted rquiet">振り分け案を読み取れませんでした</div> : null}
+      {tv.parseError ? <div className="small muted rquiet">振り分け案を読み取れませんでした（{tv.parseError}）</div> : null}
       {cards.map((d) => <DispatchCard key={d.id} d={d} original={original} ctx={ctx} />)}
       {tv.notices.map((n, i) => {
         const v = noticeView(n);
@@ -172,7 +173,7 @@ export function RouterTurnExtras({ tv, original, ctx }: { tv: RouterTurnView | n
           </div>
         );
       })}
-      {tv.routeRejects.map((r, i) => <div key={`rj${i}`} className="small muted rquiet">振り分け案を出さなかった理由: {r}</div>)}
+      {tv.routeRejects.map((r, i) => { const l = routeRejectLine(r); return <div key={`rj${i}`} className={l.auto ? "small rwarn" : "small muted rquiet"} role={l.auto ? "status" : undefined}>{l.text}</div>; })}
       {err ? <div className="small why err" role="alert">{err}</div> : null}
     </div>
   );

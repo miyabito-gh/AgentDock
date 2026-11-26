@@ -200,6 +200,11 @@ pub fn evaluate_gate(input: &GateInput, baseline_at: Option<UnixMillis>, awaitin
     if let Some(bad) = std::iter::once(root).chain(input.descendants.iter()).find(|f| f.latest_end.is_some() && f.latest_turn.is_none()) {
         return GateDecision::Hold(QueueHold::StateUnknown { targets: vec![target(bad)], descendant_scan_incomplete: false });
     }
+    // 保存された状態が作業中でも live でない親（切断・再起動をまたいだ古い状態）は、その turn の終わりを観測できない。「作業中」として待つと
+    // 永久に待ち、理由も出口も出ないので、live でない保留（再開の案内が出る）にする。この起動で受理した turn（awaiting・手動送信の受理待ち）は従来どおり。
+    if is_working(root.state) && root.freshness != Freshness::Live && !awaiting && !input.manual_turn_pending {
+        return GateDecision::Hold(QueueHold::NotLive { targets: vec![target(root)] });
+    }
     if is_working(root.state) || awaiting || input.manual_turn_pending {
         return GateDecision::Hold(QueueHold::ParentWorking);
     }
@@ -651,6 +656,23 @@ mod tests {
     fn parent_working_holds() {
         let q = queue_with(&["a"], 1500);
         let mut i = input();
+        i.root = Some(fact("root", AgentState::Running, Freshness::Live));
+        assert_eq!(evaluate(&q, &i), GateDecision::Hold(QueueHold::ParentWorking));
+    }
+
+    /// 保存された状態が作業中でも live でない親は、終わりを観測できないので「親が作業中」で待たず、live でない保留にする（再開の出口が出る）。
+    #[test]
+    fn a_working_parent_that_is_not_live_holds_as_not_live_not_as_working() {
+        let q = queue_with(&["a"], 1500);
+        let mut i = input();
+        for f in [Freshness::HistoryOnly, Freshness::Disconnected, Freshness::NeedsReconcile] {
+            i.root = Some(fact("root", AgentState::Running, f));
+            match evaluate(&q, &i) {
+                GateDecision::Hold(QueueHold::NotLive { targets }) => assert_eq!(targets[0].agent, ak("root"), "{f:?}"),
+                other => panic!("{f:?}: {other:?}"),
+            }
+        }
+        // live なら従来どおり親が作業中。
         i.root = Some(fact("root", AgentState::Running, Freshness::Live));
         assert_eq!(evaluate(&q, &i), GateDecision::Hold(QueueHold::ParentWorking));
     }

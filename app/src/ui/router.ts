@@ -145,3 +145,12 @@ export function originalRequest(entries: { kind: { kind: string }; text: { kind:
   }
   return null;
 }
+
+/**
+ * 受付の返答に添える「出さなかった理由」の1行。ホストの route_rejects には、振り分け案を出せなかった理由と、
+ * 自動送信を見送った理由（「自動送信…」で始まる）が入る。後者を「振り分け案を出さなかった理由」と見せない（案は出ており、送られていないだけ）。
+ */
+export function routeRejectLine(r: string): { text: string; auto: boolean } {
+  const auto = r.startsWith("自動送信");
+  return { text: auto ? r : `振り分け案を出さなかった理由: ${r}`, auto };
+}

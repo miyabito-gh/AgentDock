@@ -225,6 +225,51 @@ pub(super) fn downgrade_notices(notices: &mut [RuleNoticeRecord], reason: &str) 
     }
 }
 
+/// 自動送信の判断（利用者が本文の先頭行で `自動送信: <ID>` と指定したときだけ意味を持つ）。
+#[derive(Debug, Clone, PartialEq)]
+pub(super) enum AutoSend {
+    /// 自動送信の指定なし。
+    NotRequested,
+    /// 条件をすべて満たした（振り分けID・送り先・送る本文）。
+    Send { id: LocalId, target: ChatKey, text: String },
+    /// 指定されたが条件を満たさない（理由。受付の返答の `route_rejects` へ出す）。
+    Skip(&'static str),
+}
+
+/// 自動送信の条件（利用者が先頭行で既存の送り先を指定し、分類が単一案・ID一致・確信度 high・整えた文、返答の処理が送信時の照合を伴うこと）を判断する。
+/// 指定があるのに満たさないときは理由を返す（返さないと、カードが提案のまま残るだけで、なぜ自動で送られないのか利用者に分からない）。
+pub(super) fn auto_send_decision(user_text: &str, allow_auto: bool, is_head: bool, dispatches: &[Dispatch], route_rejects_empty: bool, rule_changes_empty: bool) -> AutoSend {
+    let Some(requested) = automatic_target_id(user_text) else { return AutoSend::NotRequested };
+    if !allow_auto {
+        return AutoSend::Skip("この返答は送信時の記録と照合できない経路（再起動後の取り込みなど）で受け取ったため");
+    }
+    if !is_head {
+        return AutoSend::Skip("この受付係は今の受付ではない（アーカイブまたは引き継ぎ済み）ため");
+    }
+    let [d] = dispatches else {
+        return AutoSend::Skip(if dispatches.is_empty() { "振り分け案が出なかったため" } else { "振り分け案が複数あるため" });
+    };
+    if !route_rejects_empty {
+        return AutoSend::Skip("出せなかった案があるため");
+    }
+    if !rule_changes_empty {
+        return AutoSend::Skip("ルールの変更を含む返答のため");
+    }
+    let (DispatchTarget::Existing { chat: target }, Some(p)) = (&d.target, &d.proposal) else {
+        return AutoSend::Skip("送り先が既存のチャットではない（新規チャットの案）ため");
+    };
+    if requested != target.id.0.as_str() {
+        return AutoSend::Skip("指定したチャットIDと、分類が選んだ送り先が一致しないため");
+    }
+    if p.confidence != "high" {
+        return AutoSend::Skip("分類の確信度が high ではないため");
+    }
+    if p.text_is_original {
+        return AutoSend::Skip("本文が整えられていない（原文のまま）ため");
+    }
+    AutoSend::Send { id: d.id.clone(), target: target.clone(), text: p.text.clone() }
+}
+
 // ───────────────────────────── Host ─────────────────────────────
 
 impl Host {
@@ -495,7 +540,8 @@ impl Host {
         };
         let (target_running, target_problem) = match &d.target {
             DispatchTarget::Existing { chat } => {
-                let running = self.read(|data| data.root_view(chat).is_some_and(|v| matches!(v.status.state, AgentState::Running | AgentState::Waiting | AgentState::Initializing)));
+                // 順番待ちになる条件（live かつ実行中）と同じ判定で表示する（再開されていない送り先は、実行中と保存されていても直接送るので「順番待ち」と見せない）。
+                let running = self.target_is_running(chat);
                 let problem = match self.route_state(chat) {
                     ChatRouteState::Available => None,
                     s => Some(RouteReject::Unavailable(s).message()),
@@ -817,17 +863,26 @@ impl Host {
             Ok(h) => h,
             Err(e) => {
                 crate::diag::log("router", &format!("history read failed: {e}"));
+                self.router_hand_to_refresh(&chat, &turn_id);
                 return;
             }
         };
-        let Some(turn) = history.turns.iter().find(|t| t.key.turn_id.0 == turn_id) else { return };
+        let Some(turn) = history.turns.iter().find(|t| t.key.turn_id.0 == turn_id) else { return self.router_hand_to_refresh(&chat, &turn_id) };
         let facts = facts_of(turn);
-        let Some(sent_text) = facts.user_texts.iter().find(|u| router_turn_user_text(u).is_some()) else { return };
-        let Some(final_text) = facts.final_text.as_deref() else { return };
+        let Some(sent_text) = facts.user_texts.iter().find(|u| router_turn_user_text(u).is_some()) else { return self.router_hand_to_refresh(&chat, &turn_id) };
+        let Some(final_text) = facts.final_text.as_deref() else { return self.router_hand_to_refresh(&chat, &turn_id) };
         let live_request = router_request_id(sent_text).is_some_and(|id| {
             self.router_rt.pending.lock().unwrap().iter().any(|p| p.chat == chat && p.client_message_id == id && p.full_text.trim() == sent_text.trim())
         });
         self.router_apply_reply(&chat, &turn_id, sent_text, final_text, live_request).await;
+    }
+
+    /// 返答を読み取れなかったとき（履歴の読み取り失敗・turn が見つからない・最終回答がない）、この turn の送信の記録（メモリ上）を外し、画面の取り直しを促す。
+    /// 送信の記録が残っていると、復旧（`router_refresh`）が「処理中の送信」として除外し、再起動するまで返答が処理されないままになる。
+    /// 復旧は自動送信をしない（送信時の照合ができない経路）。
+    fn router_hand_to_refresh(self: &Arc<Self>, chat: &ChatKey, turn_id: &str) {
+        self.router_rt.pending.lock().unwrap().retain(|p| !(&p.chat == chat && p.turn.as_deref() == Some(turn_id)));
+        self.emit_router(chat);
     }
 
     /// 受付係の返答（最終回答）を処理する。`sent_text` はその turn の利用者の発言（資料つきの送信全体）。
@@ -878,17 +933,14 @@ impl Host {
                     out
                 };
                 let dispatches = std::mem::take(&mut interpreted.dispatches);
-                // 自動送信は利用者が本文の先頭で指定した既存先と分類が一致した場合だけ。
-                if allow_auto && self.router_head().as_ref() == Some(chat)
-                    && dispatches.len() == 1 && interpreted.route_rejects.is_empty() && reply.rule_changes.is_empty()
-                {
-                    let d = &dispatches[0];
-                    if let (DispatchTarget::Existing { chat: target }, Some(p)) = (&d.target, &d.proposal) {
-                        let requested = automatic_target_id(&user_text);
-                        if requested == Some(target.id.0.as_str()) && p.confidence == "high" && !p.text_is_original {
-                            auto = Some((d.id.clone(), target.clone(), p.text.clone()));
-                        }
+                // 自動送信は利用者が本文の先頭で指定した既存先と分類が一致した場合だけ。指定したのに送られないときは、理由を返答へ出す。
+                match auto_send_decision(&user_text, allow_auto, self.router_head().as_ref() == Some(chat), &dispatches, interpreted.route_rejects.is_empty(), reply.rule_changes.is_empty()) {
+                    AutoSend::Send { id, target, text } => auto = Some((id, target, text)),
+                    AutoSend::Skip(reason) => {
+                        let hint = if dispatches.is_empty() { "" } else { "。送る場合はカードの［送る］を押してください" };
+                        interpreted.route_rejects.push(format!("自動送信はしませんでした（{reason}）{hint}"));
                     }
+                    AutoSend::NotRequested => {}
                 }
                 // 新しい順に並ぶよう、案の並びの逆から足す。
                 self.update_router(chat, |r| {
@@ -940,6 +992,11 @@ impl Host {
     /// 駆動側は再開しない。子孫の状態による保留は含めない（子孫が原因の保留は「状態を再確認」で解ける）。
     fn target_is_live(&self, chat: &ChatKey) -> bool {
         self.read(|d| d.root_view(chat).is_some_and(|v| v.freshness == Freshness::Live && !matches!(v.status.state, AgentState::Unknown | AgentState::Closed)))
+    }
+
+    /// 送り先が今回の起動で再開済み（live）で、実行中か。受付の［送る］が順番待ちになる条件で、カードの「順番待ちとして送ります」の表示も同じ判定を使う。
+    fn target_is_running(&self, chat: &ChatKey) -> bool {
+        self.read(|d| d.root_view(chat).is_some_and(|v| v.freshness == Freshness::Live && matches!(v.status.state, AgentState::Running | AgentState::Waiting | AgentState::Initializing)))
     }
 
     fn find_dispatch(&self, id: &LocalId) -> Option<(ChatKey, Dispatch)> {
@@ -1009,7 +1066,7 @@ impl Host {
         // 「実行中でない」送り先をキューへ入れると、今回の起動で未再開（live でない）の送り先は駆動側が再開しないため永久に保留される。
         // 実行中の判定は live を必須にする（live でない送り先の保存済みの状態が実行中でも、キューの駆動側は再開しないため永久に保留される）。
         // live でなければ直接送信に回り、再開した結果が本当に実行中なら送信がエラーになり、カードは提案のまま（もう一度押せば live・実行中として順番待ちに入る）。
-        let running = self.read(|data| data.root_view(&target).is_some_and(|v| v.freshness == Freshness::Live && matches!(v.status.state, AgentState::Running | AgentState::Waiting | AgentState::Initializing)));
+        let running = self.target_is_running(&target);
         if running && args.intent.is_none() {
             if !self.is_connected() {
                 return Err(err(IpcErrorCode::InvalidArgs, "AIに接続してから送ってください"));
@@ -1033,11 +1090,15 @@ impl Host {
             return Err(err(IpcErrorCode::InvalidArgs, "送り先を利用できません"));
         }
         let entry = self.local_id("q");
+        // 登録に失敗したときに元へ戻すための、登録前の送り先と状態。
+        let before = self.find_dispatch(id).map(|(_, d)| (d.target, d.state));
         self.set_dispatch(router, id, |d| {
             d.target = DispatchTarget::Existing { chat: target.clone() };
             d.state = DispatchState::Queued { at: now_ms(), queue_entry: entry.clone() };
         });
         if !self.save_router(router).await {
+            // 保存できなかった「順番待ち」は記録に残らない。メモリ上もカードを提案へ戻す（戻さないと、キュー項目のない順番待ちのカードが出口なく残る）。
+            self.restore_dispatch(router, id, before);
             self.emit_router(router);
             return Err(err(IpcErrorCode::Io, "振り分けを保存できないためキューに登録していません"));
         }
@@ -1046,18 +1107,27 @@ impl Host {
         } else {
             Err(err(IpcErrorCode::InvalidArgs, "送り先を利用できなくなりました"))
         };
-        if let Err(e) = &result {
-            self.update_router(router, |rec| {
-                rec.dispatch_results.insert(id.0.clone(), format!("キュー登録失敗: {}", e.message));
-                rec.dispatch_result_status.insert(id.0.clone(), ExecutionStatus::EnqueueFailed);
-            });
+        if result.is_err() {
+            // キューへ登録できなかった（容量不足など）。順番待ちのカードは出口がない（［送る］も［見送る］も出ない）ので、提案へ戻して
+            // 失敗はエラー（手動）または受付の返答の理由（自動送信）として利用者へ返す。送ってはいない。
+            self.restore_dispatch(router, id, before);
             if !self.save_router(router).await {
-                self.warn("キュー登録失敗の記録を保存できませんでした");
+                self.warn("キュー登録に失敗した振り分けを提案へ戻した記録を保存できませんでした");
             }
         }
         self.emit_router(router);
         result?;
         self.dispatch_view_of(id)
+    }
+
+    /// 振り分けの送り先と状態を、登録前（`before`）へ戻す。
+    fn restore_dispatch(self: &Arc<Self>, router: &ChatKey, id: &LocalId, before: Option<(DispatchTarget, DispatchState)>) {
+        if let Some((target, state)) = before {
+            self.set_dispatch(router, id, |d| {
+                d.target = target;
+                d.state = state;
+            });
+        }
     }
 
     /// 送信の結果をカードへ反映する。受理を確認したら `Sent`、受理不明なら `Unconfirmed`、受理されなければ「提案」のままエラー。
@@ -1081,6 +1151,52 @@ impl Host {
                 self.dispatch_view_of(id)
             }
         }
+    }
+
+    /// 受理不明だった直接送信（受付カードの［送る］）の履歴照合の結果を、カードへ反映する（自動・手動の照合のどちらでも呼ばれる。読み取りだけで再送しない）。
+    /// 受理と確定（`turn` あり）なら `Sent`（担当 turn を記録するので、完了後の結果も回収される）。受理なしと確定（`turn` なし）なら送っていないので、
+    /// カードを提案へ戻す（利用者が押し直せる。自動では再送しない）。該当するカードがなければ何もしない。
+    pub(super) fn router_note_reconciled(self: &Arc<Self>, chat: &ChatKey, client_message_id: &str, turn: Option<&TurnKey>) {
+        let found = self.read(|d| {
+            d.locals.iter().find_map(|(k, l)| {
+                let r = l.conversation.as_ref()?.router.as_ref()?;
+                r.dispatches.iter().find_map(|x| match (&x.state, &x.target) {
+                    (DispatchState::Unconfirmed { at, client_message_id: cm }, DispatchTarget::Existing { chat: c } | DispatchTarget::New { chat: Some(c) }) if cm == client_message_id && c == chat => Some((k.clone(), x.id.clone(), *at)),
+                    _ => None,
+                })
+            })
+        });
+        let Some((router, id, at)) = found else { return };
+        match turn {
+            Some(turn) => {
+                self.update_router(&router, |rec| {
+                    rec.dispatch_turns.insert(id.0.clone(), turn.clone());
+                });
+                self.set_dispatch(&router, &id, |d| d.state = DispatchState::Sent { at, client_message_id: client_message_id.to_string() });
+            }
+            None => self.set_dispatch(&router, &id, |d| d.state = DispatchState::Proposed),
+        }
+        self.emit_router(&router);
+    }
+
+    /// 順番待ちの項目が追加指示として送られ、受理されたとき、その受付カードを `Sent`（担当 turn つき）にする。
+    /// 反映しないと、届いているのに項目の取消し（追加指示の後始末）が「キューで取り消されました」と表示され、結果も回収されない。
+    pub(super) fn router_note_steered(self: &Arc<Self>, chat: &ChatKey, entry: &LocalId, turn: &TurnKey, client_message_id: &str) {
+        let found = self.read(|d| {
+            d.locals.iter().find_map(|(k, l)| {
+                let r = l.conversation.as_ref()?.router.as_ref()?;
+                r.dispatches.iter().find_map(|x| match (&x.state, &x.target) {
+                    (DispatchState::Queued { at, queue_entry }, DispatchTarget::Existing { chat: c }) if queue_entry == entry && c == chat => Some((k.clone(), x.id.clone(), *at)),
+                    _ => None,
+                })
+            })
+        });
+        let Some((router, id, at)) = found else { return };
+        self.update_router(&router, |rec| {
+            rec.dispatch_turns.insert(id.0.clone(), turn.clone());
+        });
+        self.set_dispatch(&router, &id, |d| d.state = DispatchState::Sent { at, client_message_id: client_message_id.to_string() });
+        self.emit_router(&router);
     }
 
     /// 新規チャットの案を、UIが既存の新規チャット作成の経路で作った後に呼ぶ。送り先を作ったチャットにして、最初の依頼の結果を記録する。
@@ -1603,6 +1719,176 @@ mod tests {
         assert!(matches!(view.dispatches[0].state, DispatchState::Proposed));
         assert_eq!(queue_len(&host, &a), 0);
         assert!(view.turns[0].route_rejects[0].contains("自動送信を保留しました"));
+        let _ = std::fs::remove_dir_all(&host.app_data_dir);
+    }
+
+    // ── 総点検: 自動送信を指定したのに送られないときは理由を出す ──
+
+    fn auto_dispatch(target: DispatchTarget, confidence: &str, original: bool) -> Dispatch {
+        Dispatch {
+            proposal: Some(DispatchProposal { text: "整えた文".into(), text_is_original: original, reason: "理由".into(), confidence: confidence.into(), new_chat: None }),
+            ..dispatch("d1", target, DispatchState::Proposed)
+        }
+    }
+
+    #[test]
+    fn the_automatic_send_decision_names_the_first_unmet_condition() {
+        let a = DispatchTarget::Existing { chat: key("a") };
+        let ok = || vec![auto_dispatch(a.clone(), "high", false)];
+        let user = "自動送信: a\n依頼";
+        let decide = |user: &str, allow: bool, head: bool, ds: &[Dispatch], rejects_empty: bool, rules_empty: bool| auto_send_decision(user, allow, head, ds, rejects_empty, rules_empty);
+        assert_eq!(decide("依頼だけ", true, true, &ok(), true, true), AutoSend::NotRequested, "指定がなければ理由も出さない");
+        assert!(matches!(decide(user, true, true, &ok(), true, true), AutoSend::Send { .. }));
+        let skip = |d: AutoSend| match d {
+            AutoSend::Skip(m) => m,
+            other => panic!("見送りのはず: {other:?}"),
+        };
+        assert!(skip(decide(user, false, true, &ok(), true, true)).contains("照合できない経路"));
+        assert!(skip(decide(user, true, false, &ok(), true, true)).contains("今の受付ではない"));
+        assert!(skip(decide(user, true, true, &[], true, true)).contains("出なかった"));
+        let two = vec![auto_dispatch(a.clone(), "high", false), auto_dispatch(a.clone(), "high", false)];
+        assert!(skip(decide(user, true, true, &two, true, true)).contains("複数"));
+        assert!(skip(decide(user, true, true, &ok(), false, true)).contains("出せなかった案"));
+        assert!(skip(decide(user, true, true, &ok(), true, false)).contains("ルールの変更"));
+        assert!(skip(decide(user, true, true, &[auto_dispatch(DispatchTarget::New { chat: None }, "high", false)], true, true)).contains("新規"));
+        assert!(skip(decide("自動送信: zzz\n依頼", true, true, &ok(), true, true)).contains("一致しない"));
+        assert!(skip(decide(user, true, true, &[auto_dispatch(a.clone(), "medium", false)], true, true)).contains("確信度"));
+        assert!(skip(decide(user, true, true, &[auto_dispatch(a.clone(), "high", true)], true, true)).contains("原文のまま"));
+    }
+
+    /// 自動送信を指定したのに条件を満たさなかった返答は、カードを提案のまま残すだけでなく、その理由を受付の返答（route_rejects）へ出す。
+    /// 指定のない通常の依頼には出さない。
+    #[tokio::test]
+    async fn an_unmet_automatic_send_says_why_on_the_reply_and_an_ordinary_request_does_not() {
+        let (host, r, a) = host_with_router("auto-skip-reason");
+        make_live(&host, &a, AgentState::Idle);
+        host.update_router(&r, |rec| {
+            rec.push_catalog(sent_catalog("orig", &[("c1", &a)]));
+            rec.push_catalog(sent_catalog("recovered", &[("c1", &a)]));
+            rec.push_catalog(sent_catalog("plain", &[("c1", &a)]));
+        });
+        // 本文が原文のまま（整えていない）。
+        let orig = stamp_router_request(&envelope_for("自動送信: a\n週次の議事録をまとめて"), "orig");
+        host.router_apply_reply(&r, "t-orig", &orig, &reply_json(&route("c1", "週次の議事録をまとめて"), ""), true).await;
+        // 再起動後の取り込み（送信時の記録と照合できない経路。allow_auto = false）。
+        let recovered = stamp_router_request(&envelope_for("自動送信: a\n週次の議事録をまとめて"), "recovered");
+        host.router_apply_reply(&r, "t-recovered", &recovered, &reply_json(AUTO_ROUTE, ""), false).await;
+        // 自動送信の指定なしの通常の依頼。
+        let plain = stamp_router_request(&envelope_for("週次の議事録をまとめて"), "plain");
+        host.router_apply_reply(&r, "t-plain", &plain, &reply_json(AUTO_ROUTE, ""), true).await;
+        let view = host.router_get().unwrap().unwrap();
+        let rejects = |turn: &str| view.turns.iter().find(|t| t.turn == turn).unwrap().route_rejects.clone();
+        let r_orig = rejects("t-orig");
+        assert_eq!(r_orig.len(), 1, "{r_orig:?}");
+        assert!(r_orig[0].contains("自動送信はしませんでした") && r_orig[0].contains("原文のまま") && r_orig[0].contains("［送る］"), "{}", r_orig[0]);
+        let r_rec = rejects("t-recovered");
+        assert!(r_rec.len() == 1 && r_rec[0].contains("照合できない経路"), "{r_rec:?}");
+        assert!(rejects("t-plain").is_empty(), "指定のない依頼には出さない");
+        assert_eq!(queue_len(&host, &a), 0);
+        assert!(view.dispatches.iter().all(|d| matches!(d.state, DispatchState::Proposed)));
+        let _ = std::fs::remove_dir_all(&host.app_data_dir);
+    }
+
+    // ── 総点検: キュー登録に失敗したカードは提案へ戻す（順番待ちのまま出口がなくならない） ──
+
+    /// 登録に失敗した（ここでは空の本文）カードを「順番待ち」のまま残すと、［送る］も［見送る］も出ず、結果欄に失敗が出るだけで止まる。
+    /// 提案へ戻し、エラーを返し、もう一度［送る］で順番待ちに入れられる。
+    #[tokio::test]
+    async fn a_failed_queue_registration_returns_the_card_to_proposed_so_it_can_be_sent_again() {
+        let (host, r, a) = host_with_router("enqueue-failed");
+        let confirmed = UserConfirmed::from_user_command();
+        make_connected(&host);
+        make_live(&host, &a, AgentState::Running);
+        host.update_router(&r, |rec| rec.push_dispatch(dispatch("d1", DispatchTarget::Existing { chat: a.clone() }, DispatchState::Proposed)));
+        let e = host.router_enqueue(&r, &LocalId("d1".into()), a.clone(), "  ".into()).await.unwrap_err();
+        assert!(e.message.contains("空"), "{}", e.message);
+        let rec = host.router_record(&r).unwrap();
+        assert_eq!(rec.dispatches[0].state, DispatchState::Proposed, "順番待ちのまま残さない");
+        assert!(rec.dispatch_results.is_empty() && rec.dispatch_result_status.is_empty(), "失敗は結果欄ではなくエラーで返す");
+        assert_eq!(queue_len(&host, &a), 0);
+        let v = host.router_dispatch(go("d1"), &confirmed).await.unwrap();
+        assert!(matches!(v.state, DispatchState::Queued { .. }), "押し直せば順番待ちに入る: {:?}", v.state);
+        assert_eq!(queue_len(&host, &a), 1);
+        let _ = std::fs::remove_dir_all(&host.app_data_dir);
+    }
+
+    // ── 総点検: 受理不明だった直接送信の照合結果をカードへ反映する ──
+
+    /// 受理不明（Unconfirmed）のカードは、履歴照合（自動・手動）で受理と確定したら Sent（担当 turn を記録）、受理なしと確定したら提案へ戻す。
+    /// 反映しないと、受理されていても「送れたか確認できません」のまま結果が回収されず、受理なしでも再び送れない。別の送信の照合は無関係。
+    #[tokio::test]
+    async fn an_unconfirmed_card_follows_the_reconciliation_of_its_send() {
+        let (host, r, a) = host_with_router("reconciled");
+        let unconfirmed = |id: &str, cm: &str, target: &ChatKey| dispatch(id, DispatchTarget::Existing { chat: target.clone() }, DispatchState::Unconfirmed { at: UnixMillis(5), client_message_id: cm.into() });
+        host.update_router(&r, |rec| {
+            rec.push_dispatch(unconfirmed("d-ok", "cm-ok", &a));
+            rec.push_dispatch(unconfirmed("d-none", "cm-none", &a));
+            rec.push_dispatch(unconfirmed("d-other", "cm-other", &a));
+        });
+        let state_of = |host: &Arc<Host>, id: &str| host.router_record(&r).unwrap().dispatches.into_iter().find(|d| d.id.0 == id).unwrap().state;
+        let turn = TurnKey { agent: AgentKey { backend: a.backend, id: a.id.clone() }, turn_id: ExternalId("turn-9".into()) };
+        // 別のチャット・別の送信の照合は、このカードに触れない。
+        host.router_note_reconciled(&key("zzz"), "cm-ok", Some(&turn));
+        host.router_note_reconciled(&a, "cm-unrelated", Some(&turn));
+        assert!(matches!(state_of(&host, "d-ok"), DispatchState::Unconfirmed { .. }));
+        host.router_note_reconciled(&a, "cm-ok", Some(&turn));
+        assert_eq!(state_of(&host, "d-ok"), DispatchState::Sent { at: UnixMillis(5), client_message_id: "cm-ok".into() });
+        assert_eq!(host.router_record(&r).unwrap().dispatch_turns.get("d-ok"), Some(&turn), "結果の回収のため担当 turn を記録する");
+        host.router_note_reconciled(&a, "cm-none", None);
+        assert_eq!(state_of(&host, "d-none"), DispatchState::Proposed, "受理なしが確定したら押し直せる");
+        assert!(matches!(state_of(&host, "d-other"), DispatchState::Unconfirmed { .. }));
+        // 確定後の再照合・Sent のカードは変えない。
+        host.router_note_reconciled(&a, "cm-ok", None);
+        assert!(matches!(state_of(&host, "d-ok"), DispatchState::Sent { .. }));
+        let _ = std::fs::remove_dir_all(&host.app_data_dir);
+    }
+
+    /// 追加指示として送られて受理された順番待ちの項目は、カードを「取り消し」にせず Sent（担当 turn つき）にする。別の項目のカードは変えない。
+    #[tokio::test]
+    async fn a_queued_card_whose_entry_was_sent_as_a_steer_becomes_sent() {
+        let (host, r, a) = host_with_router("steered");
+        let queued = |id: &str, entry: &str| dispatch(id, DispatchTarget::Existing { chat: a.clone() }, DispatchState::Queued { at: UnixMillis(7), queue_entry: LocalId(entry.into()) });
+        host.update_router(&r, |rec| {
+            rec.push_dispatch(queued("d1", "q1"));
+            rec.push_dispatch(queued("d2", "q2"));
+        });
+        let turn = TurnKey { agent: AgentKey { backend: a.backend, id: a.id.clone() }, turn_id: ExternalId("turn-3".into()) };
+        host.router_note_steered(&a, &LocalId("q1".into()), &turn, "cm-steer");
+        let rec = host.router_record(&r).unwrap();
+        let st = |id: &str| rec.dispatches.iter().find(|d| d.id.0 == id).unwrap().state.clone();
+        assert_eq!(st("d1"), DispatchState::Sent { at: UnixMillis(7), client_message_id: "cm-steer".into() });
+        assert!(matches!(st("d2"), DispatchState::Queued { .. }));
+        assert_eq!(rec.dispatch_turns.get("d1"), Some(&turn));
+        let _ = std::fs::remove_dir_all(&host.app_data_dir);
+    }
+
+    /// 「実行中です。順番待ちとして送ります」の表示は、［送る］が順番待ちにする条件（live かつ実行中）と同じ。
+    /// 再開されていない送り先は、実行中と保存されていても直接送る（再開して新しい turn）ので、順番待ちとは見せない。
+    #[tokio::test]
+    async fn the_card_shows_the_target_as_running_only_when_a_manual_send_would_queue() {
+        let (host, r, a) = host_with_router("running-view");
+        host.update_router(&r, |rec| rec.push_dispatch(dispatch("d1", DispatchTarget::Existing { chat: a.clone() }, DispatchState::Proposed)));
+        host.mutate(|d| {
+            let agent = Agent { key: AgentKey { backend: a.backend, id: a.id.clone() }, chat: a.clone(), parent: ParentLink::Root, forked_from: Known::NotFetched, display_name: Known::NotFetched, role: Known::NotFetched, assignment: Known::NotFetched, agent_path: Known::NotFetched, model: Known::NotFetched, effort: Known::NotFetched, spawn_spec: Known::NotFetched, latest_turn: None };
+            let status = AgentStatus { state: AgentState::Running, raw: RawState { label: "t".into() }, scope: StateScope::Agent, turn: None, wait: None, evidence: Evidence { source: EvidenceSource::HistoryRead, raw_label: None, source_time: None, observed_at: UnixMillis(1) } };
+            ((), d.upsert_history_agent(agent, status))
+        });
+        assert!(!host.router_get().unwrap().unwrap().dispatches[0].target_running, "保存済みの状態が実行中でも live でなければ順番待ちにならない");
+        make_live(&host, &a, AgentState::Running);
+        assert!(host.router_get().unwrap().unwrap().dispatches[0].target_running);
+        let _ = std::fs::remove_dir_all(&host.app_data_dir);
+    }
+
+    /// 返答を読み取れなかった（履歴の読み取り失敗など）とき、その turn の送信の記録をメモリから外す。残すと、復旧（router_refresh）が
+    /// 処理中の送信として除外し、再起動するまで返答が処理されないままになる。
+    #[tokio::test]
+    async fn a_reply_that_could_not_be_read_is_handed_to_the_recovery_path() {
+        let (host, r, _a) = host_with_router("hand-to-refresh");
+        host.remember_pending(PendingSend { chat: r.clone(), client_message_id: "cm1".into(), full_text: "本文".into(), turn: Some("t1".into()) });
+        host.remember_pending(PendingSend { chat: r.clone(), client_message_id: "cm2".into(), full_text: "別の本文".into(), turn: Some("t2".into()) });
+        host.router_process_turn(r.clone(), "t1".into()).await;
+        let pending: Vec<String> = host.router_rt.pending.lock().unwrap().iter().map(|p| p.client_message_id.clone()).collect();
+        assert_eq!(pending, vec!["cm2".to_string()], "読み取れなかった turn の分だけ外す");
         let _ = std::fs::remove_dir_all(&host.app_data_dir);
     }
 
