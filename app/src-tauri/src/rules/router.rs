@@ -561,12 +561,16 @@ pub fn queue_hold_text(hold: &QueueHold, name_of: &dyn Fn(&AgentKey) -> String, 
             } else if kids > 0 && kids == targets.len() {
                 format!("子{kids}件の状態が不明のため、送らずに待っています")
             } else {
-                "親の状態を確認できないため、送らずに待っています".to_string()
+                // 親自身が原因（親が live のまま状態が不明／終了、または親の状態が取れない保留の対象が親）のとき、画面の出口（担当チャットの
+                // 「このチャットを再開して送る」）へ案内する。対象がない（親の記録そのものがない）保留は、再開でも解けない場合があるので案内しない。
+                let hint = if !targets.is_empty() && targets.iter().all(|t| &t.agent == root) { "。担当チャットの「このチャットを再開して送る」で状態を取り直せます" } else { "" };
+                format!("親の状態を確認できないため、送らずに待っています{hint}")
             }
         }
         QueueHold::NotLive { targets } => {
-            // 親自身が対象のときだけ、画面の「このチャットを再開して送る」へ案内する（子孫だけが原因なら「状態を再確認」で解く）。
-            let hint = if targets.iter().any(|t| &t.agent == root) { "。担当チャットの「このチャットを再開して送る」で送れます" } else { "" };
+            // 親自身が対象のときは、画面の「このチャットを再開して送る」へ案内する。子孫だけが原因なら、担当チャットの「確認して今すぐ送る」
+            // （利用者の確認のうえで先頭の1件を送る）へ案内する（子孫が履歴を読み直して終端を確認できるものは、「状態を再確認」でも解ける）。
+            let hint = if targets.iter().any(|t| &t.agent == root) { "。担当チャットの「このチャットを再開して送る」で送れます" } else { "。担当チャットの「確認して今すぐ送る」で送れます" };
             format!("受信（ライブ監視）が戻っていないため保留: {}{hint}", names(targets))
         }
         QueueHold::StopUnconfirmed { .. } => "停止を確認できていないため保留".to_string(),
@@ -1812,15 +1816,19 @@ mod tests {
         assert_eq!(text(QueueHold::ParentWorking), None, "通常の待ちは保留として出さない");
         let nl = text(QueueHold::NotLive { targets: vec![t("root")] }).unwrap();
         assert!(nl.starts_with("受信（ライブ監視）が戻っていないため保留: 名前:root") && nl.contains("このチャットを再開して送る"), "{nl}");
-        assert_eq!(text(QueueHold::StateUnknown { targets: vec![], descendant_scan_incomplete: false }).as_deref(), Some("親の状態を確認できないため、送らずに待っています"));
-        assert_eq!(text(QueueHold::StateUnknown { targets: vec![t("root")], descendant_scan_incomplete: false }).as_deref(), Some("親の状態を確認できないため、送らずに待っています"));
+        // 親が原因の状態不明（親の状態が取れない・親が live でも不明／終了）は、画面の出口（再開して状態を取り直す）へ案内する。
+        let parent_hint = "親の状態を確認できないため、送らずに待っています。担当チャットの「このチャットを再開して送る」で状態を取り直せます";
+        assert_eq!(text(QueueHold::StateUnknown { targets: vec![], descendant_scan_incomplete: false }).as_deref(), Some("親の状態を確認できないため、送らずに待っています"), "親の記録がない保留は案内しない");
+        assert_eq!(text(QueueHold::StateUnknown { targets: vec![t("root")], descendant_scan_incomplete: false }).as_deref(), Some(parent_hint));
+        let live_root = HoldTarget { agent: ak("root"), state: AgentState::Unknown, freshness: Freshness::Live };
+        assert_eq!(text(QueueHold::StateUnknown { targets: vec![live_root], descendant_scan_incomplete: false }).as_deref(), Some(parent_hint));
         assert_eq!(text(QueueHold::StateUnknown { targets: vec![t("c1"), t("c2")], descendant_scan_incomplete: false }).as_deref(), Some("子2件の状態が不明のため、送らずに待っています"));
         assert_eq!(text(QueueHold::StateUnknown { targets: vec![], descendant_scan_incomplete: true }).as_deref(), Some("子孫の探索が終わるまで、送らずに待っています"));
         assert_eq!(text(QueueHold::Disconnected).as_deref(), Some(CODEX_NOT_RUNNING_HOLD));
         assert!(CODEX_NOT_RUNNING_HOLD.starts_with("Codex が起動していない") && CODEX_NOT_RUNNING_HOLD.contains("Antigravity 宛"));
         assert!(text(QueueHold::DescendantsActive { targets: vec![t("c1")] }).unwrap().ends_with("名前:c1"));
-        // 子孫だけが原因の NotLive は、再開ボタンへ案内しない（再開では解けない）
+        // 子孫だけが原因の NotLive は、再開ボタンへ案内しない（再開では解けない）。出口は「確認して今すぐ送る」
         let child = text(QueueHold::NotLive { targets: vec![t("c1")] }).unwrap();
-        assert!(child.ends_with("名前:c1") && !child.contains("再開"), "{child}");
+        assert!(child.starts_with("受信（ライブ監視）が戻っていないため保留: 名前:c1") && child.ends_with("担当チャットの「確認して今すぐ送る」で送れます") && !child.contains("再開"), "{child}");
     }
 }

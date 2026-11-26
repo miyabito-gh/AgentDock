@@ -121,7 +121,11 @@ enum Class {
 /// 子孫1件の分類（親の分類は別。DESIGN_P2 §2.3）。
 fn classify_descendant(f: &AgentFact, baseline: Option<UnixMillis>) -> Class {
     if is_working(f.state) {
-        return Class::Working;
+        // 作業中なら待つ（2026-10-12 合意。出口で緩めない）。ただし「履歴だけ（HistoryOnly）」の子孫は別。履歴が作業中のまま止まっている子
+        // （前回の起動の途中で止まった子など。今回の起動では受信しておらず、終わりを観測できない）は、作業中として待っても理由だけで出口がないので、
+        // 親と同じ「live でない」保留にして出口（確認して今すぐ送る）を出す。自動では送らない（NotLive は自動送信を止める）。
+        // 切断・復帰の照合中（NeedsReconcile・Disconnected）の子孫は、今回の起動で受信していた可能性があり、照合で live か履歴だけに決まるので、従来どおり待つ。
+        return if f.freshness == Freshness::HistoryOnly { Class::NotLive } else { Class::Working };
     }
     // 終端が履歴で明示確認でき、その確認が待っている間のものなら、live購読でなくても可。
     if f.terminal_explicit && is_after_baseline(f.observed_at, baseline) {
@@ -143,7 +147,8 @@ fn classify_descendant(f: &AgentFact, baseline: Option<UnixMillis>) -> Class {
 /// 2. 削除保留・切断・停止未確認・受理不明 → `Hold`。
 /// 3. 親・子孫の `baseline_at` 以降の failed / interrupted → `Stop`。
 /// 4. 親が作業中（または自動送信したturnの終端が未確認） → `Hold(ParentWorking)`。親の状態が不明 → `Hold(StateUnknown)`。
-///    子孫に running / waiting / initializing → `Hold(DescendantsActive)`。
+///    子孫に running / waiting / initializing のもの → `Hold(DescendantsActive)`。ただし履歴だけ（`HistoryOnly`）の子孫は、作業中と記録されて
+///    いても今回の起動では観測できないので、ここでは待たず 6 の `Hold(NotLive)` になる（照合中の `NeedsReconcile` などは従来どおり待つ）。
 /// 5. 走査未完了 → `Hold(StateUnknown)`。子孫に unknown → `Hold(StateUnknown)`。ただし親が live かつ完了を確認済みなら
 ///    unknown の子孫は止めず、件数を `Send.unconfirmed_descendants` に入れる（子孫は不明のまま。完了・失敗にしない）。
 /// 6. 鮮度: 親は live 必須。子孫は live、または終端を明示的に確認済み（`terminal_explicit`）かつ
@@ -238,6 +243,14 @@ pub fn evaluate_gate(input: &GateInput, baseline_at: Option<UnixMillis>, awaitin
         return GateDecision::Hold(QueueHold::NotLive { targets: not_live });
     }
     GateDecision::Send { entry: entry.clone(), unconfirmed_descendants }
+}
+
+/// 保留が「親（このチャット自身）の状態を確認できない」ことだけを理由にしているか（親は live でも、状態が不明・終了のことがある）。
+/// 画面の「このチャットを再開して送る」（親の状態の取り直し）を出す条件。子孫が原因・探索未完了の保留は含まない。
+/// 親が live でないときの保留（`NotLive`）は別の経路（再開）で扱うので、ここでは見ない。画面の `parentResumeOffer` と同じ判定。
+pub fn parent_state_hold(hold: Option<&QueueHold>, root: &AgentKey) -> bool {
+    matches!(hold, Some(QueueHold::StateUnknown { targets, descendant_scan_incomplete: false })
+        if !targets.is_empty() && targets.iter().all(|t| &t.agent == root))
 }
 
 /// 空のキュー。
@@ -692,6 +705,76 @@ mod tests {
         // 待機中（waiting）も作業中として扱う。
         i.descendants = vec![fact("c1", AgentState::Waiting, Freshness::Live)];
         assert!(matches!(evaluate(&q, &i), GateDecision::Hold(QueueHold::DescendantsActive { .. })));
+    }
+
+    /// 子孫の「作業中」は、今回の起動で受信できているものは待つ。履歴だけ（HistoryOnly）で作業中と記録された子孫（前回の起動の途中で止まった子）は、
+    /// 終わりを観測できないので DescendantsActive で永久に待たず、親と同じ「live でない」保留にする（出口は「確認して今すぐ送る」）。
+    /// 切断・復帰の照合中（NeedsReconcile・Disconnected）の子孫は、今回の起動で受信していた可能性があるので、従来どおり待つ。
+    #[test]
+    fn a_working_descendant_left_by_the_previous_run_holds_as_not_live_but_a_live_or_reconciling_one_still_holds_as_working() {
+        let q = queue_with(&["a"], 1500);
+        let mut i = input();
+        for s in [AgentState::Running, AgentState::Waiting, AgentState::Initializing] {
+            i.descendants = vec![fact("c1", s, Freshness::HistoryOnly)];
+            match evaluate(&q, &i) {
+                GateDecision::Hold(QueueHold::NotLive { targets }) => {
+                    assert_eq!(targets.len(), 1, "{s:?}");
+                    assert_eq!((&targets[0].agent, targets[0].state, targets[0].freshness), (&ak("c1"), s, Freshness::HistoryOnly));
+                }
+                other => panic!("{s:?}: {other:?}"),
+            }
+            for f in [Freshness::Live, Freshness::NeedsReconcile, Freshness::Disconnected] {
+                i.descendants = vec![fact("c1", s, f)];
+                assert!(matches!(evaluate(&q, &i), GateDecision::Hold(QueueHold::DescendantsActive { .. })), "{f:?}/{s:?}: 待つ");
+            }
+        }
+        // 受信できている作業中が1件でもあれば、履歴だけで作業中の子孫が他にいても待つ（待つ対象は受信できている子だけ）。
+        i.descendants = vec![fact("c1", AgentState::Running, Freshness::HistoryOnly), fact("c2", AgentState::Running, Freshness::Live)];
+        match evaluate(&q, &i) {
+            GateDecision::Hold(QueueHold::DescendantsActive { targets }) => assert_eq!(targets.iter().map(|t| t.agent.clone()).collect::<Vec<_>>(), vec![ak("c2")]),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// 「確認して今すぐ送る」は、履歴だけで作業中と記録された子孫の保留は緩める（利用者が承知のうえで先頭の1件だけ）が、受信できている・照合中の作業中は緩めない。
+    /// 緩めなければ、そのような子孫は自動では送らせない。
+    #[test]
+    fn a_confirmed_send_relaxes_a_history_only_working_descendant_but_never_a_live_or_reconciling_one() {
+        let q = queue_with(&["a"], 1500);
+        let mut i = input();
+        i.descendants = vec![fact("c1", AgentState::Running, Freshness::HistoryOnly)];
+        assert!(matches!(evaluate(&q, &i), GateDecision::Hold(QueueHold::NotLive { .. })), "自動では送らない");
+        i.user_confirmed_unknown = true;
+        assert!(matches!(evaluate(&q, &i), GateDecision::Send { .. }), "利用者の確認があれば先頭の1件を送れる");
+        for f in [Freshness::Live, Freshness::NeedsReconcile] {
+            i.descendants = vec![fact("c1", AgentState::Running, f)];
+            assert!(matches!(evaluate(&q, &i), GateDecision::Hold(QueueHold::DescendantsActive { .. })), "{f:?}: 受信できている・照合中の作業中は確認でも緩めない");
+        }
+        i.descendants = vec![fact("c1", AgentState::Running, Freshness::HistoryOnly), fact("c2", AgentState::Waiting, Freshness::Live)];
+        assert!(matches!(evaluate(&q, &i), GateDecision::Hold(QueueHold::DescendantsActive { .. })));
+    }
+
+    /// 親が live で状態が不明・終了の保留（親の状態だけが原因）は、親の状態の取り直しで解く保留。子孫が原因・探索未完了・他の保留は含まない。
+    #[test]
+    fn a_hold_caused_only_by_the_parents_state_is_recognised_whether_or_not_the_parent_is_live() {
+        let q = queue_with(&["a"], 1500);
+        let root = ak("root");
+        let mut i = input();
+        for (s, f) in [(AgentState::Unknown, Freshness::Live), (AgentState::Closed, Freshness::Live), (AgentState::Unknown, Freshness::HistoryOnly)] {
+            i.root = Some(fact("root", s, f));
+            let d = evaluate(&q, &i);
+            let GateDecision::Hold(h) = d else { panic!("{s:?}/{f:?}: {d:?}") };
+            assert!(parent_state_hold(Some(&h), &root), "{s:?}/{f:?}: {h:?}");
+        }
+        let t = |id: &str| HoldTarget { agent: ak(id), state: AgentState::Unknown, freshness: Freshness::Live };
+        let hold = |targets: Vec<HoldTarget>, incomplete: bool| QueueHold::StateUnknown { targets, descendant_scan_incomplete: incomplete };
+        assert!(!parent_state_hold(None, &root));
+        assert!(!parent_state_hold(Some(&hold(vec![], false)), &root), "対象がない（親の状態が取れない）保留は親が live でない経路（再開）で扱う");
+        assert!(!parent_state_hold(Some(&hold(vec![t("c1")], false)), &root), "子孫が原因");
+        assert!(!parent_state_hold(Some(&hold(vec![t("root"), t("c1")], false)), &root), "子孫も含む");
+        assert!(!parent_state_hold(Some(&hold(vec![t("root")], true)), &root), "子孫の探索が未完了");
+        assert!(!parent_state_hold(Some(&QueueHold::NotLive { targets: vec![t("root")] }), &root));
+        assert!(!parent_state_hold(Some(&QueueHold::ParentWorking), &root));
     }
 
     /// 親は live・状態は完了だが、完了の終端を確認できていない入力。

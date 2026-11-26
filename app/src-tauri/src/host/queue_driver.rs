@@ -248,6 +248,19 @@ pub(super) fn check_agy_text_length(chat: &ChatKey, text: &str) -> Result<(), Ip
     crate::antigravity::cmd::precheck_text(text).map_err(|e| err(IpcErrorCode::InvalidArgs, e.message()))
 }
 
+/// 親の状態を取り直したあとも、キューが親を判断できない状態（不明・終了。ゲートが親を `StateUnknown` にする状態）のままなら、その理由。
+/// 取り直しても変わらないのに黙って成功にしない（画面の「キューを再開しました」にしない）。
+fn still_unusable_after_refresh(state: Option<AgentState>) -> Option<String> {
+    let what = match state {
+        Some(AgentState::Closed) => "終了",
+        Some(AgentState::Unknown) | None => "不明",
+        Some(_) => return None,
+    };
+    Some(format!(
+        "このチャットを再開して状態を取り直しましたが、状態は{what}のままです。送信待ちの依頼は、このチャットで新しいやりとりを始めて、それが終わったあとに送ります"
+    ))
+}
+
 /// 状態（`HostData`）と履歴確認の結果から、純粋な判断の入力を組む。
 fn gate_input(
     d: &HostData,
@@ -663,7 +676,8 @@ impl Host {
     }
 
     /// 「確認して今すぐ送る」（ユーザー操作。確認ダイアログの承認後に呼ばれる）。先頭の送信待ち1件だけを、
-    /// 状態不明・ライブ未復旧の子孫と走査未完了を承知のうえで送る。作業中の子孫・失敗・中断・親の条件・停止未確認・受理不明は緩めない。
+    /// 状態不明・ライブ未復旧の子孫（履歴だけで作業中と記録されたままの子孫を含む）と走査未完了を承知のうえで送る。
+    /// 受信できている作業中の子孫・照合中の子孫・失敗・中断・親の条件・停止未確認・受理不明は緩めない。
     /// 送信は通常の経路（Sending保存→送信、受理不明の扱い）を通る。指定は1回の評価だけで、次の項目は通常の判定に戻る。
     pub async fn send_queue_entry_now(self: &Arc<Self>, args: QueueEntryArgs, _confirmed: &UserConfirmed) -> Result<ChatQueue, IpcError> {
         self.check_not_org_owned(&args.chat)?;
@@ -1282,7 +1296,28 @@ impl Host {
         Ok(())
     }
 
-    /// 「キューを再開」（ユーザー操作）。親がliveでなければ、ここで再開（resume）する。「確認済み」とは別の操作。
+    /// 親（このチャット）が live のまま、状態が不明・終了のために保留している（`StateUnknown` が親だけを指す）キューを、利用者の操作で解く。
+    /// 再開（`thread/resume`）をもう一度行って状態を取り直す（送信・停止はしない）。応答が示す状態が使えるものなら、続く評価で保留が解ける。
+    /// 取り直しても不明・終了のままなら、そのことを理由にして断る（黙って成功にしない。この状態は新しいやりとりが始まるまで変わらないことがある）。
+    async fn refresh_live_root(self: &Arc<Self>, chat: &ChatKey, confirmed: &UserConfirmed) -> Result<(), IpcError> {
+        let overrides = self.resume_overrides(chat);
+        match self.backend.resume(chat.clone(), confirmed, overrides.as_ref()).await? {
+            ResumeOutcome::Resumed { history, accepted_model } => {
+                self.mutate(|d| ((), d.apply_resumed_live(chat, history, accepted_model)));
+            }
+            ResumeOutcome::RunningElsewhere => return Err(blocked(BlockedReason::RunningElsewhere, "外部で実行中のため、この会話の状態を取り直せません")),
+            ResumeOutcome::Unavailable { reason } => return Err(err(IpcErrorCode::Rejected, format!("会話を再開できません: {reason}"))),
+        }
+        let root = agent_key_of(chat);
+        let after = self.read(|d| d.view(&root).map(|v| v.status.state));
+        match still_unusable_after_refresh(after) {
+            Some(message) => Err(err(IpcErrorCode::Blocked, message)),
+            None => Ok(()),
+        }
+    }
+
+    /// 「キューを再開」（ユーザー操作）。親がliveでなければ、ここで再開（resume）する。親がliveでも状態が不明・終了のために保留しているときは、
+    /// 状態を取り直す（`refresh_live_root`）。「確認済み」とは別の操作。
     pub async fn resume_queue(self: &Arc<Self>, args: ChatArgs, confirmed: &UserConfirmed) -> Result<ChatQueue, IpcError> {
         self.check_not_org_owned(&args.chat)?;
         let send_lock = self.queue_rt.send_lock(&args.chat);
@@ -1291,10 +1326,13 @@ impl Host {
         self.check_not_delete_pending(&args.chat)?;
         let state = self.read(|d| d.queues.get(&args.chat).map(|f| (f.queue.run.clone(), q::has_pending(&f.queue))));
         let root_live = self.read(|d| d.root_view(&args.chat).is_some_and(|v| v.freshness == Freshness::Live));
+        // 親が live でも、保留の原因が親の状態（不明・終了）だけなら、取り直しを受け付ける。それ以外は「すでに有効」。
+        let root = agent_key_of(&args.chat);
+        let live_root_state_hold = root_live && self.read(|d| d.queues.get(&args.chat).is_some_and(|f| q::parent_state_hold(f.queue.hold.as_ref(), &root)));
         let was_active = match state {
             None => return Err(err(IpcErrorCode::NotFound, "送信待ちがありません")),
             // 有効でも親がliveでなければ（wake・切断のあと）、ユーザー操作として再開処理を行って受け付ける。
-            Some((QueueRun::Active, _)) if root_live => return Err(err(IpcErrorCode::InvalidArgs, "キューはすでに有効です")),
+            Some((QueueRun::Active, _)) if root_live && !live_root_state_hold => return Err(err(IpcErrorCode::InvalidArgs, "キューはすでに有効です")),
             Some((QueueRun::Active, _)) => true,
             _ => false,
         };
@@ -1305,6 +1343,10 @@ impl Host {
         if self.read(|d| d.root_view(&args.chat).is_none_or(|v| v.freshness != Freshness::Live)) {
             self.ensure_live(&args.chat, confirmed).await?;
             self.start_scan(agent_key_of(&args.chat));
+        } else if was_active && live_root_state_hold {
+            self.refresh_live_root(&args.chat, confirmed).await?;
+            // 取り直した状態で、評価を早める（保留が解ければ、続く評価で送る）。
+            self.kick_queue();
         }
         if was_active {
             let queue = self.read(|d| d.queues.get(&args.chat).map(|f| f.queue.clone()));
@@ -1422,6 +1464,18 @@ mod tests {
         assert!(matches!(recheck_outcome_of(Some(&latest), &history_tail_of(&[])), RecheckOutcome::StillUnknown));
         let other = [turn_rec("t2", Some(TurnEnd::Completed))];
         assert!(matches!(recheck_outcome_of(Some(&latest), &history_tail_of(&other)), RecheckOutcome::StillUnknown));
+    }
+
+    /// 親の状態を取り直しても不明・終了のままなら、理由つきで断る（黙って成功にしない）。使える状態なら断らない。
+    #[test]
+    fn a_refresh_that_leaves_the_parent_unknown_or_closed_says_so() {
+        for (state, word) in [(Some(AgentState::Unknown), "不明"), (None, "不明"), (Some(AgentState::Closed), "終了")] {
+            let m = still_unusable_after_refresh(state).unwrap_or_else(|| panic!("{state:?}"));
+            assert!(m.contains(&format!("状態は{word}のまま")) && m.contains("新しいやりとり"), "{m}");
+        }
+        for state in [AgentState::Idle, AgentState::Done, AgentState::Running, AgentState::Failed, AgentState::Interrupted, AgentState::Waiting] {
+            assert_eq!(still_unusable_after_refresh(Some(state)), None, "{state:?}");
+        }
     }
 
     #[test]
@@ -1760,6 +1814,84 @@ mod history_gate_tests {
         let terms = HashMap::new();
         // 親は live で完了を確認済み。状態不明の子は止めず、件数を注記用に返す（子は不明のまま）。
         assert_eq!(decide(&d, &terms, false), q::GateDecision::Send { entry: LocalId("e1".into()), unconfirmed_descendants: 1 });
+    }
+
+    /// 前回の起動の途中で止まった子（履歴が作業中のまま・今回は live でない）は、子孫の作業中として永久に待たず、親と同じ「live でない」保留になる。
+    /// 履歴で終端を確認できないので自動では送らず、利用者の確認（今すぐ送る）だけが出口。live で作業中の子は従来どおり待ち、確認でも緩めない。
+    #[test]
+    fn a_child_left_working_by_the_previous_run_holds_as_not_live_and_only_a_user_confirmation_sends() {
+        let mut d = data();
+        d.agents[1].status.state = AgentState::Running;
+        d.agents[1].freshness = Freshness::HistoryOnly;
+        let terms = HashMap::new();
+        match decide(&d, &terms, false) {
+            q::GateDecision::Hold(QueueHold::NotLive { targets }) => assert_eq!((targets[0].agent.clone(), targets[0].state, targets[0].freshness), (ak("luna"), AgentState::Running, Freshness::HistoryOnly)),
+            other => panic!("{other:?}"),
+        }
+        // 履歴に完了の終端があっても、記録が作業中のままなら根拠にしない（作業中の記録と食い違うので、確認済みにしない）。
+        let terms = HashMap::from([(ak("luna"), fact_of(Some("c1"), Some(TurnEnd::Completed)))]);
+        assert!(matches!(decide(&d, &terms, false), q::GateDecision::Hold(QueueHold::NotLive { .. })));
+        // 利用者が確認して送る（先頭の1件）なら送れる。
+        assert!(matches!(decide(&d, &terms, true), q::GateDecision::Send { .. }));
+        // 受信できている（live）作業中の子・切断や復帰の照合中の子は、従来どおり待つ。確認しても緩めない。
+        for f in [Freshness::Live, Freshness::NeedsReconcile] {
+            d.agents[1].freshness = f;
+            assert!(matches!(decide(&d, &terms, false), q::GateDecision::Hold(QueueHold::DescendantsActive { .. })), "{f:?}");
+            assert!(matches!(decide(&d, &terms, true), q::GateDecision::Hold(QueueHold::DescendantsActive { .. })), "{f:?}");
+        }
+    }
+
+    /// 親が live のまま状態が不明のとき、再開で状態を取り直しても、親の失敗・中断による停止の判定は外れない（最新turnを保つので、
+    /// 観測済みの失敗の終端が最新turnと対応したまま）。保たなければ、失敗した親へ送ってしまう。
+    #[test]
+    fn refreshing_a_live_parent_does_not_lose_the_failure_that_stops_the_queue() {
+        let mut d = data();
+        d.agents[0].agent.latest_turn = Some(ExternalId("t1".into()));
+        d.agents[0].status.state = AgentState::Unknown;
+        d.agents[0].status.turn = None;
+        d.last_end.insert(ak("root"), (ExternalId("t1".into()), TurnEnd::Failed, UnixMillis(3_000)));
+        d.agents.truncate(1);
+        let resumed = |d: &HostData| AgentHistory {
+            agent: Agent { latest_turn: None, ..d.agents[0].agent.clone() },
+            chat: None,
+            status: AgentStatus { state: AgentState::Idle, raw: RawState { label: "thread/resume".into() }, scope: StateScope::Agent, turn: None, wait: None, evidence: ev(8_000) },
+            turns: vec![],
+            spawns: vec![],
+            spawn_supplements: vec![],
+        };
+        let stop = |d: &HostData| matches!(decide(d, &HashMap::new(), false), q::GateDecision::Stop(QueueStopCause::ParentFailed { .. }));
+        assert!(stop(&d), "取り直す前も、失敗した親では止まる");
+        let history = resumed(&d);
+        d.apply_resumed_live(&ck(), history.clone(), Known::NotFetched);
+        assert_eq!(d.root_view(&ck()).map(|v| v.status.state), Some(AgentState::Idle), "状態は取り直された");
+        assert!(stop(&d), "取り直したあとも、失敗した親では止まる（最新turnを保っている）");
+        // 最新turnを保たない通常の再開（apply_resumed）だと、失敗の終端が最新turnと対応せず、停止の判定が外れる。
+        let mut plain = data();
+        plain.agents[0].agent.latest_turn = Some(ExternalId("t1".into()));
+        plain.agents[0].status.state = AgentState::Unknown;
+        plain.last_end.insert(ak("root"), (ExternalId("t1".into()), TurnEnd::Failed, UnixMillis(3_000)));
+        plain.agents.truncate(1);
+        plain.apply_resumed(&ck(), history, Known::NotFetched);
+        assert!(!stop(&plain), "（比較）保たない再開では失敗の判定が外れる。だから取り直しは apply_resumed_live を使う");
+    }
+
+    /// 親が live のまま状態が不明（または終了）の保留は、親だけを指す。取り直し（再開）の出口が出る保留と、ホストの判定が一致する。
+    #[test]
+    fn a_live_parent_that_is_unknown_holds_on_the_parent_alone_and_the_exit_applies() {
+        let mut d = data();
+        for state in [AgentState::Unknown, AgentState::Closed] {
+            d.agents[0].status.state = state;
+            d.last_end.clear();
+            d.agents[0].agent.latest_turn = None;
+            let hold = match decide(&d, &HashMap::new(), false) {
+                q::GateDecision::Hold(h) => h,
+                other => panic!("{state:?}: {other:?}"),
+            };
+            assert!(matches!(&hold, QueueHold::StateUnknown { targets, .. } if targets.len() == 1 && targets[0].freshness == Freshness::Live), "{state:?}: {hold:?}");
+            assert!(q::parent_state_hold(Some(&hold), &ak("root")), "{state:?}");
+            // 確認して今すぐ送るでも、親の状態は緩めない（従来どおり）。
+            assert!(matches!(decide(&d, &HashMap::new(), true), q::GateDecision::Hold(QueueHold::StateUnknown { .. })), "{state:?}");
+        }
     }
 
     #[test]

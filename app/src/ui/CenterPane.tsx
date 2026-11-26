@@ -39,7 +39,7 @@ import { PendingSendRow } from "./PendingSendRow";
 import { SendStatusBar } from "./SendStatusBar";
 import { queueCounts } from "./sendStatus";
 import { aiFullName, aiName } from "./backendModels";
-import { parentResumeOffer, steerBlockedNote, steerBlockReason, steerButtonOffered } from "./queueUi.ts";
+import { parentResumeOffer, recheckOffered, staleWorkingDescendants, steerBlockedNote, steerBlockReason, steerButtonOffered } from "./queueUi.ts";
 import { HandoffNotice, PurposeLine, UsageChip, useHandoff, type HandoffUi } from "./HandoffNotice";
 import { IntakeSection } from "./OrgIntake";
 import { worktreeOf } from "./folderGroups";
@@ -928,11 +928,14 @@ function HoldExit({ q, head, nameOf, qact }: { q: ChatQueue; head: QueueEntry | 
   if (q.run.kind !== "active" || !h || (h.kind !== "stateUnknown" && h.kind !== "notLive")) return null;
   // 親が原因の保留は、子孫の確認では解けない。利用者の操作として、このチャットを再開して（ホストが resume する）送る。
   if (parentResumeOffer(q)) {
+    // 親が live のまま状態が不明・終了のとき（受信は戻っている）は、再開で状態を取り直す。
+    const liveButUnknown = h.kind === "stateUnknown" && h.targets.some((t) => t.freshness === "live");
     return (
       <div style={{ padding: "2px 10px" }}>
         <div className="acts">
-          <button className="btn-main" title="このチャットを再開（resume）してから、溜まっている依頼を登録順に送ります。あなたの操作として再開します" onClick={qact.resume}>このチャットを再開して送る</button>
+          <button className="btn-main" title={liveButUnknown ? "このチャットの状態を、再開（resume）で取り直します。取り直した状態で条件がそろえば、溜まっている依頼を登録順に送ります。あなたの操作として行います" : "このチャットを再開（resume）してから、溜まっている依頼を登録順に送ります。あなたの操作として再開します"} onClick={qact.resume}>このチャットを再開して送る</button>
         </div>
+        {liveButUnknown ? <div className="muted small" style={{ marginTop: 4 }}>このチャットは接続していますが、状態が不明（または終了）と報告されています。再開して状態を取り直します。取り直しても変わらないときは、このチャットで新しいやりとりを始めると、その後に依頼を送れます。</div> : null}
       </div>
     );
   }
@@ -940,12 +943,15 @@ function HoldExit({ q, head, nameOf, qact }: { q: ChatQueue; head: QueueEntry | 
   // 親自身の状態・鮮度が原因のときは、子孫の確認では解けない（ホストも送らない）。
   const rootBlocked = targets.some((t) => t.agent.id === q.chat.id);
   const canSend = !!head && head.state.kind === "waiting" && !rootBlocked;
+  // 作業中と記録されたまま live でない子孫（前回の起動の途中で止まった子など）。履歴を読み直しても記録は変わらないので、出口は「確認して今すぐ送る」。
+  const staleWorking = staleWorkingDescendants(q);
   return (
     <div style={{ padding: "2px 10px" }}>
       <div className="acts">
-        <button className={h.kind === "stateUnknown" ? "btn-main" : "small"} title="保留中のサブエージェントの履歴を読み直します（読み取りのみ。再開はしません）。終端を確認できれば、自動で送信に進みます" onClick={qact.recheck}>状態を再確認</button>
-        {canSend ? <button className="small" onClick={() => setConfirming(true)}>確認して今すぐ送る…</button> : null}
+        {recheckOffered(q) ? <button className={h.kind === "stateUnknown" ? "btn-main" : "small"} title="保留中のサブエージェントの履歴を読み直します（読み取りのみ。再開はしません）。終端を確認できれば、自動で送信に進みます" onClick={qact.recheck}>状態を再確認</button> : null}
+        {canSend ? <button className={recheckOffered(q) ? "small" : "btn-main"} onClick={() => setConfirming(true)}>確認して今すぐ送る…</button> : null}
       </div>
+      {staleWorking.length ? <div className="muted small" style={{ marginTop: 4 }}>サブエージェントが作業中と記録されたままですが、今回の起動では受信できておらず、終わったかどうかを確認できません。実際に作業が続いているかもしれないので、自動では送りません。確かめたうえで送るなら「確認して今すぐ送る」を使えます。</div> : null}
       {confirming && head ? (
         <div className="cbanner warn" role="alert" style={{ margin: "6px 0" }}>
           <h4>状態を確認できないまま、先頭の依頼を送ります</h4>

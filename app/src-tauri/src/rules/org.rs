@@ -165,7 +165,10 @@ pub fn descendants_from_gate(decision: &GateDecision, root: &AgentKey) -> Descen
             if targets.iter().any(|t| &t.agent == root) {
                 undecided(0)
             } else {
-                open(0, targets.len() as u32)
+                // 作業中と記録されたまま履歴だけの子孫（キューでは「live でない」保留に分類する）は、組織の完了判定では従来どおり作業中として数える
+                // （キューの出口のために分類を変えても、組織の判断は変えない）。それ以外の live でない子孫は不明として数える。
+                let working = targets.iter().filter(|t| matches!(t.state, AgentState::Running | AgentState::Waiting | AgentState::Initializing)).count() as u32;
+                open(working, targets.len() as u32 - working)
             }
         }
         GateDecision::Hold(QueueHold::StateUnknown { targets, .. }) => undecided(targets.len() as u32),
@@ -552,6 +555,9 @@ mod tests {
         assert!(!descendants_from_gate(&parent_not_live, &r).scan_complete);
         let child_not_live = GateDecision::Hold(QueueHold::NotLive { targets: vec![target("c", AgentState::Idle)] });
         assert_eq!(descendants_from_gate(&child_not_live, &r), DescendantReport { working: 0, unknown: 1, scan_complete: true });
+        // 作業中と記録されたまま live でない子孫は、キューでは「live でない」保留だが、組織の完了判定では従来どおり作業中として数える。
+        let child_stale_working = GateDecision::Hold(QueueHold::NotLive { targets: vec![target("c", AgentState::Running), target("d", AgentState::Idle)] });
+        assert_eq!(descendants_from_gate(&child_stale_working, &r), DescendantReport { working: 1, unknown: 1, scan_complete: true });
         assert!(!descendants_from_gate(&GateDecision::Hold(QueueHold::Disconnected), &r).scan_complete);
         assert!(!descendants_from_gate(&GateDecision::Nothing, &r).scan_complete);
     }

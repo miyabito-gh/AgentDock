@@ -1628,6 +1628,58 @@ mod tests {
         let _ = std::fs::remove_dir_all(&host.app_data_dir);
     }
 
+    // ── 総点検の判断待ち: 親が live のまま状態が不明（StateUnknown が親だけを指す）の保留に、画面の出口（再開で状態を取り直す） ──
+
+    /// 親が live のまま状態が不明の保留は、`resume_queue`（「このチャットを再開して送る」）で状態を取り直せる。従来は「キューはすでに有効です」で断られ、
+    /// 画面にも出口がなかった。親が原因でない保留（親が作業中・子孫が原因）は、従来どおり「すでに有効」で断る。
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn resume_queue_refreshes_a_live_parent_whose_state_is_unknown_and_still_refuses_other_holds() {
+        use crate::backend::local::{ChatArgs, HoldTarget, QueueHold};
+        let dir = unique_dir("refresh-live");
+        let (host, _r, _a) = host_with_router("refresh-live-host");
+        let confirmed = UserConfirmed::from_user_command();
+        host.backend.attach_antigravity_for_test("fake-agy-is-never-run.cmd", &host.app_data_dir.to_string_lossy());
+        let work = dir.join("work");
+        std::fs::create_dir_all(&work).unwrap();
+        let started = host
+            .start_chat(StartChatArgs { backend: BackendKind::Antigravity, cwd: Some(work.to_string_lossy().into_owned()), model: Some(ModelChoice { model: "gemini-test-1".into(), effort: None, speed_tier: None }), permission: None, first_message: None, worktree: None, extra_folders: vec![], confirmed_strong: vec![] }, &confirmed)
+            .await
+            .unwrap();
+        let target = started.chat.key.clone();
+        let root = AgentKey { backend: target.backend, id: target.id.clone() };
+        // live のまま、状態が不明（切断・再起動をまたいだ古い状態ではなく、いまの接続で状態が取れていない）。
+        make_live(&host, &target, AgentState::Unknown);
+        assert_eq!(host.read(|d| d.root_view(&target).map(|v| (v.freshness, v.status.state))), Some((Freshness::Live, AgentState::Unknown)));
+        let hold_on = |hold: QueueHold| {
+            host.mutate(|d| {
+                let mut queue = crate::rules::queue::new_queue(target.clone());
+                crate::rules::queue::enqueue(&mut queue, LocalId("e1".into()), "次の依頼".into(), vec![], UnixMillis(1));
+                queue.hold = Some(hold);
+                d.queues.insert(target.clone(), crate::store::records::QueueFile { schema_version: crate::store::records::SCHEMA_VERSION, queue, unresolved_sends: Vec::new() });
+                ((), vec![])
+            });
+        };
+        let unknown_root = |t: &AgentKey| HoldTarget { agent: t.clone(), state: AgentState::Unknown, freshness: Freshness::Live };
+        // 親だけが原因でない保留は、従来どおり「すでに有効」で断る（再開・取り直しをしない）。
+        for hold in [
+            QueueHold::ParentWorking,
+            QueueHold::StateUnknown { targets: vec![unknown_root(&AgentKey { backend: target.backend, id: ExternalId("child".into()) })], descendant_scan_incomplete: false },
+            QueueHold::StateUnknown { targets: vec![unknown_root(&root)], descendant_scan_incomplete: true },
+        ] {
+            hold_on(hold.clone());
+            let e = host.resume_queue(ChatArgs { chat: target.clone() }, &confirmed).await.unwrap_err();
+            assert!(e.message.contains("すでに有効"), "{hold:?}: {}", e.message);
+            assert_eq!(host.read(|d| d.root_view(&target).map(|v| v.status.state)), Some(AgentState::Unknown), "取り直していない: {hold:?}");
+        }
+        // 親だけが原因の保留（live のまま不明）は、再開で状態を取り直す。応答の状態（待機中）になり、続く評価で保留が解ける。
+        hold_on(QueueHold::StateUnknown { targets: vec![unknown_root(&root)], descendant_scan_incomplete: false });
+        host.resume_queue(ChatArgs { chat: target.clone() }, &confirmed).await.expect("取り直せる");
+        assert_eq!(host.read(|d| d.root_view(&target).map(|v| (v.freshness, v.status.state))), Some((Freshness::Live, AgentState::Idle)), "状態が取り直されている");
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&host.app_data_dir);
+    }
+
     /// 実行中の送り先へ intent なしで送るときは従来どおり順番待ち（Queued）。直接は送らない。
     #[tokio::test]
     async fn a_manual_send_to_a_running_target_is_still_queued() {

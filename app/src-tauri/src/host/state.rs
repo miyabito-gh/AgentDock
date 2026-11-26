@@ -636,6 +636,13 @@ impl HostData {
         ev
     }
 
+    /// すでに live の会話を、ユーザー操作の再開で取り直した結果を反映する（親が live のまま状態が不明の保留を解く操作）。
+    /// 再開の応答は最新turnを持たないので、live で観測済みの最新turnは保つ（上書きすると、親の失敗・中断の判定が最新turnと食い違って外れる）。
+    pub fn apply_resumed_live(&mut self, chat: &ChatKey, mut history: AgentHistory, accepted_model: Known<ModelChoice>) -> Vec<HostEvent> {
+        history.agent = self.with_preserved_turn(history.agent);
+        self.apply_resumed(chat, history, accepted_model)
+    }
+
     /// このホストが開始・再開した会話として記録する（origin表示を自管理に揃える）。
     pub fn mark_hosted(&mut self, chat: &ChatKey) -> Vec<HostEvent> {
         self.hosted.insert(chat.clone());
@@ -1347,6 +1354,27 @@ mod tests {
         let s = d.model_settings.get(&ck("root")).unwrap();
         assert_eq!((s.accepted.clone(), s.selected.clone()), (Known::direct(got), Some(selected)));
         assert_eq!(d.root_view(&ck("root")).unwrap().freshness, Freshness::Live);
+    }
+
+    /// すでに live の親が状態不明のとき、再開で状態を取り直す（`apply_resumed_live`）。状態は応答のものへ更新するが、live で観測済みの最新turnは
+    /// 保つ（再開の応答は最新turnを持たない。上書きすると、親の失敗・中断の判定が最新turnと食い違って外れる）。
+    #[test]
+    fn refreshing_a_live_parent_updates_its_state_but_keeps_the_observed_latest_turn() {
+        let mut d = HostData::default();
+        let mut live = agent("root", true);
+        live.latest_turn = Some(ExternalId("t5".into()));
+        d.set_live(live, status(AgentState::Unknown, Some("t5"), StateScope::Agent));
+        assert_eq!(d.root_view(&ck("root")).map(|v| (v.status.state, v.freshness)), Some((AgentState::Unknown, Freshness::Live)));
+        let resumed = AgentHistory { agent: agent("root", true), chat: None, status: status(AgentState::Idle, None, StateScope::Agent), turns: vec![], spawns: vec![], spawn_supplements: vec![] };
+        assert!(resumed.agent.latest_turn.is_none(), "再開の応答は最新turnを持たない");
+        d.apply_resumed_live(&ck("root"), resumed.clone(), Known::NotFetched);
+        let v = d.root_view(&ck("root")).unwrap();
+        assert_eq!((v.status.state, v.freshness), (AgentState::Idle, Freshness::Live), "状態は応答のものへ取り直す");
+        assert_eq!(v.agent.latest_turn, Some(ExternalId("t5".into())), "live で観測済みの最新turnは保つ");
+        // 取り直しても不明なら、不明のまま（良い状態にしない）。
+        let still = AgentHistory { status: status(AgentState::Unknown, None, StateScope::Agent), ..resumed };
+        d.apply_resumed_live(&ck("root"), still, Known::NotFetched);
+        assert_eq!(d.root_view(&ck("root")).map(|v| v.status.state), Some(AgentState::Unknown));
     }
 
     #[test]
