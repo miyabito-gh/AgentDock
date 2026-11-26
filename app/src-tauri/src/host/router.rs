@@ -19,6 +19,7 @@ use crate::backend::model::*;
 use crate::backend::router::*;
 use crate::host::state::agent_key_of;
 use crate::host::{blocked, err, now_ms, Host, SendExtras};
+use crate::host::queue_driver::check_agy_text_length;
 use crate::rules::org_intake::facts_of;
 use crate::rules::router::*;
 use crate::store::atomic::write_atomic;
@@ -1061,6 +1062,8 @@ impl Host {
             ChatRouteState::OrgOwned => return Err(blocked(BlockedReason::OrgOwned, RouteReject::Unavailable(ChatRouteState::OrgOwned).message())),
             s => return Err(err(IpcErrorCode::InvalidArgs, RouteReject::Unavailable(s).message())),
         }
+        // Antigravity 宛で本文が agy のコマンドライン長の上限を超えるなら、順番待ちへ入れる前・送る前に止める（Codex 宛は検査しない）。
+        check_agy_text_length(&target, &args.text)?;
         // 実行中の送り先へ intent 指定なしで送るときだけ順番待ち（完了後に送る）に入れる。別件の依頼を実行中の turn へ差し込まない。
         // 実行中でなければ、利用者の送信として直接送る（`send_message_with` が `ensure_live` で再開してから新しい turn にする）。
         // 「実行中でない」送り先をキューへ入れると、今回の起動で未再開（live でない）の送り先は駆動側が再開しないため永久に保留される。
@@ -1633,6 +1636,72 @@ mod tests {
         let DispatchState::Queued { queue_entry, .. } = &v.state else { panic!("実行中の送り先は順番待ち: {:?}", v.state) };
         assert_eq!(queue_len(&host, &a), 1);
         host.read(|d| assert_eq!(&d.queues.get(&a).unwrap().queue.entries[0].id, queue_entry));
+        let _ = std::fs::remove_dir_all(&host.app_data_dir);
+    }
+
+    fn agy_key(id: &str) -> ChatKey {
+        ChatKey { backend: BackendKind::Antigravity, id: ExternalId(id.into()) }
+    }
+
+    /// Antigravity 宛で本文が agy のコマンドライン長の上限を超えるなら、順番待ちへ入れる前にも、直接送る前にも、分かる理由で止める。
+    /// カードは提案のまま。Codex 宛には影響しない（同じ長さでも順番待ちに入る）。
+    #[tokio::test]
+    async fn a_dispatch_over_the_agy_command_line_limit_is_refused_before_queueing_and_does_not_touch_codex_targets() {
+        let (host, r, a) = host_with_router("agy-too-long");
+        let confirmed = UserConfirmed::from_user_command();
+        make_connected(&host);
+        let agy = agy_key("agy-1");
+        host.mutate(|d| ((), d.upsert_chat(chat_of(&agy, ChatKind::Development, r"C:workagy", "Antigravity担当"))));
+        make_live(&host, &agy, AgentState::Running);
+        make_live(&host, &a, AgentState::Running);
+        let long = "あ".repeat(crate::antigravity::cmd::WINDOWS_COMMAND_LINE_MAX_UNITS);
+        let args = |id: &str| RouterDispatchArgs { dispatch_id: LocalId(id.into()), target_override: None, text: long.clone(), intent: None };
+        host.update_router(&r, |rec| {
+            rec.push_dispatch(dispatch("d-agy", DispatchTarget::Existing { chat: agy.clone() }, DispatchState::Proposed));
+            rec.push_dispatch(dispatch("d-codex", DispatchTarget::Existing { chat: a.clone() }, DispatchState::Proposed));
+        });
+        // 実行中の Antigravity 宛（順番待ちになる経路）。
+        let e = host.router_dispatch(args("d-agy"), &confirmed).await.unwrap_err();
+        assert_eq!(e.code, IpcErrorCode::InvalidArgs);
+        assert!(e.message.contains("本文が長すぎるため送っていません") && !e.message.contains("os error"), "{}", e.message);
+        assert_eq!(queue_len(&host, &agy), 0, "送れない本文は順番待ちへ入れない");
+        let state_of = |id: &str| host.router_record(&r).unwrap().dispatches.iter().find(|d| d.id.0 == id).unwrap().state.clone();
+        assert_eq!(state_of("d-agy"), DispatchState::Proposed);
+        assert!(host.router_rt.dispatching.lock().unwrap().is_empty(), "送信中の印は外れる");
+        // 実行中でない Antigravity 宛（直接送る経路）も、再開や起動の前に止める。
+        make_live(&host, &agy, AgentState::Idle);
+        let e = host.router_dispatch(args("d-agy"), &confirmed).await.unwrap_err();
+        assert!(e.message.contains("本文が長すぎるため送っていません"), "{}", e.message);
+        assert_eq!(state_of("d-agy"), DispatchState::Proposed);
+        // 収まる本文は止めない（Codex 宛の経路と同じく順番待ちに入る）。
+        make_live(&host, &agy, AgentState::Running);
+        let ok = RouterDispatchArgs { dispatch_id: LocalId("d-agy".into()), target_override: None, text: "短い依頼".into(), intent: None };
+        assert!(matches!(host.router_dispatch(ok, &confirmed).await.unwrap().state, DispatchState::Queued { .. }));
+        // Codex 宛は同じ長さでも検査しない。
+        let v = host.router_dispatch(args("d-codex"), &confirmed).await.unwrap();
+        assert!(matches!(v.state, DispatchState::Queued { .. }), "{:?}", v.state);
+        assert_eq!(queue_len(&host, &a), 1);
+        let _ = std::fs::remove_dir_all(&host.app_data_dir);
+    }
+
+    /// 通常のチャットの「完了後に送る依頼」（enqueue・編集）も、Antigravity 宛で長すぎる本文は登録しない。Codex 宛は登録できる。
+    #[tokio::test]
+    async fn the_queue_refuses_an_agy_text_over_the_limit_and_accepts_it_for_codex() {
+        let (host, _r, a) = host_with_router("agy-queue-too-long");
+        let agy = agy_key("agy-1");
+        host.mutate(|d| ((), d.upsert_chat(chat_of(&agy, ChatKind::Development, r"C:workagy", "Antigravity担当"))));
+        let long = "あ".repeat(crate::antigravity::cmd::WINDOWS_COMMAND_LINE_MAX_UNITS);
+        let e = host.enqueue(EnqueueArgs { chat: agy.clone(), text: long.clone(), attachments: Vec::new() }).unwrap_err();
+        assert_eq!(e.code, IpcErrorCode::InvalidArgs);
+        assert!(e.message.contains("本文が長すぎるため送っていません"), "{}", e.message);
+        assert_eq!(queue_len(&host, &agy), 0);
+        let entry = host.enqueue(EnqueueArgs { chat: agy.clone(), text: "短い依頼".into(), attachments: Vec::new() }).unwrap();
+        // 登録済みの項目を、長すぎる本文へ編集することも止める（項目は元の本文のまま）。
+        let e = host.edit_queue_entry(crate::backend::local::EditQueueEntryArgs { chat: agy.clone(), entry: entry.id.clone(), text: long.clone(), attachments: Vec::new() }).unwrap_err();
+        assert!(e.message.contains("本文が長すぎるため送っていません"), "{}", e.message);
+        host.read(|d| assert_eq!(d.queues.get(&agy).unwrap().queue.entries[0].text, "短い依頼"));
+        // Codex 宛は検査しない。
+        assert!(host.enqueue(EnqueueArgs { chat: a.clone(), text: long, attachments: Vec::new() }).is_ok());
         let _ = std::fs::remove_dir_all(&host.app_data_dir);
     }
 

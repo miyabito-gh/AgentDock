@@ -239,6 +239,15 @@ struct GateContext {
     folder_busy: bool,
 }
 
+/// Antigravity 宛の本文が、agy のコマンドライン長の上限を超えるなら、登録・送信の前に止める。Codex 宛は何も検査しない。
+/// 送信側（`AntigravityBackend::send`）も起動の前に同じ検査をする。ここは、登録して後から送信失敗にするより前に理由を返すための早期の検査。
+pub(super) fn check_agy_text_length(chat: &ChatKey, text: &str) -> Result<(), IpcError> {
+    if chat.backend != BackendKind::Antigravity {
+        return Ok(());
+    }
+    crate::antigravity::cmd::precheck_text(text).map_err(|e| err(IpcErrorCode::InvalidArgs, e.message()))
+}
+
 /// 状態（`HostData`）と履歴確認の結果から、純粋な判断の入力を組む。
 fn gate_input(
     d: &HostData,
@@ -1207,6 +1216,8 @@ impl Host {
         if self.read(|d| d.chat(&args.chat).is_none()) {
             return Err(err(IpcErrorCode::NotFound, "チャットが見つかりません"));
         }
+        // 送れない長さの本文を順番待ちへ入れない（入れても、先頭で必ず送信失敗になり、後続も止まる）。
+        check_agy_text_length(&args.chat, &args.text)?;
         self.precheck_space()?;
         // 登録の時点で使えない添付（コピー中・失敗・欠損）は受け付けない（送信時にも確認する）。
         self.verify_attachments(&args.chat, &args.attachments)?;
@@ -1229,6 +1240,7 @@ impl Host {
         if args.text.trim().is_empty() && args.attachments.is_empty() {
             return Err(err(IpcErrorCode::InvalidArgs, "依頼が空です"));
         }
+        check_agy_text_length(&args.chat, &args.text)?;
         self.precheck_space()?;
         self.verify_attachments(&args.chat, &args.attachments)?;
         let used = args.attachments.clone();

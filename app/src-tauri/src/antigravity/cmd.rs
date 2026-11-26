@@ -119,6 +119,77 @@ pub fn turn_args(l: &TurnLaunch) -> Vec<String> {
     a
 }
 
+// ───────────────────────────── コマンドライン長 ─────────────────────────────
+
+/// Windows の `CreateProcess` に渡せるコマンドライン全体の長さの上限（UTF-16 の単位数。仕様は 32,767 で、末尾の NUL を除くと 32,766）。
+/// agy は本文を引数（`-p <本文>`）で受け取るため、本文が長いとこの上限で起動できない（OS エラー 206）。
+pub const WINDOWS_COMMAND_LINE_MAX_UNITS: usize = 32_766;
+
+/// Rust の標準ライブラリが Windows で1つの引数をコマンドラインへ組み立てたときの UTF-16 の単位数（引用符・バックスラッシュの重ね書きを含む）。
+fn quoted_units(arg: &str, force_quotes: bool) -> usize {
+    let quote = force_quotes || arg.is_empty() || arg.contains([' ', '\t']);
+    let mut n = if quote { 2 } else { 0 };
+    let mut backslashes = 0usize;
+    for u in arg.encode_utf16() {
+        if u == u16::from(b'\\') {
+            backslashes += 1;
+        } else {
+            if u == u16::from(b'"') {
+                // 引用符の前には、直前のバックスラッシュの2倍＋エスケープの1つが付く。
+                n += backslashes + 1;
+            }
+            backslashes = 0;
+        }
+        n += 1;
+    }
+    if quote {
+        n += backslashes;
+    }
+    n
+}
+
+/// 実行ファイルと引数から組み立てられるコマンドライン全体の長さ（UTF-16 の単位数）。実行ファイル名は常に引用符で囲まれる。
+pub fn command_line_units(exe: &str, args: &[String]) -> usize {
+    quoted_units(exe, true) + args.iter().map(|a| 1 + quoted_units(a, false)).sum::<usize>()
+}
+
+/// 本文が長すぎて agy を起動できない。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommandLineTooLong {
+    /// 本文の字数。
+    pub text_chars: usize,
+    /// この送信（モデル・権限・作業フォルダ等の引数を含む）で渡せる本文のおよその字数。
+    pub room_chars: usize,
+}
+
+impl CommandLineTooLong {
+    /// 利用者向けの理由。何を・なぜ・どうすればよいかを示す。
+    pub fn message(&self) -> String {
+        format!(
+            "本文が長すぎるため送っていません（{}字）。Antigravity は本文をコマンドラインで受け取り、Windows の長さの上限があるため、いまの設定では約{}字までです。本文を短くするか、分けて送ってください。",
+            self.text_chars, self.room_chars
+        )
+    }
+}
+
+/// 起動する前に、コマンドラインが上限に収まるか調べる。超えるなら何も起動せず理由を返す。
+pub fn check_command_line(exe: &str, l: &TurnLaunch) -> Result<(), CommandLineTooLong> {
+    let used = command_line_units(exe, &turn_args(l));
+    if used <= WINDOWS_COMMAND_LINE_MAX_UNITS {
+        return Ok(());
+    }
+    // 本文を空にしたときの長さ（空の本文も引用符の2字は数える）との差が、本文に使える量。
+    let empty = command_line_units(exe, &turn_args(&TurnLaunch { text: "", ..*l }));
+    let room = (WINDOWS_COMMAND_LINE_MAX_UNITS + 2).saturating_sub(empty);
+    Err(CommandLineTooLong { text_chars: l.text.chars().count(), room_chars: room / 100 * 100 })
+}
+
+/// 受付・キューが登録の前に使う早期の検査。送り先の実行ファイル・モデル・追加フォルダを知らないので、最も短い構成で見積もる
+/// （この検査を通らない本文は、実際の構成でも必ず送れない。通っても、実際の送信側で改めて検査される）。
+pub fn precheck_text(text: &str) -> Result<(), CommandLineTooLong> {
+    check_command_line("agy", &TurnLaunch { text, model: "gemini-x", conversation_id: None, permission: PermissionPreset::ReadOnly, extra_dirs: &[] })
+}
+
 // ───────────────────────────── agy models ─────────────────────────────
 
 /// `agy models` の標準出力（「Fetching available models...」の後に `<id>\t<表示名>` が1行ずつ）から、Gemini 系だけを取り出す。
@@ -180,6 +251,81 @@ mod tests {
             later,
             ["-p", "again", "--output-format", "stream-json", "--model", "gemini-x", "--conversation", "9db8", "--dangerously-skip-permissions", "--add-dir", "C:\\b", "--add-dir", "C:\\c"]
         );
+    }
+
+    fn launch(text: &str) -> TurnLaunch<'_> {
+        TurnLaunch { text, model: "gemini-x", conversation_id: None, permission: PermissionPreset::ReadOnly, extra_dirs: &[] }
+    }
+
+    #[test]
+    fn command_line_units_count_quoting_the_way_the_standard_library_builds_it() {
+        let n = |args: &[&str]| command_line_units("agy", &args.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+        // 実行ファイル名は常に引用符つき（"agy" = 5字）。引数ごとに区切りの空白が1つ。
+        assert_eq!(n(&[]), 5);
+        assert_eq!(n(&["-p"]), 5 + 1 + 2);
+        // 空白を含むと引用符で囲まれる（+2）。空の引数も同様。
+        assert_eq!(n(&["a b"]), 5 + 1 + 3 + 2);
+        assert_eq!(n(&[""]), 5 + 1 + 2);
+        // 引用符は `\"` になる（+1）。引用符の前のバックスラッシュは2倍になる。
+        assert_eq!(n(&["a\"b"]), 5 + 1 + 3 + 1);
+        assert_eq!(n(&["a\\\"b"]), 5 + 1 + 4 + 2);
+        // 引用符で囲まれた引数の末尾のバックスラッシュは、閉じ引用符の前で2倍になる。
+        assert_eq!(n(&["a b\\"]), 5 + 1 + 4 + 2 + 1);
+        // UTF-16 の単位で数える（BMP 外の文字は2単位、日本語は1単位）。
+        assert_eq!(n(&["あ"]), 5 + 1 + 1);
+        assert_eq!(n(&["😀"]), 5 + 1 + 2);
+    }
+
+    #[test]
+    fn a_text_within_the_limit_passes_and_one_unit_over_is_refused_with_the_room_left() {
+        let exe = "C:\\Users\\x\\AppData\\Local\\agy\\bin\\agy.exe";
+        // 本文以外の引数を含め、ちょうど上限に収まる長さ（空白のない本文＝引用符なし）。
+        let base = command_line_units(exe, &turn_args(&launch("")));
+        let fit = WINDOWS_COMMAND_LINE_MAX_UNITS - (base - 2); // 空の本文の引用符2字を除く
+        let ok = "a".repeat(fit);
+        assert_eq!(command_line_units(exe, &turn_args(&launch(&ok))), WINDOWS_COMMAND_LINE_MAX_UNITS);
+        assert_eq!(check_command_line(exe, &launch(&ok)), Ok(()));
+        let over = "a".repeat(fit + 1);
+        let e = check_command_line(exe, &launch(&over)).unwrap_err();
+        assert_eq!(e.text_chars, fit + 1);
+        // 渡せる量の見積もりは百字単位に切り捨てる。上限に収まる最大の本文（fit）以下で、百字以内の差。
+        assert!(e.room_chars <= fit && fit - e.room_chars < 100, "room={} fit={fit}", e.room_chars);
+        let m = e.message();
+        assert!(m.contains("本文が長すぎるため送っていません") && m.contains(&format!("{}字", fit + 1)) && m.contains(&format!("約{}字", e.room_chars)), "{m}");
+        assert!(!m.contains("os error"));
+    }
+
+    #[test]
+    fn the_early_check_is_the_loosest_one_and_a_bigger_launch_is_refused_sooner() {
+        // 早期の検査は最も短い構成で見積もるので、早期の検査で止まる本文は実際の構成でも必ず止まる。
+        let long_path = "C:\\Users\\someone\\AppData\\Local\\agy\\bin\\agy.exe";
+        let dirs = vec!["C:\\work\\one".to_string(), "C:\\work\\two".to_string()];
+        let text = "あ".repeat(WINDOWS_COMMAND_LINE_MAX_UNITS - 80);
+        assert!(precheck_text(&text).is_ok());
+        let real = TurnLaunch { text: &text, model: "gemini-3.8-flash-medium", conversation_id: Some("9db8c0de-1111-2222-3333-444455556666"), permission: PermissionPreset::FullAccess, extra_dirs: &dirs };
+        assert!(check_command_line(long_path, &real).is_err(), "実際の構成では収まらない");
+        assert!(precheck_text(&"あ".repeat(WINDOWS_COMMAND_LINE_MAX_UNITS)).is_err());
+        assert!(precheck_text("短い依頼").is_ok());
+    }
+
+    /// 上限が実際の OS の挙動と一致する（Windows）。計算上ちょうど上限の引数は起動でき、1つ超えると OS エラー 206 で起動できない。
+    /// 起動するのはこのテスト自身の実行ファイル（`--list` と存在しない名前の絞り込みだけで、何も実行せず終わる）。
+    #[cfg(windows)]
+    #[test]
+    fn the_computed_limit_matches_what_windows_actually_accepts() {
+        let exe = std::env::current_exe().unwrap().to_string_lossy().into_owned();
+        let args_at = |units: usize| -> Vec<String> {
+            // 1つ目の引数 `--list`（区切りの空白を含め 7）と、区切りの空白1つ＋ a の繰り返し。
+            let n = units - command_line_units(&exe, &[]) - 7 - 1;
+            vec!["--list".to_string(), "a".repeat(n)]
+        };
+        let fit = args_at(WINDOWS_COMMAND_LINE_MAX_UNITS);
+        assert_eq!(command_line_units(&exe, &fit), WINDOWS_COMMAND_LINE_MAX_UNITS);
+        let ok = std::process::Command::new(&exe).args(&fit).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status();
+        assert!(ok.is_ok(), "上限ちょうどは起動できる: {ok:?}");
+        let over = args_at(WINDOWS_COMMAND_LINE_MAX_UNITS + 1);
+        let err = std::process::Command::new(&exe).args(&over).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status().unwrap_err();
+        assert_eq!(err.raw_os_error(), Some(206), "上限を1つ超えると起動できない: {err}");
     }
 
     #[test]

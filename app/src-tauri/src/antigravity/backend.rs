@@ -884,6 +884,11 @@ impl AiBackend for AntigravityBackend {
             return reject(request, e);
         }
         let permission = request.permission.unwrap_or(snapshot.permission);
+        // 本文は agy の引数で渡すため、Windows のコマンドライン長の上限を超えると起動できない（OS エラー 206）。
+        // 起動を試みる前に、何も記録せず、分かる理由で拒否する。
+        if let Err(too_long) = cmd::check_command_line(&conn.exe, &TurnLaunch { text: &request.text, model: &model, conversation_id: snapshot.conversation_id.as_deref(), permission, extra_dirs: &extras }) {
+            return reject(request, rejected(too_long.message()));
+        }
 
         // ① 送る前に記録（running）して保存する。保存できなければ何も実行しない。
         let now = now_ms();
@@ -1466,6 +1471,30 @@ mod tests {
         let id = b.start_chat(params(&work, Some("gemini-test-1"))).await.unwrap().chat.key.id.0;
         assert!(matches!(b.send(request(&id, "hi")).await, SendOutcome::Rejected { error: BackendError::Rejected { .. }, .. }));
         assert!(b.shared.with_store(|s| s.get(&id).unwrap().turns.is_empty()).unwrap());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn a_text_too_long_for_the_command_line_is_refused_before_launching_with_a_clear_reason() {
+        // 存在しない agy を指す。起動を試みれば「起動できませんでした」になるので、字数の拒否はそれより前に起きていることを確かめられる。
+        let dir = unique_temp_dir("agentdock-agy-toolong");
+        let b = AntigravityBackend::new();
+        b.attach_for_test(dir.join("no-such-agy.exe").to_str().unwrap(), dir.to_str().unwrap());
+        let work = dir.join("work");
+        std::fs::create_dir_all(&work).unwrap();
+        let id = b.start_chat(params(&work, Some("gemini-test-1"))).await.unwrap().chat.key.id.0;
+        let message = |o: SendOutcome| match o {
+            SendOutcome::Rejected { error: BackendError::Rejected { message, .. }, .. } => message,
+            other => panic!("{other:?}"),
+        };
+        let long = "あ".repeat(cmd::WINDOWS_COMMAND_LINE_MAX_UNITS);
+        let m = message(b.send(request(&id, &long)).await);
+        assert!(m.contains("本文が長すぎるため送っていません") && m.contains(&format!("（{}字）", long.chars().count())), "{m}");
+        assert!(!m.contains("起動できませんでした") && !m.contains("os error"), "{m}");
+        assert!(b.shared.with_store(|s| s.get(&id).unwrap().turns.is_empty()).unwrap(), "字数で拒否した送信は記録を残さない");
+        // 収まる本文は、これまでどおり起動を試みる（存在しない agy なので起動の失敗になる）。
+        let m = message(b.send(request(&id, "短い依頼")).await);
+        assert!(m.contains("起動できませんでした"), "{m}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
