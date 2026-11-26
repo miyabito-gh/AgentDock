@@ -1,5 +1,9 @@
 # 現在の引き継ぎ
 
+## 2026-11-27 総点検の判断待ち2件の実施
+
+`feature/antigravity-provider` の `575bb9d`（字数検査は `472b3d9`。ローカルのみ・push なし）。Codex 停止中は、順番待ち・受付カードの保留理由、［送る］の断り、受付係の帯と送信の理由で「Codex が起動していないため」を出す（接続判定は Codex 基準のまま）。Antigravity 宛は agy の起動前に本文の長さを検査（Windows のコマンドライン長 32,766 単位）。Rust 1800件・Node 565件通過、リリースビルド済み（exe 33827328 bytes・NSIS 8068216 bytes、2026-11-27 00:52）。詳細・限界は [STATUS.md](../STATUS.md) と `Documents/consult/agentdock-reception/flow-audit-followup-2026-11-27.md`。次は、画面での実操作確認（Codex を止めた状態の表示、長い本文の送信）。稼働中の試験プロセス・未コミット差分なし（`host/mod.rs` の改行コード変換の見かけ上の差分を除く）。
+
 ## 2026-11-26 受付フロー総点検と修正
 
 `feature/antigravity-provider` の `0b629f6`（ローカルのみ・push なし）。fd3ef04 の回帰と同種の問題を点検し、キュー登録失敗カードの出口・受理不明の照合反映・追加指示の表示・返答処理失敗の復旧・live でない作業中の親・自動送信の見送り理由などを修正（Rust 1792件・Node 563件通過、リリースビルド済み）。所見・判断待ち・限界は [STATUS.md](../STATUS.md) と `Documents/consult/agentdock-reception/flow-audit-2026-11-26.md`。次は、画面での実操作確認と、判断待ち（Codex 停止中の Antigravity、字数事前検査など）。稼働中の試験プロセス・未コミット差分なし（`host/mod.rs` の改行コード変換の見かけ上の差分を除く）。

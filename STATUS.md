@@ -1,5 +1,14 @@
 ﻿# 保全状況
 
+## 2026-11-27 総点検の判断待ち2件（Codex 停止中の理由表示・Antigravity の字数事前検査）の実施
+
+- ブランチ `feature/antigravity-provider`、開始時 HEAD `e1a7376`、コード修正は `472b3d9`（字数検査）と `575bb9d`（Codex 停止中の理由表示）。コミットはローカルのみ（push なし）。まさとが「推奨どおり」と決定した2件。司令塔 Sonnet が直接実装（サブエージェント・Fable・Haiku・実 Codex・実 agy は不使用）。記録: `Documents/consult/agentdock-reception/flow-audit-followup-2026-11-27.md`。
+- Codex 停止中: ホストの接続判定（Codex 基準）は変えず、止まる箇所に理由を出した。①順番待ち項目の保留理由・②受付カードの保留理由（総点検の `QueueHeld` を流用。文言だけ変更）: 「Codex が起動していない（または接続が切れている）ため保留しています。Antigravity 宛の依頼も、Codex が接続されるまで進みません」③受付カードの［送る］が順番待ちになる場合の断りを同趣旨の文に④受付カードの表示（受付の記録の取得を接続時だけ→常に。読み取りのみ）⑤受付係の画面の上の帯と、受付係への送信（入力欄を無効にして理由。ホスト `router_send` も同じ理由で断り、記録を作らない）。
+- 字数: Antigravity 宛の本文を agy の起動前に検査。上限は Windows の `CreateProcess` のコマンドライン長（32,766 UTF-16 単位。実テストで、ちょうどは起動でき1つ超えると OS エラー 206 になることを確認）。実行ファイル・モデル・権限・追加フォルダを含む全体を数えるので、本文に使える量は「約N字」（理由文に出す）。`AntigravityBackend::send()`（記録・起動の前。直接送信・受付の振り分け・通常のチャット・キューのすべて）と、受付カードの［送る］・キュー登録・編集の早期検査。Codex 宛は検査しない。理由文: 「本文が長すぎるため送っていません（N字）。Antigravity は本文をコマンドラインで受け取り、Windows の長さの上限があるため、いまの設定では約M字までです。本文を短くするか、分けて送ってください。」
+- 検証: 追加の Rust テスト8件（コマンドライン長 4・送信側 1・host 3。既存の2件にも追記）。字数検査・接続確認・断りの文を外すと5件が失敗し、戻すと通ることを確認。`cargo test --lib --locked` 1800件通過・0失敗・無視1（前回 1792）、Node 565件通過（前回 563）、`npm.cmd run type-check` 成功。リリースビルド（ソースは `575bb9d`）: exe `app/src-tauri/target/release/agentdock.exe` 33827328 bytes・2026-11-27 00:52:22、NSIS `app/src-tauri/target/release/bundle/nsis/AgentDock_0.0.1_x64-setup.exe` 8068216 bytes・2026-11-27 00:52:22（Rust 14分35秒。起動はしていない）。
+- 未確認・限界: 画面（実 exe・WebView）は未確認（文言・帯・入力欄の無効化の追加のみ）。実 Codex・実 agy は未使用。Codex 停止中の Antigravity 宛の直接送信（実行中でない送り先）が実際に通るかは未確認（判定は変えていない）。担当の Antigravity チャットの入力欄には Codex 停止の理由を出していない（順番待ちの見出しで足りるとの判断）。`host/mod.rs` の `M` は従前の改行コード変換による見かけ上の表示（今回も触れていない）。
+- 残りの判断待ちは前日の節の一覧のとおり（親が live で Unknown／Closed・子孫が作業中のまま残る保留の出口、QueueMissing カード、新規チャット案の対応づけ失敗、スキル未検出の無言、直接送信後の保存失敗＋再起動での二重送信、`Unrecognized` の保持、完了後の折りたたみ行の文言）。
+
 ## 2026-11-26 受付の利用フロー総点検（fd3ef04 の回帰と同種の問題）と修正
 
 - ブランチ `feature/antigravity-provider`、開始時 HEAD `606b19e`、コード修正は `0b629f6`。コミットはローカルのみ（push なし）。Codex・Fable・Haiku 不使用（受付分類の実 Codex 実行もなし）。司令塔 Sonnet、点検は Opus の読み取り専用2件（キュー・照合・状態／画面・IPC・Antigravity）。記録（所見の全一覧・判断待ち・テスト対応表）: `Documents/consult/agentdock-reception/flow-audit-2026-11-26.md`。
