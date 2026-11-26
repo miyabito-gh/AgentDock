@@ -74,6 +74,10 @@ const STATUS_CHIP: Record<ExecutionStatus, DispatchChip> = {
   queuePaused: { tone: "wait", icon: "alert", label: "要確認" },
   queueMissing: { tone: "unk", icon: "help", label: "照合不能" },
   cancelled: { tone: "idle", icon: "ban", label: "取り消し" },
+  // 送り先のキューは動いているが、保留理由があって送られていない（理由の文はホストが executionResult で返す）。
+  queueHeld: { tone: "wait", icon: "alert", label: "保留中" },
+  // この版が知らない状態（将来の版が値を足した記録）。完了などと見せず「状態不明」にする。
+  unrecognized: { tone: "unk", icon: "help", label: "状態不明" },
 };
 export const statusChip = (s: ExecutionStatus | null | undefined): DispatchChip | null => (s ? STATUS_CHIP[s] : null);
 

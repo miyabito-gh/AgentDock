@@ -39,10 +39,11 @@ import { PendingSendRow } from "./PendingSendRow";
 import { SendStatusBar } from "./SendStatusBar";
 import { queueCounts } from "./sendStatus";
 import { aiFullName, aiName } from "./backendModels";
+import { parentResumeOffer, steerBlockedNote, steerBlockReason, steerButtonOffered } from "./queueUi.ts";
 import { HandoffNotice, PurposeLine, UsageChip, useHandoff, type HandoffUi } from "./HandoffNotice";
 import { IntakeSection } from "./OrgIntake";
 import { worktreeOf } from "./folderGroups";
-import type { BackendKind, HandoffPreview, OrgInterjectView, OrgTaskView } from "../ipc/types";
+import type { HandoffPreview, OrgInterjectView, OrgTaskView } from "../ipc/types";
 import { InterjectComposer } from "./InterjectComposer";
 import { OrgInstructionBubble, OrgReportView } from "./OrgChatParts";
 import { isOrgInstruction, parseOrgReport } from "./orgChat";
@@ -182,15 +183,6 @@ export interface QueueActions {
   steerUnknown: Record<string, string>;
   /** 受理不明の追加指示を履歴と照合する（読み取りのみ。再送しない）。 */
   steerReconcile: (entryId: string) => void;
-}
-
-/** 追加指示にできない理由（できるときは null）。追加指示はモデル・権限・作業フォルダの変更には使えず、実行中のturnにだけ送れる。 */
-function steerBlockReason(running: boolean, changed: boolean, local: ChatLocalView | undefined, backend: BackendKind = "codex"): string | null {
-  if (backend === "antigravity") return `${aiFullName("antigravity")}は追加指示に対応していません（完了後に送信を使います）`;
-  if (!running) return "実行中のやりとりがないため、追加指示にはできません";
-  if (changed) return "モデル・推論の強さ・速度を変更中のため、追加指示にはできません（変更は次の送信から適用されます）";
-  if (local?.nextCwd) return "作業フォルダの変更が予定されているため、追加指示にはできません";
-  return null;
 }
 
 /** 選択したモデル設定が、Codex が受理した値と違うか（受理を受け取っていなければ false）。 */
@@ -884,10 +876,12 @@ export function RequestCard({ r, onRespond, agentName }: { r: PendingRequest; on
   );
 }
 
-function EntryRow({ n, e, qact, steerWhy, holdAttempt, holdHint }: { n: number; e: QueueEntry; qact: QueueActions; steerWhy: string | null; holdAttempt: string | null; holdHint: string | null }) {
+function EntryRow({ n, e, qact, steerWhy, showSteer, holdAttempt, holdHint }: { n: number; e: QueueEntry; qact: QueueActions; steerWhy: string | null; showSteer: boolean; holdAttempt: string | null; holdHint: string | null }) {
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(e.text);
   const [steering, setSteering] = useState(false);
+  // 無効の追加指示を押したときの説明（無言にしない。押すたびに出し直す）
+  const [steerNote, setSteerNote] = useState<string | null>(null);
   const s = e.state;
   // 追加指示の受理不明は、ホストがキューを保留している間だけ（照合で確定すれば消える）
   const steerUnk = qact.steerUnknown[e.id] && qact.steerUnknown[e.id] === holdAttempt ? qact.steerUnknown[e.id] : undefined;
@@ -904,14 +898,15 @@ function EntryRow({ n, e, qact, steerWhy, holdAttempt, holdHint }: { n: number; 
         {editing ? <textarea aria-label="依頼を編集" value={text} onChange={(ev) => setText(ev.target.value)} style={{ width: "100%" }} /> : e.text.trim() ? <div>{e.text}</div> : <div className="muted">（本文なし・添付のみ）</div>}
         {e.attachments.length ? <div className="small muted" title="このチャット用のコピーを送ります">添付 {e.attachments.length}件</div> : null}
         {why ? <div className={`why ${s.kind === "waiting" && !steerUnk ? "" : "err"}`}>{why}</div> : null}
+        {steerNote ? <div className="why" role="status">{steerNote}</div> : null}
       </div>
       <div style={{ display: "flex", gap: 2 }}>
-        {s.kind === "waiting" && !editing ? (() => {
+        {showSteer && s.kind === "waiting" && !editing ? (() => {
           // 追加指示（実行中のやりとりへ今すぐ）。条件を満たさないとき・受理不明の確認中は押せない（理由はツールチップ）
           const block = steerUnk ? "追加指示の受理を確認中です。先に「履歴と照合」で確定してください" : steering ? "送信中です" : steerWhy ? (holdHint ? `${steerWhy}（${holdHint}）` : steerWhy) : null;
           return <button className="small" aria-label="追加指示として今すぐ送る（実行中のやりとりへ割り込んで送ります）" aria-disabled={block ? true : undefined}
             title={block ?? "追加指示として今すぐ送る（実行中のやりとりへ割り込んで送ります。受理されたらこの依頼は取り消します）"}
-            onClick={() => { if (block) return; setSteering(true); void qact.steerEntry(e).finally(() => setSteering(false)); }}><Icon name="send" />追加指示</button>;
+            onClick={() => { if (block) { setSteerNote(steerBlockedNote(block)); return; } setSteerNote(null); setSteering(true); void qact.steerEntry(e).finally(() => setSteering(false)); }}><Icon name="send" />追加指示</button>;
         })() : null}
         {steerUnk ? <button className="small" title="履歴と照合して、追加指示の受理を確認します（読み取りのみ。再送しません）" onClick={() => qact.steerReconcile(e.id)}>履歴と照合</button> : null}
         {s.kind === "waiting" && !editing ? <button className="small" onClick={() => setEditing(true)}>編集</button> : null}
@@ -925,12 +920,22 @@ function EntryRow({ n, e, qact, steerWhy, holdAttempt, holdHint }: { n: number; 
   );
 }
 
-/** 状態不明の子孫で保留しているときの出口（再確認／確認して今すぐ送る）。親の状態が原因の保留には出さない。 */
+/** 保留の出口。親（このチャット）が原因なら「このチャットを再開して送る」、状態不明の子孫なら再確認／確認して今すぐ送る。 */
 function HoldExit({ q, head, nameOf, qact }: { q: ChatQueue; head: QueueEntry | undefined; nameOf: (a: AgentKey) => string; qact: QueueActions }) {
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const h = q.hold;
   if (q.run.kind !== "active" || !h || (h.kind !== "stateUnknown" && h.kind !== "notLive")) return null;
+  // 親が原因の保留は、子孫の確認では解けない。利用者の操作として、このチャットを再開して（ホストが resume する）送る。
+  if (parentResumeOffer(q)) {
+    return (
+      <div style={{ padding: "2px 10px" }}>
+        <div className="acts">
+          <button className="btn-main" title="このチャットを再開（resume）してから、溜まっている依頼を登録順に送ります。あなたの操作として再開します" onClick={qact.resume}>このチャットを再開して送る</button>
+        </div>
+      </div>
+    );
+  }
   const targets = h.targets;
   // 親自身の状態・鮮度が原因のときは、子孫の確認では解けない（ホストも送らない）。
   const rootBlocked = targets.some((t) => t.agent.id === q.chat.id);
@@ -960,7 +965,7 @@ function HoldExit({ q, head, nameOf, qact }: { q: ChatQueue; head: QueueEntry | 
   );
 }
 
-function Queue({ q, nameOf, qact, steerWhy }: { q: ChatQueue | undefined; nameOf: (a: AgentKey) => string; qact: QueueActions; steerWhy: string | null }) {
+function Queue({ q, nameOf, qact, steerWhy, showSteer }: { q: ChatQueue | undefined; nameOf: (a: AgentKey) => string; qact: QueueActions; steerWhy: string | null; showSteer: boolean }) {
   if (!q) return null;
   const items = q.entries.filter((e) => e.state.kind !== "sent" && e.state.kind !== "cancelled");
   if (!items.length) return null;
@@ -984,7 +989,7 @@ function Queue({ q, nameOf, qact, steerWhy }: { q: ChatQueue | undefined; nameOf
           <span className="muted" title={!stopped && q.hold && (q.hold.kind === "stateUnknown" || q.hold.kind === "notLive") && q.hold.targets.length ? targetList(q.hold.targets, nameOf) : undefined}>{stopped ? "停止中" : q.hold ? holdText(q.hold, nameOf, q.chat.id) : ""}</span>
           <span className="muted small qnote" title="送信待ちの依頼は、送信する時点のモデル・権限・作業フォルダで送ります。">送信時の設定で送信</span></summary>
         <HoldExit q={q} head={items[0]} nameOf={nameOf} qact={qact} />
-        {items.map((e, i) => <EntryRow key={e.id + e.state.kind} n={i + 1} e={e} qact={qact} steerWhy={steerWhy} holdAttempt={q.hold?.kind === "acceptanceUnknown" ? q.hold.attempt : null} holdHint={holdHint} />)}
+        {items.map((e, i) => <EntryRow key={e.id + e.state.kind} n={i + 1} e={e} qact={qact} steerWhy={steerWhy} showSteer={showSteer} holdAttempt={q.hold?.kind === "acceptanceUnknown" ? q.hold.attempt : null} holdHint={holdHint} />)}
       </details>
     </div>
   );
@@ -1350,7 +1355,7 @@ export function CenterPane(p: CenterProps) {
         pending={p.pending} onPendingRestore={p.onPendingRestore} onPendingDismiss={p.onPendingDismiss}
         resend={{ ctx: resendCtxOf(snap, chat, snap.sources.some((x) => x.connection.kind === "connected"), p.turns), rootAgentId: rootView(snap, chat)?.agent.key.id }}
         extra={<FilesBlock chatId={chat.key.id} sent={snap.attachments.filter((a) => keyStr(a.chat) === keyStr(chat.key) && a.usedBy.length > 0)} artifacts={snap.artifacts.filter((a) => keyStr(a.chat) === keyStr(chat.key))} files={p.files} />} />
-      <Queue q={snap.queues.find((q) => keyStr(q.chat) === keyStr(chat.key))} nameOf={nameOf} qact={p.qact} steerWhy={steerBlockReason(running, modelChanged(p.settings), p.local, chat.key.backend)} />
+      <Queue q={snap.queues.find((q) => keyStr(q.chat) === keyStr(chat.key))} nameOf={nameOf} qact={p.qact} steerWhy={steerBlockReason(running, modelChanged(p.settings), p.local, chat.key.backend)} showSteer={steerButtonOffered(chat.key.backend)} />
       <PlanBar plan={(() => { const r = rootView(snap, chat); const pl = r && p.plans[r.agent.key.id]; return pl && pl.turn === r.status.turn ? pl : undefined; })()} />
       <GoalBar goal={p.goal} live={rootView(snap, chat)?.freshness === "live"} cap={snap.opCapabilities.find((o) => o.op === "goal")} busy={p.goalBusy}
         onEdit={() => p.onAct("goal")} onClear={p.onGoalClear} onReload={p.onGoalReload} />

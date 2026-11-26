@@ -92,6 +92,8 @@ test("担当の結果の状態（値）から印を引く（形＋文字で区�
   assert.equal(statusChip("queuePaused")?.label, "要確認");
   assert.equal(statusChip("queueMissing")?.label, "照合不能");
   assert.equal(statusChip("cancelled")?.label, "取り消し");
+  assert.deepEqual(statusChip("queueHeld"), { tone: "wait", icon: "alert", label: "保留中" });
+  assert.deepEqual(statusChip("unrecognized"), { tone: "unk", icon: "help", label: "状態不明" });
   assert.equal(statusChip(null), null);
   assert.equal(statusChip(undefined), null);
 });
@@ -113,6 +115,8 @@ test("枠を警告色にするのは失敗・受理不明・要確認だけ", ()
   assert.equal(chipNeedsAttention(statusChip("enqueueFailed")), true);
   assert.equal(chipNeedsAttention(statusChip("unconfirmed")), true);
   assert.equal(chipNeedsAttention(statusChip("queuePaused")), true);
+  assert.equal(chipNeedsAttention(statusChip("queueHeld")), true);
+  assert.equal(chipNeedsAttention(statusChip("unrecognized")), true);
   assert.equal(chipNeedsAttention(statusChip("done")), false);
   assert.equal(chipNeedsAttention(statusChip("interrupted")), false);
   assert.equal(chipNeedsAttention(null), false);
