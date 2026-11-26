@@ -747,6 +747,10 @@ impl Host {
         if args.text.trim().is_empty() {
             return Err(err(IpcErrorCode::InvalidArgs, "依頼が空です"));
         }
+        // 受付係は Codex のチャット。Codex が起動していないと送れない（理由を返す。送信の記録も作らない）。
+        if !self.is_connected() {
+            return Err(err(IpcErrorCode::NotConnected, CODEX_NOT_RUNNING_SEND));
+        }
         if self.backend.capabilities().structured_output != Support::Supported {
             return Err(err(IpcErrorCode::Unsupported, "このAIは構造化出力に対応していないため、受付係を使えません"));
         }
@@ -1072,7 +1076,7 @@ impl Host {
         let running = self.target_is_running(&target);
         if running && args.intent.is_none() {
             if !self.is_connected() {
-                return Err(err(IpcErrorCode::InvalidArgs, "AIに接続してから送ってください"));
+                return Err(err(IpcErrorCode::InvalidArgs, CODEX_NOT_RUNNING_ENQUEUE));
             }
             return self.router_enqueue(&router, &args.dispatch_id, target, args.text).await;
         }
@@ -1705,6 +1709,22 @@ mod tests {
         let _ = std::fs::remove_dir_all(&host.app_data_dir);
     }
 
+    /// Codex が起動していない（接続されていない）とき、順番待ちになる送信は、その理由で断る（「AIに接続してから」だけの分かりにくい文にしない）。
+    #[tokio::test]
+    async fn a_manual_send_that_would_queue_says_codex_is_not_running_when_it_is_not_connected() {
+        let (host, r, a) = host_with_router("codex-down-enqueue");
+        let confirmed = UserConfirmed::from_user_command();
+        make_live(&host, &a, AgentState::Running);
+        assert!(!host.is_connected());
+        host.update_router(&r, |rec| rec.push_dispatch(dispatch("d1", DispatchTarget::Existing { chat: a.clone() }, DispatchState::Proposed)));
+        let e = host.router_dispatch(go("d1"), &confirmed).await.unwrap_err();
+        assert_eq!(e.message, CODEX_NOT_RUNNING_ENQUEUE);
+        assert!(e.message.starts_with("Codex が起動していない") && e.message.contains("Antigravity 宛も"), "{}", e.message);
+        assert_eq!(queue_len(&host, &a), 0);
+        assert_eq!(host.router_record(&r).unwrap().dispatches[0].state, DispatchState::Proposed);
+        let _ = std::fs::remove_dir_all(&host.app_data_dir);
+    }
+
     /// 保存済みの状態が実行中でも live でない送り先（切断後・履歴の読み取りだけ）は、キューに入れない（駆動側は再開せず永久に保留されるため）。直接送信に回る。
     #[tokio::test]
     async fn a_manual_send_to_a_not_live_target_whose_stored_state_is_running_is_not_queued() {
@@ -1998,6 +2018,11 @@ mod tests {
         set_hold(Some(crate::backend::local::QueueHold::StateUnknown { targets: vec![], descendant_scan_incomplete: false }));
         let (st, text) = status_of(&host);
         assert_eq!((st, text.as_deref()), (Some(ExecutionStatus::QueueHeld), Some("親の状態を確認できないため、送らずに待っています")));
+        // Codex が起動していない（接続が切れている）。Antigravity 宛の順番待ちも止まるので、その理由をカードに出す（無言の停滞にしない）。
+        set_hold(Some(crate::backend::local::QueueHold::Disconnected));
+        let (st, text) = status_of(&host);
+        assert_eq!((st, text.as_deref()), (Some(ExecutionStatus::QueueHeld), Some(CODEX_NOT_RUNNING_HOLD)));
+        assert!(text.unwrap().starts_with("Codex が起動していない"));
         // キューが停止中（再起動後の停止を含む）なら従来どおり QueuePaused（保留理由より優先）
         host.mutate(|d| {
             d.queues.get_mut(&a).unwrap().queue.run = crate::backend::local::QueueRun::PausedAfterRestart;
@@ -2069,7 +2094,10 @@ mod tests {
         let before = host.router_record(&r).unwrap();
         // 未接続（構造化出力に対応しない状態も同じ）: どちらでも送らず、届いた記録は変えない。
         let res = host.router_send(SendMessageArgs { chat: r.clone(), text: "議事録をお願い".into(), attachments: vec![], intent: SendIntent::NewTurn, steer_entry: None }, &confirmed).await;
-        assert!(res.is_err());
+        // Codex が起動していないための断りは、その理由を返す（無言・分かりにくい文にしない）。
+        let e = res.unwrap_err();
+        assert_eq!((e.code, e.message.as_str()), (IpcErrorCode::NotConnected, CODEX_NOT_RUNNING_SEND));
+        assert!(e.message.starts_with("Codex が起動していない") && e.message.contains("受付係へは送れません"), "{}", e.message);
         let after = host.router_record(&r).unwrap();
         assert_eq!((after.instructions_delivered_rev, after.rules_delivered_rev, after.catalog_delivered_digest.clone()), (None, None, None));
         assert_eq!(after.dispatches, before.dispatches);

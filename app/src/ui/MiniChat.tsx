@@ -3,6 +3,7 @@ import type { Chat, ChatLocalView, HostSnapshot, PendingRequest, RequestAnswer, 
 import { Icon } from "./Icon";
 import type { RouterCtx } from "./RouterParts";
 import { Messages, sendLockReason, type FileActions, type FindState } from "./CenterPane";
+import { routerSendLock } from "./router";
 import { chatAgents, chatRequests, chatTitle, isRunning, rootView, sortChats } from "./derive";
 import { chatGapRequests } from "./org";
 import { showKnown, keyStr, knownValue } from "./format";
@@ -85,7 +86,7 @@ export function MiniChat({ router, snap, chat, centerId, turns, history, onReloa
   const shown = chat && !same ? chat : null;
 
   const title = shown ? chatTitle(shown) : null;
-  const lock = shown ? (sendLockReason(snap, shown, local) ?? firstSendLockReason(pending)) : null;
+  const lock = shown ? (sendLockReason(snap, shown, local) ?? (router && router.view.chat.id === shown.key.id ? routerSendLock(snap.sources) : null) ?? firstSendLockReason(pending)) : null;
   const running = shown ? isRunning(snap, shown) : false;
   const hv = histView(history, turns.length > 0);
   const nameOf = (a: { id: string }): string => {

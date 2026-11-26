@@ -135,3 +135,21 @@ test("出さなかった理由の行: 自動送信の見送りは「案を出さ
   assert.deepEqual(routeRejectLine("自動送信はしませんでした（分類の確信度が high ではないため）"), { text: "自動送信はしませんでした（分類の確信度が high ではないため）", auto: true });
   assert.equal(routeRejectLine("自動送信を保留しました: 送り先のチャットが…").auto, true);
 });
+
+// ── Codex が起動していないとき（理由を画面に出す） ──
+import { codexStoppedKind, routerSendLock, routerStoppedNotice } from "./router.ts";
+const src = (kind: string) => [{ connection: { kind } }];
+test("Codex が止まっているとき（未起動・起動失敗・切断）は理由を返し、接続済み・接続中・不明は返さない", () => {
+  for (const k of ["notStarted", "launchFailed", "disconnected"] as const) {
+    assert.equal(codexStoppedKind(src(k)), k);
+    const notice = routerStoppedNotice(src(k)) ?? "";
+    assert.ok(notice.startsWith("Codex が起動していない") && notice.includes("Antigravity 宛も") && notice.includes("順番待ち"), notice);
+    const lock = routerSendLock(src(k)) ?? "";
+    assert.ok(lock.startsWith("Codex が起動していない") && lock.includes("受付係へは送れません"), lock);
+  }
+  for (const s of [src("connected"), src("starting"), []]) {
+    assert.equal(codexStoppedKind(s), null);
+    assert.equal(routerStoppedNotice(s), null);
+    assert.equal(routerSendLock(s), null);
+  }
+});

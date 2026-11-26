@@ -154,3 +154,35 @@ export function routeRejectLine(r: string): { text: string; auto: boolean } {
   const auto = r.startsWith("自動送信");
   return { text: auto ? r : `振り分け案を出さなかった理由: ${r}`, auto };
 }
+
+// ───────────────────────────── Codex が起動していないとき ─────────────────────────────
+// ホストの「接続しているか」の判定は Codex が基準。Codex が起動していない（または接続が切れている）と、Antigravity 宛を含め、
+// 順番待ちの送信・受付係への送信は進まない。無言の停滞にしないため、止まっている理由を画面に出す（判定そのものは変えない）。
+
+/** 接続の状態の最小形（SourceInfo の一部）。 */
+interface SourceLike { connection: { kind: string } }
+
+/**
+ * Codex が起動していない・接続が切れている理由の種類。接続済み・接続中（起動の途中）・まだ状態が分からないときは null
+ * （それらは別の表示「接続中…」があり、ここで止まっているとは言わない）。
+ */
+export function codexStoppedKind(sources: readonly SourceLike[]): "notStarted" | "launchFailed" | "disconnected" | null {
+  const s = sources[0];
+  if (!s || sources.some((x) => x.connection.kind === "connected")) return null;
+  const k = s.connection.kind;
+  return k === "notStarted" || k === "launchFailed" || k === "disconnected" ? k : null;
+}
+
+/** 受付係の画面の上に出す、カードと順番待ちが進まない理由（Codex が止まっているときだけ）。 */
+export function routerStoppedNotice(sources: readonly SourceLike[]): string | null {
+  return codexStoppedKind(sources)
+    ? "Codex が起動していない（または接続が切れている）ため、振り分けカードの［送る］や順番待ちの送信は進みません。Antigravity 宛も、接続の確認は Codex を基準にしています。Codex に接続すると動きます。"
+    : null;
+}
+
+/** 受付係（Codex のチャット）への送信を止める理由。Codex が止まっているときだけ。 */
+export function routerSendLock(sources: readonly SourceLike[]): string | null {
+  return codexStoppedKind(sources)
+    ? "Codex が起動していない（または接続が切れている）ため、受付係へは送れません。Codex に接続してから送ってください。"
+    : null;
+}

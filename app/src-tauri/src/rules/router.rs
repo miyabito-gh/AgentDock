@@ -537,6 +537,16 @@ fn dispatch_result_line(d: &Dispatch, label: &dyn Fn(&DispatchTarget) -> String)
     }
 }
 
+/// 接続の確認は Codex を基準にしているため、Codex が起動していない（または接続が切れている）と、Antigravity 宛の順番待ちも進まない。
+/// その理由。担当チャットの順番待ちの見出し（画面の `holdText`）と受付カードで同じ文言を使う。
+pub const CODEX_NOT_RUNNING_HOLD: &str = "Codex が起動していない（または接続が切れている）ため保留しています。Antigravity 宛の依頼も、Codex が接続されるまで進みません";
+
+/// 受付係（Codex のチャット）への送信を、Codex が起動していないために断るときの理由。
+pub const CODEX_NOT_RUNNING_SEND: &str = "Codex が起動していない（または接続が切れている）ため、受付係へは送れません。Codex に接続してから送ってください";
+
+/// 順番待ちに入れる操作（受付カードの［送る］）を、Codex が起動していないために断るときの理由。
+pub const CODEX_NOT_RUNNING_ENQUEUE: &str = "Codex が起動していない（または接続が切れている）ため、順番待ちに入れられません。Codex に接続してから送ってください（Antigravity 宛も、接続の確認は Codex を基準にしています）";
+
 /// 受付カードに出す、送信待ちの保留理由（担当チャットの「完了後に送る依頼」の見出しの横の文言 `holdText` と同じ内容）。
 /// 通常の待ち（親が作業中）は保留として出さない（従来どおり「送信待ち」だけ）ので None。`name_of` は保留の対象の名前。
 pub fn queue_hold_text(hold: &QueueHold, name_of: &dyn Fn(&AgentKey) -> String, root: &AgentKey) -> Option<String> {
@@ -563,7 +573,7 @@ pub fn queue_hold_text(hold: &QueueHold, name_of: &dyn Fn(&AgentKey) -> String, 
         QueueHold::AcceptanceUnknown { .. } => "受理不明の依頼があるため保留（履歴との照合を待っています）".to_string(),
         QueueHold::OperationUnconfirmed { .. } => "結果が未確認の操作（レビュー・圧縮）があるため保留（状態の確認を待っています）".to_string(),
         QueueHold::DeletePending => "削除保留中のため、送信を止めています".to_string(),
-        QueueHold::Disconnected => "接続が切れているため保留（再接続後に判断します）".to_string(),
+        QueueHold::Disconnected => CODEX_NOT_RUNNING_HOLD.to_string(),
         QueueHold::Quitting => "完全終了の手順中のため、新しい送信を始めていません".to_string(),
         QueueHold::SaveFailed => "送信前の保存に失敗したため、送っていません。保存を再試行して成功してから送ります".to_string(),
     })
@@ -1806,7 +1816,8 @@ mod tests {
         assert_eq!(text(QueueHold::StateUnknown { targets: vec![t("root")], descendant_scan_incomplete: false }).as_deref(), Some("親の状態を確認できないため、送らずに待っています"));
         assert_eq!(text(QueueHold::StateUnknown { targets: vec![t("c1"), t("c2")], descendant_scan_incomplete: false }).as_deref(), Some("子2件の状態が不明のため、送らずに待っています"));
         assert_eq!(text(QueueHold::StateUnknown { targets: vec![], descendant_scan_incomplete: true }).as_deref(), Some("子孫の探索が終わるまで、送らずに待っています"));
-        assert_eq!(text(QueueHold::Disconnected).as_deref(), Some("接続が切れているため保留（再接続後に判断します）"));
+        assert_eq!(text(QueueHold::Disconnected).as_deref(), Some(CODEX_NOT_RUNNING_HOLD));
+        assert!(CODEX_NOT_RUNNING_HOLD.starts_with("Codex が起動していない") && CODEX_NOT_RUNNING_HOLD.contains("Antigravity 宛"));
         assert!(text(QueueHold::DescendantsActive { targets: vec![t("c1")] }).unwrap().ends_with("名前:c1"));
         // 子孫だけが原因の NotLive は、再開ボタンへ案内しない（再開では解けない）
         let child = text(QueueHold::NotLive { targets: vec![t("c1")] }).unwrap();

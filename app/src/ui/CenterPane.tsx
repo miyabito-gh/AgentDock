@@ -51,7 +51,7 @@ import { appearsInTurns, firstSendLockReason, type PendingSend } from "./pending
 import { EnvelopeFold, PreviousThreads, usePrevThreads } from "./PreviousThreads";
 import { splitEnvelope } from "./continuity";
 import { RouterTurnExtras, type RouterCtx } from "./RouterParts";
-import { originalRequest, routerEnvelopeLabel, splitRouterEnvelope, turnViewOf } from "./router";
+import { originalRequest, routerEnvelopeLabel, routerSendLock, routerStoppedNotice, splitRouterEnvelope, turnViewOf } from "./router";
 import { histView, type HistLoad, type HistView } from "./historyLoad";
 import { PURPOSE_TAG, resendAvailability, type ResendCtx } from "./resend";
 
@@ -1339,7 +1339,8 @@ export function CenterPane(p: CenterProps) {
     const v = chatAgents(snap, chat).find((x) => keyStr(x.agent.key) === keyStr(a));
     return v ? showKnown(v.agent.displayName) : a.id;
   };
-  const lock = sendLockReason(snap, chat, p.local, !!p.orgInterject && !p.orgInterject.readonly) ?? firstSendLockReason(p.pending);
+  // 受付係は Codex のチャット。Codex が起動していないときは、送れない理由を入力欄に出す（無言で止めない）。
+  const lock = sendLockReason(snap, chat, p.local, !!p.orgInterject && !p.orgInterject.readonly) ?? (p.router ? routerSendLock(snap.sources) : null) ?? firstSendLockReason(p.pending);
   // 引き継ぎの案内（worktree に結び付いたチャットは対象外）。台帳の結び付き（作成元チャット）か、作業フォルダが台帳の worktree 内か
   const inWorktree = snap.worktrees.some((w) => w.createdForChat?.id === chat.key.id) || worktreeOf(knownValue(chat.cwd) ?? null, snap.worktrees) !== null;
   const hu = useHandoff({ chat, local: p.local, settings: snap.settings.continuation, running, worktree: inWorktree, load: p.loadHandoffPreview });
@@ -1349,6 +1350,7 @@ export function CenterPane(p: CenterProps) {
       {cwdOpen ? <WorkFoldersPanel key={`wf-${chat.key.id}`} api={p.wf} lockReason={cwdLock} permissionText={PERMISSION_FULL[p.local?.permission ?? "workspaceWriteOnRequest"]} fallback={p.local?.nextFolders?.folders ?? [p.local?.nextCwd ?? knownValue(chat.cwd) ?? ""].filter(Boolean)} onClose={() => setCwdOpenFor(null)} /> : null}
       <Banners p={p} />
       {p.router?.view.rulesWarning ? <div className="cbanner warn" role="status">ルール帳の警告: {p.router.view.rulesWarning}</div> : null}
+      {p.router && routerStoppedNotice(snap.sources) ? <div className="cbanner warn" role="status">{routerStoppedNotice(snap.sources)}</div> : null}
       <HistoryNotice view={histView(p.history, p.turns.length > 0)} onReload={p.onReloadHistory} />
       <Messages key={chat.key.id} router={p.router} orgBound={!!p.local?.org} headKey={chat.key} threads={p.local?.conversation?.threads ?? NO_THREADS} chatId={chat.key.id} agentName={nameOf} decisions={p.decisions} turns={p.turns} reqs={reqs} gaps={chatGapRequests(snap, chat.key)} running={running} onRespond={p.onRespond} onAct={p.onAct} find={find}
         locals={snap.attachments.filter((a) => keyStr(a.chat) === keyStr(chat.key))} files={p.files} sends={p.sends}

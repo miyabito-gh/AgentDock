@@ -70,7 +70,8 @@ export function holdText(h: QueueHold, nameOf: (a: AgentKey) => string, rootId?:
     case "acceptanceUnknown": return "受理不明の依頼があるため保留（履歴との照合を待っています）";
     case "operationUnconfirmed": return "結果が未確認の操作（レビュー・圧縮）があるため保留（状態の確認を待っています）";
     case "deletePending": return "削除保留中のため、送信を止めています";
-    case "disconnected": return "接続が切れているため保留（再接続後に判断します）";
+    // ホストは Codex を基準に接続を判断する。Antigravity 宛の順番待ちも、Codex が接続されるまで進まない（ホスト rules/router.rs の CODEX_NOT_RUNNING_HOLD と同じ文）。
+    case "disconnected": return "Codex が起動していない（または接続が切れている）ため保留しています。Antigravity 宛の依頼も、Codex が接続されるまで進みません";
     case "quitting": return "完全終了の手順中のため、新しい送信を始めていません";
     case "saveFailed": return "送信前の保存に失敗したため、送っていません。保存を再試行して成功してから送ります";
   }

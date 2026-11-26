@@ -530,7 +530,8 @@ export default function App() {
   }, [live]);
   useEffect(() => {
     if (!live) { setRouterView(null); return; }
-    if (connected) void refreshRouter();
+    // 接続していなくても取る（読み取りのみ）。Codex が止まっていても、受付カードと「順番待ち・保留の理由」を見せるため。接続状態が変わったときも取り直す。
+    void refreshRouter();
     const un = host.subscribeHostEvents((e) => { if (e.event.kind === "routerUpdated" || (e.event.kind === "chatQueueUpdated" && routerTargetsRef.current.has(e.event.queue.chat.id))) void refreshRouter(); });
     return () => { void un.then((f) => f()); };
   }, [live, connected, refreshRouter]);
