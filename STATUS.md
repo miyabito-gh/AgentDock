@@ -1,5 +1,15 @@
 ﻿# 保全状況
 
+## 2026-11-26 自動送信（先頭行のID指定）と実 Codex 分類の組合せの確認（Antigravity 宛）
+
+- ブランチ `feature/antigravity-provider`、HEAD は開始時 `c59dac2`。製品コードの変更なし。push なし。既存ログインの実 Codex（0.169.0、受付モデル `gpt-6.2-sol` low）を使用。Codex の消費は受付の分類ターン1回のみ（事例1件、再試行なし）。
+- 結果: 合格。先頭行に `自動送信: <agy の実チャットID>`、本文は整えた文（担当AIは名指しせず）。実 Codex の分類が指定IDと一致する単一案（c1、確信度 high、textIsOriginal=false）を返し、**カード操作なし・手動送信なし**で自動送信が発動してキュー登録 → 担当 agy が完了 → 受付カードへ結果 `1.100.0` を回収した。ゲート条件はすべて満たした（route_rejects なし）。
+- 証跡: 受付依頼ID `reception-1795655352750-3`／受付ターン `01a21566-41fe-72b2-a348-bd9cfe91a4d6`／振り分けID `disp-1795655356855-6`／キュー項目 `q-1795655356872-7`／担当ターン `agy-1a21566401c-1-t1`。スキル出力と詳細は `Documents/consult/agentdock-reception/live-auto-send-antigravity-2026-11-26.md`。
+- 観測（未確認事項）: 振り分けカードの `state` は担当完了後も `Queued` のままで、完了は `executionStatus` = Done で返った。設計どおりか・画面表示は未確認。「要修正」と判断した点はなし。
+- 限界: 1回のみの観測（分類の安定性は未測定）。ID 解決不能・確信度 high 未満・複数案での自動送信の抑止は実 Codex では未確認（固定返答のユニットテストの範囲）。担当AIもID も指定しない依頼、新規チャット案から Antigravity を作る経路、画面表示は対象外で未確認。
+- 後片付け: 試験会話3件を削除。agy 側の試験分1会話（`653b66e3-…`）を ID 指定で削除し `brain`・`presence` は試験前と一致（`conversations` は他会話3件の `.db-shm`／`.db-wal` 6ファイルが agy 実行中に消えていた。agy 自身の整理と推測、本体 `.db` は残存）。Codex のセッションファイル数は前後で同じ（1536）。試験コード・ログは `Documents/Rust/_archive/AgentDock-liveauto-2026-11-26/` へ退避、`host/mod.rs` の一時登録は戻し試験前とバイト同一（`git status` の `M` は従前からの改行コード変換による見かけ上の表示）。
+- 子の作業: 司令塔（Sonnet）のみ。子は起動していない。
+
 ## 2026-11-26 実 Codex の受付分類で Antigravity 宛が選ばれるかの確認（保留事項②の実施）
 
 - ブランチ `feature/antigravity-provider`、HEAD は開始時 `b7ca73e`。製品コードの変更なし。push なし。まさとの許可（確認用に Codex を使ってよい）のもと、既存ログインの実 Codex（0.169.0、受付モデル `gpt-6.2-sol` low）を使用。Codex の消費は受付の分類ターン2回のみ。
