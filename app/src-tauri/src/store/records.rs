@@ -350,6 +350,11 @@ pub enum ExecutionStatus {
     Cancelled,
     /// キューへの登録に失敗した。
     EnqueueFailed,
+    /// 送り先のキューが動いているが、保留理由があって送られていない（親が今回の起動で再開されていない等）。ホストが画面用に導出するだけで、保存はしない。
+    QueueHeld,
+    /// この版が知らない値。将来の版が値を足した記録を、この版で開いても読み込みに失敗させないための受け皿（画面は「状態不明」）。
+    #[serde(other)]
+    Unrecognized,
 }
 
 impl ExecutionStatus {
@@ -367,9 +372,13 @@ impl ExecutionStatus {
             Self::QueueMissing => "キュー記録を照合できません",
             Self::Cancelled => "キューで取り消",
             Self::EnqueueFailed => "キュー登録失敗",
+            // 次の2つは保存しない値（旧記録の読み替え対象 `ALL` に含めない）。
+            Self::QueueHeld => "保留中",
+            Self::Unrecognized => "状態不明",
         }
     }
 
+    /// 旧記録の読み替えの対象（結果文として保存してきた状態だけ。`QueueHeld`・`Unrecognized` は含めない）。
     const ALL: [Self; 11] = [Self::Done, Self::Failed, Self::Interrupted, Self::SendFailed, Self::Unconfirmed, Self::Accepted, Self::Sending, Self::QueuePaused, Self::QueueMissing, Self::Cancelled, Self::EnqueueFailed];
 
     /// 状態を持たない旧記録の結果文から状態を読み替える（先頭の語で判定。知らない文は None）。新しい記録は状態を値で持つので使わない。
@@ -857,5 +866,16 @@ mod tests {
         let r: RouterRecord = serde_json::from_str(r#"{"dispatchResults":{"d1":"担当完了\nx"}}"#).unwrap();
         assert!(r.dispatch_result_status.is_empty());
         assert_eq!(r.dispatch_results.len(), 1);
+    }
+    #[test]
+    fn an_unknown_execution_status_value_reads_as_unrecognized_instead_of_failing_the_record() {
+        // 将来の版が値を足した記録を、この版で開いても読み込みに失敗しない（画面は「状態不明」）。
+        let r: RouterRecord = serde_json::from_str(r#"{"dispatchResults":{"d1":"x"},"dispatchResultStatus":{"d1":"somethingNew","d2":"done"}}"#).unwrap();
+        assert_eq!(r.dispatch_result_status.get("d1"), Some(&ExecutionStatus::Unrecognized));
+        assert_eq!(r.dispatch_result_status.get("d2"), Some(&ExecutionStatus::Done));
+        // 保留中は画面用に導出する値で、旧記録の読み替えの対象ではない。
+        assert_eq!(ExecutionStatus::from_legacy_text("保留中: x"), None);
+        assert_eq!(ExecutionStatus::from_legacy_text("状態不明"), None);
+        assert_eq!(serde_json::to_string(&ExecutionStatus::QueueHeld).unwrap(), "\"queueHeld\"");
     }
 }

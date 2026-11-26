@@ -36,6 +36,12 @@ impl MuxBackend {
         self.codex.current_job()
     }
 
+    /// テスト用: Antigravity を、agy を実行せずに接続済みの状態にする（`exe` は偽の実行ファイル）。ホストの送信経路の試験が使う。
+    #[cfg(test)]
+    pub(crate) fn attach_antigravity_for_test(&self, exe: &str, app_data_dir: &str) {
+        self.antigravity.attach_for_test(exe, app_data_dir);
+    }
+
     fn pick(&self, kind: BackendKind) -> &dyn AiBackend {
         match kind {
             BackendKind::Codex => self.codex.as_ref(),

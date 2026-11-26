@@ -29,6 +29,8 @@ const ROUTER_TITLE: &str = "受付";
 const ROUTER_SKILL: &str = "reception-triage";
 /// 送り先の解決で引き継ぎ先を辿る上限。
 const SUPERSEDE_HOPS: usize = 20;
+/// 自動送信の送り先が live でなかったとき、受付の返答に出す理由（「自動送信を保留しました: 」に続ける）。
+const AUTO_SEND_NOT_LIVE: &str = "送り先のチャットが今回の起動で再開されていない（または状態を確認できない）ため、自動では送りません。カードの［送る］で送れます（送ると再開してから送ります）";
 /// 受理待ちの送信を覚えておく件数の上限（メモリ上だけ）。
 const PENDING_MAX: usize = 20;
 
@@ -580,7 +582,22 @@ impl Host {
                 QueueEntryState::AcceptanceUnknown { .. } => (None, Some((ExecutionStatus::Unconfirmed, "担当への受理を照合中です".into()))),
                 QueueEntryState::Sending { .. } => (None, Some((ExecutionStatus::Sending, "担当へ送信中です".into()))),
                 QueueEntryState::Waiting if queue.run != QueueRun::Active => (None, Some((ExecutionStatus::QueuePaused, "キューは停止中です。担当チャットで詳細を確認してください".into()))),
-                QueueEntryState::Waiting => (None, None),
+                // 動いているキューで送信待ちのまま保留理由があるとき（親が今回の起動で再開されていない等）は、その理由を返す。
+                // 通常の待ち（理由なし・親が作業中）は従来どおり「送信待ち」だけ。
+                QueueEntryState::Waiting => {
+                    let root = agent_key_of(chat);
+                    let name_of = |a: &AgentKey| {
+                        if a == &root {
+                            data.chat(chat).map(Self::router_title_of).unwrap_or_else(|| a.id.0.clone())
+                        } else {
+                            data.view(a).and_then(|v| v.agent.display_name.value().cloned()).unwrap_or_else(|| a.id.0.clone())
+                        }
+                    };
+                    match queue.hold.as_ref().and_then(|h| queue_hold_text(h, &name_of, &root)) {
+                        Some(text) => (None, Some((ExecutionStatus::QueueHeld, text))),
+                        None => (None, None),
+                    }
+                }
             }
         })
     }
@@ -895,10 +912,17 @@ impl Host {
             if acquired {
                 let _guard = DispatchGuard { rt: &self.router_rt, id: id.clone() };
                 if self.find_dispatch(&id).is_some_and(|(_, d)| matches!(d.state, DispatchState::Proposed)) {
-                    if let Err(e) = self.router_enqueue(chat, &id, target, text).await {
+                    // 送り先が live（今回の起動で再開済み）でなければ登録しない。キューの駆動側は再開しないため、登録すると永久に保留になる。
+                    // 自動で再開もしない（再開は利用者の操作の中だけ）。カードは「提案」のまま残し、［送る］（直接送信＝再開つき）へ案内する。
+                    let rejected = if self.target_is_live(&target) {
+                        self.router_enqueue(chat, &id, target, text).await.err().map(|e| e.message)
+                    } else {
+                        Some(AUTO_SEND_NOT_LIVE.to_string())
+                    };
+                    if let Some(message) = rejected {
                         self.update_router(chat, |rec| {
                             if let Some(turn) = rec.turns.iter_mut().find(|t| t.turn == turn_id) {
-                                turn.route_rejects.push(format!("自動送信を保留しました: {}", e.message));
+                                turn.route_rejects.push(format!("自動送信を保留しました: {message}"));
                             }
                         });
                         self.save_router(chat).await;
@@ -911,6 +935,12 @@ impl Host {
     }
 
     // ───────────── 振り分けの実行 ─────────────
+
+    /// 送り先が今回の起動で再開済み（live購読中）で、状態も取れているか。キューの自動送信は親が live（かつ状態が Unknown・Closed でない）ことが条件で、
+    /// 駆動側は再開しない。子孫の状態による保留は含めない（子孫が原因の保留は「状態を再確認」で解ける）。
+    fn target_is_live(&self, chat: &ChatKey) -> bool {
+        self.read(|d| d.root_view(chat).is_some_and(|v| v.freshness == Freshness::Live && !matches!(v.status.state, AgentState::Unknown | AgentState::Closed)))
+    }
 
     fn find_dispatch(&self, id: &LocalId) -> Option<(ChatKey, Dispatch)> {
         self.read(|d| {
@@ -934,7 +964,8 @@ impl Host {
     }
 
     /// カードの［送る］。送り先を送る直前に再検査し、利用者の送信（`SendAuth::User`）として1回だけ送る。
-    /// 実行中の送り先には、`intent` が None なら追加指示として送る（通常の送信と同じ規則）。結果は `Sent`／`Unconfirmed`。
+    /// 送り先が実行中で `intent` が None のときだけ、完了後に送る順番待ち（`Queued`）に入れる。それ以外（実行中でない送り先、または `intent` 指定あり）は
+    /// 利用者の送信として直接送る（保存履歴だけの送り先は `ensure_live` で再開する）。結果は `Sent`／`Unconfirmed`。
     /// 受理されなかったときはカードを「提案」のまま残してエラーを返す。自動で再送しない（`Sent`・`Unconfirmed` のカードは再送できない）。
     pub async fn router_dispatch(self: &Arc<Self>, args: RouterDispatchArgs, confirmed: &UserConfirmed) -> Result<DispatchView, IpcError> {
         let Some((router, d)) = self.find_dispatch(&args.dispatch_id) else {
@@ -973,7 +1004,13 @@ impl Host {
             ChatRouteState::OrgOwned => return Err(blocked(BlockedReason::OrgOwned, RouteReject::Unavailable(ChatRouteState::OrgOwned).message())),
             s => return Err(err(IpcErrorCode::InvalidArgs, RouteReject::Unavailable(s).message())),
         }
-        if args.intent.is_none() {
+        // 実行中の送り先へ intent 指定なしで送るときだけ順番待ち（完了後に送る）に入れる。別件の依頼を実行中の turn へ差し込まない。
+        // 実行中でなければ、利用者の送信として直接送る（`send_message_with` が `ensure_live` で再開してから新しい turn にする）。
+        // 「実行中でない」送り先をキューへ入れると、今回の起動で未再開（live でない）の送り先は駆動側が再開しないため永久に保留される。
+        // 実行中の判定は live を必須にする（live でない送り先の保存済みの状態が実行中でも、キューの駆動側は再開しないため永久に保留される）。
+        // live でなければ直接送信に回り、再開した結果が本当に実行中なら送信がエラーになり、カードは提案のまま（もう一度押せば live・実行中として順番待ちに入る）。
+        let running = self.read(|data| data.root_view(&target).is_some_and(|v| v.freshness == Freshness::Live && matches!(v.status.state, AgentState::Running | AgentState::Waiting | AgentState::Initializing)));
+        if running && args.intent.is_none() {
             if !self.is_connected() {
                 return Err(err(IpcErrorCode::InvalidArgs, "AIに接続してから送ってください"));
             }
@@ -1375,9 +1412,251 @@ mod tests {
         assert_eq!(host.router_record(&r).unwrap().dispatches[0].target, DispatchTarget::Existing { chat: a });
     }
 
+    /// 送り先を今回の起動で再開済み（live）にする（作成直後・再開後と同じ状態）。
+    fn make_live(host: &Arc<Host>, chat: &ChatKey, state: AgentState) {
+        let ak = AgentKey { backend: chat.backend, id: chat.id.clone() };
+        let agent = Agent {
+            key: ak,
+            chat: chat.clone(),
+            parent: ParentLink::Root,
+            forked_from: Known::NotFetched,
+            display_name: Known::NotFetched,
+            role: Known::NotFetched,
+            assignment: Known::NotFetched,
+            agent_path: Known::NotFetched,
+            model: Known::NotFetched,
+            effort: Known::NotFetched,
+            spawn_spec: Known::NotFetched,
+            latest_turn: None,
+        };
+        let status = AgentStatus {
+            state,
+            raw: RawState { label: "test".into() },
+            scope: StateScope::Agent,
+            turn: None,
+            wait: None,
+            evidence: Evidence { source: EvidenceSource::Response, raw_label: Some("test".into()), source_time: None, observed_at: now_ms() },
+        };
+        host.mutate(|d| ((), d.set_live(agent, status)));
+    }
+
+    /// 接続済み（Codex の監視元が Connected）にする。
+    fn make_connected(host: &Arc<Host>) {
+        host.mutate(|d| {
+            d.sources.push(SourceInfo {
+                source: SourceId("s".into()),
+                backend: BackendKind::Codex,
+                pid: Known::NotFetched,
+                started_at: UnixMillis(0),
+                version: VersionCheck::Unknown { message: "t".into() },
+                capabilities: crate::codex::adapter::codex_capabilities(true),
+                connection: ConnectionState::Connected,
+                sandbox_workaround: false,
+            });
+            ((), Vec::new())
+        });
+    }
+
+    fn go(id: &str) -> RouterDispatchArgs {
+        RouterDispatchArgs { dispatch_id: LocalId(id.into()), target_override: None, text: "週次の議事録をまとめて".into(), intent: None }
+    }
+
+    fn queue_len(host: &Arc<Host>, chat: &ChatKey) -> usize {
+        host.read(|d| d.queues.get(chat).map_or(0, |f| f.queue.entries.len()))
+    }
+
+    // ── 修正A: 手動［送る］は、実行中の送り先だけキュー。それ以外は利用者の送信（ensure_live を含む）で直接送る ──
+
+    /// 履歴だけ（HistoryOnly・非実行）の送り先へ intent なしで送る。ensure_live（再開）を通って送られ、カードは Sent・キュー登録なし。
+    /// 修正前はキューに入り、live でない送り先は永久に保留された（`dispatch-not-starting-diagnosis-2026-11-26.md`）。
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn a_manual_send_to_a_history_only_idle_target_resumes_and_sends_directly() {
+        let dir = unique_dir("manual-direct");
+        let (host, r, _a) = host_with_router("manual-direct-host");
+        let confirmed = UserConfirmed::from_user_command();
+        // 偽の agy（受け取った引数を記録し、固定の出力を返す）。実機の agy は使わない。
+        let out = [
+            r#"{"event":"init","conversation_id":"9db82f11-0000","init":{"model":"gemini-test-1","cwd":"C:\\work","permission_mode":"request-review"}}"#,
+            r#"{"event":"result","result":{"conversation_id":"9db82f11-0000","status":"SUCCESS","response":"PONG\n","usage":{"total_tokens":1}}}"#,
+        ];
+        std::fs::write(dir.join("out.ndjson"), out.join("\r\n") + "\r\n").unwrap();
+        let script = dir.join("fake-agy.cmd");
+        std::fs::write(&script, "@echo off\r\necho %* > \"%~dp0args.txt\"\r\ntype \"%~dp0out.ndjson\"\r\nexit /b 0\r\n").unwrap();
+        host.backend.attach_antigravity_for_test(&script.to_string_lossy(), &host.app_data_dir.to_string_lossy());
+        let work = dir.join("work");
+        std::fs::create_dir_all(&work).unwrap();
+        let started = host
+            .start_chat(StartChatArgs { backend: BackendKind::Antigravity, cwd: Some(work.to_string_lossy().into_owned()), model: Some(ModelChoice { model: "gemini-test-1".into(), effort: None, speed_tier: None }), permission: None, first_message: None, worktree: None, extra_folders: vec![], confirmed_strong: vec![] }, &confirmed)
+            .await
+            .unwrap();
+        let target = started.chat.key.clone();
+        // 今回の起動で未再開（再起動後の既存チャットと同じ HistoryOnly）にする。
+        host.mutate(|d| ((), d.set_agent_freshness(&AgentKey { backend: target.backend, id: target.id.clone() }, Freshness::HistoryOnly, UnixMillis(1))));
+        assert_eq!(host.read(|d| d.root_view(&target).map(|v| (v.freshness, v.status.state))), Some((Freshness::HistoryOnly, AgentState::Idle)));
+        host.update_router(&r, |rec| rec.push_dispatch(dispatch("d1", DispatchTarget::Existing { chat: target.clone() }, DispatchState::Proposed)));
+
+        let v = host.router_dispatch(go("d1"), &confirmed).await.unwrap();
+        assert!(matches!(v.state, DispatchState::Sent { .. }), "直接送信で Sent: {:?}", v.state);
+        assert_eq!(queue_len(&host, &target), 0, "キューには入れない");
+        assert_eq!(host.read(|d| d.root_view(&target).map(|v| v.freshness)), Some(Freshness::Live), "ensure_live で再開済みになる");
+        assert!(host.router_record(&r).unwrap().dispatch_turns.contains_key("d1"), "結果の追跡用に担当 turn を記録する");
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&host.app_data_dir);
+    }
+
+    /// 実行中の送り先へ intent なしで送るときは従来どおり順番待ち（Queued）。直接は送らない。
+    #[tokio::test]
+    async fn a_manual_send_to_a_running_target_is_still_queued() {
+        let (host, r, a) = host_with_router("manual-running");
+        let confirmed = UserConfirmed::from_user_command();
+        make_connected(&host);
+        make_live(&host, &a, AgentState::Running);
+        host.update_router(&r, |rec| rec.push_dispatch(dispatch("d1", DispatchTarget::Existing { chat: a.clone() }, DispatchState::Proposed)));
+        let v = host.router_dispatch(go("d1"), &confirmed).await.unwrap();
+        let DispatchState::Queued { queue_entry, .. } = &v.state else { panic!("実行中の送り先は順番待ち: {:?}", v.state) };
+        assert_eq!(queue_len(&host, &a), 1);
+        host.read(|d| assert_eq!(&d.queues.get(&a).unwrap().queue.entries[0].id, queue_entry));
+        let _ = std::fs::remove_dir_all(&host.app_data_dir);
+    }
+
+    /// 保存済みの状態が実行中でも live でない送り先（切断後・履歴の読み取りだけ）は、キューに入れない（駆動側は再開せず永久に保留されるため）。直接送信に回る。
+    #[tokio::test]
+    async fn a_manual_send_to_a_not_live_target_whose_stored_state_is_running_is_not_queued() {
+        let (host, r, a) = host_with_router("manual-stale-running");
+        let confirmed = UserConfirmed::from_user_command();
+        make_connected(&host);
+        host.mutate(|d| {
+            let agent = Agent { key: AgentKey { backend: a.backend, id: a.id.clone() }, chat: a.clone(), parent: ParentLink::Root, forked_from: Known::NotFetched, display_name: Known::NotFetched, role: Known::NotFetched, assignment: Known::NotFetched, agent_path: Known::NotFetched, model: Known::NotFetched, effort: Known::NotFetched, spawn_spec: Known::NotFetched, latest_turn: None };
+            let status = AgentStatus { state: AgentState::Running, raw: RawState { label: "t".into() }, scope: StateScope::Agent, turn: None, wait: None, evidence: Evidence { source: EvidenceSource::HistoryRead, raw_label: None, source_time: None, observed_at: UnixMillis(1) } };
+            ((), d.upsert_history_agent(agent, status))
+        });
+        assert_eq!(host.read(|d| d.root_view(&a).map(|v| (v.freshness, v.status.state))), Some((Freshness::HistoryOnly, AgentState::Running)));
+        host.update_router(&r, |rec| rec.push_dispatch(dispatch("d1", DispatchTarget::Existing { chat: a.clone() }, DispatchState::Proposed)));
+        // 直接送信に回る（この試験では再開できず送れないのでエラー）。キューには入らず、カードは提案のまま。
+        assert!(host.router_dispatch(go("d1"), &confirmed).await.is_err());
+        assert_eq!(queue_len(&host, &a), 0);
+        assert_eq!(host.router_record(&r).unwrap().dispatches[0].state, DispatchState::Proposed);
+        let _ = std::fs::remove_dir_all(&host.app_data_dir);
+    }
+
+    /// 履歴がなく再開できない送り先（発話前のチャットの再起動後など）は、エラーを返し、カードは Proposed のまま・キューにも入れない。
+    #[tokio::test]
+    async fn a_manual_send_to_a_target_that_cannot_be_resumed_errors_and_stays_proposed() {
+        let (host, r, a) = host_with_router("manual-noresume");
+        let confirmed = UserConfirmed::from_user_command();
+        make_connected(&host);
+        host.mutate(|d| {
+            let mut c = chat_of(&a, ChatKind::Development, r"C:\work\a", "週次議事録");
+            c.no_history = true;
+            ((), d.upsert_chat(c))
+        });
+        assert!(host.read(|d| d.root_view(&a).is_none()), "エージェントの状態を持たない（再開もできない）");
+        host.update_router(&r, |rec| rec.push_dispatch(dispatch("d1", DispatchTarget::Existing { chat: a.clone() }, DispatchState::Proposed)));
+        let e = host.router_dispatch(go("d1"), &confirmed).await.unwrap_err();
+        assert!(e.message.contains("履歴がない"), "{}", e.message);
+        let rec = host.router_record(&r).unwrap();
+        assert_eq!(rec.dispatches.iter().find(|d| d.id.0 == "d1").unwrap().state, DispatchState::Proposed);
+        assert_eq!(queue_len(&host, &a), 0);
+        assert!(host.router_rt.dispatching.lock().unwrap().is_empty(), "送信中の印は外れる");
+        let _ = std::fs::remove_dir_all(&host.app_data_dir);
+    }
+
+    // ── 修正B: 自動送信は、送り先が live でなければキューに登録せず、カードを Proposed のまま理由を出す ──
+
+    const AUTO_ROUTE: &str = r#"{"target":"c1","newChat":null,"text":"週次議事録の要約を作成してください。","textIsOriginal":false,"reason":"週次議事録担当","confidence":"high"}"#;
+
+    #[tokio::test]
+    async fn an_automatic_send_to_a_target_that_is_not_live_is_not_queued_and_says_why() {
+        let (host, r, a) = host_with_router("auto-notlive");
+        host.update_router(&r, |rec| rec.push_catalog(sent_catalog("live", &[("c1", &a)])));
+        // 履歴だけ（HistoryOnly）の送り先
+        host.mutate(|d| {
+            let agent = Agent { key: AgentKey { backend: a.backend, id: a.id.clone() }, chat: a.clone(), parent: ParentLink::Root, forked_from: Known::NotFetched, display_name: Known::NotFetched, role: Known::NotFetched, assignment: Known::NotFetched, agent_path: Known::NotFetched, model: Known::NotFetched, effort: Known::NotFetched, spawn_spec: Known::NotFetched, latest_turn: None };
+            let status = AgentStatus { state: AgentState::Idle, raw: RawState { label: "t".into() }, scope: StateScope::Agent, turn: None, wait: None, evidence: Evidence { source: EvidenceSource::HistoryRead, raw_label: None, source_time: None, observed_at: UnixMillis(1) } };
+            ((), d.upsert_history_agent(agent, status))
+        });
+        assert_eq!(host.read(|d| d.root_view(&a).map(|v| v.freshness)), Some(Freshness::HistoryOnly));
+        let live = stamp_router_request(&envelope_for("自動送信: a\n週次の議事録をまとめて"), "live");
+        host.router_apply_reply(&r, "t-live", &live, &reply_json(AUTO_ROUTE, ""), true).await;
+        let view = host.router_get().unwrap().unwrap();
+        assert_eq!(view.dispatches.len(), 1);
+        assert!(matches!(view.dispatches[0].state, DispatchState::Proposed), "カードは提案のまま: {:?}", view.dispatches[0].state);
+        assert_eq!(queue_len(&host, &a), 0, "キューに登録しない");
+        let rejects = &view.turns[0].route_rejects;
+        assert_eq!(rejects.len(), 1);
+        assert!(rejects[0].contains("自動送信を保留しました") && rejects[0].contains("再開されていない") && rejects[0].contains("［送る］"), "{}", rejects[0]);
+        assert_eq!(host.read(|d| d.root_view(&a).map(|v| v.freshness)), Some(Freshness::HistoryOnly), "自動で再開しない");
+        let _ = std::fs::remove_dir_all(&host.app_data_dir);
+    }
+
+    /// live でも状態が取れていない（Closed／Unknown）送り先は、キューが StateUnknown で止めるため、自動送信を登録しない。
+    #[tokio::test]
+    async fn an_automatic_send_to_a_live_target_whose_state_is_closed_is_not_queued() {
+        let (host, r, a) = host_with_router("auto-closed");
+        host.update_router(&r, |rec| rec.push_catalog(sent_catalog("live", &[("c1", &a)])));
+        make_live(&host, &a, AgentState::Closed);
+        let live = stamp_router_request(&envelope_for("自動送信: a
+週次の議事録をまとめて"), "live");
+        host.router_apply_reply(&r, "t-live", &live, &reply_json(AUTO_ROUTE, ""), true).await;
+        let view = host.router_get().unwrap().unwrap();
+        assert!(matches!(view.dispatches[0].state, DispatchState::Proposed));
+        assert_eq!(queue_len(&host, &a), 0);
+        assert!(view.turns[0].route_rejects[0].contains("自動送信を保留しました"));
+        let _ = std::fs::remove_dir_all(&host.app_data_dir);
+    }
+
+    // ── 修正D: 受付カードに、送信待ちの保留理由を出す ──
+
+    #[tokio::test]
+    async fn a_waiting_entry_in_an_active_queue_with_a_hold_shows_the_reason_on_the_card() {
+        let (host, r, a) = host_with_router("queue-held");
+        host.update_router(&r, |rec| rec.push_dispatch(dispatch("d1", DispatchTarget::Existing { chat: a.clone() }, DispatchState::Queued { at: UnixMillis(1), queue_entry: LocalId("q1".into()) })));
+        let mut queue = crate::rules::queue::new_queue(a.clone());
+        crate::rules::queue::enqueue(&mut queue, LocalId("q1".into()), "本文".into(), vec![], UnixMillis(1));
+        host.mutate(|d| {
+            d.queues.insert(a.clone(), crate::store::records::QueueFile { schema_version: crate::store::records::SCHEMA_VERSION, queue, unresolved_sends: Vec::new() });
+            ((), Vec::new())
+        });
+        let status_of = |host: &Arc<Host>| {
+            let v = host.router_get().unwrap().unwrap();
+            (v.dispatches[0].execution_status, v.dispatches[0].execution_result.clone())
+        };
+        // 保留理由なし・親が作業中（通常の待ち）は従来どおり何も返さない（画面は「送信待ち」）。
+        assert_eq!(status_of(&host), (None, None));
+        let target = || crate::backend::local::HoldTarget { agent: AgentKey { backend: a.backend, id: a.id.clone() }, state: AgentState::Idle, freshness: Freshness::HistoryOnly };
+        let set_hold = |hold: Option<crate::backend::local::QueueHold>| {
+            host.mutate(|d| {
+                d.queues.get_mut(&a).unwrap().queue.hold = hold;
+                ((), Vec::new())
+            })
+        };
+        set_hold(Some(crate::backend::local::QueueHold::ParentWorking));
+        assert_eq!(status_of(&host), (None, None));
+        // 親が今回の起動で再開されていない（NotLive）
+        set_hold(Some(crate::backend::local::QueueHold::NotLive { targets: vec![target()] }));
+        let (st, text) = status_of(&host);
+        assert_eq!(st, Some(ExecutionStatus::QueueHeld));
+        let text = text.unwrap();
+        assert!(text.contains("受信（ライブ監視）が戻っていないため保留") && text.contains("週次議事録") && text.contains("このチャットを再開して送る"), "{text}");
+        // 親の状態を確認できない
+        set_hold(Some(crate::backend::local::QueueHold::StateUnknown { targets: vec![], descendant_scan_incomplete: false }));
+        let (st, text) = status_of(&host);
+        assert_eq!((st, text.as_deref()), (Some(ExecutionStatus::QueueHeld), Some("親の状態を確認できないため、送らずに待っています")));
+        // キューが停止中（再起動後の停止を含む）なら従来どおり QueuePaused（保留理由より優先）
+        host.mutate(|d| {
+            d.queues.get_mut(&a).unwrap().queue.run = crate::backend::local::QueueRun::PausedAfterRestart;
+            ((), Vec::new())
+        });
+        assert_eq!(status_of(&host).0, Some(ExecutionStatus::QueuePaused));
+        let _ = std::fs::remove_dir_all(&host.app_data_dir);
+    }
+
     #[tokio::test]
     async fn explicitly_addressed_reception_queues_once_and_recovery_does_not_send() {
         let (host, r, a) = host_with_router("auto-dispatch");
+        // 自動送信は、送り先が live（今回の起動で再開済み）のときだけキューに登録する。
+        make_live(&host, &a, AgentState::Idle);
         let root = host.app_data_dir.clone();
         host.update_router(&r, |rec| {
             rec.push_catalog(sent_catalog("live", &[("c1", &a)]));

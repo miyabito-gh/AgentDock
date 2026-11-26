@@ -12,6 +12,7 @@ use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+use crate::backend::local::{HoldTarget, QueueHold};
 use crate::backend::model::*;
 use crate::rules::baseline::sha256_hex;
 use crate::rules::continuity::sanitize;
@@ -529,10 +530,43 @@ fn dispatch_result_line(d: &Dispatch, label: &dyn Fn(&DispatchTarget) -> String)
         DispatchState::Proposed => format!("提案: {sug}（未対応）"),
         DispatchState::Sent { .. } if d.suggested == d.target => format!("提案どおり {act} へ送りました"),
         DispatchState::Sent { .. } => format!("提案は {sug} でしたが、利用者は {act} へ送りました"),
-        DispatchState::Queued { .. } => format!("{act} が実行中のため、順番待ち（完了後に送信）に入れました"),
+        // 順番待ちは、実行中の送り先への［送る］と、live の送り先への自動送信で作られる（実行中でない送り先への［送る］は直接送信）。
+        DispatchState::Queued { .. } => format!("{act} の順番待ち（担当の作業が終わってから送信）に入れました"),
         DispatchState::Unconfirmed { .. } => format!("{act} へ送りましたが、受理を確認できていません"),
         DispatchState::Dismissed { .. } => format!("提案（{sug}）は見送られました"),
     }
+}
+
+/// 受付カードに出す、送信待ちの保留理由（担当チャットの「完了後に送る依頼」の見出しの横の文言 `holdText` と同じ内容）。
+/// 通常の待ち（親が作業中）は保留として出さない（従来どおり「送信待ち」だけ）ので None。`name_of` は保留の対象の名前。
+pub fn queue_hold_text(hold: &QueueHold, name_of: &dyn Fn(&AgentKey) -> String, root: &AgentKey) -> Option<String> {
+    let names = |ts: &[HoldTarget]| ts.iter().map(|t| name_of(&t.agent)).collect::<Vec<_>>().join("、");
+    Some(match hold {
+        QueueHold::ParentWorking => return None,
+        QueueHold::DescendantsActive { targets } => format!("子・孫が作業中・待機中のため保留: {}", names(targets)),
+        QueueHold::StateUnknown { targets, descendant_scan_incomplete } => {
+            let kids = targets.iter().filter(|t| &t.agent != root).count();
+            if *descendant_scan_incomplete {
+                "子孫の探索が終わるまで、送らずに待っています".to_string()
+            } else if kids > 0 && kids == targets.len() {
+                format!("子{kids}件の状態が不明のため、送らずに待っています")
+            } else {
+                "親の状態を確認できないため、送らずに待っています".to_string()
+            }
+        }
+        QueueHold::NotLive { targets } => {
+            // 親自身が対象のときだけ、画面の「このチャットを再開して送る」へ案内する（子孫だけが原因なら「状態を再確認」で解く）。
+            let hint = if targets.iter().any(|t| &t.agent == root) { "。担当チャットの「このチャットを再開して送る」で送れます" } else { "" };
+            format!("受信（ライブ監視）が戻っていないため保留: {}{hint}", names(targets))
+        }
+        QueueHold::StopUnconfirmed { .. } => "停止を確認できていないため保留".to_string(),
+        QueueHold::AcceptanceUnknown { .. } => "受理不明の依頼があるため保留（履歴との照合を待っています）".to_string(),
+        QueueHold::OperationUnconfirmed { .. } => "結果が未確認の操作（レビュー・圧縮）があるため保留（状態の確認を待っています）".to_string(),
+        QueueHold::DeletePending => "削除保留中のため、送信を止めています".to_string(),
+        QueueHold::Disconnected => "接続が切れているため保留（再接続後に判断します）".to_string(),
+        QueueHold::Quitting => "完全終了の手順中のため、新しい送信を始めていません".to_string(),
+        QueueHold::SaveFailed => "送信前の保存に失敗したため、送っていません。保存を再試行して成功してから送ります".to_string(),
+    })
 }
 
 /// 送った本文（履歴の利用者の発言）が受付係の資料つきなら、資料を除いた利用者の本文を返す。受付係の送信でなければ None。
@@ -1755,5 +1789,27 @@ mod tests {
         let v: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(v["schemaVersion"], 1);
         assert_eq!(v["rules"][0]["source"]["kind"], "conversation");
+    }
+
+    #[test]
+    fn queue_hold_text_explains_the_hold_and_hides_the_normal_wait() {
+        use crate::backend::local::{HoldTarget, QueueHold};
+        let ak = |id: &str| AgentKey { backend: BackendKind::Codex, id: ExternalId(id.into()) };
+        let t = |id: &str| HoldTarget { agent: ak(id), state: AgentState::Idle, freshness: Freshness::HistoryOnly };
+        let name = |a: &AgentKey| format!("名前:{}", a.id.0);
+        let root = ak("root");
+        let text = |h: QueueHold| queue_hold_text(&h, &name, &root);
+        assert_eq!(text(QueueHold::ParentWorking), None, "通常の待ちは保留として出さない");
+        let nl = text(QueueHold::NotLive { targets: vec![t("root")] }).unwrap();
+        assert!(nl.starts_with("受信（ライブ監視）が戻っていないため保留: 名前:root") && nl.contains("このチャットを再開して送る"), "{nl}");
+        assert_eq!(text(QueueHold::StateUnknown { targets: vec![], descendant_scan_incomplete: false }).as_deref(), Some("親の状態を確認できないため、送らずに待っています"));
+        assert_eq!(text(QueueHold::StateUnknown { targets: vec![t("root")], descendant_scan_incomplete: false }).as_deref(), Some("親の状態を確認できないため、送らずに待っています"));
+        assert_eq!(text(QueueHold::StateUnknown { targets: vec![t("c1"), t("c2")], descendant_scan_incomplete: false }).as_deref(), Some("子2件の状態が不明のため、送らずに待っています"));
+        assert_eq!(text(QueueHold::StateUnknown { targets: vec![], descendant_scan_incomplete: true }).as_deref(), Some("子孫の探索が終わるまで、送らずに待っています"));
+        assert_eq!(text(QueueHold::Disconnected).as_deref(), Some("接続が切れているため保留（再接続後に判断します）"));
+        assert!(text(QueueHold::DescendantsActive { targets: vec![t("c1")] }).unwrap().ends_with("名前:c1"));
+        // 子孫だけが原因の NotLive は、再開ボタンへ案内しない（再開では解けない）
+        let child = text(QueueHold::NotLive { targets: vec![t("c1")] }).unwrap();
+        assert!(child.ends_with("名前:c1") && !child.contains("再開"), "{child}");
     }
 }

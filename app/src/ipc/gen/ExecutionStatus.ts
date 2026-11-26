@@ -3,4 +3,4 @@
 /**
  * 担当の結果の状態。ホストが結果を決めた時点で値として持ち、画面は結果文の文言ではなくこの値で印（完了・失敗など）を引く。
  */
-export type ExecutionStatus = "done" | "failed" | "interrupted" | "sendFailed" | "unconfirmed" | "accepted" | "sending" | "queuePaused" | "queueMissing" | "cancelled" | "enqueueFailed";
+export type ExecutionStatus = "done" | "failed" | "interrupted" | "sendFailed" | "unconfirmed" | "accepted" | "sending" | "queuePaused" | "queueMissing" | "cancelled" | "enqueueFailed" | "queueHeld" | "unrecognized";

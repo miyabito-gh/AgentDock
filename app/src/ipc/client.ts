@@ -438,7 +438,7 @@ export const routerRetire = (chat: ChatKey): Promise<null> => invokeCmd("router_
 /** 受付係への送信（通常の sendMessage の代わり。受付係のチャット以外は拒否。intent は newTurn のみ）。 */
 export const routerSend = (chat: ChatKey, text: string, attachments: LocalId[] = []): Promise<SendAttempt> =>
   invokeCmd("router_send", { chat, text, attachments, intent: "newTurn", steerEntry: null });
-/** カードの［送る］。intent を省くと送り先が実行中なら順番待ち（state.kind="queued"）、そうでなければ新しいturn。追加指示は "steer" を明示したときだけ。送り先が新規の案には使えない（routerDispatchCreated）。 */
+/** カードの［送る］。intent を省くと送り先が実行中なら順番待ち（state.kind="queued"）、実行中でなければ（保存履歴だけの送り先は再開してから）新しいturnで直接送る（state.kind="sent"）。追加指示は "steer" を明示したときだけ。送り先が新規の案には使えない（routerDispatchCreated）。 */
 export const routerDispatch = (dispatchId: LocalId, text: string, targetOverride: ChatKey | null = null, intent: SendIntent | null = null): Promise<DispatchView> =>
   invokeCmd("router_dispatch", { dispatchId, targetOverride, text, intent });
 /** 新規チャットの案を、既存の新規チャット作成の経路で作った後に呼ぶ。firstSend は startChat の戻り値の firstSend。 */
