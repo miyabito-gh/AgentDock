@@ -1,5 +1,9 @@
 # 現在の引き継ぎ
 
+## 2026-11-26 受付フロー総点検と修正
+
+`feature/antigravity-provider` の `0b629f6`（ローカルのみ・push なし）。fd3ef04 の回帰と同種の問題を点検し、キュー登録失敗カードの出口・受理不明の照合反映・追加指示の表示・返答処理失敗の復旧・live でない作業中の親・自動送信の見送り理由などを修正（Rust 1792件・Node 563件通過、リリースビルド済み）。所見・判断待ち・限界は [STATUS.md](../STATUS.md) と `Documents/consult/agentdock-reception/flow-audit-2026-11-26.md`。次は、画面での実操作確認と、判断待ち（Codex 停止中の Antigravity、字数事前検査など）。稼働中の試験プロセス・未コミット差分なし（`host/mod.rs` の改行コード変換の見かけ上の差分を除く）。
+
 ## 2026-11-26 Antigravity（agy）プロバイダ
 
 `feature/antigravity-provider`（基点 `19f046d`、コミットはローカルのみ・push なし。`feature/reception-flow` は origin に push 済み）。内容・検証・限界・要判断は [STATUS.md](../STATUS.md) の同日の節を参照。構成の要点: `app/src-tauri/src/antigravity/`（agy を1ターン1プロセスで実行）、`app/src-tauri/src/mux.rs`（ホストが保持する振り分け層。キーの backend で Codex／Antigravity）、受付の `newChat.provider` と候補行の「AI:」、画面の担当AI選択（`app/src/ui/backendModels.ts`）。次は、画面での実操作確認と、実 Codex の受付分類で Antigravity 宛が選ばれるかの結合確認（Codex の利用枠に余裕があるとき）。稼働中の試験プロセス・未コミット差分なし。
