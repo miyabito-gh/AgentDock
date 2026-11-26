@@ -1,5 +1,15 @@
 ﻿# 保全状況
 
+## 2026-11-27 総点検の判断待ち2（出口のない保留2種）の修正
+
+- ブランチ `feature/antigravity-provider`、開始時 HEAD `0e736f6`、コード修正は `fd84573`（ローカルのみ・push なし）。まさとの決定。司令塔 Sonnet が直接実装、Opus（agentdock-designer）が差分レビュー1回（読み取り専用）。Fable・Haiku・実 Codex・実 agy は不使用。記録: `Documents/consult/agentdock-reception/flow-audit-hold-exits-2026-11-27.md`。
+- 親が live のまま状態が Unknown／Closed の保留: 「このチャットを再開して送る」を出す（`queueUi.ts` `parentResumeOffer`）。ホスト `resume_queue` は、保留が親の状態だけを理由にするとき、再開（`thread/resume`）で状態を取り直す（`refresh_live_root`・`HostData::apply_resumed_live`。live で観測済みの最新 turn は保つ＝親の失敗・中断の停止判定を外さない）。取り直しても不明・終了なら理由つきで断る。自動送信がこの状態への登録を止める挙動は変えていない。`queueUi.test.ts` の非表示の固定は仕様変更として更新。
+- 子孫（前回起動の子）が作業中のまま残る保留: 子孫の live 判定は親と同じ（`gate_input` が同じ `AgentView.freshness` を使う）ので、親の `NotLive` と同じ扱いにできる。作業中と記録された履歴だけ（`HistoryOnly`）の子孫は `NotLive` 保留にし、「確認して今すぐ送る」の出口と説明を出す（「状態を再確認」は読み直しても記録が変わらないので出さない。「このチャットを再開して送る」は親が原因の保留だけの出口で、子孫には出さない）。受信できている作業中・切断や復帰の照合中（`NeedsReconcile`）の子孫は従来どおり待つ（確認でも緩めない。2026-10-12 合意。Opus 指摘で `HistoryOnly` に限定）。組織実行の数え方は従来のまま。受付カードの保留理由に出口の案内を追記。
+- 検証: 追加の Rust テスト9件（修正を外すと該当4件が失敗し、戻して通過を確認）、Node 4件。`cargo test --lib --locked` 1809件通過・0失敗・無視1（前回 1800）、Node 569件通過（前回 565）、`npm.cmd run type-check` 成功。リリースビルド（ソースは `fd84573`）: exe `app/src-tauri/target/release/agentdock.exe` 33840640 bytes・2026-11-27 07:20:19、NSIS `app/src-tauri/target/release/bundle/nsis/AgentDock_0.0.1_x64-setup.exe` 8077313 bytes・2026-11-27 07:20:19（Rust 14分18秒。起動はしていない）。
+- 未確認・限界: 画面（実 exe・WebView）は未確認。実 Codex は未使用で、すでに live のスレッドへ `thread/resume` を再実行したときの Codex の挙動は未確認（ホストの結合テストは Antigravity の偽バックエンド）。Codex の `systemError`（状態不明）は再開しても変わらない可能性があり、その場合は理由つきで断る（実際の出口はチャットで新しいやりとりを始めること）。`NeedsReconcile` のまま作業中と記録された子孫は出口がない。確認して送るときの「状態不明のまま送った子孫の件数」にこの種の子孫は数えない。取り直し中の「再開中」表示なし。`AgentState::Closed` を作る本番コードは見つからず、実際に起きるのは `Unknown`。
+- 要判断（任意）: 親の状態不明を履歴の終端で解く案（ゲートの親の条件に触れるため未実施）、`NeedsReconcile` に残る作業中の子孫の出口。残りの判断待ち（QueueMissing カード、新規チャット案の対応づけ失敗、スキル未検出の無言ほか、`Unrecognized` の保持、完了後の折りたたみ行の文言）は変わらない。
+- `host/mod.rs` の `M` は従前の改行コード変換による見かけ上の表示（今回も触れていない）。
+
 ## 2026-11-27 総点検の判断待ち2件（Codex 停止中の理由表示・Antigravity の字数事前検査）の実施
 
 - ブランチ `feature/antigravity-provider`、開始時 HEAD `e1a7376`、コード修正は `472b3d9`（字数検査）と `575bb9d`（Codex 停止中の理由表示）。コミットはローカルのみ（push なし）。まさとが「推奨どおり」と決定した2件。司令塔 Sonnet が直接実装（サブエージェント・Fable・Haiku・実 Codex・実 agy は不使用）。記録: `Documents/consult/agentdock-reception/flow-audit-followup-2026-11-27.md`。
