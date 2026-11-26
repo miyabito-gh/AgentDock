@@ -1,5 +1,17 @@
 ﻿# 保全状況
 
+## 2026-11-26 受付で振り分けても担当チャットが動き出さない件の修正（A＋B-1＋C＋D）
+
+- ブランチ `feature/antigravity-provider`、開始時 HEAD `015545b`。まさとの決定により、切り分け記録の修正案 A・B-1・C・D をすべて実装。コミットはローカルのみ（push なし）。Codex・Fable 不使用（受付分類の実 Codex 実行もなし）。記録: `Documents/consult/agentdock-reception/dispatch-not-starting-fix-2026-11-26.md`。
+- A: 手動［送る］は「送り先が実行中（live かつ Running/Waiting/Initializing）かつ intent なし」のときだけキュー、それ以外は利用者の送信（`ensure_live` で再開→新しい turn）で直接送信→カードは Sent/Unconfirmed、受理されなければ Proposed のままエラー。型コメント（`backend/router.rs`・`ipc/client.ts`・生成 TS）と結果文を実装に合わせた。
+- B-1: 自動送信（条件は従来どおり）は、送り先が live かつ状態が Unknown/Closed でないときだけキュー登録。それ以外は登録せずカードは Proposed、`route_rejects` に理由（今回の起動で再開されていない旨と［送る］で送れる旨）。自動で再開はしない。
+- C: 担当チャットの「完了後に送る依頼」に、親が原因の保留（notLive に親が含まれる／親の状態が取れない）のとき「このチャットを再開して送る」（既存 `qact.resume`。ホスト変更なし）。表示条件は純粋関数 `ui/queueUi.ts` の `parentResumeOffer`（Node テスト付き）。
+- D: 追加指示ボタンは、無効のまま押すと理由を行内に表示（Antigravity には最初から出さない）。受付カードに保留理由（`ExecutionStatus::QueueHeld`＋文言。画面の `statusChip` に「保留中」を追加。通常の待ち＝親が作業中は従来の「送信待ち」）。`ExecutionStatus` に `#[serde(other)] Unrecognized` の受け皿を追加。
+- 検証: 修正前の分岐に戻すとホストの再現テスト（HistoryOnly の送り先へ直接送信／再開できない送り先でエラー）が落ち、修正後は通ることを確認。cargo test --lib 1784件通過・0失敗・無視1、type-check 成功、Node 562件通過。リリースビルド（ソースは本節のコードコミット時点）: exe `app/src-tauri/target/release/agentdock.exe` 33790976 bytes・2026-11-26 21:41:16、NSIS `app/src-tauri/target/release/bundle/nsis/AgentDock_0.0.1_x64-setup.exe` 8062608 bytes・2026-11-26 21:41:16。
+- 子の作業: Opus＝A・B・D の Rust 差分レビュー1回（中2件・軽微3件。中2件と軽微1件を反映、`Unrecognized` を再保存すると元の値が失われる点は未対応の既知の制約）。Haiku＝Rust 全テスト、型チェックと Node 全件、Rust 全テスト＋リリースビルド。実装・テスト設計は司令塔（Sonnet）。
+- 未確認・限界: 画面（再開ボタン・理由行・「保留中」の印）は実 exe もモック描画も未確認（型チェックと純粋関数の Node テストのみ。リリースビルドした exe は未起動）。実 Codex での通し確認は未実施。子孫だけが原因の保留は自動送信の登録を止めない（出口は既存の「状態を再確認」）。`fd3ef04` で常にキューにした意図は不明のまま。ホストの出し分けの確認は、偽の agy を接続した Antigravity の送り先とテストで置いた状態の範囲。
+- 判断待ち: なし。画面の実機確認（保留状態を作る実送信を伴う）を行うかどうか。
+
 ## 2026-11-26 受付で振り分けても担当チャットが動き出さない件の原因切り分け（修正案まで。コード変更なし）
 
 - ブランチ `feature/antigravity-provider`、HEAD は開始時 `9e82770`。製品コードの変更なし・push なし・Codex 不使用。調査はコード読解と既存テスト・過去コミットの照合のみ（画面での再現・ビルド・テストは未実施）。司令塔（Sonnet）のみ、子・Opus は起動していない。
