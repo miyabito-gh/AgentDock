@@ -146,6 +146,12 @@ export default function MeetingApp() {
 
   const at = snapshot?.at ?? Date.now();
   const current = (cover ? undefined : snapshot)?.items.find(m => m.id === selected) ?? (cover ? undefined : snapshot)?.items.find(active);
+  const showFiles = !!snapshot && !snapshot.shared && !cover && !editor;
+  const [filesMeeting, setFilesMeeting] = useState<Meeting>();
+  useEffect(() => {
+    if (showFiles && current) setFilesMeeting(current);
+  }, [showFiles, current]);
+  const filesTarget = showFiles && current ? current : filesMeeting;
   const run = current?.run;
   const agendaRun = run?.agendaRuns[run.agendaRuns.length - 1];
   const apply = (kind: string, fields?: Record<string, unknown>, done?: () => void) => {
@@ -252,8 +258,9 @@ export default function MeetingApp() {
           <button className="btn" disabled={busy} onClick={() => { if (window.confirm("会議を終了しますか？")) apply("end"); }}>終了</button>
         </div>
       </>}
-      {!snapshot?.shared && <MeetingFiles key={current.id} id={current.id} title={current.plan.title} agenda={current.plan.agenda.map(item => item.title)} />}
     </section>}
+    {filesTarget && <MeetingFiles key={filesTarget.id} id={filesTarget.id} title={filesTarget.plan.title}
+      agenda={filesTarget.plan.agenda.map(item => item.title)} hidden={!showFiles || !current} />}
     {snapshot && !snapshot.shared && !cover && <section>
       <h2>会議一覧</h2>
       {snapshot.items.length === 0 && <p>登録された会議はありません。</p>}
