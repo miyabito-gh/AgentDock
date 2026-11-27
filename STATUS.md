@@ -1,4 +1,11 @@
-﻿# 保全状況
+# 保全状況
+
+## 2026-11-28 master 統合と公開前検証
+
+- ローカルとリモートの master は開始時に `b6d08fd` で一致。`feature/antigravity-provider` の `bd8744e` まで43コミットを fast-forward した。この節を含む文書コミットで公開前の検証結果を記録する。
+- 追跡ファイルの Antigravity 記述は79行・13ファイル。うち非 Markdown は25行・11ファイルで、旧チャットの識別・表示、操作の拒否、退役データの保護と回帰テストに使用。agy 起動や現役プロバイダーとしての振り分け・選択経路は確認されなかった。
+- Rust は AgentDock 1,750件と org-engine 220件、Node は568件が通過。失敗0件、既定で無視された Rust 負荷計測1件。型チェックとフロントエンドの本番ビルドも成功。今回の画面・実 Codex 操作確認は未実施。
+- 生成済み TypeScript 2ファイルの行末空白4行を確認し、検証済みの製品内容を維持した。公開結果の記録先は `Documents/consult/agentdock-meeting-assistant/repo-cleanup-2026-11-28.md`。
 
 ## 2026-11-28 Antigravity 利用機能の削除
 

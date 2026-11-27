@@ -1,5 +1,9 @@
 # 現在の引き継ぎ
 
+## 2026-11-28 master 統合
+
+`feature/antigravity-provider` の `bd8744e` を `master` へ fast-forward。公開前に Rust 1,970件（既定で無視1件）、Node 568件の通過、型チェックと本番フロントエンドビルドの成功を確認。今回の実機操作は未実施。残存記述の用途と確認範囲は [STATUS.md](../STATUS.md)。次工程の会議アシスタント機能は未着手。
+
 ## 2026-11-28 Antigravity 利用機能の削除
 
 `feature/antigravity-provider` の製品コード `b1077e2`（基点 `a08f167`、push なし）。旧履歴を通常一覧から外して保存形式・元データを保全。旧宛先の受付カードは選び直しを案内し、旧先への送信と自動振り替えを防ぐ。Rust 1,750件、Node 568件が通過。実 Codex の通常送信・受付手動／自動送信を確認。停止理由・保留2種は Rust／Node の回帰試験で確認。
