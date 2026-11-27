@@ -1,5 +1,12 @@
 # 保全状況
 
+## 2026-11-28 会議アシスタント M1・M2
+
+- 起点は master と origin/master が一致する a0e9724。feature/meeting-assistant-m1m2 の製品コミットは 70062d5。手動登録、会議・議題の時計と実績、専用窓、UTC 期限からの通知再計算、電源復帰、手動共有モードを実装。
+- Entra の登録・同意はテナント設定次第。Work IQ の公開従量単価は 0.01 米ドル／クレジット。実テナント・予算の判断と Windows 実機の受け入れを残す。記録は Documents/consult/agentdock-meeting-assistant/implementation-m1m2-2026-11-28.md。
+- Rust は AgentDock 1,755件（既定除外の負荷試験1件を別実行）、org-engine 220件、Node 568件が通過。cargo check、型チェック、フロントエンド本番ビルド成功。
+- 製品起動・実 Codex・Microsoft テナントへの接続は未実施。統合・push は別工程。
+
 ## 2026-11-28 master 統合と公開前検証
 
 - ローカルとリモートの master は開始時に `b6d08fd` で一致。`feature/antigravity-provider` の `bd8744e` まで43コミットを fast-forward した。この節を含む文書コミットで公開前の検証結果を記録する。
