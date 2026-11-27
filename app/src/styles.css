@@ -1489,4 +1489,4 @@ html.pet-view,html.pet-view body,html.pet-view #root{background:transparent;over
 .meeting-list { list-style: none; padding: 0; }
 .meeting-list li { margin-bottom: 8px; }
 
-.meeting-chat-private #root { visibility: hidden; }
+.meeting-chat-private body { display: none; }

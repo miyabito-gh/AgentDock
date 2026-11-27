@@ -173,6 +173,13 @@ pub fn run() {
                     let handle = handle.clone();
                     // 表示が遅くてもイベント処理を止めないよう、別スレッドで出す。
                     tauri::async_runtime::spawn_blocking(move || {
+                        if n.chat.as_ref().is_some_and(|chat| {
+                            meeting::files::chat_protected(
+                                &handle.state::<meeting::Meetings>(), Some(chat.id.0.as_str())
+                            )
+                        }) {
+                            return;
+                        }
                         win::toast::show(&n, move |chat| {
                             win::window::show_main(&handle);
                             if let (Some(chat), Some(host)) = (chat, weak.upgrade()) {
