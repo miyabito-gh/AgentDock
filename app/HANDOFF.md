@@ -1,5 +1,13 @@
 # 現在の引き継ぎ
 
+## 2026-11-28 Antigravity 利用機能の削除
+
+`feature/antigravity-provider` の製品コード `b1077e2`（基点 `a08f167`、push なし）。旧履歴を通常一覧から外して保存形式・元データを保全。旧宛先の受付カードは選び直しを案内し、旧先への送信と自動振り替えを防ぐ。Rust 1,750件、Node 568件が通過。実 Codex の通常送信・受付手動／自動送信を確認。停止理由・保留2種は Rust／Node の回帰試験で確認。
+
+Windows リリース exe は再ビルド済み（33341440 bytes、SHA-256 `5D8C70E2AF84D5830C5D3B509C27AF65E2D11FD0847A417236B159638E1A844B`）。別識別子の debug exe で新規／旧 Codex のみ／旧 provider 混在の起動と再起動を確認。旧ファイル3点はハッシュ一致、旧宛先カードは提案のまま。
+
+通常識別子の exe 起動、画面操作、実 Codex の停止・再接続と特殊保留の解除は未確認。Windows 操作への接続が利用不能だった。試験プロセスは終了。バックアップ、ビルド識別、確認範囲は [STATUS.md](../STATUS.md) と `Documents/consult/agentdock-antigravity-removal/execution-2026-11-28.md`。
+
 ## 2026-11-27 出口のない保留2種の修正
 
 `feature/antigravity-provider` の `fd84573`（ローカルのみ・push なし）。親が live のまま状態不明の保留に「このチャットを再開して送る」（再開で状態を取り直す。取り直しても不明なら理由つきで断る）、履歴だけで作業中と記録された子孫（前回起動の子）の保留に「確認して今すぐ送る」の出口と説明を出した。受信できている作業中・照合中の子孫は従来どおり待つ。Rust 1809件・Node 569件通過、リリースビルド済み（exe 33840640 bytes・NSIS 8077313 bytes、2026-11-27 07:20）。詳細・限界は [STATUS.md](../STATUS.md) と `Documents/consult/agentdock-reception/flow-audit-hold-exits-2026-11-27.md`。次は、画面での実操作確認と、実 Codex での再開の取り直しの挙動確認（未実施）。稼働中の試験プロセス・未コミット差分なし（`host/mod.rs` の改行コード変換の見かけ上の差分を除く）。

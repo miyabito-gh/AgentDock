@@ -1,5 +1,14 @@
 ﻿# 保全状況
 
+## 2026-11-28 Antigravity 利用機能の削除
+
+- `feature/antigravity-provider` の開始時 HEAD は `a08f167`。製品コードは `19b90d5`、モック修正は `b1077e2`。計画 A 案を隔離 worktree で実装し、ローカルで取り込んだ。
+- Codex へ直結し、agy の実行・検出・モデル取得・字数制約と専用 UI を撤去。旧保存値は互換読取り用に維持し、旧チャットは通常一覧・送信・再送から除外。旧宛先は受付カードで送信不可の理由を表示し、該当 ID の自動送信も保留する。受付監査・Codex 停止理由・保留2種の復帰経路は独立差分レビューで確認。
+- `%LOCALAPPDATA%\com.agentdock.app` を `C:\Users\wmasa\AppData\Local\AgentDock-backup-removal-20261128-013012` に保全。3,486ファイルの SHA-256 を開始時と検証後に照合して全件一致。
+- Rust 1,750件通過（うち結合1件、既存の負荷計測1件は既定で無視）、Node 568件通過。cargo check、型チェック、フロントエンドビルド成功。実 Codex CLI 0.169.0 で通常送信・モデル取得・受付の手動／自動送信と担当応答を確認。停止理由と保留2種は制御された回帰試験で確認。
+- 通常識別子の Windows リリース exe を再ビルド（`b1077e2`、33341440 bytes、2026-11-28 02:09:44 JST、SHA-256 `5D8C70E2AF84D5830C5D3B509C27AF65E2D11FD0847A417236B159638E1A844B`）。別識別子の debug exe で新規／旧 Codex のみ／旧 provider 混在を各2回起動し、旧ファイル3点・旧宛先カード・Codex の下書きを保全。起動中に agy のプロセスは観測されなかった。
+- 通常識別子の exe 起動、設定などの画面操作、実 Codex での停止・再接続と特殊保留からの復帰は未確認。画面操作用の native pipe は利用不能。検証用プロセスは終了。試験データ・会話を保管。push なし。詳細は `Documents/consult/agentdock-antigravity-removal/execution-2026-11-28.md`。
+
 ## 2026-11-27 総点検の判断待ち2（出口のない保留2種）の修正
 
 - ブランチ `feature/antigravity-provider`、開始時 HEAD `0e736f6`、コード修正は `fd84573`（ローカルのみ・push なし）。まさとの決定。司令塔 Sonnet が直接実装、Opus（agentdock-designer）が差分レビュー1回（読み取り専用）。Fable・Haiku・実 Codex・実 agy は不使用。記録: `Documents/consult/agentdock-reception/flow-audit-hold-exits-2026-11-27.md`。
