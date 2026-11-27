@@ -1,5 +1,11 @@
 # 保全状況
 
+## 2026-11-28 会議アシスタント M3・M5・M6a
+
+- `feature/meeting-assistant-m1m2` の開始 HEAD は `7b1abd0`。製品 HEAD は `4fdac71`（`2a8cb24`、`48f7b1a`、`5f2c49f`、`4fdac71`）。ICS の UID 重複抑止、会議チャット、手動資料・メモ、VTT/TXT と議事録確定を実装。
+- Rust 1,977件、Node 570件、cargo check、型チェック、本番フロントエンドと Windows release exe の再ビルドを確認。IPC モック画面で ICS・資料・メモ・議事録・共有切替を確認した。exe は 33,831,424 bytes、SHA-256 `430D6271719A314EBD881BA954B06389CA83789A117F8ABF000442B16D062733`。
+- 実 Codex・Windows ネイティブ GUI・トースト・画面キャプチャは未確認。実行中の製品プロセスなし。作業記録は `Documents/consult/agentdock-meeting-assistant/implementation-m3m5m6a-2026-11-28.md`。ローカルコミットのみ。
+
 ## 2026-11-28 会議アシスタント M1・M2
 
 - 起点は master と origin/master が一致する a0e9724。feature/meeting-assistant-m1m2 の製品コミットは 70062d5。手動登録、会議・議題の時計と実績、専用窓、UTC 期限からの通知再計算、電源復帰、手動共有モードを実装。

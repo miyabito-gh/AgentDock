@@ -1,5 +1,11 @@
 # 現在の引き継ぎ
 
+## 2026-11-28 会議アシスタント M3・M5・M6a
+
+- `feature/meeting-assistant-m1m2` の開始 HEAD は `7b1abd0`。製品 HEAD は `4fdac71`（`2a8cb24`、`48f7b1a`、`5f2c49f`、`4fdac71`）。ICS の UID 重複抑止、会議チャット、手動資料・メモ、VTT/TXT と議事録確定を実装。
+- Rust 1,977件、Node 570件、cargo check、型チェック、本番フロントエンドと Windows release exe の再ビルドを確認。IPC モック画面で ICS・資料・メモ・議事録・共有切替を確認した。exe は 33,831,424 bytes、SHA-256 `430D6271719A314EBD881BA954B06389CA83789A117F8ABF000442B16D062733`。
+- 実 Codex・Windows ネイティブ GUI・トースト・画面キャプチャは未確認。実行中の製品プロセスなし。作業記録は `Documents/consult/agentdock-meeting-assistant/implementation-m3m5m6a-2026-11-28.md`。ローカルコミットのみ。
+
 ## 2026-11-28 会議アシスタント M1・M2
 
 feature/meeting-assistant-m1m2（起点 a0e9724、製品コミット 70062d5）。メインの「会議」から手動登録・進行窓。会議ごとの保存、再起動・電源復帰時の通知再計算、すべての会議表示を通す共有ゲートを追加。Rust 1,975件と Node 568件が通過。チェック・型チェック・フロントエンドビルド成功。次は Windows 実機で進行窓、トースト、スリープ、画面共有を確認。Entra の確認先と Work IQ の予算判断は consult の実装記録に記載。M3 の ICS と M4 の Graph は後続。実アプリの検証用プロセス起動なし。ローカルコミットのみ。
