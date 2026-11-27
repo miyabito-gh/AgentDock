@@ -75,8 +75,13 @@ export default function MeetingFiles({ id, agenda, title }: Props) {
     await load();
     const turn = history.turns.find(turn => turn.entries.some(entry =>
       entry.kind.kind === "userMessage" && entry.text.kind === "value" && entry.text.value.includes(request.marker + "\n")));
-    const response = turn?.complete && turn.end === "completed" ? turn.entries.flatMap(entry =>
-      entry.kind.kind === "agentMessage" && entry.text.kind === "value" ? [entry.text.value] : []).join("\n\n") : "";
+    const messages = turn?.complete && turn.end === "completed" ? turn.entries.flatMap(entry =>
+      entry.kind.kind === "agentMessage" && entry.text.kind === "value"
+        ? [{ phase: entry.messagePhase, text: entry.text.value }] : []) : [];
+    const finalMessages = messages.filter(message => message.phase === "final");
+    const response = finalMessages.length
+      ? finalMessages.map(message => message.text).join("\n\n")
+      : messages.filter(message => message.phase === "unknown").slice(-1)[0]?.text ?? "";
     if (!response) { setStatus("完了した応答をまだ取得できません。"); return; }
     if (request.minutes) {
       await save("draft", response);
