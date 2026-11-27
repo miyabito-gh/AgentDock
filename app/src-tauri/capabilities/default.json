@@ -2,6 +2,6 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "通常画面・監視窓・ペット窓の基本権限（イベント購読など）。窓を閉じる操作だけ追加（通常画面は閉じるとトレイへ格納される）",
-  "webviews": ["main", "monitor", "pet"],
+  "webviews": ["main", "monitor", "pet", "meeting"],
   "permissions": ["core:default", "core:window:allow-close", "core:window:allow-set-theme", "core:window:allow-start-dragging"]
 }

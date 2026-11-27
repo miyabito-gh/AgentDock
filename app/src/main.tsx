@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client'
 import App from './App.tsx'
 import MonitorApp from './MonitorApp.tsx'
 import PetApp from './PetApp.tsx'
+import MeetingApp from './MeetingApp'
 import './styles.css'
 import { ErrorBoundary } from './ui/ErrorBoundary'
 import { applyStoredAppearance } from './ui/appearance'
@@ -19,6 +20,6 @@ if (isPet) document.documentElement.classList.add('pet-view')
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <ErrorBoundary>{isPet ? <PetApp /> : isMonitor ? <MonitorApp /> : <App />}</ErrorBoundary>
+    <ErrorBoundary>{view === 'meeting' ? <MeetingApp /> : isPet ? <PetApp /> : isMonitor ? <MonitorApp /> : <App />}</ErrorBoundary>
   </React.StrictMode>,
 )

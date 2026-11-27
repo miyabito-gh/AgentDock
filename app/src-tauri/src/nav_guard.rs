@@ -3,7 +3,7 @@
 //! 対象は label で判定する。Visual Editor の HTML プレビュー用の子WebView（label は `visual-preview-*`）は対象外で、従来どおり。
 use tauri::{plugin::{Builder, TauriPlugin}, Runtime, Url};
 
-const GUARDED: [&str; 3] = ["main", "monitor", "pet"];
+const GUARDED: [&str; 4] = ["main", "monitor", "pet", "meeting"];
 
 pub fn guarded_label(label: &str) -> bool {
     GUARDED.contains(&label)

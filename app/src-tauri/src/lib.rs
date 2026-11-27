@@ -7,6 +7,7 @@ pub mod exec;
 pub mod external_tools;
 pub mod gitops;
 pub mod host;
+pub mod meeting;
 pub mod nav_guard;
 pub mod pathref;
 pub mod pets;
@@ -131,6 +132,7 @@ pub fn run() {
             std::fs::create_dir_all(&dir).map_err(|e| format!("create app data dir: {e}"))?;
             diag::init(&dir);
             // 保存層を開いて復元する（ピン・モデル設定・下書き・設定。復元だけで送信・再開はしない）。
+            app.manage(meeting::Meetings::load(dir.join("meetings")));
             let host = Arc::new(match Store::open(dir.clone()) {
                 Ok(store) => Host::with_store(dir, Arc::new(store)),
                 Err(e) => {
@@ -142,6 +144,9 @@ pub fn run() {
             });
             let handle = app.handle().clone();
             host.set_emitter(Arc::new(move |env| {
+                if matches!(&env.event, backend::ipc::HostEvent::SystemResumed { .. }) {
+                    handle.state::<meeting::Meetings>().system_resumed();
+                }
                 let _ = handle.emit(HOST_EVENT_CHANNEL, env);
             }));
             // OS通知。クリックは通常画面を表示して該当チャットを開くだけ（回答・再実行はしない）。
@@ -191,10 +196,17 @@ pub fn run() {
             win::pet::restore_pet(app.handle(), &host);
             // 返信・推敲のショートカット。登録できなくてもアプリは続ける（理由は設定画面に出す）。
             win::compose_shortcut::apply(app.handle(), &host.get_app_settings().compose.shortcut);
+            meeting::start_scheduler(app.handle().clone());
             setup_tray(app, host).map_err(|e| format!("tray: {e}"))?;
             Ok(())
         })
         .invoke_handler(visual_edit::preview::guarded_invoke_handler(tauri::generate_handler![
+            meeting::meeting_window,
+            meeting::meeting_list,
+            meeting::meeting_top,
+            meeting::meeting_create,
+            meeting::meeting_update,
+            meeting::meeting_join,
             visual_edit::preview::visual_preview_open,
             visual_edit::preview::visual_preview_bounds,
             visual_edit::preview::visual_preview_action,

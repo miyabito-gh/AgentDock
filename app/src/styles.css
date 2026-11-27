@@ -1478,3 +1478,13 @@ html.pet-view,html.pet-view body,html.pet-view #root{background:transparent;over
 .rhist li{display:flex;gap:8px;align-items:baseline;padding:2px 0}
 .rhist .grow{flex:1;min-width:0;overflow-wrap:anywhere}
 .rcard .why.err,.rextra .why.err,.rform .why.err,.dialog .content>.why.err{color:var(--fail-ink)}
+.meeting-page { box-sizing: border-box; height: 100vh; overflow: auto; padding: 24px; }
+.meeting-page h1, .meeting-page h2 { margin: 0 0 8px; }
+.meeting-card, .meeting-form { padding: 16px; border: 1px solid currentColor; border-radius: 8px; margin: 12px 0; }
+.meeting-form label { display: grid; gap: 4px; margin-bottom: 10px; }
+.meeting-form input { padding: 5px; min-width: 0; }
+.meeting-actions, .meeting-list li, .meeting-clocks { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.meeting-clocks { gap: 24px; margin: 12px 0; }
+.meeting-clocks strong { display: block; font-size: 2rem; font-variant-numeric: tabular-nums; }
+.meeting-list { list-style: none; padding: 0; }
+.meeting-list li { margin-bottom: 8px; }

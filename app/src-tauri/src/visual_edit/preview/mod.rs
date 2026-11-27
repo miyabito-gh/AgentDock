@@ -69,6 +69,8 @@ pub fn guarded_invoke_handler<F: Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 
     move |invoke| {
         let label = invoke.message.webview_ref().label();
         let allowed = application_invoke_allowed(label) || (label == "pet" && pet_command_allowed(invoke.message.command()));
+        let allowed = allowed || (label == "meeting" && matches!(invoke.message.command(),
+            "meeting_list" | "meeting_create" | "meeting_update" | "meeting_join" | "meeting_top"));
         if !allowed {
             invoke
                 .resolver

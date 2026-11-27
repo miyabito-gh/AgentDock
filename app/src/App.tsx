@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { askConfirm } from "./ui/appConfirm";
 import { summarizeArchive, type ArchiveResult } from "./ui/orgFold";
@@ -1992,6 +1993,7 @@ ${cur}` : p.text);
       <div className="window" role="application" aria-label="AgentDock" onClick={() => { if (menu) setMenu(null); if (mockOpen) setMockOpen(false); }}>
         {connUi?.state === "wait" ? <div className="conn-bar" aria-hidden="true" /> : null}
         <div className="visual-appbar">
+          {live && <button type="button" className="btn sm" onClick={() => void invoke("meeting_window").catch(e => say(String(e)))}>会議</button>}
           <MenuBar open={menu} setOpen={setMenuOpen} views={cmdViews} onAct={act} tag={modeTag} tagMark={versionMark} live={live} conn={connUi} />
           <button type="button" className="btn sm visual-entry" aria-pressed={visualShown} onClick={() => {
             const toggle = () => { setVisualMode(!visualShown); setOrgScreen(false); setQuick((q) => ({ ...q, open: false })); setRNarrow(false); };
