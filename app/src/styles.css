@@ -1488,3 +1488,5 @@ html.pet-view,html.pet-view body,html.pet-view #root{background:transparent;over
 .meeting-clocks strong { display: block; font-size: 2rem; font-variant-numeric: tabular-nums; }
 .meeting-list { list-style: none; padding: 0; }
 .meeting-list li { margin-bottom: 8px; }
+
+.meeting-chat-private #root { visibility: hidden; }

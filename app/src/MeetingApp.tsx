@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import MeetingFiles from "./MeetingFiles";
+import { parseCalendar } from "./meetingIcs";
 import { invoke } from "@tauri-apps/api/core";
 
 type Agenda = { title: string; minutes: number | null };
-type Plan = { title: string; joinUrl: string | null; start: number; end: number; timeZone: string; agenda: Agenda[] };
+type Plan = { title: string; joinUrl: string | null; location: string | null; description: string | null; start: number; end: number; timeZone: string; agenda: Agenda[] };
 type Meeting = {
   id: string; revision: number; plan: Plan;
   phase: "prepared" | "running" | "break" | "ended" | "cancelled";
@@ -41,6 +43,7 @@ function MeetingForm({ meeting, submit, close, busy }: {
     const form = new FormData(event.currentTarget);
     submit({
       title: String(form.get("title")).trim(), joinUrl: String(form.get("url")).trim() || null,
+      location: String(form.get("location")).trim() || null, description: String(form.get("description")).trim() || null,
       start: new Date(String(form.get("start"))).getTime(), end: new Date(String(form.get("end"))).getTime(),
       timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, agenda,
     });
@@ -48,6 +51,8 @@ function MeetingForm({ meeting, submit, close, busy }: {
   return <form onSubmit={save} className="meeting-form">
     <label>件名 <input name="title" defaultValue={plan?.title} required /></label>
     <label>参加 URL <input name="url" type="url" defaultValue={plan?.joinUrl ?? ""} /></label>
+    <label>場所 <input name="location" defaultValue={plan?.location ?? ""} /></label>
+    <label>説明 <textarea name="description" defaultValue={plan?.description ?? ""} /></label>
     <label>予定開始 <input name="start" type="datetime-local" value={start} onChange={e => setStart(e.target.value)} required /></label>
     <label>予定終了 <input name="end" type="datetime-local" value={end} onChange={e => setEnd(e.target.value)} required /></label>
     {agenda.map((item, index) => <div className="meeting-actions" key={index}>
@@ -69,6 +74,7 @@ export default function MeetingApp() {
   const [selected, setSelected] = useState<string>();
   const [editor, setEditor] = useState<Meeting | "new" | null>(null);
   const [error, setError] = useState("");
+  const [importStatus, setImportStatus] = useState("");
   const [busy, setBusy] = useState(false);
   const [late, setLate] = useState<{ id: string; end: string } | null>(null);
   const pending = useRef(false);
@@ -107,15 +113,15 @@ export default function MeetingApp() {
     };
   }, []);
 
-  async function command(name: string, args: Record<string, unknown>, done?: () => void) {
+  async function command(name: string, args: Record<string, unknown>, done?: (result: unknown) => void) {
     if (pending.current) return;
     pending.current = true;
     generation.current += 1;
     setBusy(true);
     setError("");
     try {
-      await invoke(name, args);
-      done?.();
+      const result = await invoke(name, args);
+      done?.(result);
     } catch (e) { setError(String(e)); }
     finally {
       try { setSnapshot(await invoke<Snapshot>("meeting_list")); }
@@ -124,6 +130,18 @@ export default function MeetingApp() {
       setCover(false);
       setBusy(false);
     }
+  }
+
+  async function importCalendar(file: File) {
+    setImportStatus("");
+    try {
+      const { entries, skipped } = parseCalendar(await file.text());
+      await command("meeting_import", { entries }, raw => {
+        const result = raw as { added: number; duplicates: number; errors: string[] };
+        setImportStatus([`取込 ${result.added} 件 · 重複 ${result.duplicates} 件`, ...skipped, ...result.errors].join("\n"));
+        if (result.added === 1 && entries.length === 1) setSelected(entries[0].id);
+      });
+    } catch (error) { setError(String(error)); }
   }
 
   const at = snapshot?.at ?? Date.now();
@@ -146,12 +164,20 @@ export default function MeetingApp() {
       }}>最前面</button>
       {snapshot && !snapshot.shared && !cover && <button className="btn" onClick={() => setEditor("new")}>会議を登録</button>}
     </header>
+    {snapshot && !snapshot.shared && !cover && <div>
+      <label>ICS 取り込み <input type="file" accept=".ics,text/calendar" disabled={busy} onChange={event => {
+        const file = event.target.files?.[0];
+        event.target.value = "";
+        if (file) void importCalendar(file);
+      }} /></label>
+      {importStatus && <p role="status" style={{ whiteSpace: "pre-wrap" }}>{importStatus}</p>}
+    </div>}
     {!snapshot && <p role="status">会議を読み込み中です。</p>}
     {snapshot?.shared && <p role="status">共有モード中。件名と議題を隠し、通知を停止しています。</p>}
     {snapshot?.unreadable && <p role="alert">会議の保存領域を読み込めません。</p>}
     {!!snapshot?.damaged && <p role="alert">{snapshot.damaged} 件の会議を読み込めません。保存ファイルは保持されています。</p>}
     {snapshot?.clock_changed && <p role="alert">PC の時刻が変わりました。会議の残り時間と予定時刻を確認してください。</p>}
-    {error && <p role="alert">{error}</p>}
+    {error && !snapshot?.shared && !cover && <p role="alert">{error}</p>}
     {snapshot && !snapshot.shared && !cover && editor && <MeetingForm
       key={editor === "new" ? "new" : editor.id}
       meeting={editor === "new" ? null : editor} busy={busy} close={() => setEditor(null)}
@@ -166,6 +192,8 @@ export default function MeetingApp() {
     {current && !editor && <section className="meeting-card">
       <h2>{snapshot?.shared ? "進行中の会議" : current.plan.title}</h2>
       <p>{labels[current.phase]}</p>
+      {!snapshot?.shared && current.plan.location && <p>{current.plan.location}</p>}
+      {!snapshot?.shared && current.plan.description && <p style={{ whiteSpace: "pre-wrap" }}>{current.plan.description}</p>}
       {!snapshot?.shared && current.plan.joinUrl && <button className="btn" disabled={busy} onClick={() => void command("meeting_join", { id: current.id })}>会議に参加</button>}
       {current.phase === "prepared" && <div className="meeting-actions">
         <button className="btn" disabled={busy} onClick={() => start(current)}>開始</button>
@@ -224,6 +252,7 @@ export default function MeetingApp() {
           <button className="btn" disabled={busy} onClick={() => { if (window.confirm("会議を終了しますか？")) apply("end"); }}>終了</button>
         </div>
       </>}
+      {!snapshot?.shared && <MeetingFiles key={current.id} id={current.id} title={current.plan.title} agenda={current.plan.agenda.map(item => item.title)} />}
     </section>}
     {snapshot && !snapshot.shared && !cover && <section>
       <h2>会議一覧</h2>

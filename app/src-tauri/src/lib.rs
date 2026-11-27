@@ -156,6 +156,13 @@ pub fn run() {
                 host.attach_notifier(Arc::new(move |n| {
                     // ペットが表示中なら吹き出しで知らせ、OS通知は出さない（二重にしない）。隠れているときだけOS通知。
                     // 通知の一時停止中は、承認・質問以外を出さない（吹き出しもOS通知も）。
+                    if n.chat.as_ref().is_some_and(|chat| {
+                        meeting::files::chat_protected(
+                            &handle.state::<meeting::Meetings>(), Some(chat.id.0.as_str())
+                        )
+                    }) {
+                        return;
+                    }
                     if win::pet::suppressed_by_pause(&handle, &n) {
                         return;
                     }
@@ -205,6 +212,11 @@ pub fn run() {
             meeting::meeting_list,
             meeting::meeting_top,
             meeting::meeting_create,
+            meeting::meeting_import,
+            meeting::files::meeting_files,
+            meeting::files::meeting_chat_privacy,
+            meeting::files::meeting_file_edit,
+            meeting::files::meeting_material_open,
             meeting::meeting_update,
             meeting::meeting_join,
             visual_edit::preview::visual_preview_open,

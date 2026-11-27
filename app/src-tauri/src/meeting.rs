@@ -1,3 +1,6 @@
+#[path = "meeting_files.rs"]
+pub mod files;
+
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeSet,
@@ -5,7 +8,7 @@ use std::{
     sync::Mutex,
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State};
 
 fn now() -> i64 {
     SystemTime::now()
@@ -26,6 +29,10 @@ struct Agenda {
 pub struct Plan {
     title: String,
     join_url: Option<String>,
+    #[serde(default)]
+    location: Option<String>,
+    #[serde(default)]
+    description: Option<String>,
     start: i64,
     end: i64,
     time_zone: String,
@@ -85,6 +92,8 @@ pub struct Meeting {
     plan: Plan,
     phase: Phase,
     source: Source,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    ics_uid: Option<String>,
     run: Option<Run>,
     #[serde(default)]
     shared: bool,
@@ -433,6 +442,9 @@ pub fn meeting_list(window: tauri::WebviewWindow, store: State<'_, Meetings>) ->
         for item in &mut items {
             item.plan.title.clear();
             item.plan.join_url = None;
+            item.plan.location = None;
+            item.plan.description = None;
+            item.ics_uid = None;
             for agenda in &mut item.plan.agenda {
                 agenda.title.clear();
             }
@@ -469,6 +481,7 @@ pub fn meeting_create(store: State<'_, Meetings>, id: String, plan: Plan) -> Res
         plan,
         phase: Phase::Prepared,
         source: Source::Manual,
+        ics_uid: None,
         run: None,
         shared: false,
         consumed: BTreeSet::new(),
@@ -477,6 +490,82 @@ pub fn meeting_create(store: State<'_, Meetings>, id: String, plan: Plan) -> Res
     data.items.push(meeting);
     store.resume();
     Ok(())
+}
+
+#[derive(Deserialize)]
+pub struct IcsEntry {
+    id: String,
+    uid: String,
+    plan: Plan,
+}
+
+#[derive(Default, Serialize)]
+pub struct ImportResult {
+    added: usize,
+    duplicates: usize,
+    errors: Vec<String>,
+}
+
+impl Meetings {
+    fn import(&self, entries: Vec<IcsEntry>) -> Result<ImportResult, String> {
+        let mut data = self.data.lock().unwrap();
+        if !may_disclose(&data.items) || data.unreadable {
+            return Err("現在は取り込めません。共有モードと保存領域を確認してください。".into());
+        }
+        let mut result = ImportResult::default();
+        for (index, entry) in entries.into_iter().enumerate() {
+            if data
+                .items
+                .iter()
+                .any(|m| m.ics_uid.as_ref() == Some(&entry.uid))
+            {
+                result.duplicates += 1;
+                continue;
+            }
+            if entry.uid.trim().is_empty()
+                || !valid_id(&entry.id)
+                || self.root.join(&entry.id).exists()
+            {
+                result
+                    .errors
+                    .push(format!("予定 {} の識別子を確認できません。", index + 1));
+                continue;
+            }
+            if let Err(error) = validate(&entry.plan) {
+                result.errors.push(format!("予定 {} · {error}", index + 1));
+                continue;
+            }
+            let meeting = Meeting {
+                schema_version: 1,
+                id: entry.id,
+                revision: 0,
+                plan: entry.plan,
+                phase: Phase::Prepared,
+                source: Source::Ics,
+                ics_uid: Some(entry.uid),
+                run: None,
+                shared: false,
+                consumed: BTreeSet::new(),
+            };
+            match self.save(&meeting) {
+                Ok(()) => {
+                    data.items.push(meeting);
+                    result.added += 1;
+                }
+                Err(error) => result.errors.push(format!("予定 {} · {error}", index + 1)),
+            }
+        }
+        self.resume();
+        Ok(result)
+    }
+}
+
+#[tauri::command]
+pub fn meeting_import(
+    store: State<'_, Meetings>,
+    entries: Vec<IcsEntry>,
+) -> Result<ImportResult, String> {
+    store.import(entries)
 }
 
 #[tauri::command]
@@ -536,8 +625,7 @@ pub fn meeting_update(
     }
     if matches!(&action, Action::Pause) {
         next.consumed.extend(
-            next
-                .thresholds()
+            next.thresholds()
                 .into_iter()
                 .filter(|(deadline, key)| *deadline <= at && key.starts_with("agenda:"))
                 .map(|(_, key)| key),
@@ -548,6 +636,7 @@ pub fn meeting_update(
     data.items[index] = next;
     drop(data);
     store.resume();
+    let _ = app.emit("meeting-chat-privacy", files::chat_protected(&store, None));
     if hide {
         if let Some(window) = app.get_webview_window("meeting") {
             window.hide().map_err(|e| e.to_string())?;
@@ -745,6 +834,8 @@ mod tests {
             plan: Plan {
                 title: "Sample".into(),
                 join_url: None,
+                location: None,
+                description: None,
                 start: at,
                 end: at + 600_000,
                 time_zone: "UTC".into(),
@@ -755,10 +846,31 @@ mod tests {
             },
             phase: Phase::Prepared,
             source: Source::Manual,
+            ics_uid: None,
             run: None,
             shared: false,
             consumed: BTreeSet::new(),
         }
+    }
+
+    #[test]
+    fn ics_uid_is_deduplicated_in_batch_and_after_reload() {
+        let root =
+            std::env::temp_dir().join(format!("agentdock-ics-{}-{}", std::process::id(), now()));
+        let entry = |id: &str| IcsEntry {
+            id: id.into(),
+            uid: "calendar-event".into(),
+            plan: prepared(now()).plan,
+        };
+        let one = "1253d97a-fd99-4426-9f9c-b38d201b56be";
+        let two = "1253d97a-fd99-4426-9f9c-b38d201b56bf";
+        let store = Meetings::load(root.clone());
+        let result = store.import(vec![entry(one), entry(two)]).unwrap();
+        assert_eq!((result.added, result.duplicates), (1, 1));
+        let reloaded = Meetings::load(root.clone());
+        let result = reloaded.import(vec![entry(two)]).unwrap();
+        assert_eq!((result.added, result.duplicates), (0, 1));
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
