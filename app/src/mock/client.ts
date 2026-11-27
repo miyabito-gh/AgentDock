@@ -17,7 +17,7 @@ export async function getBundle(scenario: string): Promise<Bundle> {
   return makeBundle(scenario);
 }
 export async function listModels(): Promise<ModelInfo[]> {
-  return _backend === "codex" ? MODELS : [];
+  return MODELS;
 }
 export async function setMonitorScope(_scope: MonitorScope): Promise<null> {
   return null;
