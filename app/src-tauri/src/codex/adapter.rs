@@ -455,7 +455,12 @@ async fn pump(shared: Arc<Shared>, source: SourceId, mut rx: mpsc::Receiver<RpcE
 
 // ───────────────────────────── アダプター ─────────────────────────────
 
+#[cfg(test)]
+type TestRpc = Box<dyn Fn(&str, Value) -> BackendResult<Value> + Send + Sync>;
+
 pub struct CodexBackend {
+    #[cfg(test)]
+    pub(crate) test_rpc: StdMutex<Option<TestRpc>>,
     shared: Arc<Shared>,
 }
 
@@ -479,6 +484,8 @@ impl CodexBackend {
     fn with_queue_capacity(cap: usize) -> Self {
         let (tx, rx) = mpsc::channel(64);
         CodexBackend {
+            #[cfg(test)]
+            test_rpc: StdMutex::new(None),
             shared: Arc::new(Shared {
                 conn: StdMutex::new(None),
                 caps: StdMutex::new(unknown_capabilities()),
@@ -526,6 +533,10 @@ impl CodexBackend {
     }
 
     pub(super) async fn call(&self, method: &str, params: Value, timeout: Duration) -> BackendResult<Value> {
+        #[cfg(test)]
+        if let Some(handler) = self.test_rpc.lock().unwrap().as_ref() {
+            return handler(method, params);
+        }
         let (client, _) = self.client()?;
         client.request(method, params, Some(timeout)).await
     }
@@ -795,6 +806,7 @@ impl AiBackend for CodexBackend {
     }
 
     async fn start_chat(&self, params: StartChatParams) -> BackendResult<ChatStarted> {
+        super::require_active(params.backend)?;
         let (approval, sandbox) = permission_params(params.permission);
         let mut p = json!({"cwd": params.cwd, "approvalPolicy": approval, "sandbox": sandbox});
         if let Some(m) = &params.model {
@@ -867,11 +879,13 @@ impl AiBackend for CodexBackend {
     }
 
     async fn read(&self, agent: AgentKey, options: ReadOptions) -> BackendResult<AgentHistory> {
+        super::require_active(agent.backend)?;
         let t = self.read_thread(&agent.id.0, options.include_turns).await?;
         Ok(self.history_from_thread(&t, options.include_turns, EvidenceSource::HistoryRead, "thread/read"))
     }
 
     async fn resume(&self, chat: ChatKey, _confirmed: &UserConfirmed, overrides: Option<&ThreadOverrides>) -> BackendResult<ResumeOutcome> {
+        super::require_active(chat.backend)?;
         let mut p = json!({"threadId": chat.id.0, "excludeTurns": true});
         if let Some(o) = overrides {
             super::thread_config::apply_overrides(&mut p, o.config.as_ref(), o.developer_instructions.as_deref());
@@ -892,6 +906,7 @@ impl AiBackend for CodexBackend {
     }
 
     async fn manage_chat(&self, chat: ChatKey, op: ManageOp, _confirmed: &UserConfirmed) -> BackendResult<ManageOutcome> {
+        super::require_active(chat.backend)?;
         let id = chat.id.0;
         let (method, params) = match op {
             ManageOp::Rename { name } => ("thread/name/set", json!({"threadId": id, "name": name})),
@@ -929,6 +944,7 @@ impl AiBackend for CodexBackend {
     }
 
     async fn read_work_folders(&self, chat: &ChatKey) -> BackendResult<Known<WorkFolders>> {
+        super::require_active(chat.backend)?;
         let (_, experimental) = self.client()?;
         // experimentalが無い・拒否済みの接続では、environmentsも取れない。通信せず「非対応」。
         if !experimental || self.shared.caps.lock().unwrap().workspace_roots != Support::Supported {
@@ -951,6 +967,7 @@ impl AiBackend for CodexBackend {
     }
 
     async fn scan_descendants(&self, root: AgentKey) -> BackendResult<DescendantScan> {
+        super::require_active(root.backend)?;
         let (_, experimental) = self.client()?;
         let mut base = json!({"sourceKinds": SUBAGENT_KINDS});
         if experimental {
@@ -993,6 +1010,13 @@ impl AiBackend for CodexBackend {
     }
 
     async fn send(&self, request: SendRequest) -> SendOutcome {
+        let active = super::require_active(request.chat.backend).and_then(|()| match &request.mode {
+            SendMode::NewTurn => Ok(()),
+            SendMode::Steer { turn } => super::require_active(turn.agent.backend),
+        });
+        if let Err(error) = active {
+            return SendOutcome::Rejected { error, request: NotAccepted::new(request) };
+        }
         // 計画／実行を選んだまま、この接続では使えない（降格済み）ときは、黙って外さず何も送らずに拒否する。
         if request.work_mode.is_some() && matches!(request.mode, SendMode::NewTurn) && !self.op_supported(ParityOp::WorkMode) {
             let error = BackendError::Rejected { code: None, message: "計画／実行の切替はこの Codex 接続では使えません。選択を外してから送ってください".into() };
@@ -1049,6 +1073,9 @@ impl AiBackend for CodexBackend {
     }
 
     async fn reconcile_send(&self, pending: UnconfirmedSend) -> ReconcileOutcome {
+        if super::require_active(pending.chat().backend).is_err() {
+            return ReconcileOutcome::StillUnknown(pending);
+        }
         let thread_id = pending.chat().id.0.clone();
         // 履歴取得に失敗・部分取得なら判断しない（再送の根拠にしない）。
         let Ok(t) = self.read_thread(&thread_id, true).await else { return ReconcileOutcome::StillUnknown(pending) };
@@ -1060,6 +1087,7 @@ impl AiBackend for CodexBackend {
     }
 
     async fn respond(&self, request: RequestKey, answer: RequestAnswer, _confirmed: &UserConfirmed) -> BackendResult<RespondOutcome> {
+        super::require_active(request.backend)?;
         let (client, _) = self.client()?;
         let current = self.shared.conn.lock().unwrap().as_ref().map(|c| c.source.clone());
         let stored = self.shared.pending.lock().unwrap().get(&request).cloned();
@@ -1090,6 +1118,7 @@ impl AiBackend for CodexBackend {
     }
 
     async fn interrupt(&self, turn: TurnKey, _confirmed: &UserConfirmed) -> BackendResult<InterruptAck> {
+        super::require_active(turn.agent.backend)?;
         match self.call("turn/interrupt", json!({"threadId": turn.agent.id.0, "turnId": turn.turn_id.0}), WRITE_TIMEOUT).await {
             // 受付のみ。停止は turn/completed（TurnEnded）で照合する。
             Ok(_) => Ok(InterruptAck::Requested),
@@ -1099,6 +1128,7 @@ impl AiBackend for CodexBackend {
     }
 
     async fn list_models(&self, query: ModelQuery) -> BackendResult<Vec<ModelInfo>> {
+        super::require_active(query.backend)?;
         let (data, truncated) = self.collect_pages("model/list", json!({"includeHidden": query.include_hidden}), "data").await?;
         if truncated {
             return Err(BackendError::Protocol { message: "model/list: too many pages".into() });

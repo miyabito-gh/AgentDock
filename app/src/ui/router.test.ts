@@ -143,7 +143,7 @@ test("Codex が止まっているとき（未起動・起動失敗・切断）�
   for (const k of ["notStarted", "launchFailed", "disconnected"] as const) {
     assert.equal(codexStoppedKind(src(k)), k);
     const notice = routerStoppedNotice(src(k)) ?? "";
-    assert.ok(notice.startsWith("Codex が起動していない") && notice.includes("Antigravity 宛も") && notice.includes("順番待ち"), notice);
+    assert.ok(notice.startsWith("Codex が起動していない") && notice.includes("順番待ち"), notice);
     const lock = routerSendLock(src(k)) ?? "";
     assert.ok(lock.startsWith("Codex が起動していない") && lock.includes("受付係へは送れません"), lock);
   }

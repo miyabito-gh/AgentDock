@@ -9,7 +9,7 @@ import {
   type ModelChoice, type ModelInfo, type ProjectsOutcome, type MonitorScope, type Page, type ChatSummary, type PermissionPreset,
   type RequestAnswer, type RequestKey, type RespondOutcome, type SendAttempt, type SendIntent, type SourceInfo,
   type StartChatResult, type ResumeOutcome, type SaveScope, type SaveStatus, type ChatQueue, type QueueEntry, type SettingsImpact,
-  type BackendKind, type AttachmentEntry, type FileRef, type BaselineSettings, type RepoRecordChoice,
+  type AttachmentEntry, type FileRef, type BaselineSettings, type RepoRecordChoice,
   type ForceKillPreview, type PetCursor, type PetEntry, type PetRect, type PetSettings, type MonitorWindowScope, type QuitDecision, type QuitPhase, type StopRecord, type WindowKind,
   type ChatLocalView, type DeleteOutcome, type DeletePreview, type UsageReport, type ManageOutcome,
   type ChangeList, type ChangeScope, type ChangeSource, type ExternalId, type RevertPlan, type RevertResult, type SegmentStatus, type UnifiedDiff,
@@ -49,8 +49,8 @@ export const openChat = (chat: ChatKey): Promise<AgentHistory> => invokeCmd("ope
 /** worktree は、作業フォルダ（cwd）がAgentDockが作ったworktreeの場所のとき、その記録のID（チャットに結び付ける）。 */
 /** 戻り値の firstSend は送信中（Sending）の試行。確定（受理・拒否・受理不明）は sendUpdated だけで扱う。 */
 /** extraFolders は追加の作業フォルダ（cwd以外）。confirmedStrong は強い確認を済ませたパス（ホストが再検査する）。 */
-export const startChat = (cwd: string | null, model: ModelChoice | null, firstMessage: string | null, permission: PermissionPreset | null = null, worktree: LocalId | null = null, extraFolders: string[] = [], confirmedStrong: string[] = [], backend: BackendKind = "codex"): Promise<StartChatResult> =>
-  invokeCmd("start_chat", { backend, cwd, model, permission, firstMessage, worktree, extraFolders, confirmedStrong });
+export const startChat = (cwd: string | null, model: ModelChoice | null, firstMessage: string | null, permission: PermissionPreset | null = null, worktree: LocalId | null = null, extraFolders: string[] = [], confirmedStrong: string[] = []): Promise<StartChatResult> =>
+  invokeCmd("start_chat", { backend: "codex", cwd, model, permission, firstMessage, worktree, extraFolders, confirmedStrong });
 export const sendMessage = (chat: ChatKey, text: string, intent: SendIntent, attachments: LocalId[] = [], steerEntry: LocalId | null = null): Promise<SendAttempt> =>
   invokeCmd("send_message", { chat, text, attachments, intent, steerEntry });
 export const retrySend = (chat: ChatKey, attempt: LocalId): Promise<SendAttempt> => invokeCmd("retry_send", { chat, attempt });
@@ -61,7 +61,7 @@ export const resumeChat = (chat: ChatKey): Promise<ResumeOutcome> => invokeCmd("
 /** 名前の変更（ユーザー操作）。Codex が受け付けたことを確認できたときだけ成功になる。 */
 export const renameChat = (chat: ChatKey, name: string): Promise<ManageOutcome> => invokeCmd("manage_chat", { chat, op: { kind: "rename", name } });
 export const setPinned = (chat: ChatKey, pinned: boolean): Promise<Chat> => invokeCmd("set_pinned", { chat, pinned });
-export const listModels = (backend: BackendKind = "codex"): Promise<ModelInfo[]> => invokeCmd("list_models", { backend, includeHidden: false });
+export const listModels = (): Promise<ModelInfo[]> => invokeCmd("list_models", { backend: "codex", includeHidden: false });
 /** プロジェクト一覧（読取りのみ）。取得できなかったことを空の一覧にしない（結果の種類で区別する）。 */
 export const listProjects = (): Promise<ProjectsOutcome> => invokeCmd("list_projects", { backend: "codex" });
 export const setChatModel = (chat: ChatKey, choice: ModelChoice): Promise<ChatModelSettings> => invokeCmd("set_chat_model", { chat, choice });

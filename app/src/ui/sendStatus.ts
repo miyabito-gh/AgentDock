@@ -26,7 +26,7 @@ export interface StatusInput {
   /** 実行中のturnに、依頼以外の出力（返答・作業の記録）が出ているか。取れないとき（ドック）は null。 */
   turnHasOutput: boolean | null;
   queue: QueueCounts | null;
-  /** 担当AIの表示名（省略は Codex。Antigravity のチャットは Gemini）。 */
+  /** 担当AIの表示名（省略は Codex）。 */
   ai?: string;
 }
 

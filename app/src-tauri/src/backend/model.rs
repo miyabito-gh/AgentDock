@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 #[serde(transparent)]
 pub struct UnixMillis(pub i64);
 
-/// AIバックエンドの種別（§2.3）。追加時にvariantを足す。Antigravity は `agy` CLI（print モード）を使う。
+/// AIバックエンドの種別。退役した保存値も引き続き読み取る。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/ipc/gen/"))]
@@ -30,6 +30,7 @@ pub struct UnixMillis(pub i64);
 pub enum BackendKind {
     #[default]
     Codex,
+    // 旧保存データの読取りと拒否判定に使用する。
     Antigravity,
 }
 
@@ -1526,3 +1527,5 @@ pub enum SaveState {
     Unsaved,
     SaveFailed { message: String, saved_part: Option<String>, unsaved_part: Option<String> },
 }
+
+pub const RETIRED_CHAT_MESSAGE: &str = "旧チャットには送信できません。送り先を選び直してください";

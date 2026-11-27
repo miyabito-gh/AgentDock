@@ -134,7 +134,7 @@ fn force_kill_records(
     let mut ids: Vec<LocalId> = Vec::new();
     let mut events = Vec::new();
     for chat in affected {
-        // 強制終了で止まるのは Codex の Job だけ。他のバックエンド（Antigravity の agy プロセス等）は止まらないので、
+        // 強制終了で止まるのは Codex の Job だけ。退役したチャットは停止確認の対象外なので、
         // 停止記録も「OS実体確認」の証拠も作らない（実行中のまま・停止未確認のまま残す）。
         if chat.backend != BackendKind::Codex {
             continue;

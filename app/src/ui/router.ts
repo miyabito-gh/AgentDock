@@ -127,6 +127,7 @@ export function noticeView(n: RuleNoticeView): { text: string; canUndo: boolean;
 export function pickableChats(chats: Chat[], localOf: (c: Chat) => ChatLocalView | undefined, router: ChatKey | null, title: (c: Chat) => string, folder: (c: Chat) => string | null, query: string): Chat[] {
   const q = query.trim().toLocaleLowerCase();
   return chats.filter((c) => {
+    if (c.key.backend !== "codex") return false;
     const l = localOf(c);
     if (router && c.key.id === router.id) return false;
     if (l?.visibility.kind === "archived" || l?.visibility.kind === "removedFromList" || l?.supersededBy) return false;
@@ -156,7 +157,7 @@ export function routeRejectLine(r: string): { text: string; auto: boolean } {
 }
 
 // ───────────────────────────── Codex が起動していないとき ─────────────────────────────
-// ホストの「接続しているか」の判定は Codex が基準。Codex が起動していない（または接続が切れている）と、Antigravity 宛を含め、
+// ホストの「接続しているか」の判定は Codex が基準。Codex が起動していない（または接続が切れている）と、
 // 順番待ちの送信・受付係への送信は進まない。無言の停滞にしないため、止まっている理由を画面に出す（判定そのものは変えない）。
 
 /** 接続の状態の最小形（SourceInfo の一部）。 */
@@ -176,7 +177,7 @@ export function codexStoppedKind(sources: readonly SourceLike[]): "notStarted" |
 /** 受付係の画面の上に出す、カードと順番待ちが進まない理由（Codex が止まっているときだけ）。 */
 export function routerStoppedNotice(sources: readonly SourceLike[]): string | null {
   return codexStoppedKind(sources)
-    ? "Codex が起動していない（または接続が切れている）ため、振り分けカードの［送る］や順番待ちの送信は進みません。Antigravity 宛も、接続の確認は Codex を基準にしています。Codex に接続すると動きます。"
+    ? "Codex が起動していない（または接続が切れている）ため、振り分けカードの［送る］や順番待ちの送信は進みません。Codex に接続すると動きます。"
     : null;
 }
 

@@ -128,6 +128,7 @@ impl ParityOps for CodexBackend {
     /// 履歴は取り寄せない（`excludeTurns`）。応答の新しい会話のIDだけを返し、内容の反映は呼び出し側が読取りで行う。
     /// 応答はあったが新しい会話を特定できないときは、受理不明として返す（再送しない）。
     async fn fork_chat(&self, chat: ChatKey, params: ForkParams, _confirmed: &UserConfirmed) -> BackendResult<ForkOutcome> {
+        super::require_active(chat.backend)?;
         match self.call("thread/fork", fork_params_json(&chat.id.0, &params), WRITE_TIMEOUT).await {
             Ok(r) => Ok(match forked_thread_id(&r) {
                 Some(id) => {
@@ -147,10 +148,12 @@ impl ParityOps for CodexBackend {
     // ── レビュー・圧縮（P3-2） ──
     /// 常に現在の会話で実行する（`delivery: inline`）。`detached` は非推奨なので使わない（別チャットは呼び出し側が thread/start してから呼ぶ）。
     async fn start_review(&self, chat: ChatKey, target: ReviewTarget, _confirmed: &UserConfirmed) -> BackendResult<OpAck> {
+        super::require_active(chat.backend)?;
         ack_of(self.call("review/start", review_params_json(&chat.id.0, &target), WRITE_TIMEOUT).await)
     }
     /// 応答は空（受付のみ）。圧縮の完了は、圧縮の記録（item）を観測したときだけ表示する。
     async fn compact(&self, chat: ChatKey, _confirmed: &UserConfirmed) -> BackendResult<OpAck> {
+        super::require_active(chat.backend)?;
         ack_of(self.call("thread/compact/start", json!({"threadId": chat.id.0}), WRITE_TIMEOUT).await)
     }
 
@@ -158,6 +161,7 @@ impl ParityOps for CodexBackend {
     /// 読取り。表示のためにresumeしない（ロードされていないスレッドは Codex が拒否することがあり、その場合は呼び出し側が「未取得」にする）。
     /// 目標が設定されていないことは `Known::Missing`（取得したが値がない）で表す。
     async fn get_goal(&self, chat: ChatKey) -> BackendResult<Known<Goal>> {
+        super::require_active(chat.backend)?;
         let r = self.call("thread/goal/get", json!({"threadId": chat.id.0}), READ_TIMEOUT).await?;
         match r.get("goal") {
             None | Some(Value::Null) => Ok(Known::Missing),
@@ -165,10 +169,12 @@ impl ParityOps for CodexBackend {
         }
     }
     async fn set_goal(&self, chat: ChatKey, update: GoalUpdate, _confirmed: &UserConfirmed) -> BackendResult<OpAck> {
+        super::require_active(chat.backend)?;
         let params = goal_set_params(&chat.id.0, &update)?;
         ack_of(self.call("thread/goal/set", params, WRITE_TIMEOUT).await)
     }
     async fn clear_goal(&self, chat: ChatKey, _confirmed: &UserConfirmed) -> BackendResult<OpAck> {
+        super::require_active(chat.backend)?;
         // 0.162.1: origin を示さない変更は利用者の操作として扱われない。操作は利用者の確認済みなので "user" を付ける。
         ack_of(self.call("thread/goal/clear", json!({"threadId": chat.id.0, "origin": "user"}), WRITE_TIMEOUT).await)
     }
@@ -187,6 +193,7 @@ impl ParityOps for CodexBackend {
     }
     /// この接続で、start・resume・forkの応答が示した指示ファイル。読むためにresumeしないので、まだ示されていなければ未取得。
     async fn instruction_sources(&self, chat: ChatKey) -> BackendResult<Known<Vec<String>>> {
+        super::require_active(chat.backend)?;
         Ok(match self.instruction_sources_seen(&chat) {
             Some(list) => Known::direct(list),
             None => Known::NotFetched,
@@ -387,6 +394,7 @@ impl ParityOps for CodexBackend {
         Ok(MemoryStatus { summary: memory_summary(&r) })
     }
     async fn set_memory_mode(&self, chat: ChatKey, mode: String, _confirmed: &UserConfirmed) -> BackendResult<OpAck> {
+        super::require_active(chat.backend)?;
         if !matches!(mode.as_str(), "enabled" | "disabled") {
             return Err(BackendError::Rejected { code: None, message: format!("未知のmemoriesの設定値です: {mode}") });
         }

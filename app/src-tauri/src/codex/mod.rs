@@ -24,3 +24,12 @@ pub mod wire;
 pub use process::{check_version, CodexProcess, LaunchError, TARGET_VERSION};
 pub use rpc::{RpcClient, RpcEvent};
 pub use adapter::CodexBackend;
+
+fn require_active(backend: crate::backend::model::BackendKind) -> crate::backend::backend::BackendResult<()> {
+    use crate::backend::{backend::BackendError, model::{BackendKind, RETIRED_CHAT_MESSAGE}};
+    if backend == BackendKind::Codex {
+        Ok(())
+    } else {
+        Err(BackendError::Rejected { code: None, message: RETIRED_CHAT_MESSAGE.into() })
+    }
+}

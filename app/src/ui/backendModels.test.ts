@@ -1,16 +1,7 @@
 // 実行: node --test src/ui/backendModels.test.ts （tscの対象外）
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { aiFullName, aiName, aiTip, chatKeyOfId, modelsForBackend } from "./backendModels.ts";
-
-const m = (id: string, isDefault = false): any => ({ id, isDefault });
-
-test("modelsForBackend: antigravity は Gemini 側、それ以外は Codex 側", () => {
-  const codex = [m("gpt")], agy = [m("gemini")];
-  assert.equal(modelsForBackend("codex", codex, agy), codex);
-  assert.equal(modelsForBackend("antigravity", codex, agy), agy);
-  assert.deepEqual(modelsForBackend("antigravity", codex, []), []);
-});
+import { aiFullName, aiName, aiTip, chatKeyOfId } from "./backendModels.ts";
 
 test("chatKeyOfId: 一覧のキー（antigravity を含む）を返し、無ければ codex に戻す", () => {
   const chats = [{ key: { backend: "codex", id: "c1" } }, { key: { backend: "antigravity", id: "g1" } }] as any;
@@ -19,13 +10,13 @@ test("chatKeyOfId: 一覧のキー（antigravity を含む）を返し、無け�
   assert.deepEqual(chatKeyOfId(chats, "zz"), { backend: "codex", id: "zz" });
 });
 
-test("aiName: 会話に出す担当AIの名前。Antigravity は Gemini、それ以外は Codex", () => {
-  assert.equal(aiName("antigravity"), "Gemini");
+test("aiName: 会話に出す担当AIの名前。旧チャットと Codex", () => {
+  assert.equal(aiName("antigravity"), "旧チャット");
   assert.equal(aiName("codex"), "Codex");
 });
 test("表示名の一元化: 短い名前（印・発話者）と正式名（選択肢・案内）と印のツールチップ", () => {
-  assert.equal(aiFullName("antigravity"), "Antigravity（Gemini）");
+  assert.equal(aiFullName("antigravity"), "旧チャット");
   assert.equal(aiFullName("codex"), "Codex");
-  assert.equal(aiTip("antigravity"), "Antigravity（Gemini）の会話");
+  assert.equal(aiTip("antigravity"), "旧チャットの会話");
   assert.equal(aiTip("codex"), "Codexの会話");
 });

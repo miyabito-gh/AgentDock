@@ -13,7 +13,7 @@ test("停止未確認の文に内部語を使わない", () => {
   assert.ok(STOP_LABEL.interruptRequested.includes("まだ確認できていません"));
 });
 
-test("接続が切れている保留は、Codex が起動していないためだと言い、Antigravity 宛も止まることを示す（ホストの受付カードの文と同じ）", () => {
+test("接続が切れている保留は、Codex が起動していないためだと示す（ホストの受付カードの文と同じ）", () => {
   const t = holdText({ kind: "disconnected" }, (a) => a.id);
-  assert.equal(t, "Codex が起動していない（または接続が切れている）ため保留しています。Antigravity 宛の依頼も、Codex が接続されるまで進みません");
+  assert.equal(t, "Codex が起動していない（または接続が切れている）ため保留しています");
 });

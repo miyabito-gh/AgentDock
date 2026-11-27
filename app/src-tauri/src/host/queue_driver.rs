@@ -239,15 +239,6 @@ struct GateContext {
     folder_busy: bool,
 }
 
-/// Antigravity 宛の本文が、agy のコマンドライン長の上限を超えるなら、登録・送信の前に止める。Codex 宛は何も検査しない。
-/// 送信側（`AntigravityBackend::send`）も起動の前に同じ検査をする。ここは、登録して後から送信失敗にするより前に理由を返すための早期の検査。
-pub(super) fn check_agy_text_length(chat: &ChatKey, text: &str) -> Result<(), IpcError> {
-    if chat.backend != BackendKind::Antigravity {
-        return Ok(());
-    }
-    crate::antigravity::cmd::precheck_text(text).map_err(|e| err(IpcErrorCode::InvalidArgs, e.message()))
-}
-
 /// 親の状態を取り直したあとも、キューが親を判断できない状態（不明・終了。ゲートが親を `StateUnknown` にする状態）のままなら、その理由。
 /// 取り直しても変わらないのに黙って成功にしない（画面の「キューを再開しました」にしない）。
 fn still_unusable_after_refresh(state: Option<AgentState>) -> Option<String> {
@@ -444,6 +435,7 @@ impl Host {
 
     /// 1チャット分: 待っているturnの終端確認 → 判断 → 送信・停止・保留表示。
     async fn drive_chat(self: &Arc<Self>, chat: &ChatKey) {
+        if require_active_chat(chat).is_err() { return; }
         // 手動送信（再開を含む）の最中は評価しない（同時に `turn/start` を送らない）。次の周期で見る。
         let send_lock = self.queue_rt.send_lock(chat);
         let Ok(_send_guard) = send_lock.try_lock() else { return };
@@ -680,6 +672,7 @@ impl Host {
     /// 受信できている作業中の子孫・照合中の子孫・失敗・中断・親の条件・停止未確認・受理不明は緩めない。
     /// 送信は通常の経路（Sending保存→送信、受理不明の扱い）を通る。指定は1回の評価だけで、次の項目は通常の判定に戻る。
     pub async fn send_queue_entry_now(self: &Arc<Self>, args: QueueEntryArgs, _confirmed: &UserConfirmed) -> Result<ChatQueue, IpcError> {
+        require_active_chat(&args.chat)?;
         self.check_not_org_owned(&args.chat)?;
         let chat = args.chat.clone();
         // 手動送信・自動送信と同時に `turn/start` を送らない。
@@ -1223,6 +1216,7 @@ impl Host {
     }
 
     pub(super) fn enqueue_with_id(self: &Arc<Self>, args: EnqueueArgs, id: LocalId) -> Result<QueueEntry, IpcError> {
+        require_active_chat(&args.chat)?;
         self.check_not_org_owned(&args.chat)?;
         if args.text.trim().is_empty() && args.attachments.is_empty() {
             return Err(err(IpcErrorCode::InvalidArgs, "依頼が空です"));
@@ -1231,7 +1225,6 @@ impl Host {
             return Err(err(IpcErrorCode::NotFound, "チャットが見つかりません"));
         }
         // 送れない長さの本文を順番待ちへ入れない（入れても、先頭で必ず送信失敗になり、後続も止まる）。
-        check_agy_text_length(&args.chat, &args.text)?;
         self.precheck_space()?;
         // 登録の時点で使えない添付（コピー中・失敗・欠損）は受け付けない（送信時にも確認する）。
         self.verify_attachments(&args.chat, &args.attachments)?;
@@ -1250,11 +1243,11 @@ impl Host {
     }
 
     pub fn edit_queue_entry(self: &Arc<Self>, args: EditQueueEntryArgs) -> Result<QueueEntry, IpcError> {
+        require_active_chat(&args.chat)?;
         self.check_not_org_owned(&args.chat)?;
         if args.text.trim().is_empty() && args.attachments.is_empty() {
             return Err(err(IpcErrorCode::InvalidArgs, "依頼が空です"));
         }
-        check_agy_text_length(&args.chat, &args.text)?;
         self.precheck_space()?;
         self.verify_attachments(&args.chat, &args.attachments)?;
         let used = args.attachments.clone();
@@ -1319,6 +1312,7 @@ impl Host {
     /// 「キューを再開」（ユーザー操作）。親がliveでなければ、ここで再開（resume）する。親がliveでも状態が不明・終了のために保留しているときは、
     /// 状態を取り直す（`refresh_live_root`）。「確認済み」とは別の操作。
     pub async fn resume_queue(self: &Arc<Self>, args: ChatArgs, confirmed: &UserConfirmed) -> Result<ChatQueue, IpcError> {
+        require_active_chat(&args.chat)?;
         self.check_not_org_owned(&args.chat)?;
         let send_lock = self.queue_rt.send_lock(&args.chat);
         let _send_guard = send_lock.lock().await;
@@ -2021,5 +2015,13 @@ mod manual_tests {
         assert!(op_turn_pending(since, Some(UnixMillis(900)), UnixMillis(1_100)), "an end before the accept is not this op's");
         assert!(!op_turn_pending(since, Some(UnixMillis(1_050)), UnixMillis(1_100)), "ended after the accept");
         assert!(!op_turn_pending(since, None, UnixMillis(1_000 + MANUAL_PENDING_MS)), "never observed: not held forever");
+    }
+}
+
+fn require_active_chat(chat: &ChatKey) -> Result<(), IpcError> {
+    if chat.backend == BackendKind::Codex {
+        Ok(())
+    } else {
+        Err(err(IpcErrorCode::InvalidArgs, RETIRED_CHAT_MESSAGE))
     }
 }

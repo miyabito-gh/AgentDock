@@ -305,7 +305,7 @@ export function OrgPane(p: OrgPaneProps) {
   const canResume = !!wf.halt?.resumable;
   const lim = wf.limits;
   const use = wf.usage;
-  const chatExists = (k: ChatKey | null) => !!k && snap.chats.some((c) => c.key.id === k.id);
+  const chatExists = (k: ChatKey | null) => k?.backend === "codex" && snap.chats.some((c) => c.key.backend === k.backend && c.key.id === k.id);
   const intakeId = intakeChatIdFor(snap.chatLocals, wf.workflowId);
   const intakeKey = intakeId ? snap.chats.find((c) => c.key.id === intakeId)?.key ?? null : null;
 

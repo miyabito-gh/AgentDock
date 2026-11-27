@@ -19,7 +19,6 @@ use crate::backend::model::*;
 use crate::backend::router::*;
 use crate::host::state::agent_key_of;
 use crate::host::{blocked, err, now_ms, Host, SendExtras};
-use crate::host::queue_driver::check_agy_text_length;
 use crate::rules::org_intake::facts_of;
 use crate::rules::router::*;
 use crate::store::atomic::write_atomic;
@@ -259,6 +258,9 @@ pub(super) fn auto_send_decision(user_text: &str, allow_auto: bool, is_head: boo
     let (DispatchTarget::Existing { chat: target }, Some(p)) = (&d.target, &d.proposal) else {
         return AutoSend::Skip("送り先が既存のチャットではない（新規チャットの案）ため");
     };
+    if target.backend != BackendKind::Codex {
+        return AutoSend::Skip("送り先が旧チャットのため");
+    }
     if requested != target.id.0.as_str() {
         return AutoSend::Skip("指定したチャットIDと、分類が選んだ送り先が一致しないため");
     }
@@ -379,6 +381,7 @@ impl Host {
 
     /// 送り先チャットの、検査時点の状態。
     pub(super) fn route_state(&self, chat: &ChatKey) -> ChatRouteState {
+        if chat.backend != BackendKind::Codex { return ChatRouteState::Retired; }
         let org = self.check_not_org_owned(chat).is_err();
         self.read(|d| {
             if d.chat(chat).is_none() {
@@ -549,7 +552,12 @@ impl Host {
                 };
                 (running, problem)
             }
-            DispatchTarget::New { .. } => (false, None),
+            DispatchTarget::New { chat } => {
+                let retired = chat.as_ref().map(|key| key.backend)
+                    .or_else(|| d.proposal.as_ref().and_then(|p| p.new_chat.as_ref()).map(|p| p.provider))
+                    .is_some_and(|backend| backend != BackendKind::Codex);
+                (false, retired.then(|| RETIRED_CHAT_MESSAGE.into()))
+            }
         };
         let (queue_turn, queue_status) = self.dispatch_queue_status(d);
         // 結果の状態は値で返す（画面は文言から判定しない）。保存した結果を優先し、状態を持たない旧記録だけ文言から読み替える。
@@ -937,9 +945,19 @@ impl Host {
                     drop(guard);
                     out
                 };
-                let dispatches = std::mem::take(&mut interpreted.dispatches);
+                let mut dispatches = std::mem::take(&mut interpreted.dispatches);
                 // 自動送信は利用者が本文の先頭で指定した既存先と分類が一致した場合だけ。指定したのに送られないときは、理由を返答へ出す。
-                match auto_send_decision(&user_text, allow_auto, self.router_head().as_ref() == Some(chat), &dispatches, interpreted.route_rejects.is_empty(), reply.rule_changes.is_empty()) {
+                let retired = automatic_target_id(&user_text).is_some_and(|id| {
+                    // agy- は旧チャット専用の ID 接頭辞。共通ストアに旧行がない場合も止める。
+                    id.starts_with("agy-") || self.persist.store().is_some_and(|store| store.is_retired_id(id))
+                });
+                let decision = if retired {
+                    dispatches.clear();
+                    AutoSend::Skip("指定した ID は旧チャットに対応するため。送り先を選び直してください")
+                } else {
+                    auto_send_decision(&user_text, allow_auto, self.router_head().as_ref() == Some(chat), &dispatches, interpreted.route_rejects.is_empty(), reply.rule_changes.is_empty())
+                };
+                match decision {
                     AutoSend::Send { id, target, text } => auto = Some((id, target, text)),
                     AutoSend::Skip(reason) => {
                         let hint = if dispatches.is_empty() { "" } else { "。送る場合はカードの［送る］を押してください" };
@@ -1066,8 +1084,6 @@ impl Host {
             ChatRouteState::OrgOwned => return Err(blocked(BlockedReason::OrgOwned, RouteReject::Unavailable(ChatRouteState::OrgOwned).message())),
             s => return Err(err(IpcErrorCode::InvalidArgs, RouteReject::Unavailable(s).message())),
         }
-        // Antigravity 宛で本文が agy のコマンドライン長の上限を超えるなら、順番待ちへ入れる前・送る前に止める（Codex 宛は検査しない）。
-        check_agy_text_length(&target, &args.text)?;
         // 実行中の送り先へ intent 指定なしで送るときだけ順番待ち（完了後に送る）に入れる。別件の依頼を実行中の turn へ差し込まない。
         // 実行中でなければ、利用者の送信として直接送る（`send_message_with` が `ensure_live` で再開してから新しい turn にする）。
         // 「実行中でない」送り先をキューへ入れると、今回の起動で未再開（live でない）の送り先は駆動側が再開しないため永久に保留される。
@@ -1215,6 +1231,11 @@ impl Host {
         };
         if !matches!(d.suggested, DispatchTarget::New { .. }) && !matches!(d.target, DispatchTarget::New { .. }) {
             return Err(err(IpcErrorCode::InvalidArgs, "新規チャットの案ではありません"));
+        }
+        if args.chat.backend != BackendKind::Codex
+            || d.proposal.as_ref().and_then(|p| p.new_chat.as_ref()).is_some_and(|p| p.provider != BackendKind::Codex)
+        {
+            return Err(err(IpcErrorCode::InvalidArgs, RETIRED_CHAT_MESSAGE));
         }
         let linked = matches!(&d.target, DispatchTarget::New { chat: Some(c) } if c == &args.chat);
         match &d.state {
@@ -1595,25 +1616,10 @@ mod tests {
     #[cfg(windows)]
     #[tokio::test]
     async fn a_manual_send_to_a_history_only_idle_target_resumes_and_sends_directly() {
-        let dir = unique_dir("manual-direct");
-        let (host, r, _a) = host_with_router("manual-direct-host");
+        let (host, r, target) = host_with_router("manual-direct");
         let confirmed = UserConfirmed::from_user_command();
-        // 偽の agy（受け取った引数を記録し、固定の出力を返す）。実機の agy は使わない。
-        let out = [
-            r#"{"event":"init","conversation_id":"9db82f11-0000","init":{"model":"gemini-test-1","cwd":"C:\\work","permission_mode":"request-review"}}"#,
-            r#"{"event":"result","result":{"conversation_id":"9db82f11-0000","status":"SUCCESS","response":"PONG\n","usage":{"total_tokens":1}}}"#,
-        ];
-        std::fs::write(dir.join("out.ndjson"), out.join("\r\n") + "\r\n").unwrap();
-        let script = dir.join("fake-agy.cmd");
-        std::fs::write(&script, "@echo off\r\necho %* > \"%~dp0args.txt\"\r\ntype \"%~dp0out.ndjson\"\r\nexit /b 0\r\n").unwrap();
-        host.backend.attach_antigravity_for_test(&script.to_string_lossy(), &host.app_data_dir.to_string_lossy());
-        let work = dir.join("work");
-        std::fs::create_dir_all(&work).unwrap();
-        let started = host
-            .start_chat(StartChatArgs { backend: BackendKind::Antigravity, cwd: Some(work.to_string_lossy().into_owned()), model: Some(ModelChoice { model: "gemini-test-1".into(), effort: None, speed_tier: None }), permission: None, first_message: None, worktree: None, extra_folders: vec![], confirmed_strong: vec![] }, &confirmed)
-            .await
-            .unwrap();
-        let target = started.chat.key.clone();
+        mock_codex_dispatch(&host, &target);
+        make_live(&host, &target, AgentState::Idle);
         // 今回の起動で未再開（再起動後の既存チャットと同じ HistoryOnly）にする。
         host.mutate(|d| ((), d.set_agent_freshness(&AgentKey { backend: target.backend, id: target.id.clone() }, Freshness::HistoryOnly, UnixMillis(1))));
         assert_eq!(host.read(|d| d.root_view(&target).map(|v| (v.freshness, v.status.state))), Some((Freshness::HistoryOnly, AgentState::Idle)));
@@ -1624,7 +1630,6 @@ mod tests {
         assert_eq!(queue_len(&host, &target), 0, "キューには入れない");
         assert_eq!(host.read(|d| d.root_view(&target).map(|v| v.freshness)), Some(Freshness::Live), "ensure_live で再開済みになる");
         assert!(host.router_record(&r).unwrap().dispatch_turns.contains_key("d1"), "結果の追跡用に担当 turn を記録する");
-        let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_dir_all(&host.app_data_dir);
     }
 
@@ -1636,17 +1641,9 @@ mod tests {
     #[tokio::test]
     async fn resume_queue_refreshes_a_live_parent_whose_state_is_unknown_and_still_refuses_other_holds() {
         use crate::backend::local::{ChatArgs, HoldTarget, QueueHold};
-        let dir = unique_dir("refresh-live");
-        let (host, _r, _a) = host_with_router("refresh-live-host");
+        let (host, _r, target) = host_with_router("refresh-live");
         let confirmed = UserConfirmed::from_user_command();
-        host.backend.attach_antigravity_for_test("fake-agy-is-never-run.cmd", &host.app_data_dir.to_string_lossy());
-        let work = dir.join("work");
-        std::fs::create_dir_all(&work).unwrap();
-        let started = host
-            .start_chat(StartChatArgs { backend: BackendKind::Antigravity, cwd: Some(work.to_string_lossy().into_owned()), model: Some(ModelChoice { model: "gemini-test-1".into(), effort: None, speed_tier: None }), permission: None, first_message: None, worktree: None, extra_folders: vec![], confirmed_strong: vec![] }, &confirmed)
-            .await
-            .unwrap();
-        let target = started.chat.key.clone();
+        mock_codex_dispatch(&host, &target);
         let root = AgentKey { backend: target.backend, id: target.id.clone() };
         // live のまま、状態が不明（切断・再起動をまたいだ古い状態ではなく、いまの接続で状態が取れていない）。
         make_live(&host, &target, AgentState::Unknown);
@@ -1676,7 +1673,6 @@ mod tests {
         hold_on(QueueHold::StateUnknown { targets: vec![unknown_root(&root)], descendant_scan_incomplete: false });
         host.resume_queue(ChatArgs { chat: target.clone() }, &confirmed).await.expect("取り直せる");
         assert_eq!(host.read(|d| d.root_view(&target).map(|v| (v.freshness, v.status.state))), Some((Freshness::Live, AgentState::Idle)), "状態が取り直されている");
-        let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_dir_all(&host.app_data_dir);
     }
 
@@ -1695,69 +1691,43 @@ mod tests {
         let _ = std::fs::remove_dir_all(&host.app_data_dir);
     }
 
-    fn agy_key(id: &str) -> ChatKey {
-        ChatKey { backend: BackendKind::Antigravity, id: ExternalId(id.into()) }
+    fn mock_codex_dispatch(host: &Arc<Host>, target: &ChatKey) {
+        make_connected(host);
+        let id = target.id.0.clone();
+        *host.backend.test_rpc.lock().unwrap() = Some(Box::new(move |method, params| {
+            use serde_json::json;
+            match method {
+                "thread/resume" | "thread/read" => {
+                    assert_eq!(params["threadId"], id);
+                    Ok(json!({"thread":{"id":id,"status":{"type":"idle"}}}))
+                }
+                "turn/start" => {
+                    assert_eq!(params["threadId"], id);
+                    Ok(json!({"turn":{"id":"turn-test"}}))
+                }
+                _ => panic!("予期しない RPC: {method}"),
+            }
+        }));
     }
 
-    /// Antigravity 宛で本文が agy のコマンドライン長の上限を超えるなら、順番待ちへ入れる前にも、直接送る前にも、分かる理由で止める。
-    /// カードは提案のまま。Codex 宛には影響しない（同じ長さでも順番待ちに入る）。
     #[tokio::test]
-    async fn a_dispatch_over_the_agy_command_line_limit_is_refused_before_queueing_and_does_not_touch_codex_targets() {
-        let (host, r, a) = host_with_router("agy-too-long");
+    async fn retired_target_is_refused_even_when_a_codex_target_has_the_same_id() {
+        let (host, router, codex) = host_with_router("retired-target");
         let confirmed = UserConfirmed::from_user_command();
+        let retired = ChatKey { backend: BackendKind::Antigravity, id: codex.id.clone() };
         make_connected(&host);
-        let agy = agy_key("agy-1");
-        host.mutate(|d| ((), d.upsert_chat(chat_of(&agy, ChatKind::Development, r"C:workagy", "Antigravity担当"))));
-        make_live(&host, &agy, AgentState::Running);
-        make_live(&host, &a, AgentState::Running);
-        let long = "あ".repeat(crate::antigravity::cmd::WINDOWS_COMMAND_LINE_MAX_UNITS);
-        let args = |id: &str| RouterDispatchArgs { dispatch_id: LocalId(id.into()), target_override: None, text: long.clone(), intent: None };
-        host.update_router(&r, |rec| {
-            rec.push_dispatch(dispatch("d-agy", DispatchTarget::Existing { chat: agy.clone() }, DispatchState::Proposed));
-            rec.push_dispatch(dispatch("d-codex", DispatchTarget::Existing { chat: a.clone() }, DispatchState::Proposed));
-        });
-        // 実行中の Antigravity 宛（順番待ちになる経路）。
-        let e = host.router_dispatch(args("d-agy"), &confirmed).await.unwrap_err();
-        assert_eq!(e.code, IpcErrorCode::InvalidArgs);
-        assert!(e.message.contains("本文が長すぎるため送っていません") && !e.message.contains("os error"), "{}", e.message);
-        assert_eq!(queue_len(&host, &agy), 0, "送れない本文は順番待ちへ入れない");
-        let state_of = |id: &str| host.router_record(&r).unwrap().dispatches.iter().find(|d| d.id.0 == id).unwrap().state.clone();
-        assert_eq!(state_of("d-agy"), DispatchState::Proposed);
-        assert!(host.router_rt.dispatching.lock().unwrap().is_empty(), "送信中の印は外れる");
-        // 実行中でない Antigravity 宛（直接送る経路）も、再開や起動の前に止める。
-        make_live(&host, &agy, AgentState::Idle);
-        let e = host.router_dispatch(args("d-agy"), &confirmed).await.unwrap_err();
-        assert!(e.message.contains("本文が長すぎるため送っていません"), "{}", e.message);
-        assert_eq!(state_of("d-agy"), DispatchState::Proposed);
-        // 収まる本文は止めない（Codex 宛の経路と同じく順番待ちに入る）。
-        make_live(&host, &agy, AgentState::Running);
-        let ok = RouterDispatchArgs { dispatch_id: LocalId("d-agy".into()), target_override: None, text: "短い依頼".into(), intent: None };
-        assert!(matches!(host.router_dispatch(ok, &confirmed).await.unwrap().state, DispatchState::Queued { .. }));
-        // Codex 宛は同じ長さでも検査しない。
-        let v = host.router_dispatch(args("d-codex"), &confirmed).await.unwrap();
-        assert!(matches!(v.state, DispatchState::Queued { .. }), "{:?}", v.state);
-        assert_eq!(queue_len(&host, &a), 1);
-        let _ = std::fs::remove_dir_all(&host.app_data_dir);
-    }
+        make_live(&host, &codex, AgentState::Running);
+        host.update_router(&router, |rec| rec.push_dispatch(dispatch("d1", DispatchTarget::Existing { chat: retired.clone() }, DispatchState::Proposed)));
+        assert_eq!(host.dispatch_view_of(&LocalId("d1".into())).unwrap().target_problem.as_deref(), Some(RETIRED_CHAT_MESSAGE));
+        assert_eq!(host.router_dispatch(go("d1"), &confirmed).await.unwrap_err().message, RETIRED_CHAT_MESSAGE);
+        assert_eq!(queue_len(&host, &codex), 0);
+        assert_eq!(host.dispatch_view_of(&LocalId("d1".into())).unwrap().state, DispatchState::Proposed);
 
-    /// 通常のチャットの「完了後に送る依頼」（enqueue・編集）も、Antigravity 宛で長すぎる本文は登録しない。Codex 宛は登録できる。
-    #[tokio::test]
-    async fn the_queue_refuses_an_agy_text_over_the_limit_and_accepts_it_for_codex() {
-        let (host, _r, a) = host_with_router("agy-queue-too-long");
-        let agy = agy_key("agy-1");
-        host.mutate(|d| ((), d.upsert_chat(chat_of(&agy, ChatKind::Development, r"C:workagy", "Antigravity担当"))));
-        let long = "あ".repeat(crate::antigravity::cmd::WINDOWS_COMMAND_LINE_MAX_UNITS);
-        let e = host.enqueue(EnqueueArgs { chat: agy.clone(), text: long.clone(), attachments: Vec::new() }).unwrap_err();
-        assert_eq!(e.code, IpcErrorCode::InvalidArgs);
-        assert!(e.message.contains("本文が長すぎるため送っていません"), "{}", e.message);
-        assert_eq!(queue_len(&host, &agy), 0);
-        let entry = host.enqueue(EnqueueArgs { chat: agy.clone(), text: "短い依頼".into(), attachments: Vec::new() }).unwrap();
-        // 登録済みの項目を、長すぎる本文へ編集することも止める（項目は元の本文のまま）。
-        let e = host.edit_queue_entry(crate::backend::local::EditQueueEntryArgs { chat: agy.clone(), entry: entry.id.clone(), text: long.clone(), attachments: Vec::new() }).unwrap_err();
-        assert!(e.message.contains("本文が長すぎるため送っていません"), "{}", e.message);
-        host.read(|d| assert_eq!(d.queues.get(&agy).unwrap().queue.entries[0].text, "短い依頼"));
-        // Codex 宛は検査しない。
-        assert!(host.enqueue(EnqueueArgs { chat: a.clone(), text: long, attachments: Vec::new() }).is_ok());
+        let long = "あ".repeat(33_000);
+        let entry = host.enqueue(EnqueueArgs { chat: codex.clone(), text: long.clone(), attachments: vec![] }).unwrap();
+        assert_eq!(entry.text, long);
+        assert_eq!(host.enqueue(EnqueueArgs { chat: retired.clone(), text: "旧宛先".into(), attachments: vec![] }).unwrap_err().message, RETIRED_CHAT_MESSAGE);
+        assert_eq!(queue_len(&host, &retired), 0);
         let _ = std::fs::remove_dir_all(&host.app_data_dir);
     }
 
@@ -1771,7 +1741,7 @@ mod tests {
         host.update_router(&r, |rec| rec.push_dispatch(dispatch("d1", DispatchTarget::Existing { chat: a.clone() }, DispatchState::Proposed)));
         let e = host.router_dispatch(go("d1"), &confirmed).await.unwrap_err();
         assert_eq!(e.message, CODEX_NOT_RUNNING_ENQUEUE);
-        assert!(e.message.starts_with("Codex が起動していない") && e.message.contains("Antigravity 宛も"), "{}", e.message);
+        assert!(e.message.starts_with("Codex が起動していない"), "{}", e.message);
         assert_eq!(queue_len(&host, &a), 0);
         assert_eq!(host.router_record(&r).unwrap().dispatches[0].state, DispatchState::Proposed);
         let _ = std::fs::remove_dir_all(&host.app_data_dir);
@@ -2070,7 +2040,7 @@ mod tests {
         set_hold(Some(crate::backend::local::QueueHold::StateUnknown { targets: vec![], descendant_scan_incomplete: false }));
         let (st, text) = status_of(&host);
         assert_eq!((st, text.as_deref()), (Some(ExecutionStatus::QueueHeld), Some("親の状態を確認できないため、送らずに待っています")));
-        // Codex が起動していない（接続が切れている）。Antigravity 宛の順番待ちも止まるので、その理由をカードに出す（無言の停滞にしない）。
+        // Codex が起動していない（接続が切れている）。順番待ちが止まるので、その理由をカードに出す（無言の停滞にしない）。
         set_hold(Some(crate::backend::local::QueueHold::Disconnected));
         let (st, text) = status_of(&host);
         assert_eq!((st, text.as_deref()), (Some(ExecutionStatus::QueueHeld), Some(CODEX_NOT_RUNNING_HOLD)));

@@ -52,8 +52,7 @@ use crate::backend::backend::*;
 use crate::backend::ipc::*;
 use crate::backend::local::{ChatArgs, DeleteOutcome};
 use crate::backend::model::*;
-use crate::codex::TARGET_VERSION;
-use crate::mux::MuxBackend;
+use crate::codex::{CodexBackend, TARGET_VERSION};
 use persist::Persist;
 use state::{agent_key_of, Followup, HostData};
 
@@ -180,7 +179,7 @@ pub(super) struct SendExtras {
 // ───────────────────────────── Host ─────────────────────────────
 
 pub struct Host {
-    backend: Arc<MuxBackend>,
+    backend: Arc<CodexBackend>,
     data: Mutex<HostData>,
     emitter: OnceLock<Emitter>,
     executable: Mutex<String>,
@@ -256,7 +255,7 @@ impl Drop for FirstSendRelease {
 impl Host {
     pub fn new(app_data_dir: PathBuf) -> Self {
         Host {
-            backend: Arc::new(MuxBackend::new()),
+            backend: Arc::new(CodexBackend::new()),
             data: Mutex::new(HostData::default()),
             emitter: OnceLock::new(),
             executable: Mutex::new(DEFAULT_CODEX_EXE.to_string()),
@@ -608,6 +607,9 @@ impl Host {
     // ── 接続 ──
 
     pub async fn connect(self: &Arc<Self>, args: ConnectBackendArgs) -> Result<SourceInfo, IpcError> {
+        if args.backend != BackendKind::Codex {
+            return Err(err(IpcErrorCode::InvalidArgs, RETIRED_CHAT_MESSAGE));
+        }
         let exe = {
             let mut cur = self.executable.lock().unwrap();
             if let Some(e) = args.executable.filter(|e| !e.trim().is_empty()) {
@@ -702,6 +704,7 @@ impl Host {
     }
 
     async fn start_chat_core(self: &Arc<Self>, args: StartChatArgs, reuse_workspace: Option<String>, _confirmed: &UserConfirmed, overrides: Option<ThreadOverrides>) -> Result<StartChatResult, IpcError> {
+        if args.backend != BackendKind::Codex { return Err(err(IpcErrorCode::InvalidArgs, RETIRED_CHAT_MESSAGE)); }
         let mut area: Option<LocalId> = None;
         self.check_worktree_binding(&args.worktree, args.cwd.as_deref().map(str::trim))?;
         let (kind, cwd) = match args.cwd.as_deref().map(str::trim).filter(|c| !c.is_empty()) {

@@ -20,7 +20,6 @@ import { isHiddenPredecessor } from "./continuity";
 import { IntakeBulkDeleteDialog } from "./IntakeBulkDelete";
 import { intakeDeleteTargets, stateCounts, type IntakeDeleteRow } from "./intakeDelete";
 import type { OrgWorkflowView } from "../ipc/types";
-import { aiName, aiTip } from "./backendModels";
 import { UNKNOWN_KEY, collapseAll, flattenGroups, groupChats, shortNames, worktreeOf, type FlatItem, type FolderGroup } from "./folderGroups";
 
 /** 行の「…」メニューで選べる操作（App.tsx の onChatAct が対象チャットIDつきで受ける）。 */
@@ -432,7 +431,6 @@ export function LeftPane({ router, org, snap, sel, onSelect, onAct, onAcknowledg
           onKeyDown={(e) => { if ((e.shiftKey && e.key === "F10") || e.key === "ContextMenu") { e.preventDefault(); e.stopPropagation(); openFromRow(e.currentTarget); } }}>
           <span className={`st st-mark ${statusCls || "none"}`} role="img" aria-label={`状態: ${statusText}`} title={statusText}><i aria-hidden="true" /></span>
           <span className="nm" style={titleOf(c).confirmed ? undefined : TENTATIVE_STYLE} title={titleOf(c).confirmed ? kindTitle : TENTATIVE_HINT}>{titleOf(c).text}</span>
-          {c.key.backend === "antigravity" ? <span className="tag" title={aiTip(c.key.backend)}>{aiName(c.key.backend)}</span> : null}
           {c.origin === "external" ? <span className="tag" title="Codex 側で作られた会話（AgentDock が起動したものではない）">外部</span> : null}
           {c.noHistory ? <span className="tag" title="Codex に記録がありません">履歴なし</span> : null}
           {multi.has(c.key.id) ? <span className="tag" title={`他に一致: ${multi.get(c.key.id)!.join("、")}

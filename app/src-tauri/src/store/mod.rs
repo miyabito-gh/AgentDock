@@ -127,6 +127,7 @@ pub struct Store {
     root: PathBuf,
     /// ChatKey→dirId（起動時の走査と新規作成で埋める。索引ファイルは持たない）。
     index: Mutex<HashMap<ChatKey, LocalId>>,
+    retired_ids: Mutex<HashSet<String>>,
     protected: Mutex<HashMap<PathBuf, Protection>>,
     counter: AtomicU64,
 }
@@ -135,7 +136,7 @@ impl Store {
     /// `root` は `app.path().app_local_data_dir()`（`%LOCALAPPDATA%\com.agentdock.app`）。
     pub fn open(root: PathBuf) -> Result<Self, StoreError> {
         std::fs::create_dir_all(root.join(layout::CHATS_DIR))?;
-        Ok(Store { root, index: Mutex::new(HashMap::new()), protected: Mutex::new(HashMap::new()), counter: AtomicU64::new(1) })
+        Ok(Store { root, index: Mutex::new(HashMap::new()), retired_ids: Mutex::new(HashSet::new()), protected: Mutex::new(HashMap::new()), counter: AtomicU64::new(1) })
     }
 
     pub fn root(&self) -> &Path {
@@ -182,6 +183,10 @@ impl Store {
         self.check_space(bytes.len() as u64)?;
         atomic::write_atomic(path, &bytes)?;
         Ok(UnixMillis(now_ms()))
+    }
+
+    pub(crate) fn is_retired_id(&self, id: &str) -> bool {
+        self.retired_ids.lock().unwrap().contains(id)
     }
 
     /// 全ファイルを読み込む。`Copying` のまま残った添付は `CopyFailed{Interrupted}` にし、部分ファイル（`.partial`）を消す。
@@ -235,6 +240,11 @@ impl Store {
                     continue;
                 }
             };
+            // 退役したチャットには再起動時の修復やキューの照合を適用しない。
+            if let Some(key) = local.chat.as_ref().filter(|key| key.backend != crate::backend::model::BackendKind::Codex) {
+                self.retired_ids.lock().unwrap().insert(key.id.0.clone());
+                continue;
+            }
             let mut changed = false;
             // ディレクトリ名を正とする（保存内容と食い違ってもパスが領域の外へ向かないように）。
             let dir_name = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
@@ -929,6 +939,38 @@ mod tests {
         // 復元後、同じチャットは同じ領域に結び付く。
         assert_eq!(store2.ensure_dir_id(&key("t1")), dir_id);
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn mixed_data_reopens_without_repairing_retired_chat_files() {
+        use crate::backend::model::BackendKind;
+        let root = temp_root("retired");
+        let store = Store::open(root.clone()).unwrap();
+        let codex = key("shared-id");
+        let retired = ChatKey { backend: BackendKind::Antigravity, id: codex.id.clone() };
+        let mut old = ChatLocalFile::new(LocalId("old".into()), Some(retired.clone()));
+        old.draft.text = "旧チャットの下書き".into();
+        let live = ChatLocalFile::new(LocalId("codex".into()), Some(codex));
+        store.save_chat_local(&live).unwrap();
+        store.save_chat_local(&old).unwrap();
+        let old_dir = root.join(layout::CHATS_DIR).join("old");
+        let queue_path = old_dir.join(layout::QUEUE_FILE);
+        let body_path = old_dir.join(layout::CHAT_FILE);
+        let body_before = std::fs::read(&body_path).unwrap();
+        // 読めないキューも、旧チャットの領域では退避・修復の対象外。
+        std::fs::write(&queue_path, b"preserve").unwrap();
+        for _ in 0..2 {
+            let store = Store::open(root.clone()).unwrap();
+            let restored = store.load_all();
+            assert!(restored.problems.is_empty());
+            assert_eq!(restored.chats.len(), 1);
+            assert_eq!(restored.chats[0].local, live);
+            assert!(store.is_retired_id(&retired.id.0));
+            store.save_settings(&AppSettingsFile::new(AppSettings::default())).unwrap();
+            assert_eq!(std::fs::read(&body_path).unwrap(), body_before);
+            assert_eq!(std::fs::read(&queue_path).unwrap(), b"preserve");
+        }
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

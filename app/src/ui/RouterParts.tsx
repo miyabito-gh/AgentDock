@@ -9,7 +9,7 @@ import { chatName, sortChats } from "./derive";
 import { knownValue } from "./format";
 import { baseText, canToggleOriginal, chipNeedsAttention, dispatchChip, dispatchesOfTurn, foldedLine, noticeView, pickableChats, proposedProvider, routeRejectLine, targetLabel } from "./router";
 import { Icon } from "./Icon";
-import { aiName, aiTip, aiFullName } from "./backendModels";
+import { aiFullName } from "./backendModels";
 
 const errText = (e: unknown) => host.asIpcError(e).message;
 
@@ -62,7 +62,6 @@ export function ChatPicker({ chats, locals, routerKey, onPick, onCancel }: { cha
           <li key={c.key.id}>
             <button type="button" onClick={() => onPick(c)} title={folderOf(c) ?? "一般チャット"}>
               <span className="nm">{chatName(c)}</span>
-              {c.key.backend === "antigravity" ? <span className="tag" title={aiTip(c.key.backend)}>{aiName(c.key.backend)}</span> : null}
               <span className="small muted fl">{folderOf(c) ?? "一般"}</span>
             </button>
           </li>
@@ -82,7 +81,9 @@ function DispatchCard({ d, original, ctx }: { d: DispatchView; original: string 
   const [picking, setPicking] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const folded = foldedLine(d);
+  const retired = (d.target.chat?.backend ?? d.proposal?.newChat?.provider ?? "codex") !== "codex";
+  const shown = retired ? { ...d, targetTitle: "旧チャット" } : d;
+  const folded = foldedLine(shown);
   if (folded) {
     const key = d.target.chat;
     // 状態は色だけでなく、形＋文字の印（.st）でも示す。失敗・受理不明・要確認は枠も警告色（緑の「送りました」に埋もれさせない）
@@ -91,7 +92,8 @@ function DispatchCard({ d, original, ctx }: { d: DispatchView; original: string 
     return (
       <div className={`rcard folded ${kind}`}>
         <div className="grow"><div className="rline">{chip ? <span className={`st ${chip.tone}`}><Icon name={chip.icon} />{chip.label}</span> : null}<span>{folded.text}</span></div>{d.executionResult && <div style={{ whiteSpace: "pre-wrap" }}>{d.executionResult}</div>}<small>受付 {d.requestId ?? d.sourceTurn} ／ 振り分け {d.id}{d.executionTurn && ` ／ 担当 ${d.executionTurn}`}</small></div>
-        {folded.canOpen && key ? <button type="button" className="btn sm" onClick={() => ctx.openChat(key)}>開く</button> : null}
+        {retired && d.targetProblem ? <div className="small rwarn">{d.targetProblem}</div> : null}
+        {folded.canOpen && key && !retired ? <button type="button" className="btn sm" onClick={() => ctx.openChat(key)}>開く</button> : null}
       </div>
     );
   }
@@ -115,7 +117,7 @@ function DispatchCard({ d, original, ctx }: { d: DispatchView; original: string 
   };
   return (
     <div className="rcard">
-      <div className="rcard-h"><span className="tag ai">{isNew ? "新規" : "送り先"}</span><b className="grow nm">{targetLabel(d)}</b>{provider ? <span className="tag" title="このチャットを担当するAI">AI: {aiFullName(provider)}</span> : null}</div>
+      <div className="rcard-h"><span className="tag ai">{isNew ? "新規" : "送り先"}</span><b className="grow nm">{retired ? "旧チャット" : targetLabel(d)}</b>{provider && !retired ? <span className="tag" title="このチャットを担当するAI">AI: {aiFullName(provider)}</span> : null}</div>
       <small className="muted">受付 {d.requestId ?? d.sourceTurn} ／ 振り分け {d.id}{d.target.chat && ` ／ 送り先ID ${d.target.chat.id}`}</small>
       {p?.reason ? <div className="small muted">{p.reason}</div> : null}
       {p?.confidence === "low" ? <div className="small rwarn">この案はあまり自信がありません。送り先をよく確認してください。</div> : null}
@@ -133,7 +135,7 @@ function DispatchCard({ d, original, ctx }: { d: DispatchView; original: string 
       {err ? <div className="small why err" role="alert">{err}</div> : null}
       <div className="rcard-acts">
         {isNew
-          ? <button type="button" className="btn primary sm" disabled={busy || empty} title="新しいチャットの作成画面を、この案の値を入れて開きます（作成と送信はそこで押したときだけ）" onClick={() => ctx.startNew(d, text)}>始める</button>
+          ? <button type="button" className="btn primary sm" disabled={busy || empty || !!d.targetProblem} title="新しいチャットの作成画面を、この案の値を入れて開きます（作成と送信はそこで押したときだけ）" onClick={() => ctx.startNew(d, text)}>始める</button>
           : <button type="button" className="btn primary sm" disabled={busy || empty || !!d.targetProblem} onClick={() => void send(d.target.kind === "new" ? d.target.chat : null)}>送る</button>}
         <button type="button" className="btn sm" disabled={busy} aria-expanded={picking} onClick={() => setPicking((v) => !v)}>別の会話へ</button>
         <button type="button" className="btn sm" disabled={busy} onClick={() => void dismiss()}>見送る</button>
